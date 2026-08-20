@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { createAuthState, type FetchFn } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';

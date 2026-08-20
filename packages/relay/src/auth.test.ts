@@ -8,7 +8,6 @@ import {
   readCredential,
   registerInstallation,
   TOKEN_ROTATION_GRACE_POLLS,
-  type AuthState,
   type FetchFn,
   type SecretsClient,
 } from './auth.js';

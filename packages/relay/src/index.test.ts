@@ -35,6 +35,7 @@ function makeFetchFn(
   commandsBody: unknown = { commands: [] },
 ): FetchFn {
   return async (url, init) => {
+    void init;
     if (url.includes('/api/relay/register')) {
       return {
         status: registerStatus,

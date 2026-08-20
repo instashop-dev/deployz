@@ -27,6 +27,7 @@
     "esbuild": "^0.25.0"
   },
   "devDependencies": {
+    "@deployz/db": "workspace:*",
     "@types/aws-lambda": "^8.10.0"
   }
 }

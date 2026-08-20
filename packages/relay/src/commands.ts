@@ -105,7 +105,6 @@ export async function dispatchCommand(
 ): Promise<RelayCommandResult> {
   // Idempotency check — return cached result for re-delivered keys.
   if (idempotency.has(command.idempotencyKey)) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- has() guarantees presence
     return idempotency.get(command.idempotencyKey)!;
   }
 

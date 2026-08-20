@@ -606,7 +606,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "6848e92397aa931e9d984a88e13ac9f1f88a124a0e9f9544f546a455d79e5660.zip",
+          "S3Key": "89f04d583cdbb36b3b257e3c51272fca30cd02dc6c2172cc8bca7c6782a9cfff.zip",
         },
         "Environment": {
           "Variables": {
