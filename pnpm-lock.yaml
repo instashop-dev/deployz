@@ -145,6 +145,9 @@ importers:
       esbuild:
         specifier: ^0.25.0
         version: 0.25.12
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deployz/db':
         specifier: workspace:*
