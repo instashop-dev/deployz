@@ -17,6 +17,7 @@
     "dotenv": "^16.4.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.0.0",
+    "stripe": "^22.5.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

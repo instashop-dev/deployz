@@ -6,6 +6,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { RuntimeDb } from '@deployz/db';
 
 import type { Auth } from './auth.js';
+import { createStripe, handleWebhookEvent, constructWebhookEvent } from './billing.js';
 import { env } from './env.js';
 import { ApiError, toErrorEnvelope } from './errors.js';
 import { createRequireAuth } from './require-auth.js';
@@ -41,6 +42,37 @@ export async function buildServer({ auth, db }: ServerDeps): Promise<FastifyInst
   await app.register(cors, { origin: [env.webUrl], credentials: true });
 
   app.get('/health', () => ({ ok: true }));
+
+  // Stripe webhook: signature verification needs the RAW body, so register a
+  // raw-json parser for this route's content type before the JSON parser
+  // consumes it. constructEvent(rawBody, signature, secret) is the whole
+  // verification story; a bad signature -> 400 structured envelope.
+  const stripe = createStripe();
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string', bodyLimit: 1048576 },
+    (request, body, done) => {
+      if (request.raw.url?.startsWith('/api/billing/webhook')) {
+        done(null, body);
+        return;
+      }
+      try {
+        done(null, JSON.parse(body as string));
+      } catch (error) {
+        done(error as Error);
+      }
+    },
+  );
+  app.post('/api/billing/webhook', async (request, reply) => {
+    const signature = request.headers['stripe-signature'];
+    const event = constructWebhookEvent(
+      stripe,
+      request.body as string,
+      Array.isArray(signature) ? signature[0] : signature,
+    );
+    const handled = await handleWebhookEvent({ db, stripe }, event);
+    return reply.code(200).send({ received: true, handled });
+  });
 
   const requireAuth = createRequireAuth({ auth, db });
 
