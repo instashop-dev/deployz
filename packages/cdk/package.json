@@ -16,6 +16,7 @@
     "lint": "eslint src",
     "dev": "tsc -p tsconfig.json --watch",
     "synth:bootstrap": "node scripts/synth-bootstrap.mjs",
+    "synth:app": "node scripts/synth-app.mjs",
     "cdk": "cdk"
   },
   "dependencies": {
