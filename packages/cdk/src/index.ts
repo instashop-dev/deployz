@@ -94,3 +94,26 @@ export type {
   VerifyTargets,
   WaitOptions,
 } from './integration/index.js';
+export {
+  BuildPipeline,
+  ECR_PULL_ACTIONS,
+  installationGrantSid,
+  buildPullStatement,
+  buildRepoPolicyDocument,
+  grantPull,
+  revokePull,
+  fetchRepoArchive,
+  needsStreaming,
+  STREAMING_THRESHOLD_BYTES,
+} from './pipeline/index.js';
+export type {
+  BuildPipelineProps,
+  EcrClient,
+  EcrPolicy,
+  EcrGrantStatement,
+  GrantResult,
+  RevokeResult,
+  FetchFn,
+  FetchRepoArchiveResult,
+  FetchRepoArchiveOptions,
+} from './pipeline/index.js';
