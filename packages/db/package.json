@@ -14,6 +14,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint src",
-    "dev": "tsc -p tsconfig.json --watch"
+    "dev": "tsc -p tsconfig.json --watch",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.5",
+    "drizzle-kit": "^0.31.10"
   }
 }
