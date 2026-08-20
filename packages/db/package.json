@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
     }
   },
   "scripts": {
@@ -18,10 +22,12 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.2"
+    "@electric-sql/pglite": "^0.5.5",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.13.0"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.5",
+    "@types/pg": "^8.11.0",
     "drizzle-kit": "^0.31.10"
   }
 }

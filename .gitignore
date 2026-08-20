@@ -10,3 +10,7 @@ dist/
 coverage/
 .next/
 cdk.out/
+.pgdata/
+packages/db/.pgdata/
+test-results/
+playwright-report/
