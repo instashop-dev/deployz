@@ -1,6 +1,7 @@
 'use client';
 
 import { GitBranch } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -171,8 +172,10 @@ function RepoList({
                       <p className="truncate text-xs text-muted-foreground">{repo.description}</p>
                     ) : null}
                   </div>
-                  <Button variant="outline" size="sm" disabled>
-                    Choose
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/dashboard/applications/${encodeURIComponent(repo.id)}`}>
+                      Choose
+                    </Link>
                   </Button>
                 </div>
               ))}
