@@ -105,6 +105,9 @@ function DetailBody({ detail, events }: { detail: FleetDeploymentDetail; events:
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{detail.name}</h1>
           <DeploymentStatusBadge state={detail.state} />
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>Diagnostics</Link>
+          </Button>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{detail.customer}</p>
       </div>

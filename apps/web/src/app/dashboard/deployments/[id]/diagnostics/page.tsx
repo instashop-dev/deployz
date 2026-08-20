@@ -1,0 +1,139 @@
+'use client';
+
+import { ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+
+import { DiagnosticCard } from '@/components/diagnostic-card';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { fetchDiagnostics, type Diagnostic } from '@/lib/diagnostics';
+import { fetchDeployment, type FleetDeploymentDetail } from '@/lib/deployments';
+
+type DiagnosticsState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'loaded'; detail: FleetDeploymentDetail; diagnostics: Diagnostic[] };
+
+// Diagnostics — the plain-English read of a deployment's failures. Each issue
+// renders as a what/why/fix card (§65 top level) with the raw §61 code +
+// structured event behind the expandable technical detail. Code-driven only:
+// no diagnostic bundles, no log export (S3). Healthy deployments get the
+// "no issues" empty state.
+export default function DiagnosticsPage() {
+  const params = useParams();
+  const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
+  const [state, setState] = useState<DiagnosticsState>({ status: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load(): Promise<void> {
+      try {
+        const [detail, diagnostics] = await Promise.all([
+          fetchDeployment(id),
+          fetchDiagnostics(id),
+        ]);
+        if (cancelled) return;
+        setState({ status: 'loaded', detail, diagnostics });
+      } catch {
+        if (!cancelled) {
+          setState({
+            status: 'error',
+            message: "We couldn't load the diagnostics. Try again in a moment.",
+          });
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  return (
+    <div className="flex flex-col gap-8">
+      <div className="flex items-center gap-2">
+        <Button asChild variant="ghost" size="sm" className="-ml-2">
+          <Link href={`/dashboard/deployments/${id}`}>
+            <ArrowLeft aria-hidden className="size-4" />
+            Deployment
+          </Link>
+        </Button>
+      </div>
+
+      {state.status === 'loading' ? <DiagnosticsSkeleton /> : null}
+      {state.status === 'error' ? (
+        <section
+          aria-labelledby="diagnostics-error"
+          className="rounded-xl border border-dashed px-6 py-16 text-center"
+        >
+          <h2 id="diagnostics-error" className="text-lg font-semibold">
+            Something went wrong
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
+        </section>
+      ) : null}
+      {state.status === 'loaded' ? (
+        <DiagnosticsBody detail={state.detail} diagnostics={state.diagnostics} />
+      ) : null}
+    </div>
+  );
+}
+
+function DiagnosticsBody({
+  detail,
+  diagnostics,
+}: {
+  detail: FleetDeploymentDetail;
+  diagnostics: Diagnostic[];
+}) {
+  return (
+    <>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Diagnostics</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{detail.name}</p>
+      </div>
+
+      {diagnostics.length === 0 ? (
+        <section
+          aria-labelledby="diagnostics-empty"
+          className="rounded-xl border border-dashed px-6 py-16 text-center"
+        >
+          <h2 id="diagnostics-empty" className="text-lg font-semibold">
+            No issues found
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This deployment is healthy, so there is nothing to diagnose.
+          </p>
+        </section>
+      ) : (
+        <section aria-labelledby="issues" className="flex flex-col gap-3">
+          <h2 id="issues" className="text-base font-semibold">
+            Issues
+          </h2>
+          <ul className="flex flex-col gap-3">
+            {diagnostics.map((diagnostic, index) => (
+              <li key={`${diagnostic.occurredAt}-${diagnostic.failureCode}-${index}`}>
+                <DiagnosticCard diagnostic={diagnostic} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
+
+function DiagnosticsSkeleton() {
+  return (
+    <div className="flex flex-col gap-6" data-testid="diagnostics-loading">
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-4 w-56" />
+      </div>
+      <Skeleton className="h-48 w-full rounded-xl" />
+      <Skeleton className="h-48 w-full rounded-xl" />
+    </div>
+  );
+}
