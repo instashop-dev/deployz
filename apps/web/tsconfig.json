@@ -18,7 +18,12 @@
       }
     ],
     "allowJs": true,
-    "incremental": true
+    "incremental": true,
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
   },
   "include": [
     "next-env.d.ts",
