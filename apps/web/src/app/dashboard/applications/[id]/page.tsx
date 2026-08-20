@@ -92,9 +92,14 @@ function ReadinessBody({ data }: { data: ApplicationReadiness }) {
 
   return (
     <>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{data.application.name}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{data.application.repoFullName}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{data.application.name}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{data.application.repoFullName}</p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/dashboard/applications/${data.application.id}/config`}>Configuration</Link>
+        </Button>
       </div>
 
       <section aria-labelledby="onboarding" className="flex flex-col gap-3">

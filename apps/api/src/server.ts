@@ -7,6 +7,13 @@ import type { RuntimeDb } from '@deployz/db';
 
 import type { Auth } from './auth.js';
 import { createStripe, handleWebhookEvent, constructWebhookEvent } from './billing.js';
+import {
+  createConfigStore,
+  createRelaySecretWriter,
+  getConfig,
+  setConfig,
+  setConfigBodySchema,
+} from './config.js';
 import { env } from './env.js';
 import { ApiError, toErrorEnvelope } from './errors.js';
 import {
@@ -136,6 +143,29 @@ export async function buildServer({
     user: request.user ?? null,
     organization: request.organization ?? null,
   }));
+
+  // §31 application configuration surface (auth-gated). Vendor defaults are
+  // customer_id NULL rows; customer overrides are scoped by ?customerId.
+  // Secrets are write-only: GET masks them (value: null, never plaintext) and
+  // PUT writes them through the relay to the customer's Secrets Manager
+  // before persisting the masked placeholder in the control plane.
+  const configStore = createConfigStore(db);
+  const configSecretWriter = createRelaySecretWriter();
+
+  app.get('/api/applications/:id/config', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const { customerId } = request.query as { customerId?: string | undefined };
+    return getConfig(id, customerId ?? null, configStore);
+  });
+
+  app.put('/api/applications/:id/config', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = setConfigBodySchema.parse(request.body);
+    return setConfig(id, body.customerId ?? null, body.entries, {
+      store: configStore,
+      secretWriter: configSecretWriter,
+    });
+  });
 
   // GitHub repo-selection surface (auth-gated). Fixture mode serves the
   // fixture org/repos so the dashboard renders test data without a real App;
