@@ -1,3 +1,7 @@
+// Sentry init MUST run before the fastify module loads (auto-instrumentation
+// hooks module evaluation) — keep this import first.
+import './sentry.js';
+
 import { createRuntimeDb } from '@deployz/db';
 
 import { createAuth } from './auth.js';

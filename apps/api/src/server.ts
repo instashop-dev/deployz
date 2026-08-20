@@ -1,23 +1,40 @@
 import cors from '@fastify/cors';
+import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { eq } from 'drizzle-orm';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { RuntimeDb } from '@deployz/db';
-import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
 import { env } from './env.js';
+import { ApiError, toErrorEnvelope } from './errors.js';
+import { createRequireAuth } from './require-auth.js';
 
 export interface ServerDeps {
   auth: Auth;
   db: RuntimeDb;
 }
 
-// Control-plane surface for this todo ONLY: /health, /api/me, /api/auth/*.
-// (Todo 4 builds the rest of the API on top of this server.)
+// Control-plane surface: /health, /api/me, /api/auth/*.
+// Errors cross the boundary as structured envelopes via toErrorEnvelope;
+// Sentry capture lives in its onError hook (never in the render path).
 export async function buildServer({ auth, db }: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
+
+  // Sentry owns capture via the onError hook this registers. Capture filter:
+  // ApiError 4xx are expected client errors — not reportable; everything else
+  // (5xx ApiError, unknown throws) is. Do NOT captureException in the custom
+  // error handler below — that would double-report.
+  setupFastifyErrorHandler(app, {
+    shouldHandleError: (error) => !(error instanceof ApiError) || error.statusCode >= 500,
+  });
+
+  // Single render path for every thrown error: structured envelope, no stack
+  // traces, no internal messages.
+  app.setErrorHandler((error, _request, reply) => {
+    const { statusCode, body } = toErrorEnvelope(error);
+    return reply.code(statusCode).send(body);
+  });
 
   // Browser origin differs by port; cookies are host-scoped, so credentialed
   // CORS + trustedOrigins is the whole cookie story.
@@ -25,21 +42,12 @@ export async function buildServer({ auth, db }: ServerDeps): Promise<FastifyInst
 
   app.get('/health', () => ({ ok: true }));
 
-  app.get('/api/me', async (request, reply) => {
-    const result = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
-    if (!result) {
-      return reply.code(401).send({ error: 'unauthorized' });
-    }
-    const { activeOrganizationId } = result.session;
-    const organizations = activeOrganizationId
-      ? await db
-          .select()
-          .from(schema.organization)
-          .where(eq(schema.organization.id, activeOrganizationId))
-          .limit(1)
-      : [];
-    return reply.send({ user: result.user, organization: organizations[0] ?? null });
-  });
+  const requireAuth = createRequireAuth({ auth, db });
+
+  app.get('/api/me', { preHandler: requireAuth }, async (request) => ({
+    user: request.user ?? null,
+    organization: request.organization ?? null,
+  }));
 
   // Better Auth over Fastify: construct a Fetch Request, call auth.handler,
   // forward status/headers/body. Official recipe from the docs.
