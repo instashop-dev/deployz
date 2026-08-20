@@ -17,6 +17,9 @@ export default defineConfig({
       url: `http://localhost:${apiPort}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
+      // Fixture mode: the GitHub routes serve the fixture org/repos so the
+      // repo-selection E2E renders without a real GitHub App.
+      env: { ...process.env, GITHUB_FIXTURE_MODE: 'true' },
     },
     {
       command: 'pnpm --filter @deployz/web dev',

@@ -9,17 +9,38 @@ import type { Auth } from './auth.js';
 import { createStripe, handleWebhookEvent, constructWebhookEvent } from './billing.js';
 import { env } from './env.js';
 import { ApiError, toErrorEnvelope } from './errors.js';
+import {
+  createGithubStore,
+  handleInstallationWebhook,
+  listInstallations,
+  listRepositories,
+  mintInstallationToken,
+  verifyWebhookSignature,
+  type FetchFn,
+  type GithubWebhookEvent,
+  type ResolveOrganization,
+} from './github.js';
 import { createRequireAuth } from './require-auth.js';
 
 export interface ServerDeps {
   auth: Auth;
   db: RuntimeDb;
+  // Injectable GitHub seams for tests (the real values come from env). The
+  // webhook secret is required to verify signatures; fixtureMode flips the
+  // repo/installations routes to the fixture store.
+  githubWebhookSecret?: string | undefined;
+  githubFixtureMode?: boolean | undefined;
 }
 
 // Control-plane surface: /health, /api/me, /api/auth/*.
 // Errors cross the boundary as structured envelopes via toErrorEnvelope;
 // Sentry capture lives in its onError hook (never in the render path).
-export async function buildServer({ auth, db }: ServerDeps): Promise<FastifyInstance> {
+export async function buildServer({
+  auth,
+  db,
+  githubWebhookSecret,
+  githubFixtureMode,
+}: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
   // Sentry owns capture via the onError hook this registers. Capture filter:
@@ -43,16 +64,18 @@ export async function buildServer({ auth, db }: ServerDeps): Promise<FastifyInst
 
   app.get('/health', () => ({ ok: true }));
 
-  // Stripe webhook: signature verification needs the RAW body, so register a
-  // raw-json parser for this route's content type before the JSON parser
-  // consumes it. constructEvent(rawBody, signature, secret) is the whole
-  // verification story; a bad signature -> 400 structured envelope.
+  // Webhook signature verification (Stripe + GitHub) needs the RAW body, so
+  // register a raw-json parser for those routes before the JSON parser
+  // consumes it. A bad signature -> 400 structured envelope.
   const stripe = createStripe();
   app.addContentTypeParser(
     'application/json',
     { parseAs: 'string', bodyLimit: 1048576 },
     (request, body, done) => {
-      if (request.raw.url?.startsWith('/api/billing/webhook')) {
+      const rawWebhook =
+        request.raw.url?.startsWith('/api/billing/webhook') ||
+        request.raw.url?.startsWith('/api/github/webhook');
+      if (rawWebhook) {
         done(null, body);
         return;
       }
@@ -74,12 +97,86 @@ export async function buildServer({ auth, db }: ServerDeps): Promise<FastifyInst
     return reply.code(200).send({ received: true, handled });
   });
 
+  // GitHub App webhook: signature-verified via X-Hub-Signature-256 over the
+  // raw body. The installation store is in-memory (no installations table
+  // yet); the account->org resolver is BLOCKED (real install flow needs the
+  // App) so it degrades to a no-op — the route still verifies + parses.
+  const githubStore = createGithubStore();
+  const githubFetch: FetchFn = globalThis.fetch.bind(globalThis);
+  const resolveGithubOrganization: ResolveOrganization = async () => null;
+
+  app.post('/api/github/webhook', async (request, reply) => {
+    const webhookSecret = githubWebhookSecret ?? env.githubWebhookSecret;
+    if (!webhookSecret) {
+      throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
+    }
+    const signature = request.headers['x-hub-signature-256'];
+    const rawBody = request.body as string;
+    if (!verifyWebhookSignature(rawBody, Array.isArray(signature) ? signature[0] : signature, webhookSecret)) {
+      throw new ApiError(400, 'WEBHOOK_SIGNATURE_INVALID', 'Webhook signature verification failed');
+    }
+    const body = JSON.parse(rawBody) as {
+      action?: string | undefined;
+      installation?: { id: number; account?: { login: string; type?: string } | undefined } | undefined;
+      sender?: { login: string } | undefined;
+    };
+    const event: GithubWebhookEvent = {
+      type: String(request.headers['x-github-event'] ?? ''),
+      action: body.action,
+      installation: body.installation,
+      sender: body.sender,
+    };
+    const handled = await handleInstallationWebhook(githubStore, event, resolveGithubOrganization);
+    return reply.code(200).send({ received: true, handled });
+  });
+
   const requireAuth = createRequireAuth({ auth, db });
 
   app.get('/api/me', { preHandler: requireAuth }, async (request) => ({
     user: request.user ?? null,
     organization: request.organization ?? null,
   }));
+
+  // GitHub repo-selection surface (auth-gated). Fixture mode serves the
+  // fixture org/repos so the dashboard renders test data without a real App;
+  // otherwise the installation store (populated by the webhook) is the source
+  // of truth, and repo listing needs a minted installation token.
+  app.get('/api/github/installations', { preHandler: requireAuth }, async (request) => {
+    const organizationId = request.organization?.id;
+    if (!organizationId) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
+    }
+    const fixtureMode = githubFixtureMode ?? env.githubFixtureMode;
+    const installations = await listInstallations(githubStore, organizationId, { fixtureMode });
+    return {
+      installations,
+      connectUrl: env.githubAppInstallUrl ?? null,
+    };
+  });
+
+  app.get('/api/github/repos', { preHandler: requireAuth }, async (request) => {
+    const { installationId } = request.query as { installationId?: string | undefined };
+    if (!installationId) {
+      throw new ApiError(400, 'INSTALLATION_ID_REQUIRED', 'installationId query parameter is required');
+    }
+    const fixtureMode = githubFixtureMode ?? env.githubFixtureMode;
+    if (fixtureMode) {
+      const repositories = await listRepositories(installationId, { fixtureMode: true });
+      return { repositories };
+    }
+    const appId = env.githubAppId;
+    const privateKey = env.githubAppPrivateKey;
+    if (!appId || !privateKey) {
+      throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
+    }
+    const { token } = await mintInstallationToken(installationId, appId, privateKey, Date.now(), githubFetch);
+    const repositories = await listRepositories(installationId, {
+      fixtureMode: false,
+      installationToken: token,
+      fetchFn: githubFetch,
+    });
+    return { repositories };
+  });
 
   // Better Auth over Fastify: construct a Fetch Request, call auth.handler,
   // forward status/headers/body. Official recipe from the docs.

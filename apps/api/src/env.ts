@@ -20,6 +20,11 @@ if (!process.env.STRIPE_SECRET_KEY) {
     '[billing] STRIPE_SECRET_KEY not set — Stripe billing is disabled (checkout/webhook/usage reporting no-op). Set it in .env.',
   );
 }
+if (!process.env.GITHUB_APP_ID || !process.env.GITHUB_APP_PRIVATE_KEY) {
+  console.warn(
+    '[github] GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY not set — the GitHub App is not configured (installation-token vending + repo listing no-op). Set them in .env.',
+  );
+}
 
 export const env = {
   apiPort: Number(process.env.API_PORT ?? 3001),
@@ -33,4 +38,10 @@ export const env = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
   stripePriceBase: process.env.STRIPE_PRICE_BASE,
   stripePriceMetered: process.env.STRIPE_PRICE_METERED,
+  githubAppId: process.env.GITHUB_APP_ID,
+  githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+  githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
+  githubAppInstallUrl: process.env.GITHUB_APP_INSTALL_URL,
+  githubFixtureMode:
+    process.env.GITHUB_FIXTURE_MODE === 'true' || process.env.GITHUB_FIXTURE_MODE === '1',
 } as const;
