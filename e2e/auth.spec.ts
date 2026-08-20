@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test';
 // U7 end-to-end: browser signup on the Next.js UI sets a session cookie (from
 // the Fastify API); the Next.js SERVER then honors that cookie when it calls
 // the API — proving cross-surface session sharing without any client tricks.
+// The proof renders in the dashboard shell: the server-side layout resolves
+// the session via fetchMe() and shows the user identity + tenant name.
 test('signup via the web UI lands authenticated and the API honors the session server-side', async ({
   page,
 }) => {
@@ -14,9 +16,12 @@ test('signup via the web UI lands authenticated and the API honors the session s
   await page.getByLabel('Password').fill('super-secret-1');
   await page.getByRole('button', { name: 'Create account' }).click();
 
-  await page.waitForURL('/');
-  await expect(page.getByTestId('me-json')).toContainText(email);
-  await expect(page.getByTestId('me-json')).toContainText('organization');
+  await page.waitForURL('/dashboard');
+  await expect(page.getByTestId('user-menu-trigger')).toContainText('E2E User');
+  await page.getByTestId('user-menu-trigger').click();
+  await expect(page.getByTestId('user-menu-email')).toHaveText(email);
+  // Tenant provisioning proof: the org name derives from the email local part.
+  await expect(page.getByTestId('org-name')).toHaveText(email.split('@')[0] ?? '');
 });
 
 // The login half of U7: an account created straight against the API signs in
@@ -35,6 +40,7 @@ test('signin via the web form honors an existing account', async ({ page, reques
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
-  await page.waitForURL('/');
-  await expect(page.getByTestId('me-json')).toContainText(email);
+  await page.waitForURL('/dashboard');
+  await page.getByTestId('user-menu-trigger').click();
+  await expect(page.getByTestId('user-menu-email')).toHaveText(email);
 });
