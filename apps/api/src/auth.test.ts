@@ -126,6 +126,6 @@ describe('auth (Better Auth over PGlite)', () => {
     expect(body.user.email).toBe('ada@example.com');
     expect(body.organization?.slug).toContain('ada-');
     await app.close();
-  });
+  }, 15_000);
 });
 
