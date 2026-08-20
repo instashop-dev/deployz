@@ -18,3 +18,29 @@ export type {
   WorkflowState,
   WorkflowStep,
 } from './durable/durable-runtime.js';
+export {
+  buildQuickCreateUrl,
+  buildBootstrapQuickCreateUrl,
+  BootstrapPublisher,
+  QuickCreateOrchestrator,
+  phaseOf,
+  synthesizeBootstrapStack,
+  repackTemplate,
+  assertTemplateLimits,
+  requireWithinLimits,
+  CFN_TEMPLATE_MAX_BYTES,
+  CFN_TEMPLATE_MAX_PARAMS,
+} from './quick-create/index.js';
+export type {
+  QuickCreateUrlOptions,
+  BootstrapQuickCreateUrlOptions,
+  S3Client,
+  TemplateAsset,
+  SynthOutput,
+  PublishBootstrapOptions,
+  PublishResult,
+  InstallState,
+  InstallPhase,
+  InstallEvent,
+  TransitionResult,
+} from './quick-create/index.js';

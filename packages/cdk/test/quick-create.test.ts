@@ -1,0 +1,519 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync, rmSync, mkdtempSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+
+import {
+  buildQuickCreateUrl,
+  buildBootstrapQuickCreateUrl,
+  DEFAULT_BOOTSTRAP_STACK_NAME,
+  CONTROL_PLANE_URL_PARAMETER,
+} from '../src/quick-create/install-link.js';
+import {
+  CFN_TEMPLATE_MAX_BYTES,
+  CFN_TEMPLATE_MAX_PARAMS,
+  assertTemplateLimits,
+  countParameters,
+  requireWithinLimits,
+} from '../src/quick-create/limits.js';
+import { repackTemplate } from '../src/quick-create/repack.js';
+import { phaseOf, QuickCreateOrchestrator } from '../src/quick-create/orchestration.js';
+import {
+  BootstrapPublisher,
+  synthesizeBootstrapStack,
+} from '../src/quick-create/publish.js';
+
+describe('quick-create', () => {
+  describe('install-link generator', () => {
+    const templateUrl =
+      'https://my-bucket.s3.us-east-1.amazonaws.com/deployz/bootstrap/template.json';
+
+    it('builds a deterministic Quick Create URL with templateURL, stack name and params', () => {
+      const url = buildQuickCreateUrl({
+        region: 'us-east-1',
+        templateUrl,
+        parameters: { [CONTROL_PLANE_URL_PARAMETER]: 'https://api.deployz.dev' },
+      });
+
+      expect(url).toBe(
+        'https://us-east-1.console.aws.amazon.com/cloudformation/home' +
+          '?region=us-east-1' +
+          '#/stacks/create/review' +
+          '?templateURL=https%3A%2F%2Fmy-bucket.s3.us-east-1.amazonaws.com%2Fdeployz%2Fbootstrap%2Ftemplate.json' +
+          '&stackName=deployz-bootstrap' +
+          '&param_ControlPlaneUrl=https%3A%2F%2Fapi.deployz.dev',
+      );
+    });
+
+    it('defaults the stack name to deployz-bootstrap', () => {
+      const url = buildQuickCreateUrl({ region: 'us-west-2', templateUrl });
+      expect(url).toContain(`stackName=${DEFAULT_BOOTSTRAP_STACK_NAME}`);
+    });
+
+    it('uses a custom stack name when provided', () => {
+      const url = buildQuickCreateUrl({
+        region: 'us-west-2',
+        templateUrl,
+        stackName: 'acme-deployz',
+      });
+      expect(url).toContain('stackName=acme-deployz');
+    });
+
+    it('URL-encodes the template URL so it survives the console fragment query', () => {
+      const url = buildQuickCreateUrl({ region: 'eu-west-1', templateUrl });
+      expect(url).toContain('templateURL=https%3A%2F%2Fmy-bucket.s3.');
+      // No raw `://` in the query string — it is percent-encoded.
+      expect(url.split('?templateURL=')[1]?.startsWith('https%3A%2F%2F')).toBe(
+        true,
+      );
+    });
+
+    it('prefixes every template parameter with param_', () => {
+      const url = buildQuickCreateUrl({
+        region: 'us-east-1',
+        templateUrl,
+        parameters: { DbName: 'mywpblog', InstanceType: 't2.medium' },
+      });
+      expect(url).toContain('&param_DbName=mywpblog');
+      expect(url).toContain('&param_InstanceType=t2.medium');
+    });
+
+    it('buildBootstrapQuickCreateUrl carries ONLY the non-secret ControlPlaneUrl', () => {
+      const url = buildBootstrapQuickCreateUrl({
+        region: 'us-east-1',
+        templateUrl,
+        controlPlaneUrl: 'https://api.deployz.dev',
+      });
+      expect(url).toContain(
+        `param_${CONTROL_PLANE_URL_PARAMETER}=https%3A%2F%2Fapi.deployz.dev`,
+      );
+    });
+
+    it('never carries a credential or installation identifier (no secret leakage)', () => {
+      const url = buildBootstrapQuickCreateUrl({
+        region: 'us-east-1',
+        templateUrl,
+        controlPlaneUrl: 'https://api.deployz.dev',
+      });
+      // A bootstrap-generated token / minted install id must never appear.
+      const secretToken = 'super-secret-relay-token-0123456789';
+      const installationId = '11111111-2222-3333-4444-555555555555';
+      expect(url).not.toContain(secretToken);
+      expect(url).not.toContain(installationId);
+      expect(url).not.toMatch(/token|credential|password/i);
+    });
+  });
+
+  describe('template limits (CFN spec)', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const readArtifact = (name: string): Record<string, unknown> =>
+      JSON.parse(readFileSync(join(here, '..', 'artifacts', name), 'utf8')) as Record<
+        string,
+        unknown
+      >;
+
+    it('bootstrap template is within byte + parameter limits', () => {
+      const template = readArtifact('bootstrap-template-v1.json');
+      const report = assertTemplateLimits(template);
+      expect(report.bytes).toBeLessThanOrEqual(CFN_TEMPLATE_MAX_BYTES);
+      expect(report.parameterCount).toBeLessThanOrEqual(CFN_TEMPLATE_MAX_PARAMS);
+      expect(report.withinLimits).toBe(true);
+    });
+
+    it('application template is within byte + parameter limits', () => {
+      const template = readArtifact('application-template-v1.json');
+      const report = assertTemplateLimits(template);
+      expect(report.bytes).toBeLessThanOrEqual(CFN_TEMPLATE_MAX_BYTES);
+      expect(report.parameterCount).toBeLessThanOrEqual(CFN_TEMPLATE_MAX_PARAMS);
+      expect(report.withinLimits).toBe(true);
+    });
+
+    it('reports the actual byte size and parameter count', () => {
+      const bootstrap = readArtifact('bootstrap-template-v1.json');
+      const app = readArtifact('application-template-v1.json');
+      const b = assertTemplateLimits(bootstrap);
+      const a = assertTemplateLimits(app);
+      // Sanity: the committed artifacts are non-trivial but far under the limit.
+      expect(b.bytes).toBeGreaterThan(0);
+      expect(a.bytes).toBeGreaterThan(0);
+      expect(countParameters(bootstrap)).toBe(b.parameterCount);
+      expect(countParameters(app)).toBe(a.parameterCount);
+    });
+
+    it('requireWithinLimits throws when a template exceeds the byte limit', () => {
+      const oversized = {
+        Parameters: {},
+        Resources: { Padding: { Type: 'AWS::S3::Bucket', Properties: { Pad: 'x'.repeat(CFN_TEMPLATE_MAX_BYTES) } } },
+      };
+      expect(() => requireWithinLimits(oversized)).toThrow(/exceeds CloudFormation limits/);
+    });
+  });
+
+  describe('template repack', () => {
+    const cdkTemplate = {
+      Parameters: {
+        ControlPlaneUrl: { Type: 'String' },
+        BootstrapVersion: { Type: 'String' },
+      },
+      Rules: {
+        CheckBootstrapVersion: { Assertions: [{ Assert: { 'Fn::Not': [] } }] },
+      },
+      Resources: {
+        RelayFn: {
+          Type: 'AWS::Lambda::Function',
+          Properties: {
+            Code: {
+              S3Bucket: { 'Fn::Sub': 'cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}' },
+              S3Key: 'abc123def456.zip',
+            },
+          },
+        },
+      },
+    };
+
+    it('rewrites Lambda Code to the public bucket + key prefix', () => {
+      const { template, assetHashes } = repackTemplate(cdkTemplate, {
+        bucket: 'deployz-public',
+        keyPrefix: 'deployz/bootstrap/v1',
+      });
+
+      const code = (template.Resources as Record<string, { Properties: { Code: Record<string, unknown> } }>)['RelayFn']
+        .Properties.Code;
+      expect(code.S3Bucket).toBe('deployz-public');
+      expect(code.S3Key).toBe('deployz/bootstrap/v1/abc123def456.zip');
+      expect(assetHashes).toEqual(['abc123def456']);
+    });
+
+    it('strips the BootstrapVersion parameter and CheckBootstrapVersion rule', () => {
+      const { template } = repackTemplate(cdkTemplate, {
+        bucket: 'deployz-public',
+        keyPrefix: 'deployz/bootstrap/v1',
+      });
+      expect(template.Parameters).toBeDefined();
+      expect(template.Parameters).not.toHaveProperty('BootstrapVersion');
+      expect(template.Rules).toBeUndefined();
+    });
+
+    it('does not mutate the input template', () => {
+      const snapshot = JSON.stringify(cdkTemplate);
+      repackTemplate(cdkTemplate, {
+        bucket: 'deployz-public',
+        keyPrefix: 'deployz/bootstrap/v1',
+      });
+      expect(JSON.stringify(cdkTemplate)).toBe(snapshot);
+    });
+
+    it('leaves a template with no Lambdas intact except bootstrap scaffolding', () => {
+      const appLike = {
+        Parameters: {
+          paramAppApiKey: { Type: 'String', NoEcho: true },
+          BootstrapVersion: { Type: 'String' },
+        },
+        Rules: { CheckBootstrapVersion: { Assertions: [] } },
+        Resources: { Bucket: { Type: 'AWS::S3::Bucket' } },
+      };
+      const { template, assetHashes } = repackTemplate(appLike, {
+        bucket: 'deployz-public',
+        keyPrefix: 'deployz/app/v1',
+      });
+      expect(assetHashes).toEqual([]);
+      expect(template.Parameters).not.toHaveProperty('BootstrapVersion');
+      expect(template.Parameters).toHaveProperty('paramAppApiKey');
+      expect(template.Rules).toBeUndefined();
+    });
+  });
+
+  describe('two-phase orchestration', () => {
+    it('walks the full happy path through both phases', () => {
+      const o = new QuickCreateOrchestrator();
+      expect(o.state).toBe('UNPUBLISHED');
+      expect(o.phase).toBe('PHASE_1_BOOTSTRAP');
+
+      expect(
+        o.transition({
+          type: 'bootstrap.published',
+          templateUrl: 'https://s3/.../template.json',
+          quickCreateUrl: 'https://console.aws.amazon.com/...',
+        }).accepted,
+      ).toBe(true);
+      expect(o.state).toBe('BOOTSTRAP_PUBLISHED');
+
+      expect(o.transition({ type: 'customer.create_started' }).accepted).toBe(true);
+      expect(o.state).toBe('CUSTOMER_CREATING');
+      expect(o.phase).toBe('PHASE_1_BOOTSTRAP');
+
+      expect(
+        o.transition({ type: 'relay.first_contact', installationId: 'inst-1' }).accepted,
+      ).toBe(true);
+      expect(o.state).toBe('REGISTERING_INSTALL');
+      expect(o.phase).toBe('PHASE_2_APPLICATION');
+      expect(o.installationId).toBe('inst-1');
+
+      expect(o.transition({ type: 'preflight.passed' }).accepted).toBe(true);
+      expect(o.state).toBe('PREFLIGHTING');
+
+      expect(o.transition({ type: 'relay.callback' }).accepted).toBe(true);
+      expect(o.state).toBe('CREATING_APPLICATION');
+
+      expect(o.transition({ type: 'application.create_complete' }).accepted).toBe(true);
+      expect(o.state).toBe('APPLICATION_CREATED');
+      expect(o.isComplete).toBe(true);
+    });
+
+    it('allows relay first contact directly after publish (no observed link click)', () => {
+      const o = new QuickCreateOrchestrator();
+      o.transition({
+        type: 'bootstrap.published',
+        templateUrl: 'https://s3/t.json',
+        quickCreateUrl: 'https://console/qc',
+      });
+      expect(
+        o.transition({ type: 'relay.first_contact', installationId: 'inst-2' }).accepted,
+      ).toBe(true);
+      expect(o.state).toBe('REGISTERING_INSTALL');
+    });
+
+    it('rejects an illegal transition without mutating state', () => {
+      const o = new QuickCreateOrchestrator();
+      const result = o.transition({ type: 'relay.first_contact', installationId: 'x' });
+      expect(result.accepted).toBe(false);
+      expect(result.from).toBe('UNPUBLISHED');
+      expect(result.to).toBe('UNPUBLISHED');
+      expect(o.state).toBe('UNPUBLISHED');
+      expect(o.installationId).toBeUndefined();
+    });
+
+    it('rejects preflight before first contact', () => {
+      const o = new QuickCreateOrchestrator();
+      o.transition({
+        type: 'bootstrap.published',
+        templateUrl: 'https://s3/t.json',
+        quickCreateUrl: 'https://console/qc',
+      });
+      expect(o.transition({ type: 'preflight.passed' }).accepted).toBe(false);
+      expect(o.state).toBe('BOOTSTRAP_PUBLISHED');
+    });
+
+    it('a failure is terminal and records its phase', () => {
+      const o = new QuickCreateOrchestrator();
+      o.transition({
+        type: 'bootstrap.published',
+        templateUrl: 'https://s3/t.json',
+        quickCreateUrl: 'https://console/qc',
+      });
+      o.transition({ type: 'customer.create_started' });
+      expect(o.transition({ type: 'failed', reason: 'customer cancelled' }).accepted).toBe(true);
+      expect(o.state).toBe('FAILED');
+      expect(o.isFailed).toBe(true);
+      expect(o.failureReason).toBe('customer cancelled');
+      expect(o.phase).toBe('PHASE_1_BOOTSTRAP');
+      // Terminal — no further transition is accepted.
+      expect(o.transition({ type: 'relay.first_contact', installationId: 'x' }).accepted).toBe(false);
+    });
+
+    it('records every accepted transition in history', () => {
+      const o = new QuickCreateOrchestrator();
+      o.transition({
+        type: 'bootstrap.published',
+        templateUrl: 'https://s3/t.json',
+        quickCreateUrl: 'https://console/qc',
+      });
+      o.transition({ type: 'relay.first_contact', installationId: 'inst-3' });
+      expect(o.history).toHaveLength(2);
+      expect(o.history[0]?.to).toBe('BOOTSTRAP_PUBLISHED');
+      expect(o.history[1]?.to).toBe('REGISTERING_INSTALL');
+    });
+
+    it('classifies phase 2 states via phaseOf', () => {
+      expect(phaseOf('REGISTERING_INSTALL')).toBe('PHASE_2_APPLICATION');
+      expect(phaseOf('PREFLIGHTING')).toBe('PHASE_2_APPLICATION');
+      expect(phaseOf('CREATING_APPLICATION')).toBe('PHASE_2_APPLICATION');
+      expect(phaseOf('APPLICATION_CREATED')).toBe('PHASE_2_APPLICATION');
+      expect(phaseOf('UNPUBLISHED')).toBe('PHASE_1_BOOTSTRAP');
+    });
+  });
+
+  describe('bootstrap publisher (mock S3)', () => {
+    const region = 'us-east-1';
+    const bucket = 'deployz-public-assets';
+    const keyPrefix = 'deployz/bootstrap/v1';
+
+    function mockS3() {
+      const uploads: Array<{ key: string; body: Uint8Array | string; contentType?: string }> = [];
+      return {
+        client: {
+          async putObject(params: {
+            key: string;
+            body: Uint8Array | string;
+            contentType?: string;
+          }): Promise<void> {
+            uploads.push(params);
+          },
+        },
+        uploads,
+      };
+    }
+
+    const syntheticTemplate = {
+      Parameters: {
+        ControlPlaneUrl: { Type: 'String' },
+        BootstrapVersion: { Type: 'String' },
+      },
+      Rules: { CheckBootstrapVersion: { Assertions: [] } },
+      Resources: {
+        RelayFn: {
+          Type: 'AWS::Lambda::Function',
+          Properties: {
+            Code: {
+              S3Bucket: { 'Fn::Sub': 'cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}' },
+              S3Key: 'abc123def456.zip',
+            },
+          },
+        },
+      },
+    };
+
+    it('uploads the repacked template + Lambda assets and returns the URLs', async () => {
+      const { client, uploads } = mockS3();
+      const publisher = new BootstrapPublisher(client, {
+        region,
+        bucket,
+        keyPrefix,
+        controlPlaneUrl: 'https://api.deployz.dev',
+      });
+
+      const result = await publisher.publish(
+        {
+          template: syntheticTemplate,
+          assets: [
+            {
+              sourceHash: 'abc123def456',
+              objectKey: 'abc123def456.zip',
+              sourcePath: '/fake/asset',
+            },
+          ],
+        },
+        async () => new Uint8Array([0x1f, 0x8b]),
+      );
+
+      // 1 Lambda asset + 1 template.
+      expect(uploads).toHaveLength(2);
+
+      const assetUpload = uploads.find((u) => u.key === `${keyPrefix}/abc123def456.zip`);
+      expect(assetUpload).toBeDefined();
+      expect(assetUpload?.contentType).toBe('application/zip');
+
+      const templateUpload = uploads.find(
+        (u) => u.key === `${keyPrefix}/bootstrap-template-v1.json`,
+      );
+      expect(templateUpload).toBeDefined();
+      expect(templateUpload?.contentType).toBe('application/json');
+
+      expect(result.templateUrl).toBe(
+        `https://${bucket}.s3.${region}.amazonaws.com/${keyPrefix}/bootstrap-template-v1.json`,
+      );
+      expect(result.assetKeys).toEqual([`${keyPrefix}/abc123def456.zip`]);
+      expect(result.quickCreateUrl).toContain(
+        'templateURL=https%3A%2F%2Fdeployz-public-assets.s3.us-east-1.amazonaws.com%2Fdeployz%2Fbootstrap%2Fv1%2Fbootstrap-template-v1.json',
+      );
+      expect(result.quickCreateUrl).toContain(
+        'param_ControlPlaneUrl=https%3A%2F%2Fapi.deployz.dev',
+      );
+    });
+
+    it('rewrites the uploaded template to the public bucket (self-contained)', async () => {
+      const { client, uploads } = mockS3();
+      const publisher = new BootstrapPublisher(client, {
+        region,
+        bucket,
+        keyPrefix,
+        controlPlaneUrl: 'https://api.deployz.dev',
+      });
+
+      await publisher.publish(
+        {
+          template: syntheticTemplate,
+          assets: [
+            {
+              sourceHash: 'abc123def456',
+              objectKey: 'abc123def456.zip',
+              sourcePath: '/fake/asset',
+            },
+          ],
+        },
+        async () => new Uint8Array([0x1f, 0x8b]),
+      );
+
+      const templateUpload = uploads.find(
+        (u) => u.key === `${keyPrefix}/bootstrap-template-v1.json`,
+      );
+      const published = JSON.parse(String(templateUpload?.body)) as {
+        Resources: Record<string, { Properties: { Code: Record<string, unknown> } }>;
+        Parameters?: Record<string, unknown>;
+        Rules?: Record<string, unknown>;
+      };
+      expect(published.Resources['RelayFn'].Properties.Code.S3Bucket).toBe(bucket);
+      expect(published.Resources['RelayFn'].Properties.Code.S3Key).toBe(
+        `${keyPrefix}/abc123def456.zip`,
+      );
+      expect(published.Parameters).not.toHaveProperty('BootstrapVersion');
+      expect(published.Rules).toBeUndefined();
+    });
+
+    it('fails fast when the repacked template exceeds the CFN byte limit', async () => {
+      const { client } = mockS3();
+      const publisher = new BootstrapPublisher(client, {
+        region,
+        bucket,
+        keyPrefix,
+        controlPlaneUrl: 'https://api.deployz.dev',
+      });
+
+      const oversized = {
+        Parameters: {},
+        Resources: {
+          Pad: { Type: 'AWS::S3::Bucket', Properties: { Pad: 'x'.repeat(CFN_TEMPLATE_MAX_BYTES) } },
+        },
+      };
+
+      await expect(
+        publisher.publish({ template: oversized, assets: [] }, async () => new Uint8Array()),
+      ).rejects.toThrow(/exceeds CloudFormation limits/);
+    });
+  });
+
+  describe('synthesizeBootstrapStack (real synth, no AWS)', () => {
+    it('synthesizes the bootstrap template and collects its bundled Lambda assets', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-qc-'));
+      try {
+        const synth = await synthesizeBootstrapStack({
+          outdir,
+          controlPlaneUrl: 'https://api.deployz.dev',
+        });
+
+        const resources = synth.template.Resources as Record<
+          string,
+          { Type: string; Properties: { Code?: { S3Key?: string } } }
+        >;
+        const lambdaKeys = Object.values(resources)
+          .filter((r) => r.Type === 'AWS::Lambda::Function')
+          .map((r) => r.Properties.Code?.S3Key)
+          .filter((k): k is string => typeof k === 'string');
+
+        expect(lambdaKeys.length).toBeGreaterThan(0);
+
+        expect(synth.assets.length).toBe(lambdaKeys.length);
+        const assetHashes = synth.assets.map((a) => a.sourceHash);
+        for (const key of lambdaKeys) {
+          const hash = key.replace(/\.zip$/, '');
+          expect(assetHashes).toContain(hash);
+        }
+
+        expect(synth.template.Parameters).toHaveProperty('BootstrapVersion');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+  });
+});
