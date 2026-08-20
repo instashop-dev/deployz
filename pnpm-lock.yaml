@@ -78,6 +78,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@deployz/copy-map':
+        specifier: workspace:*
+        version: link:../../packages/copy-map
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3

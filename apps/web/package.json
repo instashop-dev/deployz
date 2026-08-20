@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "@deployz/copy-map": "workspace:*",
     "better-auth": "^1.6.30",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
