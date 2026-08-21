@@ -172,6 +172,8 @@ function collectEnvVars(): Record<string, string> {
     'GITHUB_APP_INSTALL_URL',
     'GITHUB_FIXTURE_MODE',
     'WEB_URL',
+    'CLOUDFLARE_AI_GATEWAY_ENDPOINT',
+    'CLOUDFLARE_AI_GATEWAY_API_TOKEN',
   ];
   const env: Record<string, string> = {};
   for (const key of keys) {
