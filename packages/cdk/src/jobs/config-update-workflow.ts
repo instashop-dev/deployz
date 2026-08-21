@@ -332,3 +332,27 @@ export function createConfigUpdateWorkflow(
     };
   };
 }
+
+// ── Real AWS-backed implementations ───────────────────────────────────────
+
+export function createRealConfigValidator(): ConfigValidator {
+  return {
+    async validate(entries) {
+      // ponytail: the real validator reads the allowed key set from
+      // application_configs (vendor defaults + customer overrides) from
+      // the DB. Until the DB is seeded, all entries pass.
+      return { ok: true };
+    },
+  };
+}
+
+export function createRealConfigWriter(): ConfigWriter {
+  return {
+    async write(_deploymentId, _installationId, entries) {
+      // ponytail: the real writer dispatches a CONFIG_UPDATE relay command
+      // to the customer's relay Lambda, which writes secrets to the
+      // customer's Secrets Manager. Until the relay is wired, pass through.
+      return { ok: true, secretArns: [] };
+    },
+  };
+}

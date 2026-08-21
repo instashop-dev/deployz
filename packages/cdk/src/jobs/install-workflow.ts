@@ -101,7 +101,7 @@ export function createInstallWorkflow(
 
     // ── Step 1: Validate region ──────────────────────────────────────
     yield step('validate-region', async () => {
-      const result = runPreflight(input.region);
+      const result = await runPreflight(input.region);
       const regionCheck = result.checks[0];
       if (!regionCheck) throw new Error('Missing region check result');
 
@@ -122,7 +122,7 @@ export function createInstallWorkflow(
 
     // ── Step 2: Check SCP blocks ─────────────────────────────────────
     yield step('check-scp', async () => {
-      const result = runPreflight(input.region);
+      const result = await runPreflight(input.region);
       const scpCheck = result.checks[1];
       if (!scpCheck) throw new Error('Missing SCP check result');
 

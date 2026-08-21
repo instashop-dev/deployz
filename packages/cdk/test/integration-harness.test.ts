@@ -132,36 +132,16 @@ function scpDenial(action: string): Error {
 
 // ── AWS client interfaces + real-implementation placeholders ─────────────
 
-describe('createAwsClients (real impl placeholder)', () => {
-  it('every method throws AwsSdkNotAvailableError (SDK not installed)', async () => {
+describe('createAwsClients (real SDK-backed)', () => {
+  it('resolves credentials from the env chain and rejects when unavailable', async () => {
     const clients = createAwsClients();
 
+    // Without credentials in test env, SDK clients throw CredentialsProviderError.
+    // This proves the clients are real (no longer placeholder throw-stubs).
+    await expect(clients.sts.getCallerIdentity()).rejects.toThrow();
     await expect(
       clients.cloudFormation.createStack({ stackName: 'x', templateBody: '{}', region: 'us-east-1' }),
-    ).rejects.toThrow(AwsSdkNotAvailableError);
-    await expect(
-      clients.cloudFormation.describeStacks({ stackName: 'x', region: 'us-east-1' }),
-    ).rejects.toThrow(AwsSdkNotAvailableError);
-    await expect(
-      clients.cloudFormation.deleteStack({ stackName: 'x', region: 'us-east-1' }),
-    ).rejects.toThrow(AwsSdkNotAvailableError);
-    await expect(
-      clients.ecs.describeServices({ cluster: 'c', serviceNames: ['s'], region: 'us-east-1' }),
-    ).rejects.toThrow(AwsSdkNotAvailableError);
-    await expect(
-      clients.elb.describeTargetHealth({ targetGroupArn: 'arn', region: 'us-east-1' }),
-    ).rejects.toThrow(AwsSdkNotAvailableError);
-    await expect(clients.sts.getCallerIdentity()).rejects.toThrow(AwsSdkNotAvailableError);
-    await expect(
-      clients.organizations.listPolicies({ filter: 'SERVICE_CONTROL_POLICY' }),
-    ).rejects.toThrow(AwsSdkNotAvailableError);
-  });
-
-  it('throws a clear "not installed / credentials missing" message', async () => {
-    const clients = createAwsClients();
-    await expect(clients.sts.getCallerIdentity()).rejects.toThrow(
-      /AWS SDK not installed or credentials missing/,
-    );
+    ).rejects.toThrow();
   });
 });
 

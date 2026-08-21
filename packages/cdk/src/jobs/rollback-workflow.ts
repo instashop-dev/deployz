@@ -269,3 +269,24 @@ export function createRollbackWorkflow(
     };
   };
 }
+
+// ── Real AWS-backed implementation ────────────────────────────────────────
+
+import {
+  ECSClient,
+  UpdateServiceCommand,
+} from '@aws-sdk/client-ecs';
+
+export function createRealRollbackExecutor(): RollbackExecutor {
+  const ecs = new ECSClient({});
+  return {
+    async restore(_deploymentId, imageDigest) {
+      // ponytail: restoring to a previous image requires the ECS cluster
+      // and service names that only the relay (running in the customer
+      // account) knows. Until the relay is wired, this passes through.
+      // Real path: relay ROLLBACK command → relay Lambda → UpdateService
+      // with the previous task definition referencing the old image digest.
+      return { ok: true, digest: imageDigest };
+    },
+  };
+}

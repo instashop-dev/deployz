@@ -8,11 +8,8 @@
  *
  * Each interface has:
  *   - a REAL implementation (`createAwsClients()`) that delegates to the AWS
- *     SDK v3 clients. The SDK is deliberately NOT installed in this repo
- *     (no credentials, and it would bloat the build), so the real
- *     implementation is a placeholder whose methods throw a clear
- *     `AwsSdkNotAvailableError`. When credentials are available (todo 14 real
- *     run), these methods are swapped for the real SDK calls.
+ *     SDK v3 clients. Credentials are resolved from the standard AWS SDK v3
+ *     credential chain (env vars, ~/.aws/credentials, IAM roles).
  *   - a MOCK seam — tests implement the interface with `vi.fn()` and drive the
  *     full harness with no network.
  *
@@ -20,12 +17,39 @@
  * when the key is unset) and todo 10's `S3Client` seam.
  */
 
-// ── Error thrown by the real (SDK-backed) implementations ─────────────────
+import {
+  CloudFormationClient as SdkCloudFormationClient,
+  CreateStackCommand,
+  DescribeStacksCommand,
+  DeleteStackCommand,
+} from '@aws-sdk/client-cloudformation';
+
+import {
+  ECSClient as SdkEcsClient,
+  DescribeServicesCommand,
+} from '@aws-sdk/client-ecs';
+
+import {
+  ElasticLoadBalancingV2Client as SdkElbClient,
+  DescribeTargetHealthCommand,
+} from '@aws-sdk/client-elastic-load-balancing-v2';
+
+import {
+  STSClient as SdkStsClient,
+  GetCallerIdentityCommand,
+} from '@aws-sdk/client-sts';
+
+import {
+  OrganizationsClient as SdkOrganizationsClient,
+  ListPoliciesCommand,
+} from '@aws-sdk/client-organizations';
+
+// ── Error thrown when SDK credentials are missing ────────────────────────
 
 /**
- * Thrown by every real AWS client method when the AWS SDK is not installed
- * (or credentials are missing). The integration suite is PENDING-AWS until
- * the SDK + credentials are provided.
+ * Thrown when AWS credentials are not available. The integration suite
+ * degrades gracefully — tests inject mocks, so this only fires at runtime
+ * when credentials are genuinely absent.
  */
 export class AwsSdkNotAvailableError extends Error {
   constructor(service: string, operation: string) {
@@ -196,43 +220,147 @@ export interface AwsClients {
   readonly organizations: OrganizationsClient;
 }
 
+// ── Regional client cache ──────────────────────────────────────────────────
+
 /**
- * Creates the REAL AWS clients (placeholders that throw until the SDK is
- * installed + credentials are configured). Each method throws
- * `AwsSdkNotAvailableError` — the SDK v3 delegation is swapped in when
- * credentials become available.
+ * Lazy-initialized cache of per-region SDK clients. The AWS SDK v3 resolves
+ * credentials from the standard chain (env, ~/.aws/credentials, IAM roles).
+ */
+const cfnClients = new Map<string, SdkCloudFormationClient>();
+const ecsClients = new Map<string, SdkEcsClient>();
+const elbClients = new Map<string, SdkElbClient>();
+const stsClient = new SdkStsClient({});
+const orgsClient = new SdkOrganizationsClient({});
+
+function getCfn(region: string): SdkCloudFormationClient {
+  let client = cfnClients.get(region);
+  if (!client) {
+    client = new SdkCloudFormationClient({ region });
+    cfnClients.set(region, client);
+  }
+  return client;
+}
+
+function getEcs(region: string): SdkEcsClient {
+  let client = ecsClients.get(region);
+  if (!client) {
+    client = new SdkEcsClient({ region });
+    ecsClients.set(region, client);
+  }
+  return client;
+}
+
+function getElb(region: string): SdkElbClient {
+  let client = elbClients.get(region);
+  if (!client) {
+    client = new SdkElbClient({ region });
+    elbClients.set(region, client);
+  }
+  return client;
+}
+
+/**
+ * Creates the REAL AWS clients backed by the SDK v3. Each method delegates
+ * to the corresponding SDK command. Credentials are resolved from the standard
+ * AWS SDK v3 credential chain.
  */
 export function createAwsClients(): AwsClients {
   return {
     cloudFormation: {
-      async createStack() {
-        throw new AwsSdkNotAvailableError('CloudFormation', 'createStack');
+      async createStack(params) {
+        const result = await getCfn(params.region).send(
+          new CreateStackCommand({
+            StackName: params.stackName,
+            TemplateBody: params.templateBody,
+            Parameters: params.parameters?.map((p) => ({
+              ParameterKey: p.parameterKey,
+              ParameterValue: p.parameterValue,
+            })),
+            Capabilities: params.capabilities as
+              | Array<'CAPABILITY_IAM' | 'CAPABILITY_NAMED_IAM'>
+              | undefined,
+          }),
+        );
+        return { stackId: result.StackId ?? '' };
       },
-      async describeStacks() {
-        throw new AwsSdkNotAvailableError('CloudFormation', 'describeStacks');
+      async describeStacks(params) {
+        const result = await getCfn(params.region).send(
+          new DescribeStacksCommand({ StackName: params.stackName }),
+        );
+        const stack = result.Stacks?.[0];
+        return {
+          stackId: stack?.StackId ?? '',
+          stackName: stack?.StackName ?? params.stackName,
+          status: (stack?.StackStatus as StackStatus) ?? 'UNKNOWN',
+          outputs:
+            stack?.Outputs?.map((o) => ({
+              outputKey: o.OutputKey ?? '',
+              outputValue: o.OutputValue ?? '',
+            })) ?? [],
+        };
       },
-      async deleteStack() {
-        throw new AwsSdkNotAvailableError('CloudFormation', 'deleteStack');
+      async deleteStack(params) {
+        await getCfn(params.region).send(
+          new DeleteStackCommand({ StackName: params.stackName }),
+        );
       },
     },
     ecs: {
-      async describeServices() {
-        throw new AwsSdkNotAvailableError('ECS', 'describeServices');
+      async describeServices(params) {
+        const result = await getEcs(params.region).send(
+          new DescribeServicesCommand({
+            cluster: params.cluster,
+            services: [...params.serviceNames],
+          }),
+        );
+        return (result.services ?? []).map((s) => ({
+          serviceName: s.serviceName ?? '',
+          status: s.status ?? 'UNKNOWN',
+          desiredCount: s.desiredCount ?? 0,
+          runningCount: s.runningCount ?? 0,
+          healthy: (s.runningCount ?? 0) === (s.desiredCount ?? 0) && (s.desiredCount ?? 0) > 0,
+        }));
       },
     },
     elb: {
-      async describeTargetHealth() {
-        throw new AwsSdkNotAvailableError('ELB', 'describeTargetHealth');
+      async describeTargetHealth(params) {
+        const result = await getElb(params.region).send(
+          new DescribeTargetHealthCommand({
+            TargetGroupArn: params.targetGroupArn,
+          }),
+        );
+        return {
+          targets:
+            result.TargetHealthDescriptions?.map((t) => ({
+              targetId: t.Target?.Id ?? '',
+              state: (t.TargetHealth?.State as TargetHealthState) ?? 'unavailable',
+            })) ?? [],
+        };
       },
     },
     sts: {
       async getCallerIdentity() {
-        throw new AwsSdkNotAvailableError('STS', 'getCallerIdentity');
+        const result = await stsClient.send(new GetCallerIdentityCommand({}));
+        return {
+          account: result.Account ?? '',
+          arn: result.Arn ?? '',
+          userId: result.UserId ?? '',
+        };
       },
     },
     organizations: {
-      async listPolicies() {
-        throw new AwsSdkNotAvailableError('Organizations', 'listPolicies');
+      async listPolicies(params) {
+        const result = await orgsClient.send(
+          new ListPoliciesCommand({ Filter: params.filter }),
+        );
+        return {
+          policies:
+            result.Policies?.map((p) => ({
+              id: p.Id ?? '',
+              name: p.Name ?? '',
+              arn: p.Arn ?? '',
+            })) ?? [],
+        };
       },
     },
   };

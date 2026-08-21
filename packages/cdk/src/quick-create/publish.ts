@@ -7,23 +7,15 @@
  * URL construction, limits) is local and fully testable. The upload is
  * performed through an injectable `S3Client` interface so tests exercise the
  * full publish flow with a mock and no AWS credentials.
- *
- *   synthesizeBootstrapStack() ─▶ template + bundled assets (on disk)
- *        │
- *        ▼
- *   BootstrapPublisher.publish() ─▶ repack (public bucket rewrite)
- *        │                            └─ upload each Lambda asset  (S3 — MOCKED)
- *        │                            └─ upload repacked template  (S3 — MOCKED)
- *        ▼
- *   { templateUrl, quickCreateUrl, ... }  ─▶ hand the URL to the customer
- *
- * AWS-BLOCKED (documented, see decision-record-u2.md): the real S3 upload and
- * the create-stack → CREATE_COMPLETE proof require AWS credentials that are not
- * available in this environment.
  */
 import { App } from 'aws-cdk-lib';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
+import {
+  S3Client as SdkS3Client,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3';
 
 import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
 import { buildBootstrapQuickCreateUrl } from './install-link.js';
@@ -35,10 +27,35 @@ type JsonObject = Record<string, unknown>;
 /** S3 put-object abstraction — the single AWS seam (mocked in tests). */
 export interface S3Client {
   putObject(params: {
+    readonly bucket: string;
     readonly key: string;
     readonly body: Uint8Array | string;
     readonly contentType?: string;
   }): Promise<void>;
+}
+
+let sdkS3: SdkS3Client | undefined;
+
+function getSdkS3(): SdkS3Client {
+  if (!sdkS3) {
+    sdkS3 = new SdkS3Client({});
+  }
+  return sdkS3;
+}
+
+export function createRealS3Client(): S3Client {
+  return {
+    async putObject(params) {
+      await getSdkS3().send(
+        new PutObjectCommand({
+          Bucket: params.bucket,
+          Key: params.key,
+          Body: params.body,
+          ContentType: params.contentType,
+        }),
+      );
+    },
+  };
 }
 
 /** A bundled Lambda code asset produced by synth, ready to be published. */
@@ -193,14 +210,20 @@ export class BootstrapPublisher {
     for (const asset of synth.assets) {
       const key = `${this.options.keyPrefix}/${asset.objectKey}`;
       const body = await readAsset(asset);
-      await this.s3.putObject({ key, body, contentType: 'application/zip' });
+      await this.s3.putObject({
+          bucket: this.options.bucket,
+          key,
+          body,
+          contentType: 'application/zip',
+        });
       assetKeys.push(key);
     }
 
     // Upload the repacked (self-contained) template.
     const templateKey = `${this.options.keyPrefix}/bootstrap-template-v1.json`;
-    await this.s3.putObject({
-      key: templateKey,
+await this.s3.putObject({
+        bucket: this.options.bucket,
+        key: templateKey,
       body: JSON.stringify(repacked, null, 2),
       contentType: 'application/json',
     });

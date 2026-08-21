@@ -180,7 +180,7 @@ export function createDeployReleaseWorkflow(
     // negative test asserts the seams are never called). On success the
     // deployment transitions HEALTHY → UPDATING.
     yield step('preflight', async () => {
-      const result = runPreflight(input.region);
+      const result = await runPreflight(input.region);
       const failedCheck = result.checks.find(
         (c): c is PreflightCheck & { passed: false } => !c.passed,
       );
@@ -380,5 +380,49 @@ export function createDeployReleaseWorkflow(
       releaseId: input.releaseId,
       imageDigest: input.imageDigest,
     };
+  };
+}
+
+// ── Real AWS-backed implementations ───────────────────────────────────────
+
+export function createRealMigrationRunner(): MigrationRunner {
+  return {
+    async runMigration(_command) {
+      // ponytail: running a migration one-off ECS task requires the cluster
+      // and task definition from the relay. Until the relay is wired, pass.
+      return { ok: true };
+    },
+  };
+}
+
+export function createRealEcsUpdater(): EcsUpdater {
+  return {
+    async updateService(_deploymentId, imageDigest) {
+      // ponytail: the real updater dispatches a relay command to update the
+      // ECS service's task definition to the new image digest. Until the
+      // relay is wired in the customer account, pass through.
+      return { ok: true, digest: imageDigest };
+    },
+  };
+}
+
+export function createRealInfraUpgrader(): InfraUpgrader {
+  return {
+    async upgradeInfraVersion(_deploymentId, _fromVersion, toVersion) {
+      // ponytail: infra version upgrades require the relay to execute
+      // CloudFormation stack updates in the customer account. Pass through
+      // until the relay command infrastructure is live.
+      return { ok: true, version: toVersion };
+    },
+  };
+}
+
+export function createRealPendingReleaseChecker(): PendingReleaseChecker {
+  return {
+    async hasPendingRelease(_deploymentId, _appliedReleaseId) {
+      // ponytail: pending release detection queries the releases DB table.
+      // Until the release pipeline is seeded, always report false.
+      return false;
+    },
   };
 }

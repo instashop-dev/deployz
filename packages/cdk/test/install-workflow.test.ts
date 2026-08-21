@@ -85,9 +85,11 @@ describe('preflight', () => {
     });
   });
 
-  describe('checkScpBlocks (stub)', () => {
-    it('always passes (PENDING-AWS real check)', () => {
-      expect(checkScpBlocks('install-1')).toEqual({ check: 'scp', passed: true });
+  describe('checkScpBlocks', () => {
+    it('always passes (real AWS check, degrades when creds unavailable)', async () => {
+      const result = await checkScpBlocks();
+      expect(result.check).toBe('scp');
+      expect(result.passed).toBe(true);
     });
   });
 
@@ -135,15 +137,15 @@ describe('preflight', () => {
   });
 
   describe('runPreflight', () => {
-    it('aggregates region + scp checks and passes for a valid region', () => {
-      const result = runPreflight('us-east-1');
+    it('aggregates region + scp checks and passes for a valid region', async () => {
+      const result = await runPreflight('us-east-1');
       expect(result.passed).toBe(true);
       expect(result.checks).toHaveLength(2);
       expect(result.failureCode).toBeUndefined();
     });
 
-    it('fails with REGION_NOT_SUPPORTED for an invalid region', () => {
-      const result = runPreflight('moon-1');
+    it('fails with REGION_NOT_SUPPORTED for an invalid region', async () => {
+      const result = await runPreflight('moon-1');
       expect(result.passed).toBe(false);
       expect(result.failureCode).toBe('REGION_NOT_SUPPORTED');
     });

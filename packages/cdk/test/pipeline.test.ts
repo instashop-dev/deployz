@@ -372,6 +372,7 @@ function createMockS3(): S3Client & { _uploads: Array<{ key: string; bytes: numb
   return {
     _uploads: uploads,
     async putObject(params: {
+      bucket: string;
       key: string;
       body: Uint8Array | string;
       contentType?: string;

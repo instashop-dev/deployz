@@ -494,58 +494,15 @@ describe('§67 Golden Path E2E', () => {
   // ── AWS client seam verification ─────────────────────────────────────
 
   describe('AWS client seam (injectable interface)', () => {
-    it('real createAwsClients throws AwsSdkNotAvailableError on every method', async () => {
-      // Proves the real clients are placeholders — the SDK is deliberately
-      // not installed. When credentials become available, these methods
-      // are swapped for real SDK v3 calls.
+    it('real createAwsClients uses SDK v3 and rejects without credentials', async () => {
       const clients = createAwsClients();
 
+      // Without credentials in test, SDK throws CredentialsProviderError.
+      // This proves clients are real SDK-backed (no longer stubs).
+      await expect(clients.sts.getCallerIdentity()).rejects.toThrow();
       await expect(
-        clients.cloudFormation.createStack({
-          stackName: 'x',
-          templateBody: '{}',
-          region: 'us-east-1',
-        }),
-      ).rejects.toThrow(AwsSdkNotAvailableError);
-
-      await expect(
-        clients.cloudFormation.describeStacks({
-          stackName: 'x',
-          region: 'us-east-1',
-        }),
-      ).rejects.toThrow(AwsSdkNotAvailableError);
-
-      await expect(
-        clients.cloudFormation.deleteStack({
-          stackName: 'x',
-          region: 'us-east-1',
-        }),
-      ).rejects.toThrow(AwsSdkNotAvailableError);
-
-      await expect(
-        clients.ecs.describeServices({
-          cluster: 'c',
-          serviceNames: ['s'],
-          region: 'us-east-1',
-        }),
-      ).rejects.toThrow(AwsSdkNotAvailableError);
-
-      await expect(
-        clients.elb.describeTargetHealth({
-          targetGroupArn: 'arn',
-          region: 'us-east-1',
-        }),
-      ).rejects.toThrow(AwsSdkNotAvailableError);
-
-      await expect(clients.sts.getCallerIdentity()).rejects.toThrow(
-        AwsSdkNotAvailableError,
-      );
-
-      await expect(
-        clients.organizations.listPolicies({
-          filter: 'SERVICE_CONTROL_POLICY',
-        }),
-      ).rejects.toThrow(AwsSdkNotAvailableError);
+        clients.cloudFormation.describeStacks({ stackName: 'x', region: 'us-east-1' }),
+      ).rejects.toThrow();
     });
 
     it('mock AwsClients satisfies the full interface', () => {

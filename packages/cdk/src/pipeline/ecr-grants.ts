@@ -15,11 +15,17 @@
  * own policy statement scoped to the customer's AWS account ID (verified via
  * STS getCallerIdentity during relay registration).
  *
- * AWS-BLOCKED: the real ECR `setRepositoryPolicy` / `getRepositoryPolicy` /
- * `deleteRepositoryPolicy` calls require AWS credentials. The `EcrClient`
- * interface follows the same injectable-seam pattern as `S3Client` (quick-create)
- * and `AwsClients` (integration).
+ * AWS-BLOCKED replaced — the real `EcrClient` implementation delegates to the
+ * SDK v3. The `EcrClient` interface follows the same injectable-seam pattern as
+ * `S3Client` (quick-create) and `AwsClients` (integration).
  */
+
+import {
+  ECRClient as SdkEcrClient,
+  GetRepositoryPolicyCommand,
+  SetRepositoryPolicyCommand,
+  DeleteRepositoryPolicyCommand,
+} from '@aws-sdk/client-ecr';
 
 // ---------------------------------------------------------------------------
 // ECR pull actions
@@ -53,6 +59,58 @@ export interface EcrClient {
   ): Promise<void>;
   /** Deletes the repository policy entirely. */
   deleteRepositoryPolicy(repositoryName: string): Promise<void>;
+}
+
+const sdkEcr = new SdkEcrClient({});
+
+export function createRealEcrClient(): EcrClient {
+  return {
+    async getRepositoryPolicy(repositoryName) {
+      try {
+        const result = await sdkEcr.send(
+          new GetRepositoryPolicyCommand({ repositoryName }),
+        );
+        return {
+          policyText: JSON.parse(result.policyText ?? '{}') as Record<string, unknown>,
+        };
+      } catch (error: unknown) {
+        if (
+          error !== null &&
+          typeof error === 'object' &&
+          'name' in error &&
+          error.name === 'RepositoryPolicyNotFoundException'
+        ) {
+          return null;
+        }
+        throw error;
+      }
+    },
+    async setRepositoryPolicy(repositoryName, policyText) {
+      await sdkEcr.send(
+        new SetRepositoryPolicyCommand({
+          repositoryName,
+          policyText: JSON.stringify(policyText),
+        }),
+      );
+    },
+    async deleteRepositoryPolicy(repositoryName) {
+      try {
+        await sdkEcr.send(
+          new DeleteRepositoryPolicyCommand({ repositoryName }),
+        );
+      } catch (error: unknown) {
+        if (
+          error !== null &&
+          typeof error === 'object' &&
+          'name' in error &&
+          error.name === 'RepositoryPolicyNotFoundException'
+        ) {
+          return;
+        }
+        throw error;
+      }
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
