@@ -29,6 +29,8 @@
     "@aws-sdk/client-secrets-manager": "^3.1115.0",
     "@aws-sdk/client-service-quotas": "^3.1115.0",
     "@aws-sdk/client-sts": "^3.1115.0",
+    "@ai-sdk/openai-compatible": "^3.0.34",
+    "ai": "^7.0.73",
     "@deployz/api": "workspace:*",
     "@deployz/relay": "workspace:*",
     "aws-cdk-lib": "^2.180.0",

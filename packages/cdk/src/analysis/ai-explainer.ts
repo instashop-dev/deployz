@@ -31,6 +31,8 @@
  * `createAwsClients()`).
  */
 
+import { generateObject } from 'ai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 
 import type { CompatibilityResult, CompatibilityVerdict } from './rules.js';
@@ -261,36 +263,53 @@ export async function explainCompatibility(
   };
 }
 
-// ── Real gateway (PENDING-AI) ───────────────────────────────────────────────
+// ── Real gateway ───────────────────────────────────────────────────────────
 
 /**
  * Creates the REAL gateway that calls Cloudflare AI Gateway via the Vercel AI
- * SDK. In production this is:
+ * SDK. Uses `createOpenAICompatible` with the gateway endpoint as the base URL
+ * and the gateway API token for authentication. The SDK appends
+ * `/chat/completions` to the base URL, so the endpoint env var is stripped
+ * of that suffix if present.
  *
- *   ```ts
- *   import { generateObject } from 'ai';
- *   import { createOpenAI } from '@ai-sdk/openai';
- *   // Cloudflare AI Gateway fronts an OpenAI-compatible endpoint:
- *   const provider = createOpenAI({ baseURL: CLOUDFLARE_AI_GATEWAY_URL, apiKey });
- *   const { object, usage } = await generateObject({
- *     model: provider(modelId),
- *     schema,        // the Zod schema (structured output)
- *     prompt,
- *   });
- *   return { object, usage: { promptTokens, completionTokens } };
- *   ```
- *
- * The Vercel AI SDK is deliberately NOT installed in this repo (no credentials,
- * and it would bloat the build), so this placeholder throws until the SDK +
- * credentials are provided — the same graceful-degradation seam as todo 14's
- * `createAwsClients()`. Tests never reach it; they inject a recorded fixture.
+ * Falls back to `AiGatewayNotAvailableError` when credentials are missing.
  */
 export function createCloudflareAiGateway(
   model: string = DEFAULT_MODEL,
 ): AiGateway {
+  const endpoint = process.env.CLOUDFLARE_AI_GATEWAY_ENDPOINT;
+  const apiKey = process.env.CLOUDFLARE_AI_GATEWAY_API_TOKEN;
+
+  if (!endpoint || !apiKey) {
+    return {
+      async generate() {
+        throw new AiGatewayNotAvailableError(model);
+      },
+    };
+  }
+
+  const baseURL = endpoint.replace(/\/chat\/completions\/?$/, '');
+  const provider = createOpenAICompatible({
+    name: 'cloudflare',
+    baseURL,
+    apiKey,
+  });
+
   return {
-    async generate() {
-      throw new AiGatewayNotAvailableError(model);
+    async generate(prompt, schema) {
+      const { object, usage } = await generateObject({
+        model: provider(model),
+        schema,
+        prompt,
+      });
+
+      return {
+        object,
+        usage: {
+          promptTokens: usage.inputTokens ?? 0,
+          completionTokens: usage.outputTokens ?? 0,
+        },
+      };
     },
   };
 }
