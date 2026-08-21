@@ -84,17 +84,26 @@ export class DeployzStack extends Stack {
       deletionProtection: false,
     });
 
+    // ── EventBridge + SQS (async job processing) ─────────────────────────
+    const jobQueue = new Queue(this, 'JobQueue', {
+      visibilityTimeout: Duration.minutes(5),
+      retentionPeriod: Duration.days(14),
+    });
+
     // ── API Lambda ───────────────────────────────────────────────────────
-    // Collect credential env vars from process.env (loaded by bin/deployz.ts
-    // from the repo-root .env). Only non-undefined vars are passed through.
     const credentialEnv = collectEnvVars();
 
     const apiLambda = new ApiLambda(this, 'ApiLambda', {
       vpc: vpcResource,
       dbSecurityGroup,
       dbSecretArn: dbInstance.secret?.secretArn ?? '',
-      environment: credentialEnv,
+      environment: {
+        ...credentialEnv,
+        JOB_QUEUE_URL: jobQueue.queueUrl,
+      },
     });
+
+    jobQueue.grantSendMessages(apiLambda.function);
 
     dbSecurityGroup.addIngressRule(
       apiLambda.function.connections.securityGroups[0] ?? Peer.anyIpv4(),
@@ -105,12 +114,6 @@ export class DeployzStack extends Stack {
     // ── HTTP API Gateway ─────────────────────────────────────────────────
     const httpApi = new HttpApi(this, 'HttpApi', {
       defaultIntegration: new HttpLambdaIntegration('ApiIntegration', apiLambda.function),
-    });
-
-    // ── EventBridge + SQS (async job processing) ─────────────────────────
-    const jobQueue = new Queue(this, 'JobQueue', {
-      visibilityTimeout: Duration.minutes(5),
-      retentionPeriod: Duration.days(14),
     });
 
     // EventBridge rule: forward deployment_job events to SQS.
@@ -127,6 +130,7 @@ export class DeployzStack extends Stack {
     // ── Durable Execution (U1 spike) ─────────────────────────────────────
     const durable = new DurableExecution(this, 'DurableExecution', {
       vpc: vpcResource,
+      httpApi,
     });
 
     // ── Stack outputs ────────────────────────────────────────────────────

@@ -20,6 +20,7 @@
 
 import type { ScheduledEvent } from 'aws-lambda';
 
+import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
 import { pollOnce, type PollDependencies } from './poll.js';
@@ -149,19 +150,10 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
  */
 export const handler = createRelayHandler({
   secretsClient: {
-    // In production, this is replaced by the real AWS SDK v3 Secrets Manager
-    // client. The CDK bundles the Lambda with the SDK, or it uses the Lambda
-    // runtime's built-in SDK. For now, this placeholder throws a clear error
-    // if called without a real client injected.
     async getSecretValue(params: { SecretId: string }) {
-      // The real implementation uses:
-      //   import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-      //   const client = new SecretsManagerClient({});
-      //   return client.send(new GetSecretValueCommand(params));
-      throw new Error(
-        `Secrets Manager client not injected. Called with SecretId=${params.SecretId}. ` +
-          'In production, the CDK bundles @aws-sdk/client-secrets-manager with the Lambda.',
-      );
+      const client = new AwsSecretsManagerClient({});
+      const response = await client.send(new GetSecretValueCommand(params));
+      return { SecretString: response.SecretString ?? undefined };
     },
   },
   fetchFn: globalThis.fetch.bind(globalThis),

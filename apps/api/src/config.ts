@@ -1,6 +1,7 @@
 import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { SendMessageCommand, SQSClient as SqSClient } from '@aws-sdk/client-sqs';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -318,16 +319,30 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
 }
 
 /**
- * Default relay write-through. PENDING: the real dispatch enqueues a
- * CONFIG_UPDATE relay command (todo 12's command vocabulary; todo 18's
- * workflow executes it) once the relay command queue is wired into the API.
- * Until then this is an intentional no-op stub — same pattern as todo 12's
- * default executors. Unit tests inject a mock via ConfigDeps.
+ * Relay write-through backed by SQS. Enqueues a CONFIG_UPDATE relay command
+ * to the job queue so the durable execution runtime can dispatch it to the
+ * relay Lambda in the customer account. The SQS queue URL is read from
+ * JOB_QUEUE_URL env var (injected by CDK). When the env var is absent
+ * (local dev / tests), this degrades to a no-op stub.
  */
 export function createRelaySecretWriter(): ConfigSecretWriter {
   return {
-    writeSecrets() {
-      return Promise.resolve();
+    async writeSecrets(customerId, entries) {
+      const queueUrl = process.env.JOB_QUEUE_URL;
+      if (!queueUrl) return;
+
+      const client = new SqSClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
+      const payload = {
+        type: 'CONFIG_UPDATE',
+        customerId,
+        entries: entries.map((e) => ({ key: e.key, value: e.value, isSecret: e.isSecret })),
+      };
+      await client.send(
+        new SendMessageCommand({
+          QueueUrl: queueUrl,
+          MessageBody: JSON.stringify(payload),
+        }),
+      );
     },
   };
 }

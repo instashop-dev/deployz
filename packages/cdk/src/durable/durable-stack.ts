@@ -15,11 +15,14 @@ import { AttributeType, BillingMode, Table } from 'aws-cdk-lib/aws-dynamodb';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, type OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Construct } from 'constructs';
 import { join } from 'node:path';
 
 export interface DurableExecutionProps {
   readonly vpc: IVpc;
+  readonly httpApi?: HttpApi;
 }
 
 /**
@@ -66,12 +69,16 @@ export class DurableExecution extends Construct {
 
     this.table.grantReadWriteData(this.function);
 
-    // ── Callback URL (documented, not created here) ────────────────────
-    // In production, an HTTP API route is attached to this Lambda.
-    // For the spike, the callback URL pattern is:
-    //   POST https://api.deployz.dev/durable/{workflowName}/{executionId}/callback
-    // The handler routes API Gateway events to handleCallback().
-    this.callbackUrl =
-      'https://api.deployz.dev/durable/{workflowName}/{executionId}/callback';
+    if (props.httpApi) {
+      props.httpApi.addRoutes({
+        path: '/durable/{workflowName}/{executionId}/callback',
+        methods: [HttpMethod.POST],
+        integration: new HttpLambdaIntegration('DurableCallback', this.function),
+      });
+      this.callbackUrl = `${props.httpApi.apiEndpoint}/durable/{workflowName}/{executionId}/callback`;
+    } else {
+      this.callbackUrl =
+        'https://api.deployz.dev/durable/{workflowName}/{executionId}/callback';
+    }
   }
 }
