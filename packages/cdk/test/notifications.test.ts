@@ -14,6 +14,7 @@ import {
   isNotificationEvent,
   NOTIFICATION_EVENT_TYPES,
   NotificationEngine,
+  SesEmailSender,
   StubEmailSender,
   type InAppNotification,
   type NotificationChannel,
@@ -554,5 +555,70 @@ describe('InMemoryNotificationStore', () => {
 
     expect(store.count).toBe(0);
     expect(store.notifications).toHaveLength(0);
+  });
+});
+
+// ── SesEmailSender ───────────────────────────────────────────────────────
+
+import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+
+describe('SesEmailSender', () => {
+  it('constructs with explicit credentials', () => {
+    const sender = new SesEmailSender({
+      accessKeyId: 'AKIA_TEST',
+      secretAccessKey: 'secret_test',
+      region: 'us-east-1',
+      fromAddress: 'noreply@e.deployz.dev',
+    });
+    expect(sender).toBeDefined();
+  });
+
+  it('constructs with ambient env (no explicit credentials)', () => {
+    const sender = new SesEmailSender();
+    expect(sender).toBeDefined();
+  });
+
+  it('sends an email via SES SendEmailCommand', async () => {
+    const sentCommands: SendEmailCommand[] = [];
+    const mockClient = {
+      send(cmd: SendEmailCommand) {
+        sentCommands.push(cmd);
+        return Promise.resolve({ MessageId: 'test-message-id' });
+      },
+    } as unknown as SESClient;
+
+    const sender = new SesEmailSender({
+      accessKeyId: 'AKIA_TEST',
+      secretAccessKey: 'secret_test',
+      fromAddress: 'notifications@e.deployz.dev',
+    });
+
+    (sender as unknown as { client: SESClient }).client = mockClient;
+
+    await sender.send('user@example.com', 'Test Subject', 'Test Body');
+
+    expect(sentCommands).toHaveLength(1);
+    const cmd = sentCommands[0]!;
+    expect(cmd.input.Source).toBe('notifications@e.deployz.dev');
+    expect(cmd.input.Destination?.ToAddresses).toEqual(['user@example.com']);
+    expect(cmd.input.Message?.Subject?.Data).toBe('Test Subject');
+    expect(cmd.input.Message?.Body?.Text?.Data).toBe('Test Body');
+  });
+
+  it('uses default from address when none provided', async () => {
+    const sentCommands: SendEmailCommand[] = [];
+    const mockClient = {
+      send(cmd: SendEmailCommand) {
+        sentCommands.push(cmd);
+        return Promise.resolve({});
+      },
+    } as unknown as SESClient;
+
+    const sender = new SesEmailSender();
+    (sender as unknown as { client: SESClient }).client = mockClient;
+
+    await sender.send('user@example.com', 'S', 'B');
+
+    expect(sentCommands[0]!.input.Source).toBe('notifications@e.deployz.dev');
   });
 });

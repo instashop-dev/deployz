@@ -245,6 +245,56 @@ export class StubEmailSender implements EmailSender {
   }
 }
 
+// ── SES email sender ──────────────────────────────────────────────────────
+
+import { SendEmailCommand, SESClient } from '@aws-sdk/client-ses';
+
+export interface SesEmailSenderConfig {
+  readonly accessKeyId?: string;
+  readonly secretAccessKey?: string;
+  readonly region?: string;
+  readonly fromAddress?: string;
+}
+
+/**
+ * Real email sender backed by AWS SES. Sends from the verified
+ * `notifications@e.deployz.dev` address by default. Credentials come from
+ * AWS_SES_ACCESS_KEY_ID / AWS_SES_SECRET_ACCESS_KEY env vars (or the
+ * ambient AWS SDK credential chain when those are absent).
+ */
+export class SesEmailSender implements EmailSender {
+  private readonly client: SESClient;
+  private readonly from: string;
+
+  constructor(config: SesEmailSenderConfig = {}) {
+    this.client = new SESClient({
+      region: config.region ?? process.env.AWS_REGION ?? 'us-east-1',
+      ...(config.accessKeyId && config.secretAccessKey
+        ? {
+            credentials: {
+              accessKeyId: config.accessKeyId,
+              secretAccessKey: config.secretAccessKey,
+            },
+          }
+        : {}),
+    });
+    this.from = config.fromAddress ?? 'notifications@e.deployz.dev';
+  }
+
+  async send(to: string, subject: string, body: string): Promise<void> {
+    await this.client.send(
+      new SendEmailCommand({
+        Source: this.from,
+        Destination: { ToAddresses: [to] },
+        Message: {
+          Subject: { Data: subject, Charset: 'UTF-8' },
+          Body: { Text: { Data: body, Charset: 'UTF-8' } },
+        },
+      }),
+    );
+  }
+}
+
 // ── Notification engine ───────────────────────────────────────────────────
 
 /**
