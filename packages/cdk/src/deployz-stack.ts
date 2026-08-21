@@ -19,6 +19,8 @@ import {
   PostgresEngineVersion,
 } from 'aws-cdk-lib/aws-rds';
 import { Queue } from 'aws-cdk-lib/aws-sqs';
+import { HttpApi } from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Construct } from 'constructs';
 
 import { ApiLambda } from './api-lambda.js';
@@ -36,6 +38,10 @@ import { DurableExecution } from './durable/durable-stack.js';
  * - DynamoDB-backed durable execution framework (U1 spike)
  *
  * Region: us-east-1 (hardcoded per plan §32 region allowlist).
+ *
+ * Credentials are injected by loading the repo-root .env in bin/deployz.ts
+ * (dotenv config with explicit path). The env vars are collected here and
+ * passed to the Lambda via the `environment` prop.
  */
 export class DeployzStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -79,10 +85,15 @@ export class DeployzStack extends Stack {
     });
 
     // ── API Lambda ───────────────────────────────────────────────────────
+    // Collect credential env vars from process.env (loaded by bin/deployz.ts
+    // from the repo-root .env). Only non-undefined vars are passed through.
+    const credentialEnv = collectEnvVars();
+
     const apiLambda = new ApiLambda(this, 'ApiLambda', {
       vpc: vpcResource,
       dbSecurityGroup,
-      database: dbInstance,
+      dbSecretArn: dbInstance.secret?.secretArn ?? '',
+      environment: credentialEnv,
     });
 
     dbSecurityGroup.addIngressRule(
@@ -90,6 +101,11 @@ export class DeployzStack extends Stack {
       Port.tcp(5432),
       'Allow Lambda to reach RDS',
     );
+
+    // ── HTTP API Gateway ─────────────────────────────────────────────────
+    const httpApi = new HttpApi(this, 'HttpApi', {
+      defaultIntegration: new HttpLambdaIntegration('ApiIntegration', apiLambda.function),
+    });
 
     // ── EventBridge + SQS (async job processing) ─────────────────────────
     const jobQueue = new Queue(this, 'JobQueue', {
@@ -123,6 +139,9 @@ export class DeployzStack extends Stack {
     this.exportValue(apiLambda.function.functionArn, {
       name: `${this.stackName}-ApiFunctionArn`,
     });
+    this.exportValue(httpApi.apiEndpoint, {
+      name: `${this.stackName}-ApiUrl`,
+    });
     this.exportValue(jobQueue.queueArn, {
       name: `${this.stackName}-JobQueueArn`,
     });
@@ -130,4 +149,36 @@ export class DeployzStack extends Stack {
       name: `${this.stackName}-DurableCallbackUrl`,
     });
   }
+}
+
+/**
+ * Collect credential env vars from process.env. The .env file is loaded by
+ * bin/deployz.ts before the CDK app runs, so these are available here.
+ * Only the vars that are actually set are included.
+ */
+function collectEnvVars(): Record<string, string> {
+  const keys = [
+    'BETTER_AUTH_SECRET',
+    'BETTER_AUTH_URL',
+    'GITHUB_CLIENT_ID',
+    'GITHUB_CLIENT_SECRET',
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_PRICE_BASE',
+    'STRIPE_PRICE_METERED',
+    'GITHUB_APP_ID',
+    'GITHUB_APP_PRIVATE_KEY',
+    'GITHUB_WEBHOOK_SECRET',
+    'GITHUB_APP_INSTALL_URL',
+    'GITHUB_FIXTURE_MODE',
+    'WEB_URL',
+  ];
+  const env: Record<string, string> = {};
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value !== undefined && value !== '') {
+      env[key] = value;
+    }
+  }
+  return env;
 }

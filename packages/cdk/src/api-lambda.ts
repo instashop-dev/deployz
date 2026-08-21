@@ -2,8 +2,8 @@ import { Duration } from 'aws-cdk-lib';
 import type { ISecurityGroup, IVpc } from 'aws-cdk-lib/aws-ec2';
 import { SubnetType } from 'aws-cdk-lib/aws-ec2';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
-import { NodejsFunction, type OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
-import type { IDatabaseInstance } from 'aws-cdk-lib/aws-rds';
+import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
+import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { join } from 'node:path';
@@ -11,7 +11,11 @@ import { join } from 'node:path';
 export interface ApiLambdaProps {
   readonly vpc: IVpc;
   readonly dbSecurityGroup: ISecurityGroup;
-  readonly database: IDatabaseInstance;
+  /** ARN of the RDS master secret in Secrets Manager. The Lambda fetches
+   * credentials at runtime — never hardcoded in the env. */
+  readonly dbSecretArn: string;
+  /** Extra environment variables passed from the repo-root .env. */
+  readonly environment?: Record<string, string>;
 }
 
 /**
@@ -21,8 +25,13 @@ export interface ApiLambdaProps {
  * handler. The handler lives in src/lambda/api-handler.ts and imports
  * @deployz/api's buildServer to create the Fastify instance.
  *
+ * Bundles as CJS (not ESM) because node-postgres (pg) uses dynamic
+ * require() calls that break ESM bundling.
+ *
  * The Lambda runs inside the VPC so it can reach RDS; the security group
  * on the Lambda is granted ingress to the DB security group by the caller.
+ * DB credentials are fetched from Secrets Manager at runtime via
+ * DB_SECRET_ARN — never inline.
  */
 export class ApiLambda extends Construct {
   public readonly function: NodejsFunction;
@@ -41,29 +50,23 @@ export class ApiLambda extends Construct {
       vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [props.dbSecurityGroup],
       environment: {
-        DATABASE_URL: `postgres://deployz_admin:CHANGE_ME@${props.database.instanceEndpoint.hostname}:${props.database.instanceEndpoint.port}/deployz`,
+        DB_SECRET_ARN: props.dbSecretArn,
         NODE_ENV: 'production',
+        ...props.environment,
       },
       bundling: {
-        externalModules: [
-          '@electric-sql/pglite',
-          '@deployz/api',
-          '@deployz/db',
-          '@deployz/contracts',
-        ],
-        format: 'esm' as OutputFormat,
+        // pg uses dynamic require(); CJS bundling avoids ESM loader errors.
+        externalModules: ['@electric-sql/pglite'],
+        format: OutputFormat.CJS,
         target: 'node22',
         sourceMap: true,
+        // Bundle drizzle .sql migrations as text strings at build time.
+        loader: { '.sql': 'text' },
       },
     });
 
-    // Grant Lambda access to the DB secret in Secrets Manager.
-    // The secret is on the concrete DatabaseInstance, not IDatabaseInstance.
-    // We access it via escape hatch if available.
-    const dbNode = props.database.node.defaultChild;
-    if (dbNode && 'secret' in dbNode) {
-      const secret = (dbNode as { secret?: { grantRead: (fn: NodejsFunction) => void } }).secret;
-      secret?.grantRead(this.function);
-    }
+    // Grant Lambda read access to the RDS secret in Secrets Manager.
+    const dbSecret = Secret.fromSecretCompleteArn(this, 'DbSecret', props.dbSecretArn);
+    dbSecret.grantRead(this.function);
   }
 }
