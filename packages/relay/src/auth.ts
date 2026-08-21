@@ -11,7 +11,7 @@
 
 /** Secrets Manager client interface (injectable seam for testing). */
 export interface SecretsClient {
-  getSecretValue(params: { SecretId: string }): Promise<{ SecretString?: string }>;
+  getSecretValue(params: { SecretId: string }): Promise<{ SecretString: string | undefined }>;
 }
 
 /** HTTP fetch interface (injectable seam for testing). */

@@ -20,6 +20,9 @@
     "lint": "eslint src",
     "dev": "tsc -p tsconfig.json --watch"
   },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1115.0"
+  },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.0"
   }

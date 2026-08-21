@@ -253,5 +253,91 @@ export async function buildServer({
     },
   });
 
+  // ── Relay endpoints (bearer-token auth, not session cookie) ─────────
+
+  const relayStore = createRelayStore();
+
+  app.post('/api/relay/register', async (request, reply) => {
+    const auth = request.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
+    }
+    const token = auth.slice(7);
+    const body = request.body as { installationId?: string };
+    if (!body?.installationId) {
+      throw new ApiError(400, 'INVALID_REQUEST', 'installationId is required');
+    }
+    relayStore.register(body.installationId, token);
+    return reply.code(200).send({ registered: true });
+  });
+
+  app.get('/api/relay/commands', async (request) => {
+    const auth = request.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
+    }
+    const { installationId } = request.query as { installationId?: string };
+    if (!installationId) {
+      throw new ApiError(400, 'INSTALLATION_ID_REQUIRED', 'installationId query parameter is required');
+    }
+    return { commands: relayStore.getPendingCommands(installationId) };
+  });
+
+  app.post('/api/relay/commands/:id/result', async (request, reply) => {
+    const auth = request.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
+    }
+    const { id } = request.params as { id: string };
+    const body = request.body as { success?: boolean; error?: string; output?: Record<string, unknown> };
+    relayStore.reportResult(id, body);
+    return reply.code(200).send({ received: true });
+  });
+
+  app.post('/api/relay/health', async (request, reply) => {
+    const auth = request.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
+    }
+    return reply.code(200).send({ received: true });
+  });
+
   return app;
+}
+
+// ── Relay store (in-memory, same pattern as githubStore) ────────────────
+
+interface RelayInstallation {
+  id: string;
+  token: string;
+}
+
+interface PendingCommand {
+  id: string;
+  deploymentId: string;
+  type: string;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+}
+
+function createRelayStore() {
+  const installations = new Map<string, RelayInstallation>();
+  const commands = new Map<string, PendingCommand[]>();
+
+  return {
+    register(installationId: string, token: string) {
+      installations.set(installationId, { id: installationId, token });
+      if (!commands.has(installationId)) {
+        commands.set(installationId, []);
+      }
+    },
+    getPendingCommands(installationId: string): PendingCommand[] {
+      const pending = commands.get(installationId) ?? [];
+      commands.set(installationId, []);
+      return pending;
+    },
+    reportResult(_commandId: string, _result: { success?: boolean; error?: string; output?: Record<string, unknown> }) {
+      // ponytail: real result persistence needs a DB table; in-memory for MVP.
+    },
+  };
 }
