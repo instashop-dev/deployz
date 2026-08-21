@@ -1,0 +1,34 @@
+{
+  "name": "@deployz/cdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src",
+    "dev": "tsc -p tsconfig.json --watch",
+    "synth:bootstrap": "node scripts/synth-bootstrap.mjs",
+    "synth:app": "node scripts/synth-app.mjs",
+    "cdk": "cdk"
+  },
+  "dependencies": {
+    "@deployz/api": "workspace:*",
+    "@deployz/relay": "workspace:*",
+    "aws-cdk-lib": "^2.180.0",
+    "constructs": "^10.4.0",
+    "esbuild": "^0.25.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@deployz/db": "workspace:*",
+    "@types/aws-lambda": "^8.10.0"
+  }
+}

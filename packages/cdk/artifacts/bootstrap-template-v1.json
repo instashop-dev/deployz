@@ -1,0 +1,831 @@
+{
+  "Parameters": {
+    "ControlPlaneUrl": {
+      "Type": "String",
+      "Default": "https://api.deployz.dev",
+      "Description": "Base URL of the Deployz control plane the relay polls. NOT a credential."
+    },
+    "BootstrapVersion": {
+      "Type": "AWS::SSM::Parameter::Value<String>",
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+    }
+  },
+  "Resources": {
+    "InstallIdFunctionServiceRole9CEC2041": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          }
+        ]
+      }
+    },
+    "InstallIdFunctionE00E99D3": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+          },
+          "S3Key": "579c1012eaf9cfc20829741166ed26b158cadaaccd368e459c3430948809c589.zip"
+        },
+        "Handler": "index.handler",
+        "MemorySize": 128,
+        "Role": {
+          "Fn::GetAtt": [
+            "InstallIdFunctionServiceRole9CEC2041",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          }
+        ],
+        "Timeout": 60
+      },
+      "DependsOn": [
+        "InstallIdFunctionServiceRole9CEC2041"
+      ]
+    },
+    "InstallIdProviderframeworkonEventServiceRole99D4C1C6": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          }
+        ]
+      }
+    },
+    "InstallIdProviderframeworkonEventServiceRoleDefaultPolicy0DEC8FAD": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "lambda:InvokeFunction",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "InstallIdFunctionE00E99D3",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "InstallIdFunctionE00E99D3",
+                          "Arn"
+                        ]
+                      },
+                      ":*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "lambda:GetFunction",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "InstallIdFunctionE00E99D3",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "InstallIdProviderframeworkonEventServiceRoleDefaultPolicy0DEC8FAD",
+        "Roles": [
+          {
+            "Ref": "InstallIdProviderframeworkonEventServiceRole99D4C1C6"
+          }
+        ]
+      }
+    },
+    "InstallIdProviderframeworkonEvent80868007": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+          },
+          "S3Key": "e16ffb3b34af185b8b30c88fdb19faa13b6c42bb38580485c4e84b384ee48b63.zip"
+        },
+        "Description": "AWS CDK resource provider framework - onEvent (DeployzBootstrap/InstallIdProvider)",
+        "Environment": {
+          "Variables": {
+            "USER_ON_EVENT_FUNCTION_ARN": {
+              "Fn::GetAtt": [
+                "InstallIdFunctionE00E99D3",
+                "Arn"
+              ]
+            }
+          }
+        },
+        "Handler": "framework.onEvent",
+        "LoggingConfig": {
+          "ApplicationLogLevel": "FATAL",
+          "LogFormat": "JSON"
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "InstallIdProviderframeworkonEventServiceRole99D4C1C6",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs24.x",
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          }
+        ],
+        "Timeout": 900
+      },
+      "DependsOn": [
+        "InstallIdProviderframeworkonEventServiceRoleDefaultPolicy0DEC8FAD",
+        "InstallIdProviderframeworkonEventServiceRole99D4C1C6"
+      ]
+    },
+    "InstallationId": {
+      "Type": "AWS::CloudFormation::CustomResource",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "InstallIdProviderframeworkonEvent80868007",
+            "Arn"
+          ]
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete"
+    },
+    "RelayCredential6AA8BC18": {
+      "Type": "AWS::SecretsManager::Secret",
+      "Properties": {
+        "Description": "Bootstrap-generated relay communication credential. Minted by CloudFormation at deploy time; registered with the control plane on the relay first poll. Never a template parameter.",
+        "GenerateSecretString": {
+          "ExcludePunctuation": false,
+          "GenerateStringKey": "token",
+          "PasswordLength": 64,
+          "SecretStringTemplate": "{}"
+        },
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:installation",
+            "Value": {
+              "Fn::GetAtt": [
+                "InstallationId",
+                "InstallationId"
+              ]
+            }
+          }
+        ]
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete"
+    },
+    "PermissionsBoundary2D0B48CC": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": "Maximum permissions for the Deployz relay execution role (union of phase 1 + phase 2). All within the deployz: tag boundary.",
+        "Path": "/",
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayWriteLogs"
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+                "secretsmanager:UpdateSecret",
+                "secretsmanager:DescribeSecret"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "RelayCredential6AA8BC18"
+              },
+              "Sid": "RelayAccessCredential"
+            },
+            {
+              "Action": [
+                "cloudformation:CreateStack",
+                "cloudformation:UpdateStack",
+                "cloudformation:CreateChangeSet",
+                "cloudformation:ExecuteChangeSet"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerCreateStacks"
+            },
+            {
+              "Action": [
+                "cloudformation:DeleteStack",
+                "cloudformation:DeleteChangeSet",
+                "cloudformation:DescribeStacks",
+                "cloudformation:DescribeStackEvents",
+                "cloudformation:DescribeStackResources"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerManageStacks"
+            },
+            {
+              "Action": "iam:PassRole",
+              "Condition": {
+                "StringEquals": {
+                  "iam:PassedToService": "cloudformation.amazonaws.com"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Sid": "ProvisionerPassRole"
+            },
+            {
+              "Action": [
+                "ecs:UpdateService",
+                "ecs:DeleteService",
+                "ecs:DescribeServices",
+                "rds:ModifyDBInstance",
+                "rds:DeleteDBInstance",
+                "rds:DescribeDBInstances",
+                "elasticloadbalancing:DescribeLoadBalancers",
+                "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAppResourceManage"
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      }
+    },
+    "ProvisionerPolicyCCE83F9D": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": "Post-first-contact provisioner permissions for the relay (phase 2). All within the deployz: tag boundary. Attached by the control plane.",
+        "Path": "/",
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "cloudformation:CreateStack",
+                "cloudformation:UpdateStack",
+                "cloudformation:CreateChangeSet",
+                "cloudformation:ExecuteChangeSet"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerCreateStacks"
+            },
+            {
+              "Action": [
+                "cloudformation:DeleteStack",
+                "cloudformation:DeleteChangeSet",
+                "cloudformation:DescribeStacks",
+                "cloudformation:DescribeStackEvents",
+                "cloudformation:DescribeStackResources"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerManageStacks"
+            },
+            {
+              "Action": "iam:PassRole",
+              "Condition": {
+                "StringEquals": {
+                  "iam:PassedToService": "cloudformation.amazonaws.com"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Sid": "ProvisionerPassRole"
+            },
+            {
+              "Action": [
+                "ecs:UpdateService",
+                "ecs:DeleteService",
+                "ecs:DescribeServices",
+                "rds:ModifyDBInstance",
+                "rds:DeleteDBInstance",
+                "rds:DescribeDBInstances",
+                "elasticloadbalancing:DescribeLoadBalancers",
+                "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAppResourceManage"
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      }
+    },
+    "RelayRoleF85CA969": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Description": "Execution role for the Deployz relay Lambda. Least privilege (phase 1) with a permissions boundary; phase 2 provisioner policy is attached by the control plane after first contact.",
+        "PermissionsBoundary": {
+          "Ref": "PermissionsBoundary2D0B48CC"
+        },
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:installation",
+            "Value": {
+              "Fn::GetAtt": [
+                "InstallationId",
+                "InstallationId"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "RelayRoleDefaultPolicyF6F9CA99": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayWriteLogs"
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+                "secretsmanager:UpdateSecret",
+                "secretsmanager:DescribeSecret"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "RelayCredential6AA8BC18"
+              },
+              "Sid": "RelayAccessCredential"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "RelayRoleDefaultPolicyF6F9CA99",
+        "Roles": [
+          {
+            "Ref": "RelayRoleF85CA969"
+          }
+        ]
+      }
+    },
+    "RelayFunctionD137DF95": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+          },
+          "S3Key": "5d41a2b03f9545ee6879950563474603f61daec2a63e55664d49780e18b33e8c.zip"
+        },
+        "Environment": {
+          "Variables": {
+            "DEPLOYZ_INSTALLATION_ID": {
+              "Fn::GetAtt": [
+                "InstallationId",
+                "InstallationId"
+              ]
+            },
+            "DEPLOYZ_CREDENTIAL_SECRET_ARN": {
+              "Ref": "RelayCredential6AA8BC18"
+            },
+            "DEPLOYZ_CONTROL_PLANE_URL": {
+              "Ref": "ControlPlaneUrl"
+            }
+          }
+        },
+        "Handler": "index.handler",
+        "MemorySize": 256,
+        "Role": {
+          "Fn::GetAtt": [
+            "RelayRoleF85CA969",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:installation",
+            "Value": {
+              "Fn::GetAtt": [
+                "InstallationId",
+                "InstallationId"
+              ]
+            }
+          }
+        ],
+        "Timeout": 300
+      },
+      "DependsOn": [
+        "RelayRoleDefaultPolicyF6F9CA99",
+        "RelayRoleF85CA969"
+      ]
+    },
+    "RelayFunctionLogRetention89D973C7": {
+      "Type": "Custom::LogRetention",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A",
+            "Arn"
+          ]
+        },
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/lambda/",
+              {
+                "Ref": "RelayFunctionD137DF95"
+              }
+            ]
+          ]
+        },
+        "RetentionInDays": 7
+      }
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          }
+        ]
+      }
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "logs:PutRetentionPolicy",
+                "logs:DeleteRetentionPolicy"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
+        "Roles": [
+          {
+            "Ref": "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB"
+          }
+        ]
+      }
+    },
+    "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aFD4BFC8A": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Handler": "index.handler",
+        "Runtime": "nodejs24.x",
+        "Timeout": 900,
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+          },
+          "S3Key": "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip"
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB",
+            "Arn"
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          }
+        ]
+      },
+      "DependsOn": [
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRoleDefaultPolicyADDA7DEB",
+        "LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8aServiceRole9741ECFB"
+      ]
+    },
+    "RelaySchedule27C29C24": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Description": "Polls the Deployz control plane every 5 minutes (egress-only).",
+        "ScheduleExpression": "rate(5 minutes)",
+        "State": "ENABLED",
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:installation",
+            "Value": {
+              "Fn::GetAtt": [
+                "InstallationId",
+                "InstallationId"
+              ]
+            }
+          }
+        ],
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "RelayFunctionD137DF95",
+                "Arn"
+              ]
+            },
+            "Id": "Target0"
+          }
+        ]
+      }
+    },
+    "RelayScheduleAllowEventRuleDeployzBootstrapRelayFunction8358521BAB0651CD": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "RelayFunctionD137DF95",
+            "Arn"
+          ]
+        },
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "RelaySchedule27C29C24",
+            "Arn"
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ExportDeployzBootstrapRelayFunctionArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "RelayFunctionD137DF95",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": "DeployzBootstrap-RelayFunctionArn"
+      }
+    },
+    "ExportDeployzBootstrapCredentialSecretArn": {
+      "Value": {
+        "Ref": "RelayCredential6AA8BC18"
+      },
+      "Export": {
+        "Name": "DeployzBootstrap-CredentialSecretArn"
+      }
+    },
+    "ExportDeployzBootstrapProvisionerPolicyArn": {
+      "Value": {
+        "Ref": "ProvisionerPolicyCCE83F9D"
+      },
+      "Export": {
+        "Name": "DeployzBootstrap-ProvisionerPolicyArn"
+      }
+    },
+    "ExportDeployzBootstrapInstallationId": {
+      "Value": {
+        "Fn::GetAtt": [
+          "InstallationId",
+          "InstallationId"
+        ]
+      },
+      "Export": {
+        "Name": "DeployzBootstrap-InstallationId"
+      }
+    }
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5"
+                  ],
+                  {
+                    "Ref": "BootstrapVersion"
+                  }
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+        }
+      ]
+    }
+  }
+}

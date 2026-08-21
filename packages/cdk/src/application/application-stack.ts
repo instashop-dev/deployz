@@ -1,0 +1,483 @@
+/**
+ * Application stack — the infrastructure that RUNS a customer's deployed
+ * application, provisioned into the CUSTOMER's AWS account AFTER the bootstrap
+ * stack (todo 8) establishes the relay trust channel and the relay makes its
+ * first contact.
+ *
+ * This is the versioned runtime template (runtime-v1) referenced by §59/§60:
+ * infra changes flow through a controlled lifecycle (runtime-v1 → v2), never a
+ * silent template mutation. It is DISTINCT from the control-plane DeployzStack
+ * (todo 7) and the bootstrap BootstrapStack (todo 8).
+ *
+ * What it provisions, in order of the plan's todo 9 scope:
+ *   1. VPC          — 2 AZs, public + private subnets, NAT gateway.
+ *   2. ALB          — internet-facing Application Load Balancer (plain-Fargate
+ *                     mode) with a `/health` health check; in Express mode the
+ *                     ALB/target-group/security-group set is auto-managed by
+ *                     `AWS::ECS::ExpressGatewayService`.
+ *   3. ECS Fargate  — an `expressMode` boolean prop selects the deployment
+ *                     model (C3/U3):
+ *                       - expressMode=false (DEFAULT): plain Fargate
+ *                         (FargateTaskDefinition + FargateService) with an
+ *                         explicit ALB — the safe, everywhere-available
+ *                         fallback.
+ *                       - expressMode=true: ECS Express Mode
+ *                         (`AWS::ECS::ExpressGatewayService`), the fast-scaling
+ *                         service mode where ECS manages the ALB/target
+ *                         groups/security groups/auto-scaling.
+ *   4. RDS PostgreSQL — db.t4g.micro, Postgres 16, private subnet group,
+ *                     automated backups (§64), final-snapshot on delete.
+ *   5. S3           — versioned application object storage, deployz:-tagged.
+ *   6. Secrets Manager — DB master credentials (bootstrap-generated, NOT a
+ *                     parameter) + app env secrets supplied via NoEcho params.
+ *   7. CloudWatch   — ECS task log group with retention.
+ *   8. NoEcho/param_ params — app env secrets are template parameters with
+ *                     NoEcho=true and a `param_` name prefix (M17). The DB
+ *                     password is never a parameter (it is generated).
+ */
+import {
+  CfnParameter,
+  Duration,
+  RemovalPolicy,
+  SecretValue,
+  Stack,
+  Tags,
+  type StackProps,
+} from 'aws-cdk-lib';
+import {
+  InstanceClass,
+  InstanceSize,
+  InstanceType,
+  Peer,
+  Port,
+  SecurityGroup,
+  SubnetType,
+  Vpc,
+  type IVpc,
+} from 'aws-cdk-lib/aws-ec2';
+import {
+  CfnExpressGatewayService,
+  Cluster,
+  ContainerImage,
+  CpuArchitecture,
+  FargateService,
+  FargateTaskDefinition,
+  LogDriver,
+  OperatingSystemFamily,
+  Protocol,
+  Secret as EcsSecret,
+  type ICluster,
+} from 'aws-cdk-lib/aws-ecs';
+import {
+  ApplicationLoadBalancer,
+  ApplicationProtocol,
+} from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import {
+  Effect,
+  ManagedPolicy,
+  PolicyStatement,
+  Role,
+  ServicePrincipal,
+} from 'aws-cdk-lib/aws-iam';
+import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import {
+  Credentials,
+  DatabaseInstance,
+  DatabaseInstanceEngine,
+  PostgresEngineVersion,
+} from 'aws-cdk-lib/aws-rds';
+import {
+  BlockPublicAccess,
+  Bucket,
+  BucketEncryption,
+} from 'aws-cdk-lib/aws-s3';
+import { Secret, type ISecret } from 'aws-cdk-lib/aws-secretsmanager';
+import { Construct } from 'constructs';
+
+export interface ApplicationStackProps extends StackProps {
+  /**
+   * Selects the ECS deployment model (C3/U3).
+   *
+   * `false` (default) provisions plain Fargate — a `FargateTaskDefinition` +
+   * `FargateService` behind an explicit Application Load Balancer. This is the
+   * safe fallback: it is available in every supported region and does not
+   * depend on the newer Express service mode.
+   *
+   * `true` provisions ECS Express Mode (`AWS::ECS::ExpressGatewayService`),
+   * where ECS manages the ALB, target groups, security groups and auto-scaling
+   * for fast-scaling web applications.
+   */
+  readonly expressMode?: boolean;
+  /**
+   * Container image repository (without a tag). Combined with `imageDigest` to
+   * form an immutable `repo@sha256:...` reference. The release's exact digest
+   * is pinned per template version (§59/§60), so a placeholder is safe for the
+   * committed runtime-v1 artifact and overridden at release time.
+   */
+  readonly imageRepository?: string;
+  /** Container image digest (immutable `sha256:` reference). */
+  readonly imageDigest?: string;
+  /** Number of tasks to run (plain Fargate desiredCount / Express minTaskCount). */
+  readonly desiredCount?: number;
+}
+
+const DEFAULT_IMAGE_REPOSITORY = 'public.ecr.aws/deployz/fixture';
+const DEFAULT_IMAGE_DIGEST =
+  'sha256:0000000000000000000000000000000000000000000000000000000000000000';
+const APP_PORT = 3000;
+const HEALTH_CHECK_PATH = '/health';
+const DB_NAME = 'deployz';
+const DB_USER = 'deployz_app';
+const DB_PORT = 5432;
+
+export class ApplicationStack extends Stack {
+  public readonly vpc: Vpc;
+  public readonly database: DatabaseInstance;
+  /** DB master credentials — generated at deploy time, never a parameter. */
+  public readonly databaseSecret: Secret;
+  /** App runtime secrets — supplied via NoEcho `param_` parameters (M17). */
+  public readonly appSecret: Secret;
+  public readonly storageBucket: Bucket;
+  public readonly cluster: Cluster;
+  /** Plain-Fargate service (defined when `expressMode` is false). */
+  public readonly fargateService?: FargateService;
+  /** Express Gateway service (defined when `expressMode` is true). */
+  public readonly expressService?: CfnExpressGatewayService;
+  /** Explicit ALB (defined when `expressMode` is false). */
+  public readonly loadBalancer?: ApplicationLoadBalancer;
+
+  constructor(scope: Construct, id: string, props: ApplicationStackProps = {}) {
+    super(scope, id, props);
+
+    const expressMode = props.expressMode ?? false;
+    const imageRepository = props.imageRepository ?? DEFAULT_IMAGE_REPOSITORY;
+    const imageDigest = props.imageDigest ?? DEFAULT_IMAGE_DIGEST;
+    const desiredCount = props.desiredCount ?? 1;
+    const imageReference = `${imageRepository}@${imageDigest}`;
+
+    // ── 1. VPC: 2 AZs, public + private subnets, NAT gateway ─────────────
+    this.vpc = new Vpc(this, 'Vpc', {
+      maxAzs: 2,
+      natGateways: 1,
+      subnetConfiguration: [
+        { name: 'Public', subnetType: SubnetType.PUBLIC },
+        { name: 'Private', subnetType: SubnetType.PRIVATE_WITH_EGRESS },
+      ],
+    });
+
+    // ── 8. NoEcho / param_ parameters (M17) ───────────────────────────────
+    // App env secrets are vendor/customer config (§31). They arrive as template
+    // parameters with NoEcho=true and a `param_` prefix (CloudFormation's
+    // Quick Create convention for URL-suppliable params). The values are never
+    // echoed back; they land in Secrets Manager and are injected into the
+    // container at task start. The DB password is NOT here — it is generated.
+    const appApiKeyParam = new CfnParameter(this, 'param_AppApiKey', {
+      type: 'String',
+      noEcho: true,
+      description:
+        'Application API key (vendor/customer secret). NoEcho — never echoed.',
+    });
+    const appSigningSecretParam = new CfnParameter(this, 'param_AppSigningSecret', {
+      type: 'String',
+      noEcho: true,
+      description:
+        'Application signing secret (vendor/customer secret). NoEcho — never echoed.',
+    });
+
+    // ── 6. Secrets Manager ────────────────────────────────────────────────
+    // DB master credentials: bootstrap-generated (generateStringKey), never a
+    // template parameter, never in the Quick Create URL.
+    this.databaseSecret = new Secret(this, 'DatabaseSecret', {
+      description:
+        'RDS PostgreSQL master credentials for the customer application. ' +
+        'Generated by CloudFormation at deploy time — never a template parameter.',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: DB_USER }),
+        generateStringKey: 'password',
+        passwordLength: 32,
+        excludePunctuation: false,
+      },
+    });
+
+    // App runtime secrets: the NoEcho parameter values are written into this
+    // secret at deploy time (§31 write-through: secret values live in the
+    // customer account, never in the control plane).
+    this.appSecret = new Secret(this, 'AppConfigSecret', {
+      description:
+        'Application runtime secrets (vendor/customer config) supplied via ' +
+        'NoEcho parameters at deploy time. Never returned to the control plane.',
+      secretObjectValue: {
+        apiKey: SecretValue.cfnParameter(appApiKeyParam),
+        signingSecret: SecretValue.cfnParameter(appSigningSecretParam),
+      },
+    });
+
+    // ── 5. S3 object storage (versioned) ─────────────────────────────────
+    this.storageBucket = new Bucket(this, 'AppStorage', {
+      versioned: true,
+      encryption: BucketEncryption.S3_MANAGED,
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    // ── 7. CloudWatch log group for ECS tasks ─────────────────────────────
+    const logGroup = new LogGroup(this, 'AppLogGroup', {
+      retention: RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    // ── 4. RDS PostgreSQL ─────────────────────────────────────────────────
+    const dbSecurityGroup = new SecurityGroup(this, 'DbSecurityGroup', {
+      vpc: this.vpc as unknown as IVpc,
+      description: 'RDS PostgreSQL access for the customer application',
+    });
+    // Allow the application (both Fargate and Express tasks) to reach RDS.
+    // In Express mode the task security groups are ECS-managed, so the ingress
+    // is opened to the whole VPC CIDR (private + public subnets) rather than a
+    // single service security group we cannot reference.
+    dbSecurityGroup.addIngressRule(
+      Peer.ipv4(this.vpc.vpcCidrBlock),
+      Port.tcp(DB_PORT),
+      'Allow the application to reach RDS PostgreSQL',
+    );
+
+    this.database = new DatabaseInstance(this, 'Database', {
+      engine: DatabaseInstanceEngine.postgres({
+        version: PostgresEngineVersion.VER_16,
+      }),
+      instanceType: InstanceType.of(InstanceClass.T4G, InstanceSize.MICRO),
+      vpc: this.vpc as unknown as IVpc,
+      vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [dbSecurityGroup],
+      credentials: Credentials.fromSecret(this.databaseSecret as unknown as ISecret, DB_USER),
+      databaseName: DB_NAME,
+      allocatedStorage: 20,
+      maxAllocatedStorage: 100,
+      storageEncrypted: true,
+      backupRetention: Duration.days(7), // §64: automated backups
+      deletionProtection: false,
+      removalPolicy: RemovalPolicy.SNAPSHOT, // §64: final snapshot on delete
+    });
+
+    // ── ECS cluster (shared by both modes) ────────────────────────────────
+    this.cluster = new Cluster(this, 'Cluster', {
+      vpc: this.vpc as unknown as IVpc,
+    });
+
+    // ── IAM roles (shared by both modes) ──────────────────────────────────
+    const taskExecutionRole = new Role(this, 'TaskExecutionRole', {
+      assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com'),
+      description:
+        'Allows ECS to pull the application image, write task logs, and ' +
+        'inject secrets from Secrets Manager at task start.',
+    });
+    taskExecutionRole.addManagedPolicy(
+      ManagedPolicy.fromAwsManagedPolicyName(
+        'service-role/AmazonECSTaskExecutionRolePolicy',
+      ),
+    );
+    this.databaseSecret.grantRead(taskExecutionRole);
+    this.appSecret.grantRead(taskExecutionRole);
+
+    const taskRole = new Role(this, 'TaskRole', {
+      assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com'),
+      description: 'Runtime role for the customer application container.',
+    });
+    this.storageBucket.grantReadWrite(taskRole);
+    this.databaseSecret.grantRead(taskRole);
+    this.appSecret.grantRead(taskRole);
+
+    // ── 2/3. ECS + ALB (branch on expressMode) ────────────────────────────
+    let publicEndpoint: string;
+    if (expressMode) {
+      // Express Mode — ECS manages ALB/target-group/security-group/auto-scaling.
+      const infrastructureRole = new Role(this, 'ExpressInfrastructureRole', {
+        assumedBy: new ServicePrincipal('ecs.amazonaws.com'),
+        description:
+          'Allows ECS Express to manage the load balancer, target groups, ' +
+          'security groups and auto-scaling for the customer application.',
+      });
+      infrastructureRole.addToPolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: [
+            'elasticloadbalancing:CreateLoadBalancer',
+            'elasticloadbalancing:CreateTargetGroup',
+            'elasticloadbalancing:CreateListener',
+            'elasticloadbalancing:CreateRule',
+            'elasticloadbalancing:DescribeLoadBalancers',
+            'elasticloadbalancing:DescribeTargetGroups',
+            'elasticloadbalancing:DescribeListeners',
+            'elasticloadbalancing:ModifyLoadBalancerAttributes',
+            'elasticloadbalancing:ModifyTargetGroup',
+            'ec2:CreateSecurityGroup',
+            'ec2:DescribeSecurityGroups',
+            'ec2:AuthorizeSecurityGroupIngress',
+            'ec2:RevokeSecurityGroupIngress',
+            'application-autoscaling:RegisterScalableTarget',
+            'application-autoscaling:PutScalingPolicy',
+            'logs:CreateLogGroup',
+            'logs:PutRetentionPolicy',
+            'ecs:DescribeServices',
+          ],
+          resources: ['*'],
+        }),
+      );
+
+      this.expressService = new CfnExpressGatewayService(this, 'ExpressService', {
+        cluster: this.cluster.clusterName,
+        serviceName: 'deployz-app',
+        infrastructureRoleArn: infrastructureRole.roleArn,
+        executionRoleArn: taskExecutionRole.roleArn,
+        taskRoleArn: taskRole.roleArn,
+        cpu: '256',
+        memory: '512',
+        healthCheckPath: HEALTH_CHECK_PATH,
+        networkConfiguration: {
+          subnets: this.vpc
+            .selectSubnets({ subnetType: SubnetType.PRIVATE_WITH_EGRESS })
+            .subnetIds,
+        },
+        primaryContainer: {
+          image: imageReference,
+          containerPort: APP_PORT,
+          environment: [
+            { name: 'NODE_ENV', value: 'production' },
+            { name: 'PORT', value: String(APP_PORT) },
+            { name: 'DATABASE_HOST', value: this.database.instanceEndpoint.hostname },
+            { name: 'DATABASE_PORT', value: String(DB_PORT) },
+            { name: 'DATABASE_NAME', value: DB_NAME },
+            { name: 'DATABASE_USER', value: DB_USER },
+            { name: 'STORAGE_BUCKET', value: this.storageBucket.bucketName },
+          ],
+          secrets: [
+            {
+              name: 'DATABASE_PASSWORD',
+              valueFrom: `${this.databaseSecret.secretArn}:password::`,
+            },
+            {
+              name: 'APP_API_KEY',
+              valueFrom: `${this.appSecret.secretArn}:apiKey::`,
+            },
+            {
+              name: 'APP_SIGNING_SECRET',
+              valueFrom: `${this.appSecret.secretArn}:signingSecret::`,
+            },
+          ],
+          awsLogsConfiguration: {
+            logGroup: logGroup.logGroupName,
+            logStreamPrefix: 'deployz-app',
+          },
+        },
+        scalingTarget: {
+          minTaskCount: desiredCount,
+          maxTaskCount: 4,
+        },
+      });
+
+      publicEndpoint = this.expressService.attrEndpoint;
+    } else {
+      // Plain Fargate — explicit task definition, service and ALB.
+      const taskDefinition = new FargateTaskDefinition(this, 'TaskDefinition', {
+        memoryLimitMiB: 512,
+        cpu: 256,
+        runtimePlatform: {
+          operatingSystemFamily: OperatingSystemFamily.LINUX,
+          cpuArchitecture: CpuArchitecture.X86_64,
+        },
+      });
+
+      taskDefinition.addContainer('App', {
+        image: ContainerImage.fromRegistry(imageReference),
+        portMappings: [{ containerPort: APP_PORT, protocol: Protocol.TCP }],
+        logging: LogDriver.awsLogs({ streamPrefix: 'deployz-app', logGroup }),
+        environment: {
+          NODE_ENV: 'production',
+          PORT: String(APP_PORT),
+          DATABASE_HOST: this.database.instanceEndpoint.hostname,
+          DATABASE_PORT: String(DB_PORT),
+          DATABASE_NAME: DB_NAME,
+          DATABASE_USER: DB_USER,
+          STORAGE_BUCKET: this.storageBucket.bucketName,
+        },
+        secrets: {
+          DATABASE_PASSWORD: EcsSecret.fromSecretsManager(
+            this.databaseSecret as unknown as ISecret,
+            'password',
+          ),
+          APP_API_KEY: EcsSecret.fromSecretsManager(
+            this.appSecret as unknown as ISecret,
+            'apiKey',
+          ),
+          APP_SIGNING_SECRET: EcsSecret.fromSecretsManager(
+            this.appSecret as unknown as ISecret,
+            'signingSecret',
+          ),
+        },
+        healthCheck: {
+          command: [
+            'CMD-SHELL',
+            `curl -f http://localhost:${APP_PORT}${HEALTH_CHECK_PATH} || exit 1`,
+          ],
+          interval: Duration.seconds(30),
+          timeout: Duration.seconds(5),
+          retries: 3,
+          startPeriod: Duration.seconds(60),
+        },
+      });
+
+      this.fargateService = new FargateService(this, 'Service', {
+        cluster: this.cluster as unknown as ICluster,
+        taskDefinition,
+        desiredCount,
+        assignPublicIp: false,
+        vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
+        minHealthyPercent: 100,
+        maxHealthyPercent: 200,
+        circuitBreaker: { enable: true, rollback: true },
+      });
+
+      this.loadBalancer = new ApplicationLoadBalancer(this, 'LoadBalancer', {
+        vpc: this.vpc as unknown as IVpc,
+        internetFacing: true,
+      });
+      const listener = this.loadBalancer.addListener('HttpListener', {
+        port: 80,
+      });
+      listener.addTargets('AppTargets', {
+        port: APP_PORT,
+        protocol: ApplicationProtocol.HTTP,
+        healthCheck: { path: HEALTH_CHECK_PATH },
+        targets: [this.fargateService],
+      });
+
+      publicEndpoint = this.loadBalancer.loadBalancerDnsName;
+    }
+
+    // ── deployz: tags (§15) ───────────────────────────────────────────────
+    // deployz:component is static — applied to every taggable resource. The
+    // deployz:installation tag is applied at the STACK level by the control
+    // plane when it creates the application stack (stack tags propagate to
+    // resources), so the installation binding is enforced without embedding
+    // the minted id in this independently-deployed template.
+    Tags.of(this).add('deployz:component', 'application');
+
+    // ── Stack outputs ─────────────────────────────────────────────────────
+    this.exportValue(this.database.instanceEndpoint.hostname, {
+      name: `${this.stackName}-DbHost`,
+    });
+    this.exportValue(this.databaseSecret.secretArn, {
+      name: `${this.stackName}-DbSecretArn`,
+    });
+    this.exportValue(this.storageBucket.bucketName, {
+      name: `${this.stackName}-StorageBucketName`,
+    });
+    this.exportValue(this.cluster.clusterName, {
+      name: `${this.stackName}-ClusterName`,
+    });
+    this.exportValue(publicEndpoint, {
+      name: `${this.stackName}-PublicEndpoint`,
+    });
+  }
+}

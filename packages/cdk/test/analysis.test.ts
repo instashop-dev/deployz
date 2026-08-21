@@ -1,0 +1,971 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  detectDockerfile,
+  detectFramework,
+  detectPort,
+  detectHealthEndpoint,
+  detectEnvVars,
+  detectPostgresql,
+  detectLocalFilesystem,
+  detectWorker,
+  detectS3,
+  detectMigrationCommand,
+  type FileTree,
+  type DetectorFinding,
+} from '../src/analysis/detectors.js';
+
+import {
+  checkRedis,
+  checkMysql,
+  checkMongo,
+  checkElasticsearch,
+  checkOtherUnsupportedDatabases,
+  type RejectionFinding,
+} from '../src/analysis/rejection.js';
+
+import { analyseRepo, type AnalysisResult } from '../src/analysis/analyser.js';
+
+// ==========================================================================
+// Corpus fixtures (inline file trees — no real files on disk)
+// ==========================================================================
+
+/** The "ideal" compatible app: Express + Dockerfile + /health + PostgreSQL + env vars + migration. */
+const compatibleFixture: FileTree = {
+  'Dockerfile': [
+    'FROM node:20-alpine',
+    'WORKDIR /app',
+    'COPY package*.json ./',
+    'RUN npm ci --omit=dev',
+    'COPY . .',
+    'EXPOSE 3000',
+    'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+    'CMD ["node", "dist/index.js"]',
+  ].join('\n'),
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    scripts: {
+      start: 'node dist/index.js',
+      'db:migrate': 'npx drizzle-kit push',
+    },
+    dependencies: {
+      express: '^4.18.0',
+      pg: '^8.12.0',
+      'drizzle-orm': '^0.36.0',
+    },
+  }),
+  '.env.example': 'PORT=3000\nDATABASE_URL=postgresql://localhost:5432/mydb\n',
+  'src/index.ts': [
+    "import express from 'express';",
+    '',
+    'const app = express();',
+    'const PORT = process.env.PORT ?? 3000;',
+    '',
+    "app.get('/health', (_req, res) => {",
+    "  res.json({ status: 'ok' });",
+    '});',
+    '',
+    `app.listen(PORT, () => console.log(\`listening on \${PORT}\`));`,
+  ].join('\n'),
+};
+
+/** Compatible fixture that uses Prisma with PostgreSQL provider. */
+const compatiblePrismaFixture: FileTree = {
+  'Dockerfile': 'FROM node:20-alpine\nEXPOSE 3000\nCMD ["node", "dist/index.js"]\n',
+  'package.json': JSON.stringify({
+    scripts: {
+      start: 'node dist/index.js',
+      migrate: 'npx prisma migrate deploy',
+    },
+    dependencies: {
+      express: '^4.18.0',
+      '@prisma/client': '^5.0.0',
+    },
+    devDependencies: {
+      prisma: '^5.0.0',
+    },
+  }),
+  'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url = env("DATABASE_URL")\n}\n',
+  '.env': 'PORT=4000\nDATABASE_URL=postgresql://localhost:5432/prisma_db\n',
+  'src/index.ts': "import express from 'express';\nconst app = express();\napp.get('/health', (_req, res) => res.json({ ok: true }));\napp.listen(4000);\n",
+};
+
+/** Fastify-based compatible fixture. */
+const compatibleFastifyFixture: FileTree = {
+  'Dockerfile': 'FROM node:20-alpine\nEXPOSE 3000\nCMD ["node", "server.js"]\n',
+  'package.json': JSON.stringify({
+    scripts: { start: 'node server.js', migrate: 'npx knex migrate:latest' },
+    dependencies: { fastify: '^5.0.0', pg: '^8.12.0', knex: '^3.0.0' },
+  }),
+  '.env.example': 'PORT=3000\nDATABASE_URL=postgresql://localhost/mydb\nAWS_S3_BUCKET=my-bucket\n',
+  'server.js': [
+    "const fastify = require('fastify')();",
+    "fastify.get('/health', async () => ({ status: 'ok' }));",
+    "fastify.listen({ port: process.env.PORT ?? 3000 });",
+  ].join('\n'),
+};
+
+/** Incompatible: Redis dependency. */
+const incompatibleRedisFixture: FileTree = {
+  ...compatibleFixture,
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+    dependencies: {
+      express: '^4.18.0',
+      pg: '^8.12.0',
+      'drizzle-orm': '^0.36.0',
+      ioredis: '^5.4.0',
+    },
+  }),
+};
+
+/** Incompatible: MongoDB dependency. */
+const incompatibleMongoFixture: FileTree = {
+  ...compatibleFixture,
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    scripts: { start: 'node dist/index.js' },
+    dependencies: {
+      express: '^4.18.0',
+      mongoose: '^8.0.0',
+    },
+  }),
+};
+
+/** Incompatible: MySQL dependency. */
+const incompatibleMysqlFixture: FileTree = {
+  ...compatibleFixture,
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    scripts: { start: 'node dist/index.js', migrate: 'npx prisma migrate deploy' },
+    dependencies: {
+      express: '^4.18.0',
+      mysql2: '^3.9.0',
+    },
+  }),
+};
+
+/** Incompatible: local filesystem usage. */
+const incompatibleLocalFsFixture: FileTree = {
+  ...compatibleFixture,
+  'src/uploader.ts': [
+    "import fs from 'fs';",
+    '',
+    'export function saveFile(buffer: Buffer, path: string) {',
+    '  fs.writeFileSync(path, buffer);',
+    '}',
+    '',
+    'export function readFile(path: string): Buffer {',
+    '  return fs.readFileSync(path);',
+    '}',
+    '',
+    'export function ensureDir(dir: string) {',
+    '  fs.mkdirSync(dir, { recursive: true });',
+    '}',
+  ].join('\n'),
+};
+
+/** Missing Dockerfile. */
+const noDockerfileFixture: FileTree = {
+  ...compatibleFixture,
+};
+delete noDockerfileFixture['Dockerfile'];
+
+/** No health endpoint — no HEALTHCHECK instruction, no /health route. */
+const noHealthFixture: FileTree = {
+  ...compatibleFixture,
+  'Dockerfile': [
+    'FROM node:20-alpine',
+    'WORKDIR /app',
+    'COPY package*.json ./',
+    'RUN npm ci --omit=dev',
+    'COPY . .',
+    'EXPOSE 3000',
+    'CMD ["node", "dist/index.js"]',
+  ].join('\n'),
+  'src/index.ts': [
+    "import express from 'express';",
+    '',
+    'const app = express();',
+    "app.get('/', (_req, res) => res.send('Hello'));",
+    'app.listen(3000);',
+  ].join('\n'),
+};
+
+/** S3-using fixture (with aws-sdk). */
+const s3Fixture: FileTree = {
+  ...compatibleFixture,
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+    dependencies: {
+      express: '^4.18.0',
+      pg: '^8.12.0',
+      'drizzle-orm': '^0.36.0',
+      '@aws-sdk/client-s3': '^3.500.0',
+    },
+  }),
+  '.env.example': 'PORT=3000\nAWS_S3_BUCKET=my-bucket\nAWS_REGION=us-east-1\n',
+};
+
+/** Worker fixture. */
+const workerFixture: FileTree = {
+  ...compatibleFixture,
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+    dependencies: {
+      express: '^4.18.0',
+      pg: '^8.12.0',
+      'drizzle-orm': '^0.36.0',
+      bull: '^4.12.0',
+    },
+  }),
+};
+
+/** Empty repo — just a README. */
+const emptyRepoFixture: FileTree = {
+  'README.md': '# My App\n\nHello world.\n',
+};
+
+/** Docker-compose fixture. */
+const dockerComposeFixture: FileTree = {
+  ...compatibleFixture,
+  'docker-compose.yml': [
+    'version: "3.8"',
+    'services:',
+    '  app:',
+    '    build: .',
+    '    ports:',
+    '      - "${PORT:-3000}:3000"',
+    '    environment:',
+    '      - DATABASE_URL=postgresql://db:5432/app',
+    '      - REDIS_URL=redis://redis:6379',
+  ].join('\n'),
+};
+
+/** Prisma with MySQL provider (unsupported). */
+const prismaMysqlFixture: FileTree = {
+  'Dockerfile': 'FROM node:20-alpine\nEXPOSE 3000\nCMD ["node", "dist/index.js"]\n',
+  'package.json': JSON.stringify({
+    scripts: { start: 'node dist/index.js', migrate: 'npx prisma migrate deploy' },
+    dependencies: { express: '^4.18.0', '@prisma/client': '^5.0.0' },
+    devDependencies: { prisma: '^5.0.0' },
+  }),
+  'prisma/schema.prisma': 'datasource db {\n  provider = "mysql"\n  url = env("DATABASE_URL")\n}\n',
+  'src/index.ts': "import express from 'express'; const app = express(); app.get('/health', (_req, res) => res.json({ ok: true })); app.listen(3000);\n",
+};
+
+/** NestJS fixture. */
+const nestFixture: FileTree = {
+  'Dockerfile': 'FROM node:20-alpine\nEXPOSE 3000\nCMD ["node", "dist/main.js"]\n',
+  'package.json': JSON.stringify({
+    scripts: {
+      start: 'node dist/main.js',
+      'typeorm:migrate': 'npx typeorm migration:run',
+    },
+    dependencies: {
+      '@nestjs/core': '^10.0.0',
+      '@nestjs/platform-express': '^10.0.0',
+      pg: '^8.12.0',
+      typeorm: '^0.3.0',
+    },
+  }),
+  '.env': 'PORT=3000\nDB_URL=postgresql://localhost/app\n',
+  'src/main.ts': [
+    "import { NestFactory } from '@nestjs/core';",
+    "import { AppModule } from './app.module';",
+    '',
+    'async function bootstrap() {',
+    '  const app = await NestFactory.create(AppModule);',
+    "  app.getHttpAdapter().get('/health', (_req, res) => res.json({ status: 'ok' }));",
+    '  await app.listen(process.env.PORT ?? 3000);',
+    '}',
+    'bootstrap();',
+  ].join('\n'),
+};
+
+// ==========================================================================
+// §18 Detectors
+// ==========================================================================
+
+describe('§18 detectors', () => {
+  // ------------------------------------------------------------------
+  // 1. Dockerfile detector
+  // ------------------------------------------------------------------
+  describe('detectDockerfile', () => {
+    it('detects a standard Dockerfile', () => {
+      const result = detectDockerfile(compatibleFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('Dockerfile');
+    });
+
+    it('detects Dockerfile.prod (case-insensitive)', () => {
+      const tree: FileTree = { 'dockerfile': 'FROM node:20\n' };
+      const result = detectDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('dockerfile');
+    });
+
+    it('returns false when no Dockerfile exists', () => {
+      const result = detectDockerfile(noDockerfileFixture);
+      expect(result.detected).toBe(false);
+    });
+
+    it('returns false for an empty repo', () => {
+      const result = detectDockerfile(emptyRepoFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 2. Framework detector
+  // ------------------------------------------------------------------
+  describe('detectFramework', () => {
+    it('detects Express', () => {
+      const result = detectFramework(compatibleFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('express');
+    });
+
+    it('detects Fastify', () => {
+      const result = detectFramework(compatibleFastifyFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('fastify');
+    });
+
+    it('detects NestJS', () => {
+      const result = detectFramework(nestFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('@nestjs/core');
+    });
+
+    it('returns false when no framework is detected', () => {
+      const tree: FileTree = { 'package.json': JSON.stringify({ dependencies: {} }) };
+      const result = detectFramework(tree);
+      expect(result.detected).toBe(false);
+    });
+
+    it('returns false when there is no package.json', () => {
+      const result = detectFramework(emptyRepoFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 3. Port detector
+  // ------------------------------------------------------------------
+  describe('detectPort', () => {
+    it('detects PORT from .env.example', () => {
+      const result = detectPort(compatibleFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('3000');
+    });
+
+    it('detects PORT from .env', () => {
+      const result = detectPort(compatiblePrismaFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('4000');
+    });
+
+    it('detects PORT from docker-compose.yml', () => {
+      const result = detectPort(dockerComposeFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('3000');
+    });
+
+    it('detects PORT from process.env in source code when no env file', () => {
+      const tree: FileTree = {
+        'src/index.ts': 'const PORT = process.env.PORT || 8080;\n',
+      };
+      const result = detectPort(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('8080');
+    });
+
+    it('returns false when no PORT is found', () => {
+      const result = detectPort(emptyRepoFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 4. Health endpoint detector
+  // ------------------------------------------------------------------
+  describe('detectHealthEndpoint', () => {
+    it('detects Dockerfile HEALTHCHECK instruction', () => {
+      const result = detectHealthEndpoint(compatibleFixture);
+      expect(result.detected).toBe(true);
+      expect((result.value as string[]).some((v: string) => v.includes('HEALTHCHECK'))).toBe(true);
+    });
+
+    it('detects Express /health route pattern', () => {
+      // compatibleFixture has HEALTHCHECK AND /health route
+      const result = detectHealthEndpoint(compatibleFixture);
+      expect(result.detected).toBe(true);
+      // Both patterns should be found
+      expect((result.value as string[]).some((v: string) => v.includes('HEALTHCHECK'))).toBe(true);
+      expect((result.value as string[]).some((v: string) => v.includes('/health'))).toBe(true);
+    });
+
+    it('detects Fastify health route', () => {
+      const result = detectHealthEndpoint(compatibleFastifyFixture);
+      expect(result.detected).toBe(true);
+      expect((result.value as string[]).some((v: string) => v.includes('/health'))).toBe(true);
+    });
+
+    it('detects NestJS health adapter', () => {
+      const result = detectHealthEndpoint(nestFixture);
+      expect(result.detected).toBe(true);
+    });
+
+    it('detects healthcheck script in package.json', () => {
+      const tree: FileTree = {
+        ...compatibleFixture,
+        'package.json': JSON.stringify({
+          scripts: { 'healthcheck': 'curl -f http://localhost:3000/health' },
+          dependencies: { express: '^4.18.0' },
+        }),
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect((result.value as string[]).some((v: string) => v.includes('healthcheck'))).toBe(true);
+    });
+
+    it('returns false when no health endpoint is found', () => {
+      const result = detectHealthEndpoint(noHealthFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 5. Env vars detector
+  // ------------------------------------------------------------------
+  describe('detectEnvVars', () => {
+    it('detects env vars from .env.example', () => {
+      const result = detectEnvVars(compatibleFixture);
+      expect(result.detected).toBe(true);
+      const vars = result.value as string[];
+      expect(vars).toContain('PORT');
+      expect(vars).toContain('DATABASE_URL');
+    });
+
+    it('detects env vars from process.env references in source code', () => {
+      const tree: FileTree = {
+        'src/index.ts': 'if (process.env.NODE_ENV === "production") {\n  console.log(process.env.SECRET_KEY);\n}\n',
+      };
+      const result = detectEnvVars(tree);
+      expect(result.detected).toBe(true);
+      const vars = result.value as string[];
+      expect(vars).toContain('NODE_ENV');
+      expect(vars).toContain('SECRET_KEY');
+    });
+
+    it('detects env vars from docker-compose.yml', () => {
+      const result = detectEnvVars(dockerComposeFixture);
+      expect(result.detected).toBe(true);
+      const vars = result.value as string[];
+      expect(vars).toContain('DATABASE_URL');
+      expect(vars).toContain('PORT');
+    });
+
+    it('deduplicates env vars found in multiple sources', () => {
+      // PORT appears in both .env.example AND src/index.ts
+      const result = detectEnvVars(compatibleFixture);
+      const vars = result.value as string[];
+      const portCount = vars.filter((v) => v === 'PORT').length;
+      expect(portCount).toBe(1);
+    });
+
+    it('returns false when no env vars found', () => {
+      const result = detectEnvVars(emptyRepoFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 6. PostgreSQL detector
+  // ------------------------------------------------------------------
+  describe('detectPostgresql', () => {
+    it('detects pg dependency', () => {
+      const result = detectPostgresql(compatibleFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('pg');
+    });
+
+    it('detects drizzle-orm with pg', () => {
+      const result = detectPostgresql(compatibleFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('drizzle-orm');
+    });
+
+    it('detects @prisma/client with postgresql provider', () => {
+      const result = detectPostgresql(compatiblePrismaFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('@prisma/client');
+    });
+
+    it('detects knex + pg combination', () => {
+      const result = detectPostgresql(compatibleFastifyFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('knex');
+    });
+
+    it('detects postgres dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { postgres: '^3.4.0' } }),
+      };
+      const result = detectPostgresql(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('postgres');
+    });
+
+    it('returns false when no PostgreSQL driver found', () => {
+      const result = detectPostgresql(emptyRepoFixture);
+      expect(result.detected).toBe(false);
+    });
+
+    it('returns false for Prisma with mysql provider', () => {
+      const result = detectPostgresql(prismaMysqlFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 7. Local filesystem detector
+  // ------------------------------------------------------------------
+  describe('detectLocalFilesystem', () => {
+    it('detects fs.writeFileSync', () => {
+      const result = detectLocalFilesystem(incompatibleLocalFsFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('fs.writeFileSync');
+    });
+
+    it('detects fs.readFileSync', () => {
+      const result = detectLocalFilesystem(incompatibleLocalFsFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('fs.readFileSync');
+    });
+
+    it('detects fs.mkdirSync', () => {
+      const result = detectLocalFilesystem(incompatibleLocalFsFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('fs.mkdirSync');
+    });
+
+    it('detects fs.writeFile', () => {
+      const tree: FileTree = {
+        'src/writer.ts': "import fs from 'fs';\nfs.writeFile('/tmp/data', 'x', () => {});\n",
+      };
+      const result = detectLocalFilesystem(tree);
+      expect(result.detected).toBe(true);
+    });
+
+    it('returns false when no fs usage found', () => {
+      const result = detectLocalFilesystem(compatibleFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 8. Worker detector
+  // ------------------------------------------------------------------
+  describe('detectWorker', () => {
+    it('detects Bull dependency', () => {
+      const result = detectWorker(workerFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('bull');
+    });
+
+    it('detects worker_threads usage in source code', () => {
+      const tree: FileTree = {
+        'src/worker.ts': "import { Worker } from 'node:worker_threads';\nconst w = new Worker('./worker.js');\n",
+      };
+      const result = detectWorker(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('worker_threads');
+    });
+
+    it('detects Agenda dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { agenda: '^5.0.0' } }),
+      };
+      const result = detectWorker(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('agenda');
+    });
+
+    it('returns false when no worker patterns found', () => {
+      const result = detectWorker(compatibleFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 9. S3 detector
+  // ------------------------------------------------------------------
+  describe('detectS3', () => {
+    it('detects @aws-sdk/client-s3 in package.json', () => {
+      const result = detectS3(s3Fixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('@aws-sdk/client-s3');
+    });
+
+    it('detects AWS_S3_BUCKET env var', () => {
+      const result = detectS3(s3Fixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('AWS_S3_BUCKET');
+    });
+
+    it('detects S3_BUCKET env var', () => {
+      const tree: FileTree = {
+        '.env': 'S3_BUCKET=my-bucket\n',
+      };
+      const result = detectS3(tree);
+      expect(result.detected).toBe(true);
+    });
+
+    it('returns false when no S3 usage found', () => {
+      const result = detectS3(compatibleFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 10. Migration command detector
+  // ------------------------------------------------------------------
+  describe('detectMigrationCommand', () => {
+    it('detects drizzle-kit migrate command in package.json scripts', () => {
+      const result = detectMigrationCommand(compatibleFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('drizzle-kit');
+    });
+
+    it('detects prisma migrate deploy', () => {
+      const result = detectMigrationCommand(compatiblePrismaFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('prisma migrate');
+    });
+
+    it('detects knex migrate:latest', () => {
+      const result = detectMigrationCommand(compatibleFastifyFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('knex migrate:latest');
+    });
+
+    it('detects typeorm migration:run', () => {
+      const result = detectMigrationCommand(nestFixture);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('typeorm migration:run');
+    });
+
+    it('returns false when no migration scripts found', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ scripts: { start: 'node index.js' } }),
+      };
+      const result = detectMigrationCommand(tree);
+      expect(result.detected).toBe(false);
+    });
+  });
+});
+
+// ==========================================================================
+// §10 Rejection classes
+// ==========================================================================
+
+describe('§10 rejection classes', () => {
+  // ------------------------------------------------------------------
+  // 1. Redis
+  // ------------------------------------------------------------------
+  describe('checkRedis', () => {
+    it('detects ioredis dependency', () => {
+      const result = checkRedis(incompatibleRedisFixture);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('ioredis');
+    });
+
+    it('detects redis dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { redis: '^4.6.0' } }),
+      };
+      const result = checkRedis(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('redis');
+    });
+
+    it('detects @redis/client dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { '@redis/client': '^1.5.0' } }),
+      };
+      const result = checkRedis(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('@redis/client');
+    });
+
+    it('returns not detected for compatible fixture', () => {
+      const result = checkRedis(compatibleFixture);
+      expect(result.detected).toBe(false);
+    });
+
+    it('returns not detected for empty repo', () => {
+      const result = checkRedis(emptyRepoFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 2. MySQL
+  // ------------------------------------------------------------------
+  describe('checkMysql', () => {
+    it('detects mysql2 dependency', () => {
+      const result = checkMysql(incompatibleMysqlFixture);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('mysql2');
+    });
+
+    it('detects mysql dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { mysql: '^2.18.0' } }),
+      };
+      const result = checkMysql(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('mysql');
+    });
+
+    it('detects Prisma with mysql provider', () => {
+      const result = checkMysql(prismaMysqlFixture);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('@prisma/client');
+    });
+
+    it('does NOT flag Prisma with postgresql provider', () => {
+      const result = checkMysql(compatiblePrismaFixture);
+      expect(result.detected).toBe(false);
+    });
+
+    it('returns not detected for compatible fixture', () => {
+      const result = checkMysql(compatibleFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 3. MongoDB
+  // ------------------------------------------------------------------
+  describe('checkMongo', () => {
+    it('detects mongoose dependency', () => {
+      const result = checkMongo(incompatibleMongoFixture);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('mongoose');
+    });
+
+    it('detects mongodb dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { mongodb: '^6.0.0' } }),
+      };
+      const result = checkMongo(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('mongodb');
+    });
+
+    it('returns not detected for compatible fixture', () => {
+      const result = checkMongo(compatibleFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 4. Elasticsearch / OpenSearch
+  // ------------------------------------------------------------------
+  describe('checkElasticsearch', () => {
+    it('detects @elastic/elasticsearch dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { '@elastic/elasticsearch': '^8.0.0' } }),
+      };
+      const result = checkElasticsearch(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('@elastic/elasticsearch');
+    });
+
+    it('detects @opensearch-project/opensearch dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { '@opensearch-project/opensearch': '^2.0.0' } }),
+      };
+      const result = checkElasticsearch(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('@opensearch-project/opensearch');
+    });
+
+    it('returns not detected for compatible fixture', () => {
+      const result = checkElasticsearch(compatibleFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 5. Other unsupported databases
+  // ------------------------------------------------------------------
+  describe('checkOtherUnsupportedDatabases', () => {
+    it('detects cassandra-driver dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { 'cassandra-driver': '^4.7.0' } }),
+      };
+      const result = checkOtherUnsupportedDatabases(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('cassandra-driver');
+    });
+
+    it('detects neo4j-driver dependency', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { 'neo4j-driver': '^5.0.0' } }),
+      };
+      const result = checkOtherUnsupportedDatabases(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('neo4j-driver');
+    });
+
+    it('returns not detected for compatible fixture', () => {
+      const result = checkOtherUnsupportedDatabases(compatibleFixture);
+      expect(result.detected).toBe(false);
+    });
+  });
+});
+
+// ==========================================================================
+// Analyser integration
+// ==========================================================================
+
+describe('analyseRepo (orchestrator)', () => {
+  it('runs all detectors on the compatible fixture', () => {
+    const result = analyseRepo(compatibleFixture);
+    expect(result.findings).toBeDefined();
+    expect(result.findings.length).toBeGreaterThan(0);
+
+    // Dockerfile detected
+    const dockerFinding = result.findings.find((f) => f.detector === 'dockerfile');
+    expect(dockerFinding?.detected).toBe(true);
+
+    // Framework detected
+    const frameworkFinding = result.findings.find((f) => f.detector === 'framework');
+    expect(frameworkFinding?.detected).toBe(true);
+
+    // Port detected
+    const portFinding = result.findings.find((f) => f.detector === 'port');
+    expect(portFinding?.detected).toBe(true);
+
+    // Health endpoint detected
+    const healthFinding = result.findings.find((f) => f.detector === 'health-endpoint');
+    expect(healthFinding?.detected).toBe(true);
+
+    // PostgreSQL detected
+    const pgFinding = result.findings.find((f) => f.detector === 'postgresql');
+    expect(pgFinding?.detected).toBe(true);
+
+    // Migration command detected
+    const migrationFinding = result.findings.find((f) => f.detector === 'migration-command');
+    expect(migrationFinding?.detected).toBe(true);
+  });
+
+  it('runs all rejection checks on the compatible fixture', () => {
+    const result = analyseRepo(compatibleFixture);
+    expect(result.rejections).toBeDefined();
+    expect(result.rejections.length).toBeGreaterThan(0);
+
+    // No rejections for compatible fixture
+    const detectedRejections = result.rejections.filter((r) => r.detected);
+    expect(detectedRejections).toHaveLength(0);
+  });
+
+  it('detects Redis rejection in the incompatible fixture', () => {
+    const result = analyseRepo(incompatibleRedisFixture);
+    const redisRejection = result.rejections.find((r) => r.dependency === 'ioredis');
+    expect(redisRejection?.detected).toBe(true);
+  });
+
+  it('detects MongoDB rejection in the incompatible fixture', () => {
+    const result = analyseRepo(incompatibleMongoFixture);
+    const mongoRejection = result.rejections.find((r) => r.dependency === 'mongoose');
+    expect(mongoRejection?.detected).toBe(true);
+  });
+
+  it('detects MySQL rejection in the incompatible fixture', () => {
+    const result = analyseRepo(incompatibleMysqlFixture);
+    const mysqlRejection = result.rejections.find((r) => r.dependency === 'mysql2');
+    expect(mysqlRejection?.detected).toBe(true);
+  });
+
+  it('detects local filesystem usage in the incompatible fixture', () => {
+    const result = analyseRepo(incompatibleLocalFsFixture);
+    const fsFinding = result.findings.find((f) => f.detector === 'local-filesystem');
+    expect(fsFinding?.detected).toBe(true);
+  });
+
+  it('flags missing Dockerfile', () => {
+    const result = analyseRepo(noDockerfileFixture);
+    const dockerFinding = result.findings.find((f) => f.detector === 'dockerfile');
+    expect(dockerFinding?.detected).toBe(false);
+  });
+
+  it('flags missing health endpoint', () => {
+    const result = analyseRepo(noHealthFixture);
+    const healthFinding = result.findings.find((f) => f.detector === 'health-endpoint');
+    // Missing health IS a finding — the verdict engine (todo 23) decides "Needs attention"
+    expect(healthFinding?.detected).toBe(false);
+  });
+
+  it('produces deterministic output (same input → same output)', () => {
+    const result1 = analyseRepo(compatibleFixture);
+    const result2 = analyseRepo(compatibleFixture);
+    expect(result1).toEqual(result2);
+  });
+
+  it('handles empty repo gracefully', () => {
+    const result = analyseRepo(emptyRepoFixture);
+    expect(result.findings).toBeDefined();
+    expect(result.rejections).toBeDefined();
+    // No detectors should find anything in an empty repo
+    const detectedFindings = result.findings.filter((f) => f.detected);
+    expect(detectedFindings).toHaveLength(0);
+  });
+
+  it('detects S3 usage', () => {
+    const result = analyseRepo(s3Fixture);
+    const s3Finding = result.findings.find((f) => f.detector === 's3');
+    expect(s3Finding?.detected).toBe(true);
+  });
+
+  it('detects worker patterns', () => {
+    const result = analyseRepo(workerFixture);
+    const workerFinding = result.findings.find((f) => f.detector === 'worker');
+    expect(workerFinding?.detected).toBe(true);
+  });
+
+  it('handles Fastify-based app correctly', () => {
+    const result = analyseRepo(compatibleFastifyFixture);
+    const frameworkFinding = result.findings.find((f) => f.detector === 'framework');
+    expect(frameworkFinding?.detected).toBe(true);
+    expect(frameworkFinding?.value).toBe('fastify');
+
+    const pgFinding = result.findings.find((f) => f.detector === 'postgresql');
+    expect(pgFinding?.detected).toBe(true);
+
+    const migrationFinding = result.findings.find((f) => f.detector === 'migration-command');
+    expect(migrationFinding?.detected).toBe(true);
+  });
+
+  it('handles NestJS-based app correctly', () => {
+    const result = analyseRepo(nestFixture);
+    const frameworkFinding = result.findings.find((f) => f.detector === 'framework');
+    expect(frameworkFinding?.detected).toBe(true);
+    expect(frameworkFinding?.value).toBe('@nestjs/core');
+  });
+
+  it('builds metadata from all findings', () => {
+    const result = analyseRepo(compatibleFixture);
+    expect(result.metadata).toBeDefined();
+    expect(result.metadata.framework).toBe('express');
+    expect(result.metadata.hasDockerfile).toBe(true);
+    expect(result.metadata.hasHealthEndpoint).toBe(true);
+  });
+});

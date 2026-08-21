@@ -1,0 +1,8 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# pnpm 10 blocks dependency build scripts by default; esbuild (vitest's
+# transform backend) needs its postinstall to place the platform binary.
+onlyBuiltDependencies:
+  - esbuild

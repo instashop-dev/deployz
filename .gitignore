@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.turbo/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.omo/
+.codegraph/
+coverage/
+.next/
+cdk.out/
+.pgdata/
+packages/db/.pgdata/
+test-results/
+playwright-report/
