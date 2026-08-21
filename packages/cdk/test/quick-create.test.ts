@@ -344,6 +344,7 @@ describe('quick-create', () => {
       return {
         client: {
           async putObject(params: {
+            bucket: string;
             key: string;
             body: Uint8Array | string;
             contentType?: string;
