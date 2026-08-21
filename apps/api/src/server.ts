@@ -1,9 +1,11 @@
 import cors from '@fastify/cors';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
+import { eq } from 'drizzle-orm';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { RuntimeDb } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
 import { createStripe, handleWebhookEvent, constructWebhookEvent } from './billing.js';
@@ -105,12 +107,19 @@ export async function buildServer({
   });
 
   // GitHub App webhook: signature-verified via X-Hub-Signature-256 over the
-  // raw body. The installation store is in-memory (no installations table
-  // yet); the account->org resolver is BLOCKED (real install flow needs the
-  // App) so it degrades to a no-op — the route still verifies + parses.
+  // raw body. The account->org resolver (#13) matches the GitHub login to
+  // the organization slug — sufficient for the MVP since vendor orgs are
+  // created with their GitHub org name as the slug.
   const githubStore = createGithubStore();
   const githubFetch: FetchFn = globalThis.fetch.bind(globalThis);
-  const resolveGithubOrganization: ResolveOrganization = async () => null;
+  const resolveGithubOrganization: ResolveOrganization = async (accountLogin) => {
+    const rows = await db
+      .select({ id: schema.organization.id })
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, accountLogin))
+      .limit(1);
+    return rows[0]?.id ?? null;
+  };
 
   app.post('/api/github/webhook', async (request, reply) => {
     const webhookSecret = githubWebhookSecret ?? env.githubWebhookSecret;

@@ -24,9 +24,16 @@ export function createDb(client: PGlite) {
 
 export type Db = ReturnType<typeof createDb>;
 
-// packages/db/.pgdata — repo-local, file-backed dev database (gitignored).
-// Resolved from this module so it works from both src/ and dist/.
-const DEFAULT_PGDATA_DIR = fileURLToPath(new URL('../.pgdata', import.meta.url));
+// Lazy path resolvers — computed inside functions so that CJS bundling
+// (Lambda) does not evaluate import.meta.url at module load time. The
+// Postgres branch (DATABASE_URL set) never touches these at all.
+function getDefaultPgdataDir(): string {
+  return fileURLToPath(new URL('../.pgdata', import.meta.url));
+}
+
+function getMigrationsFolder(): string {
+  return fileURLToPath(new URL('../drizzle', import.meta.url));
+}
 
 // Runtime factory used by long-lived processes (apps/api). Two honest paths:
 //   - DATABASE_URL set   -> real Postgres via node-pool (migrations are the
@@ -42,9 +49,8 @@ export async function createRuntimeDb(options: RuntimeDbOptions = {}): Promise<R
     return drizzleNode({ client: pool, schema });
   }
 
-  const client = new PGlite(options.pgliteDataDir ?? DEFAULT_PGDATA_DIR);
+  const client = new PGlite(options.pgliteDataDir ?? getDefaultPgdataDir());
   const db = drizzlePglite({ client, schema });
-  const migrationsFolder = fileURLToPath(new URL('../drizzle', import.meta.url));
-  await migratePglite(db, { migrationsFolder });
+  await migratePglite(db, { migrationsFolder: getMigrationsFolder() });
   return db;
 }
