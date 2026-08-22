@@ -3,16 +3,19 @@
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   RELEASE_STATUS_BADGE,
   releaseStatusLabel,
   fetchReleases,
+  createRelease,
   type Release,
 } from '@/lib/releases';
 
@@ -26,6 +29,7 @@ export default function ReleasesPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +57,14 @@ export default function ReleasesPage() {
     };
   }, [id]);
 
+  function onCreated(release: Release): void {
+    setFormOpen(false);
+    setState((current) => {
+      const existing = current.status === 'loaded' ? current.releases : [];
+      return { status: 'loaded', releases: [release, ...existing] };
+    });
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex items-center gap-2">
@@ -71,8 +83,12 @@ export default function ReleasesPage() {
             Version history for this application.
           </p>
         </div>
-        <Button>Create Release</Button>
+        <Button onClick={() => setFormOpen((open) => !open)}>
+          {formOpen ? 'Cancel' : 'Create Release'}
+        </Button>
       </div>
+
+      {formOpen ? <CreateReleaseForm applicationId={id} onCreated={onCreated} /> : null}
 
       {state.status === 'loading' ? <LoadingState /> : null}
       {state.status === 'error' ? (
@@ -89,6 +105,79 @@ export default function ReleasesPage() {
       {state.status === 'empty' ? <EmptyState /> : null}
       {state.status === 'loaded' ? <ReleaseTable releases={state.releases} /> : null}
     </div>
+  );
+}
+
+function CreateReleaseForm({
+  applicationId,
+  onCreated,
+}: {
+  applicationId: string;
+  onCreated: (release: Release) => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const version = String(form.get('version') ?? '').trim();
+    const gitSha = String(form.get('gitSha') ?? '').trim();
+    const migrationCommand = String(form.get('migrationCommand') ?? '').trim();
+    setPending(true);
+    setError(null);
+    try {
+      const release = await createRelease(applicationId, {
+        version,
+        gitSha,
+        migrationCommand: migrationCommand.length > 0 ? migrationCommand : null,
+      });
+      onCreated(release);
+    } catch {
+      setError("We couldn't create this release. Try again in a moment.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Card data-testid="create-release-form">
+      <CardHeader>
+        <CardTitle>New release</CardTitle>
+        <CardDescription>
+          Records an immutable version. This does not update any customer — deploy it from a
+          deployment&apos;s page, or to several customers at once from the fleet dashboard.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="version">Version</Label>
+              <Input id="version" name="version" placeholder="v1.3.0" required />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="gitSha">Git commit</Label>
+              <Input id="gitSha" name="gitSha" placeholder="a1b2c3d" required />
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="migrationCommand">Migration command (optional)</Label>
+            <Input id="migrationCommand" name="migrationCommand" placeholder="npm run migrate" />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Creating…' : 'Create Release'}
+            </Button>
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 

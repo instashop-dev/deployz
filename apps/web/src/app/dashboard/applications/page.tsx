@@ -1,7 +1,7 @@
 'use client';
 
 import { GitBranch } from 'lucide-react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { createApplication, triggerAnalysis } from '@/lib/applications';
 import {
   fetchGithubInstallations,
   fetchGithubRepositories,
@@ -162,22 +163,7 @@ function RepoList({
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
               {repos.map((repo) => (
-                <div
-                  key={repo.id}
-                  className="flex items-center gap-3 rounded-lg border px-3 py-2.5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{repo.name}</p>
-                    {repo.description ? (
-                      <p className="truncate text-xs text-muted-foreground">{repo.description}</p>
-                    ) : null}
-                  </div>
-                  <Button variant="outline" size="sm" asChild>
-                    <Link href={`/dashboard/applications/${encodeURIComponent(repo.id)}`}>
-                      Choose
-                    </Link>
-                  </Button>
-                </div>
+                <RepoRow key={repo.id} installationId={installation.id} repo={repo} />
               ))}
               {repos.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No repositories to show.</p>
@@ -186,6 +172,63 @@ function RepoList({
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+// §42 step 2 "Choose repository". Previously this only navigated to a
+// fixture-id route without ever creating an Application row, so the
+// readiness page had nothing real to show. Now it creates the Application
+// (POST /api/applications), kicks off analysis (POST .../analyse), and only
+// then navigates to the real (UUID) application id.
+function RepoRow({
+  installationId,
+  repo,
+}: {
+  installationId: string;
+  repo: GithubRepository;
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onChoose(): Promise<void> {
+    setPending(true);
+    setError(null);
+    try {
+      const application = await createApplication({
+        name: repo.name,
+        githubInstallationId: installationId,
+        repoFullName: repo.fullName,
+        repoUrl: `https://github.com/${repo.fullName}`,
+        defaultBranch: repo.defaultBranch,
+      });
+      await triggerAnalysis(application.id);
+      router.push(`/dashboard/applications/${application.id}`);
+    } catch {
+      setError("We couldn't set up this application. Try again.");
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{repo.name}</p>
+          {repo.description ? (
+            <p className="truncate text-xs text-muted-foreground">{repo.description}</p>
+          ) : null}
+        </div>
+        <Button variant="outline" size="sm" disabled={pending} onClick={onChoose}>
+          {pending ? 'Setting up…' : 'Choose'}
+        </Button>
+      </div>
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -18,6 +18,7 @@ import {
 
 import {
   createDeployReleaseWorkflow,
+  createRealPendingReleaseChecker,
   DeployReleaseError,
   type DeployReleaseInput,
   type DeployReleaseOutput,
@@ -46,6 +47,10 @@ function makeInput(overrides: Partial<DeployReleaseInput> = {}): DeployReleaseIn
     migrationCommand: 'node migrate.js up',
     fromInfraVersion: 'runtime-v1',
     toInfraVersion: 'runtime-v2',
+    // §30 full-preflight application inputs — must be valid for the full
+    // preflight step (item 1) to pass.
+    port: 3000,
+    healthPath: '/health',
     ...overrides,
   };
 }
@@ -178,6 +183,13 @@ describe('DEPLOY_RELEASE workflow', () => {
     ]);
 
     expect(await harness.deploymentStore.get('deployment-1')).toBe('HEALTHY');
+
+    // §38 (item 4): a successful deploy advances the release pointers —
+    // the just-deployed release becomes current.
+    expect(await harness.deploymentStore.getReleasePointers('deployment-1')).toEqual({
+      currentReleaseId: 'release-2',
+      previousReleaseId: null,
+    });
   });
 
   it('lands in UPDATE_AVAILABLE when a newer release is pending', async () => {
@@ -195,6 +207,32 @@ describe('DEPLOY_RELEASE workflow', () => {
     expect((completed.output as DeployReleaseOutput).status).toBe('UPDATE_AVAILABLE');
     expect(await harness.deploymentStore.get('deployment-1')).toBe('UPDATE_AVAILABLE');
     expect(harness.hasPendingRelease).toHaveBeenCalledWith('deployment-1', 'release-2');
+
+    // §38 (item 4): UPDATE_AVAILABLE is still a successful deploy — pointers advance.
+    expect(await harness.deploymentStore.getReleasePointers('deployment-1')).toEqual({
+      currentReleaseId: 'release-2',
+      previousReleaseId: null,
+    });
+  });
+
+  it('advances previousReleaseId on a second successful deploy (§38)', async () => {
+    await seedHealthy(harness.deploymentStore);
+    await harness.deploymentStore.setReleasePointers('deployment-1', {
+      currentReleaseId: 'release-1',
+      previousReleaseId: null,
+    });
+
+    await harness.runtime.start(harness.workflow, makeInput(), 'exec-3b');
+    await harness.runtime.resume(
+      harness.workflow,
+      'exec-3b',
+      { installationId: 'install-1', healthy: true },
+    );
+
+    expect(await harness.deploymentStore.getReleasePointers('deployment-1')).toEqual({
+      currentReleaseId: 'release-2',
+      previousReleaseId: 'release-1',
+    });
   });
 
   it('NEGATIVE TEST: a failed preflight halts before migration/ECS/infra ever run', async () => {
@@ -257,6 +295,11 @@ describe('DEPLOY_RELEASE workflow', () => {
       (e) => e.eventType === 'deploy.migration',
     );
     expect(migrationEvent?.result).toBe('failed:MIGRATION_FAILED');
+
+    // Item 5 (§46/§48): failed after UPDATING → FAILED, never stranded.
+    expect(await harness.deploymentStore.get('deployment-1')).toBe('FAILED');
+    const failedEvent = harness.eventStore.events.find((e) => e.eventType === 'deploy.state.failed');
+    expect(failedEvent?.result).toBe('failed:MIGRATION_FAILED');
   });
 
   it('fails with ECS_DEPLOYMENT_FAILED when the ECS update fails', async () => {
@@ -278,6 +321,11 @@ describe('DEPLOY_RELEASE workflow', () => {
       (e) => e.eventType === 'deploy.ecs-update',
     );
     expect(ecsEvent?.result).toBe('failed:ECS_DEPLOYMENT_FAILED');
+
+    // Item 5 (§46/§48): failed after UPDATING → FAILED, never stranded.
+    expect(await harness.deploymentStore.get('deployment-1')).toBe('FAILED');
+    const failedEvent = harness.eventStore.events.find((e) => e.eventType === 'deploy.state.failed');
+    expect(failedEvent?.result).toBe('failed:ECS_DEPLOYMENT_FAILED');
   });
 
   it('skips infra upgrade when from/to versions are identical', async () => {
@@ -312,9 +360,14 @@ describe('DEPLOY_RELEASE workflow', () => {
       (e) => e.eventType === 'deploy.infra-upgrade',
     );
     expect(infraEvent?.result).toBe('failed:UNKNOWN');
+
+    // Item 5 (§46/§48): failed after UPDATING → FAILED, never stranded.
+    expect(await harness.deploymentStore.get('deployment-1')).toBe('FAILED');
+    const failedEvent = harness.eventStore.events.find((e) => e.eventType === 'deploy.state.failed');
+    expect(failedEvent?.result).toBe('failed:UNKNOWN');
   });
 
-  it('rejects an unhealthy report and never finalizes', async () => {
+  it('rejects an unhealthy report, transitions to FAILED (§46/§48), and never finalizes', async () => {
     await seedHealthy(harness.deploymentStore);
 
     await harness.runtime.start(harness.workflow, makeInput(), 'exec-10');
@@ -327,17 +380,30 @@ describe('DEPLOY_RELEASE workflow', () => {
       ),
     ).rejects.toThrow(PreflightError);
 
-    expect(await harness.deploymentStore.get('deployment-1')).toBe('UPDATING');
+    // Item 5 (§46/§48): a failure AFTER the state moved to UPDATING must
+    // transition the deployment to FAILED — it must never be stranded in
+    // UPDATING.
+    expect(await harness.deploymentStore.get('deployment-1')).toBe('FAILED');
     expect(harness.eventStore.events.some((e) => e.eventType === 'deploy.health')).toBe(true);
-    // Finalize never emitted a state event.
-    expect(
-      harness.eventStore.events.some((e) => e.eventType.startsWith('deploy.state.')),
-    ).toBe(true); // only deploy.state.updating was emitted before the failure
+
+    const failedEvent = harness.eventStore.events.find((e) => e.eventType === 'deploy.state.failed');
+    expect(failedEvent).toBeDefined();
+    expect(failedEvent?.previousState).toBe('UPDATING');
+    expect(failedEvent?.requestedState).toBe('FAILED');
+    expect(failedEvent?.result).toBe('failed:RELAY_DISCONNECTED');
+
+    // Finalize never ran — no HEALTHY/UPDATE_AVAILABLE state event.
     expect(
       harness.eventStore.events.some(
         (e) => e.eventType === 'deploy.state.healthy' || e.eventType === 'deploy.state.update-available',
       ),
     ).toBe(false);
+
+    // §38: a failed deploy does NOT advance the release pointers.
+    expect(await harness.deploymentStore.getReleasePointers('deployment-1')).toEqual({
+      currentReleaseId: null,
+      previousReleaseId: null,
+    });
   });
 
   it('emits every §62 event in order (happy path with migration + infra upgrade)', async () => {
@@ -402,5 +468,55 @@ describe('DEPLOY_RELEASE workflow', () => {
     expect(second.status).toBe('COMPLETED');
     expect(second).toEqual(first);
     expect(harness.eventStore.count).toBe(7);
+  });
+
+  // ── §62 audit actor (item 9) ───────────────────────────────────────────
+
+  it('attributes every event to the user who initiated it, when supplied', async () => {
+    await seedHealthy(harness.deploymentStore);
+    const input = makeInput({ initiatedBy: { type: 'user', id: 'user-77' } });
+
+    await harness.runtime.start(harness.workflow, input, 'exec-initiator-1');
+
+    expect(harness.eventStore.events.length).toBeGreaterThan(0);
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('user');
+      expect(event.actorId).toBe('user-77');
+    }
+  });
+
+  it('defaults to the system actor when initiatedBy is omitted', async () => {
+    await seedHealthy(harness.deploymentStore);
+
+    await harness.runtime.start(harness.workflow, makeInput(), 'exec-initiator-2');
+
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('system');
+    }
+  });
+
+  // ── Full §30 preflight (item 1) ─────────────────────────────────────────
+
+  it('halts before any deploy seam runs when a required port is missing', async () => {
+    await seedHealthy(harness.deploymentStore);
+
+    await expect(
+      harness.runtime.start(harness.workflow, makeInput({ port: undefined }), 'exec-preflight-port'),
+    ).rejects.toThrow(PreflightError);
+
+    expect(harness.runMigration).not.toHaveBeenCalled();
+    expect(harness.updateService).not.toHaveBeenCalled();
+    expect(await harness.deploymentStore.get('deployment-1')).toBe('HEALTHY');
+  });
+});
+
+// ── createRealPendingReleaseChecker (item 6) ────────────────────────────
+
+describe('createRealPendingReleaseChecker (item 6)', () => {
+  it('throws rather than silently returning false (which would make UPDATE_AVAILABLE unreachable)', async () => {
+    const checker = createRealPendingReleaseChecker();
+    await expect(checker.hasPendingRelease('deployment-1', 'release-1')).rejects.toThrow(
+      /not implemented/i,
+    );
   });
 });

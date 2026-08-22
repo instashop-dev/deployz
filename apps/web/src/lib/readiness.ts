@@ -1,10 +1,9 @@
 // §42 onboarding + §19 readiness surfaces — data access + presentation data.
-// The readiness API endpoint arrives in a later todo; until then
-// fetchReadiness falls back to realistic FIXTURE data on a 404 so the
-// readiness page renders a verdict without a backend (same pattern as the
-// fleet dashboard, todo 19). §19/§20: the verdict is always the deterministic
-// rules-engine result — the AI explanation is rendered UNDER it and can never
-// change it. §65: all copy here is jargon-free.
+// Wired to the real `GET /api/applications/:id/readiness` endpoint. §19/§20:
+// the verdict is always the deterministic rules-engine result — there is no
+// AI explanation field on the wire (that stays out of scope until the AI
+// explanation endpoint exists — never fabricated client-side). §65: all copy
+// here is jargon-free.
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -22,45 +21,43 @@ export const ONBOARDING_STEPS = [
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-/** Mirrors `analysisStatusSchema` in packages/contracts. */
+/** Mirrors `analysisStatusEnum` in packages/db. */
 export type AnalysisStatus = 'PENDING' | 'ANALYZING' | 'COMPLETE' | 'FAILED';
 
-/** §19 verdict vocabulary (mirrors `compatibilityStatusSchema`). */
+/** §19 verdict vocabulary (mirrors `compatibilityStatusEnum`). */
 export type CompatibilityVerdict = 'READY' | 'NEEDS_ATTENTION' | 'NOT_COMPATIBLE';
 
-/** A single deterministic issue from the rules engine (todo 23). */
-export interface ReadinessIssue {
-  severity: 'reject' | 'attention';
-  code: string;
-  message: string;
+/** §19 "Ready" checklist item. */
+export interface ReadyCheck {
+  label: string;
 }
 
-/** The §19 deterministic verdict plus the issues that produced it. */
-export interface ReadinessVerdict {
-  verdict: CompatibilityVerdict;
+/** §19 "Needs attention" item — its own title, detail, and suggested fix. */
+export interface AttentionCheck {
+  title: string;
+  detail: string;
+  suggestedFix: string | null;
+}
+
+/** §19 "Unsupported" item — title + why it's rejected outright. */
+export interface UnsupportedCheck {
+  title: string;
   reason: string;
-  issues: ReadinessIssue[];
 }
 
-/** Todo-24 AI explanation — rendered UNDER the deterministic verdict (§20). */
-export interface ReadinessExplanation {
-  summary: string;
-  why: string;
-  fix: string;
-}
-
-/** Everything the readiness page needs for one application. */
+/**
+ * The exact `GET /api/applications/:id/readiness` response shape (§19).
+ * When `analysisStatus !== 'COMPLETE'` every field below is null/empty —
+ * render the pending state, never a fabricated score.
+ */
 export interface ApplicationReadiness {
-  application: {
-    id: string;
-    name: string;
-    repoFullName: string;
-    analysisStatus: AnalysisStatus;
-  };
-  readiness: ReadinessVerdict | null;
-  explanation: ReadinessExplanation | null;
-  /** §7: whether the vendor's own (free) test deployment already exists. */
-  testDeploymentCreated: boolean;
+  analysisStatus: AnalysisStatus;
+  verdict: CompatibilityVerdict | null;
+  score: number | null;
+  changesRequired: number | null;
+  ready: ReadyCheck[];
+  needsAttention: AttentionCheck[];
+  unsupported: UnsupportedCheck[];
 }
 
 // ── §19 verdict presentation ────────────────────────────────────────────────
@@ -84,6 +81,12 @@ export const VERDICT_PRESENTATION: Record<CompatibilityVerdict, VerdictPresentat
   },
 };
 
+/** §19 "82% — 2 changes required" summary line. */
+export function readinessSummaryLabel(score: number, changesRequired: number): string {
+  const changeWord = changesRequired === 1 ? 'change' : 'changes';
+  return `${score}% — ${changesRequired} ${changeWord} required`;
+}
+
 // ── Onboarding step derivation ──────────────────────────────────────────────
 
 /**
@@ -104,118 +107,14 @@ export function deriveOnboardingStep(input: {
 
 // ── Fetch ───────────────────────────────────────────────────────────────────
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    credentials: 'include',
-    cache: 'no-store',
-  });
+/** Fetch one application's §19 readiness result. */
+export async function fetchReadiness(applicationId: string): Promise<ApplicationReadiness> {
+  const response = await fetch(
+    `${apiUrl}/api/applications/${encodeURIComponent(applicationId)}/readiness`,
+    { credentials: 'include', cache: 'no-store' },
+  );
   if (!response.ok) {
     throw new Error(`Readiness request failed (${response.status})`);
   }
-  return (await response.json()) as T;
-}
-
-/** Fetch one application's readiness, falling back to fixture data on 404. */
-export async function fetchReadiness(applicationId: string): Promise<ApplicationReadiness> {
-  try {
-    return await getJson<ApplicationReadiness>(
-      `/api/applications/${encodeURIComponent(applicationId)}/readiness`,
-    );
-  } catch (error) {
-    if (isNotFound(error)) return fixtureReadiness(applicationId);
-    throw error;
-  }
-}
-
-function isNotFound(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('(404)');
-}
-
-// ── Fixture data (§65 jargon-free) ──────────────────────────────────────────
-
-/**
- * Realistic fixture fallback while the readiness endpoint is absent. Keys
- * match the GitHub fixture repos (fixture-repo-1 ready / fixture-repo-2
- * incompatible, §216) so the whole §42 flow renders end-to-end without a
- * backend. Unknown ids fall back to READY — the success path.
- */
-export function fixtureReadiness(applicationId: string): ApplicationReadiness {
-  if (applicationId === 'fixture-repo-2' || applicationId.includes('legacy-redis')) {
-    return {
-      application: {
-        id: applicationId,
-        name: 'legacy-redis',
-        repoFullName: 'deployz-demo/legacy-redis',
-        analysisStatus: 'COMPLETE',
-      },
-      readiness: {
-        verdict: 'NOT_COMPATIBLE',
-        reason:
-          'This app uses Redis for data storage, which is not supported. Deployz provides PostgreSQL for data storage.',
-        issues: [
-          {
-            severity: 'reject',
-            code: 'REDIS_DEPENDENCY',
-            message: 'Uses Redis for data storage, which is not supported.',
-          },
-        ],
-      },
-      explanation: {
-        summary: 'This app relies on Redis for data storage.',
-        why: 'Deployz runs apps with managed PostgreSQL and does not provision Redis.',
-        fix: 'Move the data that lives in Redis to PostgreSQL, then choose your repository again.',
-      },
-      testDeploymentCreated: false,
-    };
-  }
-
-  if (applicationId === 'fixture-repo-attention' || applicationId.includes('attention')) {
-    return {
-      application: {
-        id: applicationId,
-        name: 'acme-analytics',
-        repoFullName: 'deployz-demo/acme-analytics',
-        analysisStatus: 'COMPLETE',
-      },
-      readiness: {
-        verdict: 'NEEDS_ATTENTION',
-        reason: 'Missing Dockerfile Missing health endpoint',
-        issues: [
-          { severity: 'attention', code: 'MISSING_DOCKERFILE', message: 'Missing Dockerfile' },
-          {
-            severity: 'attention',
-            code: 'MISSING_HEALTH_ENDPOINT',
-            message: 'Missing health endpoint',
-          },
-        ],
-      },
-      explanation: {
-        summary: 'This app is close to ready, but two things are missing.',
-        why: 'Deployz builds your app from its Dockerfile and keeps it healthy through its health endpoint.',
-        fix: 'Add a Dockerfile and a health endpoint, then choose your repository again.',
-      },
-      testDeploymentCreated: false,
-    };
-  }
-
-  return {
-    application: {
-      id: applicationId,
-      name: applicationId === 'fixture-repo-1' ? 'express-api' : applicationId,
-      repoFullName:
-        applicationId === 'fixture-repo-1' ? 'deployz-demo/express-api' : applicationId,
-      analysisStatus: 'COMPLETE',
-    },
-    readiness: {
-      verdict: 'READY',
-      reason: 'Compatible with Deployz',
-      issues: [],
-    },
-    explanation: {
-      summary: 'This app passed every check.',
-      why: 'It has a Dockerfile, a health endpoint, and uses PostgreSQL for data storage.',
-      fix: 'Nothing to fix — your app is ready to deploy.',
-    },
-    testDeploymentCreated: false,
-  };
+  return (await response.json()) as ApplicationReadiness;
 }

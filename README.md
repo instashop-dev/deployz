@@ -11,6 +11,7 @@ Monorepo for the Deployz MVP. pnpm workspaces + Turborepo, TypeScript strict, Vi
 | `packages/contracts` | `@deployz/contracts` | Shared Zod contracts between api and web |
 | `packages/db` | `@deployz/db` | Drizzle schema + migrations |
 | `packages/cdk` | `@deployz/cdk` | Control-plane AWS CDK stack |
+| `packages/analysis` | `@deployz/analysis` | Pure §18/§19/§20 repository analysis core (detectors, rejection checks, rules engine) — shared leaf dependency of `cdk` and `api` |
 | `packages/fixture` | `@deployz/fixture` | Test fixtures / local dev harness |
 | `packages/relay` | `@deployz/relay` | Relay Lambda (fixed-vocabulary customer-account actor) |
 | `packages/copy-map` | `@deployz/copy-map` | Copy/message mapping helpers |
@@ -29,7 +30,7 @@ Run from the repo root:
 
 One base config (`tsconfig.base.json`, `strict: true` plus strict-adjacent flags), two per-package flavors:
 
-- **NodeNext** (`module`/`moduleResolution: "NodeNext"`) for packages that run directly on Node: `apps/api`, `packages/cdk`, `packages/fixture`, `packages/relay`. Relative imports in these packages must use explicit `.js` extensions.
+- **NodeNext** (`module`/`moduleResolution: "NodeNext"`) for packages that run directly on Node: `apps/api`, `packages/cdk`, `packages/fixture`, `packages/relay`, `packages/analysis`. Relative imports in these packages must use explicit `.js` extensions.
 - **Bundler** (`module: "ESNext"`, `moduleResolution: "Bundler"`) for libraries and the web app: `apps/web`, `packages/contracts`, `packages/db`, `packages/copy-map`. Extensionless relative imports allowed; if one of these is later consumed directly by Node (unbundled), switch it to NodeNext or add `.js` extensions.
 
 Every package builds with `tsc -p tsconfig.json` emitting ESM + declarations to `dist/`. Tests (`src/**/*.test.ts`) are excluded from build emit; Vitest runs them from source.

@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1115.0",
+    "@deployz/analysis": "workspace:*",
     "@deployz/contracts": "workspace:*",
     "@deployz/db": "workspace:*",
     "@fastify/cors": "^11.0.0",

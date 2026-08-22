@@ -280,6 +280,77 @@ describe('ROLLBACK workflow', () => {
     expect(harness.eventStore.count).toBe(5);
     expect(harness.restore).toHaveBeenCalledTimes(1);
   });
+
+  // ── §38 release pointers (item 4) ───────────────────────────────────────
+
+  it('advances the release pointers on a successful rollback (§27/§38)', async () => {
+    await seedFailed(harness.deploymentStore);
+    await harness.deploymentStore.setReleasePointers('deployment-1', {
+      currentReleaseId: 'release-2',
+      previousReleaseId: 'release-1',
+    });
+
+    await harness.runtime.start(harness.workflow, makeInput({ releaseId: 'release-1' }), 'exec-pointers-1');
+    await harness.runtime.resume(
+      harness.workflow,
+      'exec-pointers-1',
+      { installationId: 'install-1', healthy: true },
+    );
+
+    // current becomes the rollback target; previous becomes what we rolled
+    // back FROM.
+    expect(await harness.deploymentStore.getReleasePointers('deployment-1')).toEqual({
+      currentReleaseId: 'release-1',
+      previousReleaseId: 'release-2',
+    });
+  });
+
+  it('does not advance the release pointers when the rollback fails', async () => {
+    await seedFailed(harness.deploymentStore);
+    await harness.deploymentStore.setReleasePointers('deployment-1', {
+      currentReleaseId: 'release-2',
+      previousReleaseId: 'release-1',
+    });
+    harness.restore.mockResolvedValue({
+      ok: false,
+      failureCode: 'ROLLBACK_FAILED',
+      reason: 'service unreachable',
+    });
+
+    await expect(
+      harness.runtime.start(harness.workflow, makeInput(), 'exec-pointers-2'),
+    ).rejects.toThrow(RollbackError);
+
+    expect(await harness.deploymentStore.getReleasePointers('deployment-1')).toEqual({
+      currentReleaseId: 'release-2',
+      previousReleaseId: 'release-1',
+    });
+  });
+
+  // ── §62 audit actor (item 9) ────────────────────────────────────────────
+
+  it('attributes every event to the user who initiated it, when supplied', async () => {
+    await seedFailed(harness.deploymentStore);
+    const input = makeInput({ initiatedBy: { type: 'user', id: 'user-5' } });
+
+    await harness.runtime.start(harness.workflow, input, 'exec-initiator-1');
+
+    expect(harness.eventStore.events.length).toBeGreaterThan(0);
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('user');
+      expect(event.actorId).toBe('user-5');
+    }
+  });
+
+  it('defaults to the system actor when initiatedBy is omitted', async () => {
+    await seedFailed(harness.deploymentStore);
+
+    await harness.runtime.start(harness.workflow, makeInput(), 'exec-initiator-2');
+
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('system');
+    }
+  });
 });
 
 // ── Digest immutability helper ───────────────────────────────────────────

@@ -21,6 +21,7 @@ describe('Remediation type invariants', () => {
       code: 'UNKNOWN',
       summary: 'test',
       steps: ['step 1'],
+      technicalDetail: [],
       requiresManual: true,
       automatic: false,
     };
@@ -246,6 +247,76 @@ describe('getRemediation — UNKNOWN', () => {
 });
 
 // ==========================================================================
+// §65 structural split — jargon-free steps + expandable technicalDetail
+// ==========================================================================
+
+describe('getRemediation — §65 jargon-free steps with expandable technicalDetail', () => {
+  // Raw AWS/CFN/ECS/IAM terms that must never appear in the top-level `steps`.
+  const JARGON_PATTERN = /\b(CloudFormation|IAM|ECS console|RDS console|container registry|secrets manager)\b/i;
+
+  it('AWS_PERMISSION_DENIED keeps IAM detail out of the top-level steps', () => {
+    const result = getRemediation('AWS_PERMISSION_DENIED');
+    for (const step of result.steps) {
+      expect(step).not.toMatch(JARGON_PATTERN);
+    }
+    expect(result.technicalDetail).toEqual([
+      'Check the IAM role or user policy attached to the deployment.',
+    ]);
+  });
+
+  it('STACK_CREATE_FAILED keeps CloudFormation detail out of the top-level steps', () => {
+    const result = getRemediation('STACK_CREATE_FAILED');
+    for (const step of result.steps) {
+      expect(step).not.toMatch(JARGON_PATTERN);
+    }
+    expect(result.technicalDetail).toEqual([
+      'Check the CloudFormation console for the specific resource that failed.',
+    ]);
+  });
+
+  it('DATABASE_CREATE_FAILED keeps the RDS console detail out of the top-level steps', () => {
+    const result = getRemediation('DATABASE_CREATE_FAILED');
+    for (const step of result.steps) {
+      expect(step).not.toMatch(JARGON_PATTERN);
+    }
+    expect(result.technicalDetail).toEqual([
+      'Check the RDS console for the creation failure reason.',
+    ]);
+  });
+
+  it('IMAGE_PULL_FAILED keeps the container registry detail out of the top-level steps', () => {
+    const result = getRemediation('IMAGE_PULL_FAILED');
+    for (const step of result.steps) {
+      expect(step).not.toMatch(JARGON_PATTERN);
+    }
+    expect(result.technicalDetail).toEqual([
+      'Verify the image exists in the container registry.',
+    ]);
+  });
+
+  it('MISSING_SECRET keeps the secrets manager detail out of the top-level steps', () => {
+    const result = getRemediation('MISSING_SECRET');
+    for (const step of result.steps) {
+      expect(step).not.toMatch(JARGON_PATTERN);
+    }
+    expect(result.technicalDetail).toEqual([
+      'Check that all required secrets exist in the secrets manager.',
+    ]);
+  });
+
+  it('every code exposes a technicalDetail array (possibly empty) and no lost content', () => {
+    for (const code of FAILURE_CODES) {
+      const result = getRemediation(code);
+      expect(Array.isArray(result.technicalDetail)).toBe(true);
+      for (const detail of result.technicalDetail) {
+        expect(typeof detail).toBe('string');
+        expect(detail.length).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+// ==========================================================================
 // Purity — determinism
 // ==========================================================================
 
@@ -352,6 +423,13 @@ describe('Remediation shape invariants', () => {
       for (const step of result.steps) {
         expect(step.length).toBeGreaterThan(0);
       }
+    }
+  });
+
+  it('every remediation has a technicalDetail array', () => {
+    for (const code of FAILURE_CODES) {
+      const result = getRemediation(code);
+      expect(Array.isArray(result.technicalDetail)).toBe(true);
     }
   });
 });

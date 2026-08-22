@@ -1,5 +1,7 @@
 import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
 
+import type { FileTree } from '@deployz/analysis';
+
 import { ApiError } from './errors.js';
 
 // ---------------------------------------------------------------------------
@@ -406,4 +408,298 @@ export async function listRepositories(
     throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
   }
   return listInstallationRepositories(opts.installationToken, opts.fetchFn);
+}
+
+// ---------------------------------------------------------------------------
+// Repository tree fetch (§18 analysis input)
+//
+// GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1 lists every
+// tracked path (no content), then we fetch the CONTENT of only the files the
+// §18 detectors actually read (packages/analysis/src/detectors.ts) via the
+// git blobs API. BLOCKED against real GitHub in this environment — testable
+// via mock fetch, same seam as everything above. Same S4 permission scope
+// (contents:read + metadata:read) as the rest of this file — no writes, no
+// PRs, no checks.
+// ---------------------------------------------------------------------------
+
+/** A single entry from the GitHub git-trees API (recursive listing). */
+interface GitTreeEntry {
+  path: string;
+  type: string; // 'blob' | 'tree' | 'commit'
+  sha: string;
+  size?: number | undefined;
+}
+
+// Caps on what we will ever download for one analysis run. A repository can
+// have thousands of files; the §18 detectors only read a small, well-known
+// set (Dockerfile, package.json, .env*, docker-compose.yml, **/schema.prisma,
+// and source files by extension for env-var / port / health / fs / worker /
+// external-service pattern matching — see isRelevantPath below). These caps
+// bound both the number of GitHub API calls (one per fetched file) and the
+// memory/time cost of running the detectors themselves.
+export const ANALYSIS_MAX_FILES = 200;
+export const ANALYSIS_MAX_FILE_BYTES = 200_000; // 200 KB per file
+
+// Directories the §18 detectors never need and that would otherwise blow the
+// file cap on repos that (unusually) commit build output or vendored deps.
+const IGNORED_DIR_SEGMENTS = new Set([
+  'node_modules',
+  'dist',
+  'build',
+  '.next',
+  'out',
+  'coverage',
+  '.turbo',
+  'cdk.out',
+  'vendor',
+  '.git',
+]);
+
+const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx)$/i;
+
+function isIgnoredPath(path: string): boolean {
+  return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
+}
+
+// Mirrors exactly what packages/analysis/src/detectors.ts and rejection.ts
+// read from the file tree — see that file for the authoritative patterns.
+// Keep this in sync if a detector starts reading a new file shape.
+function isRelevantPath(path: string): boolean {
+  if (isIgnoredPath(path)) return false;
+  const isRoot = !path.includes('/');
+  if (isRoot) {
+    if (/^package\.json$/i.test(path)) return true;
+    if (/^dockerfile$/i.test(path)) return true;
+    if (/^docker-compose\.ya?ml$/i.test(path)) return true;
+    if (/^\.env(\.\w+)?$/i.test(path)) return true;
+  }
+  if (/schema\.prisma$/i.test(path)) return true;
+  if (SOURCE_EXTENSION_REGEX.test(path)) return true;
+  return false;
+}
+
+// Priority order for trimming to ANALYSIS_MAX_FILES when a repo has more
+// relevant files than the cap: the small, high-signal root config files
+// always win a slot before the (potentially numerous) source files.
+function relevancePriority(path: string): number {
+  if (!path.includes('/')) return 0; // root config files
+  if (/schema\.prisma$/i.test(path)) return 1;
+  return 2; // source files
+}
+
+export interface RepositoryRef {
+  owner: string;
+  repo: string;
+  branch: string;
+}
+
+// Splits an "owner/repo" full name into its parts. Throws a structured error
+// on malformed input rather than producing a broken API URL.
+export function parseRepoFullName(fullName: string): { owner: string; repo: string } {
+  const parts = fullName.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new ApiError(
+      400,
+      'GITHUB_REPO_FULL_NAME_INVALID',
+      `Malformed repository full name: ${fullName}`,
+    );
+  }
+  return { owner: parts[0], repo: parts[1] };
+}
+
+async function readErrorMessage(response: { json(): Promise<unknown> }): Promise<string> {
+  try {
+    const body = (await response.json()) as { message?: string } | undefined;
+    return body?.message ?? '';
+  } catch {
+    return '';
+  }
+}
+
+// Fetches the full recursive file listing for a branch (paths + blob shas +
+// sizes, no content). Handles the shared failure modes — repo/branch not
+// found, empty repo (no commits => no tree), and GitHub rate limiting — by
+// mapping each to a distinct structured ApiError so the analysis runner
+// (apps/api/src/analysis.ts) can fail cleanly instead of throwing an
+// unhandled error.
+export async function fetchRepositoryTreeEntries(
+  ref: RepositoryRef,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<GitTreeEntry[]> {
+  const url = `${GITHUB_API_BASE}/repos/${ref.owner}/${ref.repo}/git/trees/${encodeURIComponent(ref.branch)}?recursive=1`;
+  const response = await fetchFn(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${installationToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+
+  if (response.status === 429) {
+    throw new ApiError(429, 'GITHUB_RATE_LIMITED', 'GitHub API rate limit exceeded');
+  }
+  if (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0') {
+    throw new ApiError(429, 'GITHUB_RATE_LIMITED', 'GitHub API rate limit exceeded');
+  }
+  if (response.status === 404) {
+    const message = await readErrorMessage(response);
+    if (/empty/i.test(message)) {
+      throw new ApiError(422, 'GITHUB_REPO_EMPTY', 'Repository has no commits to analyze');
+    }
+    throw new ApiError(404, 'GITHUB_REPO_NOT_FOUND', 'Repository or branch not found');
+  }
+  if (response.status === 409) {
+    throw new ApiError(422, 'GITHUB_REPO_EMPTY', 'Repository has no commits to analyze');
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new ApiError(502, 'GITHUB_TREE_FETCH_FAILED', 'Failed to fetch repository tree');
+  }
+
+  const data = (await response.json()) as { tree?: GitTreeEntry[]; truncated?: boolean };
+  return data.tree ?? [];
+}
+
+// Fetches a single blob's content (base64-decoded to a UTF-8 string) by its
+// git object sha — one call per relevant file, capped by ANALYSIS_MAX_FILES /
+// ANALYSIS_MAX_FILE_BYTES in `buildFileTreeForAnalysis` below.
+async function fetchBlobContent(
+  ref: RepositoryRef,
+  sha: string,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<string | null> {
+  const url = `${GITHUB_API_BASE}/repos/${ref.owner}/${ref.repo}/git/blobs/${sha}`;
+  const response = await fetchFn(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${installationToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (response.status < 200 || response.status >= 300) {
+    // A single unreadable file should not fail the whole analysis — the
+    // detectors treat a missing key as "not present", which is the correct
+    // degraded behaviour here too.
+    return null;
+  }
+  const data = (await response.json()) as { content?: string; encoding?: string };
+  if (!data.content) return null;
+  if (data.encoding && data.encoding !== 'base64') return null;
+  try {
+    return Buffer.from(data.content, 'base64').toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+// Builds the FileTree the §18 detectors expect: a small, capped subset of
+// the repository's files, selected by `isRelevantPath` and bounded by
+// ANALYSIS_MAX_FILES / ANALYSIS_MAX_FILE_BYTES. Fetches content for each
+// selected file individually via the blob API (one GitHub API call per
+// file) — acceptable at this scale because the cap keeps the call count
+// bounded regardless of repository size.
+export async function buildFileTreeForAnalysis(
+  ref: RepositoryRef,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<FileTree> {
+  const entries = await fetchRepositoryTreeEntries(ref, installationToken, fetchFn);
+
+  const candidates = entries
+    .filter((entry) => entry.type === 'blob' && isRelevantPath(entry.path))
+    .filter((entry) => entry.size === undefined || entry.size <= ANALYSIS_MAX_FILE_BYTES)
+    .sort((a, b) => relevancePriority(a.path) - relevancePriority(b.path))
+    .slice(0, ANALYSIS_MAX_FILES);
+
+  const tree: FileTree = {};
+  for (const entry of candidates) {
+    const content = await fetchBlobContent(ref, entry.sha, installationToken, fetchFn);
+    if (content !== null) {
+      tree[entry.path] = content;
+    }
+  }
+  return tree;
+}
+
+// §216 fixture file trees, keyed by the fixture repo's `fullName` (the same
+// string `applications.repo_full_name` holds once a fixture repo is
+// "selected" — there is no separate repo-id column on the row). Mirrors the
+// two-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
+// compatible (Dockerfile + HEALTHCHECK + /health + Postgres + migration
+// script); legacy-redis has an unsupported Redis dependency so it reliably
+// exercises the NOT_COMPATIBLE path end-to-end without real GitHub credentials.
+export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
+  'deployz-demo/express-api': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'express-api',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      'const app = express();',
+      "app.get('/health', (_req, res) => res.json({ ok: true }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+  },
+  'deployz-demo/legacy-redis': {
+    'package.json': JSON.stringify({
+      name: 'legacy-redis',
+      scripts: { start: 'node index.js' },
+      dependencies: { express: '^4.18.0', ioredis: '^5.4.0' },
+    }),
+    'index.js': [
+      "const express = require('express');",
+      'const app = express();',
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+  },
+};
+
+// Builds the analysis FileTree for one application's repository, branching
+// on fixture vs real GitHub exactly like `listRepositories` above. In
+// fixture mode, the tree is looked up by `repoFullName` — no network call,
+// no installation token. In real mode, an installation token and branch are
+// required (the caller mints the token the same way the /api/github/repos
+// route does) and the repository name is split + fetched from GitHub.
+export async function getFileTreeForAnalysis(
+  repoFullName: string,
+  opts: {
+    fixtureMode: boolean;
+    branch?: string | undefined;
+    installationToken?: string | undefined;
+    fetchFn?: FetchFn | undefined;
+  },
+): Promise<FileTree> {
+  if (opts.fixtureMode) {
+    const fixtureTree = GITHUB_FIXTURE_FILE_TREES[repoFullName];
+    if (!fixtureTree) {
+      throw new ApiError(404, 'GITHUB_REPO_NOT_FOUND', 'Repository not found');
+    }
+    return { ...fixtureTree };
+  }
+  if (!opts.installationToken || !opts.fetchFn || !opts.branch) {
+    throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
+  }
+  const { owner, repo } = parseRepoFullName(repoFullName);
+  return buildFileTreeForAnalysis(
+    { owner, repo, branch: opts.branch },
+    opts.installationToken,
+    opts.fetchFn,
+  );
 }

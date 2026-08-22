@@ -10,23 +10,26 @@ import { ReadinessResult } from '@/components/readiness-result';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  deriveOnboardingStep,
-  fetchReadiness,
-  type ApplicationReadiness,
-} from '@/lib/readiness';
+import { fetchApplication, type Application } from '@/lib/applications';
+import { fetchDeploymentsForApplication } from '@/lib/deployments';
+import { deriveOnboardingStep, fetchReadiness, type ApplicationReadiness } from '@/lib/readiness';
 
 type PageState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'loaded'; data: ApplicationReadiness };
+  | {
+      status: 'loaded';
+      application: Application;
+      readiness: ApplicationReadiness;
+      testDeploymentCreated: boolean;
+    };
 
 // Application readiness page — §42 steps 2-6 live here (step 1, Connect
 // GitHub, lives on the Applications page). Renders the six-step onboarding
 // flow with the current step derived from real state, then the §19
-// deterministic verdict (with the todo-24 AI explanation under it), then the
-// §7 free test-deployment CTA when the app is ready. The readiness endpoint
-// may not exist yet, so fetchReadiness falls back to fixture data on a 404.
+// deterministic verdict, then the §7 test-deployment CTA when the app is
+// ready. All data is real: application + readiness + whether a test
+// deployment already exists (no fixture fallback masking a 404).
 export default function ApplicationReadinessPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
@@ -36,9 +39,18 @@ export default function ApplicationReadinessPage() {
     let cancelled = false;
     async function load(): Promise<void> {
       try {
-        const data = await fetchReadiness(id);
+        const [application, readiness, deployments] = await Promise.all([
+          fetchApplication(id),
+          fetchReadiness(id),
+          fetchDeploymentsForApplication(id),
+        ]);
         if (cancelled) return;
-        setState({ status: 'loaded', data });
+        setState({
+          status: 'loaded',
+          application,
+          readiness,
+          testDeploymentCreated: deployments.some((d) => d.isTestDeployment),
+        });
       } catch {
         if (!cancelled) {
           setState({
@@ -77,29 +89,47 @@ export default function ApplicationReadinessPage() {
           <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
         </section>
       ) : null}
-      {state.status === 'loaded' ? <ReadinessBody data={state.data} /> : null}
+      {state.status === 'loaded' ? (
+        <ReadinessBody
+          application={state.application}
+          readiness={state.readiness}
+          testDeploymentCreated={state.testDeploymentCreated}
+        />
+      ) : null}
     </div>
   );
 }
 
-function ReadinessBody({ data }: { data: ApplicationReadiness }) {
-  const verdict = data.readiness?.verdict ?? null;
+function ReadinessBody({
+  application,
+  readiness,
+  testDeploymentCreated,
+}: {
+  application: Application;
+  readiness: ApplicationReadiness;
+  testDeploymentCreated: boolean;
+}) {
   const currentStep = deriveOnboardingStep({
-    analysisStatus: data.application.analysisStatus,
-    verdict,
-    testDeploymentCreated: data.testDeploymentCreated,
+    analysisStatus: readiness.analysisStatus,
+    verdict: readiness.verdict,
+    testDeploymentCreated,
   });
 
   return (
     <>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{data.application.name}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{data.application.repoFullName}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{application.name}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{application.repoFullName}</p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/dashboard/applications/${data.application.id}/config`}>Configuration</Link>
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/dashboard/applications/${application.id}/releases`}>Releases</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/dashboard/applications/${application.id}/config`}>Configuration</Link>
+          </Button>
+        </div>
       </div>
 
       <section aria-labelledby="onboarding" className="flex flex-col gap-3">
@@ -109,32 +139,18 @@ function ReadinessBody({ data }: { data: ApplicationReadiness }) {
         <OnboardingFlow currentStep={currentStep} />
       </section>
 
-      {data.application.analysisStatus !== 'COMPLETE' ? (
-        <section
-          aria-labelledby="analysing"
-          className="rounded-xl border border-dashed px-6 py-10 text-center"
-        >
-          <h2 id="analysing" className="text-lg font-semibold">
-            Analysing your app
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            We&apos;re checking your app. This usually takes a minute.
-          </p>
-        </section>
-      ) : null}
+      <ReadinessResult readiness={readiness} />
 
-      {data.readiness ? (
-        <ReadinessResult readiness={data.readiness} explanation={data.explanation} />
+      {readiness.verdict === 'READY' && !testDeploymentCreated ? (
+        <TestDeploymentCard applicationId={application.id} />
       ) : null}
-
-      {verdict === 'READY' && !data.testDeploymentCreated ? <TestDeploymentCard /> : null}
     </>
   );
 }
 
-// §7 free test deployment — the vendor's own test deployment is free (no
-// per-deployment charge); only customer deployments are billed.
-function TestDeploymentCard() {
+// §7 the vendor's own test deployment is not charged (isTestDeployment) —
+// only customer deployments are billed.
+function TestDeploymentCard({ applicationId }: { applicationId: string }) {
   return (
     <Card data-testid="test-deployment">
       <CardHeader>
@@ -145,11 +161,15 @@ function TestDeploymentCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div>
-          <Button>Create test deployment</Button>
+          <Button asChild>
+            <Link href={`/dashboard/deployments/new?applicationId=${applicationId}&test=true`}>
+              Create test deployment
+            </Link>
+          </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Your own test deployment is free — the per-deployment charge only applies to customer
-          deployments.
+          Your own test deployment is not charged — the per-deployment fee only applies to
+          customer deployments.
         </p>
       </CardContent>
     </Card>

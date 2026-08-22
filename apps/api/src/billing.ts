@@ -5,13 +5,22 @@ import type { SubscriptionStatus } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import {
+  BASE_PRICE_CENTS,
+  decideBilling,
+  METERED_PRICE_CENTS,
+  shouldBillForDeployment,
+} from './billing-correctness.js';
 import { env } from './env.js';
 import { ApiError } from './errors.js';
 
 // §48 billing foundation: $49/month base subscription + $19 per live
-// (HEALTHY, non-test) deployment per month, metered daily (U8 day-proration:
-// ONE usage record per deployment per day, quantity 1). §7: vendor-owned test
-// deployments (is_test_deployment = true) are exempt from the metered $19.
+// (HEALTHY or UPDATE_AVAILABLE, non-test) deployment per month, metered daily
+// (U8 day-proration: ONE usage record per deployment per day, quantity 1).
+// §7: vendor-owned test deployments (is_test_deployment = true) are exempt
+// from the metered $19. BASE_PRICE_CENTS / METERED_PRICE_CENTS and the
+// billing decision rules live in billing-correctness.ts — the single source
+// of truth — and are re-exported here for convenience.
 //
 // Stripe SDK 22.x: legacy subscriptionItems.usageRecords was removed — metered
 // usage is reported via billing.meterEvents against a meter attached to the
@@ -21,8 +30,7 @@ import { ApiError } from './errors.js';
 // 'stripe_customer_id'.
 
 export const METER_EVENT_NAME = 'deployz_healthy_deployment_days';
-export const BASE_PRICE_CENTS = 4900; // $49/month base
-export const METERED_PRICE_CENTS = 1900; // $19 per healthy deployment-month
+export { BASE_PRICE_CENTS, METERED_PRICE_CENTS };
 
 export type StripeClient = Stripe;
 
@@ -337,13 +345,18 @@ export interface BillableDeployment {
   isTestDeployment: boolean;
 }
 
-// §48: a deployment bills $19/month when it is live. §7: the one vendor-owned
-// test deployment is exempt. Billable == HEALTHY and NOT a test deployment.
+// §48: a deployment bills $19/month when it is live. §46: HEALTHY and
+// UPDATE_AVAILABLE are both live serving states (a deployment moves to
+// UPDATE_AVAILABLE simply because the vendor published a newer release, and
+// §48 says "creating multiple releases does not affect billing" — it must
+// stay billable). §7: the one vendor-owned test deployment is exempt.
+// Delegates to shouldBillForDeployment in billing-correctness.ts, the single
+// source of truth for this rule.
 export function isBillable(deployment: {
   state: string;
   isTestDeployment: boolean;
 }): boolean {
-  return deployment.state === 'HEALTHY' && !deployment.isTestDeployment;
+  return shouldBillForDeployment(deployment);
 }
 
 export interface ReportUsageResult {
@@ -352,10 +365,31 @@ export interface ReportUsageResult {
   meterEventIds: string[];
 }
 
+// Returns the calendar day immediately before `dateStr` (both 'YYYY-MM-DD',
+// UTC) — used to look up whether a deployment was already billing yesterday.
+function previousDateString(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 // Reports ONE meter event (quantity 1) per billable deployment for the given
 // UTC date — the U8 day-proration shape. Records each report in usage_records
 // (unique per deployment+date) and stamps stripe_usage_record_id with the
 // meter event identifier once accepted.
+//
+// §48 correctness: billability for the day is decided by decideBilling (the
+// single source of truth in billing-correctness.ts), not by re-deriving the
+// rule from the current row state. decideBilling is told whether the
+// deployment already had a usage_records row for the previous date
+// (`wasBillingPreviously`) so a transient HEALTHY -> UPDATING -> FAILED ->
+// HEALTHY run keeps billing straight through the FAILED day(s), per "temporary
+// failed updates do not affect billing".
+//
+// Idempotent per (deployment, usageDate): a deployment that already has a
+// usage_records row for `usageDate` is counted as reported and neither
+// re-reported to Stripe nor re-inserted — safe to re-run for the same date
+// (e.g. a retried scheduled invocation). See runDailyUsageReport below.
 export async function reportUsageForDate(
   { db, stripe }: BillingDeps,
   usageDate: string,
@@ -369,11 +403,32 @@ export async function reportUsageForDate(
     })
     .from(schema.deployments);
 
+  const previousDate = previousDateString(usageDate);
+  const [previousDayRecords, sameDayRecords] = await Promise.all([
+    db
+      .select({ deploymentId: schema.usageRecords.deploymentId })
+      .from(schema.usageRecords)
+      .where(eq(schema.usageRecords.usageDate, previousDate)),
+    db
+      .select({ deploymentId: schema.usageRecords.deploymentId })
+      .from(schema.usageRecords)
+      .where(eq(schema.usageRecords.usageDate, usageDate)),
+  ]);
+  const wasBillingYesterday = new Set(previousDayRecords.map((r) => r.deploymentId));
+  const alreadyReportedToday = new Set(sameDayRecords.map((r) => r.deploymentId));
+
   const result: ReportUsageResult = { reported: 0, skipped: 0, meterEventIds: [] };
 
   for (const deployment of deployments) {
-    if (!isBillable(deployment)) {
+    const decision = decideBilling(deployment, wasBillingYesterday.has(deployment.id));
+    if (!decision.bill) {
       result.skipped += 1;
+      continue;
+    }
+
+    // Idempotent re-run for the same date: already reported, nothing to do.
+    if (alreadyReportedToday.has(deployment.id)) {
+      result.reported += 1;
       continue;
     }
 
@@ -419,4 +474,21 @@ export async function reportUsageForDate(
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled entry point (§48/U8)
+// ---------------------------------------------------------------------------
+
+// Named entry point for a scheduled (e.g. daily cron / EventBridge) trigger
+// that reports metered usage to Stripe for one UTC calendar day. `date` is
+// 'YYYY-MM-DD'. Idempotent: re-invoking for the same date is safe — see the
+// idempotency note on reportUsageForDate. Provisioning the actual scheduler
+// (cron config, EventBridge rule, etc.) is out of scope here; this is the
+// callable unit the scheduler should invoke once per day.
+export async function runDailyUsageReport(
+  deps: BillingDeps,
+  date: string,
+): Promise<ReportUsageResult> {
+  return reportUsageForDate(deps, date);
 }

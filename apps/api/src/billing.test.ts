@@ -13,6 +13,7 @@ import {
   handleWebhookEvent,
   isBillable,
   reportUsageForDate,
+  runDailyUsageReport,
   METER_EVENT_NAME,
 } from './billing.js';
 import { buildServer } from './server.js';
@@ -31,20 +32,27 @@ describe('billing — isBillable (§48 + §7)', () => {
     expect(isBillable({ state: 'HEALTHY', isTestDeployment: false })).toBe(true);
   });
 
+  it('§46/§48: UPDATE_AVAILABLE + non-test deployment is billable (still a live serving state — a newer release existing does not stop billing)', () => {
+    expect(isBillable({ state: 'UPDATE_AVAILABLE', isTestDeployment: false })).toBe(true);
+  });
+
   it('§7: HEALTHY + test deployment is NOT billable', () => {
     expect(isBillable({ state: 'HEALTHY', isTestDeployment: true })).toBe(false);
+  });
+
+  it('§7: UPDATE_AVAILABLE + test deployment is NOT billable', () => {
+    expect(isBillable({ state: 'UPDATE_AVAILABLE', isTestDeployment: true })).toBe(false);
   });
 
   it.each([
     'NOT_INSTALLED',
     'INSTALLING',
     'UPDATING',
-    'UPDATE_AVAILABLE',
     'FAILED',
     'DISCONNECTED',
     'DELETING',
     'DELETED',
-  ])('non-HEALTHY state %s is NOT billable', (state) => {
+  ])('non-HEALTHY/UPDATE_AVAILABLE state %s is NOT billable', (state) => {
     expect(isBillable({ state, isTestDeployment: false })).toBe(false);
   });
 });
@@ -251,6 +259,110 @@ describe('billing — usage reporting (§48/U8 + §7)', () => {
       .where(eq(schema.usageRecords.deploymentId, deploymentId));
     expect(records).toHaveLength(1);
     expect(records[0]!.usageDate).toBe('2026-08-21');
+  });
+
+  async function setDeploymentState(deploymentId: string, state: string): Promise<void> {
+    await db
+      .update(schema.deployments)
+      .set({ state: state as never })
+      .where(eq(schema.deployments.id, deploymentId));
+  }
+
+  async function recordsFor(deploymentId: string) {
+    const rows = await db
+      .select()
+      .from(schema.usageRecords)
+      .where(eq(schema.usageRecords.deploymentId, deploymentId));
+    return rows.sort((a, b) => a.usageDate.localeCompare(b.usageDate));
+  }
+
+  it('§46/§48: UPDATE_AVAILABLE deployments are billed — a newer release existing does not stop billing', async () => {
+    const updateAvailableId = await insertDeployment('UPDATE_AVAILABLE', false);
+    await reportUsageForDate({ db, stripe: null }, '2026-08-22');
+
+    const records = await recordsFor(updateAvailableId);
+    expect(records).toHaveLength(1);
+    expect(records[0]!.usageDate).toBe('2026-08-22');
+    expect(records[0]!.quantity).toBe(1);
+  });
+
+  it('§48: a transient HEALTHY → UPDATING → FAILED → HEALTHY run bills every day without interruption', async () => {
+    const deploymentId = await insertDeployment('HEALTHY', false);
+    const walk: Array<[string, string]> = [
+      ['2026-09-01', 'HEALTHY'],
+      ['2026-09-02', 'UPDATING'],
+      ['2026-09-03', 'FAILED'],
+      ['2026-09-04', 'HEALTHY'],
+    ];
+
+    for (const [date, state] of walk) {
+      await setDeploymentState(deploymentId, state);
+      await reportUsageForDate({ db, stripe: null }, date);
+    }
+
+    const records = await recordsFor(deploymentId);
+    expect(records.map((r) => r.usageDate)).toEqual(walk.map(([date]) => date));
+    expect(records.every((r) => r.quantity === 1)).toBe(true);
+  });
+
+  it('§7: updating a customer v1.0 → v1.1 → v1.2 remains ONE billable deployment, not three', async () => {
+    const deploymentId = await insertDeployment('HEALTHY', false);
+    // v1.0 healthy -> deploy v1.1 (UPDATING) -> v1.1 healthy -> deploy v1.2
+    // (UPDATING) -> v1.2 healthy. No new deployment row is ever created.
+    const releaseWalk: Array<[string, string]> = [
+      ['2026-09-20', 'HEALTHY'],
+      ['2026-09-21', 'UPDATING'],
+      ['2026-09-22', 'HEALTHY'],
+      ['2026-09-23', 'UPDATING'],
+      ['2026-09-24', 'HEALTHY'],
+    ];
+
+    for (const [date, state] of releaseWalk) {
+      await setDeploymentState(deploymentId, state);
+      await reportUsageForDate({ db, stripe: null }, date);
+    }
+
+    const deploymentRows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    expect(deploymentRows).toHaveLength(1);
+
+    // One usage record per day of the release cycle, always quantity 1 — the
+    // three releases never fan out into three billed deployments.
+    const records = await recordsFor(deploymentId);
+    expect(records).toHaveLength(releaseWalk.length);
+    for (const record of records) {
+      expect(record.quantity).toBe(1);
+    }
+  });
+
+  it('§48: a deleted deployment keeps its already-accrued charges but stops accruing new ones', async () => {
+    const deploymentId = await insertDeployment('HEALTHY', false);
+    await reportUsageForDate({ db, stripe: null }, '2026-09-10');
+
+    await db
+      .update(schema.deployments)
+      .set({ state: 'DELETED' as never, deletedAt: new Date() })
+      .where(eq(schema.deployments.id, deploymentId));
+    await reportUsageForDate({ db, stripe: null }, '2026-09-11');
+    await reportUsageForDate({ db, stripe: null }, '2026-09-12');
+
+    const records = await recordsFor(deploymentId);
+    expect(records.map((r) => r.usageDate)).toEqual(['2026-09-10']);
+  });
+
+  it('runDailyUsageReport is the scheduled entry point and is idempotent for a re-run on the same date', async () => {
+    const deploymentId = await insertDeployment('HEALTHY', false);
+    const first = await runDailyUsageReport({ db, stripe: null }, '2026-09-30');
+    const second = await runDailyUsageReport({ db, stripe: null }, '2026-09-30');
+
+    expect(first.reported).toBeGreaterThan(0);
+    expect(second.reported).toBe(first.reported);
+    expect(second.meterEventIds).toHaveLength(0); // stripe: null -> no meter events either way
+
+    const records = await recordsFor(deploymentId);
+    expect(records).toHaveLength(1);
   });
 });
 

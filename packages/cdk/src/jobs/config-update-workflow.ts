@@ -28,7 +28,7 @@ import {
   type WorkflowStep,
 } from '../durable/durable-runtime.js';
 
-import type { EventActor, EventEmitter } from './event-emitter.js';
+import { actorFromInitiator, type EventEmitter, type WorkflowInitiator } from './event-emitter.js';
 
 import { assertHealthReport } from './preflight.js';
 
@@ -56,6 +56,8 @@ export interface ConfigUpdateInput {
   readonly installationId: string;
   /** Config entries to write (§31). Secret values are write-only. */
   readonly entries: readonly ConfigEntry[];
+  /** §62 audit actor — who/what initiated this workflow. Defaults to system. */
+  readonly initiatedBy?: WorkflowInitiator | undefined;
 }
 
 /** Output from the CONFIG_UPDATE workflow (secrets masked — no plaintext). */
@@ -220,7 +222,7 @@ export function createConfigUpdateWorkflow(
   return async function* configUpdateWorkflow(
     input: ConfigUpdateInput,
   ): AsyncGenerator<WorkflowStep, ConfigUpdateOutput, unknown> {
-    const actor: EventActor = { type: 'system' };
+    const actor = actorFromInitiator(input.initiatedBy);
     const baseEvent = {
       organizationId: input.organizationId,
       customerId: input.customerId,

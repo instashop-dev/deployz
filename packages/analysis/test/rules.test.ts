@@ -2,16 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { compatibilityStatusEnum } from '@deployz/db';
 
-import { analyseRepo } from './analyser.js';
-import type { AnalysisResult } from './analyser.js';
-import type { FileTree } from './detectors.js';
+import { analyseRepo } from '../src/analyser.js';
+import type { AnalysisResult } from '../src/analyser.js';
+import type { FileTree } from '../src/detectors.js';
 import {
   evaluateCompatibility,
   persistVerdict,
   type CompatibilityResult,
   type CompatibilityVerdict,
   type VerdictStore,
-} from './rules.js';
+} from '../src/rules.js';
 
 // ==========================================================================
 // Corpus fixtures (inline file trees — no real files on disk)

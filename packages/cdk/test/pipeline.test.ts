@@ -101,6 +101,24 @@ describe('BuildPipeline', () => {
     expect(sourceJson).toContain('image-digest.txt');
   });
 
+  it('never falls back to the mutable `latest` tag (§21)', () => {
+    const { template } = synth();
+    const resources = (template.toJSON() as { Resources: Record<string, { Properties?: Record<string, unknown> }> })
+      .Resources;
+    const project = Object.values(resources).find(
+      (r) => r.Properties?.['Source']?.['Type'] === 'NO_SOURCE',
+    );
+    expect(project).toBeDefined();
+    const sourceJson = JSON.stringify(project!.Properties!['Source']);
+    // No `:latest` fallback anywhere in the buildspec.
+    expect(sourceJson).not.toContain(':-latest');
+    expect(sourceJson).not.toContain('IMAGE_TAG=latest');
+    // The tag falls back to a per-build-unique CodeBuild id, not a shared name.
+    expect(sourceJson).toContain('CODEBUILD_BUILD_ID');
+    // The build fails fast rather than silently using a mutable tag.
+    expect(sourceJson).toContain('no usable image tag');
+  });
+
   it('produces CloudFormation outputs for ECR URI and CodeBuild project name', () => {
     const { template } = synth();
     const json = template.toJSON() as { Outputs?: Record<string, unknown> };

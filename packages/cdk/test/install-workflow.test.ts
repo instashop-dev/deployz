@@ -45,6 +45,10 @@ function makeInput(overrides: Partial<InstallInput> = {}): InstallInput {
     installationId: 'install-1',
     region: 'us-east-1',
     releaseId: 'release-1',
+    // §30 full-preflight application inputs — must be valid for the new
+    // full-preflight step (item 1) to pass.
+    port: 3000,
+    healthPath: '/health',
     ...overrides,
   };
 }
@@ -267,14 +271,20 @@ describe('INSTALL workflow', () => {
 
     expect(state.status).toBe('WAITING_CALLBACK');
     expect(state.callbackToken).toBe('install:install-1:relay-contact');
-    expect(state.history.map((h) => h.name)).toEqual(['validate-region', 'check-scp']);
-    expect(state.currentStep).toBe(2);
+    expect(state.history.map((h) => h.name)).toEqual([
+      'validate-region',
+      'check-scp',
+      'full-preflight',
+    ]);
+    expect(state.currentStep).toBe(3);
 
-    // 2 preflight events emitted
+    // 3 preflight events emitted — region, SCP, and the full §30 engine.
     expect(harness.eventStore.events.map((e) => e.eventType)).toEqual([
       'install.preflight.region',
       'install.preflight.scp',
+      'install.preflight.full',
     ]);
+    expect(harness.eventStore.events[2]?.result).toBe('passed');
 
     // Deployment state unchanged (still NOT_INSTALLED)
     expect(await harness.deploymentStore.get('deployment-1')).toBe('NOT_INSTALLED');
@@ -303,19 +313,26 @@ describe('INSTALL workflow', () => {
     expect(healthy.status).toBe('COMPLETED');
     expect(healthy.output).toEqual({ status: 'HEALTHY', deploymentId: 'deployment-1' });
 
-    // All four steps executed in order
+    // All five steps executed in order
     expect(healthy.history.map((h) => h.name)).toEqual([
       'validate-region',
       'check-scp',
+      'full-preflight',
       'mark-installing',
       'mark-healthy',
     ]);
 
     // Deployment state reached HEALTHY
     expect(await harness.deploymentStore.get('deployment-1')).toBe('HEALTHY');
+
+    // §38: the first successful install seeds the release pointers.
+    expect(await harness.deploymentStore.getReleasePointers('deployment-1')).toEqual({
+      currentReleaseId: 'release-1',
+      previousReleaseId: null,
+    });
   });
 
-  it('emits all six §62 events in order', async () => {
+  it('emits all seven §62 events in order', async () => {
     await harness.runtime.start(harness.workflow, makeInput(), 'exec-3');
     await harness.runtime.resume(
       harness.workflow,
@@ -331,6 +348,7 @@ describe('INSTALL workflow', () => {
     expect(harness.eventStore.events.map((e) => e.eventType)).toEqual([
       'install.preflight.region',
       'install.preflight.scp',
+      'install.preflight.full',
       'install.relay.contact',
       'install.state.installing',
       'install.relay.health',
@@ -437,6 +455,61 @@ describe('INSTALL workflow', () => {
     expect(second.status).toBe('COMPLETED');
     expect(second).toEqual(first);
     // No duplicate events on re-resume
-    expect(harness.eventStore.count).toBe(6);
+    expect(harness.eventStore.count).toBe(7);
+  });
+
+  // ── §62 audit actor (item 9) ───────────────────────────────────────────
+
+  it('attributes every event to the user who initiated it, when supplied', async () => {
+    const input = makeInput({ initiatedBy: { type: 'user', id: 'user-42' } });
+    await harness.runtime.start(harness.workflow, input, 'exec-initiator-1');
+
+    expect(harness.eventStore.events.length).toBeGreaterThan(0);
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('user');
+      expect(event.actorId).toBe('user-42');
+    }
+  });
+
+  it('defaults to the system actor when initiatedBy is omitted', async () => {
+    await harness.runtime.start(harness.workflow, makeInput(), 'exec-initiator-2');
+
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('system');
+      expect(event.actorId).toBe('system');
+    }
+  });
+
+  // ── Full §30 preflight (item 1) ─────────────────────────────────────────
+
+  it('halts before waiting on relay contact when a required port is missing', async () => {
+    await expect(
+      harness.runtime.start(
+        harness.workflow,
+        makeInput({ port: undefined }),
+        'exec-preflight-port',
+      ),
+    ).rejects.toThrow(PreflightError);
+
+    expect(
+      harness.eventStore.events.some((e) => e.eventType === 'install.preflight.full'),
+    ).toBe(true);
+    const full = harness.eventStore.events.find((e) => e.eventType === 'install.preflight.full');
+    expect(full?.result).toBe('failed:INVALID_CONFIG');
+    // Never reached the relay-contact wait, never transitioned INSTALLING.
+    expect(await harness.deploymentStore.get('deployment-1')).toBe('NOT_INSTALLED');
+  });
+
+  it('halts before waiting on relay contact when required secrets are missing', async () => {
+    await expect(
+      harness.runtime.start(
+        harness.workflow,
+        makeInput({ requiredSecrets: ['DATABASE_PASSWORD'], configuredSecrets: [] }),
+        'exec-preflight-secrets',
+      ),
+    ).rejects.toThrow(PreflightError);
+
+    const full = harness.eventStore.events.find((e) => e.eventType === 'install.preflight.full');
+    expect(full?.result).toBe('failed:MISSING_SECRET');
   });
 });

@@ -13,7 +13,7 @@ import {
   detectMigrationCommand,
   type FileTree,
   type DetectorFinding,
-} from '../src/analysis/detectors.js';
+} from '../src/detectors.js';
 
 import {
   checkRedis,
@@ -22,9 +22,9 @@ import {
   checkElasticsearch,
   checkOtherUnsupportedDatabases,
   type RejectionFinding,
-} from '../src/analysis/rejection.js';
+} from '../src/rejection.js';
 
-import { analyseRepo, type AnalysisResult } from '../src/analysis/analyser.js';
+import { analyseRepo, type AnalysisResult } from '../src/analyser.js';
 
 // ==========================================================================
 // Corpus fixtures (inline file trees — no real files on disk)

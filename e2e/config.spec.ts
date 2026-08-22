@@ -41,10 +41,23 @@ async function captureConfigWrites(page: Page, sink: { body: ConfigWriteBody | n
 
 test('application detail page links to the configuration screen', async ({ page }) => {
   await signUp(page);
-  await page.goto('/dashboard/applications/fixture-repo-1');
+  // A real application (fixture-repo-1 is a GitHub repo id, not a Deployz
+  // application id — the readiness page 404s for anything that isn't a real
+  // UUID application, by design).
+  const appResponse = await page.request.post('http://localhost:3001/api/applications', {
+    data: {
+      name: `express-api-${crypto.randomUUID().slice(0, 8)}`,
+      githubInstallationId: 'e2e-installation',
+      repoFullName: 'deployz-demo/express-api',
+      repoUrl: 'https://github.com/deployz-demo/express-api',
+      defaultBranch: 'main',
+    },
+  });
+  const application = (await appResponse.json()) as { id: string };
 
+  await page.goto(`/dashboard/applications/${application.id}`);
   await page.getByRole('link', { name: 'Configuration' }).click();
-  await page.waitForURL(/\/dashboard\/applications\/fixture-repo-1\/config/);
+  await page.waitForURL(`**/dashboard/applications/${application.id}/config`);
 
   await expect(page.getByRole('heading', { name: 'Configuration' })).toBeVisible();
 });

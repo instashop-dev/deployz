@@ -52,8 +52,9 @@ export default function PricingPage() {
           </h1>
           <p className="max-w-xl text-sm text-muted-foreground">
             A flat base subscription covers your dashboard, GitHub integration, and readiness
-            checks. Each healthy customer deployment adds $19/month. Your first deployment is free —
-            it is a test deployment for verifying compatibility.
+            checks. Each healthy customer deployment adds $19/month. Your own test deployment
+            is not charged — the per-deployment fee only applies once a customer installs your
+            app.
           </p>
         </section>
 

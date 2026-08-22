@@ -21,14 +21,27 @@ import { type FailureCode } from './failure-classifier.js';
  * The `automatic` field is ALWAYS `false` — no automatic remediation
  * execution (by design). The remediation is advisory: it tells the vendor
  * what to do, but never does it automatically.
+ *
+ * §65 requires a structural split between plain-language guidance and raw
+ * AWS detail: `summary`/`steps` are the jargon-free top level (safe to show
+ * by default), and `technicalDetail` carries the AWS-specific instructions
+ * (console names, service names) behind an expandable section. No content is
+ * dropped — the technical instructions live in `technicalDetail` rather than
+ * being deleted.
  */
 export interface Remediation {
   /** The §61 failure code this remediation addresses. */
   code: FailureCode;
   /** One-line summary of what needs to happen. §65 jargon-free. */
   summary: string;
-  /** Step-by-step guidance (1-3 steps). */
+  /** Step-by-step guidance (1-3 steps), §65 jargon-free — safe to show by default. */
   steps: string[];
+  /**
+   * AWS-specific technical detail (console names, service names) for the
+   * same failure. §65: expandable, never shown at the top level. Empty when
+   * the plain-language `steps` already carry everything needed.
+   */
+  technicalDetail: string[];
   /** Whether this requires manual intervention. */
   requiresManual: boolean;
   /** Whether the fix can be applied automatically (this is always FALSE by design). */
@@ -73,6 +86,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Remove or modify the policy blocking the required action.',
       'Contact your cloud administrator.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -84,6 +98,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Check what port your app actually listens on (from the PORT env var or app code).',
       'Update the deployment configuration to match.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -95,6 +110,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       `Choose one of the supported regions: ${SUPPORTED_REGIONS.join(', ')}.`,
       'Re-create the deployment in the supported region.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -107,6 +123,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Request a quota increase if needed.',
       'Retry the deployment.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -119,6 +136,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Check the application logs for startup errors.',
       'Rebuild and redeploy.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -131,6 +149,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Fix the migration and re-run it manually if needed.',
       'Retry the deployment.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -143,6 +162,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       "Verify the relay Lambda is still deployed and hasn't been removed.",
       'If the issue persists, re-create the bootstrap stack from your install link.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -155,6 +175,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Verify your container image is valid and complete.',
       'Retry the deployment.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -167,6 +188,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       "Check your cloud account's database status.",
       'Contact support if the issue persists.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -178,6 +200,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       "Check the deployment's health signals for more detail.",
       'Contact Deployz support with your deployment ID.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -186,10 +209,13 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
   AWS_PERMISSION_DENIED: {
     summary: 'Your cloud account does not have permission for this action.',
     steps: [
-      'Check the IAM role or user policy attached to the deployment.',
+      'Check the permissions attached to your cloud account for this deployment.',
       'Add the missing permission to the policy.',
       'Contact your cloud administrator if the policy is managed externally.',
     ],
+    // §65: expandable technical detail — the AWS-specific instruction moved
+    // here rather than being deleted.
+    technicalDetail: ['Check the IAM role or user policy attached to the deployment.'],
     requiresManual: true,
     automatic: false,
   },
@@ -198,9 +224,12 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
   STACK_CREATE_FAILED: {
     summary: 'The infrastructure setup could not complete.',
     steps: [
-      'Check the CloudFormation console for the specific resource that failed.',
+      'Check which part of the setup failed and why.',
       'Fix the underlying issue (e.g. missing permissions, invalid parameters).',
       'Retry the deployment.',
+    ],
+    technicalDetail: [
+      'Check the CloudFormation console for the specific resource that failed.',
     ],
     requiresManual: true,
     automatic: false,
@@ -210,10 +239,11 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
   DATABASE_CREATE_FAILED: {
     summary: 'The database could not be created.',
     steps: [
-      'Check the RDS console for the creation failure reason.',
+      'Check the failure reason for the new database.',
       'Verify your account has enough capacity for a new database instance.',
       'Retry the deployment.',
     ],
+    technicalDetail: ['Check the RDS console for the creation failure reason.'],
     requiresManual: true,
     automatic: false,
   },
@@ -226,6 +256,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Verify the connection string and security group rules.',
       'Wait a few minutes and try again — databases sometimes restart.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -234,10 +265,11 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
   IMAGE_PULL_FAILED: {
     summary: 'The container image could not be downloaded.',
     steps: [
-      'Verify the image exists in the container registry.',
+      'Verify the app image exists and is accessible.',
       'Check that the registry permissions allow pulling the image.',
       'Make sure the image tag or digest is correct.',
     ],
+    technicalDetail: ['Verify the image exists in the container registry.'],
     requiresManual: true,
     automatic: false,
   },
@@ -250,6 +282,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Verify the startup command is correct.',
       'Make sure all required environment variables and secrets are set.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },
@@ -258,10 +291,11 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
   MISSING_SECRET: {
     summary: 'A required secret is missing or not accessible.',
     steps: [
-      'Check that all required secrets exist in the secrets manager.',
+      'Check that all required secrets are configured for this deployment.',
       'Verify the deployment has permission to read the secrets.',
       'Add any missing secrets and retry.',
     ],
+    technicalDetail: ['Check that all required secrets exist in the secrets manager.'],
     requiresManual: true,
     automatic: false,
   },
@@ -274,6 +308,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'Update your Dockerfile or build command to target linux/amd64.',
       'Push the rebuilt image and retry the deployment.',
     ],
+    technicalDetail: [],
     requiresManual: true,
     automatic: false,
   },

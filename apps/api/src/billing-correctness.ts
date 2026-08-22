@@ -2,25 +2,35 @@
 // metered-billing rules. These are the guardrails that prevent double-billing,
 // re-billing on transient failures, and billing for deleted deployments.
 //
-// Rules (from the plan):
-//   1. Billable == HEALTHY and NOT a test deployment (§7 exemption).
-//   2. Updates/releases don't re-bill — a deployment that was already HEALTHY
-//      and stays HEALTHY through an update does NOT trigger a new billing cycle.
-//   3. Billing stops on delete — DELETING or DELETED deployments are removed.
-//   4. Failed/transient updates never re-bill — FAILED or DISCONNECTED
-//      deployments stop billing.
+// Rules (from §48):
+//   1. Billable == HEALTHY or UPDATE_AVAILABLE (both are live serving states
+//      per §46 — a deployment moves to UPDATE_AVAILABLE simply because the
+//      vendor published a newer release, so it must stay billable) and NOT a
+//      test deployment (§7 exemption).
+//   2. Updates/releases don't re-bill — a deployment that was already
+//      billable and stays billable through an update does NOT trigger a new
+//      billing cycle ("v1.0 → v1.1 → v1.2 remains ONE $19/month deployment").
+//   3. Billing stops on delete — DELETING or DELETED deployments are removed
+//      from future billing (past charges are untouched — usage_records are
+//      never retracted).
+//   4. Temporary failed updates do not affect billing — a deployment that was
+//      already being billed keeps billing straight through a transient
+//      UPDATING/FAILED/DISCONNECTED blip (e.g. HEALTHY → UPDATING → FAILED →
+//      HEALTHY bills every day of that run). Only delete (rule 3) or never
+//      having become billable in the first place stops billing.
 //   5. U8 day-proration: ONE daily usage record per deployment with qty=1,
 //      day-prorated at $19/30 per day (or $19/31, $19/28 depending on month).
 //
 // These functions are PURE — they take deployment state snapshots and return
-// boolean decisions. The caller (reportUsageForDate in billing.ts) already
-// implements the U8 shape; these functions add the correctness assertions
-// that prevent the $570/month trap and other billing errors.
+// boolean decisions. decideBilling is the single source of truth for "is this
+// deployment billable today" — reportUsageForDate in billing.ts calls it
+// directly rather than re-deriving the rule from the raw state.
 
-import { isBillable, BASE_PRICE_CENTS, METERED_PRICE_CENTS } from './billing.js';
-
-// Re-export the constants so callers can import everything from one module.
-export { BASE_PRICE_CENTS, METERED_PRICE_CENTS };
+// This module has NO dependency on billing.ts (billing.ts depends on THIS
+// module for decideBilling, so the price constants and the canonical
+// billable predicate live here to avoid a circular import).
+export const BASE_PRICE_CENTS = 4900; // $49/month base
+export const METERED_PRICE_CENTS = 1900; // $19 per billable deployment-month
 
 // ── Deployment state snapshot (subset of the full deployment row) ───────────
 
@@ -32,12 +42,18 @@ export interface DeploymentBillingState {
 // ── §48 correctness assertions ──────────────────────────────────────────────
 
 /**
- * Returns true ONLY when the deployment is HEALTHY and NOT a test deployment.
- * This is the canonical billing gate — wraps the existing isBillable from
- * billing.ts so all correctness logic flows through one function.
+ * Returns true ONLY when the deployment is HEALTHY or UPDATE_AVAILABLE (both
+ * are live serving states per §46 — UPDATE_AVAILABLE just means a newer
+ * release exists, per §48 "creating multiple releases does not affect
+ * billing") and NOT a test deployment (§7 exemption). This is the canonical
+ * billing gate — billing.ts's isBillable delegates to this function so all
+ * correctness logic flows through one rule.
  */
 export function shouldBillForDeployment(deployment: DeploymentBillingState): boolean {
-  return isBillable(deployment);
+  return (
+    (deployment.state === 'HEALTHY' || deployment.state === 'UPDATE_AVAILABLE') &&
+    !deployment.isTestDeployment
+  );
 }
 
 /**
@@ -62,9 +78,11 @@ export function shouldStopBillingForDelete(deployment: DeploymentBillingState): 
 }
 
 /**
- * Returns true when the deployment is in a failed or disconnected state.
- * Failed and transient updates never re-bill — the deployment is not healthy
- * and should not accrue metered charges.
+ * Returns true when the deployment is in a failed or disconnected state —
+ * i.e. NOT directly billable on its own state per rule 1. This does NOT by
+ * itself mean billing stops: per §48 "temporary failed updates do not affect
+ * billing", decideBilling still bills through this state when the deployment
+ * was already being billed (see the `wasBillingPreviously` parameter).
  */
 export function shouldStopBillingForFailure(deployment: DeploymentBillingState): boolean {
   return deployment.state === 'FAILED' || deployment.state === 'DISCONNECTED';
@@ -123,37 +141,50 @@ export interface BillingDecision {
 }
 
 /**
- * Returns a billing decision for a deployment given its current and previous
- * state. This is the single entry point for correctness checks — callers
- * should use this instead of composing the individual functions.
+ * Returns a billing decision for a deployment given its current state and
+ * whether it was already being billed as of the immediately preceding
+ * billing day (`wasBillingPreviously` — in production this is derived from
+ * whether a usage_records row exists for the previous date; see
+ * reportUsageForDate in billing.ts). This is the single entry point for
+ * correctness checks — callers should use this instead of re-deriving the
+ * rule from the raw state, and instead of composing the individual
+ * predicates below.
  */
 export function decideBilling(
   deployment: DeploymentBillingState,
-  previousState: string | null,
+  wasBillingPreviously: boolean,
 ): BillingDecision {
   // §7: test deployments are never billed.
   if (deployment.isTestDeployment) {
     return { bill: false, reason: '§7 exemption: test deployment is never billed' };
   }
 
-  // Delete stops billing.
+  // Delete is the one unconditional stop: it always ends billing, even if
+  // the deployment was mid-way through a run of billed days.
   if (shouldStopBillingForDelete(deployment)) {
     return { bill: false, reason: `billing stopped: deployment is ${deployment.state}` };
   }
 
-  // Failure stops billing.
-  if (shouldStopBillingForFailure(deployment)) {
-    return { bill: false, reason: `billing stopped: deployment is ${deployment.state}` };
-  }
-
-  // Updates that don't change billing state don't re-bill.
-  if (previousState !== null && shouldSkipBillingForUpdate(deployment, previousState)) {
-    return { bill: true, reason: 'already billing (no state change)' };
-  }
-
-  // The canonical gate.
+  // The canonical gate: HEALTHY or UPDATE_AVAILABLE is billable on its own
+  // merits — a fresh deployment becoming billable, or one that never
+  // stopped, both land here.
   if (shouldBillForDeployment(deployment)) {
-    return { bill: true, reason: 'HEALTHY deployment — billing active' };
+    if (wasBillingPreviously) {
+      return { bill: true, reason: 'already billing (no interruption — releases/updates do not re-bill)' };
+    }
+    return { bill: true, reason: `${deployment.state} deployment — billing active` };
+  }
+
+  // Not directly billable right now (e.g. UPDATING, FAILED, DISCONNECTED).
+  // §48: "temporary failed updates do not affect billing" — if the
+  // deployment was already being billed, a transient dip does not interrupt
+  // it. This is what keeps a HEALTHY -> UPDATING -> FAILED -> HEALTHY run
+  // billing every day, including the FAILED day(s).
+  if (wasBillingPreviously) {
+    return {
+      bill: true,
+      reason: `billing continues through transient state ${deployment.state} (§48: temporary failures do not affect billing)`,
+    };
   }
 
   return { bill: false, reason: `not billable: state is ${deployment.state}` };

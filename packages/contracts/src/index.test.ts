@@ -126,6 +126,7 @@ describe('core-object round-trip (db row -> JSON -> schema.parse -> wire)', () =
         defaultBranch: 'main',
         containerPort: null,
         healthPath: null,
+        migrationCommand: null,
         workerCommand: null,
         databaseRequired: false,
         storageRequired: false,

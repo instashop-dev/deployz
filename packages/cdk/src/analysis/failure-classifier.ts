@@ -175,19 +175,33 @@ function messageIndicatesPortMismatch(message: string): boolean {
     m.includes('exposed port') ||
     m.includes('exposes port') ||
     m.includes('expected port') ||
-    m.includes('actual port')
+    m.includes('actual port') ||
+    // §20 example: "Port unavailable" — the configured port could not be
+    // bound, which is the same underlying port-configuration issue. Matched
+    // as the exact phrase, NOT a bare `unavailable`: the message already had
+    // to contain "port" to reach here, so a bare term would also swallow
+    // unrelated messages such as "database on port 5432 unavailable".
+    m.includes('port unavailable')
   );
 }
 
 /**
  * Rule 4 — QUOTA_EXCEEDED.
  *
- * The error message carries a quota/limit/throttling marker. Matched
- * case-insensitively: `quota`, `limitexceeded`, or `throttling` (which covers
- * AWS's `LimitExceeded`/`Throttling` exception names and their lowercase
- * message forms).
+ * A quota/limit/throttling marker in either the error CODE or the error
+ * MESSAGE, matched case-insensitively: `quota`, `limitexceeded`, or
+ * `throttl` (which covers AWS's `LimitExceeded`/`Throttling` exception
+ * names — as bare error codes like `ResourceLimitExceeded`, e.g. §20's
+ * example, as well as their lowercase message forms).
  */
-function indicatesQuotaExceeded(message: string | undefined): boolean {
+function indicatesQuotaExceeded(event: StructuredEvent): boolean {
+  const code = event.error?.code;
+  if (code !== undefined) {
+    const c = code.toLowerCase();
+    if (c.includes('quota') || c.includes('limitexceeded') || c.includes('throttl')) return true;
+  }
+
+  const message = event.error?.message;
   if (message === undefined) return false;
   const m = message.toLowerCase();
   return m.includes('quota') || m.includes('limitexceeded') || m.includes('throttling');
@@ -283,8 +297,8 @@ function isContainerStartFailed(event: StructuredEvent): boolean {
  * Rule 13 — MISSING_SECRET.
  *
  * An ECS-sourced missing-secret failure: either the `missing-secret` signal,
- * or an error message that mentions "SecretNotFound" or "AccessDenied" with
- * "secretsmanager".
+ * or an error message that mentions "SecretNotFound", "Invalid secret"
+ * (§20's literal example), or "AccessDenied" with "secretsmanager".
  */
 function isMissingSecret(event: StructuredEvent): boolean {
   if (event.source !== 'ecs') return false;
@@ -294,7 +308,18 @@ function isMissingSecret(event: StructuredEvent): boolean {
   if (message === undefined) return false;
   const m = message.toLowerCase();
   if (m.includes('secretnotfound')) return true;
+  if (m.includes('invalid secret')) return true;
   return m.includes('accessdenied') && m.includes('secretsmanager');
+}
+
+/**
+ * Message heuristic fallback for Rule 5: the §20 literal example "Target
+ * failed health check" reported as a plain error message rather than the
+ * structured `health-check`/`target-health` signal.
+ */
+function messageIndicatesHealthCheckFailure(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes('failed health check') || m.includes('health check failed');
 }
 
 // ── Classifier ────────────────────────────────────────────────────────────
@@ -322,14 +347,16 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
     return 'REGION_NOT_SUPPORTED';
   }
 
-  // 4. QUOTA_EXCEEDED — message indicates a quota/limit/throttling failure.
-  if (indicatesQuotaExceeded(event.error?.message)) return 'QUOTA_EXCEEDED';
+  // 4. QUOTA_EXCEEDED — code or message indicates a quota/limit/throttling failure.
+  if (indicatesQuotaExceeded(event)) return 'QUOTA_EXCEEDED';
 
   // 5. IMAGE_HEALTH_CHECK_FAILED — target unhealthy during an image health check.
   if (
-    event.source === 'health-check' &&
-    event.signal === 'target-health' &&
-    contextBoolean(event, 'healthy') === false
+    (event.source === 'health-check' &&
+      event.signal === 'target-health' &&
+      contextBoolean(event, 'healthy') === false) ||
+    (event.error?.message !== undefined &&
+      messageIndicatesHealthCheckFailure(event.error.message))
   ) {
     return 'IMAGE_HEALTH_CHECK_FAILED';
   }
