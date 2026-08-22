@@ -36,7 +36,7 @@ export async function fetchReleases(applicationId: string): Promise<Release[]> {
     );
     return body.releases ?? [];
   } catch (error) {
-    if (isNotFound(error)) return fixtureReleases(applicationId);
+    if (isNotFound(error)) return fixtureReleases();
     throw error;
   }
 }
@@ -78,6 +78,6 @@ export const FIXTURE_RELEASES: Release[] = [
   },
 ];
 
-function fixtureReleases(_applicationId: string): Release[] {
+function fixtureReleases(): Release[] {
   return FIXTURE_RELEASES;
 }
