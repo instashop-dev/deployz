@@ -1,4 +1,13 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+// Load .env from the monorepo root. `dotenv/config` loads from process.cwd(),
+// but `turbo dev` runs each package from its own directory, so the repo-root
+// .env (where the README documents it) would never load. dotenv no-ops
+// silently when the file is absent (production / CI rely on real env vars).
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: join(__dirname, '..', '..', '..', '.env') });
 
 // Single place that reads process.env for the API. Anything undefined falls
 // back to localhost dev defaults; degraded capabilities warn, never crash.

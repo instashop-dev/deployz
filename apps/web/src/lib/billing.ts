@@ -3,7 +3,9 @@
 // back to realistic FIXTURE data on a 404 so the billing page renders without
 // a backend (same pattern as todos 19/25/26/30). §65: all copy is jargon-free.
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { cookies } from 'next/headers';
+
+const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 
@@ -48,8 +50,9 @@ export interface BillingInfo {
 // ── Fetch ───────────────────────────────────────────────────────────────────
 
 async function getJson<T>(path: string): Promise<T> {
+  const cookieHeader = (await cookies()).toString();
   const response = await fetch(`${apiUrl}${path}`, {
-    credentials: 'include',
+    headers: cookieHeader ? { cookie: cookieHeader } : {},
     cache: 'no-store',
   });
   if (!response.ok) {

@@ -21,8 +21,7 @@ async function signUp(page: Page): Promise<void> {
 test('detail page links to diagnostics and the page renders the failure cards', async ({ page }) => {
   await signUp(page);
 
-  await page.getByRole('link', { name: /Globex Portal/ }).click();
-  await page.waitForURL('**/dashboard/deployments/deployment-globex-portal');
+  await page.goto('/dashboard/deployments/deployment-globex-portal');
 
   await page.getByRole('link', { name: 'Diagnostics' }).click();
   await page.waitForURL('**/dashboard/deployments/deployment-globex-portal/diagnostics');

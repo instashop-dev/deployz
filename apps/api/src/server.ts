@@ -43,6 +43,29 @@ export interface ServerDeps {
   githubFixtureMode?: boolean | undefined;
 }
 
+// application/deployment/release ids are uuid-keyed columns. A non-uuid id
+// (e.g. the fixture repo ids the UI uses for the demo) would raise a Postgres
+// "invalid input syntax for type uuid" error and surface as a 500; the UI
+// clients fall back to fixture data on 404, so non-uuid ids map to 404.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function requireUuidId(id: string): void {
+  if (!UUID_PATTERN.test(id)) {
+    throw new NotFoundError('Resource not found');
+  }
+}
+
+// Resolves the organization id from the query string, falling back to the
+// authenticated session's active organization. Client pages do not always know
+// the org id, so the session is the source of truth when it is absent.
+function organizationIdFromRequest(request: {
+  query: unknown;
+  organization?: { id: string } | undefined;
+}): string {
+  const { organizationId } = request.query as { organizationId?: string };
+  return organizationId ?? request.organization?.id ?? '';
+}
+
 // Control-plane surface: /health, /api/me, /api/auth/*.
 // Errors cross the boundary as structured envelopes via toErrorEnvelope;
 // Sentry capture lives in its onError hook (never in the render path).
@@ -308,20 +331,21 @@ export async function buildServer({
 
   // GET /api/applications — List applications for current org
   app.get('/api/applications', { preHandler: requireAuth }, async (request) => {
-    const { organizationId } = request.query as { organizationId?: string };
+    const organizationId = organizationIdFromRequest(request);
     if (!organizationId) {
-      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
     }
     const rows = await db
       .select()
       .from(schema.applications)
       .where(eq(schema.applications.organizationId, organizationId));
-    return rows;
+    return { applications: rows };
   });
 
   // GET /api/applications/:id — Get single application
   app.get('/api/applications/:id', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const rows = await db
       .select()
       .from(schema.applications)
@@ -336,6 +360,7 @@ export async function buildServer({
   // POST /api/applications/:id/analyse — Trigger analysis
   app.post('/api/applications/:id/analyse', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const rows = await db
       .select({ id: schema.applications.id })
       .from(schema.applications)
@@ -354,6 +379,7 @@ export async function buildServer({
   // GET /api/applications/:id/readiness — Get compatibility result (§19)
   app.get('/api/applications/:id/readiness', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const rows = await db
       .select()
       .from(schema.applications)
@@ -392,15 +418,15 @@ export async function buildServer({
 
   // GET /api/customers — List customers for org
   app.get('/api/customers', { preHandler: requireAuth }, async (request) => {
-    const { organizationId } = request.query as { organizationId?: string };
+    const organizationId = organizationIdFromRequest(request);
     if (!organizationId) {
-      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
     }
     const rows = await db
       .select()
       .from(schema.customers)
       .where(eq(schema.customers.organizationId, organizationId));
-    return rows;
+    return { customers: rows };
   });
 
   // ── Deployments (§12, §23–§24, §38) ────────────────────────────────────
@@ -428,13 +454,13 @@ export async function buildServer({
 
   // GET /api/deployments — Fleet dashboard (§23)
   app.get('/api/deployments', { preHandler: requireAuth }, async (request) => {
-    const { organizationId, customerId, applicationId } = request.query as {
-      organizationId?: string;
+    const { customerId, applicationId } = request.query as {
       customerId?: string;
       applicationId?: string;
     };
+    const organizationId = organizationIdFromRequest(request);
     if (!organizationId) {
-      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
     }
     const conditions = [eq(schema.deployments.organizationId, organizationId)];
     if (customerId) {
@@ -447,12 +473,13 @@ export async function buildServer({
       .select()
       .from(schema.deployments)
       .where(and(...conditions));
-    return rows;
+    return { deployments: rows };
   });
 
   // GET /api/deployments/:id — Deployment detail (§24)
   app.get('/api/deployments/:id', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const rows = await db
       .select()
       .from(schema.deployments)
@@ -503,12 +530,20 @@ export async function buildServer({
   // GET /api/applications/:id/releases — List releases
   app.get('/api/applications/:id/releases', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const rows = await db
       .select()
       .from(schema.releases)
       .where(eq(schema.releases.applicationId, id))
       .orderBy(schema.releases.createdAt);
-    return rows;
+    return {
+      releases: rows.map((row) => ({
+        id: row.id,
+        version: row.version,
+        status: row.releaseStatus,
+        createdAt: row.createdAt,
+      })),
+    };
   });
 
   // ── Job triggers (§25, §27, §63) ────────────────────────────────────────
@@ -516,6 +551,7 @@ export async function buildServer({
   // POST /api/deployments/:id/deploy — Trigger DEPLOY_RELEASE job
   app.post('/api/deployments/:id/deploy', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const body = deployBodySchema.parse(request.body);
     const depRows = await db
       .select({ id: schema.deployments.id })
@@ -543,6 +579,7 @@ export async function buildServer({
   // POST /api/deployments/:id/rollback — Trigger ROLLBACK job
   app.post('/api/deployments/:id/rollback', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const body = rollbackBodySchema.parse(request.body);
     const depRows = await db
       .select({ id: schema.deployments.id })
@@ -570,6 +607,7 @@ export async function buildServer({
   // POST /api/deployments/:id/destroy — Trigger DESTROY job
   app.post('/api/deployments/:id/destroy', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const body = destroyBodySchema.parse(request.body);
     const depRows = await db
       .select({ id: schema.deployments.id })
@@ -599,6 +637,7 @@ export async function buildServer({
   // GET /api/deployments/:id/events — Event log
   app.get('/api/deployments/:id/events', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const { limit, offset } = request.query as { limit?: string; offset?: string };
     const take = Math.min(Number(limit ?? 50), 200);
     const skip = Number(offset ?? 0);
@@ -609,12 +648,13 @@ export async function buildServer({
       .orderBy(schema.eventLogs.occurredAt)
       .limit(take)
       .offset(skip);
-    return rows;
+    return { events: rows };
   });
 
   // GET /api/deployments/:id/diagnostics — Diagnostics (§29)
   app.get('/api/deployments/:id/diagnostics', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    requireUuidId(id);
     const depRows = await db
       .select({ id: schema.deployments.id, state: schema.deployments.state })
       .from(schema.deployments)
@@ -656,9 +696,9 @@ export async function buildServer({
 
   // GET /api/billing/summary — Billing summary
   app.get('/api/billing/summary', { preHandler: requireAuth }, async (request) => {
-    const { organizationId } = request.query as { organizationId?: string };
+    const organizationId = organizationIdFromRequest(request);
     if (!organizationId) {
-      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
     }
     const deployments = await db
       .select({
@@ -684,9 +724,9 @@ export async function buildServer({
 
   // GET /api/onboarding — Onboarding state
   app.get('/api/onboarding', { preHandler: requireAuth }, async (request) => {
-    const { organizationId } = request.query as { organizationId?: string };
+    const organizationId = organizationIdFromRequest(request);
     if (!organizationId) {
-      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
     }
     const appCount = await db
       .select({ count: schema.applications.id })
