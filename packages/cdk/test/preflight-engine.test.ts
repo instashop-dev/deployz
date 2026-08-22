@@ -58,6 +58,12 @@ function makeInput(overrides: Partial<PreflightInput> = {}): PreflightInput {
     region: 'us-east-1',
     installationId: 'install-1',
     relayContact: { installationId: 'install-1' },
+    port: 3000,
+    healthPath: '/health',
+    requiredSecrets: [],
+    configuredSecrets: [],
+    requiredEnvVars: [],
+    configuredEnvVars: [],
     ...overrides,
   };
 }
@@ -136,6 +142,10 @@ describe('runFullPreflight — happy path', () => {
       'migration-command',
       'image-health',
       'relay-contact',
+      'port',
+      'health-endpoint',
+      'secrets',
+      'env-vars',
     ]);
   });
 

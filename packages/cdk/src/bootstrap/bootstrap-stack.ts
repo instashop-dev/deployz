@@ -61,6 +61,10 @@ export interface BootstrapStackProps extends StackProps {
    * but it is never a credential. Defaults to the production control plane.
    */
   readonly controlPlaneUrl?: string;
+  /** Deployz application identifier — applied as `deployz:application` tag. */
+  readonly applicationId?: string;
+  /** Deployz vendor identifier — applied as `deployz:vendor` tag. */
+  readonly vendorId?: string;
 }
 
 const DEFAULT_CONTROL_PLANE_URL = 'https://api.deployz.dev';
@@ -328,6 +332,36 @@ export class BootstrapStack extends Stack {
       relaySchedule,
     ]) {
       Tags.of(target).add('deployz:installation', this.installationId);
+    }
+
+    if (props.applicationId !== undefined) {
+      for (const c of [
+        this,
+        this.relayRole,
+        this.relayFunction,
+        this.credentialSecret,
+        relaySchedule,
+        installIdFunction,
+        installIdProvider,
+        installIdResource,
+      ]) {
+        Tags.of(c).add('deployz:application', props.applicationId);
+      }
+    }
+
+    if (props.vendorId !== undefined) {
+      for (const c of [
+        this,
+        this.relayRole,
+        this.relayFunction,
+        this.credentialSecret,
+        relaySchedule,
+        installIdFunction,
+        installIdProvider,
+        installIdResource,
+      ]) {
+        Tags.of(c).add('deployz:vendor', props.vendorId);
+      }
     }
 
     // AWS::IAM::ManagedPolicy has no `Tags` property in CloudFormation, so the

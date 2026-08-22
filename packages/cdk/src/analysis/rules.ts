@@ -43,6 +43,10 @@ export interface CompatibilityResult {
   reason: string;
   /** The issues that contributed to the verdict (reject OR attention, never both). */
   issues: CompatibilityIssue[];
+  /** Compatibility score (0-100): (passed_checks / total_checks) * 100, rounded. */
+  score: number;
+  /** Positive detection results — populated only on READY verdict. */
+  readyList?: readonly string[] | undefined;
 }
 
 // ── Stable issue codes ──────────────────────────────────────────────────────
@@ -83,6 +87,32 @@ function rejectionCode(dependency: string): string {
 }
 
 // ── Rules engine ────────────────────────────────────────────────────────────
+
+/**
+ * Compute the compatibility score from an analysis result.
+ *
+ * Score = (passed_checks / total_checks) * 100, rounded to the nearest integer.
+ * A "passed" check is a detector that found what it was looking for, or a
+ * rejection check that found nothing to reject.
+ */
+function computeScore(result: AnalysisResult): number {
+  const totalChecks = result.findings.length + result.rejections.length;
+  if (totalChecks === 0) return 100;
+
+  const passedFindings = result.findings.filter((f) => f.detected).length;
+  const passedRejections = result.rejections.filter((r) => !r.detected).length;
+  const passedChecks = passedFindings + passedRejections;
+
+  return Math.round((passedChecks / totalChecks) * 100);
+}
+
+/**
+ * Collect positive detection results for the readyList.
+ * Returns the detector names that had a positive detection.
+ */
+function collectReadyList(result: AnalysisResult): string[] {
+  return result.findings.filter((f) => f.detected).map((f) => f.detector);
+}
 
 /**
  * Evaluate the §19 readiness verdict from an analysis result.
@@ -144,6 +174,7 @@ export function evaluateCompatibility(result: AnalysisResult): CompatibilityResu
       verdict: 'NOT_COMPATIBLE',
       reason: rejects.map((i) => i.message).join(' '),
       issues: rejects,
+      score: computeScore(result),
     };
   }
 
@@ -182,6 +213,7 @@ export function evaluateCompatibility(result: AnalysisResult): CompatibilityResu
       verdict: 'NEEDS_ATTENTION',
       reason: attention.map((i) => i.message).join(' '),
       issues: attention,
+      score: computeScore(result),
     };
   }
 
@@ -190,6 +222,8 @@ export function evaluateCompatibility(result: AnalysisResult): CompatibilityResu
     verdict: 'READY',
     reason: 'Compatible with Deployz',
     issues: [],
+    score: computeScore(result),
+    readyList: collectReadyList(result),
   };
 }
 

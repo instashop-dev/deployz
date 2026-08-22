@@ -71,6 +71,8 @@ import {
 import {
   ApplicationLoadBalancer,
   ApplicationProtocol,
+  ListenerAction,
+  ListenerCertificate,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import {
   Effect,
@@ -119,6 +121,33 @@ export interface ApplicationStackProps extends StackProps {
   readonly imageDigest?: string;
   /** Number of tasks to run (plain Fargate desiredCount / Express minTaskCount). */
   readonly desiredCount?: number;
+  /**
+   * Command override for a background worker container.
+   *
+   * When provided, a second `FargateTaskDefinition` + `FargateService` is
+   * created for the worker. The worker uses the same ECR image, Secrets Manager
+   * secrets, and S3 bucket as the web service, but runs in private subnets
+   * only with no load balancer. Only applies in plain Fargate mode
+   * (`expressMode` is false).
+   */
+  readonly workerCommand?: string;
+  /** Deployz application identifier — applied as `deployz:application` tag. */
+  readonly applicationId?: string;
+  /** Deployz vendor identifier — applied as `deployz:vendor` tag. */
+  readonly vendorId?: string;
+  /**
+   * Domain name for the HTTPS listener.
+   *
+   * Informational only; the actual TLS termination uses `certificateArn`.
+   */
+  readonly domainName?: string;
+  /**
+   * ACM certificate ARN for the HTTPS listener on port 443.
+   *
+   * When provided, an HTTPS listener is added with this certificate and the
+   * HTTP listener on port 80 is configured to redirect to HTTPS.
+   */
+  readonly certificateArn?: string;
 }
 
 const DEFAULT_IMAGE_REPOSITORY = 'public.ecr.aws/deployz/fixture';
@@ -145,6 +174,10 @@ export class ApplicationStack extends Stack {
   public readonly expressService?: CfnExpressGatewayService;
   /** Explicit ALB (defined when `expressMode` is false). */
   public readonly loadBalancer?: ApplicationLoadBalancer;
+  /** Background worker service (defined when `workerCommand` is provided). */
+  public readonly workerService?: FargateService;
+  /** Background worker log group (defined when `workerCommand` is provided). */
+  public readonly workerLogGroup?: LogGroup;
 
   constructor(scope: Construct, id: string, props: ApplicationStackProps = {}) {
     super(scope, id, props);
@@ -255,9 +288,11 @@ export class ApplicationStack extends Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       storageEncrypted: true,
-      backupRetention: Duration.days(7), // §64: automated backups
-      deletionProtection: false,
-      removalPolicy: RemovalPolicy.SNAPSHOT, // §64: final snapshot on delete
+      backupRetention: Duration.days(7),
+      preferredBackupWindow: '03:00-05:00',
+      deletionProtection: true,
+      deleteAutomatedBackups: false,
+      removalPolicy: RemovalPolicy.RETAIN,
     });
 
     // ── ECS cluster (shared by both modes) ────────────────────────────────
@@ -442,17 +477,108 @@ export class ApplicationStack extends Stack {
         vpc: this.vpc as unknown as IVpc,
         internetFacing: true,
       });
-      const listener = this.loadBalancer.addListener('HttpListener', {
-        port: 80,
-      });
-      listener.addTargets('AppTargets', {
-        port: APP_PORT,
-        protocol: ApplicationProtocol.HTTP,
-        healthCheck: { path: HEALTH_CHECK_PATH },
-        targets: [this.fargateService],
-      });
+
+      const certificateArn = props.certificateArn;
+      if (certificateArn !== undefined) {
+        const httpListener = this.loadBalancer.addListener('HttpListener', {
+          port: 80,
+        });
+        httpListener.addAction('HttpRedirect', {
+          action: ListenerAction.redirect({
+            protocol: 'HTTPS',
+            port: '443',
+            permanent: true,
+          }),
+        });
+
+        const httpsListener = this.loadBalancer.addListener('HttpsListener', {
+          port: 443,
+          protocol: ApplicationProtocol.HTTPS,
+          certificates: [ListenerCertificate.fromArn(certificateArn)],
+        });
+        httpsListener.addTargets('AppTargets', {
+          port: APP_PORT,
+          protocol: ApplicationProtocol.HTTP,
+          healthCheck: { path: HEALTH_CHECK_PATH },
+          targets: [this.fargateService],
+        });
+      } else {
+        const listener = this.loadBalancer.addListener('HttpListener', {
+          port: 80,
+        });
+        listener.addTargets('AppTargets', {
+          port: APP_PORT,
+          protocol: ApplicationProtocol.HTTP,
+          healthCheck: { path: HEALTH_CHECK_PATH },
+          targets: [this.fargateService],
+        });
+      }
 
       publicEndpoint = this.loadBalancer.loadBalancerDnsName;
+
+      // ── Background worker (plain Fargate only) ─────────────────────────
+      if (props.workerCommand !== undefined) {
+        const workerLogGroup = new LogGroup(this, 'WorkerLogGroup', {
+          retention: RetentionDays.ONE_WEEK,
+          removalPolicy: RemovalPolicy.DESTROY,
+        });
+        this.workerLogGroup = workerLogGroup;
+
+        const workerTaskDefinition = new FargateTaskDefinition(
+          this,
+          'WorkerTaskDefinition',
+          {
+            memoryLimitMiB: 512,
+            cpu: 256,
+            runtimePlatform: {
+              operatingSystemFamily: OperatingSystemFamily.LINUX,
+              cpuArchitecture: CpuArchitecture.X86_64,
+            },
+          },
+        );
+
+        workerTaskDefinition.addContainer('Worker', {
+          image: ContainerImage.fromRegistry(imageReference),
+          command: props.workerCommand.split(' '),
+          logging: LogDriver.awsLogs({
+            streamPrefix: 'deployz-worker',
+            logGroup: workerLogGroup,
+          }),
+          environment: {
+            NODE_ENV: 'production',
+            DATABASE_HOST: this.database.instanceEndpoint.hostname,
+            DATABASE_PORT: String(DB_PORT),
+            DATABASE_NAME: DB_NAME,
+            DATABASE_USER: DB_USER,
+            STORAGE_BUCKET: this.storageBucket.bucketName,
+          },
+          secrets: {
+            DATABASE_PASSWORD: EcsSecret.fromSecretsManager(
+              this.databaseSecret as unknown as ISecret,
+              'password',
+            ),
+            APP_API_KEY: EcsSecret.fromSecretsManager(
+              this.appSecret as unknown as ISecret,
+              'apiKey',
+            ),
+            APP_SIGNING_SECRET: EcsSecret.fromSecretsManager(
+              this.appSecret as unknown as ISecret,
+              'signingSecret',
+            ),
+          },
+        });
+
+        this.workerService = new FargateService(this, 'WorkerService', {
+          cluster: this.cluster as unknown as ICluster,
+          taskDefinition: workerTaskDefinition,
+          desiredCount: 1,
+          assignPublicIp: false,
+          vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
+          minHealthyPercent: 100,
+          maxHealthyPercent: 200,
+          circuitBreaker: { enable: true, rollback: true },
+        });
+      }
     }
 
     // ── deployz: tags (§15) ───────────────────────────────────────────────
@@ -462,6 +588,56 @@ export class ApplicationStack extends Stack {
     // resources), so the installation binding is enforced without embedding
     // the minted id in this independently-deployed template.
     Tags.of(this).add('deployz:component', 'application');
+
+    if (props.applicationId !== undefined) {
+      for (const c of [
+        this,
+        this.vpc,
+        this.database,
+        this.databaseSecret,
+        this.appSecret,
+        this.storageBucket,
+        this.cluster,
+        logGroup,
+        dbSecurityGroup,
+        taskExecutionRole,
+        taskRole,
+        this.loadBalancer,
+        this.fargateService,
+        this.expressService,
+        this.workerService,
+        this.workerLogGroup,
+      ]) {
+        if (c !== undefined) {
+          Tags.of(c).add('deployz:application', props.applicationId);
+        }
+      }
+    }
+
+    if (props.vendorId !== undefined) {
+      for (const c of [
+        this,
+        this.vpc,
+        this.database,
+        this.databaseSecret,
+        this.appSecret,
+        this.storageBucket,
+        this.cluster,
+        logGroup,
+        dbSecurityGroup,
+        taskExecutionRole,
+        taskRole,
+        this.loadBalancer,
+        this.fargateService,
+        this.expressService,
+        this.workerService,
+        this.workerLogGroup,
+      ]) {
+        if (c !== undefined) {
+          Tags.of(c).add('deployz:vendor', props.vendorId);
+        }
+      }
+    }
 
     // ── Stack outputs ─────────────────────────────────────────────────────
     this.exportValue(this.database.instanceEndpoint.hostname, {

@@ -43,7 +43,7 @@ describe('migrations', () => {
     ]);
   });
 
-  it('creates the 9 enum types', async () => {
+  it('creates the 13 enum types', async () => {
     const { rows } = await client!.query<{ typname: string }>(
       `SELECT typname FROM pg_type
        WHERE typtype = 'e' AND typnamespace = 'public'::regnamespace
@@ -51,12 +51,16 @@ describe('migrations', () => {
     );
     expect(rows.map((r) => r.typname)).toEqual([
       'analysis_status',
+      'build_status',
       'compatibility_status',
       'deployment_state',
       'failure_code',
+      'health_status',
       'job_state',
       'job_type',
+      'org_plan',
       'region',
+      'relay_status',
       'release_status',
       'subscription_status',
     ]);

@@ -44,6 +44,15 @@ interface HealthReportPayload {
   observedState: Record<string, unknown>;
 }
 
+/** Observed state fields reported to the control plane. */
+interface ObservedState {
+  idempotencyKeysTracked: number;
+  lastPoll: string;
+  runningVersion: string | null;
+  observedConfig: Record<string, unknown> | null;
+  infraHealth: string | null;
+}
+
 // ── Poll context ─────────────────────────────────────────────────────────────
 
 /** Injectable dependencies for the poll loop (seam for testing). */
@@ -220,6 +229,9 @@ async function reportHealth(
   const observedState: Record<string, unknown> = {
     idempotencyKeysTracked: idempotency.size,
     lastPoll: new Date().toISOString(),
+    runningVersion: null,
+    observedConfig: null,
+    infraHealth: null,
   };
 
   const payload: HealthReportPayload = {

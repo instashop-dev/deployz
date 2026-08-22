@@ -1,6 +1,6 @@
 'use client';
 
-import { AppWindow, Settings, Ship, Users } from 'lucide-react';
+import { AppWindow, Settings, Ship, Tag, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 const items = [
   { href: '/dashboard', label: 'Deployments', icon: Ship },
   { href: '/dashboard/applications', label: 'Applications', icon: AppWindow },
+  { href: '/dashboard/applications', label: 'Releases', icon: Tag },
   { href: '/dashboard/customers', label: 'Customers', icon: Users },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ] as const;

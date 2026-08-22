@@ -19,6 +19,8 @@ import {
   detectWorker,
   detectS3,
   detectMigrationCommand,
+  detectStartupCommand,
+  detectExternalServices,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -56,6 +58,8 @@ const DETECTORS = [
   detectWorker,
   detectS3,
   detectMigrationCommand,
+  detectStartupCommand,
+  detectExternalServices,
 ] as const;
 
 /** All §10 rejection check functions, in order. */
@@ -116,6 +120,14 @@ function buildMetadata(findings: DetectorFinding[]): Record<string, unknown> {
       case 'migration-command':
         meta['hasMigrationCommand'] = f.detected;
         if (f.detected && f.value) meta['migrationCommands'] = f.value;
+        break;
+      case 'startup-command':
+        meta['hasStartupCommand'] = f.detected;
+        if (f.detected && f.value) meta['startupCommands'] = f.value;
+        break;
+      case 'external-services':
+        meta['hasExternalServices'] = f.detected;
+        if (f.detected && f.value) meta['externalServices'] = f.value;
         break;
       default:
         meta[key] = f.detected ? f.value ?? true : false;

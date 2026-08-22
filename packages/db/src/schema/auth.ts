@@ -1,5 +1,7 @@
 import { boolean, index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
+import { orgPlanEnum } from '../enums.js';
+
 // Better Auth core + organization-plugin schema. Todo 3 wires Better Auth
 // against these tables, so table names, column names, and column types MUST
 // match the Better Auth Drizzle adapter contract exactly:
@@ -97,8 +99,8 @@ export const organization = pgTable('organization', {
   metadata: text('metadata'),
   // Deployz field: Stripe linkage (§48). Nullable until first checkout.
   stripeCustomerId: text('stripe_customer_id').unique(),
+  plan: orgPlanEnum('plan').notNull().default('FREE'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  // Plugin declares updatedAt optional — nullable by design.
   updatedAt: timestamp('updated_at', { withTimezone: true }).$onUpdate(() => new Date()),
 });
 

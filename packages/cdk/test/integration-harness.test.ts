@@ -133,15 +133,15 @@ function scpDenial(action: string): Error {
 // ── AWS client interfaces + real-implementation placeholders ─────────────
 
 describe('createAwsClients (real SDK-backed)', () => {
-  it('resolves credentials from the env chain and rejects when unavailable', async () => {
+  it('resolves a live identity when credentials are present (real SDK proof)', async () => {
     const clients = createAwsClients();
 
-    // Without credentials in test env, SDK clients throw CredentialsProviderError.
-    // This proves the clients are real (no longer placeholder throw-stubs).
-    await expect(clients.sts.getCallerIdentity()).rejects.toThrow();
-    await expect(
-      clients.cloudFormation.createStack({ stackName: 'x', templateBody: '{}', region: 'us-east-1' }),
-    ).rejects.toThrow();
+    // When AWS credentials are configured (the real-AWS run), the SDK
+    // resolves a real caller identity — the STRONGER proof the clients are
+    // real (a stub cannot return a genuine 12-digit account id).
+    const identity = await clients.sts.getCallerIdentity();
+    expect(identity.account).toMatch(/^\d{12}$/);
+    expect(identity.arn).toContain('aws:iam::');
   });
 });
 
