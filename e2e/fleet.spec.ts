@@ -24,9 +24,13 @@ async function signUp(page: Page): Promise<void> {
 }
 
 /** Seeds one real application + customer + deployment for the signed-up org. */
-async function seedDeployment(
-  page: Page,
-): Promise<{ deploymentId: string; applicationName: string; customerName: string }> {
+async function seedDeployment(page: Page): Promise<{
+  deploymentId: string;
+  applicationId: string;
+  installationId: string;
+  applicationName: string;
+  customerName: string;
+}> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const appResponse = await page.request.post(`${API_URL}/api/applications`, {
     data: {
@@ -50,13 +54,46 @@ async function seedDeployment(
     data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
   });
   expect(deploymentResponse.ok()).toBeTruthy();
-  const deployment = (await deploymentResponse.json()) as { id: string };
+  const deployment = (await deploymentResponse.json()) as { id: string; installationId: string };
 
   return {
     deploymentId: deployment.id,
+    applicationId: application.id,
+    installationId: deployment.installationId,
     applicationName: application.name,
     customerName: customer.name,
   };
+}
+
+/**
+ * Drives a fresh deployment to HEALTHY via the real relay job workflow: the
+ * relay registers (creating the INSTALL job) and reports it a success —
+ * the exact sequence `POST /api/relay/commands/:id/result` now uses to
+ * advance `deployments.state` (previously it never did, so a deployment sat
+ * at INSTALLING forever and was never §25 bulk-deployable).
+ */
+async function driveDeploymentToHealthy(page: Page, installationId: string): Promise<void> {
+  const authHeaders = { Authorization: `Bearer ${installationId}` };
+
+  const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
+    headers: authHeaders,
+    data: { installationId },
+  });
+  expect(registerResponse.ok()).toBeTruthy();
+
+  const commandsResponse = await page.request.get(
+    `${API_URL}/api/relay/commands?installationId=${installationId}`,
+    { headers: authHeaders },
+  );
+  const { commands } = (await commandsResponse.json()) as { commands: { id: string; type: string }[] };
+  const installJob = commands.find((command) => command.type === 'INSTALL');
+  expect(installJob).toBeDefined();
+
+  const resultResponse = await page.request.post(
+    `${API_URL}/api/relay/commands/${installJob!.id}/result`,
+    { headers: authHeaders, data: { success: true } },
+  );
+  expect(resultResponse.ok()).toBeTruthy();
 }
 
 test('fleet dashboard shows the §43 empty state for a fresh org', async ({ page }) => {
@@ -137,8 +174,11 @@ test('rollback confirmation shows the required §26 migration warning', async ({
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   // A brand-new deployment has no previous release, so Rollback is disabled —
   // this proves the §26 warning copy exists in the codebase and would render
-  // once a previous release exists (asserted in isolation, since seeding two
-  // releases + a rollback-eligible deployment is out of scope for this spec).
+  // once a previous release exists. Reaching that state now takes TWO
+  // successful relay DEPLOY_RELEASE jobs (see the HEALTHY/bulk-deploy test
+  // below for the single-job relay sequence this spec does drive) — a full
+  // rollback-eligible deployment is still out of scope for this assertion,
+  // which only needs the disabled-state copy.
   await expect(page.getByRole('button', { name: 'Rollback' })).toBeDisabled();
 });
 
@@ -154,4 +194,46 @@ test('disconnect requires typing the customer name to confirm (§63)', async ({ 
 
   await page.getByLabel(`Type ${customerName} to confirm`).fill(customerName);
   await expect(confirmButton).toBeEnabled();
+});
+
+test('a deployment driven to HEALTHY via the relay job workflow is §25 bulk-deployable', async ({
+  page,
+}) => {
+  await signUp(page);
+  const { applicationId, installationId, customerName } = await seedDeployment(page);
+  await driveDeploymentToHealthy(page, installationId);
+
+  const releaseResponse = await page.request.post(
+    `${API_URL}/api/applications/${applicationId}/releases`,
+    { data: { version: '1.0.0', gitSha: 'e2e0000000000000000000000000000deadbeef' } },
+  );
+  expect(releaseResponse.ok()).toBeTruthy();
+
+  await page.goto('/dashboard');
+  const row = page.locator('[data-testid="deployment-list"] tbody tr', { hasText: customerName });
+  await expect(row.getByText('Healthy', { exact: true })).toBeVisible();
+
+  // Previously the deployment was stuck at INSTALLING forever, so this
+  // checkbox was permanently disabled and §25 bulk deploy was unreachable.
+  const checkbox = row.getByRole('checkbox', { name: `Select ${customerName}` });
+  await expect(checkbox).toBeEnabled();
+  await checkbox.check();
+
+  const bar = page.getByTestId('bulk-deploy-bar');
+  await expect(bar).toBeVisible();
+  const releaseSelect = bar.getByRole('combobox', { name: 'Release to deploy' });
+  await expect(releaseSelect.locator('option')).not.toHaveCount(0);
+
+  const [deployBulkResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === `${API_URL}/api/applications/${applicationId}/deploy-bulk` &&
+        response.request().method() === 'POST',
+    ),
+    bar.getByRole('button', { name: 'Deploy release' }).click(),
+  ]);
+  expect(deployBulkResponse.ok()).toBeTruthy();
+
+  // A successful deploy clears the selection, which hides the bar again.
+  await expect(bar).toBeHidden();
 });

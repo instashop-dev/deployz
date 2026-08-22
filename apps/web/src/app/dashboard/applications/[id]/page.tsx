@@ -14,6 +14,9 @@ import { fetchApplication, type Application } from '@/lib/applications';
 import { fetchDeploymentsForApplication } from '@/lib/deployments';
 import { deriveOnboardingStep, fetchReadiness, type ApplicationReadiness } from '@/lib/readiness';
 
+/** How often to re-check a still-running analysis (§19). */
+const ANALYSIS_POLL_MS = 2000;
+
 type PageState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
@@ -65,6 +68,30 @@ export default function ApplicationReadinessPage() {
       cancelled = true;
     };
   }, [id]);
+
+  const analysisStatus = state.status === 'loaded' ? state.readiness.analysisStatus : null;
+
+  // Analysis runs in the background on the API, so the first load can land
+  // while it is still PENDING/ANALYZING. Poll until it settles — otherwise the
+  // page shows "Analysing your app" until the vendor reloads by hand.
+  useEffect(() => {
+    if (analysisStatus !== 'PENDING' && analysisStatus !== 'ANALYZING') return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      void fetchReadiness(id)
+        .then((readiness) => {
+          if (cancelled) return;
+          setState((prev) => (prev.status === 'loaded' ? { ...prev, readiness } : prev));
+        })
+        .catch(() => {
+          /* A transient failure just means the next tick tries again. */
+        });
+    }, ANALYSIS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [analysisStatus, id]);
 
   return (
     <div className="flex flex-col gap-8">

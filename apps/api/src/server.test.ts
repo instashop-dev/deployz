@@ -8,6 +8,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
+import { env } from './env.js';
 import { ApiError } from './errors.js';
 import { createRequireAuth } from './require-auth.js';
 import { buildServer } from './server.js';
@@ -69,6 +70,23 @@ async function insertCustomer(
       organizationId,
       name: 'Test Customer',
       email: `customer-${crypto.randomUUID()}@example.com`,
+      ...overrides,
+    })
+    .returning();
+  return row!;
+}
+
+async function insertRelease(
+  db: Db,
+  applicationId: string,
+  overrides: Partial<typeof schema.releases.$inferInsert> = {},
+): Promise<typeof schema.releases.$inferSelect> {
+  const [row] = await db
+    .insert(schema.releases)
+    .values({
+      applicationId,
+      version: 'v1.0.0',
+      gitSha: 'a1b2c3d',
       ...overrides,
     })
     .returning();
@@ -183,6 +201,26 @@ describe('server (Fastify base over PGlite)', () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
   });
+
+  // The browser writes config with PUT and renames the org with PATCH. The
+  // @fastify/cors default is GET,HEAD,POST, which fails both preflights and
+  // makes those saves silently impossible from the dashboard.
+  it.each(['PUT', 'PATCH', 'POST', 'GET'])(
+    'CORS preflight allows %s from the web origin',
+    async (method) => {
+      const response = await app.inject({
+        method: 'OPTIONS',
+        url: '/api/organization',
+        headers: {
+          origin: env.webUrl,
+          'access-control-request-method': method,
+        },
+      });
+      expect(response.headers['access-control-allow-methods']).toContain(method);
+      expect(response.headers['access-control-allow-origin']).toBe(env.webUrl);
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
+    },
+  );
 
   it('GET /api/me without a session returns 401 as a structured envelope', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/me' });
@@ -357,6 +395,76 @@ describe('server — organization identity comes from the session, not the clien
     );
     expect(response.statusCode).toBe(201);
     expect((response.json() as { organizationId: string }).organizationId).toBe(orgA.organizationId);
+  });
+
+  it('POST /api/deployments 404s for a well-formed but non-existent applicationId (not a 500)', async () => {
+    const customer = await insertCustomer(db, orgA.organizationId);
+
+    const response = await postJson(
+      app,
+      '/api/deployments',
+      {
+        applicationId: '00000000-0000-4000-8000-000000000000',
+        customerId: customer.id,
+        region: 'us-east-1',
+      },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
+  });
+
+  it('POST /api/deployments 404s for a well-formed but non-existent customerId (not a 500)', async () => {
+    const application = await insertApplication(db, orgA.organizationId);
+
+    const response = await postJson(
+      app,
+      '/api/deployments',
+      {
+        applicationId: application.id,
+        customerId: '00000000-0000-4000-8000-000000000001',
+        region: 'us-east-1',
+      },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
+  });
+
+  it('POST /api/deployments 404s for an applicationId that belongs to another org', async () => {
+    const otherOrgApplication = await insertApplication(db, orgB.organizationId);
+    const customer = await insertCustomer(db, orgA.organizationId);
+
+    const response = await postJson(
+      app,
+      '/api/deployments',
+      {
+        applicationId: otherOrgApplication.id,
+        customerId: customer.id,
+        region: 'us-east-1',
+      },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
+  });
+
+  it('POST /api/deployments 404s for a customerId that belongs to another org', async () => {
+    const application = await insertApplication(db, orgA.organizationId);
+    const otherOrgCustomer = await insertCustomer(db, orgB.organizationId);
+
+    const response = await postJson(
+      app,
+      '/api/deployments',
+      {
+        applicationId: application.id,
+        customerId: otherOrgCustomer.id,
+        region: 'us-east-1',
+      },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
   });
 
   it('POST /api/billing/checkout 403s on a cross-org body.organizationId', async () => {
@@ -626,6 +734,134 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(updated!.failureCode).toBeNull();
   });
 
+  // §46: the relay reporting a finished command is what moves the deployment
+  // itself. Without these transitions the fleet is stuck in INSTALLING, which
+  // silently disables §25 bulk deploy, §29 diagnostics and §48 billing.
+  it('a successful INSTALL moves the deployment to HEALTHY', async () => {
+    const [installJob] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+
+    await postJson(
+      app,
+      `/api/relay/commands/${installJob!.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(updated!.state).toBe('HEALTHY');
+  });
+
+  it('a successful DEPLOY_RELEASE moves to HEALTHY and advances the release pointers', async () => {
+    const release = await insertRelease(db, deployment.applicationId, { version: 'v9.0.0' });
+    const [before] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'RUNNING',
+        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:${release.id}`,
+        payload: { releaseId: release.id },
+      })
+      .returning();
+
+    await postJson(
+      app,
+      `/api/relay/commands/${job!.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(updated!.state).toBe('HEALTHY');
+    expect(updated!.currentReleaseId).toBe(release.id);
+    expect(updated!.previousReleaseId).toBe(before!.currentReleaseId);
+  });
+
+  it('a failed job moves the deployment to FAILED so diagnostics can classify it', async () => {
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'RUNNING',
+        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:state-fail`,
+        payload: {},
+      })
+      .returning();
+
+    await postJson(
+      app,
+      `/api/relay/commands/${job!.id}/result`,
+      { success: false, failureCode: 'IMAGE_HEALTH_CHECK_FAILED' },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(updated!.state).toBe('FAILED');
+
+    // §61: diagnostics must report the code the relay gave, not a hardcoded one.
+    const diagnostics = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/diagnostics`,
+      headers: { cookie: org.cookie },
+    });
+    expect(diagnostics.statusCode).toBe(200);
+    expect((diagnostics.json() as { failureCode: string }).failureCode).toBe('IMAGE_HEALTH_CHECK_FAILED');
+  });
+
+  // §31 config writes are non-disruptive — they must not disturb the lifecycle.
+  it('a CONFIG_UPDATE result leaves the deployment state untouched', async () => {
+    await db.update(schema.deployments).set({ state: 'HEALTHY' }).where(eq(schema.deployments.id, deployment.id));
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment.id,
+        type: 'CONFIG_UPDATE',
+        state: 'RUNNING',
+        idempotencyKey: `${deployment.id}:CONFIG_UPDATE:1`,
+        payload: {},
+      })
+      .returning();
+
+    await postJson(
+      app,
+      `/api/relay/commands/${job!.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(updated!.state).toBe('HEALTHY');
+  });
+
+  it('a successful DESTROY marks the deployment DELETED and stamps deletedAt', async () => {
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment.id,
+        type: 'DESTROY',
+        state: 'RUNNING',
+        idempotencyKey: `${deployment.id}:DESTROY`,
+        payload: {},
+      })
+      .returning();
+
+    await postJson(
+      app,
+      `/api/relay/commands/${job!.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(updated!.state).toBe('DELETED');
+    expect(updated!.deletedAt).not.toBeNull();
+  });
+
   it('POST /api/relay/health rejects a wrong bearer token', async () => {
     const response = await postJson(
       app,
@@ -661,6 +897,7 @@ describe('server — idempotent job creation (§5)', () => {
   let app: FastifyInstance;
   let org: { userId: string; organizationId: string; cookie: string };
   let deployment: typeof schema.deployments.$inferSelect;
+  let applicationId: string;
 
   beforeAll(async () => {
     client = new PGlite();
@@ -671,6 +908,7 @@ describe('server — idempotent job creation (§5)', () => {
     app = await buildServer({ auth, db });
 
     const application = await insertApplication(db, org.organizationId);
+    applicationId = application.id;
     const customer = await insertCustomer(db, org.organizationId);
     deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'HEALTHY' });
   }, 60_000);
@@ -681,7 +919,7 @@ describe('server — idempotent job creation (§5)', () => {
   });
 
   it('POST .../deploy twice with the same releaseId returns the SAME job (202 then 200), never a duplicate row', async () => {
-    const releaseId = crypto.randomUUID();
+    const releaseId = (await insertRelease(db, applicationId)).id;
     const first = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId }, { cookie: org.cookie });
     expect(first.statusCode).toBe(202);
     const second = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId }, { cookie: org.cookie });
@@ -696,8 +934,8 @@ describe('server — idempotent job creation (§5)', () => {
   });
 
   it('a different releaseId produces a different job', async () => {
-    const r1 = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: crypto.randomUUID() }, { cookie: org.cookie });
-    const r2 = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: crypto.randomUUID() }, { cookie: org.cookie });
+    const r1 = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: (await insertRelease(db, applicationId)).id }, { cookie: org.cookie });
+    const r2 = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: (await insertRelease(db, applicationId)).id }, { cookie: org.cookie });
     expect((r1.json() as { jobId: string }).jobId).not.toBe((r2.json() as { jobId: string }).jobId);
   });
 
@@ -705,7 +943,7 @@ describe('server — idempotent job creation (§5)', () => {
     const first = await postJson(
       app,
       `/api/deployments/${deployment.id}/deploy`,
-      { releaseId: crypto.randomUUID() },
+      { releaseId: (await insertRelease(db, applicationId)).id },
       { cookie: org.cookie, 'idempotency-key': 'client-supplied-key-1' },
     );
     expect(first.statusCode).toBe(202);
@@ -717,7 +955,7 @@ describe('server — idempotent job creation (§5)', () => {
     const second = await postJson(
       app,
       `/api/deployments/${deployment.id}/deploy`,
-      { releaseId: crypto.randomUUID() },
+      { releaseId: (await insertRelease(db, applicationId)).id },
       { cookie: org.cookie, 'idempotency-key': 'client-supplied-key-1' },
     );
     expect(second.statusCode).toBe(200);
@@ -725,12 +963,35 @@ describe('server — idempotent job creation (§5)', () => {
   });
 
   it('POST .../rollback twice with the same target releaseId returns the SAME job', async () => {
-    const releaseId = crypto.randomUUID();
+    const releaseId = (await insertRelease(db, applicationId)).id;
     const first = await postJson(app, `/api/deployments/${deployment.id}/rollback`, { releaseId }, { cookie: org.cookie });
     const second = await postJson(app, `/api/deployments/${deployment.id}/rollback`, { releaseId }, { cookie: org.cookie });
     expect(first.statusCode).toBe(202);
     expect(second.statusCode).toBe(200);
     expect((second.json() as { jobId: string }).jobId).toBe((first.json() as { jobId: string }).jobId);
+  });
+
+  it('POST .../deploy and .../rollback 404 for a releaseId the application does not own', async () => {
+    const otherApplication = await insertApplication(db, org.organizationId, { name: 'Foreign Release App' });
+    const foreignRelease = await insertRelease(db, otherApplication.id);
+
+    for (const action of ['deploy', 'rollback']) {
+      const missing = await postJson(
+        app,
+        `/api/deployments/${deployment.id}/${action}`,
+        { releaseId: crypto.randomUUID() },
+        { cookie: org.cookie },
+      );
+      expect(missing.statusCode).toBe(404);
+
+      const foreign = await postJson(
+        app,
+        `/api/deployments/${deployment.id}/${action}`,
+        { releaseId: foreignRelease.id },
+        { cookie: org.cookie },
+      );
+      expect(foreign.statusCode).toBe(404);
+    }
   });
 
   it('POST .../destroy twice returns the SAME job (a double-click must not create two DESTROY jobs)', async () => {
@@ -1092,7 +1353,7 @@ describe('server — organization settings, public install page, and bulk deploy
     const healthy1 = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'HEALTHY' });
     const healthy2 = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'UPDATE_AVAILABLE' });
     const installing = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'INSTALLING' });
-    const releaseId = crypto.randomUUID();
+    const releaseId = (await insertRelease(db, application.id)).id;
 
     const response = await postJson(app, `/api/applications/${application.id}/deploy-bulk`, { releaseId }, { cookie: org.cookie });
     expect(response.statusCode).toBe(200);
@@ -1120,15 +1381,40 @@ describe('server — organization settings, public install page, and bulk deploy
     const customer = await insertCustomer(db, org.organizationId);
     const dep1 = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'HEALTHY' });
     await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'HEALTHY' });
+    const release = await insertRelease(db, application.id);
 
     const response = await postJson(
       app,
       `/api/applications/${application.id}/deploy-bulk`,
-      { releaseId: crypto.randomUUID(), deploymentIds: [dep1.id] },
+      { releaseId: release.id, deploymentIds: [dep1.id] },
       { cookie: org.cookie },
     );
     const body = response.json() as { results: Array<{ deploymentId: string }> };
     expect(body.results.map((r) => r.deploymentId)).toEqual([dep1.id]);
+  });
+
+  // A uuid-shaped releaseId that does not belong to the application must not
+  // queue a job the relay can never carry out.
+  it('POST /api/applications/:id/deploy-bulk 404s for a release that is not the application’s', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Bulk Release Guard' });
+    const otherApplication = await insertApplication(db, org.organizationId, { name: 'Other App' });
+    const foreignRelease = await insertRelease(db, otherApplication.id);
+
+    const missing = await postJson(
+      app,
+      `/api/applications/${application.id}/deploy-bulk`,
+      { releaseId: crypto.randomUUID() },
+      { cookie: org.cookie },
+    );
+    expect(missing.statusCode).toBe(404);
+
+    const foreign = await postJson(
+      app,
+      `/api/applications/${application.id}/deploy-bulk`,
+      { releaseId: foreignRelease.id },
+      { cookie: org.cookie },
+    );
+    expect(foreign.statusCode).toBe(404);
   });
 
   it("POST /api/applications/:id/deploy-bulk 404s for an application outside the caller's org", async () => {
@@ -1138,7 +1424,7 @@ describe('server — organization settings, public install page, and bulk deploy
     const response = await postJson(
       app,
       `/api/applications/${otherApp.id}/deploy-bulk`,
-      { releaseId: crypto.randomUUID() },
+      { releaseId: (await insertRelease(db, otherApp.id)).id },
       { cookie: org.cookie },
     );
     expect(response.statusCode).toBe(404);

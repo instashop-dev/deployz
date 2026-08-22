@@ -90,15 +90,15 @@ export const DENIED_LOG_READ_ACTIONS = [
  * provision inside the customer account.
  */
 export const AWS_RESOURCES_CREATED = [
-  'A dedicated VPC and networking (subnets, an internet gateway, route tables)',
-  'An Application Load Balancer with an HTTPS listener',
-  'An ECS/Fargate service running the application container',
+  'A dedicated private network (subnets, an internet gateway, route tables)',
+  'A load balancer with an HTTPS listener',
+  'A managed container service running the application',
   'An RDS PostgreSQL database (when the application requires one)',
   'An S3 bucket (when the application requires file storage)',
   'A Secrets Manager secret for the relay’s own credentials, plus one per configured application secret',
   'CloudWatch log groups and alarms for the application and the relay',
-  'The Deployz relay (an EventBridge schedule + Lambda function)',
-  'A dedicated IAM execution role for the relay, bounded by the permissions boundary described below',
+  'The Deployz relay (a small scheduled job that runs in your account)',
+  'A dedicated execution role for the relay, bounded by the permissions boundary described below',
 ] as const;
 
 /**
@@ -136,7 +136,7 @@ export const RAW_LOGS_GUARANTEE =
 
 /** §45 "how to revoke Deployz". */
 export const REVOKE_STEPS = [
-  'Delete the deployz-bootstrap CloudFormation stack from your AWS account (or delete the relay’s IAM role directly).',
+  'Delete the deployz-bootstrap stack from your AWS account (or delete the relay’s execution role directly).',
   'The relay immediately loses the ability to call out to Deployz — there is no inbound path for Deployz to re-establish contact.',
   'Deployz marks the deployment Disconnected once it stops hearing from the relay, and it stops being billed.',
 ] as const;

@@ -3,6 +3,9 @@ import { expect, test } from '@playwright/test';
 // Todo 5 smoke assertions: the shell renders the auth pages, gates
 // /dashboard for anonymous visitors, and shows an authenticated user the §43
 // empty state (no fake deployment data anywhere).
+
+const API_URL = 'http://localhost:3001';
+
 test('sign-in page renders', async ({ page }) => {
   await page.goto('/sign-in');
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
@@ -53,4 +56,31 @@ test('authenticated user reaches the dashboard and sees the §43 empty state', a
   await expect(page.getByRole('link', { name: 'View Test Deployment' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Create Release' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Dashboard' })).toBeVisible();
+});
+
+test('renaming the organization via §41 settings persists to the real API (regression: CORS blocked PATCH)', async ({
+  page,
+}) => {
+  const email = `e2e-${crypto.randomUUID().slice(0, 8)}@example.com`;
+  await page.goto('/sign-up');
+  await page.getByLabel('Name').fill('E2E User');
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Password').fill('super-secret-1');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.waitForURL('/dashboard');
+
+  await page.goto('/dashboard/settings');
+  const newName = `Renamed Org ${crypto.randomUUID().slice(0, 8)}`;
+  await page.getByLabel('Organization name').fill(newName);
+  await page.getByRole('button', { name: 'Update Organization' }).click();
+  await expect(page.getByRole('status')).toHaveText('Saved.');
+
+  // Previously the API's CORS config only allowed GET,HEAD,POST, so the
+  // browser blocked the PATCH preflight and the rename silently failed in the
+  // browser. This reads the name back through the real API to prove the
+  // write actually landed.
+  const readBack = await page.request.get(`${API_URL}/api/organization`);
+  expect(readBack.ok()).toBeTruthy();
+  const organization = (await readBack.json()) as { name: string };
+  expect(organization.name).toBe(newName);
 });

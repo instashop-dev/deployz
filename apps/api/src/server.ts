@@ -1,7 +1,7 @@
 import cors from '@fastify/cors';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -129,6 +129,8 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
 
 type ApplicationRow = typeof schema.applications.$inferSelect;
 type DeploymentRow = typeof schema.deployments.$inferSelect;
+type CustomerRow = typeof schema.customers.$inferSelect;
+type JobType = (typeof schema.deploymentJobs.$inferSelect)['type'];
 
 async function loadOwnedApplication(
   db: RuntimeDb,
@@ -162,6 +164,45 @@ async function loadOwnedDeployment(
     throw new NotFoundError('Deployment not found');
   }
   return rows[0]!;
+}
+
+async function loadOwnedCustomer(
+  db: RuntimeDb,
+  id: string,
+  organizationId: string,
+): Promise<CustomerRow> {
+  requireUuidId(id);
+  const rows = await db
+    .select()
+    .from(schema.customers)
+    .where(and(eq(schema.customers.id, id), eq(schema.customers.organizationId, organizationId)))
+    .limit(1);
+  if (rows.length === 0) {
+    throw new NotFoundError('Customer not found');
+  }
+  return rows[0]!;
+}
+
+/**
+ * A release is owned through its application. Deploy/rollback take a
+ * uuid-shaped releaseId from the client; without this check a release that
+ * does not exist (or belongs to another application) is accepted and queued
+ * as a job the relay can never carry out.
+ */
+async function requireApplicationRelease(
+  db: RuntimeDb,
+  releaseId: string,
+  applicationId: string,
+): Promise<void> {
+  requireUuidId(releaseId);
+  const rows = await db
+    .select({ id: schema.releases.id })
+    .from(schema.releases)
+    .where(and(eq(schema.releases.id, releaseId), eq(schema.releases.applicationId, applicationId)))
+    .limit(1);
+  if (rows.length === 0) {
+    throw new NotFoundError('Release not found');
+  }
 }
 
 // §24 AWS accounts are shown, never in full — the control plane still stores
@@ -317,6 +358,27 @@ function computeReadiness(app: {
 // silently targeted.
 const BULK_DEPLOYABLE_STATES = new Set<DeploymentRow['state']>(['HEALTHY', 'UPDATE_AVAILABLE']);
 
+/**
+ * §46 deployment state a finished job leaves behind. The relay reporting a
+ * command result is what actually moves a deployment through its lifecycle —
+ * without this the fleet is stuck in INSTALLING forever, which silently
+ * disables §25 bulk deploy (needs HEALTHY/UPDATE_AVAILABLE), §29 diagnostics
+ * (needs FAILED) and §48 metered billing (bills only HEALTHY deployments).
+ *
+ * Mirrors the transitions the packages/cdk job workflows already model. A job
+ * type absent from this map leaves the state alone — CONFIG_UPDATE is
+ * non-disruptive (§31), so a config write must not disturb the lifecycle.
+ */
+const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
+  INSTALL: 'HEALTHY',
+  DEPLOY_RELEASE: 'HEALTHY',
+  ROLLBACK: 'HEALTHY',
+  DESTROY: 'DELETED',
+};
+
+/** Job types that carry a release pointer forward on success (§38). */
+const RELEASE_ADVANCING_JOBS = new Set<JobType>(['DEPLOY_RELEASE', 'ROLLBACK']);
+
 // Control-plane surface: /health, /api/me, /api/auth/*.
 // Errors cross the boundary as structured envelopes via toErrorEnvelope;
 // Sentry capture lives in its onError hook (never in the render path).
@@ -345,8 +407,14 @@ export async function buildServer({
   });
 
   // Browser origin differs by port; cookies are host-scoped, so credentialed
-  // CORS + trustedOrigins is the whole cookie story.
-  await app.register(cors, { origin: [env.webUrl], credentials: true });
+  // CORS + trustedOrigins is the whole cookie story. `methods` must be listed
+  // explicitly: the default is GET,HEAD,POST, which fails the preflight for
+  // the config PUT and the organization PATCH.
+  await app.register(cors, {
+    origin: [env.webUrl],
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  });
 
   app.get('/health', () => ({ ok: true }));
 
@@ -755,6 +823,10 @@ export async function buildServer({
   app.post('/api/deployments', { preHandler: requireAuth }, async (request, reply) => {
     const body = createDeploymentBodySchema.parse(request.body);
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
+    // 404 on a non-existent/other-org applicationId or customerId — otherwise
+    // the INSERT below hits a foreign-key violation and surfaces as a 500.
+    await loadOwnedApplication(db, body.applicationId, organizationId);
+    await loadOwnedCustomer(db, body.customerId, organizationId);
     const installationId = crypto.randomUUID();
     const [row] = await db
       .insert(schema.deployments)
@@ -886,6 +958,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
+    await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
@@ -908,6 +981,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
     const body = deployBulkBodySchema.parse(request.body);
+    await requireApplicationRelease(db, body.releaseId, id);
 
     const conditions = [
       eq(schema.deployments.applicationId, id),
@@ -961,6 +1035,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = rollbackBodySchema.parse(request.body);
+    await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:ROLLBACK:${body.releaseId}`;
@@ -1026,8 +1101,17 @@ export async function buildServer({
       .where(eq(schema.eventLogs.deploymentId, id))
       .orderBy(schema.eventLogs.occurredAt)
       .limit(10);
+    // §61: report the code the relay actually gave for the failure. Falling
+    // back to UNKNOWN when the job carried no code is honest; hardcoding it
+    // when the job DOES carry one throws away the only classification we have.
+    const [failedJob] = await db
+      .select({ failureCode: schema.deploymentJobs.failureCode })
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, id), eq(schema.deploymentJobs.state, 'FAILED')))
+      .orderBy(desc(schema.deploymentJobs.finishedAt))
+      .limit(1);
     return {
-      failureCode: 'UNKNOWN',
+      failureCode: failedJob?.failureCode ?? 'UNKNOWN',
       what: 'Deployment failed',
       why: 'The deployment did not reach a healthy state',
       fix: 'Check the event log for details and retry the deployment',
@@ -1299,6 +1383,25 @@ export async function buildServer({
         ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
       })
       .where(eq(schema.deploymentJobs.id, id));
+
+    // A finished job is what advances the deployment's own §46 state.
+    const nextState = state === 'FAILED' ? 'FAILED' : JOB_SUCCESS_STATE[job.type];
+    if (nextState) {
+      const releaseId =
+        state === 'SUCCEEDED' && RELEASE_ADVANCING_JOBS.has(job.type)
+          ? ((job.payload as { releaseId?: string } | null)?.releaseId ?? null)
+          : null;
+      await db
+        .update(schema.deployments)
+        .set({
+          state: nextState,
+          ...(releaseId
+            ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId }
+            : {}),
+          ...(nextState === 'DELETED' ? { deletedAt: new Date() } : {}),
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+    }
 
     return reply.code(200).send({ received: true });
   });

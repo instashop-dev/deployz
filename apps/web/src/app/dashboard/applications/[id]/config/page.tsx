@@ -29,9 +29,9 @@ type PageState =
 // customer) plus customer-specific overrides (win over the defaults). Secrets
 // are write-only end to end: the API masks them (value: null), the screen
 // renders a masked write-only field, and saving sends only the NEW value.
-// The config endpoint 404s for applications without backend rows, so
-// fetchConfig/saveConfig fall back to fixture data (same pattern as todo
-// 19/25). useSearchParams needs a Suspense boundary at build time.
+// A 404 (e.g. an application id the caller's organization doesn't own) is
+// surfaced as the §31 error state, never swallowed into fabricated config.
+// useSearchParams needs a Suspense boundary at build time.
 export default function ApplicationConfigPage() {
   return (
     <Suspense fallback={<PageSkeleton />}>
