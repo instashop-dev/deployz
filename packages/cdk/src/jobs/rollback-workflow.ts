@@ -272,13 +272,7 @@ export function createRollbackWorkflow(
 
 // ── Real AWS-backed implementation ────────────────────────────────────────
 
-import {
-  ECSClient,
-  UpdateServiceCommand,
-} from '@aws-sdk/client-ecs';
-
 export function createRealRollbackExecutor(): RollbackExecutor {
-  const ecs = new ECSClient({});
   return {
     async restore(_deploymentId, imageDigest) {
       // ponytail: restoring to a previous image requires the ECS cluster

@@ -387,7 +387,7 @@ export function createDeployReleaseWorkflow(
 
 export function createRealMigrationRunner(): MigrationRunner {
   return {
-    async runMigration(_command) {
+    async runMigration() {
       // ponytail: running a migration one-off ECS task requires the cluster
       // and task definition from the relay. Until the relay is wired, pass.
       return { ok: true };
@@ -419,7 +419,7 @@ export function createRealInfraUpgrader(): InfraUpgrader {
 
 export function createRealPendingReleaseChecker(): PendingReleaseChecker {
   return {
-    async hasPendingRelease(_deploymentId, _appliedReleaseId) {
+    async hasPendingRelease() {
       // ponytail: pending release detection queries the releases DB table.
       // Until the release pipeline is seeded, always report false.
       return false;

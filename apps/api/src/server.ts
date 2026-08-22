@@ -828,7 +828,7 @@ function createRelayStore() {
       commands.set(installationId, []);
       return pending;
     },
-    reportResult(_commandId: string, _result: { success?: boolean; error?: string; output?: Record<string, unknown> }) {
+    reportResult() {
       // ponytail: real result persistence needs a DB table; in-memory for MVP.
     },
   };

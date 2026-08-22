@@ -590,22 +590,13 @@ const QUOTA_CODES = {
 
 const QUOTA_SERVICE_CODE = 'ecs';
 
-function makeExceeded(quotaName: string, value: number, max: number): QuotaCheckResult {
-  return {
-    ok: false,
-    failureCode: 'QUOTA_EXCEEDED',
-    reason: `${quotaName} quota exceeded: current usage ${value}/${max}`,
-    exceededQuotas: [quotaName],
-  };
-}
-
 export function createRealQuotaChecker(): QuotaChecker {
   return {
     async checkQuotas(region) {
       const sq = new ServiceQuotasClient({ region });
 
       const exceeded: string[] = [];
-      for (const [name, quotaCode] of Object.entries(QUOTA_CODES)) {
+      for (const [, quotaCode] of Object.entries(QUOTA_CODES)) {
         try {
           const result = await sq.send(
             new GetServiceQuotaCommand({

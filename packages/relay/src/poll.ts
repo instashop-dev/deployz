@@ -44,15 +44,6 @@ interface HealthReportPayload {
   observedState: Record<string, unknown>;
 }
 
-/** Observed state fields reported to the control plane. */
-interface ObservedState {
-  idempotencyKeysTracked: number;
-  lastPoll: string;
-  runningVersion: string | null;
-  observedConfig: Record<string, unknown> | null;
-  infraHealth: string | null;
-}
-
 // ── Poll context ─────────────────────────────────────────────────────────────
 
 /** Injectable dependencies for the poll loop (seam for testing). */
