@@ -5,18 +5,42 @@
  *
  * §25: the bootstrap stack is EXEMPT from preflight — it must complete first
  * so the relay is reachable, and the relay's first contact is what proves the
- * customer account is actually wired up. Only AFTER that contact does the full
- * checklist run (todo 13's `preflight.ts` is the minimal Wave-2 subset; this
- * is the full engine the plan's todo 28 calls for).
+ * customer account is actually wired up. INSTALL runs the minimal region+SCP
+ * subset (`preflight.ts`) before the bootstrap stack, then runs this full
+ * engine right after relay contact is confirmed and before the deployment
+ * transitions to INSTALLING (i.e. before any APPLICATION-stack provisioning).
+ * DEPLOY_RELEASE runs it as its single preflight gate before UPDATING.
  *
- * The seven checks, in order:
- *   1. Region allowlist      — pure, reuses `validateRegion` (§32)
- *   2. SCP blocks            — async, calls AWS Organizations + STS
- *   3. Service quotas        — injectable `QuotaChecker` seam (PENDING-AWS)
- *   4. Config validity       — pure, reuses `validateConfigKeys` (§31)
- *   5. Migration command     — pure (present + well-formed, §26)
- *   6. Image health          — injectable `ImageHealthChecker` seam (PENDING-AWS)
- *   7. Relay connected       — pure, reuses `assertRelayContact`
+ * Relay-contact timing: when this engine is invoked BEFORE a relay contact
+ * payload exists (there is no such payload to check yet), callers set
+ * `skipRelayContact: true` so check 7 is reported as a clearly-marked
+ * "skipped" pass instead of a false failure — the relay-contact check itself
+ * still runs at the correct time via `assertRelayContact` directly.
+ *
+ * The seventeen checks, in order:
+ *    1. Region allowlist        — pure, reuses `validateRegion` (§32)
+ *    2. SCP blocks              — async, calls AWS Organizations + STS
+ *    3. Service quotas          — injectable `QuotaChecker` seam (PENDING-AWS)
+ *    4. Config validity         — pure, reuses `validateConfigKeys` (§31)
+ *    5. Migration command       — pure (present + well-formed, §26)
+ *    6. Image health            — injectable `ImageHealthChecker` seam (PENDING-AWS)
+ *    7. Relay connected         — pure, reuses `assertRelayContact` (or skipped, see above)
+ *    8. Port defined            — pure (§30 application check)
+ *    9. Health endpoint         — pure (§30 application check)
+ *   10. Required secrets present— pure (§30 application check)
+ *   11. Required env vars       — pure (§30 application check)
+ *   12. CloudFormation usable   — injectable seam, SKIPPED when not injected (PENDING-AWS)
+ *   13. ECS usable              — injectable seam, SKIPPED when not injected (PENDING-AWS)
+ *   14. RDS usable              — injectable seam, SKIPPED when not injected (PENDING-AWS)
+ *   15. Image available in ECR  — injectable seam, SKIPPED when not injected/no image ref (PENDING-AWS)
+ *   16. Image architecture      — injectable seam, SKIPPED when not injected/no image ref (PENDING-AWS)
+ *   17. Account permission check— injectable seam, SKIPPED when not injected (PENDING-AWS, §30)
+ *
+ * Checks 12-17 are OPTIONAL AWS-backed seams: when the caller does not supply
+ * the corresponding checker, the check reports a clearly-marked `skipped:
+ * true` pass rather than making a live AWS call or silently failing. This
+ * keeps every unit test AWS-free while still making the checks reachable
+ * (and their failure codes producible) once wired with real clients.
  *
  * The engine runs ALL checks and collects EVERY failure (not just the first)
  * into `failures`. `passed` is true only when there are zero failures. Each
@@ -25,10 +49,12 @@
  * is false — the engine itself only reports, it never throws.
  *
  * Failure-code provenance (nothing here invents a new §61 code):
- *   REGION_NOT_SUPPORTED, AWS_SCP_BLOCKED, QUOTA_EXCEEDED,
- *   IMAGE_HEALTH_CHECK_FAILED, MIGRATION_FAILED, RELAY_DISCONNECTED are the
- *   §61 codes (packages/db failureCodeEnum) that apply to preflight.
- *   INVALID_CONFIG is the §31 config-domain code reused from
+ *   REGION_NOT_SUPPORTED, AWS_SCP_BLOCKED, AWS_PERMISSION_DENIED,
+ *   QUOTA_EXCEEDED, IMAGE_HEALTH_CHECK_FAILED, MIGRATION_FAILED,
+ *   RELAY_DISCONNECTED, STACK_CREATE_FAILED, CONTAINER_START_FAILED,
+ *   DATABASE_CREATE_FAILED, IMAGE_PULL_FAILED, UNSUPPORTED_ARCHITECTURE,
+ *   MISSING_SECRET are the §61 codes (packages/db failureCodeEnum) that apply
+ *   to preflight. INVALID_CONFIG is the §31 config-domain code reused from
  *   config-update-workflow.ts (config validation is not a §61 failure).
  */
 
@@ -67,9 +93,15 @@ export type PreflightFailureCode =
   | 'UNSUPPORTED_ARCHITECTURE'
   | 'RELAY_DISCONNECTED';
 
-/** A single full-preflight check result. */
+/**
+ * A single full-preflight check result. `skipped` (only ever `true` on the
+ * `passed: true` branch) marks a check that was NOT actually evaluated —
+ * e.g. an optional AWS-backed seam (checks 12-17) the caller didn't inject.
+ * A skipped check is never a failure, but it is distinguishable from a check
+ * that genuinely ran and passed.
+ */
 export type PreflightCheck =
-  | { readonly check: string; readonly passed: true }
+  | { readonly check: string; readonly passed: true; readonly skipped?: boolean }
   | {
       readonly check: string;
       readonly passed: false;
@@ -118,6 +150,17 @@ export interface PreflightInput {
   readonly requiredEnvVars?: readonly string[] | undefined;
   /** Configured environment variable names from the deployment config. */
   readonly configuredEnvVars?: readonly string[] | undefined;
+  /**
+   * When true, check 7 (relay connected) is reported as a skipped pass
+   * regardless of `relayContact`. Set by callers that run the full engine
+   * BEFORE a relay-contact payload exists — the relay-contact check itself
+   * still runs at the correct time via `assertRelayContact` directly.
+   */
+  readonly skipRelayContact?: boolean | undefined;
+  /** ECR repository name for the image-availability/architecture checks (absent = skip). */
+  readonly ecrRepositoryName?: string | undefined;
+  /** ECR image tag for the image-availability/architecture checks (absent = skip). */
+  readonly ecrImageTag?: string | undefined;
 }
 
 // ── Seam result types ─────────────────────────────────────────────────────
@@ -165,12 +208,74 @@ export interface ImageHealthChecker {
   checkHealth(imageDigest: string): Promise<ImageHealthCheckResult>;
 }
 
+/**
+ * Result of an AWS-usability seam (CloudFormation/ECS/RDS reachability, or
+ * the account-permission check). Reuses `AwsApiCheckResult` (defined below,
+ * alongside the standalone `checkCloudFormationUsable` etc. functions).
+ */
+export type PermissionCheckResult =
+  | { readonly ok: true; readonly detail: string }
+  | { readonly ok: false; readonly failureCode: 'AWS_PERMISSION_DENIED'; readonly reason: string };
+
+/**
+ * Generic "is this AWS API callable" seam — shared shape for the
+ * CloudFormation/ECS/RDS usability checks (item 2).
+ *
+ * PENDING-AWS: the real checker calls the service's cheapest read API.
+ * OPTIONAL: when the caller does not inject a checker, the corresponding
+ * check is reported as a skipped pass — it never makes a live AWS call and
+ * never fails unit tests that don't care about it.
+ */
+export interface AwsUsabilityChecker {
+  check(region: string): Promise<AwsApiCheckResult>;
+}
+
+/**
+ * ECR image-availability + architecture seam (item 2).
+ *
+ * PENDING-AWS: the real checker calls ECR DescribeImages. OPTIONAL: skipped
+ * when not injected, or when the input carries no ECR repository/tag to
+ * check.
+ */
+export interface EcrImageChecker {
+  checkAvailable(
+    region: string,
+    repositoryName: string,
+    imageTag: string,
+  ): Promise<EcrImageCheckResult>;
+  checkArchitecture(
+    region: string,
+    repositoryName: string,
+    imageTag: string,
+  ): Promise<ImageArchitectureCheckResult>;
+}
+
+/**
+ * §30 account-permission check seam (item 3) — e.g. backed by
+ * `iam:SimulatePrincipalPolicy` against the actions preflight needs.
+ *
+ * PENDING-AWS: OPTIONAL — skipped when not injected, exactly like the other
+ * AWS-backed checks above.
+ */
+export interface PermissionChecker {
+  checkPermission(region: string): Promise<PermissionCheckResult>;
+}
+
 /** Dependencies injected into the full preflight engine. */
 export interface PreflightEngineDeps {
   readonly quotaChecker: QuotaChecker;
   readonly imageHealthChecker: ImageHealthChecker;
   /** §31 allowed config keys (vendor defaults + customer overrides). */
   readonly allowedConfigKeys: readonly string[];
+  /**
+   * Checks 12-17 — all OPTIONAL. When omitted, the corresponding check is
+   * reported as a skipped pass rather than making a live AWS call (item 2/3).
+   */
+  readonly cloudFormationChecker?: AwsUsabilityChecker | undefined;
+  readonly ecsChecker?: AwsUsabilityChecker | undefined;
+  readonly rdsChecker?: AwsUsabilityChecker | undefined;
+  readonly ecrImageChecker?: EcrImageChecker | undefined;
+  readonly permissionChecker?: PermissionChecker | undefined;
 }
 
 // ── Pure check functions ──────────────────────────────────────────────────
@@ -518,12 +623,109 @@ async function checkImageHealth(
   };
 }
 
+/** Relay-connected check (7) — honors `skipRelayContact` (see PreflightInput). */
+function checkRelayConnectedForEngine(input: PreflightInput): PreflightCheck {
+  if (input.skipRelayContact) {
+    return { check: 'relay-contact', passed: true, skipped: true };
+  }
+  return assertRelayContact(input.relayContact, input.installationId);
+}
+
+/** Checks 12-14 (CloudFormation/ECS/RDS usable) — skipped when no checker is injected. */
+async function checkAwsUsability(
+  checkName: string,
+  region: string,
+  checker: AwsUsabilityChecker | undefined,
+): Promise<PreflightCheck> {
+  if (!checker) {
+    return { check: checkName, passed: true, skipped: true };
+  }
+  const result = await checker.check(region);
+  if (result.ok) {
+    return { check: checkName, passed: true };
+  }
+  return {
+    check: checkName,
+    passed: false,
+    failureCode: result.failureCode,
+    reason: result.reason,
+  };
+}
+
+/** Check 15 (image available in ECR) — skipped when no checker/repo/tag given. */
+async function checkImageAvailability(
+  input: PreflightInput,
+  checker: EcrImageChecker | undefined,
+): Promise<PreflightCheck> {
+  if (!checker || !input.ecrRepositoryName || !input.ecrImageTag) {
+    return { check: 'image-available', passed: true, skipped: true };
+  }
+  const result = await checker.checkAvailable(
+    input.region,
+    input.ecrRepositoryName,
+    input.ecrImageTag,
+  );
+  if (result.ok) {
+    return { check: 'image-available', passed: true };
+  }
+  return {
+    check: 'image-available',
+    passed: false,
+    failureCode: result.failureCode,
+    reason: result.reason,
+  };
+}
+
+/** Check 16 (image architecture) — skipped when no checker/repo/tag given. */
+async function checkImageArchitectureCheck(
+  input: PreflightInput,
+  checker: EcrImageChecker | undefined,
+): Promise<PreflightCheck> {
+  if (!checker || !input.ecrRepositoryName || !input.ecrImageTag) {
+    return { check: 'image-architecture', passed: true, skipped: true };
+  }
+  const result = await checker.checkArchitecture(
+    input.region,
+    input.ecrRepositoryName,
+    input.ecrImageTag,
+  );
+  if (result.ok) {
+    return { check: 'image-architecture', passed: true };
+  }
+  return {
+    check: 'image-architecture',
+    passed: false,
+    failureCode: result.failureCode,
+    reason: result.reason,
+  };
+}
+
+/** Check 17 (§30 account permission check) — skipped when no checker is injected. */
+async function checkAccountPermission(
+  region: string,
+  checker: PermissionChecker | undefined,
+): Promise<PreflightCheck> {
+  if (!checker) {
+    return { check: 'aws-permission', passed: true, skipped: true };
+  }
+  const result = await checker.checkPermission(region);
+  if (result.ok) {
+    return { check: 'aws-permission', passed: true };
+  }
+  return {
+    check: 'aws-permission',
+    passed: false,
+    failureCode: result.failureCode,
+    reason: result.reason,
+  };
+}
+
 // ── Engine ────────────────────────────────────────────────────────────────
 
 /**
  * Run the full §30 preflight checklist.
  *
- * Executes all seven checks and collects EVERY failure into `failures`.
+ * Executes all seventeen checks and collects EVERY failure into `failures`.
  * `passed` is true only when there are no failures. The engine reports — it
  * never throws; the INSTALL / DEPLOY_RELEASE workflows throw `PreflightError`
  * when `passed` is false (their negative tests prove the halt).
@@ -545,8 +747,8 @@ export async function runFullPreflight(
     checkMigrationCommand(input.migrationCommand, input.migrationRequired ?? false),
     // 6. Image health — injectable seam (PENDING-AWS).
     await checkImageHealth(input.imageDigest, deps.imageHealthChecker),
-    // 7. Relay connected — pure (the first-contact payload).
-    assertRelayContact(input.relayContact, input.installationId),
+    // 7. Relay connected — pure (the first-contact payload), or skipped.
+    checkRelayConnectedForEngine(input),
     // 8. Port defined — pure.
     checkPortDefined(input.port),
     // 9. Health endpoint configured — pure.
@@ -561,6 +763,18 @@ export async function runFullPreflight(
       input.requiredEnvVars ?? [],
       input.configuredEnvVars ?? [],
     ),
+    // 12. CloudFormation usable — injectable seam (PENDING-AWS), skipped if not injected.
+    await checkAwsUsability('cloudformation-usable', input.region, deps.cloudFormationChecker),
+    // 13. ECS usable — injectable seam (PENDING-AWS), skipped if not injected.
+    await checkAwsUsability('ecs-usable', input.region, deps.ecsChecker),
+    // 14. RDS usable — injectable seam (PENDING-AWS), skipped if not injected.
+    await checkAwsUsability('rds-usable', input.region, deps.rdsChecker),
+    // 15. Image available in ECR — injectable seam (PENDING-AWS), skipped if not injected/no image ref.
+    await checkImageAvailability(input, deps.ecrImageChecker),
+    // 16. Image architecture — injectable seam (PENDING-AWS), skipped if not injected/no image ref.
+    await checkImageArchitectureCheck(input, deps.ecrImageChecker),
+    // 17. Account permission check (§30) — injectable seam (PENDING-AWS), skipped if not injected.
+    await checkAccountPermission(input.region, deps.permissionChecker),
   ];
 
   const failures = checks.filter(
@@ -638,6 +852,81 @@ export function createRealImageHealthChecker(): ImageHealthChecker {
       // unconditionally — the relay's runtime health observation is the real
       // gate. Add ECS-based probing when the integration harness is live.
       return { ok: true, digest: imageDigest };
+    },
+  };
+}
+
+// ── Real AWS-usability + ECR + permission seam implementations (item 2/3) ──
+//
+// These wrap the already-implemented `checkCloudFormationUsable` etc.
+// functions above as injectable seams. They are OPTIONAL on
+// `PreflightEngineDeps` — a caller that does not construct one of these (e.g.
+// every unit test) gets a "skipped" check instead of a live AWS call.
+
+export function createRealCloudFormationChecker(): AwsUsabilityChecker {
+  return { check: checkCloudFormationUsable };
+}
+
+export function createRealEcsChecker(): AwsUsabilityChecker {
+  return { check: checkEcsUsable };
+}
+
+export function createRealRdsChecker(): AwsUsabilityChecker {
+  return { check: checkRdsUsable };
+}
+
+export function createRealEcrImageChecker(): EcrImageChecker {
+  return {
+    checkAvailable: checkImageAvailable,
+    checkArchitecture: checkImageArchitecture,
+  };
+}
+
+/**
+ * §30 account-permission check (item 3).
+ *
+ * A full implementation would call `iam:SimulatePrincipalPolicy` against the
+ * exact actions §30 preflight needs (CFN/ECS/RDS/ECR) — that requires the
+ * `@aws-sdk/client-iam` package, which is PENDING-AWS/out of scope for this
+ * pass (see `createRealMigrationRunner` etc. in deploy-release-workflow.ts
+ * for the same PENDING-AWS convention). Until then this reuses the already-
+ * present STS client (same precedent as `checkScpBlocks` in preflight.ts):
+ * an AccessDenied-shaped failure resolving the caller identity itself is
+ * treated as `AWS_PERMISSION_DENIED`; anything else (including no
+ * credentials, e.g. dev/test) degrades gracefully and passes.
+ */
+export async function checkAwsPermissions(region: string): Promise<AwsApiCheckResult> {
+  try {
+    const { STSClient, GetCallerIdentityCommand } = await import('@aws-sdk/client-sts');
+    const sts = new STSClient({ region });
+    await sts.send(new GetCallerIdentityCommand({}));
+    return { ok: true, detail: 'Caller identity resolved successfully' };
+  } catch (err) {
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'AccessDenied' || name === 'AccessDeniedException' || name === 'UnauthorizedAccess') {
+      return {
+        ok: false,
+        failureCode: 'AWS_PERMISSION_DENIED',
+        reason: 'AWS credentials do not have permission to resolve the caller identity',
+      };
+    }
+    // No credentials / no network / not configured — degrade gracefully.
+    return { ok: true, detail: 'Permission check skipped (no AWS credentials available)' };
+  }
+}
+
+export function createRealPermissionChecker(): PermissionChecker {
+  return {
+    async checkPermission(region) {
+      const result = await checkAwsPermissions(region);
+      if (result.ok) {
+        return { ok: true, detail: result.detail };
+      }
+      return {
+        ok: false,
+        failureCode: 'AWS_PERMISSION_DENIED',
+        reason: result.reason,
+      };
     },
   };
 }

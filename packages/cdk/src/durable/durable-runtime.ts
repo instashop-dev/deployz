@@ -24,8 +24,17 @@
 /** A single step descriptor yielded by a workflow generator. */
 export type WorkflowStep =
   | { readonly type: 'step'; readonly name: string; readonly fn: () => Promise<unknown> }
-  | { readonly type: 'waitForCallback'; readonly token: string }
+  | { readonly type: 'waitForCallback'; readonly token: string; readonly timeoutMs: number }
   | { readonly type: 'wait'; readonly durationMs: number };
+
+/**
+ * §28/§59 default deadline for a suspended `waitForCallback`. A relay whose
+ * result never arrives (bootstrap died mid-flight, customer account went
+ * dark, etc.) must not leave the execution RUNNING forever — 24h is a
+ * generous ceiling for any single relay round-trip (install, deploy,
+ * rollback, config, destroy confirmation).
+ */
+export const DEFAULT_CALLBACK_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 /** Persistent state for a workflow execution. */
 export interface WorkflowState {
@@ -35,6 +44,16 @@ export interface WorkflowState {
   totalYields: number;
   history: WorkflowHistoryEntry[];
   callbackToken?: string;
+  /** ISO-8601 deadline for the current `waitForCallback` suspension (§28/§59). */
+  callbackDeadline?: string;
+  /**
+   * DynamoDB TTL attribute (epoch seconds) — matches `timeToLiveAttribute:
+   * 'ttl'` on the WorkflowState table (durable-stack.ts). Set whenever the
+   * execution suspends on `waitForCallback` so a stale row auto-expires
+   * instead of lingering indefinitely; `expireStaleExecutions` transitions
+   * still-RUNNING rows to FAILED before that natural expiry.
+   */
+  ttl?: number;
   resumeAt?: string;
   input: unknown;
   output?: unknown;
@@ -119,6 +138,57 @@ export class DurableRuntime {
   }
 
   /**
+   * §28/§59: transition a single execution to FAILED if it is WAITING_CALLBACK
+   * and past its `callbackDeadline` — a relay result that never arrives must
+   * not leave the row RUNNING forever. Returns true when the execution was
+   * expired, false when it was not eligible (missing, not WAITING_CALLBACK,
+   * or not yet past its deadline).
+   *
+   * This does NOT invoke the workflow generator — an expired execution is
+   * terminal (FAILED), so there is nothing left to replay.
+   */
+  async expireIfStale(
+    executionId: string,
+    now: () => Date = () => new Date(),
+  ): Promise<boolean> {
+    const state = await this.store.get(executionId);
+    if (!state || state.status !== 'WAITING_CALLBACK' || !state.callbackDeadline) {
+      return false;
+    }
+    if (now().getTime() < new Date(state.callbackDeadline).getTime()) {
+      return false;
+    }
+
+    state.status = 'FAILED';
+    state.error = `Execution expired: no callback received before deadline ${state.callbackDeadline} (token=${state.callbackToken ?? 'unknown'})`;
+    state.updatedAt = now().toISOString();
+    await this.store.put(state);
+    return true;
+  }
+
+  /**
+   * Sweep a batch of candidate execution ids, expiring any past their
+   * WAITING_CALLBACK deadline (§28/§59). This is the entry point a scheduled
+   * caller invokes; it does not itself discover candidates — `StateStore` is
+   * a pure key-value store keyed by executionId with no query-by-status
+   * capability. A real scheduler would list candidates via a DynamoDB GSI (or
+   * rely on the table's `ttl` attribute for eventual natural cleanup) and
+   * pass the ids here. Returns the ids that were actually expired.
+   */
+  async expireStaleExecutions(
+    executionIds: readonly string[],
+    now: () => Date = () => new Date(),
+  ): Promise<readonly string[]> {
+    const expired: string[] = [];
+    for (const executionId of executionIds) {
+      if (await this.expireIfStale(executionId, now)) {
+        expired.push(executionId);
+      }
+    }
+    return expired;
+  }
+
+  /**
    * Advance a workflow by executing steps until it suspends or completes.
    *
    * Uses a stepIndex counter to track replay position. Steps before
@@ -183,8 +253,11 @@ export class DurableRuntime {
         }
 
         case 'waitForCallback': {
+          const now = Date.now();
           state.status = 'WAITING_CALLBACK';
           state.callbackToken = step.token;
+          state.callbackDeadline = new Date(now + step.timeoutMs).toISOString();
+          state.ttl = Math.floor((now + step.timeoutMs) / 1000);
           state.updatedAt = new Date().toISOString();
           state.totalYields = yieldIndex;
           await this.store.put(state);
@@ -230,8 +303,11 @@ export function step(name: string, fn: () => Promise<unknown>): WorkflowStep {
   return { type: 'step', name, fn };
 }
 
-export function waitForCallback(token: string): WorkflowStep {
-  return { type: 'waitForCallback', token };
+export function waitForCallback(
+  token: string,
+  timeoutMs: number = DEFAULT_CALLBACK_TIMEOUT_MS,
+): WorkflowStep {
+  return { type: 'waitForCallback', token, timeoutMs };
 }
 
 export function wait(durationMs: number): WorkflowStep {

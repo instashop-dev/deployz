@@ -85,9 +85,21 @@ export class BuildPipeline extends Construct {
             commands: [
               'echo "Logging in to Amazon ECR..."',
               'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI',
-              // Use the RELEASE_VERSION env var (passed via startBuild
-              // environmentVariablesOverride). Fall back to `latest`.
-              'export IMAGE_TAG=${RELEASE_VERSION:-latest}',
+              // §21: image tags must be immutable identifiers — `latest` is
+              // the anti-pattern §21 explicitly calls out, and the ECR
+              // repository above is IMAGE_TAG_MUTABILITY=IMMUTABLE, so a
+              // repeated `latest` push would be hard-rejected by ECR on the
+              // second build anyway. Use RELEASE_VERSION (passed via
+              // startBuild environmentVariablesOverride) when the control
+              // plane supplies one; otherwise fall back to CODEBUILD_BUILD_ID
+              // (always set by CodeBuild itself, e.g.
+              // "project-name:build-uuid") which is guaranteed unique per
+              // build, sanitized for use as a Docker tag.
+              'export CODEBUILD_TAG=$(echo "$CODEBUILD_BUILD_ID" | tr ":" "-")',
+              'export IMAGE_TAG=${RELEASE_VERSION:-$CODEBUILD_TAG}',
+              // Fail fast rather than silently falling back to a mutable tag
+              // if neither source produced a usable value.
+              'if [ -z "$IMAGE_TAG" ]; then echo "ERROR: no usable image tag - RELEASE_VERSION and CODEBUILD_BUILD_ID are both unset" >&2; exit 1; fi',
             ],
           },
           build: {

@@ -4,13 +4,15 @@ import {
   ONBOARDING_STEPS,
   VERDICT_PRESENTATION,
   deriveOnboardingStep,
-  fixtureReadiness,
+  readinessSummaryLabel,
+  type ApplicationReadiness,
 } from '../src/lib/readiness';
 
 // Locks the §42 onboarding vocabulary and the §19 readiness presentation:
 // the six steps are verbatim and in order, every verdict label is §65
-// jargon-free, and the fixture fallback renders each verdict state without a
-// backend (the readiness endpoint arrives in a later todo).
+// jargon-free, and the §19 summary line + result shape render correctly for
+// each real (non-fixture) verdict state returned by
+// GET /api/applications/:id/readiness.
 
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/i;
 
@@ -90,41 +92,75 @@ describe('deriveOnboardingStep', () => {
   });
 });
 
-describe('fixtureReadiness fallback (no backend yet)', () => {
-  it('fixture repo 2 is NOT_COMPATIBLE with the Redis rejection', () => {
-    const fixture = fixtureReadiness('fixture-repo-2');
-    expect(fixture.readiness?.verdict).toBe('NOT_COMPATIBLE');
-    expect(fixture.readiness?.issues.some((issue) => issue.code === 'REDIS_DEPENDENCY')).toBe(
-      true,
-    );
+describe('readinessSummaryLabel (§19 "82% — 2 changes required")', () => {
+  it('formats the exact §19 example', () => {
+    expect(readinessSummaryLabel(82, 2)).toBe('82% — 2 changes required');
   });
 
-  it('the attention fixture lists the specific attention items', () => {
-    const fixture = fixtureReadiness('fixture-repo-attention');
-    expect(fixture.readiness?.verdict).toBe('NEEDS_ATTENTION');
-    expect(fixture.readiness?.issues.map((issue) => issue.code)).toEqual([
-      'MISSING_DOCKERFILE',
-      'MISSING_HEALTH_ENDPOINT',
-    ]);
+  it('singularizes "change" for exactly one', () => {
+    expect(readinessSummaryLabel(90, 1)).toBe('90% — 1 change required');
   });
 
-  it('unknown ids fall back to READY — success is readiness', () => {
-    const fixture = fixtureReadiness('fixture-repo-1');
-    expect(fixture.readiness?.verdict).toBe('READY');
-    expect(fixture.readiness?.issues).toEqual([]);
+  it('handles zero changes required', () => {
+    expect(readinessSummaryLabel(100, 0)).toBe('100% — 0 changes required');
+  });
+});
+
+describe('§19 readiness result shape (GET /api/applications/:id/readiness)', () => {
+  it('a pending (non-COMPLETE) analysis carries null verdict/score and empty groups', () => {
+    const pending: ApplicationReadiness = {
+      analysisStatus: 'ANALYZING',
+      verdict: null,
+      score: null,
+      changesRequired: null,
+      ready: [],
+      needsAttention: [],
+      unsupported: [],
+    };
+    expect(pending.verdict).toBeNull();
+    expect(pending.score).toBeNull();
+    expect(pending.ready).toEqual([]);
   });
 
-  it('fixture copy is jargon-free (§65)', () => {
-    for (const id of ['fixture-repo-1', 'fixture-repo-2', 'fixture-repo-attention'] as const) {
-      const fixture = fixtureReadiness(id);
-      const text = [
-        fixture.readiness?.reason ?? '',
-        ...(fixture.readiness?.issues ?? []).map((issue) => issue.message),
-        fixture.explanation?.summary ?? '',
-        fixture.explanation?.why ?? '',
-        fixture.explanation?.fix ?? '',
-      ].join(' ');
-      expect(text, `fixture ${id}`).not.toMatch(JARGON);
-    }
+  it('a NEEDS_ATTENTION result carries per-issue title/detail/suggestedFix', () => {
+    const readiness: ApplicationReadiness = {
+      analysisStatus: 'COMPLETE',
+      verdict: 'NEEDS_ATTENTION',
+      score: 82,
+      changesRequired: 2,
+      ready: [{ label: 'Docker container detected' }],
+      needsAttention: [
+        {
+          title: 'Health endpoint missing',
+          detail: 'Deployz requires an HTTP health endpoint.',
+          suggestedFix: 'GET /health → HTTP 200',
+        },
+      ],
+      unsupported: [],
+    };
+    expect(readiness.needsAttention[0]).toMatchObject({
+      title: 'Health endpoint missing',
+      suggestedFix: 'GET /health → HTTP 200',
+    });
+    const text = [
+      readiness.ready[0]?.label ?? '',
+      readiness.needsAttention[0]?.title ?? '',
+      readiness.needsAttention[0]?.detail ?? '',
+      readiness.needsAttention[0]?.suggestedFix ?? '',
+    ].join(' ');
+    expect(text).not.toMatch(JARGON);
+  });
+
+  it('a NOT_COMPATIBLE result carries title/reason pairs, not a single message', () => {
+    const readiness: ApplicationReadiness = {
+      analysisStatus: 'COMPLETE',
+      verdict: 'NOT_COMPATIBLE',
+      score: 0,
+      changesRequired: 0,
+      ready: [],
+      needsAttention: [],
+      unsupported: [{ title: 'Persistent Redis required', reason: 'Persistent Redis is required.' }],
+    };
+    expect(readiness.unsupported[0]?.reason).toBe('Persistent Redis is required.');
   });
 });

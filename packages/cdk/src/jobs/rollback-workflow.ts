@@ -29,7 +29,7 @@ import {
   type WorkflowStep,
 } from '../durable/durable-runtime.js';
 
-import type { EventActor, EventEmitter } from './event-emitter.js';
+import { actorFromInitiator, type EventEmitter, type WorkflowInitiator } from './event-emitter.js';
 
 import { assertHealthReport } from './preflight.js';
 
@@ -51,6 +51,8 @@ export interface RollbackInput {
   readonly releaseId: string;
   /** The PREVIOUS release's exact immutable `sha256:` digest (todo 16). */
   readonly imageDigest: string;
+  /** §62 audit actor — who/what initiated this workflow. Defaults to system. */
+  readonly initiatedBy?: WorkflowInitiator | undefined;
 }
 
 /** Output from the ROLLBACK workflow. */
@@ -138,7 +140,7 @@ export function createRollbackWorkflow(
   return async function* rollbackWorkflow(
     input: RollbackInput,
   ): AsyncGenerator<WorkflowStep, RollbackOutput, unknown> {
-    const actor: EventActor = { type: 'system' };
+    const actor = actorFromInitiator(input.initiatedBy);
     const baseEvent = {
       organizationId: input.organizationId,
       customerId: input.customerId,
@@ -248,6 +250,15 @@ export function createRollbackWorkflow(
       }
 
       await deps.deploymentStore.set(input.deploymentId, 'HEALTHY');
+
+      // §38: rollback restores the target release as current — the release
+      // rolled back FROM becomes previous (§27: restores Deployz-controlled
+      // release configuration).
+      const priorPointers = await deps.deploymentStore.getReleasePointers(input.deploymentId);
+      await deps.deploymentStore.setReleasePointers(input.deploymentId, {
+        currentReleaseId: input.releaseId,
+        previousReleaseId: priorPointers.currentReleaseId,
+      });
 
       await deps.emitter.emit(actor, {
         ...baseEvent,

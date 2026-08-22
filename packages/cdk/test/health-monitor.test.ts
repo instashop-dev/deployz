@@ -17,12 +17,17 @@ import {
   RELAY_DEGRADED_AFTER_MS,
   RELAY_DISCONNECTED_AFTER_MS,
   handleDrift,
+  reconcileDeploymentHealth,
   UTILIZATION_DEGRADED_PCT,
   UTILIZATION_UNHEALTHY_PCT,
   type DriftDeps,
   type HealthCheckDeps,
   type HealthSignal,
+  type ReconcileDeploymentHealthDeps,
+  type ReconcileDeploymentHealthInput,
 } from '../src/jobs/health-monitor.js';
+
+import { EventEmitter, InMemoryEventStore } from '../src/jobs/event-emitter.js';
 
 // ── Signal 1: stack status ────────────────────────────────────────────────
 
@@ -386,5 +391,186 @@ describe('handleDrift', () => {
 
   it('the default threshold is exactly one field', () => {
     expect(DRIFT_THRESHOLD).toBe(1);
+  });
+});
+
+// ── §28/§59 reconciliation entry point (item 10a) ──────────────────────────
+
+describe('reconcileDeploymentHealth', () => {
+  function makeHealthCheckDeps(overrides: Partial<HealthCheckDeps> = {}): HealthCheckDeps {
+    return {
+      deploymentId: 'deployment-1',
+      stackStatus: 'CREATE_COMPLETE',
+      runningCount: 2,
+      desiredCount: 2,
+      healthyTargets: 2,
+      unhealthyTargets: 0,
+      rdsAvailable: true,
+      automatedBackupsEnabled: true,
+      relayLastContactMsAgo: 1000,
+      httpStatusCode: 200,
+      cpuPercent: 10,
+      memoryPercent: 10,
+      desiredState: 'HEALTHY',
+      observedState: 'HEALTHY',
+      ...overrides,
+    };
+  }
+
+  function makeReconcileDeps(
+    overrides: Partial<ReconcileDeploymentHealthDeps> = {},
+  ): ReconcileDeploymentHealthDeps & {
+    getDeploymentState: ReturnType<typeof vi.fn>;
+    setDeploymentState: ReturnType<typeof vi.fn>;
+  } {
+    return {
+      getDeploymentState: vi.fn().mockResolvedValue('HEALTHY'),
+      setDeploymentState: vi.fn().mockResolvedValue(undefined),
+      listInflightJobs: vi.fn().mockResolvedValue([]),
+      supersedeJob: vi.fn().mockResolvedValue(undefined),
+      spawnJob: vi.fn().mockResolvedValue('job-new'),
+      ...overrides,
+    };
+  }
+
+  function makeInput(overrides: Partial<ReconcileDeploymentHealthInput> = {}): ReconcileDeploymentHealthInput {
+    return {
+      deploymentId: 'deployment-1',
+      organizationId: 'org-1',
+      healthCheckDeps: makeHealthCheckDeps(),
+      desiredState: { infraVersion: 'runtime-v2' },
+      observedState: { infraVersion: 'runtime-v2' },
+      jobType: 'INFRA_UPGRADE',
+      ...overrides,
+    };
+  }
+
+  it('collects signals and evaluates aggregate health for a fully healthy deployment', async () => {
+    const deps = makeReconcileDeps();
+    const result = await reconcileDeploymentHealth(makeInput(), deps);
+
+    expect(result.aggregateHealth).toBe('HEALTHY');
+    expect(result.signals).toHaveLength(HEALTH_SIGNAL_KEYS.length);
+    expect(result.disconnected).toBe(false);
+    expect(deps.setDeploymentState).not.toHaveBeenCalled();
+  });
+
+  it('does nothing extra when there is no drift (within threshold)', async () => {
+    const deps = makeReconcileDeps();
+    const result = await reconcileDeploymentHealth(makeInput(), deps);
+
+    expect(result.drift.action).toBe('none');
+    expect(deps.spawnJob).not.toHaveBeenCalled();
+  });
+
+  it('respawns the matching job via handleDrift when drift exceeds threshold', async () => {
+    const deps = makeReconcileDeps();
+    const input = makeInput({
+      desiredState: { infraVersion: 'runtime-v2', state: 'HEALTHY' },
+      observedState: { infraVersion: 'runtime-v1', state: 'UPDATING' },
+    });
+
+    const result = await reconcileDeploymentHealth(input, deps);
+
+    expect(result.drift.action).toBe('respawned');
+    expect(deps.spawnJob).toHaveBeenCalledWith(
+      expect.objectContaining({ deploymentId: 'deployment-1', type: 'INFRA_UPGRADE' }),
+    );
+  });
+
+  it('drives the deployment to DISCONNECTED on relay silence past the threshold, and emits health.relay.disconnected', async () => {
+    const eventStore = new InMemoryEventStore();
+    const emitter = new EventEmitter(eventStore, () => new Date('2026-01-01T00:00:00.000Z'));
+    const deps = makeReconcileDeps({ emitter, getDeploymentState: vi.fn().mockResolvedValue('HEALTHY') });
+
+    const input = makeInput({
+      healthCheckDeps: makeHealthCheckDeps({
+        relayLastContactMsAgo: RELAY_DISCONNECTED_AFTER_MS + 1000,
+      }),
+    });
+
+    const result = await reconcileDeploymentHealth(input, deps);
+
+    expect(result.disconnected).toBe(true);
+    expect(deps.setDeploymentState).toHaveBeenCalledWith('deployment-1', 'DISCONNECTED');
+
+    const event = eventStore.events.find((e) => e.eventType === 'health.relay.disconnected');
+    expect(event).toBeDefined();
+    expect(event?.previousState).toBe('HEALTHY');
+    expect(event?.requestedState).toBe('DISCONNECTED');
+  });
+
+  it('does not re-transition or re-emit when the deployment is already DISCONNECTED', async () => {
+    const eventStore = new InMemoryEventStore();
+    const emitter = new EventEmitter(eventStore, () => new Date());
+    const deps = makeReconcileDeps({
+      emitter,
+      getDeploymentState: vi.fn().mockResolvedValue('DISCONNECTED'),
+    });
+
+    const input = makeInput({
+      healthCheckDeps: makeHealthCheckDeps({
+        relayLastContactMsAgo: RELAY_DISCONNECTED_AFTER_MS + 1000,
+      }),
+    });
+
+    const result = await reconcileDeploymentHealth(input, deps);
+
+    expect(result.disconnected).toBe(true);
+    expect(deps.setDeploymentState).not.toHaveBeenCalled();
+    expect(eventStore.events).toEqual([]);
+  });
+
+  it('does NOT drive DISCONNECTED merely because the relay signal is DEGRADED (below the disconnect threshold)', async () => {
+    const deps = makeReconcileDeps();
+    const input = makeInput({
+      healthCheckDeps: makeHealthCheckDeps({
+        relayLastContactMsAgo: RELAY_DEGRADED_AFTER_MS + 1000,
+      }),
+    });
+
+    const result = await reconcileDeploymentHealth(input, deps);
+
+    expect(result.disconnected).toBe(false);
+    expect(deps.setDeploymentState).not.toHaveBeenCalled();
+  });
+
+  it('emits health.degraded / health.unhealthy / health.recovered when previousHealth differs and the relay is not silent', async () => {
+    const eventStore = new InMemoryEventStore();
+    const emitter = new EventEmitter(eventStore, () => new Date());
+    const deps = makeReconcileDeps({ emitter });
+
+    // HEALTHY -> DEGRADED (a target is unhealthy).
+    await reconcileDeploymentHealth(
+      makeInput({
+        previousHealth: 'HEALTHY',
+        healthCheckDeps: makeHealthCheckDeps({ healthyTargets: 1, unhealthyTargets: 1 }),
+      }),
+      deps,
+    );
+    expect(eventStore.events.some((e) => e.eventType === 'health.degraded')).toBe(true);
+
+    eventStore.clear();
+
+    // DEGRADED -> HEALTHY.
+    await reconcileDeploymentHealth(
+      makeInput({ previousHealth: 'DEGRADED' }),
+      deps,
+    );
+    expect(eventStore.events.some((e) => e.eventType === 'health.recovered')).toBe(true);
+  });
+
+  it('emits nothing extra when no emitter is injected (state transition + drift handling still run)', async () => {
+    const deps = makeReconcileDeps({ emitter: undefined });
+    const input = makeInput({
+      healthCheckDeps: makeHealthCheckDeps({
+        relayLastContactMsAgo: RELAY_DISCONNECTED_AFTER_MS + 1000,
+      }),
+    });
+
+    const result = await reconcileDeploymentHealth(input, deps);
+
+    expect(result.disconnected).toBe(true);
+    expect(deps.setDeploymentState).toHaveBeenCalledWith('deployment-1', 'DISCONNECTED');
   });
 });

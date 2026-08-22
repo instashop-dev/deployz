@@ -198,7 +198,7 @@ export function eventResultLabel(result: string | null): string | null {
 
 // ── §61 failure codes ───────────────────────────────────────────────────────
 
-/** The ten §61 stable failure codes. */
+/** The eighteen §61 stable failure codes. */
 export const FAILURE_CODES = [
   'AWS_SCP_BLOCKED',
   'PORT_MISMATCH',
@@ -220,7 +220,7 @@ export const FAILURE_CODES = [
   'UNKNOWN',
 ] as const;
 
-/** A §61 failure code — exactly the ten values in `FAILURE_CODES`. */
+/** A §61 failure code — exactly the eighteen values in `FAILURE_CODES`. */
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
 /** Severity drives the color-coded badge: critical (destructive) vs warning. */

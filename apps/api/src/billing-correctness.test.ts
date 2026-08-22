@@ -22,20 +22,31 @@ describe('shouldBillForDeployment', () => {
     expect(shouldBillForDeployment({ state: 'HEALTHY', isTestDeployment: false })).toBe(true);
   });
 
+  it('§46/§48: UPDATE_AVAILABLE + non-test deployment is billable (a newer release existing does not stop billing)', () => {
+    expect(shouldBillForDeployment({ state: 'UPDATE_AVAILABLE', isTestDeployment: false })).toBe(
+      true,
+    );
+  });
+
   it('§7: HEALTHY + test deployment is NOT billable', () => {
     expect(shouldBillForDeployment({ state: 'HEALTHY', isTestDeployment: true })).toBe(false);
+  });
+
+  it('§7: UPDATE_AVAILABLE + test deployment is NOT billable', () => {
+    expect(shouldBillForDeployment({ state: 'UPDATE_AVAILABLE', isTestDeployment: true })).toBe(
+      false,
+    );
   });
 
   it.each([
     'NOT_INSTALLED',
     'INSTALLING',
     'UPDATING',
-    'UPDATE_AVAILABLE',
     'FAILED',
     'DISCONNECTED',
     'DELETING',
     'DELETED',
-  ])('non-HEALTHY state %s is NOT billable', (state) => {
+  ])('non-HEALTHY/UPDATE_AVAILABLE state %s is NOT billable', (state) => {
     expect(shouldBillForDeployment({ state, isTestDeployment: false })).toBe(false);
   });
 });
@@ -188,85 +199,104 @@ describe('calculateInvoiceTotal', () => {
 
 describe('decideBilling', () => {
   const healthy = { state: 'HEALTHY' as const, isTestDeployment: false };
+  const updateAvailable = { state: 'UPDATE_AVAILABLE' as const, isTestDeployment: false };
   const testDeployment = { state: 'HEALTHY' as const, isTestDeployment: true };
+  const updating = { state: 'UPDATING' as const, isTestDeployment: false };
   const failed = { state: 'FAILED' as const, isTestDeployment: false };
   const deleting = { state: 'DELETING' as const, isTestDeployment: false };
   const deleted = { state: 'DELETED' as const, isTestDeployment: false };
   const disconnected = { state: 'DISCONNECTED' as const, isTestDeployment: false };
   const installing = { state: 'INSTALLING' as const, isTestDeployment: false };
 
-  it('HEALTHY non-test deployment: bill=true', () => {
-    const decision = decideBilling(healthy, null);
+  it('HEALTHY non-test deployment (first time billable): bill=true', () => {
+    const decision = decideBilling(healthy, false);
     expect(decision.bill).toBe(true);
     expect(decision.reason).toContain('HEALTHY');
   });
 
+  it('§46/§48: UPDATE_AVAILABLE non-test deployment: bill=true (still billable — new release does not stop billing)', () => {
+    const decision = decideBilling(updateAvailable, false);
+    expect(decision.bill).toBe(true);
+  });
+
   it('§7: test deployment never billed', () => {
-    const decision = decideBilling(testDeployment, null);
+    const decision = decideBilling(testDeployment, false);
     expect(decision.bill).toBe(false);
     expect(decision.reason).toContain('§7');
   });
 
-  it('no re-bill on update: HEALTHY → HEALTHY still bills but notes no state change', () => {
-    const decision = decideBilling(healthy, 'HEALTHY');
+  it('no re-bill on update: HEALTHY → HEALTHY still bills but notes no interruption', () => {
+    const decision = decideBilling(healthy, true);
     expect(decision.bill).toBe(true);
     expect(decision.reason).toContain('already billing');
   });
 
-  it('billing stops on delete: DELETING', () => {
-    const decision = decideBilling(deleting, 'HEALTHY');
+  it('billing stops on delete: DELETING (even if it was already billing)', () => {
+    const decision = decideBilling(deleting, true);
     expect(decision.bill).toBe(false);
     expect(decision.reason).toContain('DELETING');
   });
 
-  it('billing stops on delete: DELETED', () => {
-    const decision = decideBilling(deleted, 'HEALTHY');
+  it('billing stops on delete: DELETED (even if it was already billing)', () => {
+    const decision = decideBilling(deleted, true);
     expect(decision.bill).toBe(false);
     expect(decision.reason).toContain('DELETED');
   });
 
-  it('billing stops on failure: FAILED', () => {
-    const decision = decideBilling(failed, 'HEALTHY');
-    expect(decision.bill).toBe(false);
+  it('§48: temporary failed update does NOT stop billing — FAILED after already billing keeps billing', () => {
+    const decision = decideBilling(failed, true);
+    expect(decision.bill).toBe(true);
     expect(decision.reason).toContain('FAILED');
   });
 
-  it('billing stops on failure: DISCONNECTED', () => {
-    const decision = decideBilling(disconnected, 'HEALTHY');
-    expect(decision.bill).toBe(false);
+  it('§48: transient DISCONNECTED after already billing keeps billing', () => {
+    const decision = decideBilling(disconnected, true);
+    expect(decision.bill).toBe(true);
     expect(decision.reason).toContain('DISCONNECTED');
+  });
+
+  it('§48: UPDATING after already billing keeps billing (mid-release)', () => {
+    const decision = decideBilling(updating, true);
+    expect(decision.bill).toBe(true);
+    expect(decision.reason).toContain('UPDATING');
+  });
+
+  it('a deployment that FAILS before ever becoming billable is NOT billed', () => {
+    // Never reached HEALTHY/UPDATE_AVAILABLE, so wasBillingPreviously is false.
+    const decision = decideBilling(failed, false);
+    expect(decision.bill).toBe(false);
   });
 
   it('releases do not re-bill: HEALTHY stays HEALTHY through DEPLOY_RELEASE', () => {
     // A DEPLOY_RELEASE transitions HEALTHY → UPDATING → HEALTHY.
-    // The deployment was already HEALTHY before the release and is HEALTHY after.
-    // The intermediate UPDATING state is transient — billing continues.
-    const decision = decideBilling(healthy, 'HEALTHY');
+    // The deployment was already billing before the release and still is after.
+    const decision = decideBilling(healthy, true);
     expect(decision.bill).toBe(true);
     expect(decision.reason).toContain('already billing');
   });
 
   it('new deployment becoming HEALTHY: bill=true (new billing cycle)', () => {
-    const decision = decideBilling(healthy, 'INSTALLING');
+    const decision = decideBilling(healthy, false);
     expect(decision.bill).toBe(true);
     expect(decision.reason).toContain('HEALTHY');
   });
 
   it('INSTALLING deployment: not billable', () => {
-    const decision = decideBilling(installing, null);
+    const decision = decideBilling(installing, false);
     expect(decision.bill).toBe(false);
     expect(decision.reason).toContain('not billable');
   });
 
-  it('HEALTHY → FAILED: billing stops (no re-bill on failure)', () => {
-    // The deployment was HEALTHY and being billed. It fails. Billing stops.
-    const decision = decideBilling(failed, 'HEALTHY');
-    expect(decision.bill).toBe(false);
+  it('HEALTHY → FAILED: billing continues (temporary failed update, §48)', () => {
+    // The deployment was HEALTHY and being billed. It fails transiently.
+    // Billing does NOT stop.
+    const decision = decideBilling(failed, true);
+    expect(decision.bill).toBe(true);
     expect(decision.reason).toContain('FAILED');
   });
 
   it('HEALTHY → DELETING: billing stops (removed on delete)', () => {
-    const decision = decideBilling(deleting, 'HEALTHY');
+    const decision = decideBilling(deleting, true);
     expect(decision.bill).toBe(false);
     expect(decision.reason).toContain('DELETING');
   });
@@ -281,5 +311,22 @@ describe('billing constants', () => {
 
   it('METERED_PRICE_CENTS is 1900 ($19)', () => {
     expect(METERED_PRICE_CENTS).toBe(1900);
+  });
+});
+
+// ── §7 pricing table (base $49 + $19 × active production deployments) ──────
+
+describe('§7 pricing table — base + $19 × active deployments', () => {
+  // The exact examples table from §7 of the project brief.
+  it.each([
+    [0, 4900], // base only: $49
+    [1, 6800], // $68
+    [3, 10600], // $106
+    [5, 14400], // $144
+    [10, 23900], // $239
+    [25, 52400], // $524
+    [50, 99900], // $999
+  ])('%i active deployments -> %i cents', (deploymentCount, expectedCents) => {
+    expect(BASE_PRICE_CENTS + deploymentCount * METERED_PRICE_CENTS).toBe(expectedCents);
   });
 });

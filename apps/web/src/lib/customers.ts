@@ -1,13 +1,13 @@
-// Customer data access for the customers list page. The customers API
-// endpoint arrives in a later todo; until then fetchCustomers falls back
-// to realistic FIXTURE data on a 404 (same pattern as todos 19/25/26/30).
+// Customer data access for the customers list page. A 404 from the API now
+// means the caller's organization genuinely has no such resource — it is
+// surfaced, never swallowed into look-alike placeholder data.
 
 import { cookies } from 'next/headers';
 
 // Server-side data access: the API URL is the server env (not the public
 // one), and the incoming request's session cookie is forwarded so the
 // auth-gated endpoint resolves the caller's organization.
-const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
+const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export interface Customer {
   id: string;
@@ -29,43 +29,11 @@ async function getJson<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-function isNotFound(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('(404)');
-}
-
 export async function fetchCustomers(): Promise<Customer[]> {
-  try {
-    const body = await getJson<{ customers?: Customer[] }>('/api/customers');
-    return body.customers ?? [];
-  } catch (error) {
-    if (isNotFound(error)) return FIXTURE_CUSTOMERS;
-    throw error;
-  }
+  const body = await getJson<{ customers?: Customer[] }>('/api/customers');
+  return body.customers ?? [];
 }
 
-export const FIXTURE_CUSTOMERS: Customer[] = [
-  {
-    id: 'customer-acme',
-    name: 'Alice Chen',
-    email: 'alice@acme.com',
-    company: 'Acme Corp',
-    createdAt: '2026-08-01T10:00:00.000Z',
-  },
-  {
-    id: 'customer-northwind',
-    name: 'Bob Smith',
-    email: 'bob@northwind.com',
-    company: 'Northwind Retail',
-    createdAt: '2026-08-05T14:30:00.000Z',
-  },
-  {
-    id: 'customer-globex',
-    name: 'Carol Jones',
-    email: 'carol@globex.com',
-    company: 'Globex Inc',
-    createdAt: '2026-08-10T09:15:00.000Z',
-  },
-];
 
 export function formatDate(iso: string): string {
   const date = new Date(iso);

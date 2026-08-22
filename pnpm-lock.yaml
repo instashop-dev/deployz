@@ -44,6 +44,9 @@ importers:
       '@aws-sdk/client-sqs':
         specifier: ^3.1115.0
         version: 3.1115.0
+      '@deployz/analysis':
+        specifier: workspace:*
+        version: link:../../packages/analysis
       '@deployz/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -137,6 +140,12 @@ importers:
         specifier: ^19.0.0
         version: 19.2.4(@types/react@19.2.18)
 
+  packages/analysis:
+    devDependencies:
+      '@deployz/db':
+        specifier: workspace:*
+        version: link:../db
+
   packages/cdk:
     dependencies:
       '@ai-sdk/openai-compatible':
@@ -175,6 +184,9 @@ importers:
       '@aws-sdk/client-sts':
         specifier: ^3.1115.0
         version: 3.1115.0
+      '@deployz/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       '@deployz/api':
         specifier: workspace:*
         version: link:../../apps/api

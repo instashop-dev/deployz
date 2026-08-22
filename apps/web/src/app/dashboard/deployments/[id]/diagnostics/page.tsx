@@ -92,7 +92,9 @@ function DiagnosticsBody({
     <>
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Diagnostics</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{detail.name}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {detail.applicationName} · {detail.customerName}
+        </p>
       </div>
 
       {diagnostics.length === 0 ? (

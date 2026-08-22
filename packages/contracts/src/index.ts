@@ -195,6 +195,8 @@ export const applicationSchema = z.object({
   defaultBranch: z.string(),
   containerPort: z.number().int().nullable(),
   healthPath: z.string().nullable(),
+  // §35 vendor-default migration command; releases.migrationCommand overrides.
+  migrationCommand: z.string().nullable(),
   workerCommand: z.string().nullable(),
   databaseRequired: z.boolean(),
   storageRequired: z.boolean(),

@@ -8,10 +8,23 @@
  *   → (§60 infra-version upgrade) → (health observation)
  *   → HEALTHY / UPDATE_AVAILABLE / FAILED
  *
+ * §46/§48: any failure ONCE the deployment has moved to UPDATING transitions
+ * it to FAILED (with a §62 event) before rethrowing — it must never be
+ * stranded in UPDATING. A failure BEFORE that transition (i.e. the preflight
+ * gate itself) leaves the deployment exactly where it was (HEALTHY).
+ *
  * The workflow is defined as an async generator yielding WorkflowStep
  * descriptors, executed by the U1 DurableRuntime (todo 7). Every step emits a
  * §62-complete event via the injectable EventEmitter (same pattern as the
  * INSTALL workflow, todo 13).
+ *
+ * §30: the preflight gate runs the FULL engine (`runFullPreflight`), not the
+ * minimal region+SCP subset — port/health-endpoint/secrets/migration/
+ * env-vars/quota/image-health/AWS-usability/permission all gate the deploy.
+ * The deployment is already HEALTHY (relay already connected) at this point,
+ * so the relay-contact check is skipped here (`skipRelayContact: true`) —
+ * connectivity is proven separately by the health-report wait later in this
+ * same workflow.
  *
  * Injectable seams (all AWS-backed — PENDING-AWS in this environment; tests
  * inject mocks with zero AWS):
@@ -19,6 +32,9 @@
  *   - EcsUpdater               — updates the service to the immutable image digest
  *   - InfraUpgrader            — relay-driven CFN stack update (runtime-v1 → v2)
  *   - PendingReleaseChecker    — detects a newer release → UPDATE_AVAILABLE
+ *     (item 6: the default seam THROWS — a silent `false` would make the
+ *     UPDATE_AVAILABLE product state permanently unreachable, which is worse
+ *     than a loud error. Callers must inject a real release-table lookup.)
  *
  * The ECS update dispatches the exact immutable `sha256:` digest produced by
  * the build pipeline (todo 16). The migration runs as a one-off task BEFORE
@@ -32,17 +48,18 @@ import {
   type WorkflowStep,
 } from '../durable/durable-runtime.js';
 
-import type { EventActor, EventEmitter } from './event-emitter.js';
+import { actorFromInitiator, type EventEmitter, type WorkflowInitiator } from './event-emitter.js';
 
-import {
-  assertHealthReport,
-  runPreflight,
-  type PreflightCheck,
-} from './preflight.js';
+import { assertHealthReport } from './preflight.js';
+
+import { runFullPreflight, type PreflightEngineDeps } from './preflight-engine.js';
+
+import type { ConfigEntry } from './config-update-workflow.js';
 
 import {
   PreflightError,
   type DeploymentStateStore,
+  type FailedCheck,
 } from './install-workflow.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -64,10 +81,26 @@ export interface DeployReleaseInput {
   readonly imageDigest: string;
   /** §26 migration command carried with the release (null/empty = skip). */
   readonly migrationCommand?: string | undefined;
+  /** True when the release requires a migration (a missing command then fails preflight). */
+  readonly migrationRequired?: boolean | undefined;
   /** §60 infra version being upgraded FROM (e.g. `runtime-v1`). */
   readonly fromInfraVersion?: string | undefined;
   /** §60 infra version being upgraded TO (e.g. `runtime-v2`). */
   readonly toInfraVersion?: string | undefined;
+  /** §62 audit actor — who/what initiated this workflow. Defaults to system. */
+  readonly initiatedBy?: WorkflowInitiator | undefined;
+
+  // ── §30 full-preflight application inputs (all optional; a missing
+  // required value correctly FAILS the corresponding check). ─────────────
+  readonly configEntries?: readonly ConfigEntry[] | undefined;
+  readonly port?: number | undefined;
+  readonly healthPath?: string | undefined;
+  readonly requiredSecrets?: readonly string[] | undefined;
+  readonly configuredSecrets?: readonly string[] | undefined;
+  readonly requiredEnvVars?: readonly string[] | undefined;
+  readonly configuredEnvVars?: readonly string[] | undefined;
+  readonly ecrRepositoryName?: string | undefined;
+  readonly ecrImageTag?: string | undefined;
 }
 
 /** Output from the DEPLOY_RELEASE workflow. */
@@ -121,6 +154,14 @@ export interface PendingReleaseChecker {
   hasPendingRelease(deploymentId: string, appliedReleaseId: string): Promise<boolean>;
 }
 
+/**
+ * Full-preflight engine deps, all OPTIONAL: a caller that doesn't care about
+ * quota/image-health/AWS-usability/permission checks (e.g. most unit tests)
+ * gets safe, AWS-free defaults (see `resolvePreflightDeps` in
+ * install-workflow.ts for the identical convention).
+ */
+export type DeployReleasePreflightDeps = Partial<PreflightEngineDeps>;
+
 /** Dependencies injected into the workflow factory. */
 export interface DeployReleaseWorkflowDeps {
   readonly emitter: EventEmitter;
@@ -129,6 +170,35 @@ export interface DeployReleaseWorkflowDeps {
   readonly ecsUpdater: EcsUpdater;
   readonly infraUpgrader: InfraUpgrader;
   readonly pendingReleaseChecker: PendingReleaseChecker;
+  readonly preflight?: DeployReleasePreflightDeps | undefined;
+}
+
+/** Always-pass stub used when no real quota/image-health checker is injected. */
+const ALWAYS_PASS_QUOTA_CHECKER: PreflightEngineDeps['quotaChecker'] = {
+  async checkQuotas() {
+    return { ok: true };
+  },
+};
+const ALWAYS_PASS_IMAGE_HEALTH_CHECKER: PreflightEngineDeps['imageHealthChecker'] = {
+  async checkHealth(imageDigest) {
+    return { ok: true, digest: imageDigest };
+  },
+};
+
+/** Fill in the optional preflight deps with AWS-free defaults. */
+function resolvePreflightDeps(
+  deps: DeployReleasePreflightDeps | undefined,
+): PreflightEngineDeps {
+  return {
+    quotaChecker: deps?.quotaChecker ?? ALWAYS_PASS_QUOTA_CHECKER,
+    imageHealthChecker: deps?.imageHealthChecker ?? ALWAYS_PASS_IMAGE_HEALTH_CHECKER,
+    allowedConfigKeys: deps?.allowedConfigKeys ?? [],
+    cloudFormationChecker: deps?.cloudFormationChecker,
+    ecsChecker: deps?.ecsChecker,
+    rdsChecker: deps?.rdsChecker,
+    ecrImageChecker: deps?.ecrImageChecker,
+    permissionChecker: deps?.permissionChecker,
+  };
 }
 
 // ── Error ────────────────────────────────────────────────────────────────
@@ -162,10 +232,12 @@ export class DeployReleaseError extends Error {
 export function createDeployReleaseWorkflow(
   deps: DeployReleaseWorkflowDeps,
 ): DurableWorkflow<DeployReleaseInput, DeployReleaseOutput> {
+  const preflightDeps = resolvePreflightDeps(deps.preflight);
+
   return async function* deployReleaseWorkflow(
     input: DeployReleaseInput,
   ): AsyncGenerator<WorkflowStep, DeployReleaseOutput, unknown> {
-    const actor: EventActor = { type: 'system' };
+    const actor = actorFromInitiator(input.initiatedBy);
     const baseEvent = {
       organizationId: input.organizationId,
       customerId: input.customerId,
@@ -174,16 +246,78 @@ export function createDeployReleaseWorkflow(
       releaseId: input.releaseId,
     };
 
+    // §46/§48: once the deployment has moved to UPDATING, ANY step failure
+    // must transition it to FAILED (with a §62 event) before rethrowing — a
+    // failed deploy must never be stranded in UPDATING forever. Wraps every
+    // step from `migration` through `finalize` (i.e. everything after the
+    // preflight gate moves the state to UPDATING).
+    const failDeployment = async (err: unknown): Promise<void> => {
+      const failureCode =
+        err instanceof DeployReleaseError
+          ? err.failureCode
+          : err instanceof PreflightError
+            ? err.check.failureCode
+            : 'UNKNOWN';
+      const reason = err instanceof Error ? err.message : String(err);
+
+      await deps.deploymentStore.set(input.deploymentId, 'FAILED');
+
+      await deps.emitter.emit(actor, {
+        ...baseEvent,
+        eventType: 'deploy.state.failed',
+        previousState: 'UPDATING',
+        requestedState: 'FAILED',
+        result: `failed:${failureCode}`,
+        payload: { reason, imageDigest: input.imageDigest },
+      });
+    };
+
+    function guardedStep(name: string, fn: () => Promise<unknown>): WorkflowStep {
+      return step(name, async () => {
+        try {
+          return await fn();
+        } catch (err) {
+          await failDeployment(err);
+          throw err;
+        }
+      });
+    }
+
     // ── Step 1: Preflight gate ──────────────────────────────────────
-    // Runs the preflight engine (todo 13's preflight.ts). A failed preflight
-    // HALTS the workflow BEFORE any migration / ECS / infra step runs (the
-    // negative test asserts the seams are never called). On success the
-    // deployment transitions HEALTHY → UPDATING.
+    // Runs the FULL §30 engine (item 1) — port/health-endpoint/secrets/
+    // migration/env-vars/quota/image-health/AWS-usability/permission all
+    // gate the deploy, in addition to region+SCP. A failed preflight HALTS
+    // the workflow BEFORE any migration / ECS / infra step runs (the
+    // negative test asserts the seams are never called), and the deployment
+    // stays HEALTHY (it never reached UPDATING, so it does NOT go to
+    // FAILED — that only happens for failures AFTER this gate). On success
+    // the deployment transitions HEALTHY → UPDATING.
     yield step('preflight', async () => {
-      const result = await runPreflight(input.region);
-      const failedCheck = result.checks.find(
-        (c): c is PreflightCheck & { passed: false } => !c.passed,
+      const result = await runFullPreflight(
+        {
+          region: input.region,
+          installationId: input.installationId,
+          // The deployment is already HEALTHY — relay connectivity was
+          // already proven and is re-proven by the health-report wait
+          // later in this workflow, so there's no fresh contact payload
+          // to check here.
+          skipRelayContact: true,
+          configEntries: input.configEntries,
+          migrationCommand: input.migrationCommand,
+          migrationRequired: input.migrationRequired,
+          imageDigest: input.imageDigest,
+          port: input.port,
+          healthPath: input.healthPath,
+          requiredSecrets: input.requiredSecrets,
+          configuredSecrets: input.configuredSecrets,
+          requiredEnvVars: input.requiredEnvVars,
+          configuredEnvVars: input.configuredEnvVars,
+          ecrRepositoryName: input.ecrRepositoryName,
+          ecrImageTag: input.ecrImageTag,
+        },
+        preflightDeps,
       );
+      const failedCheck: FailedCheck | undefined = result.failures[0];
 
       await deps.emitter.emit(actor, {
         ...baseEvent,
@@ -218,7 +352,7 @@ export function createDeployReleaseWorkflow(
     // ── Step 2: Migration one-off (§26) ─────────────────────────────
     // Runs the release's migration command as a one-off task BEFORE the ECS
     // update completes. Skips when no command is carried.
-    yield step('migration', async () => {
+    yield guardedStep('migration', async () => {
       if (!input.migrationCommand) {
         await deps.emitter.emit(actor, {
           ...baseEvent,
@@ -253,7 +387,7 @@ export function createDeployReleaseWorkflow(
 
     // ── Step 3: ECS update ──────────────────────────────────────────
     // Updates the service to the new immutable image digest (todo 16).
-    yield step('ecs-update', async () => {
+    yield guardedStep('ecs-update', async () => {
       const result = await deps.ecsUpdater.updateService(
         input.deploymentId,
         input.imageDigest,
@@ -280,7 +414,7 @@ export function createDeployReleaseWorkflow(
     // ── Step 4: §60 infra-version upgrade ───────────────────────────
     // Relay-driven CFN stack update from runtime-v1 → runtime-v2. Skips when
     // no version delta is requested. Health is verified AFTER this step.
-    yield step('infra-upgrade', async () => {
+    yield guardedStep('infra-upgrade', async () => {
       const from = input.fromInfraVersion;
       const to = input.toInfraVersion;
       if (!from || !to || from === to) {
@@ -327,7 +461,7 @@ export function createDeployReleaseWorkflow(
     );
 
     // ── Step 6: Observe health ──────────────────────────────────────
-    yield step('observe-health', async () => {
+    yield guardedStep('observe-health', async () => {
       const healthCheck = assertHealthReport(healthReport, input.installationId);
 
       await deps.emitter.emit(actor, {
@@ -349,7 +483,7 @@ export function createDeployReleaseWorkflow(
     // After a successful deploy the deployment returns to HEALTHY — unless a
     // newer release is pending (§22), in which case it lands in
     // UPDATE_AVAILABLE. FAILED is reached by throwing from an earlier step.
-    const finalized = (yield step('finalize', async () => {
+    const finalized = (yield guardedStep('finalize', async () => {
       const pending = await deps.pendingReleaseChecker.hasPendingRelease(
         input.deploymentId,
         input.releaseId,
@@ -357,6 +491,16 @@ export function createDeployReleaseWorkflow(
       const state: DeployReleaseFinalStatus = pending ? 'UPDATE_AVAILABLE' : 'HEALTHY';
 
       await deps.deploymentStore.set(input.deploymentId, state);
+
+      // §38: a successful deploy (HEALTHY or UPDATE_AVAILABLE — both mean
+      // the release WAS applied) advances the release pointers: the release
+      // that was current becomes previous, and the just-deployed release
+      // becomes current.
+      const priorPointers = await deps.deploymentStore.getReleasePointers(input.deploymentId);
+      await deps.deploymentStore.setReleasePointers(input.deploymentId, {
+        currentReleaseId: input.releaseId,
+        previousReleaseId: priorPointers.currentReleaseId,
+      });
 
       await deps.emitter.emit(actor, {
         ...baseEvent,
@@ -417,12 +561,23 @@ export function createRealInfraUpgrader(): InfraUpgrader {
   };
 }
 
+/**
+ * §22/§46: "is a newer release pending" is NOT an AWS call — it's a
+ * control-plane database question (does a `releases` row newer than
+ * `appliedReleaseId` exist for this deployment's application?). Item 6: a
+ * silent `false` here would make the UPDATE_AVAILABLE product state
+ * PERMANENTLY unreachable, which is a worse failure mode than a loud error.
+ * So the default seam intentionally THROWS rather than guessing — callers
+ * MUST inject a real checker backed by the releases table.
+ */
 export function createRealPendingReleaseChecker(): PendingReleaseChecker {
   return {
-    async hasPendingRelease() {
-      // ponytail: pending release detection queries the releases DB table.
-      // Until the release pipeline is seeded, always report false.
-      return false;
+    async hasPendingRelease(deploymentId, appliedReleaseId) {
+      throw new Error(
+        'PendingReleaseChecker.hasPendingRelease is not implemented — inject a ' +
+          'releases-table-backed checker (queried by deploymentId + appliedReleaseId). ' +
+          `Called for deploymentId=${deploymentId}, appliedReleaseId=${appliedReleaseId}.`,
+      );
     },
   };
 }

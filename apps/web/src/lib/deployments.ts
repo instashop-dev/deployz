@@ -1,46 +1,72 @@
 import type { DeploymentState } from './deployment-vocabulary';
 
-// Fleet-surface data access. The deployments API endpoint arrives in a later
-// todo; until then these fetchers fall back to realistic FIXTURE data on a 404
-// so the dashboard renders a fleet without a backend. §46 vocabulary only —
-// no raw AWS/CFN/ECS terms at the top level (M14: deployment health only).
+// Fleet-surface data access. Wired to the real `/api/deployments` endpoints.
+// No fixture fallback: a 404/error is a real failure, not a loading state
+// (an empty list is the genuine empty state, handled by the caller). §46
+// vocabulary only — no raw AWS/CFN/ECS terms at the top level (M14:
+// deployment health only).
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 
-/** A deployment row on the fleet dashboard. */
+export type RelayStatus = 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
+
+/**
+ * A deployment row exactly as `GET /api/deployments` returns it: the raw
+ * `deployments` table columns (§38) plus the joined display fields the UI
+ * needs (§23/§24) — customer/application name and current version. The AWS
+ * account id arrives already masked by the API.
+ */
 export interface FleetDeployment {
   id: string;
-  /** Display name (application name). */
-  name: string;
-  /** Customer name. */
-  customer: string;
-  /** §46 product-vocabulary state. */
-  state: DeploymentState;
+  customerId: string;
+  applicationId: string;
+  organizationId: string;
   region: string;
-  installationId: string;
-  infraVersion: string;
-  lastHealthAt: string | null;
-}
-
-/** One deployment-health signal (§28) as rendered on the detail page. */
-export interface DeploymentHealthSignal {
-  key: string;
-  /** §65-friendly label (e.g. "Traffic", "Database"). */
-  label: string;
-  status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
-  /** §65-friendly one-liner. */
-  summary: string;
-  /** Technical values (rendered behind an expandable layer). */
-  detail?: Record<string, unknown>;
-}
-
-/** A deployment detail, incl. health signals + desired/observed state. */
-export interface FleetDeploymentDetail extends FleetDeployment {
+  state: DeploymentState;
+  awsAccountId: string | null;
+  currentReleaseId: string | null;
+  previousReleaseId: string | null;
+  relayStatus: RelayStatus;
+  healthStatus: HealthStatus;
   desiredState: Record<string, unknown>;
   observedState: Record<string, unknown> | null;
-  signals: DeploymentHealthSignal[];
+  infraVersion: string;
+  installationId: string;
+  isTestDeployment: boolean;
+  lastHealthAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+  customerName: string;
+  applicationName: string;
+  /** Current release version, or null if no release has been deployed yet. */
+  version: string | null;
+}
+
+/** A §39 deployment job, as returned in the deployment-detail `jobs` array. */
+export interface DeploymentJob {
+  id: string;
+  deploymentId: string;
+  type: string;
+  state: string;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  requestedBy: string | null;
+  failureCode: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+/** `GET /api/deployments/:id` — the fleet row plus its job history. */
+export interface FleetDeploymentDetail extends FleetDeployment {
+  jobs: DeploymentJob[];
 }
 
 /** A single §40 activity-feed event. */
@@ -67,214 +93,158 @@ async function getJson<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-/** Fetch the fleet's deployments, falling back to fixture data when the endpoint is absent (404). */
+/** Fetch the fleet's deployments (§23). */
 export async function fetchDeployments(): Promise<FleetDeployment[]> {
-  try {
-    const body = await getJson<{ deployments?: FleetDeployment[] }>('/api/deployments');
-    return body.deployments ?? [];
-  } catch (error) {
-    if (isNotFound(error)) return FIXTURE_DEPLOYMENTS;
-    throw error;
-  }
+  const body = await getJson<{ deployments?: FleetDeployment[] }>('/api/deployments');
+  return body.deployments ?? [];
 }
 
-/** Fetch one deployment detail, falling back to fixture data on 404. */
-export async function fetchDeployment(id: string): Promise<FleetDeploymentDetail> {
-  try {
-    return await getJson<FleetDeploymentDetail>(
-      `/api/deployments/${encodeURIComponent(id)}`,
-    );
-  } catch (error) {
-    if (isNotFound(error)) {
-      const fixture = FIXTURE_DETAILS.find((d) => d.id === id);
-      if (fixture) return fixture;
-      throw new Error(`Deployment ${id} not found`);
-    }
-    throw error;
-  }
+/** Fetch one application's deployments (used to check for a test deployment, §25 bulk deploy). */
+export async function fetchDeploymentsForApplication(
+  applicationId: string,
+): Promise<FleetDeployment[]> {
+  const body = await getJson<{ deployments?: FleetDeployment[] }>(
+    `/api/deployments?applicationId=${encodeURIComponent(applicationId)}`,
+  );
+  return body.deployments ?? [];
 }
 
-/** Fetch a deployment's activity feed, falling back to fixture events on 404. */
+/** Fetch one deployment detail (§24). */
+export function fetchDeployment(id: string): Promise<FleetDeploymentDetail> {
+  return getJson<FleetDeploymentDetail>(`/api/deployments/${encodeURIComponent(id)}`);
+}
+
+/** Fetch a deployment's activity feed (§40). */
 export async function fetchDeploymentEvents(id: string): Promise<ActivityEvent[]> {
-  try {
-    const body = await getJson<{ events?: ActivityEvent[] }>(
-      `/api/deployments/${encodeURIComponent(id)}/events`,
-    );
-    return body.events ?? [];
-  } catch (error) {
-    if (isNotFound(error)) return FIXTURE_EVENTS[id] ?? [];
-    throw error;
+  const body = await getJson<{ events?: ActivityEvent[] }>(
+    `/api/deployments/${encodeURIComponent(id)}/events`,
+  );
+  return body.events ?? [];
+}
+
+// ── Action triggers (§24, §25, §27, §63) ────────────────────────────────────
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${apiUrl}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`Deployment action failed (${response.status})`);
   }
+  return (await response.json()) as T;
 }
 
-function isNotFound(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('(404)');
+export interface JobResult {
+  jobId: string;
+  state: string;
 }
 
-// ── Fixture data (§46 vocabulary, no raw AWS terms) ───────────────────────
-
-export const FIXTURE_DEPLOYMENTS: FleetDeployment[] = [
-  {
-    id: 'deployment-acme-analytics',
-    name: 'Acme Analytics',
-    customer: 'Acme Corp',
-    state: 'HEALTHY',
-    region: 'us-east-1',
-    installationId: 'inst-acme-analytics',
-    infraVersion: 'runtime-v1',
-    lastHealthAt: '2026-08-20T12:00:00.000Z',
-  },
-  {
-    id: 'deployment-northwind-shop',
-    name: 'Northwind Shop',
-    customer: 'Northwind Retail',
-    state: 'INSTALLING',
-    region: 'eu-west-1',
-    installationId: 'inst-northwind-shop',
-    infraVersion: 'runtime-v1',
-    lastHealthAt: null,
-  },
-  {
-    id: 'deployment-globex-portal',
-    name: 'Globex Portal',
-    customer: 'Globex Inc',
-    state: 'FAILED',
-    region: 'ap-southeast-1',
-    installationId: 'inst-globex-portal',
-    infraVersion: 'runtime-v1',
-    lastHealthAt: '2026-08-20T08:15:00.000Z',
-  },
-];
-
-function healthySignals(): DeploymentHealthSignal[] {
-  return [
-    { key: 'stack', label: 'Infrastructure', status: 'HEALTHY', summary: 'Infrastructure is up to date.' },
-    { key: 'service', label: 'Service', status: 'HEALTHY', summary: 'All tasks are running.', detail: { runningTasks: 2, desiredTasks: 2 } },
-    { key: 'target-health', label: 'Traffic', status: 'HEALTHY', summary: 'All routes are healthy.', detail: { healthyRoutes: 2, unhealthyRoutes: 0 } },
-    { key: 'rds', label: 'Database', status: 'HEALTHY', summary: 'The database is reachable and backups are enabled.' },
-    { key: 'relay', label: 'Connection', status: 'HEALTHY', summary: 'The helper is connected and checking in.', detail: { lastContactMsAgo: 9000 } },
-    { key: 'http', label: 'App health', status: 'HEALTHY', summary: "The app's health check is passing.", detail: { statusCode: 200 } },
-    { key: 'utilization', label: 'Capacity', status: 'HEALTHY', summary: 'Capacity is within limits.', detail: { cpuPercent: 34, memoryPercent: 51 } },
-    { key: 'consistency', label: 'State', status: 'HEALTHY', summary: 'Reported state matches what we expect.' },
-  ];
+/** §24 "Deploy Update" — POST /api/deployments/:id/deploy. */
+export function deployRelease(deploymentId: string, releaseId: string): Promise<JobResult> {
+  return postJson<JobResult>(`/api/deployments/${encodeURIComponent(deploymentId)}/deploy`, {
+    releaseId,
+  });
 }
 
-export const FIXTURE_DETAILS: FleetDeploymentDetail[] = [
-  {
-    ...FIXTURE_DEPLOYMENTS[0]!,
-    desiredState: { infraVersion: 'runtime-v1', state: 'HEALTHY' },
-    observedState: { infraVersion: 'runtime-v1', state: 'HEALTHY' },
-    signals: healthySignals(),
-  },
-  {
-    ...FIXTURE_DEPLOYMENTS[1]!,
-    desiredState: { infraVersion: 'runtime-v1', state: 'HEALTHY' },
-    observedState: { state: 'INSTALLING' },
-    signals: [
-      { key: 'stack', label: 'Infrastructure', status: 'DEGRADED', summary: 'Infrastructure is still provisioning.' },
-      { key: 'relay', label: 'Connection', status: 'HEALTHY', summary: 'The helper is connected and checking in.', detail: { lastContactMsAgo: 2000 } },
-      { key: 'consistency', label: 'State', status: 'DEGRADED', summary: 'Reported state has drifted from what we expect.' },
-    ],
-  },
-  {
-    ...FIXTURE_DEPLOYMENTS[2]!,
-    desiredState: { infraVersion: 'runtime-v1', state: 'HEALTHY' },
-    observedState: { infraVersion: 'runtime-v1', state: 'FAILED' },
-    signals: [
-      { key: 'stack', label: 'Infrastructure', status: 'UNHEALTHY', summary: 'Infrastructure is in a failed state.' },
-      { key: 'service', label: 'Service', status: 'UNHEALTHY', summary: 'No tasks are running.', detail: { runningTasks: 0, desiredTasks: 2 } },
-      { key: 'http', label: 'App health', status: 'UNHEALTHY', summary: "The app's health check is unreachable.", detail: { statusCode: null } },
-      { key: 'consistency', label: 'State', status: 'DEGRADED', summary: 'Reported state has drifted from what we expect.' },
-    ],
-  },
-];
+/** §24/§27 "Rollback" — POST /api/deployments/:id/rollback. */
+export function rollbackDeployment(deploymentId: string, releaseId: string): Promise<JobResult> {
+  return postJson<JobResult>(`/api/deployments/${encodeURIComponent(deploymentId)}/rollback`, {
+    releaseId,
+  });
+}
 
-export const FIXTURE_EVENTS: Record<string, ActivityEvent[]> = {
-  'deployment-acme-analytics': [
-    {
-      occurredAt: '2026-08-20T09:00:00.000Z',
-      eventType: 'install.state.healthy',
-      actorType: 'system',
-      result: 'ok',
-      previousState: 'INSTALLING',
-      requestedState: 'HEALTHY',
-      payload: { installationId: 'inst-acme-analytics' },
-    },
-    {
-      occurredAt: '2026-08-20T10:30:00.000Z',
-      eventType: 'deploy.preflight',
-      actorType: 'system',
-      result: 'passed',
-      previousState: 'HEALTHY',
-      requestedState: 'UPDATING',
-      payload: { region: 'us-east-1' },
-    },
-    {
-      occurredAt: '2026-08-20T10:31:00.000Z',
-      eventType: 'deploy.state.updating',
-      actorType: 'system',
-      result: 'ok',
-      previousState: 'HEALTHY',
-      requestedState: 'UPDATING',
-      payload: { releaseVersion: 'v1.2.0' },
-    },
-    {
-      occurredAt: '2026-08-20T10:34:00.000Z',
-      eventType: 'deploy.state.healthy',
-      actorType: 'system',
-      result: 'ok',
-      previousState: 'UPDATING',
-      requestedState: 'HEALTHY',
-      payload: { releaseVersion: 'v1.2.0' },
-    },
-    {
-      occurredAt: '2026-08-20T12:00:00.000Z',
-      eventType: 'health.report',
-      actorType: 'relay',
-      result: 'ok',
-      previousState: 'HEALTHY',
-      requestedState: 'HEALTHY',
-      payload: { installationId: 'inst-acme-analytics' },
-    },
-  ],
-  'deployment-northwind-shop': [
-    {
-      occurredAt: '2026-08-20T11:00:00.000Z',
-      eventType: 'install.state.installing',
-      actorType: 'system',
-      result: 'ok',
-      previousState: 'NOT_INSTALLED',
-      requestedState: 'INSTALLING',
-      payload: { installationId: 'inst-northwind-shop' },
-    },
-  ],
-  'deployment-globex-portal': [
-    {
-      occurredAt: '2026-08-20T07:00:00.000Z',
-      eventType: 'install.state.healthy',
-      actorType: 'system',
-      result: 'ok',
-      previousState: 'INSTALLING',
-      requestedState: 'HEALTHY',
-      payload: { installationId: 'inst-globex-portal' },
-    },
-    {
-      occurredAt: '2026-08-20T08:15:00.000Z',
-      eventType: 'deploy.state.updating',
-      actorType: 'system',
-      result: 'ok',
-      previousState: 'HEALTHY',
-      requestedState: 'UPDATING',
-      payload: { releaseVersion: 'v2.0.0' },
-    },
-    {
-      occurredAt: '2026-08-20T08:20:00.000Z',
-      eventType: 'deploy.ecs-update',
-      actorType: 'system',
-      result: 'failed:ECS_DEPLOYMENT_FAILED',
-      previousState: 'UPDATING',
-      requestedState: 'UPDATING',
-      payload: { imageDigest: 'sha256:deadbeef' },
-    },
-  ],
-};
+/** §24/§63 "Disconnect Deployment" — POST /api/deployments/:id/destroy. */
+export function destroyDeployment(
+  deploymentId: string,
+  finalSnapshot?: boolean,
+): Promise<JobResult> {
+  return postJson<JobResult>(`/api/deployments/${encodeURIComponent(deploymentId)}/destroy`, {
+    finalSnapshot: finalSnapshot ?? false,
+  });
+}
+
+export interface BulkDeployResultRow {
+  deploymentId: string;
+  status: 'REQUESTED' | 'ALREADY_REQUESTED' | 'SKIPPED';
+  jobId?: string;
+  reason?: string;
+}
+
+/** §25 bulk deploy — POST /api/applications/:id/deploy-bulk. */
+export function deployBulk(
+  applicationId: string,
+  releaseId: string,
+  deploymentIds?: string[],
+): Promise<{ results: BulkDeployResultRow[] }> {
+  return postJson<{ results: BulkDeployResultRow[] }>(
+    `/api/applications/${encodeURIComponent(applicationId)}/deploy-bulk`,
+    { releaseId, deploymentIds: deploymentIds ?? null },
+  );
+}
+
+/** §25 deployable states — the fleet-view states a release can be rolled out to. */
+export const BULK_DEPLOYABLE_STATES: readonly DeploymentState[] = ['HEALTHY', 'UPDATE_AVAILABLE'];
+
+// ── Create Customer Deployment (§12, §41 screen 12) ─────────────────────────
+
+export interface CreateCustomerInput {
+  name: string;
+  email: string;
+  company?: string | null;
+  externalReference?: string | null;
+}
+
+export interface CustomerRecord {
+  id: string;
+  organizationId: string;
+  name: string;
+  email: string;
+  company: string | null;
+  externalReference: string | null;
+  createdAt: string;
+}
+
+/** §37 create customer — POST /api/customers. */
+export function createCustomerRecord(input: CreateCustomerInput): Promise<CustomerRecord> {
+  return postJson<CustomerRecord>('/api/customers', {
+    name: input.name,
+    email: input.email,
+    company: input.company ?? null,
+    externalReference: input.externalReference ?? null,
+  });
+}
+
+export interface CreateDeploymentInput {
+  applicationId: string;
+  customerId: string;
+  region: string;
+  isTestDeployment?: boolean;
+}
+
+/** The raw `deployments` insert result — no joined display fields (unlike FleetDeployment). */
+export interface DeploymentRecord {
+  id: string;
+  customerId: string;
+  applicationId: string;
+  organizationId: string;
+  region: string;
+  state: DeploymentState;
+  installationId: string;
+  isTestDeployment: boolean;
+  createdAt: string;
+}
+
+/** §12/§38 create deployment — POST /api/deployments. Stays NOT_INSTALLED
+ * until the customer approves the AWS CloudFormation stack and the relay
+ * first registers. */
+export function createDeploymentRecord(input: CreateDeploymentInput): Promise<DeploymentRecord> {
+  return postJson<DeploymentRecord>('/api/deployments', {
+    applicationId: input.applicationId,
+    customerId: input.customerId,
+    region: input.region,
+    isTestDeployment: input.isTestDeployment ?? false,
+  });
+}

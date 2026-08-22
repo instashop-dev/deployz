@@ -247,6 +247,113 @@ describe('DurableRuntime', () => {
     });
   });
 
+  describe('waitForCallback deadline + ttl (§28/§59)', () => {
+    it('sets a callbackDeadline and DynamoDB ttl when suspending', async () => {
+      const before = Date.now();
+      const state = await runtime.start(
+        testWorkflow,
+        { name: 'deadline', value: 1 },
+        'exec-deadline-1',
+      );
+
+      expect(state.status).toBe('WAITING_CALLBACK');
+      expect(state.callbackDeadline).toBeDefined();
+      expect(state.ttl).toBeDefined();
+
+      const deadlineMs = new Date(state.callbackDeadline!).getTime();
+      expect(deadlineMs).toBeGreaterThan(before);
+      // ttl is epoch seconds and should match the deadline (± 1s rounding).
+      expect(Math.abs(state.ttl! - Math.floor(deadlineMs / 1000))).toBeLessThanOrEqual(1);
+    });
+
+    it('honors an explicit timeoutMs passed to waitForCallback', async () => {
+      async function* shortDeadlineWorkflow(): AsyncGenerator<
+        ReturnType<typeof waitForCallback>,
+        string,
+        unknown
+      > {
+        yield waitForCallback('short', 1000);
+        return 'done';
+      }
+
+      const before = Date.now();
+      const state = await runtime.start(shortDeadlineWorkflow, undefined, 'exec-deadline-2');
+
+      const deadlineMs = new Date(state.callbackDeadline!).getTime();
+      expect(deadlineMs).toBeGreaterThanOrEqual(before + 1000);
+      expect(deadlineMs).toBeLessThan(before + 5000);
+    });
+  });
+
+  describe('expireIfStale / expireStaleExecutions (§28/§59)', () => {
+    it('does nothing for an execution that is not WAITING_CALLBACK', async () => {
+      await runtime.start(testWorkflow, { name: 'x', value: 1 }, 'exec-expire-1');
+      await runtime.resume(testWorkflow, 'exec-expire-1', { user: 'alice' });
+
+      const expired = await runtime.expireIfStale('exec-expire-1');
+      expect(expired).toBe(false);
+      expect((await store.get('exec-expire-1'))?.status).toBe('COMPLETED');
+    });
+
+    it('does nothing for a WAITING_CALLBACK execution before its deadline', async () => {
+      await runtime.start(testWorkflow, { name: 'x', value: 1 }, 'exec-expire-2');
+
+      const expired = await runtime.expireIfStale('exec-expire-2');
+      expect(expired).toBe(false);
+      expect((await store.get('exec-expire-2'))?.status).toBe('WAITING_CALLBACK');
+    });
+
+    it('transitions a past-deadline WAITING_CALLBACK execution to FAILED', async () => {
+      async function* shortDeadlineWorkflow(): AsyncGenerator<
+        ReturnType<typeof waitForCallback>,
+        string,
+        unknown
+      > {
+        yield waitForCallback('short', 1000);
+        return 'done';
+      }
+
+      await runtime.start(shortDeadlineWorkflow, undefined, 'exec-expire-3');
+
+      const future = () => new Date(Date.now() + 10 * 60 * 1000);
+      const expired = await runtime.expireIfStale('exec-expire-3', future);
+
+      expect(expired).toBe(true);
+      const stored = await store.get('exec-expire-3');
+      expect(stored?.status).toBe('FAILED');
+      expect(stored?.error).toContain('expired');
+      expect(stored?.error).toContain('short');
+    });
+
+    it('returns false for an unknown execution id', async () => {
+      expect(await runtime.expireIfStale('does-not-exist')).toBe(false);
+    });
+
+    it('sweeps a batch, expiring only the past-deadline ones', async () => {
+      async function* shortDeadlineWorkflow(): AsyncGenerator<
+        ReturnType<typeof waitForCallback>,
+        string,
+        unknown
+      > {
+        yield waitForCallback('short', 1000);
+        return 'done';
+      }
+
+      await runtime.start(shortDeadlineWorkflow, undefined, 'exec-sweep-1');
+      await runtime.start(testWorkflow, { name: 'x', value: 1 }, 'exec-sweep-2'); // 24h default
+
+      const future = () => new Date(Date.now() + 10 * 60 * 1000);
+      const expired = await runtime.expireStaleExecutions(
+        ['exec-sweep-1', 'exec-sweep-2', 'missing'],
+        future,
+      );
+
+      expect(expired).toEqual(['exec-sweep-1']);
+      expect((await store.get('exec-sweep-1'))?.status).toBe('FAILED');
+      expect((await store.get('exec-sweep-2'))?.status).toBe('WAITING_CALLBACK');
+    });
+  });
+
   describe('InMemoryStateStore', () => {
     it('stores and retrieves state', async () => {
       await store.put({

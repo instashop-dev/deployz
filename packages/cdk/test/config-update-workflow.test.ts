@@ -346,4 +346,29 @@ describe('CONFIG_UPDATE workflow', () => {
     expect(harness.eventStore.count).toBe(4);
     expect(harness.write).toHaveBeenCalledTimes(1);
   });
+
+  // ── §62 audit actor (item 9) ───────────────────────────────────────────
+
+  it('attributes every event to the user who initiated it, when supplied', async () => {
+    await seedHealthy(harness.deploymentStore);
+    const input = makeInput({ initiatedBy: { type: 'user', id: 'user-3' } });
+
+    await harness.runtime.start(harness.workflow, input, 'exec-initiator-1');
+
+    expect(harness.eventStore.events.length).toBeGreaterThan(0);
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('user');
+      expect(event.actorId).toBe('user-3');
+    }
+  });
+
+  it('defaults to the system actor when initiatedBy is omitted', async () => {
+    await seedHealthy(harness.deploymentStore);
+
+    await harness.runtime.start(harness.workflow, makeInput(), 'exec-initiator-2');
+
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('system');
+    }
+  });
 });

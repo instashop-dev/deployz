@@ -33,6 +33,11 @@
  * control plane is the source of desired state. This module is pure logic —
  * every check takes plain observed data (no AWS SDK), and every seam in
  * `handleDrift` is injectable, so it is fully testable without credentials.
+ *
+ * `reconcileDeploymentHealth` (item 10a) composes `collectHealthSignals` +
+ * `handleDrift` into the single entry point a scheduled caller invokes once
+ * per deployment per poll — including driving the deployment's product state
+ * to DISCONNECTED on relay silence (§28/§59), which nothing else does.
  */
 
 // ── Signal status + shape ─────────────────────────────────────────────────
@@ -531,4 +536,129 @@ export async function handleDrift(
   });
 
   return { action: 'respawned', newJobId, supersededJobIds };
+}
+
+// ── §28/§59 reconciliation entry point (item 10a) ──────────────────────────
+//
+// `collectHealthSignals` and `handleDrift` above are complete but, on their
+// own, a scheduled caller has to wire signal-collection → aggregate health →
+// relay-silence → drift-detection → drift-handling by hand. This section
+// composes all of that into ONE function so a scheduler only has to invoke
+// `reconcileDeploymentHealth` per deployment per poll.
+//
+// Relay silence → DISCONNECTED (§28/§59): when the relay signal is UNHEALTHY
+// because the relay has been silent for >= RELAY_DISCONNECTED_AFTER_MS, the
+// deployment's product-facing state is driven to DISCONNECTED — this is the
+// ONLY place that transition happens; nothing else in the codebase produces
+// DISCONNECTED.
+
+import { type EventActor, type EventEmitter } from './event-emitter.js';
+
+const SYSTEM_ACTOR: EventActor = { type: 'system' };
+
+/** Injectable seams for the reconciliation entry point. */
+export interface ReconcileDeploymentHealthDeps extends DriftDeps {
+  /** Read the deployment's current product-facing state (§46). */
+  getDeploymentState(deploymentId: string): Promise<string>;
+  /** Transition the deployment's product-facing state (§46). */
+  setDeploymentState(deploymentId: string, state: string): Promise<void>;
+  /**
+   * Optional §62/§47 event emission. When omitted, `reconcileDeploymentHealth`
+   * still performs the state transition + drift handling — it just doesn't
+   * produce an audit trail for them (useful for tests that don't care).
+   */
+  readonly emitter?: EventEmitter | undefined;
+}
+
+/** Input to the reconciliation entry point — one call per deployment per poll. */
+export interface ReconcileDeploymentHealthInput {
+  readonly deploymentId: string;
+  readonly organizationId: string;
+  /** Observed data for the 8 §28 signals (relay poll + AWS-observed state). */
+  readonly healthCheckDeps: HealthCheckDeps;
+  /** §59 desired vs observed state for drift detection. */
+  readonly desiredState: Record<string, unknown>;
+  readonly observedState: Record<string, unknown>;
+  /** The job type to re-spawn if drift exceeds the threshold. */
+  readonly jobType: string;
+  /**
+   * The deployment's aggregate health status BEFORE this poll — when
+   * supplied and different from this poll's result, a `health.degraded` /
+   * `health.unhealthy` / `health.recovered` event is emitted. Optional: a
+   * caller that doesn't track this simply won't get those transition events
+   * (relay-silence → DISCONNECTED is unaffected either way).
+   */
+  readonly previousHealth?: HealthStatus | undefined;
+}
+
+/** What one reconciliation pass did. */
+export interface ReconcileDeploymentHealthResult {
+  readonly signals: readonly HealthSignal[];
+  readonly aggregateHealth: HealthStatus;
+  /** True when relay silence drove the deployment to DISCONNECTED this pass. */
+  readonly disconnected: boolean;
+  readonly drift: DriftHandlingResult;
+}
+
+/**
+ * Compose `collectHealthSignals` + `handleDrift` (and drive DISCONNECTED on
+ * relay silence) into the single entry point a scheduled caller invokes.
+ *
+ * Wiring this to a live scheduler (EventBridge, a cron Lambda, etc.) is out
+ * of scope here — this function is what that scheduler would call once per
+ * deployment per poll.
+ */
+export async function reconcileDeploymentHealth(
+  input: ReconcileDeploymentHealthInput,
+  deps: ReconcileDeploymentHealthDeps,
+): Promise<ReconcileDeploymentHealthResult> {
+  const signals = collectHealthSignals(input.healthCheckDeps);
+  const aggregateHealth = evaluateHealth(signals);
+
+  const relaySignal = signals.find((s) => s.key === 'relay');
+  const relayMsAgo = input.healthCheckDeps.relayLastContactMsAgo;
+  const disconnected =
+    relaySignal?.status === 'UNHEALTHY' &&
+    relayMsAgo !== null &&
+    relayMsAgo >= RELAY_DISCONNECTED_AFTER_MS;
+
+  if (disconnected) {
+    const current = await deps.getDeploymentState(input.deploymentId);
+    if (current !== 'DISCONNECTED') {
+      await deps.setDeploymentState(input.deploymentId, 'DISCONNECTED');
+      await deps.emitter?.emit(SYSTEM_ACTOR, {
+        eventType: 'health.relay.disconnected',
+        organizationId: input.organizationId,
+        deploymentId: input.deploymentId,
+        previousState: current,
+        requestedState: 'DISCONNECTED',
+        result: 'ok',
+        payload: { relayLastContactMsAgo: relayMsAgo },
+      });
+    }
+  } else if (input.previousHealth !== undefined && input.previousHealth !== aggregateHealth) {
+    const eventType =
+      aggregateHealth === 'HEALTHY'
+        ? 'health.recovered'
+        : aggregateHealth === 'DEGRADED'
+          ? 'health.degraded'
+          : 'health.unhealthy';
+    await deps.emitter?.emit(SYSTEM_ACTOR, {
+      eventType,
+      organizationId: input.organizationId,
+      deploymentId: input.deploymentId,
+      previousState: input.previousHealth,
+      requestedState: aggregateHealth,
+      result: 'ok',
+      payload: { signals },
+    });
+  }
+
+  const driftEntries = detectDrift(input.desiredState, input.observedState);
+  const drift = await handleDrift(
+    { deploymentId: input.deploymentId, jobType: input.jobType, entries: driftEntries },
+    deps,
+  );
+
+  return { signals, aggregateHealth, disconnected: Boolean(disconnected), drift };
 }

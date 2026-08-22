@@ -11,15 +11,20 @@ import { errorEnvelopeSchema } from '@deployz/contracts';
 import { buildServer } from './server.js';
 import {
   buildAppJwt,
+  buildFileTreeForAnalysis,
   createAppJwt,
   createGithubStore,
   createInstallationToken,
+  fetchRepositoryTreeEntries,
+  getFileTreeForAnalysis,
+  GITHUB_FIXTURE_FILE_TREES,
   GITHUB_FIXTURE_INSTALLATIONS,
   GITHUB_SCOPED_PERMISSIONS,
   handleInstallationWebhook,
   listInstallations,
   listRepositories,
   mintInstallationToken,
+  parseRepoFullName,
   verifyWebhookSignature,
   type AppJwtSigner,
   type FetchFn,
@@ -42,10 +47,14 @@ function decodeJwtSegment(segment: string): unknown {
   return JSON.parse(Buffer.from(segment, 'base64url').toString('utf8')) as unknown;
 }
 
-function makeFetchResponse(status: number, body: unknown): ReturnType<FetchFn> {
+function makeFetchResponse(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): ReturnType<FetchFn> {
   return Promise.resolve({
     status,
-    headers: { get: () => null },
+    headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
     json: async () => body,
   });
 }
@@ -225,6 +234,200 @@ describe('github — fixture-backed list helpers', () => {
   it('is empty when not in fixture mode and the store is empty', async () => {
     const installations = await listInstallations(createGithubStore(), 'org-1', { fixtureMode: false });
     expect(installations).toEqual([]);
+  });
+});
+
+describe('github — parseRepoFullName', () => {
+  it('splits a well-formed "owner/repo" name', () => {
+    expect(parseRepoFullName('deployz-demo/express-api')).toEqual({
+      owner: 'deployz-demo',
+      repo: 'express-api',
+    });
+  });
+
+  it('rejects a name with no slash', () => {
+    expect(() => parseRepoFullName('express-api')).toThrow(
+      expect.objectContaining({ statusCode: 400, code: 'GITHUB_REPO_FULL_NAME_INVALID' }),
+    );
+  });
+
+  it('rejects a name with more than one slash', () => {
+    expect(() => parseRepoFullName('a/b/c')).toThrow(
+      expect.objectContaining({ statusCode: 400, code: 'GITHUB_REPO_FULL_NAME_INVALID' }),
+    );
+  });
+});
+
+// §18 analysis input: the repository tree fetch. These cases never touch
+// real GitHub — each drives fetchRepositoryTreeEntries /
+// buildFileTreeForAnalysis through the injected FetchFn seam.
+describe('github — repository tree fetch (§18 analysis input)', () => {
+  const REF = { owner: 'acme', repo: 'widgets', branch: 'main' };
+
+  it('fetches the recursive tree listing with the installation token', async () => {
+    let capturedUrl = '';
+    const fetchFn: FetchFn = async (url) => {
+      capturedUrl = url;
+      return makeFetchResponse(200, {
+        tree: [{ path: 'package.json', type: 'blob', sha: 'abc', size: 42 }],
+      });
+    };
+    const entries = await fetchRepositoryTreeEntries(REF, 'tok', fetchFn);
+    expect(capturedUrl).toBe('https://api.github.com/repos/acme/widgets/git/trees/main?recursive=1');
+    expect(entries).toEqual([{ path: 'package.json', type: 'blob', sha: 'abc', size: 42 }]);
+  });
+
+  it('maps a 404 with no "empty" message to GITHUB_REPO_NOT_FOUND', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(404, { message: 'Not Found' });
+    await expect(fetchRepositoryTreeEntries(REF, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'GITHUB_REPO_NOT_FOUND',
+    });
+  });
+
+  it('maps a 404 with an "empty" message to GITHUB_REPO_EMPTY', async () => {
+    const fetchFn: FetchFn = async () =>
+      makeFetchResponse(404, { message: 'Git Repository is empty.' });
+    await expect(fetchRepositoryTreeEntries(REF, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'GITHUB_REPO_EMPTY',
+    });
+  });
+
+  it('maps a 409 to GITHUB_REPO_EMPTY', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(409, { message: 'conflict' });
+    await expect(fetchRepositoryTreeEntries(REF, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'GITHUB_REPO_EMPTY',
+    });
+  });
+
+  it('maps a 429 to GITHUB_RATE_LIMITED', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(429, { message: 'rate limited' });
+    await expect(fetchRepositoryTreeEntries(REF, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 429,
+      code: 'GITHUB_RATE_LIMITED',
+    });
+  });
+
+  it('maps a 403 with x-ratelimit-remaining: 0 to GITHUB_RATE_LIMITED', async () => {
+    const fetchFn: FetchFn = async () =>
+      makeFetchResponse(403, { message: 'forbidden' }, { 'x-ratelimit-remaining': '0' });
+    await expect(fetchRepositoryTreeEntries(REF, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 429,
+      code: 'GITHUB_RATE_LIMITED',
+    });
+  });
+
+  it('maps an unrelated 403 to the generic GITHUB_TREE_FETCH_FAILED', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(403, { message: 'forbidden' });
+    await expect(fetchRepositoryTreeEntries(REF, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 502,
+      code: 'GITHUB_TREE_FETCH_FAILED',
+    });
+  });
+
+  it('builds a FileTree from only the relevant, capped set of files', async () => {
+    const calls: string[] = [];
+    const fetchFn: FetchFn = async (url) => {
+      calls.push(url);
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 100 },
+            { path: 'Dockerfile', type: 'blob', sha: 'sha-docker', size: 50 },
+            { path: 'src/index.ts', type: 'blob', sha: 'sha-src', size: 60 },
+            { path: 'README.md', type: 'blob', sha: 'sha-readme', size: 20 }, // irrelevant extension
+            { path: 'node_modules/x/index.js', type: 'blob', sha: 'sha-nm', size: 10 }, // ignored dir
+            { path: 'src', type: 'tree', sha: 'sha-dir' }, // a directory, not a blob
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      const content = { 'sha-pkg': '{}', 'sha-docker': 'FROM node', 'sha-src': 'export {}' }[sha!];
+      return makeFetchResponse(200, {
+        content: Buffer.from(content ?? '').toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(tree).toEqual({
+      'package.json': '{}',
+      'Dockerfile': 'FROM node',
+      'src/index.ts': 'export {}',
+    });
+    // One tree call + one blob call per relevant file (3) — never touches
+    // README.md, node_modules/**, or the directory entry.
+    expect(calls).toHaveLength(4);
+  });
+
+  it('skips a file whose size exceeds ANALYSIS_MAX_FILE_BYTES', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [{ path: 'package.json', type: 'blob', sha: 'sha-huge', size: 10_000_000 }],
+        });
+      }
+      throw new Error('blob content should never be fetched for an oversized file');
+    };
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+    expect(tree).toEqual({});
+  });
+
+  it('drops a file whose blob content fetch fails rather than failing the whole analysis', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [{ path: 'package.json', type: 'blob', sha: 'sha-x', size: 10 }],
+        });
+      }
+      return makeFetchResponse(500, { message: 'server error' });
+    };
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+    expect(tree).toEqual({});
+  });
+});
+
+describe('github — getFileTreeForAnalysis (fixture + real branching)', () => {
+  it('returns the fixture tree by repoFullName in fixture mode', async () => {
+    const tree = await getFileTreeForAnalysis('deployz-demo/express-api', { fixtureMode: true });
+    expect(tree).toEqual(GITHUB_FIXTURE_FILE_TREES['deployz-demo/express-api']);
+    expect(tree['Dockerfile']).toContain('HEALTHCHECK');
+  });
+
+  it('404s for an unknown repoFullName in fixture mode', async () => {
+    await expect(
+      getFileTreeForAnalysis('nope/nope', { fixtureMode: true }),
+    ).rejects.toMatchObject({ statusCode: 404, code: 'GITHUB_REPO_NOT_FOUND' });
+  });
+
+  it('is GITHUB_DISABLED in real mode when the token/fetchFn/branch are not supplied', async () => {
+    await expect(
+      getFileTreeForAnalysis('acme/widgets', { fixtureMode: false }),
+    ).rejects.toMatchObject({ statusCode: 503, code: 'GITHUB_DISABLED' });
+  });
+
+  it('delegates to buildFileTreeForAnalysis in real mode', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [{ path: 'package.json', type: 'blob', sha: 'sha-x', size: 5 }],
+        });
+      }
+      return makeFetchResponse(200, {
+        content: Buffer.from('{}').toString('base64'),
+        encoding: 'base64',
+      });
+    };
+    const tree = await getFileTreeForAnalysis('acme/widgets', {
+      fixtureMode: false,
+      branch: 'main',
+      installationToken: 'tok',
+      fetchFn,
+    });
+    expect(tree).toEqual({ 'package.json': '{}' });
   });
 });
 

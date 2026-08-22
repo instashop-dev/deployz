@@ -44,8 +44,13 @@ test('authenticated user reaches the dashboard and sees the §43 empty state', a
 
   await page.waitForURL('/dashboard');
   await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'No deployments yet' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Add your first customer' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Learn how it works' })).toBeVisible();
+  // §43 exact copy.
+  await expect(
+    page.getByRole('heading', { name: 'Your app is ready for private deployment' }),
+  ).toBeVisible();
+  await expect(page.getByText('Give your next customer their own AWS deployment.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Create Customer Deployment' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View Test Deployment' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Create Release' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Dashboard' })).toBeVisible();
 });

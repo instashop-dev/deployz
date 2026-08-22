@@ -1,36 +1,47 @@
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   VERDICT_PRESENTATION,
-  type CompatibilityVerdict,
-  type ReadinessExplanation,
-  type ReadinessVerdict,
+  readinessSummaryLabel,
+  type ApplicationReadiness,
 } from '@/lib/readiness';
 import { cn } from '@/lib/utils';
 
-// §19 readiness result — renders the DETERMINISTIC verdict (todo 23) with §65
-// copy. The todo-24 AI explanation renders UNDER the verdict and can never
-// change it (§20): the verdict is never sourced from AI text.
+// §19 readiness result — the DETERMINISTIC verdict, rendered in the exact
+// §19 shape: percentage + "N changes required", then three separately-headed
+// groups (Ready / Needs attention / Unsupported). When analysis hasn't
+// completed yet, this renders the pending state — never a fabricated score.
 
-const TONE_DOT: Record<CompatibilityVerdict, string> = {
-  READY: 'bg-emerald-500',
-  NEEDS_ATTENTION: 'bg-amber-500',
-  NOT_COMPATIBLE: 'bg-destructive',
+const TONE_DOT: Record<'ready' | 'attention' | 'incompatible', string> = {
+  ready: 'bg-emerald-500',
+  attention: 'bg-amber-500',
+  incompatible: 'bg-destructive',
 };
 
-const TONE_HEADING: Record<CompatibilityVerdict, string> = {
-  READY: 'text-emerald-700',
-  NEEDS_ATTENTION: 'text-amber-700',
-  NOT_COMPATIBLE: 'text-destructive',
+const TONE_HEADING: Record<'ready' | 'attention' | 'incompatible', string> = {
+  ready: 'text-emerald-700',
+  attention: 'text-amber-700',
+  incompatible: 'text-destructive',
 };
 
-export function ReadinessResult({
-  readiness,
-  explanation,
-}: {
-  readiness: ReadinessVerdict;
-  explanation: ReadinessExplanation | null;
-}) {
+export function ReadinessResult({ readiness }: { readiness: ApplicationReadiness }) {
+  if (readiness.analysisStatus !== 'COMPLETE' || readiness.verdict === null) {
+    return (
+      <Card data-testid="readiness-verdict">
+        <CardContent className="py-6 text-center">
+          <h3 className="font-heading text-base font-medium">Analysing your app</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            We&apos;re checking your app against the Deployz application contract. This usually
+            takes a minute.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const presentation = VERDICT_PRESENTATION[readiness.verdict];
+  const score = readiness.score ?? 0;
+  const changesRequired = readiness.changesRequired ?? 0;
+
   return (
     <div className="flex flex-col gap-6">
       <Card data-testid="readiness-verdict">
@@ -38,54 +49,78 @@ export function ReadinessResult({
           <div className="flex items-center gap-2.5">
             <span
               aria-hidden
-              className={cn('size-2.5 shrink-0 rounded-full', TONE_DOT[readiness.verdict])}
+              className={cn('size-2.5 shrink-0 rounded-full', TONE_DOT[presentation.tone])}
             />
-            <h3 className={cn('font-heading text-base font-medium', TONE_HEADING[readiness.verdict])}>
+            <h3 className={cn('font-heading text-base font-medium', TONE_HEADING[presentation.tone])}>
               {presentation.heading}
             </h3>
           </div>
+          <p className="text-sm text-muted-foreground" data-testid="readiness-summary">
+            {readinessSummaryLabel(score, changesRequired)}
+          </p>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {readiness.issues.length > 0 ? (
-            <ul className="flex flex-col gap-2" data-testid="readiness-issues">
-              {readiness.issues.map((issue) => (
-                <li key={issue.code} className="flex items-start gap-2.5 text-sm">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'mt-1.5 size-2 shrink-0 rounded-full',
-                      TONE_DOT[readiness.verdict],
-                    )}
-                  />
-                  <span>{issue.message}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">{readiness.reason}</p>
-          )}
+        <CardContent className="flex flex-col gap-6">
+          {readiness.ready.length > 0 ? (
+            <section aria-labelledby="readiness-ready">
+              <h4 id="readiness-ready" className="text-sm font-semibold">
+                Ready
+              </h4>
+              <ul className="mt-2 flex flex-col gap-1.5" data-testid="readiness-ready-list">
+                {readiness.ready.map((check) => (
+                  <li key={check.label} className="flex items-start gap-2 text-sm">
+                    <span aria-hidden className="text-emerald-600">
+                      ✓
+                    </span>
+                    <span>{check.label}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {readiness.needsAttention.length > 0 ? (
+            <section aria-labelledby="readiness-attention">
+              <h4 id="readiness-attention" className="text-sm font-semibold">
+                Needs attention
+              </h4>
+              <ul className="mt-2 flex flex-col gap-4" data-testid="readiness-attention-list">
+                {readiness.needsAttention.map((issue) => (
+                  <li key={issue.title} className="flex flex-col gap-1 text-sm">
+                    <p className="font-medium">{issue.title}</p>
+                    <p className="text-muted-foreground">{issue.detail}</p>
+                    {issue.suggestedFix ? (
+                      <p>
+                        <span className="font-medium">Suggested fix: </span>
+                        {issue.suggestedFix}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {readiness.unsupported.length > 0 ? (
+            <section aria-labelledby="readiness-unsupported">
+              <h4 id="readiness-unsupported" className="text-sm font-semibold">
+                Unsupported
+              </h4>
+              {/* §19 verbatim framing for a fundamental incompatibility. */}
+              <p className="mt-1 text-sm text-muted-foreground">
+                This application isn&apos;t currently compatible with Deployz.
+              </p>
+              <ul className="mt-2 flex flex-col gap-3" data-testid="readiness-unsupported-list">
+                {readiness.unsupported.map((issue) => (
+                  <li key={issue.title} className="flex flex-col gap-1 text-sm">
+                    <p className="font-medium">{issue.title}</p>
+                    <p className="text-muted-foreground">{issue.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </CardContent>
       </Card>
-
-      {explanation ? (
-        <section aria-labelledby="ai-explanation" className="flex flex-col gap-2">
-          <h2 id="ai-explanation" className="text-base font-semibold">
-            What this means
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            The result above comes from our automated checks. The explanation below is written by
-            an AI assistant and can never change the result.
-          </p>
-          <p className="text-sm">{explanation.summary}</p>
-          <p className="text-sm text-muted-foreground">{explanation.why}</p>
-          {explanation.fix ? (
-            <p className="text-sm">
-              <span className="font-medium">Suggested fix: </span>
-              {explanation.fix}
-            </p>
-          ) : null}
-        </section>
-      ) : null}
     </div>
   );
 }

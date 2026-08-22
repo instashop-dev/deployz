@@ -37,8 +37,15 @@ import {
   checkConfigValidity,
   checkMigrationCommand,
   MIGRATION_COMMAND_MAX_LENGTH,
+  type AwsApiCheckResult,
+  type AwsUsabilityChecker,
+  type EcrImageCheckResult,
+  type EcrImageChecker,
   type FailedPreflightCheck,
+  type ImageArchitectureCheckResult,
   type ImageHealthCheckResult,
+  type PermissionCheckResult,
+  type PermissionChecker,
   type PreflightEngineDeps,
   type PreflightInput,
   type PreflightResult,
@@ -107,10 +114,17 @@ describe('§61 failure-code provenance', () => {
     const engineCodes = [
       'REGION_NOT_SUPPORTED',
       'AWS_SCP_BLOCKED',
+      'AWS_PERMISSION_DENIED',
       'QUOTA_EXCEEDED',
       'IMAGE_HEALTH_CHECK_FAILED',
       'MIGRATION_FAILED',
       'RELAY_DISCONNECTED',
+      'STACK_CREATE_FAILED',
+      'CONTAINER_START_FAILED',
+      'DATABASE_CREATE_FAILED',
+      'IMAGE_PULL_FAILED',
+      'UNSUPPORTED_ARCHITECTURE',
+      'MISSING_SECRET',
     ];
     for (const code of engineCodes) {
       expect((failureCodeEnum.enumValues as readonly string[]).includes(code)).toBe(true);
@@ -146,7 +160,26 @@ describe('runFullPreflight — happy path', () => {
       'health-endpoint',
       'secrets',
       'env-vars',
+      'cloudformation-usable',
+      'ecs-usable',
+      'rds-usable',
+      'image-available',
+      'image-architecture',
+      'aws-permission',
     ]);
+    // Checks 12-17 are OPTIONAL AWS seams — makeDeps() injects none of them,
+    // so they must all report as skipped passes, never failures.
+    for (const name of [
+      'cloudformation-usable',
+      'ecs-usable',
+      'rds-usable',
+      'image-available',
+      'image-architecture',
+      'aws-permission',
+    ]) {
+      const check = result.checks.find((c) => c.check === name);
+      expect(check).toEqual({ check: name, passed: true, skipped: true });
+    }
   });
 
   it('calls the quota + image-health seams with the exact inputs', async () => {
@@ -402,6 +435,183 @@ describe('check 7 — relay connected', () => {
 
     expect(result.passed).toBe(false);
     expect(failedCheck(result, 'relay-contact').failureCode).toBe('RELAY_DISCONNECTED');
+  });
+
+  it('skipRelayContact reports a skipped pass regardless of relayContact', async () => {
+    const { deps } = makeDeps();
+    const result = await runFullPreflight(
+      makeInput({ relayContact: undefined, skipRelayContact: true }),
+      deps,
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.checks.find((c) => c.check === 'relay-contact')).toEqual({
+      check: 'relay-contact',
+      passed: true,
+      skipped: true,
+    });
+  });
+});
+
+// ── Checks 12-17: optional AWS-backed seams (items 2/3) ──────────────────
+
+describe('checks 12-17 — optional AWS-backed seams', () => {
+  function passingAwsResult(): AwsApiCheckResult {
+    return { ok: true, detail: 'reachable' };
+  }
+
+  it('cloudformation-usable, ecs-usable, rds-usable pass when their checkers report ok', async () => {
+    const { deps } = makeDeps();
+    const cfnCheck = vi.fn<(region: string) => Promise<AwsApiCheckResult>>().mockResolvedValue(passingAwsResult());
+    const ecsCheck = vi.fn<(region: string) => Promise<AwsApiCheckResult>>().mockResolvedValue(passingAwsResult());
+    const rdsCheck = vi.fn<(region: string) => Promise<AwsApiCheckResult>>().mockResolvedValue(passingAwsResult());
+
+    const result = await runFullPreflight(makeInput(), {
+      ...deps,
+      cloudFormationChecker: { check: cfnCheck },
+      ecsChecker: { check: ecsCheck },
+      rdsChecker: { check: rdsCheck },
+    });
+
+    expect(result.passed).toBe(true);
+    expect(cfnCheck).toHaveBeenCalledWith('us-east-1');
+    expect(ecsCheck).toHaveBeenCalledWith('us-east-1');
+    expect(rdsCheck).toHaveBeenCalledWith('us-east-1');
+    for (const name of ['cloudformation-usable', 'ecs-usable', 'rds-usable']) {
+      expect(result.checks.find((c) => c.check === name)).toEqual({ check: name, passed: true });
+    }
+  });
+
+  it('fails with the injected failure code when an AWS-usability checker reports not-ok', async () => {
+    const { deps } = makeDeps();
+    const cfnCheck: AwsUsabilityChecker = {
+      check: vi.fn().mockResolvedValue({
+        ok: false,
+        failureCode: 'STACK_CREATE_FAILED',
+        reason: 'CloudFormation API is not callable',
+      }),
+    };
+
+    const result = await runFullPreflight(makeInput(), { ...deps, cloudFormationChecker: cfnCheck });
+
+    expect(result.passed).toBe(false);
+    expect(failedCheck(result, 'cloudformation-usable').failureCode).toBe('STACK_CREATE_FAILED');
+  });
+
+  it('image-available + image-architecture are skipped when no checker is injected', async () => {
+    const { deps } = makeDeps();
+    const result = await runFullPreflight(
+      makeInput({ ecrRepositoryName: 'my-app', ecrImageTag: 'v1' }),
+      deps,
+    );
+
+    expect(result.checks.find((c) => c.check === 'image-available')).toEqual({
+      check: 'image-available',
+      passed: true,
+      skipped: true,
+    });
+    expect(result.checks.find((c) => c.check === 'image-architecture')).toEqual({
+      check: 'image-architecture',
+      passed: true,
+      skipped: true,
+    });
+  });
+
+  it('image-available + image-architecture are skipped when a checker is injected but no repo/tag given', async () => {
+    const { deps } = makeDeps();
+    const checkAvailable = vi.fn<() => Promise<EcrImageCheckResult>>();
+    const checkArchitecture = vi.fn<() => Promise<ImageArchitectureCheckResult>>();
+    const ecrImageChecker: EcrImageChecker = { checkAvailable, checkArchitecture };
+
+    const result = await runFullPreflight(makeInput(), { ...deps, ecrImageChecker });
+
+    expect(result.checks.find((c) => c.check === 'image-available')?.['skipped']).toBe(true);
+    expect(checkAvailable).not.toHaveBeenCalled();
+    expect(checkArchitecture).not.toHaveBeenCalled();
+  });
+
+  it('calls the ECR image checker with the exact repo/tag/region when both are provided', async () => {
+    const { deps } = makeDeps();
+    const checkAvailable = vi
+      .fn<() => Promise<EcrImageCheckResult>>()
+      .mockResolvedValue({ ok: true, detail: 'found' });
+    const checkArchitecture = vi
+      .fn<() => Promise<ImageArchitectureCheckResult>>()
+      .mockResolvedValue({ ok: true, detail: 'x86-64' });
+
+    const result = await runFullPreflight(
+      makeInput({ ecrRepositoryName: 'my-app', ecrImageTag: 'v1' }),
+      { ...deps, ecrImageChecker: { checkAvailable, checkArchitecture } },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(checkAvailable).toHaveBeenCalledWith('us-east-1', 'my-app', 'v1');
+    expect(checkArchitecture).toHaveBeenCalledWith('us-east-1', 'my-app', 'v1');
+  });
+
+  it('fails with IMAGE_PULL_FAILED / UNSUPPORTED_ARCHITECTURE when the ECR checker reports not-ok', async () => {
+    const { deps } = makeDeps();
+    const checkAvailable = vi.fn<() => Promise<EcrImageCheckResult>>().mockResolvedValue({
+      ok: false,
+      failureCode: 'IMAGE_PULL_FAILED',
+      reason: 'not found in ECR',
+    });
+    const checkArchitecture = vi.fn<() => Promise<ImageArchitectureCheckResult>>().mockResolvedValue({
+      ok: false,
+      failureCode: 'UNSUPPORTED_ARCHITECTURE',
+      reason: 'arm64 not supported',
+    });
+
+    const result = await runFullPreflight(
+      makeInput({ ecrRepositoryName: 'my-app', ecrImageTag: 'v1' }),
+      { ...deps, ecrImageChecker: { checkAvailable, checkArchitecture } },
+    );
+
+    expect(result.passed).toBe(false);
+    expect(failedCheck(result, 'image-available').failureCode).toBe('IMAGE_PULL_FAILED');
+    expect(failedCheck(result, 'image-architecture').failureCode).toBe('UNSUPPORTED_ARCHITECTURE');
+  });
+
+  it('aws-permission is skipped when no permission checker is injected', async () => {
+    const { deps } = makeDeps();
+    const result = await runFullPreflight(makeInput(), deps);
+    expect(result.checks.find((c) => c.check === 'aws-permission')).toEqual({
+      check: 'aws-permission',
+      passed: true,
+      skipped: true,
+    });
+  });
+
+  it('fails with AWS_PERMISSION_DENIED when the permission checker reports not-ok (item 3)', async () => {
+    const { deps } = makeDeps();
+    const checkPermission = vi
+      .fn<(region: string) => Promise<PermissionCheckResult>>()
+      .mockResolvedValue({
+        ok: false,
+        failureCode: 'AWS_PERMISSION_DENIED',
+        reason: 'missing cloudformation:CreateStack',
+      });
+    const permissionChecker: PermissionChecker = { checkPermission };
+
+    const result = await runFullPreflight(makeInput(), { ...deps, permissionChecker });
+
+    expect(result.passed).toBe(false);
+    expect(checkPermission).toHaveBeenCalledWith('us-east-1');
+    expect(failedCheck(result, 'aws-permission').failureCode).toBe('AWS_PERMISSION_DENIED');
+  });
+
+  it('passes when the permission checker reports ok', async () => {
+    const { deps } = makeDeps();
+    const permissionChecker: PermissionChecker = {
+      checkPermission: vi.fn().mockResolvedValue({ ok: true, detail: 'allowed' }),
+    };
+
+    const result = await runFullPreflight(makeInput(), { ...deps, permissionChecker });
+
+    expect(result.checks.find((c) => c.check === 'aws-permission')).toEqual({
+      check: 'aws-permission',
+      passed: true,
+    });
   });
 });
 

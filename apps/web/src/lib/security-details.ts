@@ -83,3 +83,69 @@ export const DENIED_LOG_READ_ACTIONS = [
   'logs:GetLogEvents',
   'logs:FilterLogEvents',
 ] as const;
+
+/**
+ * §45 "exact AWS resources created" — distinct from the IAM action lists
+ * above. These are the actual resources the bootstrap + application stacks
+ * provision inside the customer account.
+ */
+export const AWS_RESOURCES_CREATED = [
+  'A dedicated VPC and networking (subnets, an internet gateway, route tables)',
+  'An Application Load Balancer with an HTTPS listener',
+  'An ECS/Fargate service running the application container',
+  'An RDS PostgreSQL database (when the application requires one)',
+  'An S3 bucket (when the application requires file storage)',
+  'A Secrets Manager secret for the relay’s own credentials, plus one per configured application secret',
+  'CloudWatch log groups and alarms for the application and the relay',
+  'The Deployz relay (an EventBridge schedule + Lambda function)',
+  'A dedicated IAM execution role for the relay, bounded by the permissions boundary described below',
+] as const;
+
+/**
+ * §16/§45 "data sent to Deployz" — operational metadata only. Mirrors §16's
+ * list verbatim.
+ */
+export const DATA_SENT_TO_DEPLOYZ = [
+  'Installation ID',
+  'AWS account ID',
+  'AWS region',
+  'Release version',
+  'Deployment state',
+  'Infrastructure status',
+  'Resource identifiers',
+  'Deployment timestamps',
+  'Health state',
+  'Structured AWS deployment errors',
+] as const;
+
+/**
+ * §16/§45 "data NOT sent to Deployz" — everything customer-owned stays in the
+ * customer's AWS account. Mirrors §16's list verbatim, plus the explicit
+ * raw-logs guarantee.
+ */
+export const DATA_NOT_SENT_TO_DEPLOYZ = [
+  'Your application runtime and its in-memory data',
+  'Your PostgreSQL data',
+  'Your S3 data',
+  'Your application secrets',
+  'Your application CloudWatch logs',
+] as const;
+
+export const RAW_LOGS_GUARANTEE =
+  'Deployz does not automatically copy your raw application logs outside your AWS account.';
+
+/** §45 "how to revoke Deployz". */
+export const REVOKE_STEPS = [
+  'Delete the deployz-bootstrap CloudFormation stack from your AWS account (or delete the relay’s IAM role directly).',
+  'The relay immediately loses the ability to call out to Deployz — there is no inbound path for Deployz to re-establish contact.',
+  'Deployz marks the deployment Disconnected once it stops hearing from the relay, and it stops being billed.',
+] as const;
+
+/** §45 "how deletion works" — mirrors §63's distinctions. */
+export const DELETION_STEPS = [
+  'From the Deployz dashboard, the vendor requests "Disconnect Deployment" for your installation.',
+  'Deployz instructs the relay to remove the application, database, storage, and networking it created — only resources tagged with your installation ID.',
+  'Your AWS-native RDS backups follow your account’s own backup/retention settings and are not deleted by Deployz unless you request a final snapshot.',
+  'The bootstrap stack and relay role are yours to remove at any time (see "How to revoke Deployz" above) — Deployz does not remove them for you.',
+  'Deployz’s own operational metadata for the deployment (§16: IDs, state, timestamps — never your application data) is retained for your records and billing history.',
+] as const;

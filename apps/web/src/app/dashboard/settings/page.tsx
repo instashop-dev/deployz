@@ -1,18 +1,16 @@
-import { Building2, CreditCard, Trash2 } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import {
-  PLAN_LABELS,
-  STRIPE_STATUS_LABELS,
-  fetchOrganization,
-} from '@/lib/organization';
+import { OrganizationForm } from '@/components/organization-form';
+import { PLAN_LABELS, fetchOrganization } from '@/lib/organization';
 
+// §41 screen 18 organization settings. The update form now actually submits
+// (PATCH /api/organization). There is no organization-deletion endpoint on
+// the API, so — per §63 ("destructive actions should never be hidden behind
+// ambiguous UI") — this screen does not show a Delete Organization button
+// that does nothing. Add one only once the API supports it.
 export default async function SettingsPage() {
   const org = await fetchOrganization();
 
@@ -33,64 +31,23 @@ export default async function SettingsPage() {
           </div>
           <CardDescription>Your organization identity in Deployz.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className="flex flex-col gap-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <MetaRow label="Organization name" value={org.name} />
-            <MetaRow label="Slug" value={org.slug} />
             <MetaRow
               label="Plan"
               value={PLAN_LABELS[org.plan]}
               badge={<Badge variant="secondary">{PLAN_LABELS[org.plan]}</Badge>}
             />
             <MetaRow
-              label="Stripe status"
-              value={STRIPE_STATUS_LABELS[org.stripeStatus]}
-              badge={
-                <Badge variant={org.stripeStatus === 'ACTIVE' ? 'default' : 'outline'}>
-                  {STRIPE_STATUS_LABELS[org.stripeStatus]}
-                </Badge>
-              }
+              label="Created"
+              value={new Date(org.createdAt).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
             />
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <CreditCard className="size-5 text-muted-foreground" aria-hidden />
-            <CardTitle>Update Organization</CardTitle>
-          </div>
-          <CardDescription>Change your organization name.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="orgName">Organization name</Label>
-              <Input id="orgName" name="orgName" defaultValue={org.name} required />
-            </div>
-            <div>
-              <Button type="submit">Update Organization</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Separator />
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Trash2 className="size-5 text-destructive" aria-hidden />
-            <CardTitle className="text-destructive">Danger zone</CardTitle>
-          </div>
-          <CardDescription>
-            Deleting your organization removes all deployments, customers, and billing data. This
-            action cannot be undone.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="destructive">Delete Organization</Button>
+          <OrganizationForm organization={org} />
         </CardContent>
       </Card>
     </div>

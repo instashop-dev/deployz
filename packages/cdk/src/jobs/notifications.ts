@@ -5,19 +5,44 @@
  * It does NOT modify workflow state — it maps events to notifications and
  * dispatches them through injectable seams (NotificationStore + EmailSender).
  *
- * Event set (§47):
- *   install.completed / install.failed
- *   deploy.completed / deploy.failed
- *   rollback.completed / rollback.failed
- *   destroy.initiated / destroy.completed / destroy.failed
- *   health.degraded / health.unhealthy / health.recovered
- *   billing.subscription.active / billing.subscription.past_due / billing.subscription.canceled
+ * §47's eight ESSENTIAL notifications (docs/project-brief.md §47):
+ *   installation completed / installation failed
+ *   update completed / update failed
+ *   deployment unhealthy
+ *   relay disconnected
+ *   rollback completed
+ *   AWS permission issue
+ *
+ * `NOTIFICATION_EVENT_TYPES` below is a SUPERSET of those eight — it adds a
+ * few more product-useful notifications (destroy lifecycle, health.degraded/
+ * recovered, billing) that aren't in the essential list but are reasonable
+ * to also support. Item 7 fix: `health.relay.disconnected` and
+ * `health.aws_permission_issue` are the two §47 types that previously had NO
+ * representation at all (named under the `health.*` §40 family rather than
+ * standalone `relay.*`/`aws.*` types — see the inline comments below).
+ *
+ * Item 7 fix — vocabulary mismatch: the workflows (install/deploy/rollback/
+ * destroy-workflow.ts) emit their OWN granular §40/§62 audit vocabulary
+ * (`install.state.healthy`, `deploy.state.failed`, `destroy.complete`, ...) —
+ * that vocabulary is an audit record (§40/§62) and must NOT be renamed to
+ * satisfy notifications. Instead, `mapWorkflowEventToNotification` below is
+ * the ONLY place raw workflow events get translated into the canonical §47
+ * types. `NotificationEngine.processEvent` runs every event through this
+ * mapping before checking whether it's notification-worthy, so a raw
+ * workflow event now actually produces a notification (previously it never
+ * could — none of the raw event type strings appeared in
+ * `NOTIFICATION_EVENT_TYPES` at all). A canonical type given directly (as
+ * many unit tests below do) still works unchanged (identity mapping).
  *
  * S8 guardrail: in-app + email only — no Slack, no webhooks, no SMS.
  *
  * §65 jargon-free copy: templates use no raw AWS/ECS/CFN/IAM terms.
  *
- * Idempotency: the same event+deployment should not generate duplicate notifications.
+ * Idempotency: the same NOTIFICATION (not raw event) + deployment should not
+ * generate duplicate notifications — the idempotency key is keyed on the
+ * canonical notification type, not the raw §62 event type, since several raw
+ * events can map to the same notification (e.g. any of install's preflight
+ * sub-checks failing all map to `install.failed`).
  */
 
 import type { EventRecord } from './event-emitter.js';
@@ -45,6 +70,20 @@ export const NOTIFICATION_EVENT_TYPES = [
   'health.degraded',
   'health.unhealthy',
   'health.recovered',
+  /**
+   * §47 "relay disconnected" — item 7. Named `health.*` (rather than a
+   * standalone `relay.disconnected`) so it stays inside the `health` §40
+   * event family — it's the exact string health-monitor.ts's
+   * `reconcileDeploymentHealth` (item 10a) already emits, so the mapping
+   * below is a plain identity match.
+   */
+  'health.relay.disconnected',
+  /**
+   * §47 "AWS permission issue" — item 7. Named `health.*` for the same
+   * §40-family reason as above — an AWS permission issue is fundamentally a
+   * deployment-health/access-status notification.
+   */
+  'health.aws_permission_issue',
   'billing.subscription.active',
   'billing.subscription.past_due',
   'billing.subscription.canceled',
@@ -72,6 +111,111 @@ export function getNotificationChannels(
  */
 export function isNotificationEvent(eventType: string): eventType is NotificationEventType {
   return (NOTIFICATION_EVENT_TYPES as readonly string[]).includes(eventType);
+}
+
+// ── Raw §62 workflow event → canonical §47 notification (item 7) ──────────
+
+const FAILED_PREFIX = 'failed:';
+
+/** Extract the §61 failure code from a §62 `result` string like `failed:MIGRATION_FAILED`. */
+function extractFailureCode(result: string | null): string | undefined {
+  if (!result || !result.startsWith(FAILED_PREFIX)) return undefined;
+  return result.slice(FAILED_PREFIX.length);
+}
+
+/**
+ * True for any failure result — either `failed:CODE` (install/deploy/
+ * rollback-workflow.ts) or the bare `failed` destroy-workflow.ts uses for
+ * its resource/database/storage/ecr-grant/billing steps (they don't carry a
+ * §61 failure code on the event itself).
+ */
+function isFailedResult(result: string | null): boolean {
+  return result === 'failed' || extractFailureCode(result) !== undefined;
+}
+
+/** §61 failure codes that mean "AWS permission issue" (§47) rather than a generic failure. */
+const PERMISSION_FAILURE_CODES = new Set(['AWS_PERMISSION_DENIED', 'AWS_SCP_BLOCKED']);
+
+/** A raw event type maps to a fixed notification, or conditionally based on its `result`. */
+type WorkflowEventMapping =
+  | NotificationEventType
+  | ((result: string | null) => NotificationEventType | undefined);
+
+/**
+ * Maps the workflows' own raw §40/§62 event vocabulary to the canonical §47
+ * notification it represents. This table — NOT a rename of the workflow
+ * events — is what item 7 fixes: previously none of these raw event type
+ * strings appeared anywhere in `NOTIFICATION_EVENT_TYPES`, so no notification
+ * could ever fire from a real workflow run.
+ */
+const WORKFLOW_EVENT_MAP: Record<string, WorkflowEventMapping> = {
+  // install-workflow.ts
+  'install.state.healthy': 'install.completed',
+  'install.preflight.region': (r) => (extractFailureCode(r) ? 'install.failed' : undefined),
+  'install.preflight.scp': (r) => (extractFailureCode(r) ? 'install.failed' : undefined),
+  'install.preflight.full': (r) => (extractFailureCode(r) ? 'install.failed' : undefined),
+  'install.relay.contact': (r) => (extractFailureCode(r) ? 'install.failed' : undefined),
+  'install.relay.health': (r) => (extractFailureCode(r) ? 'install.failed' : undefined),
+
+  // deploy-release-workflow.ts
+  'deploy.state.healthy': 'deploy.completed',
+  'deploy.state.update-available': 'deploy.completed',
+  'deploy.state.failed': 'deploy.failed',
+  'deploy.preflight': (r) => (extractFailureCode(r) ? 'deploy.failed' : undefined),
+
+  // rollback-workflow.ts
+  'rollback.state.healthy': 'rollback.completed',
+  'rollback.restore': (r) => (extractFailureCode(r) ? 'rollback.failed' : undefined),
+  'rollback.health': (r) => (extractFailureCode(r) ? 'rollback.failed' : undefined),
+
+  // destroy-workflow.ts
+  'destroy.state.deleting': 'destroy.initiated',
+  'destroy.complete': 'destroy.completed',
+  'destroy.complete.degraded': 'destroy.completed',
+  'destroy.resources': (r) => (isFailedResult(r) ? 'destroy.failed' : undefined),
+  'destroy.database': (r) => (isFailedResult(r) ? 'destroy.failed' : undefined),
+  'destroy.storage': (r) => (isFailedResult(r) ? 'destroy.failed' : undefined),
+  'destroy.ecr-grant': (r) => (isFailedResult(r) ? 'destroy.failed' : undefined),
+  'destroy.billing': (r) => (isFailedResult(r) ? 'destroy.failed' : undefined),
+
+  // health-monitor.ts's `reconcileDeploymentHealth` (item 10a) already emits
+  // `health.relay.disconnected` as its raw event, which IS the canonical
+  // notification type — no separate WORKFLOW_EVENT_MAP entry needed, the
+  // identity branch below handles it.
+};
+
+/**
+ * Translate a §62 event record into the canonical §47 notification type it
+ * represents, or `undefined` if it isn't notification-worthy.
+ *
+ * Priority order:
+ *  1. An `AWS_PERMISSION_DENIED` / `AWS_SCP_BLOCKED` failure code ALWAYS maps
+ *     to `health.aws_permission_issue` (§47), regardless of which workflow
+ *     emitted it — this is a distinct, more actionable notification than a
+ *     generic "X failed".
+ *  2. An event type that IS ALREADY a canonical `NotificationEventType`
+ *     passes through unchanged (identity) — callers (and existing tests)
+ *     that construct events with canonical names keep working.
+ *  3. Otherwise, `WORKFLOW_EVENT_MAP` translates the workflow's raw §40/§62
+ *     vocabulary.
+ */
+export function mapWorkflowEventToNotification(
+  event: EventRecord,
+): NotificationEventType | undefined {
+  const failureCode = extractFailureCode(event.result);
+  if (failureCode && PERMISSION_FAILURE_CODES.has(failureCode)) {
+    return 'health.aws_permission_issue';
+  }
+
+  if (isNotificationEvent(event.eventType)) {
+    return event.eventType;
+  }
+
+  const mapped = WORKFLOW_EVENT_MAP[event.eventType];
+  if (typeof mapped === 'function') {
+    return mapped(event.result);
+  }
+  return mapped;
 }
 
 // ── Notification template ─────────────────────────────────────────────────
@@ -134,6 +278,14 @@ const TEMPLATES: Record<NotificationEventType, (ctx: Record<string, unknown>) =>
   'health.recovered': (ctx) => ({
     subject: 'Deployment health recovered',
     body: `Deployment ${ctx['deploymentId'] ?? 'unknown'} has recovered and is healthy again.`,
+  }),
+  'health.relay.disconnected': (ctx) => ({
+    subject: 'Connection lost',
+    body: `We haven't heard from the helper for deployment ${ctx['deploymentId'] ?? 'unknown'} in a while. We'll keep trying to reconnect.`,
+  }),
+  'health.aws_permission_issue': (ctx) => ({
+    subject: 'Account permission issue',
+    body: `We're missing a permission needed to manage deployment ${ctx['deploymentId'] ?? 'unknown'}. Please check your account's access settings.`,
   }),
   'billing.subscription.active': (ctx) => ({
     subject: 'Subscription active',
@@ -295,6 +447,32 @@ export class SesEmailSender implements EmailSender {
   }
 }
 
+// ── Organization contact resolution (item 8) ───────────────────────────────
+
+/**
+ * Injectable seam: resolves the organization's notification contact email.
+ *
+ * PENDING-DB: the real resolver reads the organization's contact email from
+ * the `organizations` table. Item 8: the notification engine used to
+ * synthesize `org-${organizationId}@notifications.deployz.dev`, an address
+ * that resolves nowhere. There is no safe default that invents a real-looking
+ * address, so the default resolver (`NoOrganizationContactStore`) returns
+ * `null` — "no recipient" — rather than guessing; the notification is simply
+ * not emailed (the in-app notification still is) until a real resolver is
+ * injected.
+ */
+export interface OrganizationContactStore {
+  /** Resolves the organization's contact email, or null if unset/unknown. */
+  getContactEmail(organizationId: string): Promise<string | null>;
+}
+
+/** Default seam — no lookup configured. Never synthesizes an address. */
+export class NoOrganizationContactStore implements OrganizationContactStore {
+  async getContactEmail(): Promise<string | null> {
+    return null;
+  }
+}
+
 // ── Notification engine ───────────────────────────────────────────────────
 
 /**
@@ -303,9 +481,10 @@ export class SesEmailSender implements EmailSender {
  * Listens to the §62 event stream and dispatches in-app + email notifications
  * through injectable seams. Does NOT modify workflow state.
  *
- * Idempotency: tracks (eventType, deploymentId) pairs to prevent duplicates.
- * The same event+deployment combination processed twice only generates
- * notifications once.
+ * Idempotency: tracks (notificationType, deploymentId) pairs to prevent
+ * duplicates — keyed on the CANONICAL §47 notification type (item 7), not
+ * the raw §62 event type, since multiple raw events can map to the same
+ * notification.
  */
 export class NotificationEngine {
   private readonly _processed = new Set<string>();
@@ -315,28 +494,32 @@ export class NotificationEngine {
     private readonly emailSender: EmailSender,
     /** Optional clock for deterministic tests. */
     private readonly clock: () => Date = () => new Date(),
+    /** Item 8: organization contact-email lookup. Defaults to "no recipient". */
+    private readonly contactStore: OrganizationContactStore = new NoOrganizationContactStore(),
   ) {}
 
   /**
-   * Process an event from the §62 stream. If the event is notification-worthy,
-   * generates in-app + email notifications. Idempotent: the same event+deployment
-   * only generates notifications once.
+   * Process an event from the §62 stream. If the event maps to a §47
+   * notification (item 7: either directly, or via the raw-workflow-event
+   * mapping table), generates in-app + email notifications. Idempotent: the
+   * same notification+deployment only generates notifications once.
    */
   async processEvent(event: EventRecord): Promise<void> {
-    if (!isNotificationEvent(event.eventType)) {
+    const notificationType = mapWorkflowEventToNotification(event);
+    if (!notificationType) {
       return;
     }
 
-    // Idempotency key: eventType + deploymentId
-    const key = `${event.eventType}:${event.deploymentId ?? 'none'}`;
+    // Idempotency key: canonical notification type + deploymentId
+    const key = `${notificationType}:${event.deploymentId ?? 'none'}`;
     if (this._processed.has(key)) {
       return;
     }
     this._processed.add(key);
 
-    const channels = getNotificationChannels(event.eventType);
+    const channels = getNotificationChannels(notificationType);
     const context = buildTemplateContext(event);
-    const template = getNotificationTemplate(event.eventType, context);
+    const template = getNotificationTemplate(notificationType, context);
 
     const promises: Promise<void>[] = [];
 
@@ -345,18 +528,18 @@ export class NotificationEngine {
         event,
         template,
         this.clock,
+        notificationType,
       );
       promises.push(this.notificationStore.create(notification));
     }
 
     if (channels.includes('email')) {
-      // Email recipient: in production this would be resolved from the
-      // organization's contact email; for now we use a placeholder that
-      // the real resolver will replace.
-      const to = `org-${event.organizationId}@notifications.deployz.dev`;
-      promises.push(
-        sendEmailNotification(to, template, this.emailSender),
-      );
+      const to = await this.contactStore.getContactEmail(event.organizationId);
+      if (to) {
+        promises.push(sendEmailNotification(to, template, this.emailSender));
+      }
+      // else: no resolvable recipient — skip the email rather than invent
+      // an address (item 8). The in-app notification above still fires.
     }
 
     await Promise.all(promises);
@@ -395,18 +578,27 @@ function buildTemplateContext(event: EventRecord): Record<string, unknown> {
 
 /**
  * Create an in-app notification from an event and template.
+ *
+ * `notificationType` — when supplied, overrides `event.eventType` for the
+ * stored `eventType`/`id` fields. The notification engine passes the
+ * CANONICAL §47 type here (see `mapWorkflowEventToNotification`, item 7) so
+ * stored/queryable notifications always use product vocabulary
+ * (`install.completed`) rather than a workflow's raw internal event name
+ * (`install.state.healthy`). Defaults to `event.eventType` for direct callers
+ * that already pass a canonical type.
  */
 export function createInAppNotification(
   event: EventRecord,
   template: NotificationTemplate,
   clock: () => Date = () => new Date(),
+  notificationType: string = event.eventType,
 ): InAppNotification {
-  const id = `notif-${event.occurredAt}-${event.eventType}-${event.deploymentId ?? 'none'}`;
+  const id = `notif-${event.occurredAt}-${notificationType}-${event.deploymentId ?? 'none'}`;
   return {
     id,
     organizationId: event.organizationId,
     deploymentId: event.deploymentId,
-    eventType: event.eventType,
+    eventType: notificationType,
     title: template.subject,
     body: template.body,
     read: false,

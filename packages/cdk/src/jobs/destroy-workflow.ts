@@ -37,7 +37,7 @@ import {
   type WorkflowStep,
 } from '../durable/durable-runtime.js';
 
-import type { EventActor, EventEmitter } from './event-emitter.js';
+import { actorFromInitiator, type EventEmitter, type WorkflowInitiator } from './event-emitter.js';
 
 import {
   type DeploymentStateStore,
@@ -54,6 +54,8 @@ export interface DestroyInput {
   readonly installationId: string;
   /** §64: take a final snapshot of the RDS instance before deleting it. */
   readonly finalSnapshot: boolean;
+  /** §62 audit actor — who/what initiated this workflow. Defaults to system. */
+  readonly initiatedBy?: WorkflowInitiator | undefined;
 }
 
 /** Output from the DESTROY workflow. */
@@ -149,7 +151,7 @@ export function createDestroyWorkflow(
   return async function* destroyWorkflow(
     input: DestroyInput,
   ): AsyncGenerator<WorkflowStep, DestroyOutput, unknown> {
-    const actor: EventActor = { type: 'system' };
+    const actor = actorFromInitiator(input.initiatedBy);
     const baseEvent = {
       organizationId: input.organizationId,
       customerId: input.customerId,

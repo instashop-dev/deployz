@@ -1,11 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { ApplicationStack } from '../src/application/application-stack.js';
+import {
+  ApplicationStack,
+  type ApplicationStackProps,
+} from '../src/application/application-stack.js';
 
-function synth(expressMode = false) {
+function synth(expressMode = false, extraProps: Partial<ApplicationStackProps> = {}) {
   const app = new App();
-  const stack = new ApplicationStack(app, 'ApplicationTest', { expressMode });
+  const stack = new ApplicationStack(app, 'ApplicationTest', {
+    expressMode,
+    // Tests default to the explicit insecure-HTTP opt-in so existing
+    // fixtures don't need a certificate; the opt-in requirement itself is
+    // covered by its own tests below.
+    allowInsecureHttp: true,
+    ...extraProps,
+  });
   const template = Template.fromStack(stack);
   return { app, stack, template };
 }
@@ -199,5 +209,110 @@ describe('ApplicationStack', () => {
   it('matches the committed snapshot (plain Fargate)', () => {
     const { template } = synth(false);
     expect(template.toJSON()).toMatchSnapshot();
+  });
+
+  describe('worker + expressMode validation (§8.1)', () => {
+    it('throws a clear synth-time error when expressMode and workerCommand are both set', () => {
+      const app = new App();
+      expect(
+        () =>
+          new ApplicationStack(app, 'InvalidWorkerExpress', {
+            expressMode: true,
+            workerCommand: 'node worker.js',
+            allowInsecureHttp: true,
+          }),
+      ).toThrow(/workerCommand is not supported when expressMode is true/);
+    });
+
+    it('does not throw when workerCommand is set without expressMode', () => {
+      expect(() => synth(false, { workerCommand: 'node worker.js' })).not.toThrow();
+    });
+
+    it('does not throw when expressMode is set without workerCommand', () => {
+      expect(() => synth(true)).not.toThrow();
+    });
+  });
+
+  describe('HTTPS endpoint contract (§9/§11)', () => {
+    it('throws when no certificateArn and no explicit insecure opt-in', () => {
+      const app = new App();
+      expect(() => new ApplicationStack(app, 'InvalidNoCert', {})).toThrow(
+        /certificateArn is required for a public HTTPS endpoint/,
+      );
+    });
+
+    it('does not throw when allowInsecureHttp is explicitly true', () => {
+      expect(() => synth(false, { allowInsecureHttp: true, certificateArn: undefined })).not.toThrow();
+    });
+
+    it('creates an HTTP:80 listener with no HTTPS listener when allowInsecureHttp is set', () => {
+      const { template } = synth(false);
+      template.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 1);
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
+        Port: 80,
+        Protocol: 'HTTP',
+      });
+    });
+
+    it('creates an HTTPS:443 listener + HTTP:80 redirect when certificateArn is supplied', () => {
+      const { template } = synth(false, {
+        allowInsecureHttp: false,
+        certificateArn:
+          'arn:aws:acm:us-east-1:123456789012:certificate/11111111-1111-1111-1111-111111111111',
+      });
+      template.resourceCountIs('AWS::ElasticLoadBalancingV2::Listener', 2);
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
+        Port: 443,
+        Protocol: 'HTTPS',
+        Certificates: [
+          {
+            CertificateArn:
+              'arn:aws:acm:us-east-1:123456789012:certificate/11111111-1111-1111-1111-111111111111',
+          },
+        ],
+      });
+      // HTTP:80 redirects to HTTPS rather than serving the app directly.
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
+        Port: 80,
+        Protocol: 'HTTP',
+        DefaultActions: [
+          Match.objectLike({
+            Type: 'redirect',
+            RedirectConfig: Match.objectLike({ Protocol: 'HTTPS', Port: '443' }),
+          }),
+        ],
+      });
+    });
+  });
+
+  describe('deployz:installation tag (§15)', () => {
+    it('applies deployz:installation to taggable resources when installationId is supplied', () => {
+      const { template } = synth(false, { installationId: 'inst-abc123' });
+      for (const type of TAGGABLE_TYPES) {
+        const resources = template.findResources(type) as Record<
+          string,
+          { Properties?: Record<string, unknown> }
+        >;
+        for (const [logicalId, resource] of Object.entries(resources)) {
+          const tags = (resource.Properties?.['Tags'] as Array<Record<string, unknown>>) ?? [];
+          const installation = tags.find((t) => t['Key'] === 'deployz:installation');
+          expect(installation?.['Value'], `${type} ${logicalId}`).toBe('inst-abc123');
+        }
+      }
+    });
+
+    it('omits deployz:installation entirely when installationId is not supplied', () => {
+      const { template } = synth(false);
+      for (const type of TAGGABLE_TYPES) {
+        const resources = template.findResources(type) as Record<
+          string,
+          { Properties?: Record<string, unknown> }
+        >;
+        for (const resource of Object.values(resources)) {
+          const tags = (resource.Properties?.['Tags'] as Array<Record<string, unknown>>) ?? [];
+          expect(tags.some((t) => t['Key'] === 'deployz:installation')).toBe(false);
+        }
+      }
+    });
   });
 });

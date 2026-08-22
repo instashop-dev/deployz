@@ -3,8 +3,13 @@ import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+import { ArchitectureDiagram } from '@/components/architecture-diagram';
 import { Button } from '@/components/ui/button';
 import {
+  AWS_RESOURCES_CREATED,
+  DATA_NOT_SENT_TO_DEPLOYZ,
+  DATA_SENT_TO_DEPLOYZ,
+  DELETION_STEPS,
   DENIED_LOG_READ_ACTIONS,
   PASS_ROLE_RESOURCE_ARN,
   PASSED_TO_SERVICE,
@@ -14,8 +19,10 @@ import {
   PHASE_2_CREATE_STACK_ACTIONS,
   PHASE_2_MANAGE_STACK_ACTIONS,
   PHASE_2_PASS_ROLE_ACTION,
+  RAW_LOGS_GUARANTEE,
   REQUEST_TAG_CONDITION,
   RESOURCE_TAG_CONDITION,
+  REVOKE_STEPS,
   TAG_BOUNDARY_KEY,
 } from '@/lib/security-details';
 
@@ -72,6 +79,28 @@ export default async function SecurityDetailsPage({
           expand any section to see them, exactly as they appear in what you deploy.
         </p>
       </div>
+
+      <section aria-labelledby="resources-created" className="flex flex-col gap-3">
+        <h2 id="resources-created" className="text-base font-semibold">
+          Exact AWS resources created
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          This is the complete resource list — not IAM permissions, the actual things provisioned
+          in your account:
+        </p>
+        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
+          {AWS_RESOURCES_CREATED.map((resource) => (
+            <li key={resource}>{resource}</li>
+          ))}
+        </ul>
+      </section>
+
+      <section aria-labelledby="architecture" className="flex flex-col gap-3">
+        <h2 id="architecture" className="text-base font-semibold">
+          How it fits together
+        </h2>
+        <ArchitectureDiagram />
+      </section>
 
       <section aria-labelledby="can-do" className="flex flex-col gap-3">
         <h2 id="can-do" className="text-base font-semibold">
@@ -136,6 +165,55 @@ export default async function SecurityDetailsPage({
           limited to resources carrying your installation&apos;s tag, the ceiling fixed at install
           time caps it forever, and the relay can never read your data back.
         </p>
+      </section>
+
+      <section aria-labelledby="data-sent" className="flex flex-col gap-3">
+        <h2 id="data-sent" className="text-base font-semibold">
+          Data sent to Deployz
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Only operational metadata about the deployment — never your application data:
+        </p>
+        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
+          {DATA_SENT_TO_DEPLOYZ.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </section>
+
+      <section aria-labelledby="data-not-sent" className="flex flex-col gap-3">
+        <h2 id="data-not-sent" className="text-base font-semibold">
+          Data not sent to Deployz
+        </h2>
+        <p className="text-sm text-muted-foreground">These stay inside your AWS account:</p>
+        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
+          {DATA_NOT_SENT_TO_DEPLOYZ.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <p className="text-sm text-muted-foreground">{RAW_LOGS_GUARANTEE}</p>
+      </section>
+
+      <section aria-labelledby="revoke" className="flex flex-col gap-3">
+        <h2 id="revoke" className="text-base font-semibold">
+          How to revoke Deployz
+        </h2>
+        <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+          {REVOKE_STEPS.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      </section>
+
+      <section aria-labelledby="deletion" className="flex flex-col gap-3">
+        <h2 id="deletion" className="text-base font-semibold">
+          How deletion works
+        </h2>
+        <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+          {DELETION_STEPS.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
       </section>
 
       <section aria-labelledby="technical-detail" className="flex flex-col gap-3">

@@ -649,3 +649,32 @@ describe('DESTROY workflow — edge cases', () => {
     expect(complete?.payload.degraded).toBe(true);
   });
 });
+
+// ── §62 audit actor (item 9) ─────────────────────────────────────────────
+
+describe('DESTROY workflow — §62 audit actor', () => {
+  it('attributes every event to the user who initiated it, when supplied', async () => {
+    const harness = makeHarness();
+    await seedHealthy(harness.deploymentStore);
+    const input = makeInput({ initiatedBy: { type: 'user', id: 'user-8' } });
+
+    await runToConfirmationThenResume(harness, input, 'exec-initiator-1');
+
+    expect(harness.eventStore.events.length).toBeGreaterThan(0);
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('user');
+      expect(event.actorId).toBe('user-8');
+    }
+  });
+
+  it('defaults to the system actor when initiatedBy is omitted', async () => {
+    const harness = makeHarness();
+    await seedHealthy(harness.deploymentStore);
+
+    await runToConfirmationThenResume(harness, makeInput(), 'exec-initiator-2');
+
+    for (const event of harness.eventStore.events) {
+      expect(event.actorType).toBe('system');
+    }
+  });
+});

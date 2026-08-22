@@ -1,16 +1,26 @@
 import cors from '@fastify/cors';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
+import { failureCodeSchema, healthStatusSchema } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
-import { createCheckoutSession, createStripe, handleWebhookEvent, constructWebhookEvent } from './billing.js';
+import { createAnalysisRunner, type AnalysisRunner } from './analysis.js';
+import {
+  createCheckoutSession,
+  createStripe,
+  handleWebhookEvent,
+  constructWebhookEvent,
+  isBillable,
+  BASE_PRICE_CENTS,
+  METERED_PRICE_CENTS,
+} from './billing.js';
 import {
   createConfigStore,
   createRelaySecretWriter,
@@ -31,6 +41,7 @@ import {
   type GithubWebhookEvent,
   type ResolveOrganization,
 } from './github.js';
+import { createRelayStore } from './relay-store.js';
 import { createRequireAuth } from './require-auth.js';
 
 export interface ServerDeps {
@@ -41,12 +52,21 @@ export interface ServerDeps {
   // repo/installations routes to the fixture store.
   githubWebhookSecret?: string | undefined;
   githubFixtureMode?: boolean | undefined;
+  // Injectable §18/§19 analysis runner for POST /:id/analyse (real
+  // implementation hits GitHub; tests can supply a fake instead). Defaults
+  // to analysis.ts's createAnalysisRunner wired to env/fixture GitHub deps.
+  analysisRunner?: AnalysisRunner | undefined;
 }
 
+// §48 billing-summary line amounts, in whole dollars. Derived from the
+// canonical cent constants so the summary can never drift from what Stripe
+// is actually charging.
+const BASE_PRICE_DOLLARS = BASE_PRICE_CENTS / 100;
+const METERED_PRICE_DOLLARS = METERED_PRICE_CENTS / 100;
+
 // application/deployment/release ids are uuid-keyed columns. A non-uuid id
-// (e.g. the fixture repo ids the UI uses for the demo) would raise a Postgres
-// "invalid input syntax for type uuid" error and surface as a 500; the UI
-// clients fall back to fixture data on 404, so non-uuid ids map to 404.
+// would raise a Postgres "invalid input syntax for type uuid" error and
+// surface as a 500, so non-uuid ids map to 404 instead.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function requireUuidId(id: string): void {
@@ -55,16 +75,247 @@ function requireUuidId(id: string): void {
   }
 }
 
-// Resolves the organization id from the query string, falling back to the
-// authenticated session's active organization. Client pages do not always know
-// the org id, so the session is the source of truth when it is absent.
-function organizationIdFromRequest(request: {
-  query: unknown;
-  organization?: { id: string } | undefined;
-}): string {
-  const { organizationId } = request.query as { organizationId?: string };
-  return organizationId ?? request.organization?.id ?? '';
+// Resolves the organization id from the AUTHENTICATED SESSION ONLY (§S1: the
+// client can never assert its own org). Earlier this also accepted an
+// `organizationId` query param, which let any signed-in user read another
+// org's data by passing `?organizationId=<other-org>` — that fallback is
+// gone; the session's active organization is the sole source of truth.
+function organizationIdFromRequest(request: { organization?: { id: string } | undefined }): string {
+  return request.organization?.id ?? '';
 }
+
+/** Session org, or 401 when the request has none. Every authed route needs this. */
+function requireSessionOrganizationId(request: { organization?: { id: string } | undefined }): string {
+  const organizationId = organizationIdFromRequest(request);
+  if (!organizationId) {
+    throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
+  }
+  return organizationId;
+}
+
+/**
+ * Resolves the org to write into a create body: always the session org.
+ * Some clients may still send a body `organizationId` (legacy payload
+ * shape) — if they do, and it disagrees with the session, that is either a
+ * bug or an attempted cross-org write, so it is rejected outright rather
+ * than silently overridden.
+ */
+function resolveWriteOrganizationId(
+  request: { organization?: { id: string } | undefined },
+  bodyOrganizationId: string | undefined,
+): string {
+  const organizationId = requireSessionOrganizationId(request);
+  if (bodyOrganizationId !== undefined && bodyOrganizationId !== organizationId) {
+    throw new ApiError(
+      403,
+      'ORGANIZATION_MISMATCH',
+      'organizationId does not match the authenticated session organization',
+    );
+  }
+  return organizationId;
+}
+
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+// ── Ownership-scoped loaders (IDOR guards) ──────────────────────────────────
+//
+// Every :id route below MUST resolve its resource through one of these
+// instead of a bare `where(eq(table.id, id))` lookup — an id-only lookup lets
+// any authenticated user reach any org's rows just by knowing (or guessing)
+// a UUID. On a mismatch these throw NotFoundError (404), not 403: whether the
+// resource exists at all must not leak to a caller who cannot see it.
+
+type ApplicationRow = typeof schema.applications.$inferSelect;
+type DeploymentRow = typeof schema.deployments.$inferSelect;
+
+async function loadOwnedApplication(
+  db: RuntimeDb,
+  id: string,
+  organizationId: string,
+): Promise<ApplicationRow> {
+  requireUuidId(id);
+  const rows = await db
+    .select()
+    .from(schema.applications)
+    .where(and(eq(schema.applications.id, id), eq(schema.applications.organizationId, organizationId)))
+    .limit(1);
+  if (rows.length === 0) {
+    throw new NotFoundError('Application not found');
+  }
+  return rows[0]!;
+}
+
+async function loadOwnedDeployment(
+  db: RuntimeDb,
+  id: string,
+  organizationId: string,
+): Promise<DeploymentRow> {
+  requireUuidId(id);
+  const rows = await db
+    .select()
+    .from(schema.deployments)
+    .where(and(eq(schema.deployments.id, id), eq(schema.deployments.organizationId, organizationId)))
+    .limit(1);
+  if (rows.length === 0) {
+    throw new NotFoundError('Deployment not found');
+  }
+  return rows[0]!;
+}
+
+// §24 AWS accounts are shown, never in full — the control plane still stores
+// the real id, but nothing outside it should ever see more than a hint of it.
+function maskAwsAccountId(awsAccountId: string | null): string | null {
+  if (!awsAccountId) return null;
+  if (awsAccountId.length <= 4) return '•'.repeat(awsAccountId.length);
+  return `${awsAccountId.slice(0, 4)}${'•'.repeat(awsAccountId.length - 4)}`;
+}
+
+// §23/§24 fleet row shape: the raw deployments row plus the display fields
+// the UI needs (customer/application name, current version) that only exist
+// via a join.
+function toFleetRow(row: {
+  deployment: DeploymentRow;
+  customerName: string;
+  applicationName: string;
+  version: string | null;
+}) {
+  return {
+    ...row.deployment,
+    awsAccountId: maskAwsAccountId(row.deployment.awsAccountId),
+    customerName: row.customerName,
+    applicationName: row.applicationName,
+    version: row.version,
+  };
+}
+
+// §39 idempotency: unique-constraint-violation-as-signal. A retry (same
+// derived or client-supplied key) must return the job that already exists,
+// never create a second one and never 500.
+async function createOrReuseJob(
+  db: RuntimeDb,
+  params: {
+    deploymentId: string;
+    type: (typeof schema.deploymentJobs.$inferInsert)['type'];
+    idempotencyKey: string;
+    payload: Record<string, unknown>;
+    requestedBy: string | null;
+  },
+): Promise<{ job: typeof schema.deploymentJobs.$inferSelect; created: boolean }> {
+  const inserted = await db
+    .insert(schema.deploymentJobs)
+    .values({
+      deploymentId: params.deploymentId,
+      type: params.type,
+      state: 'REQUESTED',
+      idempotencyKey: params.idempotencyKey,
+      payload: params.payload,
+      requestedBy: params.requestedBy,
+    })
+    .onConflictDoNothing({ target: schema.deploymentJobs.idempotencyKey })
+    .returning();
+
+  if (inserted.length > 0) {
+    return { job: inserted[0]!, created: true };
+  }
+
+  // Conflict: the idempotency key already exists — return the existing job
+  // (200) rather than manufacturing a duplicate or 500ing on the constraint.
+  const existing = await db
+    .select()
+    .from(schema.deploymentJobs)
+    .where(eq(schema.deploymentJobs.idempotencyKey, params.idempotencyKey))
+    .limit(1);
+  if (existing.length === 0) {
+    // Should be unreachable (we just conflicted on this exact key), but keep
+    // the error path honest rather than asserting.
+    throw new ApiError(500, 'INTERNAL_ERROR', 'Failed to create or locate the job');
+  }
+  return { job: existing[0]!, created: false };
+}
+
+// §19 readiness derivation. The analyser (out of scope here) is expected to
+// persist its findings on `applications.detected_metadata` as:
+//   { checks: { ready: [{label}], needsAttention: [{title,detail,suggestedFix?}], unsupported: [{title,reason}] } }
+// Score is the ratio of satisfied checks (ready / total), never a hardcoded
+// constant. Older/partial rows (compatibilityStatus set, no detectedMetadata
+// checks yet) degrade gracefully into a single derived check bucket.
+interface ReadyCheck {
+  label: string;
+}
+interface AttentionCheck {
+  title: string;
+  detail: string;
+  suggestedFix: string | null;
+}
+interface UnsupportedCheck {
+  title: string;
+  reason: string;
+}
+
+function computeReadiness(app: {
+  analysisStatus: string;
+  compatibilityStatus: string | null;
+  compatibilityReason: string | null;
+  detectedMetadata: Record<string, unknown> | null;
+}): {
+  analysisStatus: string;
+  verdict: string | null;
+  score: number | null;
+  changesRequired: number | null;
+  ready: ReadyCheck[];
+  needsAttention: AttentionCheck[];
+  unsupported: UnsupportedCheck[];
+} {
+  if (app.analysisStatus !== 'COMPLETE') {
+    return {
+      analysisStatus: app.analysisStatus,
+      verdict: null,
+      score: null,
+      changesRequired: null,
+      ready: [],
+      needsAttention: [],
+      unsupported: [],
+    };
+  }
+
+  const rawChecks = app.detectedMetadata?.checks as
+    | { ready?: ReadyCheck[]; needsAttention?: AttentionCheck[]; unsupported?: UnsupportedCheck[] }
+    | undefined;
+
+  const ready = rawChecks?.ready ?? [];
+  const needsAttention =
+    rawChecks?.needsAttention ??
+    (app.compatibilityStatus === 'NEEDS_ATTENTION' && app.compatibilityReason
+      ? [{ title: 'Attention required', detail: app.compatibilityReason, suggestedFix: null }]
+      : []);
+  const unsupported =
+    rawChecks?.unsupported ??
+    (app.compatibilityStatus === 'NOT_COMPATIBLE' && app.compatibilityReason
+      ? [{ title: 'Not compatible', reason: app.compatibilityReason }]
+      : []);
+
+  const total = ready.length + needsAttention.length + unsupported.length;
+  const score =
+    total > 0 ? Math.round((ready.length / total) * 100) : app.compatibilityStatus === 'READY' ? 100 : 0;
+
+  return {
+    analysisStatus: app.analysisStatus,
+    verdict: app.compatibilityStatus ?? 'NEEDS_ATTENTION',
+    score,
+    changesRequired: needsAttention.length,
+    ready,
+    needsAttention,
+    unsupported,
+  };
+}
+
+// §25 "deploy to all compatible customers" — deployable means the fleet
+// member is in a state where a new release can be rolled out. Deployments
+// that are still installing, mid-transition, or gone are skipped rather than
+// silently targeted.
+const BULK_DEPLOYABLE_STATES = new Set<DeploymentRow['state']>(['HEALTHY', 'UPDATE_AVAILABLE']);
 
 // Control-plane surface: /health, /api/me, /api/auth/*.
 // Errors cross the boundary as structured envelopes via toErrorEnvelope;
@@ -74,6 +325,7 @@ export async function buildServer({
   db,
   githubWebhookSecret,
   githubFixtureMode,
+  analysisRunner,
 }: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
@@ -137,6 +389,17 @@ export async function buildServer({
   // created with their GitHub org name as the slug.
   const githubStore = createGithubStore();
   const githubFetch: FetchFn = globalThis.fetch.bind(globalThis);
+  // §18/§19: real GitHub-backed analysis by default; tests inject a fake
+  // via ServerDeps.analysisRunner instead of hitting GitHub.
+  const runAnalysis: AnalysisRunner =
+    analysisRunner ??
+    createAnalysisRunner({
+      db,
+      fetchFn: githubFetch,
+      githubAppId: env.githubAppId,
+      githubAppPrivateKey: env.githubAppPrivateKey,
+      githubFixtureMode: githubFixtureMode ?? env.githubFixtureMode,
+    });
   const resolveGithubOrganization: ResolveOrganization = async (accountLogin) => {
     const rows = await db
       .select({ id: schema.organization.id })
@@ -178,6 +441,74 @@ export async function buildServer({
     organization: request.organization ?? null,
   }));
 
+  // §41 screen 18 organization settings.
+  app.get('/api/organization', { preHandler: requireAuth }, async (request) => {
+    const organizationId = requireSessionOrganizationId(request);
+    const rows = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.id, organizationId))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Organization not found');
+    }
+    const org = rows[0]!;
+    return { id: org.id, name: org.name, plan: org.plan, createdAt: org.createdAt };
+  });
+
+  const patchOrganizationBodySchema = z.object({ name: z.string().min(1) });
+
+  app.patch('/api/organization', { preHandler: requireAuth }, async (request) => {
+    const organizationId = requireSessionOrganizationId(request);
+    const body = patchOrganizationBodySchema.parse(request.body);
+    const [row] = await db
+      .update(schema.organization)
+      .set({ name: body.name })
+      .where(eq(schema.organization.id, organizationId))
+      .returning();
+    if (!row) {
+      throw new NotFoundError('Organization not found');
+    }
+    return { id: row.id, name: row.name, plan: row.plan, createdAt: row.createdAt };
+  });
+
+  // §12/§44 public customer installation page. UNAUTHENTICATED by design —
+  // the customer has no Deployz account. Only non-sensitive display fields:
+  // never AWS account ids, tokens, config values, or internal db ids.
+  app.get('/api/install/:installationId', async (request) => {
+    const { installationId } = request.params as { installationId: string };
+    const rows = await db
+      .select({
+        applicationName: schema.applications.name,
+        publisherName: schema.organization.name,
+        customerName: schema.customers.name,
+        region: schema.deployments.region,
+        databaseRequired: schema.applications.databaseRequired,
+        storageRequired: schema.applications.storageRequired,
+      })
+      .from(schema.deployments)
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .innerJoin(schema.organization, eq(schema.deployments.organizationId, schema.organization.id))
+      .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
+      .where(eq(schema.deployments.installationId, installationId))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Installation not found');
+    }
+    const row = rows[0]!;
+    const resourcesCreated = ['Application runtime'];
+    if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
+    if (row.storageRequired) resourcesCreated.push('Storage');
+    resourcesCreated.push('Networking', 'Monitoring');
+    return {
+      applicationName: row.applicationName,
+      publisherName: row.publisherName,
+      customerName: row.customerName,
+      region: row.region,
+      resourcesCreated,
+    };
+  });
+
   // §31 application configuration surface (auth-gated). Vendor defaults are
   // customer_id NULL rows; customer overrides are scoped by ?customerId.
   // Secrets are write-only: GET masks them (value: null, never plaintext) and
@@ -188,12 +519,16 @@ export async function buildServer({
 
   app.get('/api/applications/:id/config', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedApplication(db, id, organizationId); // 404s on cross-org access
     const { customerId } = request.query as { customerId?: string | undefined };
     return getConfig(id, customerId ?? null, configStore);
   });
 
   app.put('/api/applications/:id/config', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedApplication(db, id, organizationId); // 404s on cross-org access
     const body = setConfigBodySchema.parse(request.body);
     return setConfig(id, body.customerId ?? null, body.entries, {
       store: configStore,
@@ -244,8 +579,11 @@ export async function buildServer({
 
   // ── Request schemas (route boundary validation) ─────────────────────────
 
+  // organizationId is optional and, when present, is validated (not
+  // trusted) against the session — see resolveWriteOrganizationId. It is
+  // NEVER the source of truth for which org a row is written into.
   const createApplicationBodySchema = z.object({
-    organizationId: z.string().min(1),
+    organizationId: z.string().min(1).optional(),
     name: z.string().min(1),
     githubInstallationId: z.string().min(1),
     repoFullName: z.string().min(1),
@@ -259,7 +597,7 @@ export async function buildServer({
   });
 
   const createCustomerBodySchema = z.object({
-    organizationId: z.string().min(1),
+    organizationId: z.string().min(1).optional(),
     name: z.string().min(1),
     email: z.string().email(),
     company: z.string().nullish(),
@@ -269,7 +607,7 @@ export async function buildServer({
   const createDeploymentBodySchema = z.object({
     applicationId: z.string().uuid(),
     customerId: z.string().uuid(),
-    organizationId: z.string().min(1),
+    organizationId: z.string().min(1).optional(),
     region: z.enum([
       'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
       'ca-central-1', 'sa-east-1',
@@ -290,6 +628,11 @@ export async function buildServer({
     releaseId: z.string().uuid(),
   });
 
+  const deployBulkBodySchema = z.object({
+    releaseId: z.string().uuid(),
+    deploymentIds: z.array(z.string().uuid()).nullish(),
+  });
+
   const rollbackBodySchema = z.object({
     releaseId: z.string().uuid(),
   });
@@ -299,7 +642,7 @@ export async function buildServer({
   });
 
   const checkoutBodySchema = z.object({
-    organizationId: z.string().min(1),
+    organizationId: z.string().min(1).optional(),
   });
 
   // ── Applications (§17–§19) ──────────────────────────────────────────────
@@ -307,10 +650,11 @@ export async function buildServer({
   // POST /api/applications — Create application from GitHub repo selection
   app.post('/api/applications', { preHandler: requireAuth }, async (request, reply) => {
     const body = createApplicationBodySchema.parse(request.body);
+    const organizationId = resolveWriteOrganizationId(request, body.organizationId);
     const [row] = await db
       .insert(schema.applications)
       .values({
-        organizationId: body.organizationId,
+        organizationId,
         name: body.name,
         githubInstallationId: body.githubInstallationId,
         repoFullName: body.repoFullName,
@@ -331,10 +675,7 @@ export async function buildServer({
 
   // GET /api/applications — List applications for current org
   app.get('/api/applications', { preHandler: requireAuth }, async (request) => {
-    const organizationId = organizationIdFromRequest(request);
-    if (!organizationId) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
-    }
+    const organizationId = requireSessionOrganizationId(request);
     const rows = await db
       .select()
       .from(schema.applications)
@@ -345,57 +686,35 @@ export async function buildServer({
   // GET /api/applications/:id — Get single application
   app.get('/api/applications/:id', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
-    const rows = await db
-      .select()
-      .from(schema.applications)
-      .where(eq(schema.applications.id, id))
-      .limit(1);
-    if (rows.length === 0) {
-      throw new NotFoundError('Application not found');
-    }
-    return rows[0];
+    const organizationId = requireSessionOrganizationId(request);
+    return loadOwnedApplication(db, id, organizationId);
   });
 
   // POST /api/applications/:id/analyse — Trigger analysis
   app.post('/api/applications/:id/analyse', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
-    const rows = await db
-      .select({ id: schema.applications.id })
-      .from(schema.applications)
-      .where(eq(schema.applications.id, id))
-      .limit(1);
-    if (rows.length === 0) {
-      throw new NotFoundError('Application not found');
-    }
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedApplication(db, id, organizationId);
     await db
       .update(schema.applications)
       .set({ analysisStatus: 'ANALYZING', updatedBy: request.user?.id ?? null })
       .where(eq(schema.applications.id, id));
+    // Fire-and-forget: the 202 below returns immediately; the §18/§19
+    // pipeline runs in the background and persists COMPLETE/FAILED itself
+    // (analysis.ts). runAnalysis already catches every internal failure and
+    // writes FAILED rather than throwing — the `.catch` here is a second,
+    // defense-in-depth net so a rejected promise can never crash the
+    // process or surface as an unhandled rejection.
+    void runAnalysis(id).catch(() => {});
     return reply.code(202).send({ status: 'ANALYZING' });
   });
 
   // GET /api/applications/:id/readiness — Get compatibility result (§19)
   app.get('/api/applications/:id/readiness', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
-    const rows = await db
-      .select()
-      .from(schema.applications)
-      .where(eq(schema.applications.id, id))
-      .limit(1);
-    if (rows.length === 0) {
-      throw new NotFoundError('Application not found');
-    }
-    const app = rows[0]!;
-    return {
-      verdict: app.compatibilityStatus ?? 'READY',
-      score: app.compatibilityStatus === 'READY' ? 100 : app.compatibilityStatus === 'NEEDS_ATTENTION' ? 60 : 0,
-      issues: app.compatibilityReason ? [{ message: app.compatibilityReason }] : [],
-      readyList: app.compatibilityStatus === 'READY' ? ['container', 'port', 'healthcheck'] : [],
-      rejections: app.compatibilityStatus === 'NOT_COMPATIBLE' ? [app.compatibilityReason ?? 'Unknown'] : [],
-    };
+    const organizationId = requireSessionOrganizationId(request);
+    const app = await loadOwnedApplication(db, id, organizationId);
+    return computeReadiness(app);
   });
 
   // ── Customers (§37) ─────────────────────────────────────────────────────
@@ -403,10 +722,11 @@ export async function buildServer({
   // POST /api/customers — Create customer
   app.post('/api/customers', { preHandler: requireAuth }, async (request, reply) => {
     const body = createCustomerBodySchema.parse(request.body);
+    const organizationId = resolveWriteOrganizationId(request, body.organizationId);
     const [row] = await db
       .insert(schema.customers)
       .values({
-        organizationId: body.organizationId,
+        organizationId,
         name: body.name,
         email: body.email,
         company: body.company ?? null,
@@ -418,10 +738,7 @@ export async function buildServer({
 
   // GET /api/customers — List customers for org
   app.get('/api/customers', { preHandler: requireAuth }, async (request) => {
-    const organizationId = organizationIdFromRequest(request);
-    if (!organizationId) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
-    }
+    const organizationId = requireSessionOrganizationId(request);
     const rows = await db
       .select()
       .from(schema.customers)
@@ -431,16 +748,20 @@ export async function buildServer({
 
   // ── Deployments (§12, §23–§24, §38) ────────────────────────────────────
 
-  // POST /api/deployments — Create deployment
+  // POST /api/deployments — Create deployment. Stays NOT_INSTALLED until the
+  // relay first registers (see /api/relay/register, §6/§39) — that is where
+  // the INSTALL job actually gets created, since the deployment record can
+  // legitimately exist before any relay has ever called home.
   app.post('/api/deployments', { preHandler: requireAuth }, async (request, reply) => {
     const body = createDeploymentBodySchema.parse(request.body);
+    const organizationId = resolveWriteOrganizationId(request, body.organizationId);
     const installationId = crypto.randomUUID();
     const [row] = await db
       .insert(schema.deployments)
       .values({
         customerId: body.customerId,
         applicationId: body.applicationId,
-        organizationId: body.organizationId,
+        organizationId,
         region: body.region,
         state: 'NOT_INSTALLED',
         installationId,
@@ -452,16 +773,16 @@ export async function buildServer({
     return reply.code(201).send(row);
   });
 
-  // GET /api/deployments — Fleet dashboard (§23)
+  // GET /api/deployments — Fleet dashboard (§23). Joined with customers +
+  // applications + the current release so the UI gets Customer / Version /
+  // Region / Status (and application name / masked AWS account / created
+  // date for §24) without a second round trip per row.
   app.get('/api/deployments', { preHandler: requireAuth }, async (request) => {
     const { customerId, applicationId } = request.query as {
       customerId?: string;
       applicationId?: string;
     };
-    const organizationId = organizationIdFromRequest(request);
-    if (!organizationId) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
-    }
+    const organizationId = requireSessionOrganizationId(request);
     const conditions = [eq(schema.deployments.organizationId, organizationId)];
     if (customerId) {
       conditions.push(eq(schema.deployments.customerId, customerId));
@@ -470,31 +791,47 @@ export async function buildServer({
       conditions.push(eq(schema.deployments.applicationId, applicationId));
     }
     const rows = await db
-      .select()
+      .select({
+        deployment: schema.deployments,
+        customerName: schema.customers.name,
+        applicationName: schema.applications.name,
+        version: schema.releases.version,
+      })
       .from(schema.deployments)
+      .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .leftJoin(schema.releases, eq(schema.deployments.currentReleaseId, schema.releases.id))
       .where(and(...conditions));
-    return { deployments: rows };
+    return { deployments: rows.map(toFleetRow) };
   });
 
   // GET /api/deployments/:id — Deployment detail (§24)
   app.get('/api/deployments/:id', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
     requireUuidId(id);
     const rows = await db
-      .select()
+      .select({
+        deployment: schema.deployments,
+        customerName: schema.customers.name,
+        applicationName: schema.applications.name,
+        version: schema.releases.version,
+      })
       .from(schema.deployments)
-      .where(eq(schema.deployments.id, id))
+      .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .leftJoin(schema.releases, eq(schema.deployments.currentReleaseId, schema.releases.id))
+      .where(and(eq(schema.deployments.id, id), eq(schema.deployments.organizationId, organizationId)))
       .limit(1);
     if (rows.length === 0) {
       throw new NotFoundError('Deployment not found');
     }
-    const deployment = rows[0];
     const jobs = await db
       .select()
       .from(schema.deploymentJobs)
       .where(eq(schema.deploymentJobs.deploymentId, id))
       .orderBy(schema.deploymentJobs.createdAt);
-    return { ...deployment, jobs };
+    return { ...toFleetRow(rows[0]!), jobs };
   });
 
   // ── Releases (§22) ──────────────────────────────────────────────────────
@@ -502,15 +839,9 @@ export async function buildServer({
   // POST /api/applications/:id/releases — Create release
   app.post('/api/applications/:id/releases', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedApplication(db, id, organizationId);
     const body = createReleaseBodySchema.parse(request.body);
-    const appRows = await db
-      .select({ id: schema.applications.id })
-      .from(schema.applications)
-      .where(eq(schema.applications.id, id))
-      .limit(1);
-    if (appRows.length === 0) {
-      throw new NotFoundError('Application not found');
-    }
     const [row] = await db
       .insert(schema.releases)
       .values({
@@ -530,7 +861,8 @@ export async function buildServer({
   // GET /api/applications/:id/releases — List releases
   app.get('/api/applications/:id/releases', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedApplication(db, id, organizationId);
     const rows = await db
       .select()
       .from(schema.releases)
@@ -548,88 +880,116 @@ export async function buildServer({
 
   // ── Job triggers (§25, §27, §63) ────────────────────────────────────────
 
-  // POST /api/deployments/:id/deploy — Trigger DEPLOY_RELEASE job
+  // POST /api/deployments/:id/deploy — Trigger (or reuse) a DEPLOY_RELEASE job
   app.post('/api/deployments/:id/deploy', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
-    const depRows = await db
-      .select({ id: schema.deployments.id })
-      .from(schema.deployments)
-      .where(eq(schema.deployments.id, id))
-      .limit(1);
-    if (depRows.length === 0) {
-      throw new NotFoundError('Deployment not found');
+    const idempotencyKey =
+      firstHeaderValue(request.headers['idempotency-key']) ??
+      `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'DEPLOY_RELEASE',
+      idempotencyKey,
+      payload: { releaseId: body.releaseId },
+      requestedBy: request.user?.id ?? null,
+    });
+    return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
+  });
+
+  // POST /api/applications/:id/deploy-bulk — §25 "one / selected / all
+  // compatible customers". Fans out into individual per-deployment
+  // DEPLOY_RELEASE jobs via the exact same idempotent path as the
+  // single-deploy route above — never one aggregate job.
+  app.post('/api/applications/:id/deploy-bulk', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedApplication(db, id, organizationId);
+    const body = deployBulkBodySchema.parse(request.body);
+
+    const conditions = [
+      eq(schema.deployments.applicationId, id),
+      eq(schema.deployments.organizationId, organizationId),
+    ];
+    if (body.deploymentIds && body.deploymentIds.length > 0) {
+      conditions.push(inArray(schema.deployments.id, body.deploymentIds));
     }
-    const idempotencyKey = `${id}:DEPLOY_RELEASE:${Date.now()}`;
-    const [job] = await db
-      .insert(schema.deploymentJobs)
-      .values({
-        deploymentId: id,
+    const targets = await db
+      .select()
+      .from(schema.deployments)
+      .where(and(...conditions));
+
+    const results: Array<{
+      deploymentId: string;
+      status: 'REQUESTED' | 'ALREADY_REQUESTED' | 'SKIPPED';
+      jobId?: string;
+      reason?: string;
+    }> = [];
+
+    for (const deployment of targets) {
+      if (!BULK_DEPLOYABLE_STATES.has(deployment.state)) {
+        results.push({
+          deploymentId: deployment.id,
+          status: 'SKIPPED',
+          reason: `Deployment is ${deployment.state}, not deployable`,
+        });
+        continue;
+      }
+      const idempotencyKey = `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+      const { job, created } = await createOrReuseJob(db, {
+        deploymentId: deployment.id,
         type: 'DEPLOY_RELEASE',
-        state: 'REQUESTED',
         idempotencyKey,
         payload: { releaseId: body.releaseId },
         requestedBy: request.user?.id ?? null,
-      })
-      .returning();
-    return reply.code(202).send({ jobId: job!.id, state: 'REQUESTED' });
+      });
+      results.push({
+        deploymentId: deployment.id,
+        status: created ? 'REQUESTED' : 'ALREADY_REQUESTED',
+        jobId: job.id,
+      });
+    }
+
+    return { results };
   });
 
-  // POST /api/deployments/:id/rollback — Trigger ROLLBACK job
+  // POST /api/deployments/:id/rollback — Trigger (or reuse) a ROLLBACK job
   app.post('/api/deployments/:id/rollback', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = rollbackBodySchema.parse(request.body);
-    const depRows = await db
-      .select({ id: schema.deployments.id })
-      .from(schema.deployments)
-      .where(eq(schema.deployments.id, id))
-      .limit(1);
-    if (depRows.length === 0) {
-      throw new NotFoundError('Deployment not found');
-    }
-    const idempotencyKey = `${id}:ROLLBACK:${Date.now()}`;
-    const [job] = await db
-      .insert(schema.deploymentJobs)
-      .values({
-        deploymentId: id,
-        type: 'ROLLBACK',
-        state: 'REQUESTED',
-        idempotencyKey,
-        payload: { releaseId: body.releaseId },
-        requestedBy: request.user?.id ?? null,
-      })
-      .returning();
-    return reply.code(202).send({ jobId: job!.id, state: 'REQUESTED' });
+    const idempotencyKey =
+      firstHeaderValue(request.headers['idempotency-key']) ??
+      `${deployment.id}:ROLLBACK:${body.releaseId}`;
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'ROLLBACK',
+      idempotencyKey,
+      payload: { releaseId: body.releaseId },
+      requestedBy: request.user?.id ?? null,
+    });
+    return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
-  // POST /api/deployments/:id/destroy — Trigger DESTROY job
+  // POST /api/deployments/:id/destroy — Trigger (or reuse) a DESTROY job
   app.post('/api/deployments/:id/destroy', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = destroyBodySchema.parse(request.body);
-    const depRows = await db
-      .select({ id: schema.deployments.id })
-      .from(schema.deployments)
-      .where(eq(schema.deployments.id, id))
-      .limit(1);
-    if (depRows.length === 0) {
-      throw new NotFoundError('Deployment not found');
-    }
-    const idempotencyKey = `${id}:DESTROY:${Date.now()}`;
-    const [job] = await db
-      .insert(schema.deploymentJobs)
-      .values({
-        deploymentId: id,
-        type: 'DESTROY',
-        state: 'REQUESTED',
-        idempotencyKey,
-        payload: { finalSnapshot: body.finalSnapshot ?? false },
-        requestedBy: request.user?.id ?? null,
-      })
-      .returning();
-    return reply.code(202).send({ jobId: job!.id, state: 'REQUESTED' });
+    const idempotencyKey =
+      firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:DESTROY`;
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'DESTROY',
+      idempotencyKey,
+      payload: { finalSnapshot: body.finalSnapshot ?? false },
+      requestedBy: request.user?.id ?? null,
+    });
+    return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
   // ── Events & diagnostics (§24, §29, §40) ────────────────────────────────
@@ -637,7 +997,8 @@ export async function buildServer({
   // GET /api/deployments/:id/events — Event log
   app.get('/api/deployments/:id/events', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedDeployment(db, id, organizationId);
     const { limit, offset } = request.query as { limit?: string; offset?: string };
     const take = Math.min(Number(limit ?? 50), 200);
     const skip = Number(offset ?? 0);
@@ -654,17 +1015,9 @@ export async function buildServer({
   // GET /api/deployments/:id/diagnostics — Diagnostics (§29)
   app.get('/api/deployments/:id/diagnostics', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
-    requireUuidId(id);
-    const depRows = await db
-      .select({ id: schema.deployments.id, state: schema.deployments.state })
-      .from(schema.deployments)
-      .where(eq(schema.deployments.id, id))
-      .limit(1);
-    if (depRows.length === 0) {
-      throw new NotFoundError('Deployment not found');
-    }
-    const deployment = depRows[0]!;
-    if (deployment!.state !== 'FAILED') {
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    if (deployment.state !== 'FAILED') {
       return { failureCode: null, what: null, why: null, fix: null, events: [] };
     }
     const events = await db
@@ -687,47 +1040,47 @@ export async function buildServer({
   // POST /api/billing/checkout — Create Stripe checkout session
   app.post('/api/billing/checkout', { preHandler: requireAuth }, async (request) => {
     const body = checkoutBodySchema.parse(request.body);
+    const organizationId = resolveWriteOrganizationId(request, body.organizationId);
     const { url } = await createCheckoutSession(
       { db, stripe },
-      { organizationId: body.organizationId, customerEmail: request.user?.email },
+      { organizationId, customerEmail: request.user?.email },
     );
     return { url };
   });
 
   // GET /api/billing/summary — Billing summary
   app.get('/api/billing/summary', { preHandler: requireAuth }, async (request) => {
-    const organizationId = organizationIdFromRequest(request);
-    if (!organizationId) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
-    }
+    const organizationId = requireSessionOrganizationId(request);
+    // §48 line items are named by CUSTOMER ("Acme Corp  $19"), not by
+    // application — join customers for the label. Billability comes from
+    // isBillable (the single §48 rule, which also counts UPDATE_AVAILABLE);
+    // re-deriving it inline here is what previously dropped UPDATE_AVAILABLE
+    // deployments off the bill.
     const deployments = await db
       .select({
-        name: schema.applications.name,
+        customerName: schema.customers.name,
+        applicationName: schema.applications.name,
         state: schema.deployments.state,
         isTestDeployment: schema.deployments.isTestDeployment,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
       .where(eq(schema.deployments.organizationId, organizationId));
-    const billableDeployments = deployments.filter(
-      (d) => d.state === 'HEALTHY' && !d.isTestDeployment,
-    );
-    const deploymentItems = billableDeployments.map((d) => ({
-      name: d.name,
-      amount: 19,
+    const deploymentItems = deployments.filter(isBillable).map((d) => ({
+      name: d.customerName,
+      applicationName: d.applicationName,
+      amount: METERED_PRICE_DOLLARS,
     }));
-    const total = 49 + deploymentItems.length * 19;
-    return { base: 49, deployments: deploymentItems, total };
+    const total = BASE_PRICE_DOLLARS + deploymentItems.length * METERED_PRICE_DOLLARS;
+    return { base: BASE_PRICE_DOLLARS, deployments: deploymentItems, total };
   });
 
   // ── Onboarding (§42) ────────────────────────────────────────────────────
 
   // GET /api/onboarding — Onboarding state
   app.get('/api/onboarding', { preHandler: requireAuth }, async (request) => {
-    const organizationId = organizationIdFromRequest(request);
-    if (!organizationId) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
-    }
+    const organizationId = requireSessionOrganizationId(request);
     const appCount = await db
       .select({ count: schema.applications.id })
       .from(schema.applications)
@@ -786,90 +1139,193 @@ export async function buildServer({
   });
 
   // ── Relay endpoints (bearer-token auth, not session cookie) ─────────
+  //
+  // The relay authenticates with a bearer token registered at install time
+  // (see relay-store.ts). Every route below resolves the calling deployment
+  // FROM THE VERIFIED TOKEN, never from a client-supplied id alone — an
+  // installationId is public (it's in the install URL), so it cannot be the
+  // credential.
 
   const relayStore = createRelayStore();
 
-  app.post('/api/relay/register', async (request, reply) => {
-    const auth = request.headers.authorization;
-    if (!auth?.startsWith('Bearer ')) {
+  async function requireRelayDeployment(
+    installationId: string | undefined,
+    token: string,
+  ): Promise<DeploymentRow> {
+    if (!installationId) {
+      throw new ApiError(400, 'INSTALLATION_ID_REQUIRED', 'installationId is required');
+    }
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installationId, installationId))
+      .limit(1);
+    const deployment = rows[0];
+    if (!deployment || !relayStore.verify(installationId, token)) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
+    }
+    return deployment;
+  }
+
+  function requireBearerToken(request: { headers: Record<string, unknown> }): string {
+    const authHeader = request.headers.authorization as string | undefined;
+    if (!authHeader?.startsWith('Bearer ')) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
     }
-    const token = auth.slice(7);
+    return authHeader.slice(7);
+  }
+
+  app.post('/api/relay/register', async (request, reply) => {
+    const token = requireBearerToken(request);
     const body = request.body as { installationId?: string };
     if (!body?.installationId) {
       throw new ApiError(400, 'INVALID_REQUEST', 'installationId is required');
     }
+    // §3: registration must correspond to a REAL deployment — otherwise
+    // anyone could register an arbitrary installationId/token pair.
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installationId, body.installationId))
+      .limit(1);
+    const deployment = rows[0];
+    if (!deployment) {
+      throw new NotFoundError('Deployment not found');
+    }
+
     relayStore.register(body.installationId, token);
+
+    // §6/§39: an INSTALL job must be reachable through the API so a fresh
+    // deployment can ever progress past NOT_INSTALLED. We create it here
+    // (first relay registration) rather than at deployment-creation time —
+    // the deployment row can legitimately exist before any relay has called
+    // home, and this is the first point where we know the relay is alive.
+    if (deployment.state === 'NOT_INSTALLED') {
+      await createOrReuseJob(db, {
+        deploymentId: deployment.id,
+        type: 'INSTALL',
+        idempotencyKey: `${deployment.id}:INSTALL`,
+        payload: {},
+        requestedBy: null,
+      });
+      await db
+        .update(schema.deployments)
+        .set({ state: 'INSTALLING' })
+        .where(eq(schema.deployments.id, deployment.id));
+    }
+
     return reply.code(200).send({ registered: true });
   });
 
+  // §39 relay command channel, backed by deployment_jobs (not the old
+  // write-only in-memory map). Picking up REQUESTED/QUEUED jobs transitions
+  // them to RUNNING so a retried poll does not hand out the same command
+  // twice while it's in flight.
   app.get('/api/relay/commands', async (request) => {
-    const auth = request.headers.authorization;
-    if (!auth?.startsWith('Bearer ')) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
-    }
+    const token = requireBearerToken(request);
     const { installationId } = request.query as { installationId?: string };
-    if (!installationId) {
-      throw new ApiError(400, 'INSTALLATION_ID_REQUIRED', 'installationId query parameter is required');
+    const deployment = await requireRelayDeployment(installationId, token);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED']),
+        ),
+      )
+      .orderBy(schema.deploymentJobs.createdAt);
+
+    if (jobs.length > 0) {
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'RUNNING', startedAt: new Date() })
+        .where(
+          inArray(
+            schema.deploymentJobs.id,
+            jobs.map((job) => job.id),
+          ),
+        );
     }
-    return { commands: relayStore.getPendingCommands(installationId) };
+
+    return {
+      commands: jobs.map((job) => ({
+        id: job.id,
+        deploymentId: deployment.id,
+        type: job.type,
+        idempotencyKey: job.idempotencyKey,
+        payload: job.payload,
+      })),
+    };
   });
 
   app.post('/api/relay/commands/:id/result', async (request, reply) => {
-    const auth = request.headers.authorization;
-    if (!auth?.startsWith('Bearer ')) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
-    }
+    const token = requireBearerToken(request);
     const { id } = request.params as { id: string };
-    const body = request.body as { success?: boolean; error?: string; output?: Record<string, unknown> };
-    relayStore.reportResult(id, body);
+    requireUuidId(id);
+
+    const jobRows = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, id)).limit(1);
+    if (jobRows.length === 0) {
+      throw new NotFoundError('Job not found');
+    }
+    const job = jobRows[0]!;
+
+    const deploymentRows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, job.deploymentId))
+      .limit(1);
+    const deployment = deploymentRows[0];
+    if (!deployment || !relayStore.verify(deployment.installationId, token)) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
+    }
+
+    const body = request.body as {
+      success?: boolean;
+      error?: string;
+      output?: Record<string, unknown>;
+      failureCode?: string;
+    };
+    const state = body.success === false ? 'FAILED' : 'SUCCEEDED';
+    const failureCodeParsed = state === 'FAILED' ? failureCodeSchema.safeParse(body.failureCode) : undefined;
+
+    await db
+      .update(schema.deploymentJobs)
+      .set({
+        state,
+        result: body as Record<string, unknown>,
+        finishedAt: new Date(),
+        ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
+      })
+      .where(eq(schema.deploymentJobs.id, id));
+
     return reply.code(200).send({ received: true });
   });
 
   app.post('/api/relay/health', async (request, reply) => {
-    const auth = request.headers.authorization;
-    if (!auth?.startsWith('Bearer ')) {
-      throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
-    }
+    const token = requireBearerToken(request);
+    const body = request.body as {
+      installationId?: string;
+      observedState?: Record<string, unknown>;
+      healthStatus?: string;
+    };
+    const deployment = await requireRelayDeployment(body?.installationId, token);
+
+    const healthStatusParsed = healthStatusSchema.safeParse(body.healthStatus);
+
+    await db
+      .update(schema.deployments)
+      .set({
+        observedState: body.observedState ?? deployment.observedState,
+        relayStatus: 'CONNECTED',
+        lastHealthAt: new Date(),
+        ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+
     return reply.code(200).send({ received: true });
   });
 
   return app;
-}
-
-// ── Relay store (in-memory, same pattern as githubStore) ────────────────
-
-interface RelayInstallation {
-  id: string;
-  token: string;
-}
-
-interface PendingCommand {
-  id: string;
-  deploymentId: string;
-  type: string;
-  idempotencyKey: string;
-  payload: Record<string, unknown>;
-}
-
-function createRelayStore() {
-  const installations = new Map<string, RelayInstallation>();
-  const commands = new Map<string, PendingCommand[]>();
-
-  return {
-    register(installationId: string, token: string) {
-      installations.set(installationId, { id: installationId, token });
-      if (!commands.has(installationId)) {
-        commands.set(installationId, []);
-      }
-    },
-    getPendingCommands(installationId: string): PendingCommand[] {
-      const pending = commands.get(installationId) ?? [];
-      commands.set(installationId, []);
-      return pending;
-    },
-    reportResult(commandId: string, result: { success?: boolean; error?: string; output?: Record<string, unknown> }) {
-      void commandId; void result;
-    },
-  };
 }

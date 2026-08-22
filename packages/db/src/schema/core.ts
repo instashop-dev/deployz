@@ -16,6 +16,9 @@ export const applications = pgTable('applications', {
   defaultBranch: text('default_branch').notNull().default('main'),
   containerPort: integer('container_port'),
   healthPath: text('health_path'),
+  // §35 application-level migration command. Releases may override it via
+  // releases.migration_command; this is the vendor default (§31).
+  migrationCommand: text('migration_command'),
   workerCommand: text('worker_command'),
   databaseRequired: boolean('database_required').notNull().default(false),
   storageRequired: boolean('storage_required').notNull().default(false),

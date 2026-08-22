@@ -1,18 +1,15 @@
-import { CreditCard, Receipt } from 'lucide-react';
+import { Receipt } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { fetchBilling, formatDate, type BillingInfo } from '@/lib/billing';
+import { fetchBillingSummary, formatDollars, type BillingSummary } from '@/lib/billing';
 
-// §48 billing display — shows the org's subscription status, current period,
-// line items (base + metered), and invoice total. §65: all copy is jargon-free
-// (no "Stripe", "meter event", "proration" at the top level). The billing API
-// endpoint 404s until the backend route lands, so fetchBilling falls back to
-// fixture data (same pattern as todos 19/25/26/30).
-
+// §48 billing display — the exact breakdown: a "Platform  $49" line, one line
+// per billable deployment labelled with the CUSTOMER name at $19, and a
+// "Monthly total" line. §65: jargon-free (no "Stripe", "meter event",
+// "proration" at the top level).
 export default async function BillingPage() {
-  const billing = await fetchBilling();
+  const billing = await fetchBillingSummary();
 
   return (
     <div className="flex flex-col gap-6">
@@ -23,69 +20,17 @@ export default async function BillingPage() {
         </p>
       </div>
 
-      <BillingStatusCard billing={billing} />
+      <BillingSummaryCard billing={billing} />
 
-      {billing.hasSubscription ? (
-        <>
-          <BillingSummaryCard billing={billing} />
-          <BillingHistoryCard />
-        </>
-      ) : (
-        <NoSubscriptionCard manageUrl={billing.manageUrl} />
-      )}
+      <p className="text-xs text-muted-foreground">
+        A vendor-owned test deployment is not charged. The $19/month fee applies once a customer
+        deployment becomes healthy, and stops as soon as that deployment is removed.
+      </p>
     </div>
   );
 }
 
-// ── Status card ─────────────────────────────────────────────────────────────
-
-function BillingStatusCard({ billing }: { billing: BillingInfo }) {
-  const statusConfig = getStatusConfig(billing.status);
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <CreditCard className="size-5 text-muted-foreground" aria-hidden />
-          <CardTitle>Subscription</CardTitle>
-        </div>
-        <CardDescription>
-          {billing.hasSubscription
-            ? `Your subscription is ${statusConfig.label.toLowerCase()}.`
-            : 'You do not have an active subscription.'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">Status</span>
-          <Badge variant={statusConfig.variant}>{statusConfig.label}</Badge>
-        </div>
-        {billing.currentPeriod ? (
-          <div className="text-sm text-muted-foreground">
-            Current period:{' '}
-            <span className="font-medium text-foreground">
-              {formatDate(billing.currentPeriod.start)} – {formatDate(billing.currentPeriod.end)}
-            </span>
-          </div>
-        ) : null}
-        {billing.manageUrl ? (
-          <div>
-            <a
-              href={billing.manageUrl}
-              className="text-sm font-medium underline underline-offset-4 hover:text-primary"
-            >
-              Manage billing
-            </a>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ── Summary card ────────────────────────────────────────────────────────────
-
-function BillingSummaryCard({ billing }: { billing: BillingInfo }) {
+function BillingSummaryCard({ billing }: { billing: BillingSummary }) {
   return (
     <Card>
       <CardHeader>
@@ -93,103 +38,37 @@ function BillingSummaryCard({ billing }: { billing: BillingInfo }) {
           <Receipt className="size-5 text-muted-foreground" aria-hidden />
           <CardTitle>Current charges</CardTitle>
         </div>
-        <CardDescription>
-          Charges for the current billing period. Usage is calculated daily.
-        </CardDescription>
+        <CardDescription>Charges for the current billing period.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {billing.lineItems.map((item) => (
-          <div key={item.label} className="flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium">Platform</span>
+          <span className="font-medium tabular-nums">{formatDollars(billing.base)}</span>
+        </div>
+        {billing.deployments.map((deployment, index) => (
+          <div
+            key={`${deployment.name}-${index}`}
+            className="flex items-center justify-between text-sm"
+          >
             <div>
-              <span className="font-medium">{item.label}</span>
-              {item.detail ? (
-                <span className="ml-1.5 text-muted-foreground">({item.detail})</span>
-              ) : null}
+              <span className="font-medium">{deployment.name}</span>
+              <span className="ml-1.5 text-muted-foreground">({deployment.applicationName})</span>
             </div>
-            <span className="font-medium tabular-nums">{item.amountDisplay}</span>
+            <span className="font-medium tabular-nums">{formatDollars(deployment.amount)}</span>
           </div>
         ))}
+        {billing.deployments.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No billable deployments yet. Healthy customer deployments appear here at $19/month
+            each.
+          </p>
+        ) : null}
         <Separator />
         <div className="flex items-center justify-between text-sm font-semibold">
-          <span>Total</span>
-          <span className="tabular-nums">{billing.totalDisplay}</span>
+          <span>Monthly total</span>
+          <span className="tabular-nums">{formatDollars(billing.total)}</span>
         </div>
       </CardContent>
     </Card>
   );
-}
-
-// ── History card (placeholder) ──────────────────────────────────────────────
-
-function BillingHistoryCard() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Invoice history</CardTitle>
-        <CardDescription>
-          Past invoices will appear here once your first billing period completes.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">
-          No invoices yet. Your first invoice will be generated at the end of the current billing
-          period.
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ── No subscription card ────────────────────────────────────────────────────
-
-function NoSubscriptionCard({ manageUrl }: { manageUrl: string | null }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>No subscription</CardTitle>
-        <CardDescription>
-          Subscribe to start deploying applications for your customers.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">
-          Deployz costs $49/month for the base subscription plus $19/month for each healthy
-          deployment. Your first deployment is free — it is a test deployment for verifying
-          compatibility.
-        </p>
-        {manageUrl ? (
-          <div className="mt-4">
-            <a
-              href={manageUrl}
-              className="text-sm font-medium underline underline-offset-4 hover:text-primary"
-            >
-              Subscribe now
-            </a>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ── Status config ───────────────────────────────────────────────────────────
-
-function getStatusConfig(
-  status: BillingInfo['status'],
-): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
-  switch (status) {
-    case 'ACTIVE':
-      return { label: 'Active', variant: 'default' };
-    case 'TRIALING':
-      return { label: 'Trialing', variant: 'secondary' };
-    case 'PAST_DUE':
-      return { label: 'Past due', variant: 'destructive' };
-    case 'CANCELED':
-      return { label: 'Canceled', variant: 'outline' };
-    case 'INCOMPLETE':
-      return { label: 'Incomplete', variant: 'secondary' };
-    case 'NONE':
-    default:
-      return { label: 'None', variant: 'outline' };
-  }
 }

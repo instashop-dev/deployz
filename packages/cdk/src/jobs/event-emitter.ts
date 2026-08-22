@@ -21,6 +21,31 @@ export type EventActor =
   | { readonly type: 'relay'; readonly installationId: string }
   | { readonly type: 'system' };
 
+/**
+ * §62 "who initiated it" — the shape a workflow's Input type carries on its
+ * optional `initiatedBy` field. The API layer already captures
+ * `requestedBy`; this is what a caller threads through so the emitted §62
+ * events attribute the action to the actual initiator (a user) instead of
+ * always defaulting to `system`.
+ */
+export interface WorkflowInitiator {
+  readonly type: 'user' | 'system';
+  readonly id?: string | undefined;
+}
+
+/**
+ * Resolve a workflow's optional `initiatedBy` input into an `EventActor`.
+ * Defaults to `{ type: 'system' }` when `initiatedBy` is absent, or when it
+ * claims `type: 'user'` without an id (a userless "user" actor is not a
+ * meaningful attribution — that's genuinely system-initiated).
+ */
+export function actorFromInitiator(initiatedBy: WorkflowInitiator | undefined): EventActor {
+  if (initiatedBy?.type === 'user' && initiatedBy.id) {
+    return { type: 'user', id: initiatedBy.id };
+  }
+  return { type: 'system' };
+}
+
 /** Fields the caller supplies when emitting an event. */
 export interface EmitEventInput {
   readonly eventType: string;

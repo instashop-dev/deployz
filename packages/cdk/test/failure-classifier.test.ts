@@ -283,6 +283,54 @@ describe('classifyFailure — UNKNOWN (fallback)', () => {
 });
 
 // ==========================================================================
+// §20 — every one of the seven example failure strings classifies sensibly
+// ==========================================================================
+
+describe('classifyFailure — §20 example failure strings', () => {
+  const cases: Array<{ label: string; event: StructuredEvent; expected: FailureCode }> = [
+    {
+      label: 'AccessDenied',
+      event: { source: 'ecs', error: { code: 'AccessDenied' } },
+      expected: 'AWS_PERMISSION_DENIED',
+    },
+    {
+      label: 'ResourceLimitExceeded',
+      event: { source: 'ecs', error: { code: 'ResourceLimitExceeded' } },
+      expected: 'QUOTA_EXCEEDED',
+    },
+    {
+      label: 'Target failed health check',
+      event: { source: 'ecs', error: { message: 'Target failed health check' } },
+      expected: 'IMAGE_HEALTH_CHECK_FAILED',
+    },
+    {
+      label: 'Container exited 1',
+      event: { source: 'ecs', error: { message: 'Container exited 1' } },
+      expected: 'CONTAINER_START_FAILED',
+    },
+    {
+      label: 'Database connection timeout',
+      event: { source: 'rds', error: { message: 'Database connection timeout' } },
+      expected: 'DATABASE_CONNECTION_FAILED',
+    },
+    {
+      label: 'Invalid secret',
+      event: { source: 'ecs', error: { message: 'Invalid secret' } },
+      expected: 'MISSING_SECRET',
+    },
+    {
+      label: 'Port unavailable',
+      event: { source: 'ecs', error: { message: 'Port unavailable' } },
+      expected: 'PORT_MISMATCH',
+    },
+  ];
+
+  it.each(cases)('"$label" classifies to $expected', ({ event, expected }) => {
+    expect(classifyFailure(event)).toBe(expected);
+  });
+});
+
+// ==========================================================================
 // Precedence — first match wins
 // ==========================================================================
 

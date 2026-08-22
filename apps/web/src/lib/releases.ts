@@ -1,7 +1,6 @@
-// §22 release data access. The releases API endpoint arrives in a later
-// todo; until then fetchReleases falls back to realistic FIXTURE data on a
-// 404 so the releases page renders without a backend (same pattern as
-// todos 19/25/26/30). §65: all copy is jargon-free.
+// §22 release data access. A 404 from the API now means the application
+// genuinely does not exist for the caller's organization — it is surfaced,
+// never swallowed into look-alike placeholder data. §65: copy is jargon-free.
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -25,20 +24,47 @@ async function getJson<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-function isNotFound(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('(404)');
+export async function fetchReleases(applicationId: string): Promise<Release[]> {
+  const body = await getJson<{ releases?: Release[] }>(
+    `/api/applications/${encodeURIComponent(applicationId)}/releases`,
+  );
+  return body.releases ?? [];
 }
 
-export async function fetchReleases(applicationId: string): Promise<Release[]> {
-  try {
-    const body = await getJson<{ releases?: Release[] }>(
-      `/api/applications/${encodeURIComponent(applicationId)}/releases`,
-    );
-    return body.releases ?? [];
-  } catch (error) {
-    if (isNotFound(error)) return fixtureReleases();
-    throw error;
+export interface CreateReleaseInput {
+  version: string;
+  gitSha: string;
+  migrationCommand?: string | null;
+}
+
+/** §22 create release — POST /api/applications/:id/releases. */
+export async function createRelease(
+  applicationId: string,
+  input: CreateReleaseInput,
+): Promise<Release> {
+  const response = await fetch(
+    `${apiUrl}/api/applications/${encodeURIComponent(applicationId)}/releases`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        version: input.version,
+        gitSha: input.gitSha,
+        migrationCommand: input.migrationCommand ?? null,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Create release failed (${response.status})`);
   }
+  const row = (await response.json()) as {
+    id: string;
+    version: string;
+    releaseStatus: ReleaseStatus;
+    createdAt: string;
+  };
+  return { id: row.id, version: row.version, status: row.releaseStatus, createdAt: row.createdAt };
 }
 
 export const RELEASE_STATUS_BADGE: Record<ReleaseStatus, 'default' | 'secondary' | 'destructive'> = {
@@ -57,27 +83,3 @@ export function releaseStatusLabel(status: string): string {
   return RELEASE_STATUS_LABEL[status as ReleaseStatus] ?? status;
 }
 
-export const FIXTURE_RELEASES: Release[] = [
-  {
-    id: 'release-v1-2-0',
-    version: 'v1.2.0',
-    status: 'READY',
-    createdAt: '2026-08-20T10:34:00.000Z',
-  },
-  {
-    id: 'release-v1-1-0',
-    version: 'v1.1.0',
-    status: 'READY',
-    createdAt: '2026-08-15T14:00:00.000Z',
-  },
-  {
-    id: 'release-v1-0-0',
-    version: 'v1.0.0',
-    status: 'READY',
-    createdAt: '2026-08-01T09:00:00.000Z',
-  },
-];
-
-function fixtureReleases(): Release[] {
-  return FIXTURE_RELEASES;
-}

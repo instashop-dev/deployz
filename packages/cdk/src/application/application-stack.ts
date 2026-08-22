@@ -14,7 +14,13 @@
  *   2. ALB          — internet-facing Application Load Balancer (plain-Fargate
  *                     mode) with a `/health` health check; in Express mode the
  *                     ALB/target-group/security-group set is auto-managed by
- *                     `AWS::ECS::ExpressGatewayService`.
+ *                     `AWS::ECS::ExpressGatewayService`. §9 supports "public
+ *                     HTTPS application endpoints": when `certificateArn` is
+ *                     supplied, an HTTPS:443 listener is added and HTTP:80
+ *                     redirects to it. Without a certificate, synth throws
+ *                     unless `allowInsecureHttp: true` explicitly opts into
+ *                     plain HTTP (non-production only) — there is no silent
+ *                     HTTP-only fallback.
  *   3. ECS Fargate  — an `expressMode` boolean prop selects the deployment
  *                     model (C3/U3):
  *                       - expressMode=false (DEFAULT): plain Fargate
@@ -128,13 +134,21 @@ export interface ApplicationStackProps extends StackProps {
    * created for the worker. The worker uses the same ECR image, Secrets Manager
    * secrets, and S3 bucket as the web service, but runs in private subnets
    * only with no load balancer. Only applies in plain Fargate mode
-   * (`expressMode` is false).
+   * (`expressMode` is false) — `expressMode: true` combined with a
+   * `workerCommand` is a synth-time validation error (§8.1: an unsupported
+   * configuration fails loudly rather than silently dropping the worker).
    */
   readonly workerCommand?: string;
   /** Deployz application identifier — applied as `deployz:application` tag. */
   readonly applicationId?: string;
   /** Deployz vendor identifier — applied as `deployz:vendor` tag. */
   readonly vendorId?: string;
+  /**
+   * Deployz installation identifier — applied as `deployz:installation` tag
+   * (§15) alongside `deployz:application` and `deployz:vendor` for
+   * predictable resource identification.
+   */
+  readonly installationId?: string;
   /**
    * Domain name for the HTTPS listener.
    *
@@ -148,6 +162,16 @@ export interface ApplicationStackProps extends StackProps {
    * HTTP listener on port 80 is configured to redirect to HTTPS.
    */
   readonly certificateArn?: string;
+  /**
+   * Explicit opt-in to serve plain HTTP with no TLS termination, when
+   * `certificateArn` is not supplied.
+   *
+   * §9 lists "public HTTPS application endpoints" as the supported contract
+   * — plain HTTP is NOT a silent fallback. This flag exists for local/dev
+   * use only; it is NOT intended for production traffic. Synth throws if
+   * `certificateArn` is absent and this is not explicitly `true`.
+   */
+  readonly allowInsecureHttp?: boolean;
 }
 
 const DEFAULT_IMAGE_REPOSITORY = 'public.ecr.aws/deployz/fixture';
@@ -187,6 +211,30 @@ export class ApplicationStack extends Stack {
     const imageDigest = props.imageDigest ?? DEFAULT_IMAGE_DIGEST;
     const desiredCount = props.desiredCount ?? 1;
     const imageReference = `${imageRepository}@${imageDigest}`;
+
+    // ── §8.1 validation: unsupported configuration combinations fail loudly ──
+    // ECS Express Mode does not support a separate background worker service
+    // (the worker branch below only exists in the plain-Fargate `else` arm).
+    // Rather than silently dropping the worker when both are requested,
+    // reject the configuration at synth time.
+    if (expressMode && props.workerCommand !== undefined) {
+      throw new Error(
+        'ApplicationStack: workerCommand is not supported when expressMode is true. ' +
+          'ECS Express Mode has no background worker service — set expressMode to ' +
+          'false (plain Fargate) to run a worker alongside the web service.',
+      );
+    }
+
+    // §9/§11: "public HTTPS application endpoints" is the supported contract.
+    // Plain HTTP is not a silent fallback — require an explicit opt-in when
+    // no certificate is supplied.
+    if (props.certificateArn === undefined && props.allowInsecureHttp !== true) {
+      throw new Error(
+        'ApplicationStack: certificateArn is required for a public HTTPS endpoint (§9). ' +
+          'Pass allowInsecureHttp: true to explicitly opt in to plain HTTP ' +
+          '(non-production use only) if you do not have a certificate yet.',
+      );
+    }
 
     // ── 1. VPC: 2 AZs, public + private subnets, NAT gateway ─────────────
     this.vpc = new Vpc(this, 'Vpc', {
@@ -582,11 +630,10 @@ export class ApplicationStack extends Stack {
     }
 
     // ── deployz: tags (§15) ───────────────────────────────────────────────
-    // deployz:component is static — applied to every taggable resource. The
-    // deployz:installation tag is applied at the STACK level by the control
-    // plane when it creates the application stack (stack tags propagate to
-    // resources), so the installation binding is enforced without embedding
-    // the minted id in this independently-deployed template.
+    // deployz:component is static — applied to every taggable resource.
+    // deployz:application / deployz:vendor / deployz:installation are all
+    // applied the same way, in-construct, from the corresponding optional
+    // props — §15 requires all three for predictable resource identification.
     Tags.of(this).add('deployz:component', 'application');
 
     if (props.applicationId !== undefined) {
@@ -635,6 +682,31 @@ export class ApplicationStack extends Stack {
       ]) {
         if (c !== undefined) {
           Tags.of(c).add('deployz:vendor', props.vendorId);
+        }
+      }
+    }
+
+    if (props.installationId !== undefined) {
+      for (const c of [
+        this,
+        this.vpc,
+        this.database,
+        this.databaseSecret,
+        this.appSecret,
+        this.storageBucket,
+        this.cluster,
+        logGroup,
+        dbSecurityGroup,
+        taskExecutionRole,
+        taskRole,
+        this.loadBalancer,
+        this.fargateService,
+        this.expressService,
+        this.workerService,
+        this.workerLogGroup,
+      ]) {
+        if (c !== undefined) {
+          Tags.of(c).add('deployz:installation', props.installationId);
         }
       }
     }

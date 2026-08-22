@@ -12,12 +12,15 @@ import {
   getNotificationTemplate,
   InMemoryNotificationStore,
   isNotificationEvent,
+  mapWorkflowEventToNotification,
   NOTIFICATION_EVENT_TYPES,
+  NoOrganizationContactStore,
   NotificationEngine,
   SesEmailSender,
   StubEmailSender,
   type InAppNotification,
   type NotificationChannel,
+  type OrganizationContactStore,
 } from '../src/jobs/notifications.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
@@ -47,24 +50,38 @@ function makeEvent(overrides: Partial<EventRecord> = {}): EventRecord {
   };
 }
 
+/** Stub org-contact resolver — deterministic, injected (never a synthesized address, item 8). */
+class StubOrganizationContactStore implements OrganizationContactStore {
+  async getContactEmail(organizationId: string): Promise<string | null> {
+    return `${organizationId}-contact@example.com`;
+  }
+}
+
 interface EngineHarness {
   engine: NotificationEngine;
   notificationStore: InMemoryNotificationStore;
   emailSender: StubEmailSender;
+  contactStore: OrganizationContactStore;
 }
 
 function makeHarness(): EngineHarness {
   const notificationStore = new InMemoryNotificationStore();
   const emailSender = new StubEmailSender();
-  const engine = new NotificationEngine(notificationStore, emailSender, fixedClock);
-  return { engine, notificationStore, emailSender };
+  const contactStore = new StubOrganizationContactStore();
+  const engine = new NotificationEngine(notificationStore, emailSender, fixedClock, contactStore);
+  return { engine, notificationStore, emailSender, contactStore };
 }
 
 // ── Event set tests (§47) ────────────────────────────────────────────────
 
 describe('§47 notification event set', () => {
-  it('contains exactly 15 notification-worthy events', () => {
-    expect(NOTIFICATION_EVENT_TYPES).toHaveLength(15);
+  it('contains exactly 17 notification-worthy events (the 8 §47-essential + a useful superset)', () => {
+    expect(NOTIFICATION_EVENT_TYPES).toHaveLength(17);
+  });
+
+  it('includes the two previously-missing §47 types (item 7)', () => {
+    expect(NOTIFICATION_EVENT_TYPES).toContain('health.relay.disconnected');
+    expect(NOTIFICATION_EVENT_TYPES).toContain('health.aws_permission_issue');
   });
 
   it('includes install events', () => {
@@ -478,6 +495,177 @@ describe('NotificationEngine', () => {
       expect(typeof email.subject).toBe('string');
       expect(typeof email.body).toBe('string');
     });
+  });
+});
+
+// ── mapWorkflowEventToNotification (item 7) ───────────────────────────────
+
+describe('mapWorkflowEventToNotification (item 7 — raw workflow event vocabulary)', () => {
+  it('translates raw install-workflow events to install.completed / install.failed', () => {
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'install.state.healthy', result: 'ok' }),
+      ),
+    ).toBe('install.completed');
+
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'install.preflight.full', result: 'failed:INVALID_CONFIG' }),
+      ),
+    ).toBe('install.failed');
+
+    // A passing preflight sub-check is not notification-worthy.
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'install.preflight.region', result: 'passed' }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('translates raw deploy-release-workflow events to deploy.completed / deploy.failed', () => {
+    expect(
+      mapWorkflowEventToNotification(makeEvent({ eventType: 'deploy.state.healthy', result: 'ok' })),
+    ).toBe('deploy.completed');
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'deploy.state.update-available', result: 'ok' }),
+      ),
+    ).toBe('deploy.completed');
+    // deploy.state.failed is item 5's new FAILED-transition event.
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'deploy.state.failed', result: 'failed:MIGRATION_FAILED' }),
+      ),
+    ).toBe('deploy.failed');
+  });
+
+  it('translates raw rollback-workflow events to rollback.completed / rollback.failed', () => {
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'rollback.state.healthy', result: 'ok' }),
+      ),
+    ).toBe('rollback.completed');
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'rollback.restore', result: 'failed:ROLLBACK_FAILED' }),
+      ),
+    ).toBe('rollback.failed');
+  });
+
+  it('translates raw destroy-workflow events to destroy.initiated / .completed / .failed', () => {
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'destroy.state.deleting', result: 'ok' }),
+      ),
+    ).toBe('destroy.initiated');
+    expect(
+      mapWorkflowEventToNotification(makeEvent({ eventType: 'destroy.complete', result: 'ok' })),
+    ).toBe('destroy.completed');
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'destroy.complete.degraded', result: 'ok' }),
+      ),
+    ).toBe('destroy.completed');
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'destroy.resources', result: 'failed' }),
+      ),
+    ).toBe('destroy.failed');
+  });
+
+  it('translates health-monitor.ts\'s relay-disconnect event to relay.disconnected (item 7 §47 type)', () => {
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'health.relay.disconnected', result: 'ok' }),
+      ),
+    ).toBe('health.relay.disconnected');
+  });
+
+  it('AWS_PERMISSION_DENIED / AWS_SCP_BLOCKED ALWAYS map to aws.permission_issue, overriding the generic failure', () => {
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'deploy.preflight', result: 'failed:AWS_PERMISSION_DENIED' }),
+      ),
+    ).toBe('health.aws_permission_issue');
+    expect(
+      mapWorkflowEventToNotification(
+        makeEvent({ eventType: 'install.preflight.scp', result: 'failed:AWS_SCP_BLOCKED' }),
+      ),
+    ).toBe('health.aws_permission_issue');
+  });
+
+  it('a canonical notification type passed directly is an identity mapping', () => {
+    expect(
+      mapWorkflowEventToNotification(makeEvent({ eventType: 'install.completed' })),
+    ).toBe('install.completed');
+  });
+
+  it('returns undefined for an unrecognized raw event type', () => {
+    expect(
+      mapWorkflowEventToNotification(makeEvent({ eventType: 'config.validate', result: 'ok' })),
+    ).toBeUndefined();
+  });
+});
+
+describe('NotificationEngine — raw workflow events actually fire notifications (item 7)', () => {
+  it('processEvent fires a notification for a RAW workflow event, not just a canonical one', async () => {
+    const harness = makeHarness();
+    const event = makeEvent({ eventType: 'install.state.healthy', result: 'ok' });
+
+    await harness.engine.processEvent(event);
+
+    expect(harness.notificationStore.count).toBe(1);
+    expect(harness.notificationStore.notifications[0]?.eventType).toBe('install.completed');
+    expect(harness.emailSender.count).toBe(1);
+  });
+
+  it('idempotency is keyed on the CANONICAL notification, not the raw event type', async () => {
+    const harness = makeHarness();
+
+    // Two different raw install failure events for the same deployment both
+    // map to install.failed — only the FIRST should generate a notification.
+    await harness.engine.processEvent(
+      makeEvent({ eventType: 'install.preflight.full', result: 'failed:INVALID_CONFIG' }),
+    );
+    await harness.engine.processEvent(
+      makeEvent({ eventType: 'install.relay.contact', result: 'failed:RELAY_DISCONNECTED' }),
+    );
+
+    expect(harness.notificationStore.count).toBe(1);
+    expect(harness.engine.processedCount).toBe(1);
+  });
+});
+
+// ── Organization contact resolution (item 8) ───────────────────────────────
+
+describe('NotificationEngine — organization contact resolution (item 8)', () => {
+  it('NoOrganizationContactStore (default) never invents an address — no email is sent', async () => {
+    const notificationStore = new InMemoryNotificationStore();
+    const emailSender = new StubEmailSender();
+    const engine = new NotificationEngine(notificationStore, emailSender, fixedClock);
+
+    await engine.processEvent(makeEvent({ eventType: 'install.completed' }));
+
+    // In-app notification still fires — only email is skipped.
+    expect(notificationStore.count).toBe(1);
+    expect(emailSender.count).toBe(0);
+  });
+
+  it('NoOrganizationContactStore.getContactEmail resolves to null directly', async () => {
+    const store = new NoOrganizationContactStore();
+    expect(await store.getContactEmail('org-1')).toBeNull();
+  });
+
+  it('an injected contact store delivers to the resolved address (never a synthesized one)', async () => {
+    const harness = makeHarness();
+    const event = makeEvent({ eventType: 'install.completed', organizationId: 'org-42' });
+
+    await harness.engine.processEvent(event);
+
+    expect(harness.emailSender.count).toBe(1);
+    expect(harness.emailSender.sent[0]?.to).toBe('org-42-contact@example.com');
+    // Never the old fabricated shape.
+    expect(harness.emailSender.sent[0]?.to).not.toContain('@notifications.deployz.dev');
   });
 });
 
