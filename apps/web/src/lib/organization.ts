@@ -2,7 +2,9 @@
 // endpoint arrives in a later todo; until then fetchOrganization falls back
 // to realistic FIXTURE data on a 404 (same pattern as todos 19/25/26/30).
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { cookies } from 'next/headers';
+
+const apiUrl = process.env.API_URL ?? 'http://localhost:3001';
 
 export type OrgPlan = 'FREE' | 'STARTER' | 'PRO';
 export type StripeStatus = 'ACTIVE' | 'TRIALING' | 'NONE';
@@ -16,8 +18,9 @@ export interface OrganizationInfo {
 }
 
 async function getJson<T>(path: string): Promise<T> {
+  const cookieHeader = (await cookies()).toString();
   const response = await fetch(`${apiUrl}${path}`, {
-    credentials: 'include',
+    headers: cookieHeader ? { cookie: cookieHeader } : {},
     cache: 'no-store',
   });
   if (!response.ok) {

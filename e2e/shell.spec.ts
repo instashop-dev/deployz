@@ -27,9 +27,9 @@ test('unauthenticated visit to /dashboard redirects to /sign-in', async ({ page 
 });
 
 test('authenticated user reaches the dashboard and sees the §43 empty state', async ({ page }) => {
-  // The fleet dashboard (todo 19) fetches deployments; with none returned the
-  // §43 empty state renders. Intercept the (not-yet-implemented) endpoint
-  // before signup so the empty list is the source of truth.
+  // A fresh org has no deployments; the API returns { deployments: [] }.
+  // The mock ensures the empty list is the source of truth even if a
+  // prior test created deployments in the shared PGlite database.
   await page.route('**/api/deployments', (route) =>
     route.fulfill({ json: { deployments: [] } }),
   );
