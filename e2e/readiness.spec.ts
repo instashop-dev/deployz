@@ -4,10 +4,10 @@ import { expect, test, type Page } from '@playwright/test';
 // runs with GITHUB_FIXTURE_MODE (see playwright.config.ts), so the
 // Applications page lists the fixture org/repos; choosing a repository now
 // creates a real Application (POST /api/applications) and triggers analysis
-// (POST /api/applications/:id/analyse) before navigating to it — there is no
-// automated analyser wired up yet, so the readiness page for a
-// freshly-created application renders the §19 pending state, never a
-// fabricated verdict.
+// (POST /api/applications/:id/analyse) before navigating to it. A real
+// analyser is wired up and completes near-instantly in fixture mode, so the
+// readiness page for a freshly-created application renders the real §19
+// COMPLETE verdict, never a fabricated one.
 
 // Raw AWS service terms that must NOT appear in rendered top-level copy (§65).
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/i;
@@ -54,17 +54,18 @@ test('choosing a repository creates a real application and opens its readiness p
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
 });
 
-test('a freshly-analysed application shows the §19 pending state, not a fabricated verdict', async ({
-  page,
-}) => {
+test('a freshly-analysed application shows the real §19 COMPLETE verdict', async ({ page }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
   await page.getByRole('button', { name: 'Choose' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
-  await expect(page.getByText('Analysing your app')).toBeVisible();
-  // No score is fabricated while analysis is pending.
-  await expect(page.getByText(/^\d+% —/)).toHaveCount(0);
+  // The fixture repo (deployz-demo/express-api) analyses as fully READY —
+  // analysis completes near-instantly in fixture mode, so the page renders
+  // the real verdict, not the pending state.
+  await expect(page.getByText('Your app is ready to deploy.')).toBeVisible();
+  await expect(page.getByText('100% — 0 changes required')).toBeVisible();
+  await expect(page.getByText('Analysing your app')).toHaveCount(0);
 });
 
 test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => {

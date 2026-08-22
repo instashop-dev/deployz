@@ -1,11 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// Todo 26 — §31 application configuration screen. The config API exists but
-// the fixture application ids have no backend rows, so GET/PUT 404 and the
-// client falls back to fixture data (same pattern as todo 19/25). The
-// load-bearing assertions are the secret boundary: secrets render masked
+// §31 application configuration screen, against the REAL API (no fixture
+// fallback — a 404 is surfaced, never swallowed, per apps/web/src/lib/
+// config.ts). Seeds a real application, customer, and config rows directly
+// via the API (through the browser's session cookie) before driving the UI.
+// The load-bearing assertions are the secret boundary: secrets render masked
 // (empty password inputs, never plaintext), and a saved secret travels on
 // the write path only — the DOM never shows it afterwards.
+
+const API_URL = 'http://localhost:3001';
 
 interface ConfigWriteBody {
   customerId?: string | null;
@@ -22,21 +25,58 @@ async function signUp(page: Page): Promise<void> {
   await page.waitForURL('/dashboard');
 }
 
-// Capture PUT bodies (the write path) and answer 404 so the client takes the
-// fixture fallback; GETs continue to the real API (which 404s on its own).
-async function captureConfigWrites(page: Page, sink: { body: ConfigWriteBody | null }): Promise<void> {
-  await page.route('**/api/applications/*/config', async (route) => {
-    if (route.request().method() === 'PUT') {
-      sink.body = route.request().postDataJSON() as ConfigWriteBody;
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Application not found' } }),
-      });
-      return;
-    }
-    await route.continue();
+async function createApplication(page: Page): Promise<{ id: string }> {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const response = await page.request.post(`${API_URL}/api/applications`, {
+    data: {
+      name: `Config Test ${suffix}`,
+      githubInstallationId: 'e2e-installation',
+      repoFullName: `deployz-demo/config-test-${suffix}`,
+      repoUrl: `https://github.com/deployz-demo/config-test-${suffix}`,
+      defaultBranch: 'main',
+    },
   });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as { id: string };
+}
+
+async function createCustomer(page: Page): Promise<{ id: string }> {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const response = await page.request.post(`${API_URL}/api/customers`, {
+    data: { name: `Config Customer ${suffix}`, email: `config-${suffix}@example.com` },
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as { id: string };
+}
+
+async function putConfig(
+  page: Page,
+  applicationId: string,
+  customerId: string | null,
+  entries: { key: string; value: string; isSecret: boolean }[],
+): Promise<void> {
+  const response = await page.request.put(`${API_URL}/api/applications/${applicationId}/config`, {
+    data: { customerId, entries },
+  });
+  expect(response.ok()).toBeTruthy();
+}
+
+/** Seeds a real application + customer with vendor defaults and customer overrides. */
+async function seedAppWithConfig(
+  page: Page,
+): Promise<{ applicationId: string; customerId: string }> {
+  const application = await createApplication(page);
+  const customer = await createCustomer(page);
+  await putConfig(page, application.id, null, [
+    { key: 'DATABASE_URL', value: 'postgres://e2e-seed-vendor-value', isSecret: true },
+    { key: 'LOG_LEVEL', value: 'info', isSecret: false },
+    { key: 'MAX_CONNECTIONS', value: '10', isSecret: false },
+  ]);
+  await putConfig(page, application.id, customer.id, [
+    { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
+    { key: 'API_KEY', value: 'e2e-seed-customer-secret', isSecret: true },
+  ]);
+  return { applicationId: application.id, customerId: customer.id };
 }
 
 test('application detail page links to the configuration screen', async ({ page }) => {
@@ -62,9 +102,10 @@ test('application detail page links to the configuration screen', async ({ page 
   await expect(page.getByRole('heading', { name: 'Configuration' })).toBeVisible();
 });
 
-test('config screen renders vendor defaults and customer overrides (fixture)', async ({ page }) => {
+test('config screen renders vendor defaults and customer overrides', async ({ page }) => {
   await signUp(page);
-  await page.goto('/dashboard/applications/fixture-repo-1/config');
+  const { applicationId, customerId } = await seedAppWithConfig(page);
+  await page.goto(`/dashboard/applications/${applicationId}/config?customer=${customerId}`);
 
   await expect(page.getByRole('heading', { name: 'Configuration' })).toBeVisible();
 
@@ -86,7 +127,8 @@ test('config screen renders vendor defaults and customer overrides (fixture)', a
 
 test('secrets render masked — empty password inputs, never plaintext', async ({ page }) => {
   await signUp(page);
-  await page.goto('/dashboard/applications/fixture-repo-1/config');
+  const { applicationId, customerId } = await seedAppWithConfig(page);
+  await page.goto(`/dashboard/applications/${applicationId}/config?customer=${customerId}`);
   await expect(page.getByTestId('config-vendor-defaults')).toBeVisible();
 
   // DATABASE_URL (vendor default) + API_KEY (customer override) are secrets.
@@ -99,12 +141,14 @@ test('secrets render masked — empty password inputs, never plaintext', async (
 
   // No secret-looking payload exists anywhere in the DOM.
   const text = await page.locator('body').innerText();
-  expect(text).not.toMatch(/postgres:\/\/|hunter2|super-secret-value/);
+  expect(text).not.toMatch(/postgres:\/\//);
+  expect(text).not.toContain('e2e-seed-customer-secret');
 });
 
 test('secret fields are write-only password inputs with a show/hide toggle', async ({ page }) => {
   await signUp(page);
-  await page.goto('/dashboard/applications/fixture-repo-1/config');
+  const { applicationId } = await seedAppWithConfig(page);
+  await page.goto(`/dashboard/applications/${applicationId}/config`);
 
   const defaults = page.getByTestId('config-vendor-defaults');
   const secretField = defaults.getByLabel('DATABASE_URL');
@@ -119,20 +163,28 @@ test('secret fields are write-only password inputs with a show/hide toggle', asy
 
 test('saving defaults sends the write and confirms', async ({ page }) => {
   await signUp(page);
-  const sink: { body: ConfigWriteBody | null } = { body: null };
-  await captureConfigWrites(page, sink);
+  const { applicationId } = await seedAppWithConfig(page);
 
-  await page.goto('/dashboard/applications/fixture-repo-1/config');
+  await page.goto(`/dashboard/applications/${applicationId}/config`);
   const defaults = page.getByTestId('config-vendor-defaults');
   await defaults.getByLabel('LOG_LEVEL').fill('warn');
-  await defaults.getByRole('button', { name: 'Save defaults' }).click();
+
+  const [request] = await Promise.all([
+    page.waitForRequest(
+      (req) =>
+        req.url() === `${API_URL}/api/applications/${applicationId}/config` &&
+        req.method() === 'PUT',
+    ),
+    defaults.getByRole('button', { name: 'Save defaults' }).click(),
+  ]);
 
   await expect(defaults.getByRole('status')).toHaveText('Saved.');
 
   // The write path carried the whole defaults group (vendor scope: null
   // customer) with the edited value; the untouched secret went along empty.
-  expect(sink.body).toMatchObject({ customerId: null });
-  const entries = sink.body?.entries ?? [];
+  const body = request.postDataJSON() as ConfigWriteBody;
+  expect(body).toMatchObject({ customerId: null });
+  const entries = body.entries ?? [];
   expect(entries.find((entry) => entry.key === 'LOG_LEVEL')).toMatchObject({ value: 'warn' });
   expect(entries.find((entry) => entry.key === 'DATABASE_URL')).toMatchObject({
     isSecret: true,
@@ -143,24 +195,58 @@ test('saving defaults sends the write and confirms', async ({ page }) => {
   await expect(defaults.getByLabel('LOG_LEVEL')).toHaveValue('warn');
 });
 
+test('saving defaults through the UI persists to the real API (regression: CORS blocked PUT)', async ({
+  page,
+}) => {
+  await signUp(page);
+  const { applicationId } = await seedAppWithConfig(page);
+
+  await page.goto(`/dashboard/applications/${applicationId}/config`);
+  const defaults = page.getByTestId('config-vendor-defaults');
+  const newValue = `warn-${crypto.randomUUID().slice(0, 8)}`;
+  await defaults.getByLabel('LOG_LEVEL').fill(newValue);
+  await defaults.getByRole('button', { name: 'Save defaults' }).click();
+  await expect(defaults.getByRole('status')).toHaveText('Saved.');
+
+  // Previously the API's CORS config only allowed GET,HEAD,POST, so the
+  // browser blocked the PUT preflight and every config save silently failed
+  // in the browser even though a mocked test would still show "Saved.". This
+  // reads the value back through the real API to prove the write actually
+  // landed in the database.
+  const readBack = await page.request.get(`${API_URL}/api/applications/${applicationId}/config`);
+  expect(readBack.ok()).toBeTruthy();
+  const config = (await readBack.json()) as {
+    vendorDefaults: { key: string; value: string | null }[];
+  };
+  expect(config.vendorDefaults.find((entry) => entry.key === 'LOG_LEVEL')?.value).toBe(newValue);
+});
+
 test('saving a secret sends the new value on the write path but never renders it', async ({
   page,
 }) => {
   await signUp(page);
-  const sink: { body: ConfigWriteBody | null } = { body: null };
-  await captureConfigWrites(page, sink);
+  const { applicationId, customerId } = await seedAppWithConfig(page);
 
-  await page.goto('/dashboard/applications/fixture-repo-1/config');
+  await page.goto(`/dashboard/applications/${applicationId}/config?customer=${customerId}`);
   const overrides = page.getByTestId('config-customer-overrides');
   await overrides.getByLabel('API_KEY').fill('e2e-brand-new-secret-value');
-  await overrides.getByRole('button', { name: 'Save overrides' }).click();
+
+  const [request] = await Promise.all([
+    page.waitForRequest(
+      (req) =>
+        req.url() === `${API_URL}/api/applications/${applicationId}/config` &&
+        req.method() === 'PUT',
+    ),
+    overrides.getByRole('button', { name: 'Save overrides' }).click(),
+  ]);
 
   await expect(overrides.getByRole('status')).toHaveText('Saved.');
 
   // The write path carried the NEW secret to the API (the §31 relay
-  // write-through needs it), scoped to the fixture customer.
-  expect(sink.body?.customerId).toBe('fixture-customer-acme');
-  const apiKeyWrite = sink.body?.entries?.find((entry) => entry.key === 'API_KEY');
+  // write-through needs it), scoped to the real customer.
+  const body = request.postDataJSON() as ConfigWriteBody;
+  expect(body.customerId).toBe(customerId);
+  const apiKeyWrite = body.entries?.find((entry) => entry.key === 'API_KEY');
   expect(apiKeyWrite).toMatchObject({ isSecret: true, value: 'e2e-brand-new-secret-value' });
 
   // The DOM never renders the secret: the field reset to an empty password

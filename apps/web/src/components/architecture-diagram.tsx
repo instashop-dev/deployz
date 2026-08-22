@@ -13,7 +13,7 @@ export function ArchitectureDiagram() {
         <div className="mt-3 flex flex-col items-center gap-2">
           <DiagramBox>Load Balancer</DiagramBox>
           <Arrow />
-          <DiagramBox>Application (ECS/Fargate)</DiagramBox>
+          <DiagramBox>Application container</DiagramBox>
           <Arrow />
           <div className="flex flex-wrap items-center justify-center gap-3">
             <DiagramBox small>Database</DiagramBox>

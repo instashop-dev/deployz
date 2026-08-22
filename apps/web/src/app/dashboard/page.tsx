@@ -64,16 +64,20 @@ export default function DeploymentsPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Every customer installation of your app, in one place.
           </p>
         </div>
-        <Button asChild size="sm">
-          <Link href="/dashboard/deployments/new">Create Customer Deployment</Link>
-        </Button>
+        {/* The empty state owns the sole call to action; a header copy of it
+            would show the same button twice on one screen. */}
+        {state.status === 'empty' ? null : (
+          <Button asChild size="sm">
+            <Link href="/dashboard/deployments/new">Create Customer Deployment</Link>
+          </Button>
+        )}
       </div>
 
       {state.status === 'loading' ? <LoadingState /> : null}

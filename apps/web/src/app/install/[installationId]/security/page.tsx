@@ -85,7 +85,7 @@ export default async function SecurityDetailsPage({
           Exact AWS resources created
         </h2>
         <p className="text-sm text-muted-foreground">
-          This is the complete resource list — not IAM permissions, the actual things provisioned
+          This is the complete resource list — not permission names, the actual things provisioned
           in your account:
         </p>
         <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
