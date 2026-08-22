@@ -64,7 +64,7 @@ describe('classifyFailure — AWS_SCP_BLOCKED (rule 1)', () => {
       source: 'ecs',
       error: { code: 'AccessDenied', message: 'not authorized to perform this action' },
     };
-    expect(classifyFailure(event)).toBe('ECS_DEPLOYMENT_FAILED');
+    expect(classifyFailure(event)).toBe('AWS_PERMISSION_DENIED');
   });
 });
 
@@ -357,6 +357,11 @@ describe('classifyFailure — purity invariant (§20)', () => {
         source: 'ecs',
         error: { code: 'AccessDenied', message: 'explicit deny in a service control policy' },
       },
+      // AWS_PERMISSION_DENIED
+      {
+        source: 'ecs',
+        error: { code: 'AccessDenied', message: 'not authorized to perform this action' },
+      },
       // PORT_MISMATCH
       { source: 'health-check', signal: 'port', context: { expectedPort: 3000, actualPort: 8080 } },
       // REGION_NOT_SUPPORTED
@@ -369,10 +374,24 @@ describe('classifyFailure — purity invariant (§20)', () => {
       { source: 'deploy', action: 'migration', error: { message: 'migration failed' } },
       // RELAY_DISCONNECTED
       { source: 'relay', signal: 'connectivity', context: { connected: false } },
+      // STACK_CREATE_FAILED
+      { source: 'cloudformation', signal: 'stack-create-failed' },
+      // DATABASE_CREATE_FAILED
+      { source: 'rds', signal: 'db-create-failed' },
+      // DATABASE_CONNECTION_FAILED
+      { source: 'rds', error: { message: 'connection timeout to database' } },
+      // IMAGE_PULL_FAILED
+      { source: 'ecs', signal: 'image-pull-failed' },
+      // CONTAINER_START_FAILED
+      { source: 'ecs', signal: 'container-exit' },
+      // MISSING_SECRET
+      { source: 'ecs', signal: 'missing-secret' },
       // ECS_DEPLOYMENT_FAILED
       { source: 'ecs', error: { message: 'generic ecs error' } },
       // RDS_UNAVAILABLE
       { source: 'rds', context: { available: false } },
+      // UNSUPPORTED_ARCHITECTURE
+      { source: 'preflight', signal: 'unsupported-arch' },
       // UNKNOWN
       { source: 'unknown-source' },
     ];
@@ -384,7 +403,7 @@ describe('classifyFailure — purity invariant (§20)', () => {
       expect(b).toBe(a);
       codes.push(a);
     }
-    // The loop covered all ten codes exactly once.
+    // The loop covered all eighteen codes exactly once.
     expect([...codes].sort()).toEqual([...FAILURE_CODES].sort());
   });
 });

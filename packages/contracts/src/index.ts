@@ -75,6 +75,8 @@ export const jobTypeSchema = z.enum([
   'MIGRATION',
   'INFRA_UPGRADE',
   'HEALTH_REPORT',
+  'PREFLIGHT',
+  'HEALTH_CHECK',
 ]);
 export type JobType = z.infer<typeof jobTypeSchema>;
 
@@ -82,9 +84,11 @@ export type JobType = z.infer<typeof jobTypeSchema>;
 // OR on relay pickup — the payload/result disambiguates which.
 export const jobStateSchema = z.enum([
   'REQUESTED',
+  'QUEUED',
   'WAITING',
   'RUNNING',
   'SUCCEEDED',
+  'SUCCESS',
   'FAILED',
   'CANCELLED',
 ]);
@@ -102,9 +106,29 @@ export const failureCodeSchema = z.enum([
   'RELAY_DISCONNECTED',
   'ECS_DEPLOYMENT_FAILED',
   'RDS_UNAVAILABLE',
+  'AWS_PERMISSION_DENIED',
+  'STACK_CREATE_FAILED',
+  'DATABASE_CREATE_FAILED',
+  'DATABASE_CONNECTION_FAILED',
+  'IMAGE_PULL_FAILED',
+  'CONTAINER_START_FAILED',
+  'MISSING_SECRET',
+  'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
 ]);
 export type FailureCode = z.infer<typeof failureCodeSchema>;
+
+export const relayStatusSchema = z.enum(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']);
+export type RelayStatus = z.infer<typeof relayStatusSchema>;
+
+export const healthStatusSchema = z.enum(['HEALTHY', 'DEGRADED', 'UNHEALTHY']);
+export type HealthStatus = z.infer<typeof healthStatusSchema>;
+
+export const orgPlanSchema = z.enum(['FREE', 'STARTER', 'PRO']);
+export type OrgPlan = z.infer<typeof orgPlanSchema>;
+
+export const buildStatusSchema = z.enum(['PENDING', 'BUILDING', 'SUCCEEDED', 'FAILED']);
+export type BuildStatus = z.infer<typeof buildStatusSchema>;
 
 // subscriptions.status — Stripe subscription lifecycle subset we persist.
 export const subscriptionStatusSchema = z.enum([
@@ -137,14 +161,14 @@ const auditColumns = {
 
 // Better Auth organization plugin shape + Deployz Stripe linkage (§48).
 export const organizationSchema = z.object({
-  id: z.string(), // Better Auth text pk
+  id: z.string(),
   name: z.string(),
   slug: z.string(),
   logo: z.string().nullable(),
   metadata: z.string().nullable(),
   stripeCustomerId: z.string().nullable(),
+  plan: orgPlanSchema,
   createdAt: z.iso.datetime(),
-  // Plugin declares updatedAt optional — nullable by design.
   updatedAt: z.iso.datetime().nullable(),
 });
 export type Organization = z.infer<typeof organizationSchema>;
@@ -169,11 +193,14 @@ export const applicationSchema = z.object({
   repoFullName: z.string(),
   repoUrl: z.string(),
   defaultBranch: z.string(),
+  containerPort: z.number().int().nullable(),
+  healthPath: z.string().nullable(),
+  workerCommand: z.string().nullable(),
+  databaseRequired: z.boolean(),
+  storageRequired: z.boolean(),
   analysisStatus: analysisStatusSchema,
-  // §19 verdict persistence: status + human-readable reason.
   compatibilityStatus: compatibilityStatusSchema.nullable(),
   compatibilityReason: z.string().nullable(),
-  // §18 detector output (deterministic analyser result blob).
   detectedMetadata: jsonRecord.nullable(),
   ...auditColumns,
 });
@@ -184,10 +211,9 @@ export const releaseSchema = z.object({
   applicationId: z.uuid(),
   version: z.string(),
   gitSha: z.string(),
-  // Immutable sha256: digest, set once the image build completes.
   imageDigest: z.string().nullable(),
-  // §26 migration command carried with the release.
   migrationCommand: z.string().nullable(),
+  buildStatus: buildStatusSchema,
   releaseStatus: releaseStatusSchema,
   ...auditColumns,
 });
@@ -200,6 +226,7 @@ export const customerSchema = z.object({
   name: z.string(),
   email: z.email(),
   company: z.string().nullable(),
+  externalReference: z.string().nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -210,20 +237,20 @@ export const deploymentSchema = z.object({
   customerId: z.uuid(),
   applicationId: z.uuid(),
   organizationId: z.string(),
-  // §32 region allowlist (enum enforces the exact 17).
   region: regionSchema,
-  // §46 product-vocabulary state machine.
   state: deploymentStateSchema,
-  // §59 desired/observed state model.
+  awsAccountId: z.string().nullable(),
+  currentReleaseId: z.uuid().nullable(),
+  previousReleaseId: z.uuid().nullable(),
+  relayStatus: relayStatusSchema,
+  healthStatus: healthStatusSchema,
   desiredState: jsonRecord,
   observedState: jsonRecord.nullable(),
-  // §60 infra version marker — INFRA_UPGRADE jobs move this forward.
   infraVersion: z.string(),
-  // Install identifier handed to the customer/relay.
   installationId: z.string(),
-  // §7 free test deployment flag.
   isTestDeployment: z.boolean(),
   lastHealthAt: z.iso.datetime().nullable(),
+  deletedAt: z.iso.datetime().nullable(),
   ...auditColumns,
 });
 export type Deployment = z.infer<typeof deploymentSchema>;

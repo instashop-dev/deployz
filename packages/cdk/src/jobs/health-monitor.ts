@@ -50,6 +50,7 @@ export const HEALTH_SIGNAL_KEYS = [
   'http',
   'utilization',
   'consistency',
+  'container-exit',
 ] as const;
 
 export type HealthSignalKey = (typeof HEALTH_SIGNAL_KEYS)[number];
@@ -340,6 +341,35 @@ export function checkStateConsistency(deps: StateConsistencyDeps): HealthSignal 
   };
 }
 
+// ── 9. Container exit state ────────────────────────────────────────────────
+
+/** Observed data for the container-exit signal. */
+export interface ContainerExitStateDeps {
+  readonly runningCount: number;
+  readonly stoppedReason?: string | undefined;
+}
+
+/** Signal 9 — have containers exited unexpectedly? */
+export function checkContainerExitState(deps: ContainerExitStateDeps): HealthSignal {
+  const { runningCount, stoppedReason } = deps;
+  let status: SignalStatus;
+  let summary: string;
+  if (runningCount === 0 && stoppedReason !== undefined) {
+    status = 'UNHEALTHY';
+    summary = `Container stopped: ${stoppedReason}`;
+  } else if (runningCount === 0) {
+    status = 'UNHEALTHY';
+    summary = 'No containers are running.';
+  } else if (stoppedReason !== undefined) {
+    status = 'DEGRADED';
+    summary = `Some containers stopped: ${stoppedReason}`;
+  } else {
+    status = 'HEALTHY';
+    summary = 'All containers are running normally.';
+  }
+  return { key: 'container-exit', status, summary, detail: { runningCount, stoppedReason } };
+}
+
 // ── Collect all 8 signals ──────────────────────────────────────────────────
 
 /** Aggregated observed data for all 8 §28 signals. */
@@ -358,6 +388,7 @@ export interface HealthCheckDeps {
   readonly memoryPercent: number;
   readonly desiredState: string;
   readonly observedState: string;
+  readonly stoppedReason?: string | undefined;
 }
 
 /**
@@ -378,6 +409,7 @@ export function collectHealthSignals(deps: HealthCheckDeps): HealthSignal[] {
     checkHttpHealth({ statusCode: deps.httpStatusCode }),
     checkUtilization({ cpuPercent: deps.cpuPercent, memoryPercent: deps.memoryPercent }),
     checkStateConsistency({ desiredState: deps.desiredState, observedState: deps.observedState }),
+    checkContainerExitState({ runningCount: deps.runningCount, stoppedReason: deps.stoppedReason }),
   ];
 }
 

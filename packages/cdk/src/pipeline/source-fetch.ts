@@ -60,6 +60,8 @@ export interface FetchRepoArchiveResult {
 }
 
 export interface FetchRepoArchiveOptions {
+  /** S3 bucket the tarball is uploaded to. */
+  readonly bucket: string;
   /** S3 key prefix (e.g. `build-source/org-name/repo-name`). */
   readonly s3KeyPrefix: string;
   /** Git ref to fetch (branch, tag, or SHA). Default: `main`. */
@@ -136,6 +138,7 @@ export async function fetchRepoArchive(
   // Step 3: Upload to S3.
   const s3Key = `${options.s3KeyPrefix}/${ref}.tar.gz`;
   await s3Client.putObject({
+    bucket: options.bucket,
     key: s3Key,
     body: bytes,
     contentType: 'application/gzip',

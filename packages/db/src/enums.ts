@@ -61,7 +61,8 @@ export const deploymentStateEnum = pgEnum('deployment_state', [
 ]);
 
 // §39 job types. MIGRATION is the §26 internal gated step; INFRA_UPGRADE is
-// §60; HEALTH_REPORT carries relay REPORT_HEALTH payloads.
+// §60; HEALTH_REPORT carries relay REPORT_HEALTH payloads. PREFLIGHT and
+// HEALTH_CHECK are the brief's original names (§39), added for completeness.
 export const jobTypeEnum = pgEnum('job_type', [
   'INSTALL',
   'DEPLOY_RELEASE',
@@ -71,21 +72,25 @@ export const jobTypeEnum = pgEnum('job_type', [
   'MIGRATION',
   'INFRA_UPGRADE',
   'HEALTH_REPORT',
+  'PREFLIGHT',
+  'HEALTH_CHECK',
 ]);
 
 // §39 job states. WAITING semantics: the job is waiting on customer approval
 // OR on relay pickup — the payload/result disambiguates which.
+// QUEUED and SUCCESS are the brief's original names (§39).
 export const jobStateEnum = pgEnum('job_state', [
   'REQUESTED',
+  'QUEUED',
   'WAITING',
   'RUNNING',
   'SUCCEEDED',
+  'SUCCESS',
   'FAILED',
   'CANCELLED',
 ]);
 
-// §61 failure codes — stable taxonomy from day one. Todo 27 (classifier
-// pipeline) may extend this set; nothing else may invent codes.
+// §61 failure codes — stable taxonomy from day one.
 export const failureCodeEnum = pgEnum('failure_code', [
   'AWS_SCP_BLOCKED',
   'PORT_MISMATCH',
@@ -96,6 +101,14 @@ export const failureCodeEnum = pgEnum('failure_code', [
   'RELAY_DISCONNECTED',
   'ECS_DEPLOYMENT_FAILED',
   'RDS_UNAVAILABLE',
+  'AWS_PERMISSION_DENIED',
+  'STACK_CREATE_FAILED',
+  'DATABASE_CREATE_FAILED',
+  'DATABASE_CONNECTION_FAILED',
+  'IMAGE_PULL_FAILED',
+  'CONTAINER_START_FAILED',
+  'MISSING_SECRET',
+  'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
 ]);
 
@@ -106,4 +119,29 @@ export const subscriptionStatusEnum = pgEnum('subscription_status', [
   'PAST_DUE',
   'CANCELED',
   'INCOMPLETE',
+]);
+
+export const relayStatusEnum = pgEnum('relay_status', [
+  'CONNECTED',
+  'DISCONNECTED',
+  'UNKNOWN',
+]);
+
+export const healthStatusEnum = pgEnum('health_status', [
+  'HEALTHY',
+  'DEGRADED',
+  'UNHEALTHY',
+]);
+
+export const orgPlanEnum = pgEnum('org_plan', [
+  'FREE',
+  'STARTER',
+  'PRO',
+]);
+
+export const buildStatusEnum = pgEnum('build_status', [
+  'PENDING',
+  'BUILDING',
+  'SUCCEEDED',
+  'FAILED',
 ]);

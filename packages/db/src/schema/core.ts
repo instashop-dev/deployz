@@ -1,6 +1,6 @@
-import { boolean, jsonb, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
 
-import { analysisStatusEnum, compatibilityStatusEnum, releaseStatusEnum } from '../enums.js';
+import { analysisStatusEnum, buildStatusEnum, compatibilityStatusEnum, releaseStatusEnum } from '../enums.js';
 import { organization } from './auth.js';
 import { auditFields, createdAt, id, updatedAt } from './common.js';
 
@@ -14,11 +14,14 @@ export const applications = pgTable('applications', {
   repoFullName: text('repo_full_name').notNull(),
   repoUrl: text('repo_url').notNull(),
   defaultBranch: text('default_branch').notNull().default('main'),
+  containerPort: integer('container_port'),
+  healthPath: text('health_path'),
+  workerCommand: text('worker_command'),
+  databaseRequired: boolean('database_required').notNull().default(false),
+  storageRequired: boolean('storage_required').notNull().default(false),
   analysisStatus: analysisStatusEnum('analysis_status').notNull().default('PENDING'),
-  // §19 verdict persistence: status + human-readable reason.
   compatibilityStatus: compatibilityStatusEnum('compatibility_status'),
   compatibilityReason: text('compatibility_reason'),
-  // §18 detector output (deterministic analyser result blob).
   detectedMetadata: jsonb('detected_metadata').$type<Record<string, unknown>>(),
   ...auditFields(),
 });
@@ -30,15 +33,13 @@ export const releases = pgTable('releases', {
     .references(() => applications.id),
   version: text('version').notNull(),
   gitSha: text('git_sha').notNull(),
-  // Immutable sha256: digest, set once the image build completes.
   imageDigest: text('image_digest'),
-  // §26 migration command carried with the release.
   migrationCommand: text('migration_command'),
+  buildStatus: buildStatusEnum('build_status').notNull().default('PENDING'),
   releaseStatus: releaseStatusEnum('release_status').notNull().default('BUILDING'),
   ...auditFields(),
 });
 
-// §37: MINIMAL on purpose — Deployz is not a CRM. No extra fields.
 export const customers = pgTable('customers', {
   id: id(),
   organizationId: text('organization_id')
@@ -47,6 +48,7 @@ export const customers = pgTable('customers', {
   name: text('name').notNull(),
   email: text('email').notNull(),
   company: text('company'),
+  externalReference: text('external_reference'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

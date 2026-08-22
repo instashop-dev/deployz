@@ -494,15 +494,16 @@ describe('§67 Golden Path E2E', () => {
   // ── AWS client seam verification ─────────────────────────────────────
 
   describe('AWS client seam (injectable interface)', () => {
-    it('real createAwsClients uses SDK v3 and rejects without credentials', async () => {
+    it('real createAwsClients uses SDK v3 — resolves a live identity when credentials are present', async () => {
       const clients = createAwsClients();
 
-      // Without credentials in test, SDK throws CredentialsProviderError.
-      // This proves clients are real SDK-backed (no longer stubs).
-      await expect(clients.sts.getCallerIdentity()).rejects.toThrow();
-      await expect(
-        clients.cloudFormation.describeStacks({ stackName: 'x', region: 'us-east-1' }),
-      ).rejects.toThrow();
+      // When AWS credentials are configured (the real-AWS run), the SDK
+      // resolves a real caller identity. This is the STRONGER proof the
+      // clients are real SDK-backed (no longer stubs): a stub cannot return
+      // a genuine 12-digit account id.
+      const identity = await clients.sts.getCallerIdentity();
+      expect(identity.account).toMatch(/^\d{12}$/);
+      expect(identity.arn).toContain('aws:iam::');
     });
 
     it('mock AwsClients satisfies the full interface', () => {

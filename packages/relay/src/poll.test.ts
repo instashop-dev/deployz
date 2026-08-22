@@ -20,6 +20,8 @@ function makeExecutors(): Record<string, CommandExecutor> {
     ROLLBACK: noop,
     CONFIG_UPDATE: noop,
     DESTROY: noop,
+    MIGRATE: noop,
+    REFRESH_METADATA: noop,
   };
 }
 
@@ -290,6 +292,11 @@ describe('pollOnce — command execution', () => {
     const healthBody = JSON.parse(healthReqs[0]?.body ?? '{}');
     expect(healthBody.installationId).toBe('inst-test');
     expect(healthBody.observedState).toBeDefined();
+    expect(healthBody.observedState.runningVersion).toBeNull();
+    expect(healthBody.observedState.observedConfig).toBeNull();
+    expect(healthBody.observedState.infraHealth).toBeNull();
+    expect(healthBody.observedState.idempotencyKeysTracked).toBeTypeOf('number');
+    expect(healthBody.observedState.lastPoll).toBeTypeOf('string');
   });
 });
 

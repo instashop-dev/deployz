@@ -533,3 +533,118 @@ export function detectMigrationCommand(tree: FileTree): DetectorFinding {
     details: `Migration commands detected: ${detected.join(', ')}`,
   };
 }
+
+// 11. Startup command
+// ---------------------------------------------------------------------------
+
+const CMD_REGEX = /^CMD\s+(.+)$/m;
+const ENTRYPOINT_REGEX = /^ENTRYPOINT\s+(.+)$/m;
+
+/**
+ * Detect the application startup command from Dockerfile CMD/ENTRYPOINT
+ * instructions and package.json "start" script.
+ */
+export function detectStartupCommand(tree: FileTree): DetectorFinding {
+  const sources: string[] = [];
+
+  // 1. Dockerfile CMD instruction
+  for (const path of Object.keys(tree)) {
+    if (DOCKERFILE_REGEX.test(path)) {
+      const content = tree[path];
+      if (!content) continue;
+      const cmdMatch = CMD_REGEX.exec(content);
+      if (cmdMatch && cmdMatch[1]) {
+        sources.push(`CMD: ${cmdMatch[1].trim()}`);
+      }
+      const entryMatch = ENTRYPOINT_REGEX.exec(content);
+      if (entryMatch && entryMatch[1]) {
+        sources.push(`ENTRYPOINT: ${entryMatch[1].trim()}`);
+      }
+    }
+  }
+
+  // 2. package.json "start" script
+  const pkg = parsePackageJson(tree);
+  if (pkg) {
+    const scripts = getScripts(pkg);
+    const startScript = scripts['start'];
+    if (startScript) {
+      sources.push(`start: ${startScript}`);
+    }
+  }
+
+  if (sources.length === 0) {
+    return { detector: 'startup-command', detected: false };
+  }
+
+  return {
+    detector: 'startup-command',
+    detected: true,
+    value: sources,
+    details: `Startup commands detected: ${sources.join('; ')}`,
+  };
+}
+
+// 12. External services
+// ---------------------------------------------------------------------------
+
+const EXTERNAL_SERVICE_SDKS = [
+  'stripe',
+  'twilio',
+  'sendgrid',
+  '@sendgrid/mail',
+  'plaid',
+  'auth0',
+  'firebase-admin',
+  'firebase',
+  'algoliasearch',
+  'contentful',
+  'sanity',
+  '@sanity/client',
+] as const;
+
+const EXTERNAL_URL_REGEX = /https?:\/\/(?!.*\.amazonaws\.com)(?!.*\.aws\.)([a-zA-Z0-9.-]+)/g;
+
+/**
+ * Detect external (non-AWS) service dependencies from package.json SDK imports
+ * and hardcoded external HTTP API URLs in source code.
+ */
+export function detectExternalServices(tree: FileTree): DetectorFinding {
+  const detected: string[] = [];
+
+  // 1. Check package.json for known external service SDKs
+  const pkg = parsePackageJson(tree);
+  const deps = getDependencyNames(pkg);
+  for (const sdk of EXTERNAL_SERVICE_SDKS) {
+    if (deps.includes(sdk) && !detected.includes(sdk)) {
+      detected.push(sdk);
+    }
+  }
+
+  // 2. Scan source code for external HTTP API URLs (non-AWS)
+  const seenDomains = new Set<string>();
+  for (const [path, content] of Object.entries(tree)) {
+    if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
+      let match: RegExpExecArray | null;
+      const regex = new RegExp(EXTERNAL_URL_REGEX.source, 'g');
+      while ((match = regex.exec(content)) !== null) {
+        const domain = match[1];
+        if (domain && !seenDomains.has(domain)) {
+          seenDomains.add(domain);
+          detected.push(domain);
+        }
+      }
+    }
+  }
+
+  if (detected.length === 0) {
+    return { detector: 'external-services', detected: false };
+  }
+
+  return {
+    detector: 'external-services',
+    detected: true,
+    value: detected,
+    details: `External services detected: ${detected.join(', ')}`,
+  };
+}

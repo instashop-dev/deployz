@@ -154,7 +154,7 @@ describe('§62 event result labels', () => {
 // ── §61 failure codes ───────────────────────────────────────────────────────
 
 describe('§61 failure codes', () => {
-  it('defines exactly the ten §61 taxonomy codes', () => {
+  it('defines exactly the eighteen §61 taxonomy codes', () => {
     expect(FAILURE_CODES).toEqual([
       'AWS_SCP_BLOCKED',
       'PORT_MISMATCH',
@@ -165,6 +165,14 @@ describe('§61 failure codes', () => {
       'RELAY_DISCONNECTED',
       'ECS_DEPLOYMENT_FAILED',
       'RDS_UNAVAILABLE',
+      'AWS_PERMISSION_DENIED',
+      'STACK_CREATE_FAILED',
+      'DATABASE_CREATE_FAILED',
+      'DATABASE_CONNECTION_FAILED',
+      'IMAGE_PULL_FAILED',
+      'CONTAINER_START_FAILED',
+      'MISSING_SECRET',
+      'UNSUPPORTED_ARCHITECTURE',
       'UNKNOWN',
     ]);
   });

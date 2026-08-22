@@ -209,6 +209,14 @@ export const FAILURE_CODES = [
   'RELAY_DISCONNECTED',
   'ECS_DEPLOYMENT_FAILED',
   'RDS_UNAVAILABLE',
+  'AWS_PERMISSION_DENIED',
+  'STACK_CREATE_FAILED',
+  'DATABASE_CREATE_FAILED',
+  'DATABASE_CONNECTION_FAILED',
+  'IMAGE_PULL_FAILED',
+  'CONTAINER_START_FAILED',
+  'MISSING_SECRET',
+  'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
 ] as const;
 
@@ -278,6 +286,46 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     label: 'Database unreachable',
     description: "The database isn't reachable right now.",
     severity: 'critical',
+  },
+  AWS_PERMISSION_DENIED: {
+    label: 'Permission denied',
+    description: "Your cloud account doesn't allow this action.",
+    severity: 'critical',
+  },
+  STACK_CREATE_FAILED: {
+    label: 'Setup failed',
+    description: "The initial setup couldn't complete.",
+    severity: 'critical',
+  },
+  DATABASE_CREATE_FAILED: {
+    label: 'Database setup failed',
+    description: "The database couldn't be created.",
+    severity: 'critical',
+  },
+  DATABASE_CONNECTION_FAILED: {
+    label: 'Database connection failed',
+    description: "The app can't reach the database.",
+    severity: 'critical',
+  },
+  IMAGE_PULL_FAILED: {
+    label: 'Image pull failed',
+    description: "The app image couldn't be loaded.",
+    severity: 'critical',
+  },
+  CONTAINER_START_FAILED: {
+    label: 'App failed to start',
+    description: "The app container started but didn't stay running.",
+    severity: 'critical',
+  },
+  MISSING_SECRET: {
+    label: 'Missing secret',
+    description: 'A required secret is not configured.',
+    severity: 'warning',
+  },
+  UNSUPPORTED_ARCHITECTURE: {
+    label: 'Unsupported architecture',
+    description: "This app's architecture isn't supported yet.",
+    severity: 'warning',
   },
   UNKNOWN: {
     label: 'Unknown issue',

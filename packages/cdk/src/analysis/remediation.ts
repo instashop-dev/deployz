@@ -181,6 +181,102 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
     requiresManual: true,
     automatic: false,
   },
+
+  // 11. AWS_PERMISSION_DENIED
+  AWS_PERMISSION_DENIED: {
+    summary: 'Your cloud account does not have permission for this action.',
+    steps: [
+      'Check the IAM role or user policy attached to the deployment.',
+      'Add the missing permission to the policy.',
+      'Contact your cloud administrator if the policy is managed externally.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
+  // 12. STACK_CREATE_FAILED
+  STACK_CREATE_FAILED: {
+    summary: 'The infrastructure setup could not complete.',
+    steps: [
+      'Check the CloudFormation console for the specific resource that failed.',
+      'Fix the underlying issue (e.g. missing permissions, invalid parameters).',
+      'Retry the deployment.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
+  // 13. DATABASE_CREATE_FAILED
+  DATABASE_CREATE_FAILED: {
+    summary: 'The database could not be created.',
+    steps: [
+      'Check the RDS console for the creation failure reason.',
+      'Verify your account has enough capacity for a new database instance.',
+      'Retry the deployment.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
+  // 14. DATABASE_CONNECTION_FAILED
+  DATABASE_CONNECTION_FAILED: {
+    summary: "The app can't reach the database.",
+    steps: [
+      'Check that the database is running and reachable.',
+      'Verify the connection string and security group rules.',
+      'Wait a few minutes and try again — databases sometimes restart.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
+  // 15. IMAGE_PULL_FAILED
+  IMAGE_PULL_FAILED: {
+    summary: 'The container image could not be downloaded.',
+    steps: [
+      'Verify the image exists in the container registry.',
+      'Check that the registry permissions allow pulling the image.',
+      'Make sure the image tag or digest is correct.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
+  // 16. CONTAINER_START_FAILED
+  CONTAINER_START_FAILED: {
+    summary: 'The container stopped unexpectedly during startup.',
+    steps: [
+      'Check the container logs for startup errors.',
+      'Verify the startup command is correct.',
+      'Make sure all required environment variables and secrets are set.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
+  // 17. MISSING_SECRET
+  MISSING_SECRET: {
+    summary: 'A required secret is missing or not accessible.',
+    steps: [
+      'Check that all required secrets exist in the secrets manager.',
+      'Verify the deployment has permission to read the secrets.',
+      'Add any missing secrets and retry.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
+  // 18. UNSUPPORTED_ARCHITECTURE
+  UNSUPPORTED_ARCHITECTURE: {
+    summary: 'The container image uses an unsupported processor architecture.',
+    steps: [
+      'Rebuild your container image for the x86-64 architecture.',
+      'Update your Dockerfile or build command to target linux/amd64.',
+      'Push the rebuilt image and retry the deployment.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
 };
 
 // ── The engine ───────────────────────────────────────────────────────────────

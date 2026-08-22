@@ -1,6 +1,6 @@
 /**
  * §61 failure classifier — the deterministic pipeline that maps a STRUCTURED
- * event to one of the ten stable failure codes BEFORE any AI is consulted.
+ * event to one of the eighteen stable failure codes BEFORE any AI is consulted.
  *
  * The §61 codes are the SINGLE failure taxonomy from day one. This classifier
  * is PURELY DETERMINISTIC (§20): synchronous, ordered rules, first match wins,
@@ -22,24 +22,32 @@ import { ALLOWED_REGIONS } from '../jobs/preflight.js';
 // ── §61 failure taxonomy ───────────────────────────────────────────────────
 
 /**
- * The ten §61 stable failure codes, copied verbatim from
+ * The eighteen §61 stable failure codes, copied verbatim from
  * `packages/db/src/enums.ts` `failureCodeEnum`. Do not reorder, rename, or
  * extend without updating that enum and the parity test.
  */
 export const FAILURE_CODES = [
   'AWS_SCP_BLOCKED',
+  'AWS_PERMISSION_DENIED',
   'PORT_MISMATCH',
   'REGION_NOT_SUPPORTED',
   'QUOTA_EXCEEDED',
   'IMAGE_HEALTH_CHECK_FAILED',
   'MIGRATION_FAILED',
   'RELAY_DISCONNECTED',
+  'STACK_CREATE_FAILED',
+  'DATABASE_CREATE_FAILED',
+  'DATABASE_CONNECTION_FAILED',
+  'IMAGE_PULL_FAILED',
+  'CONTAINER_START_FAILED',
+  'MISSING_SECRET',
   'ECS_DEPLOYMENT_FAILED',
   'RDS_UNAVAILABLE',
+  'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
 ] as const;
 
-/** A §61 failure code — exactly the ten values in `FAILURE_CODES`. */
+/** A §61 failure code — exactly the eighteen values in `FAILURE_CODES`. */
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
 // ── Structured event (§16) ────────────────────────────────────────────────
@@ -200,6 +208,95 @@ function isRelayDisconnected(event: StructuredEvent): boolean {
   return event.signal === 'disconnected';
 }
 
+/**
+ * Rule 1b — AWS_PERMISSION_DENIED.
+ *
+ * An `AccessDenied` or `UnauthorizedAccess` error that does NOT carry an SCP
+ * signature. This catches plain IAM permission denials (missing permissions,
+ * resource-level policies, KMS key policies, etc.) after the SCP check has
+ * already ruled out an SCP block.
+ */
+function isAwsPermissionDenied(event: StructuredEvent): boolean {
+  const code = event.error?.code;
+  const message = event.error?.message;
+  if (code === undefined && message === undefined) return false;
+
+  if (code !== undefined && isAccessDeniedCode(code)) return true;
+
+  if (message !== undefined) {
+    const m = message.toLowerCase();
+    if (m.includes('accessdenied') || m.includes('unauthorizedaccess')) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Rule 10 — DATABASE_CONNECTION_FAILED.
+ *
+ * An RDS-sourced connection failure: either the `connection-failed` signal,
+ * or an error message that mentions both "connection" and "timeout".
+ */
+function isDatabaseConnectionFailed(event: StructuredEvent): boolean {
+  if (event.source !== 'rds') return false;
+  if (event.signal === 'connection-failed') return true;
+
+  const message = event.error?.message;
+  if (message === undefined) return false;
+  const m = message.toLowerCase();
+  return m.includes('connection') && m.includes('timeout');
+}
+
+/**
+ * Rule 11 — IMAGE_PULL_FAILED.
+ *
+ * An ECS-sourced image pull failure: either the `image-pull-failed` signal,
+ * or an error message that mentions "ImagePull" or "CannotPull".
+ */
+function isImagePullFailed(event: StructuredEvent): boolean {
+  if (event.source !== 'ecs') return false;
+  if (event.signal === 'image-pull-failed') return true;
+
+  const message = event.error?.message;
+  if (message === undefined) return false;
+  const m = message.toLowerCase();
+  return m.includes('imagepull') || m.includes('cannotpull');
+}
+
+/**
+ * Rule 12 — CONTAINER_START_FAILED.
+ *
+ * An ECS-sourced container exit or start failure: either the `container-exit`
+ * signal, or an error message that mentions "Container exited" or "start failed".
+ */
+function isContainerStartFailed(event: StructuredEvent): boolean {
+  if (event.source !== 'ecs') return false;
+  if (event.signal === 'container-exit') return true;
+
+  const message = event.error?.message;
+  if (message === undefined) return false;
+  const m = message.toLowerCase();
+  return m.includes('container exited') || m.includes('start failed');
+}
+
+/**
+ * Rule 13 — MISSING_SECRET.
+ *
+ * An ECS-sourced missing-secret failure: either the `missing-secret` signal,
+ * or an error message that mentions "SecretNotFound" or "AccessDenied" with
+ * "secretsmanager".
+ */
+function isMissingSecret(event: StructuredEvent): boolean {
+  if (event.source !== 'ecs') return false;
+  if (event.signal === 'missing-secret') return true;
+
+  const message = event.error?.message;
+  if (message === undefined) return false;
+  const m = message.toLowerCase();
+  if (m.includes('secretnotfound')) return true;
+  return m.includes('accessdenied') && m.includes('secretsmanager');
+}
+
 // ── Classifier ────────────────────────────────────────────────────────────
 
 /**
@@ -212,6 +309,9 @@ function isRelayDisconnected(event: StructuredEvent): boolean {
 export function classifyFailure(event: StructuredEvent): FailureCode {
   // 1. AWS_SCP_BLOCKED — AccessDenied with an SCP / explicit-deny signature.
   if (isScpBlocked(event)) return 'AWS_SCP_BLOCKED';
+
+  // 1b. AWS_PERMISSION_DENIED — AccessDenied without an SCP signature.
+  if (isAwsPermissionDenied(event)) return 'AWS_PERMISSION_DENIED';
 
   // 2. PORT_MISMATCH — §29: app listens on a port different from what's exposed.
   if (isPortMismatch(event)) return 'PORT_MISMATCH';
@@ -246,12 +346,40 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
   // 7. RELAY_DISCONNECTED — relay connectivity signal lost.
   if (isRelayDisconnected(event)) return 'RELAY_DISCONNECTED';
 
-  // 8. ECS_DEPLOYMENT_FAILED — any ECS-sourced error.
+  // 8. STACK_CREATE_FAILED — CloudFormation stack creation failed.
+  if (
+    event.source === 'cloudformation' &&
+    event.signal === 'stack-create-failed'
+  ) {
+    return 'STACK_CREATE_FAILED';
+  }
+
+  // 9. DATABASE_CREATE_FAILED — RDS database creation failed.
+  if (
+    event.source === 'rds' &&
+    event.signal === 'db-create-failed'
+  ) {
+    return 'DATABASE_CREATE_FAILED';
+  }
+
+  // 10. DATABASE_CONNECTION_FAILED — RDS connection failure.
+  if (isDatabaseConnectionFailed(event)) return 'DATABASE_CONNECTION_FAILED';
+
+  // 11. IMAGE_PULL_FAILED — ECS image pull failure.
+  if (isImagePullFailed(event)) return 'IMAGE_PULL_FAILED';
+
+  // 12. CONTAINER_START_FAILED — ECS container exit / start failure.
+  if (isContainerStartFailed(event)) return 'CONTAINER_START_FAILED';
+
+  // 13. MISSING_SECRET — ECS missing secret.
+  if (isMissingSecret(event)) return 'MISSING_SECRET';
+
+  // 14. ECS_DEPLOYMENT_FAILED — any ECS-sourced error.
   if (event.source === 'ecs' && event.error !== undefined) {
     return 'ECS_DEPLOYMENT_FAILED';
   }
 
-  // 9. RDS_UNAVAILABLE — an RDS-sourced error or an unavailable flag.
+  // 15. RDS_UNAVAILABLE — an RDS-sourced error or an unavailable flag.
   if (
     event.source === 'rds' &&
     (event.error !== undefined || contextBoolean(event, 'available') === false)
@@ -259,6 +387,14 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
     return 'RDS_UNAVAILABLE';
   }
 
-  // 10. UNKNOWN — fallback when no rule matches.
+  // 16. UNSUPPORTED_ARCHITECTURE — preflight architecture check failed.
+  if (
+    event.source === 'preflight' &&
+    event.signal === 'unsupported-arch'
+  ) {
+    return 'UNSUPPORTED_ARCHITECTURE';
+  }
+
+  // 17. UNKNOWN — fallback when no rule matches.
   return 'UNKNOWN';
 }

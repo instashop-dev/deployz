@@ -1,14 +1,16 @@
 import cors from '@fastify/cors';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import crypto from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { z } from 'zod';
 
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
-import { createStripe, handleWebhookEvent, constructWebhookEvent } from './billing.js';
+import { createCheckoutSession, createStripe, handleWebhookEvent, constructWebhookEvent } from './billing.js';
 import {
   createConfigStore,
   createRelaySecretWriter,
@@ -17,7 +19,7 @@ import {
   setConfigBodySchema,
 } from './config.js';
 import { env } from './env.js';
-import { ApiError, toErrorEnvelope } from './errors.js';
+import { ApiError, NotFoundError, toErrorEnvelope } from './errors.js';
 import {
   createGithubStore,
   handleInstallationWebhook,
@@ -215,6 +217,496 @@ export async function buildServer({
       fetchFn: githubFetch,
     });
     return { repositories };
+  });
+
+  // ── Request schemas (route boundary validation) ─────────────────────────
+
+  const createApplicationBodySchema = z.object({
+    organizationId: z.string().min(1),
+    name: z.string().min(1),
+    githubInstallationId: z.string().min(1),
+    repoFullName: z.string().min(1),
+    repoUrl: z.string().min(1),
+    defaultBranch: z.string().min(1),
+    containerPort: z.number().int().nullish(),
+    healthPath: z.string().nullish(),
+    workerCommand: z.string().nullish(),
+    databaseRequired: z.boolean().nullish(),
+    storageRequired: z.boolean().nullish(),
+  });
+
+  const createCustomerBodySchema = z.object({
+    organizationId: z.string().min(1),
+    name: z.string().min(1),
+    email: z.string().email(),
+    company: z.string().nullish(),
+    externalReference: z.string().nullish(),
+  });
+
+  const createDeploymentBodySchema = z.object({
+    applicationId: z.string().uuid(),
+    customerId: z.string().uuid(),
+    organizationId: z.string().min(1),
+    region: z.enum([
+      'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
+      'ca-central-1', 'sa-east-1',
+      'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-central-1', 'eu-north-1',
+      'ap-northeast-1', 'ap-northeast-2', 'ap-northeast-3',
+      'ap-south-1', 'ap-southeast-1', 'ap-southeast-2',
+    ]),
+    isTestDeployment: z.boolean().nullish(),
+  });
+
+  const createReleaseBodySchema = z.object({
+    version: z.string().min(1),
+    gitSha: z.string().min(1),
+    migrationCommand: z.string().nullish(),
+  });
+
+  const deployBodySchema = z.object({
+    releaseId: z.string().uuid(),
+  });
+
+  const rollbackBodySchema = z.object({
+    releaseId: z.string().uuid(),
+  });
+
+  const destroyBodySchema = z.object({
+    finalSnapshot: z.boolean().nullish(),
+  });
+
+  const checkoutBodySchema = z.object({
+    organizationId: z.string().min(1),
+  });
+
+  // ── Applications (§17–§19) ──────────────────────────────────────────────
+
+  // POST /api/applications — Create application from GitHub repo selection
+  app.post('/api/applications', { preHandler: requireAuth }, async (request, reply) => {
+    const body = createApplicationBodySchema.parse(request.body);
+    const [row] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId: body.organizationId,
+        name: body.name,
+        githubInstallationId: body.githubInstallationId,
+        repoFullName: body.repoFullName,
+        repoUrl: body.repoUrl,
+        defaultBranch: body.defaultBranch,
+        containerPort: body.containerPort ?? null,
+        healthPath: body.healthPath ?? null,
+        workerCommand: body.workerCommand ?? null,
+        databaseRequired: body.databaseRequired ?? false,
+        storageRequired: body.storageRequired ?? false,
+        analysisStatus: 'PENDING',
+        createdBy: request.user?.id ?? null,
+        updatedBy: request.user?.id ?? null,
+      })
+      .returning();
+    return reply.code(201).send(row);
+  });
+
+  // GET /api/applications — List applications for current org
+  app.get('/api/applications', { preHandler: requireAuth }, async (request) => {
+    const { organizationId } = request.query as { organizationId?: string };
+    if (!organizationId) {
+      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+    }
+    const rows = await db
+      .select()
+      .from(schema.applications)
+      .where(eq(schema.applications.organizationId, organizationId));
+    return rows;
+  });
+
+  // GET /api/applications/:id — Get single application
+  app.get('/api/applications/:id', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const rows = await db
+      .select()
+      .from(schema.applications)
+      .where(eq(schema.applications.id, id))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Application not found');
+    }
+    return rows[0];
+  });
+
+  // POST /api/applications/:id/analyse — Trigger analysis
+  app.post('/api/applications/:id/analyse', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const rows = await db
+      .select({ id: schema.applications.id })
+      .from(schema.applications)
+      .where(eq(schema.applications.id, id))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Application not found');
+    }
+    await db
+      .update(schema.applications)
+      .set({ analysisStatus: 'ANALYZING', updatedBy: request.user?.id ?? null })
+      .where(eq(schema.applications.id, id));
+    return reply.code(202).send({ status: 'ANALYZING' });
+  });
+
+  // GET /api/applications/:id/readiness — Get compatibility result (§19)
+  app.get('/api/applications/:id/readiness', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const rows = await db
+      .select()
+      .from(schema.applications)
+      .where(eq(schema.applications.id, id))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Application not found');
+    }
+    const app = rows[0]!;
+    return {
+      verdict: app.compatibilityStatus ?? 'READY',
+      score: app.compatibilityStatus === 'READY' ? 100 : app.compatibilityStatus === 'NEEDS_ATTENTION' ? 60 : 0,
+      issues: app.compatibilityReason ? [{ message: app.compatibilityReason }] : [],
+      readyList: app.compatibilityStatus === 'READY' ? ['container', 'port', 'healthcheck'] : [],
+      rejections: app.compatibilityStatus === 'NOT_COMPATIBLE' ? [app.compatibilityReason ?? 'Unknown'] : [],
+    };
+  });
+
+  // ── Customers (§37) ─────────────────────────────────────────────────────
+
+  // POST /api/customers — Create customer
+  app.post('/api/customers', { preHandler: requireAuth }, async (request, reply) => {
+    const body = createCustomerBodySchema.parse(request.body);
+    const [row] = await db
+      .insert(schema.customers)
+      .values({
+        organizationId: body.organizationId,
+        name: body.name,
+        email: body.email,
+        company: body.company ?? null,
+        externalReference: body.externalReference ?? null,
+      })
+      .returning();
+    return reply.code(201).send(row);
+  });
+
+  // GET /api/customers — List customers for org
+  app.get('/api/customers', { preHandler: requireAuth }, async (request) => {
+    const { organizationId } = request.query as { organizationId?: string };
+    if (!organizationId) {
+      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+    }
+    const rows = await db
+      .select()
+      .from(schema.customers)
+      .where(eq(schema.customers.organizationId, organizationId));
+    return rows;
+  });
+
+  // ── Deployments (§12, §23–§24, §38) ────────────────────────────────────
+
+  // POST /api/deployments — Create deployment
+  app.post('/api/deployments', { preHandler: requireAuth }, async (request, reply) => {
+    const body = createDeploymentBodySchema.parse(request.body);
+    const installationId = crypto.randomUUID();
+    const [row] = await db
+      .insert(schema.deployments)
+      .values({
+        customerId: body.customerId,
+        applicationId: body.applicationId,
+        organizationId: body.organizationId,
+        region: body.region,
+        state: 'NOT_INSTALLED',
+        installationId,
+        isTestDeployment: body.isTestDeployment ?? false,
+        createdBy: request.user?.id ?? null,
+        updatedBy: request.user?.id ?? null,
+      })
+      .returning();
+    return reply.code(201).send(row);
+  });
+
+  // GET /api/deployments — Fleet dashboard (§23)
+  app.get('/api/deployments', { preHandler: requireAuth }, async (request) => {
+    const { organizationId, customerId, applicationId } = request.query as {
+      organizationId?: string;
+      customerId?: string;
+      applicationId?: string;
+    };
+    if (!organizationId) {
+      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+    }
+    const conditions = [eq(schema.deployments.organizationId, organizationId)];
+    if (customerId) {
+      conditions.push(eq(schema.deployments.customerId, customerId));
+    }
+    if (applicationId) {
+      conditions.push(eq(schema.deployments.applicationId, applicationId));
+    }
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(and(...conditions));
+    return rows;
+  });
+
+  // GET /api/deployments/:id — Deployment detail (§24)
+  app.get('/api/deployments/:id', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, id))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Deployment not found');
+    }
+    const deployment = rows[0];
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, id))
+      .orderBy(schema.deploymentJobs.createdAt);
+    return { ...deployment, jobs };
+  });
+
+  // ── Releases (§22) ──────────────────────────────────────────────────────
+
+  // POST /api/applications/:id/releases — Create release
+  app.post('/api/applications/:id/releases', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = createReleaseBodySchema.parse(request.body);
+    const appRows = await db
+      .select({ id: schema.applications.id })
+      .from(schema.applications)
+      .where(eq(schema.applications.id, id))
+      .limit(1);
+    if (appRows.length === 0) {
+      throw new NotFoundError('Application not found');
+    }
+    const [row] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId: id,
+        version: body.version,
+        gitSha: body.gitSha,
+        migrationCommand: body.migrationCommand ?? null,
+        buildStatus: 'PENDING',
+        releaseStatus: 'BUILDING',
+        createdBy: request.user?.id ?? null,
+        updatedBy: request.user?.id ?? null,
+      })
+      .returning();
+    return reply.code(201).send(row);
+  });
+
+  // GET /api/applications/:id/releases — List releases
+  app.get('/api/applications/:id/releases', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const rows = await db
+      .select()
+      .from(schema.releases)
+      .where(eq(schema.releases.applicationId, id))
+      .orderBy(schema.releases.createdAt);
+    return rows;
+  });
+
+  // ── Job triggers (§25, §27, §63) ────────────────────────────────────────
+
+  // POST /api/deployments/:id/deploy — Trigger DEPLOY_RELEASE job
+  app.post('/api/deployments/:id/deploy', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = deployBodySchema.parse(request.body);
+    const depRows = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, id))
+      .limit(1);
+    if (depRows.length === 0) {
+      throw new NotFoundError('Deployment not found');
+    }
+    const idempotencyKey = `${id}:DEPLOY_RELEASE:${Date.now()}`;
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: id,
+        type: 'DEPLOY_RELEASE',
+        state: 'REQUESTED',
+        idempotencyKey,
+        payload: { releaseId: body.releaseId },
+        requestedBy: request.user?.id ?? null,
+      })
+      .returning();
+    return reply.code(202).send({ jobId: job!.id, state: 'REQUESTED' });
+  });
+
+  // POST /api/deployments/:id/rollback — Trigger ROLLBACK job
+  app.post('/api/deployments/:id/rollback', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = rollbackBodySchema.parse(request.body);
+    const depRows = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, id))
+      .limit(1);
+    if (depRows.length === 0) {
+      throw new NotFoundError('Deployment not found');
+    }
+    const idempotencyKey = `${id}:ROLLBACK:${Date.now()}`;
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: id,
+        type: 'ROLLBACK',
+        state: 'REQUESTED',
+        idempotencyKey,
+        payload: { releaseId: body.releaseId },
+        requestedBy: request.user?.id ?? null,
+      })
+      .returning();
+    return reply.code(202).send({ jobId: job!.id, state: 'REQUESTED' });
+  });
+
+  // POST /api/deployments/:id/destroy — Trigger DESTROY job
+  app.post('/api/deployments/:id/destroy', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = destroyBodySchema.parse(request.body);
+    const depRows = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, id))
+      .limit(1);
+    if (depRows.length === 0) {
+      throw new NotFoundError('Deployment not found');
+    }
+    const idempotencyKey = `${id}:DESTROY:${Date.now()}`;
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: id,
+        type: 'DESTROY',
+        state: 'REQUESTED',
+        idempotencyKey,
+        payload: { finalSnapshot: body.finalSnapshot ?? false },
+        requestedBy: request.user?.id ?? null,
+      })
+      .returning();
+    return reply.code(202).send({ jobId: job!.id, state: 'REQUESTED' });
+  });
+
+  // ── Events & diagnostics (§24, §29, §40) ────────────────────────────────
+
+  // GET /api/deployments/:id/events — Event log
+  app.get('/api/deployments/:id/events', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const { limit, offset } = request.query as { limit?: string; offset?: string };
+    const take = Math.min(Number(limit ?? 50), 200);
+    const skip = Number(offset ?? 0);
+    const rows = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, id))
+      .orderBy(schema.eventLogs.occurredAt)
+      .limit(take)
+      .offset(skip);
+    return rows;
+  });
+
+  // GET /api/deployments/:id/diagnostics — Diagnostics (§29)
+  app.get('/api/deployments/:id/diagnostics', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const depRows = await db
+      .select({ id: schema.deployments.id, state: schema.deployments.state })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, id))
+      .limit(1);
+    if (depRows.length === 0) {
+      throw new NotFoundError('Deployment not found');
+    }
+    const deployment = depRows[0]!;
+    if (deployment!.state !== 'FAILED') {
+      return { failureCode: null, what: null, why: null, fix: null, events: [] };
+    }
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, id))
+      .orderBy(schema.eventLogs.occurredAt)
+      .limit(10);
+    return {
+      failureCode: 'UNKNOWN',
+      what: 'Deployment failed',
+      why: 'The deployment did not reach a healthy state',
+      fix: 'Check the event log for details and retry the deployment',
+      events,
+    };
+  });
+
+  // ── Billing (§48) ───────────────────────────────────────────────────────
+
+  // POST /api/billing/checkout — Create Stripe checkout session
+  app.post('/api/billing/checkout', { preHandler: requireAuth }, async (request) => {
+    const body = checkoutBodySchema.parse(request.body);
+    const { url } = await createCheckoutSession(
+      { db, stripe },
+      { organizationId: body.organizationId, customerEmail: request.user?.email },
+    );
+    return { url };
+  });
+
+  // GET /api/billing/summary — Billing summary
+  app.get('/api/billing/summary', { preHandler: requireAuth }, async (request) => {
+    const { organizationId } = request.query as { organizationId?: string };
+    if (!organizationId) {
+      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+    }
+    const deployments = await db
+      .select({
+        name: schema.applications.name,
+        state: schema.deployments.state,
+        isTestDeployment: schema.deployments.isTestDeployment,
+      })
+      .from(schema.deployments)
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .where(eq(schema.deployments.organizationId, organizationId));
+    const billableDeployments = deployments.filter(
+      (d) => d.state === 'HEALTHY' && !d.isTestDeployment,
+    );
+    const deploymentItems = billableDeployments.map((d) => ({
+      name: d.name,
+      amount: 19,
+    }));
+    const total = 49 + deploymentItems.length * 19;
+    return { base: 49, deployments: deploymentItems, total };
+  });
+
+  // ── Onboarding (§42) ────────────────────────────────────────────────────
+
+  // GET /api/onboarding — Onboarding state
+  app.get('/api/onboarding', { preHandler: requireAuth }, async (request) => {
+    const { organizationId } = request.query as { organizationId?: string };
+    if (!organizationId) {
+      throw new ApiError(400, 'ORGANIZATION_ID_REQUIRED', 'organizationId query parameter is required');
+    }
+    const appCount = await db
+      .select({ count: schema.applications.id })
+      .from(schema.applications)
+      .where(eq(schema.applications.organizationId, organizationId));
+    const depCount = await db
+      .select({ count: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.organizationId, organizationId));
+    const hasApps = Number(appCount[0]?.count ?? 0) > 0;
+    const hasDeployments = Number(depCount[0]?.count ?? 0) > 0;
+    return {
+      steps: [
+        { step: 'connect_github', completed: hasApps },
+        { step: 'create_application', completed: hasApps },
+        { step: 'add_customer', completed: hasDeployments },
+        { step: 'create_deployment', completed: hasDeployments },
+        { step: 'first_deploy', completed: false },
+      ],
+    };
   });
 
   // Better Auth over Fastify: construct a Fetch Request, call auth.handler,

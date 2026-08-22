@@ -73,7 +73,7 @@ describe('constraints and enums', () => {
       ).rejects.toThrow(/invalid input value for enum deployment_state/);
     });
 
-    it('accepts all 8 §39 job types', async () => {
+    it('accepts all 10 §39 job types', async () => {
       const deploymentId = crypto.randomUUID();
       await db!.insert(deployments).values({
         id: deploymentId,
@@ -92,6 +92,8 @@ describe('constraints and enums', () => {
         'MIGRATION',
         'INFRA_UPGRADE',
         'HEALTH_REPORT',
+        'PREFLIGHT',
+        'HEALTH_CHECK',
       ] as const;
       for (const type of types) {
         await db!.insert(deploymentJobs).values({
@@ -104,7 +106,7 @@ describe('constraints and enums', () => {
         `SELECT count(*)::int AS c FROM deployment_jobs WHERE deployment_id = $1`,
         [deploymentId],
       );
-      expect(rows[0]?.c).toBe(8);
+      expect(rows[0]?.c).toBe(10);
     });
 
     it('rejects an unknown job type', async () => {

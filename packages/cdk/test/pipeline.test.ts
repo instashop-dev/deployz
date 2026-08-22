@@ -391,6 +391,7 @@ const REPO_NAME = 'test-org/test-repo';
 
 function makeOptions(overrides?: Partial<FetchRepoArchiveOptions>): FetchRepoArchiveOptions {
   return {
+    bucket: 'test-bucket',
     s3KeyPrefix: 'build-source/test-org/test-repo',
     ref: 'main',
     ...overrides,

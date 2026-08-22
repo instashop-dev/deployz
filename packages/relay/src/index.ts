@@ -28,7 +28,7 @@ import { pollOnce, type PollDependencies } from './poll.js';
 // ── Default command executors ────────────────────────────────────────────────
 
 /**
- * Default executors for the six command types.
+ * Default executors for the eight command types.
  *
  * In the MVP, these are no-op stubs that log and return success. Real
  * implementations (CloudFormation stack operations, ECS service updates,
@@ -61,6 +61,8 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
     ROLLBACK: noop,
     CONFIG_UPDATE: noop,
     DESTROY: noop,
+    MIGRATE: noop,
+    REFRESH_METADATA: noop,
   };
 }
 

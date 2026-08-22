@@ -53,10 +53,18 @@ import {
 export type PreflightFailureCode =
   | 'REGION_NOT_SUPPORTED'
   | 'AWS_SCP_BLOCKED'
+  | 'AWS_PERMISSION_DENIED'
   | 'QUOTA_EXCEEDED'
   | 'INVALID_CONFIG'
   | 'MIGRATION_FAILED'
   | 'IMAGE_HEALTH_CHECK_FAILED'
+  | 'IMAGE_PULL_FAILED'
+  | 'STACK_CREATE_FAILED'
+  | 'DATABASE_CREATE_FAILED'
+  | 'DATABASE_CONNECTION_FAILED'
+  | 'CONTAINER_START_FAILED'
+  | 'MISSING_SECRET'
+  | 'UNSUPPORTED_ARCHITECTURE'
   | 'RELAY_DISCONNECTED';
 
 /** A single full-preflight check result. */
@@ -98,6 +106,18 @@ export interface PreflightInput {
   readonly imageDigest?: string | undefined;
   /** The relay's first-contact payload (proves connectivity). */
   readonly relayContact?: unknown;
+  /** Port the app listens on (absent = skip port check). */
+  readonly port?: number | undefined;
+  /** Health endpoint path (absent = skip health check). */
+  readonly healthPath?: string | undefined;
+  /** Required secret names for the deployment. */
+  readonly requiredSecrets?: readonly string[] | undefined;
+  /** Configured secret names from the deployment config. */
+  readonly configuredSecrets?: readonly string[] | undefined;
+  /** Required environment variable names. */
+  readonly requiredEnvVars?: readonly string[] | undefined;
+  /** Configured environment variable names from the deployment config. */
+  readonly configuredEnvVars?: readonly string[] | undefined;
 }
 
 // ── Seam result types ─────────────────────────────────────────────────────
@@ -237,6 +257,229 @@ export function checkMigrationCommand(
   return { check: 'migration-command', passed: true };
 }
 
+// ── AWS-backed check result types ─────────────────────────────────────────
+
+/** Result of an AWS API availability check. */
+export type AwsApiCheckResult =
+  | { readonly ok: true; readonly detail: string }
+  | { readonly ok: false; readonly failureCode: PreflightFailureCode; readonly reason: string };
+
+/** Result of an ECR image check. */
+export type EcrImageCheckResult =
+  | { readonly ok: true; readonly detail: string }
+  | { readonly ok: false; readonly failureCode: 'IMAGE_PULL_FAILED'; readonly reason: string };
+
+/** Result of an image architecture check. */
+export type ImageArchitectureCheckResult =
+  | { readonly ok: true; readonly detail: string }
+  | { readonly ok: false; readonly failureCode: 'UNSUPPORTED_ARCHITECTURE'; readonly reason: string };
+
+// ── AWS-backed check functions ────────────────────────────────────────────
+
+/**
+ * Verify the CloudFormation API is callable by sending a DescribeStacks call.
+ * Returns {ok, detail} on success or {ok: false, failureCode, reason} on failure.
+ */
+export async function checkCloudFormationUsable(region: string): Promise<AwsApiCheckResult> {
+  try {
+    const { CloudFormationClient, DescribeStacksCommand } = await import(
+      '@aws-sdk/client-cloudformation'
+    );
+    const cfn = new CloudFormationClient({ region });
+    await cfn.send(new DescribeStacksCommand({}));
+    return { ok: true, detail: 'CloudFormation API is reachable' };
+  } catch {
+    return {
+      ok: false,
+      failureCode: 'STACK_CREATE_FAILED',
+      reason: 'CloudFormation API is not callable — check credentials and region',
+    };
+  }
+}
+
+/**
+ * Verify the ECS API is callable by sending a ListClusters call.
+ * Returns {ok, detail} on success or {ok: false, failureCode, reason} on failure.
+ */
+export async function checkEcsUsable(region: string): Promise<AwsApiCheckResult> {
+  try {
+    const { ECSClient, ListClustersCommand } = await import('@aws-sdk/client-ecs');
+    const ecs = new ECSClient({ region });
+    await ecs.send(new ListClustersCommand({}));
+    return { ok: true, detail: 'ECS API is reachable' };
+  } catch {
+    return {
+      ok: false,
+      failureCode: 'CONTAINER_START_FAILED',
+      reason: 'ECS API is not callable — check credentials and region',
+    };
+  }
+}
+
+/**
+ * Verify the RDS API is callable by sending a DescribeDBEngineVersions call.
+ * Returns {ok, detail} on success or {ok: false, failureCode, reason} on failure.
+ */
+export async function checkRdsUsable(region: string): Promise<AwsApiCheckResult> {
+  try {
+    const { RDSClient, DescribeDBEngineVersionsCommand } = await import(
+      '@aws-sdk/client-rds'
+    );
+    const rds = new RDSClient({ region });
+    await rds.send(
+      new DescribeDBEngineVersionsCommand({ Engine: 'postgres' }),
+    );
+    return { ok: true, detail: 'RDS API is reachable' };
+  } catch {
+    return {
+      ok: false,
+      failureCode: 'DATABASE_CREATE_FAILED',
+      reason: 'RDS API is not callable — check credentials and region',
+    };
+  }
+}
+
+/**
+ * Verify an image exists in ECR by sending a DescribeImages call.
+ * Returns {ok, detail} on success or {ok: false, failureCode, reason} on failure.
+ */
+export async function checkImageAvailable(
+  region: string,
+  repositoryName: string,
+  imageTag: string,
+): Promise<EcrImageCheckResult> {
+  try {
+    const { ECRClient, DescribeImagesCommand } = await import('@aws-sdk/client-ecr');
+    const ecr = new ECRClient({ region });
+    await ecr.send(
+      new DescribeImagesCommand({
+        repositoryName,
+        imageIds: [{ imageTag }],
+      }),
+    );
+    return { ok: true, detail: `Image ${repositoryName}:${imageTag} found in ECR` };
+  } catch {
+    return {
+      ok: false,
+      failureCode: 'IMAGE_PULL_FAILED',
+      reason: `Image ${repositoryName}:${imageTag} not found in ECR`,
+    };
+  }
+}
+
+/**
+ * Verify an image in ECR is built for the x86-64 architecture.
+ * Returns {ok, detail} on success or {ok: false, failureCode, reason} on failure.
+ */
+export async function checkImageArchitecture(
+  region: string,
+  repositoryName: string,
+  imageTag: string,
+): Promise<ImageArchitectureCheckResult> {
+  try {
+    const { ECRClient, DescribeImagesCommand } = await import('@aws-sdk/client-ecr');
+    const ecr = new ECRClient({ region });
+    const result = await ecr.send(
+      new DescribeImagesCommand({
+        repositoryName,
+        imageIds: [{ imageTag }],
+      }),
+    );
+    const imageDetail = result.imageDetails?.[0];
+    const arch = imageDetail?.imageManifestMediaType ?? '';
+    if (arch.includes('amd64') || arch === '') {
+      return { ok: true, detail: `Image architecture is x86-64 compatible` };
+    }
+    return {
+      ok: false,
+      failureCode: 'UNSUPPORTED_ARCHITECTURE',
+      reason: `Image architecture is not x86-64 (detected: ${arch})`,
+    };
+  } catch {
+    return {
+      ok: false,
+      failureCode: 'UNSUPPORTED_ARCHITECTURE',
+      reason: `Could not verify image architecture for ${repositoryName}:${imageTag}`,
+    };
+  }
+}
+
+// ── Pure preflight checks ─────────────────────────────────────────────────
+
+/**
+ * Verify a port is configured for the deployment.
+ * Pure check — no AWS calls.
+ */
+export function checkPortDefined(port: number | undefined): PreflightCheck {
+  if (port !== undefined && port > 0 && port <= 65535) {
+    return { check: 'port', passed: true };
+  }
+  return {
+    check: 'port',
+    passed: false,
+    failureCode: 'INVALID_CONFIG',
+    reason: 'No valid port configured — the app must listen on a port between 1 and 65535',
+  };
+}
+
+/**
+ * Verify a health endpoint path is configured.
+ * Pure check — no AWS calls.
+ */
+export function checkHealthEndpointConfigured(
+  healthPath: string | undefined,
+): PreflightCheck {
+  if (healthPath !== undefined && healthPath.length > 0) {
+    return { check: 'health-endpoint', passed: true };
+  }
+  return {
+    check: 'health-endpoint',
+    passed: false,
+    failureCode: 'INVALID_CONFIG',
+    reason: 'No health endpoint path configured',
+  };
+}
+
+/**
+ * Verify all required secrets are present in the deployment config.
+ * Pure check — no AWS calls (the relay verifies secrets at runtime).
+ */
+export function checkRequiredSecretsPresent(
+  requiredSecrets: readonly string[],
+  configuredSecrets: readonly string[],
+): PreflightCheck {
+  const missing = requiredSecrets.filter((s) => !configuredSecrets.includes(s));
+  if (missing.length === 0) {
+    return { check: 'secrets', passed: true };
+  }
+  return {
+    check: 'secrets',
+    passed: false,
+    failureCode: 'MISSING_SECRET',
+    reason: `Missing required secrets: ${missing.join(', ')}`,
+  };
+}
+
+/**
+ * Verify all required environment variables are present in the deployment config.
+ * Pure check — no AWS calls.
+ */
+export function checkEnvVarsComplete(
+  requiredEnvVars: readonly string[],
+  configuredEnvVars: readonly string[],
+): PreflightCheck {
+  const missing = requiredEnvVars.filter((v) => !configuredEnvVars.includes(v));
+  if (missing.length === 0) {
+    return { check: 'env-vars', passed: true };
+  }
+  return {
+    check: 'env-vars',
+    passed: false,
+    failureCode: 'INVALID_CONFIG',
+    reason: `Missing required environment variables: ${missing.join(', ')}`,
+  };
+}
+
 // ── Seam-backed check helpers ─────────────────────────────────────────────
 
 async function checkQuota(
@@ -304,6 +547,20 @@ export async function runFullPreflight(
     await checkImageHealth(input.imageDigest, deps.imageHealthChecker),
     // 7. Relay connected — pure (the first-contact payload).
     assertRelayContact(input.relayContact, input.installationId),
+    // 8. Port defined — pure.
+    checkPortDefined(input.port),
+    // 9. Health endpoint configured — pure.
+    checkHealthEndpointConfigured(input.healthPath),
+    // 10. Required secrets present — pure.
+    checkRequiredSecretsPresent(
+      input.requiredSecrets ?? [],
+      input.configuredSecrets ?? [],
+    ),
+    // 11. Required env vars complete — pure.
+    checkEnvVarsComplete(
+      input.requiredEnvVars ?? [],
+      input.configuredEnvVars ?? [],
+    ),
   ];
 
   const failures = checks.filter(

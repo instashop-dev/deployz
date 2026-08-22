@@ -38,6 +38,12 @@ describe('deployments desired-state and audit fields', () => {
     expect(row?.observedState).toBeNull();
     expect(row?.desiredState).toEqual({});
     expect(row?.lastHealthAt).toBeNull();
+    expect(row?.relayStatus).toBe('UNKNOWN');
+    expect(row?.healthStatus).toBe('HEALTHY');
+    expect(row?.deletedAt).toBeNull();
+    expect(row?.awsAccountId).toBeNull();
+    expect(row?.currentReleaseId).toBeNull();
+    expect(row?.previousReleaseId).toBeNull();
   });
 
   it('round-trips desired_state and observed_state jsonb (§59)', async () => {
