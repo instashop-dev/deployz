@@ -518,15 +518,20 @@ describe('server — IDOR guards on :id routes (§2)', () => {
     ['POST', () => `/api/deployments/${depB.id}/destroy`],
     ['GET', () => `/api/deployments/${depB.id}/events`],
     ['GET', () => `/api/deployments/${depB.id}/diagnostics`],
+    ['PATCH', () => `/api/applications/${appB.id}`],
+    ['DELETE', () => `/api/applications/${appB.id}`],
   ];
 
   it.each(routes)('%s %s 404s for a caller outside the owning org (never leaks existence)', async (method, urlFn) => {
     const response = await app.inject({
-      method: method as 'GET' | 'POST' | 'PUT',
+      method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
       url: urlFn(),
-      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      headers:
+        method === 'GET' || method === 'DELETE'
+          ? { cookie: orgA.cookie }
+          : { cookie: orgA.cookie, 'content-type': 'application/json' },
       payload:
-        method === 'GET'
+        method === 'GET' || method === 'DELETE'
           ? undefined
           : JSON.stringify({ releaseId: crypto.randomUUID(), version: '1.0.0', gitSha: 'abc', entries: [] }),
     });
@@ -548,6 +553,138 @@ describe('server — IDOR guards on :id routes (§2)', () => {
       headers: { cookie: orgB.cookie },
     });
     expect(depResponse.statusCode).toBe(200);
+  });
+});
+
+// ── §36/§37: PATCH and DELETE /api/applications/:id ─────────────────────────
+describe('server — PATCH/DELETE /api/applications/:id (§36,§37)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'patch-delete@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('PATCH updates a field and returns 200 with the new value', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { name: 'New Name' }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { name: string }).name).toBe('New Name');
+  });
+
+  it('PATCH with empty name returns 400 VALIDATION_ERROR', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { name: '' }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(400);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('PATCH with empty body returns 200 with unchanged row', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Original Name' });
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { name: string }).name).toBe('Original Name');
+  });
+
+  it('PATCH with healthPath: null clears the field', async () => {
+    const application = await insertApplication(db, org.organizationId, { healthPath: '/health' });
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { healthPath: null }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { healthPath: string | null }).healthPath).toBeNull();
+  });
+
+  it('PATCH with databaseRequired: null returns 400 VALIDATION_ERROR', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { databaseRequired: null }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(400);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('PATCH with identity-locked field silently ignores it', async () => {
+    const application = await insertApplication(db, org.organizationId, { repoFullName: 'acme/test-app' });
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { repoFullName: 'evil/repo' }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { repoFullName: string }).repoFullName).toBe('acme/test-app');
+  });
+
+  it('PATCH with non-uuid id returns 404 NOT_FOUND', async () => {
+    const response = await sendJson(app, 'PATCH', '/api/applications/not-a-uuid', { name: 'test' }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
+  });
+
+  it('PATCH sets updatedBy to the session user id', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { name: 'Updated' }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { updatedBy: string | null }).updatedBy).toBe(org.userId);
+  });
+
+  it('DELETE removes the application and logs an event', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'To Delete' });
+    const response = await app.inject({ method: 'DELETE', url: `/api/applications/${application.id}`, headers: { cookie: org.cookie } });
+    expect(response.statusCode).toBe(204);
+
+    const rows = await db.select().from(schema.applications).where(eq(schema.applications.id, application.id));
+    expect(rows).toHaveLength(0);
+
+    const events = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.eventType, 'APPLICATION_DELETED'));
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    const deleteEvent = events[events.length - 1]!;
+    expect((deleteEvent.payload as { applicationName?: string }).applicationName).toBe('To Delete');
+  });
+
+  it('DELETE with a deployment returns 409 APPLICATION_HAS_DEPLOYMENTS', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    const response = await app.inject({ method: 'DELETE', url: `/api/applications/${application.id}`, headers: { cookie: org.cookie } });
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('APPLICATION_HAS_DEPLOYMENTS');
+
+    const rows = await db.select().from(schema.applications).where(eq(schema.applications.id, application.id));
+    expect(rows).toHaveLength(1);
+  });
+
+  it('DELETE cascades releases when there are no deployments', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
+
+    const response = await app.inject({ method: 'DELETE', url: `/api/applications/${application.id}`, headers: { cookie: org.cookie } });
+    expect(response.statusCode).toBe(204);
+
+    const releases = await db.select().from(schema.releases).where(eq(schema.releases.applicationId, application.id));
+    expect(releases).toHaveLength(0);
+  });
+
+  it('DELETE is idempotent — second call returns 404', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const first = await app.inject({ method: 'DELETE', url: `/api/applications/${application.id}`, headers: { cookie: org.cookie } });
+    expect(first.statusCode).toBe(204);
+
+    const second = await app.inject({ method: 'DELETE', url: `/api/applications/${application.id}`, headers: { cookie: org.cookie } });
+    expect(second.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(second.json()).error.code).toBe('NOT_FOUND');
+  });
+
+  it('DELETE with non-uuid id returns 404 NOT_FOUND', async () => {
+    const response = await app.inject({ method: 'DELETE', url: '/api/applications/not-a-uuid', headers: { cookie: org.cookie } });
+    expect(response.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
   });
 });
 

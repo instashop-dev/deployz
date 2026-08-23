@@ -92,3 +92,39 @@ export async function triggerAnalysis(applicationId: string): Promise<void> {
     throw new Error(`Trigger analysis failed (${response.status})`);
   }
 }
+
+export interface UpdateApplicationInput {
+  name?: string;
+  containerPort?: number | null;
+  healthPath?: string | null;
+  migrationCommand?: string | null;
+  workerCommand?: string | null;
+  databaseRequired?: boolean;
+  storageRequired?: boolean;
+}
+
+export async function updateApplication(id: string, input: UpdateApplicationInput): Promise<Application> {
+  const response = await fetch(`${apiUrl}/api/applications/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error(`Update application failed (${response.status})`);
+  }
+  return (await response.json()) as Application;
+}
+
+export async function deleteApplication(id: string): Promise<void> {
+  const response = await fetch(`${apiUrl}/api/applications/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const err = new Error(body?.error?.message ?? 'We couldn\'t remove this application. Try again in a moment.');
+    (err as { code?: string }).code = body?.error?.code;
+    throw err;
+  }
+}

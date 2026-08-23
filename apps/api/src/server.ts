@@ -664,6 +664,19 @@ export async function buildServer({
     storageRequired: z.boolean().nullish(),
   });
 
+  // §36 PATCH-only — mirrors POST but all-optional. `nullish` fields let the
+  // client clear a currently-set value by sending `null`; boolean columns are
+  // NOT NULL in the DB so they use `.optional()` (never null).
+  const patchApplicationBodySchema = z.object({
+    name: z.string().min(1).optional(),
+    containerPort: z.number().int().nullish(),
+    healthPath: z.string().nullish(),
+    migrationCommand: z.string().nullish(),
+    workerCommand: z.string().nullish(),
+    databaseRequired: z.boolean().optional(),
+    storageRequired: z.boolean().optional(),
+  });
+
   const createCustomerBodySchema = z.object({
     organizationId: z.string().min(1).optional(),
     name: z.string().min(1),
@@ -756,6 +769,74 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     return loadOwnedApplication(db, id, organizationId);
+  });
+
+  // PATCH /api/applications/:id — Update deployability fields
+  // ⚠️ Race with analysis.ts:302 deriveContractFieldUpdates: the analysis
+  // pipeline runs fire-and-forget and backfills the same contract fields
+  // (containerPort, healthPath, migrationCommand, etc.) from auto-detected
+  // values. A PATCH that lands before the analysis completes may be
+  // overwritten when the analysis persists its results. The analysis only
+  // writes where the row is still null (nullable fields) or false (booleans),
+  // so a user-set non-null value survives — but a PATCH that sets a field
+  // from null → value and the analysis that loaded the row before the PATCH
+  // both write, and the last writer wins.
+  app.patch('/api/applications/:id', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const existing = await loadOwnedApplication(db, id, organizationId);
+    const body = patchApplicationBodySchema.parse(request.body);
+    const set: Record<string, unknown> = {};
+    if (body.name !== undefined) set.name = body.name;
+    if (body.containerPort !== undefined) set.containerPort = body.containerPort ?? null;
+    if (body.healthPath !== undefined) set.healthPath = body.healthPath ?? null;
+    if (body.migrationCommand !== undefined) set.migrationCommand = body.migrationCommand ?? null;
+    if (body.workerCommand !== undefined) set.workerCommand = body.workerCommand ?? null;
+    if (body.databaseRequired !== undefined) set.databaseRequired = body.databaseRequired;
+    if (body.storageRequired !== undefined) set.storageRequired = body.storageRequired;
+    if (Object.keys(set).length === 0) return existing;
+    set.updatedBy = request.user?.id ?? null;
+    const [row] = await db
+      .update(schema.applications)
+      .set(set)
+      .where(eq(schema.applications.id, id))
+      .returning();
+    if (!row) {
+      throw new NotFoundError('Application not found');
+    }
+    return row;
+  });
+
+  // DELETE /api/applications/:id — Remove an application (only if it has zero deployments)
+  app.delete('/api/applications/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const app = await loadOwnedApplication(db, id, organizationId);
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.applicationId, id))
+      .limit(1);
+    if (deployments.length > 0) {
+      throw new ApiError(
+        409,
+        'APPLICATION_HAS_DEPLOYMENTS',
+        'This application has deployment history and cannot be removed. Applications can only be removed before their first deployment.',
+      );
+    }
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.eventLogs).values({
+        actorType: 'user',
+        actorId: request.user!.id,
+        organizationId,
+        eventType: 'APPLICATION_DELETED',
+        payload: { applicationId: id, applicationName: app.name, repoFullName: app.repoFullName },
+      });
+      await tx.delete(schema.applicationConfigs).where(eq(schema.applicationConfigs.applicationId, id));
+      await tx.delete(schema.releases).where(eq(schema.releases.applicationId, id));
+      await tx.delete(schema.applications).where(eq(schema.applications.id, id));
+    });
+    return reply.code(204).send();
   });
 
   // POST /api/applications/:id/analyse — Trigger analysis
