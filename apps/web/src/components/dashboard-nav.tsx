@@ -1,6 +1,6 @@
 'use client';
 
-import { AppWindow, CreditCard, Settings, Ship, Users } from 'lucide-react';
+import { AppWindow, CreditCard, Settings, Ship, Users, Users2 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -11,6 +11,7 @@ const items = [
   { href: '/dashboard/applications', label: 'Applications', icon: AppWindow },
   { href: '/dashboard/customers', label: 'Customers', icon: Users },
   { href: '/dashboard/settings/billing', label: 'Billing', icon: CreditCard },
+  { href: '/dashboard/settings/members', label: 'Members', icon: Users2 },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ] as const;
 

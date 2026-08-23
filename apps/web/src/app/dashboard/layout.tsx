@@ -11,8 +11,15 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   if (!me) {
     redirect('/sign-in');
   }
+  if (me.organizations.length === 0) {
+    redirect('/organizations/new');
+  }
   return (
-    <DashboardShell user={me.user} organizationName={me.organization?.name ?? null}>
+    <DashboardShell
+      user={me.user}
+      organizations={me.organizations}
+      activeOrganizationId={me.organization?.id ?? null}
+    >
       {children}
     </DashboardShell>
   );

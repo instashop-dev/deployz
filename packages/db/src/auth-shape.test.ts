@@ -29,13 +29,14 @@ describe('Better Auth table shape', () => {
     return rows.map((r) => r.column_name);
   }
 
-  it('user has the Better Auth core columns', async () => {
+  it('user has the Better Auth core columns + the Deployz last-active tenant pointer', async () => {
     expect(await columnsOf('user')).toEqual([
       'created_at',
       'email',
       'email_verified',
       'id',
       'image',
+      'last_active_organization_id',
       'name',
       'updated_at',
     ]);
@@ -108,15 +109,30 @@ describe('Better Auth table shape', () => {
     ]);
   });
 
+  it('invitation has the plugin columns + Deployz expiry/status fields', async () => {
+    expect(await columnsOf('invitation')).toEqual([
+      'created_at',
+      'email',
+      'expires_at',
+      'id',
+      'inviter_id',
+      'organization_id',
+      'role',
+      'status',
+      'updated_at',
+    ]);
+  });
+
   it('auth tables use text primary keys (Better Auth generates ids)', async () => {
     const { rows } = await client!.query<{ table_name: string; data_type: string }>(
       `SELECT table_name, data_type FROM information_schema.columns
        WHERE table_schema = 'public' AND column_name = 'id'
-         AND table_name IN ('user', 'session', 'account', 'verification', 'organization', 'member')
+         AND table_name IN ('user', 'session', 'account', 'verification', 'organization', 'member', 'invitation')
        ORDER BY table_name`,
     );
     expect(rows.map((r) => `${r.table_name}:${r.data_type}`)).toEqual([
       'account:text',
+      'invitation:text',
       'member:text',
       'organization:text',
       'session:text',

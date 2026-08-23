@@ -1,19 +1,20 @@
-// §41 screen 18 organization settings — data access. Wired to the real
-// `GET/PATCH /api/organization` endpoints (§34): {id, name, plan, createdAt}.
-// No fixture fallback — a failure here is a real failure, not a loading state.
+// §41 screen 18 organization settings + team management — server-side data
+// access. Wired to the real control-plane endpoints; no fixture fallback — a
+// failure here is a real failure, not a loading state.
+//
+// SERVER ONLY (`next/headers`). Types and copy live in
+// organization-vocabulary.ts, which client components import instead.
 
 import { cookies } from 'next/headers';
 
+import type {
+  InvitationInfo,
+  MemberInfo,
+  OrganizationInfo,
+  OrganizationSummary,
+} from './organization-vocabulary';
+
 const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-
-export type OrgPlan = 'FREE' | 'STARTER' | 'PRO';
-
-export interface OrganizationInfo {
-  id: string;
-  name: string;
-  plan: OrgPlan;
-  createdAt: string;
-}
 
 async function getJson<T>(path: string): Promise<T> {
   const cookieHeader = (await cookies()).toString();
@@ -31,8 +32,21 @@ export async function fetchOrganization(): Promise<OrganizationInfo> {
   return getJson<OrganizationInfo>('/api/organization');
 }
 
-export const PLAN_LABELS: Record<OrgPlan, string> = {
-  FREE: 'Free',
-  STARTER: 'Starter',
-  PRO: 'Pro',
-};
+export async function fetchOrganizations(): Promise<OrganizationSummary[]> {
+  const { organizations } = await getJson<{ organizations: OrganizationSummary[] }>(
+    '/api/organizations',
+  );
+  return organizations;
+}
+
+export async function fetchMembers(): Promise<MemberInfo[]> {
+  const { members } = await getJson<{ members: MemberInfo[] }>('/api/organization/members');
+  return members;
+}
+
+export async function fetchInvitations(): Promise<InvitationInfo[]> {
+  const { invitations } = await getJson<{ invitations: InvitationInfo[] }>(
+    '/api/organization/invitations',
+  );
+  return invitations;
+}

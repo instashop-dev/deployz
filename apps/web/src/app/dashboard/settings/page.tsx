@@ -1,18 +1,22 @@
 import { Building2 } from 'lucide-react';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { OrganizationDangerZone } from '@/components/organization-danger-zone';
 import { OrganizationForm } from '@/components/organization-form';
-import { PLAN_LABELS, fetchOrganization } from '@/lib/organization';
+import { fetchOrganization } from '@/lib/organization';
+import { PLAN_LABELS, ROLE_LABELS } from '@/lib/organization-vocabulary';
 
-// §41 screen 18 organization settings. The update form now actually submits
-// (PATCH /api/organization). There is no organization-deletion endpoint on
-// the API, so — per §63 ("destructive actions should never be hidden behind
-// ambiguous UI") — this screen does not show a Delete Organization button
-// that does nothing. Add one only once the API supports it.
+// §41 screen 18 organization settings. Rename (PATCH /api/organization) is
+// owner/admin only; a plain member sees the name as read-only (§65 — no dead
+// controls). Deletion (DELETE /api/organization) is owner only and lives in
+// its own danger-zone card with a type-to-confirm step.
 export default async function SettingsPage() {
   const org = await fetchOrganization();
+  const canRename = org.role === 'owner' || org.role === 'admin';
 
   return (
     <div className="flex flex-col gap-8">
@@ -46,10 +50,32 @@ export default async function SettingsPage() {
                 year: 'numeric',
               })}
             />
+            <MetaRow
+              label="Your role"
+              value={ROLE_LABELS[org.role]}
+              badge={<Badge variant="outline">{ROLE_LABELS[org.role]}</Badge>}
+            />
+            <MetaRow
+              label="Members"
+              value={`${org.memberCount} ${org.memberCount === 1 ? 'member' : 'members'}`}
+              link="/dashboard/settings/members"
+            />
           </div>
-          <OrganizationForm organization={org} />
+          {canRename ? (
+            <OrganizationForm organization={org} />
+          ) : (
+            <div className="flex flex-col gap-2">
+              <Label>Organization name</Label>
+              <p className="text-sm font-medium">{org.name}</p>
+              <p className="text-xs text-muted-foreground">
+                Only an owner or admin can rename the organization.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {org.role === 'owner' ? <OrganizationDangerZone organizationName={org.name} /> : null}
     </div>
   );
 }
@@ -58,16 +84,24 @@ function MetaRow({
   label,
   value,
   badge,
+  link,
 }: {
   label: string;
   value: string;
   badge?: ReactNode;
+  link?: string;
 }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-sm text-muted-foreground">{label}</dt>
       <dd className="flex items-center gap-2 text-sm font-medium">
-        {value}
+        {link ? (
+          <Link href={link} className="underline-offset-4 hover:underline">
+            {value}
+          </Link>
+        ) : (
+          value
+        )}
         {badge}
       </dd>
     </div>
