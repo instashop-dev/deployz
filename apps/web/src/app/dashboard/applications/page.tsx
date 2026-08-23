@@ -1,6 +1,7 @@
 'use client';
 
 import { GitBranch } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
@@ -14,15 +15,26 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { createApplication, triggerAnalysis } from '@/lib/applications';
+import {
+  createApplication,
+  fetchApplications,
+  triggerAnalysis,
+  type Application,
+} from '@/lib/applications';
 import {
   fetchGithubInstallations,
   fetchGithubRepositories,
   type GithubInstallation,
   type GithubRepository,
 } from '@/lib/github';
+import { VERDICT_PRESENTATION } from '@/lib/readiness';
 
-type LoadState =
+type AppsState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'loaded'; applications: Application[] };
+
+type GithubState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'empty'; connectUrl: string | null }
@@ -32,12 +44,36 @@ type LoadState =
       repositories: Record<string, GithubRepository[]>;
     };
 
-// §42 onboarding step 1: "Connect GitHub". This page lists the org's GitHub
-// installations and their repositories so the vendor can pick what to deploy.
-// It is honest about GitHub state: no App installed -> the "Connect GitHub"
-// empty state (never a fabricated repo list). §65 copy stays jargon-free.
+// §42 onboarding step 1: "Connect GitHub". This page shows the org's existing
+// applications above the GitHub installations and their repositories so the
+// vendor can pick what to deploy. It is honest about GitHub state: no App
+// installed -> the "Connect GitHub" empty state (never a fabricated repo
+// list). §65 copy stays jargon-free.
 export default function ApplicationsPage() {
-  const [state, setState] = useState<LoadState>({ status: 'loading' });
+  const [appsState, setAppsState] = useState<AppsState>({ status: 'loading' });
+  const [githubState, setGithubState] = useState<GithubState>({ status: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadApps(): Promise<void> {
+      try {
+        const applications = await fetchApplications();
+        if (cancelled) return;
+        setAppsState({ status: 'loaded', applications });
+      } catch {
+        if (!cancelled) {
+          setAppsState({
+            status: 'error',
+            message: "We couldn't load your applications. Try again in a moment.",
+          });
+        }
+      }
+    }
+    void loadApps();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +82,7 @@ export default function ApplicationsPage() {
         const { installations, connectUrl } = await fetchGithubInstallations();
         if (cancelled) return;
         if (installations.length === 0) {
-          setState({ status: 'empty', connectUrl });
+          setGithubState({ status: 'empty', connectUrl });
           return;
         }
         const repositories: Record<string, GithubRepository[]> = {};
@@ -57,10 +93,13 @@ export default function ApplicationsPage() {
           }),
         );
         if (cancelled) return;
-        setState({ status: 'loaded', installations, repositories });
+        setGithubState({ status: 'loaded', installations, repositories });
       } catch {
         if (!cancelled) {
-          setState({ status: 'error', message: "We couldn't reach GitHub. Try again in a moment." });
+          setGithubState({
+            status: 'error',
+            message: "We couldn't reach GitHub. Try again in a moment.",
+          });
         }
       }
     }
@@ -79,24 +118,100 @@ export default function ApplicationsPage() {
         </p>
       </div>
 
-      {state.status === 'loading' ? <LoadingState /> : null}
-      {state.status === 'error' ? (
-        <section
-          aria-labelledby="github-error"
-          className="rounded-xl border border-dashed px-6 py-16 text-center"
-        >
-          <h2 id="github-error" className="text-lg font-semibold">
-            Something went wrong
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
+      {appsState.status === 'loaded' && appsState.applications.length > 0 ? (
+        <section className="flex flex-col gap-4">
+          <h2 className="text-base font-semibold">Your applications</h2>
+          <ApplicationList applications={appsState.applications} />
         </section>
       ) : null}
-      {state.status === 'empty' ? <ConnectGitHubEmptyState connectUrl={state.connectUrl} /> : null}
-      {state.status === 'loaded' ? (
-        <RepoList installations={state.installations} repositories={state.repositories} />
+      {appsState.status === 'loading' ? (
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+        </div>
       ) : null}
+      {appsState.status === 'error' ? (
+        <section
+          aria-labelledby="applications-error"
+          className="rounded-xl border border-dashed px-6 py-16 text-center"
+        >
+          <h2 id="applications-error" className="text-lg font-semibold">
+            Something went wrong
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">{appsState.message}</p>
+        </section>
+      ) : null}
+
+      <section className="flex flex-col gap-6">
+        <h2 className="text-base font-semibold">Add application</h2>
+        {githubState.status === 'loading' ? <LoadingState /> : null}
+        {githubState.status === 'error' ? (
+          <section
+            aria-labelledby="github-error"
+            className="rounded-xl border border-dashed px-6 py-16 text-center"
+          >
+            <h2 id="github-error" className="text-lg font-semibold">
+              Something went wrong
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">{githubState.message}</p>
+          </section>
+        ) : null}
+        {githubState.status === 'empty' ? (
+          <ConnectGitHubEmptyState connectUrl={githubState.connectUrl} />
+        ) : null}
+        {githubState.status === 'loaded' ? (
+          <RepoList
+            installations={githubState.installations}
+            repositories={githubState.repositories}
+          />
+        ) : null}
+      </section>
     </div>
   );
+}
+
+function ApplicationList({ applications }: { applications: Application[] }) {
+  return (
+    <div className="flex flex-col gap-3">
+      {applications.map((app) => (
+        <ApplicationCard key={app.id} application={app} />
+      ))}
+    </div>
+  );
+}
+
+function ApplicationCard({ application }: { application: Application }) {
+  const label = applicationBadgeLabel(application);
+  return (
+    <Card data-testid={`app-card-${application.id}`}>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <CardTitle>
+              <Link
+                href={`/dashboard/applications/${application.id}`}
+                data-testid={`app-card-name-${application.id}`}
+              >
+                {application.name}
+              </Link>
+            </CardTitle>
+            <CardDescription>{application.repoFullName}</CardDescription>
+          </div>
+          <Badge variant="secondary" data-testid={`app-card-badge-${application.id}`}>
+            {label}
+          </Badge>
+        </div>
+      </CardHeader>
+    </Card>
+  );
+}
+
+function applicationBadgeLabel(app: Application): string {
+  if (app.compatibilityStatus) {
+    return VERDICT_PRESENTATION[app.compatibilityStatus].label;
+  }
+  if (app.analysisStatus === 'FAILED') return 'Analysis failed';
+  return 'Analysing';
 }
 
 function LoadingState() {
