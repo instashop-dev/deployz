@@ -1,4 +1,5 @@
-import { boolean, index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, index, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
 import { orgPlanEnum } from '../enums.js';
 
@@ -18,6 +19,12 @@ export const user = pgTable('user', {
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
+  // Deployz field: the tenant this user last worked in. Sessions are deleted
+  // on sign-out (and replaced on a password change), so the pointer cannot
+  // live on the session alone — without this the switcher resets to the
+  // user's oldest membership every time they sign in. No foreign key: a
+  // stale id is simply ignored once membership is re-checked.
+  lastActiveOrganizationId: text('last_active_organization_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
@@ -88,9 +95,12 @@ export const verification = pgTable(
   (t) => [index('verification_identifier_idx').on(t.identifier)],
 );
 
-// Better Auth organization plugin shape + Deployz billing linkage.
-// NO invitation flow, NO roles UI — member exists because the plugin requires
-// it structurally; role stays at its default.
+// Organization / member / invitation — the multi-tenant membership model.
+// Table and column names keep the Better Auth organization-plugin shape (the
+// session still carries active_organization_id) so the vocabulary stays
+// familiar, but the control plane owns every write: apps/api exposes the only
+// endpoints that touch these tables, which is where the role checks and the
+// last-owner safeguards live.
 export const organization = pgTable('organization', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -120,5 +130,47 @@ export const member = pgTable(
   (t) => [
     index('member_organization_id_idx').on(t.organizationId),
     index('member_user_id_idx').on(t.userId),
+    // A user joins an organization once — accepting an invitation twice, or
+    // racing two accepts, must not create a second membership row.
+    uniqueIndex('member_org_user_uidx').on(t.organizationId, t.userId),
+  ],
+);
+
+// Membership roles are 'owner' | 'admin' | 'member' (see apps/api's
+// organizations.ts). Exactly ONE owner per organization is an invariant the
+// API enforces: ownership moves by transfer, never by a plain role change.
+
+// Pending team invitations. `status` is 'pending' | 'accepted' | 'rejected' |
+// 'canceled'; expiry is a timestamp, not a status, so an untouched invitation
+// simply ages out. Emails are stored lower-cased so the partial unique index
+// below is a real duplicate guard.
+export const invitation = pgTable(
+  'invitation',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    role: text('role').notNull().default('member'),
+    status: text('status').notNull().default('pending'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    inviterId: text('inviter_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('invitation_organization_id_idx').on(t.organizationId),
+    index('invitation_email_idx').on(t.email),
+    // One live invitation per (organization, email) — a resend refreshes the
+    // existing row instead of stacking duplicates.
+    uniqueIndex('invitation_pending_org_email_uidx')
+      .on(t.organizationId, t.email)
+      .where(sql`status = 'pending'`),
   ],
 );

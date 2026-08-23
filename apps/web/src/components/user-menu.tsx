@@ -1,6 +1,7 @@
 'use client';
 
-import { LogOut } from 'lucide-react';
+import { LogOut, UserCog } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -55,6 +56,13 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
             {email}
           </span>
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/dashboard/settings/profile">
+            <UserCog aria-hidden />
+            Profile settings
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={pending} onSelect={onSignOut}>
           <LogOut aria-hidden />

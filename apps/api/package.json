@@ -23,6 +23,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.1115.0",
     "@aws-sdk/client-sqs": "^3.1115.0",
     "@deployz/analysis": "workspace:*",
     "@deployz/contracts": "workspace:*",

@@ -185,6 +185,40 @@ export const userSchema = z.object({
 });
 export type User = z.infer<typeof userSchema>;
 
+// Membership roles. Exactly one owner per organization — ownership moves by
+// transfer, never by a plain role change (apps/api/src/organizations.ts).
+export const organizationRoleSchema = z.enum(['owner', 'admin', 'member']);
+export type OrganizationRole = z.infer<typeof organizationRoleSchema>;
+
+// Roles an invitation may carry — never 'owner'.
+export const invitableRoleSchema = z.enum(['admin', 'member']);
+export type InvitableRole = z.infer<typeof invitableRoleSchema>;
+
+export const invitationStatusSchema = z.enum(['pending', 'accepted', 'rejected', 'canceled']);
+export type InvitationStatus = z.infer<typeof invitationStatusSchema>;
+
+export const memberSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  userId: z.string(),
+  role: organizationRoleSchema,
+  createdAt: z.iso.datetime(),
+});
+export type Member = z.infer<typeof memberSchema>;
+
+export const invitationSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  email: z.email(),
+  role: invitableRoleSchema,
+  status: invitationStatusSchema,
+  expiresAt: z.iso.datetime(),
+  inviterId: z.string(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type Invitation = z.infer<typeof invitationSchema>;
+
 export const applicationSchema = z.object({
   id: z.uuid(),
   organizationId: z.string(),

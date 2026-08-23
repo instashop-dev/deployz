@@ -3,11 +3,16 @@ import Link from 'next/link';
 import { OnboardingFlow } from '@/components/onboarding-flow';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { fetchOnboarding } from '@/lib/onboarding';
 
-// §42 onboarding overview — the six-step first-run flow at a glance. Step 1
+// §42 onboarding overview — the six-step first-run flow at a glance, against
+// real organization state (GET /api/onboarding), not a hard-coded step. Step 1
 // (Connect GitHub) starts on the Applications page; steps 2+ live on each
 // application's readiness page. Success is readiness, not first install (§5).
-export default function OnboardingPage() {
+export default async function OnboardingPage() {
+  const { currentStep } = await fetchOnboarding();
+  const complete = currentStep >= 6;
+
   return (
     <div className="flex flex-col gap-8">
       <div>
@@ -21,19 +26,37 @@ export default function OnboardingPage() {
         <h2 id="steps" className="text-base font-semibold">
           Getting your app ready
         </h2>
-        <OnboardingFlow currentStep={1} />
+        <OnboardingFlow currentStep={currentStep} />
       </section>
 
       <Card>
         <CardHeader>
-          <CardTitle>Start with your code</CardTitle>
+          <CardTitle>{complete ? 'Give your next customer a deployment' : 'Start with your code'}</CardTitle>
           <CardDescription>
-            Connect GitHub and choose the repository we should analyse.
+            {complete
+              ? 'Your application is ready. Create a deployment in a customer account.'
+              : 'Connect GitHub and choose the repository we should analyse.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button asChild>
-            <Link href="/dashboard/applications">Connect GitHub</Link>
+            <Link href={complete ? '/dashboard/deployments/new' : '/dashboard/applications'}>
+              {complete ? 'Create Customer Deployment' : 'Connect GitHub'}
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Bring in your team</CardTitle>
+          <CardDescription>
+            Invite the people who work on this application with you.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link href="/dashboard/settings/members">Invite teammates</Link>
           </Button>
         </CardContent>
       </Card>

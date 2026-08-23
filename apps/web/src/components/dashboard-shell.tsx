@@ -5,20 +5,28 @@ import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 
 import { DashboardNav } from '@/components/dashboard-nav';
+import { OrgSwitcher } from '@/components/org-switcher';
 import { UserMenu } from '@/components/user-menu';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import type { OrganizationSummary } from '@/lib/organization-vocabulary';
 
 interface DashboardShellProps {
   user: { name: string; email: string };
-  organizationName: string | null;
+  organizations: OrganizationSummary[];
+  activeOrganizationId: string | null;
   children: ReactNode;
 }
 
 // App shell: sidebar navigation (static on desktop, slide-over on mobile)
 // plus a top bar carrying the user menu. Session data arrives as props from
 // the server layout, which re-validates it against the API on every render.
-export function DashboardShell({ user, organizationName, children }: DashboardShellProps) {
+export function DashboardShell({
+  user,
+  organizations,
+  activeOrganizationId,
+  children,
+}: DashboardShellProps) {
   const [navOpen, setNavOpen] = useState(false);
 
   const sidebarContent = (
@@ -31,12 +39,8 @@ export function DashboardShell({ user, organizationName, children }: DashboardSh
         >
           Deployz
         </Link>
-        {organizationName ? (
-          <p data-testid="org-name" className="mt-0.5 truncate text-xs text-muted-foreground">
-            {organizationName}
-          </p>
-        ) : null}
       </div>
+      <OrgSwitcher organizations={organizations} activeOrganizationId={activeOrganizationId} />
       <Separator />
       {/* Close the mobile slide-over after any navigation. */}
       <div onClick={() => setNavOpen(false)}>

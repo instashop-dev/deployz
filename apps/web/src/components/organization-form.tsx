@@ -5,7 +5,7 @@ import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { OrganizationInfo } from '@/lib/organization';
+import type { OrganizationInfo } from '@/lib/organization-vocabulary';
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 

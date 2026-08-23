@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState, type FormEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
@@ -10,8 +10,34 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/auth-client';
 
+// Only a relative path is a safe redirect target — an absolute URL in
+// callbackUrl would be an open redirect.
+function isSafeCallbackUrl(url: string | null): url is string {
+  return url !== null && url.startsWith('/') && !url.startsWith('//');
+}
+
+// The other auth page must keep the same destination — an invited visitor who
+// switches between sign-in and sign-up still has to land back on their
+// invitation.
+function crossLink(callbackUrl: string | null): string {
+  return isSafeCallbackUrl(callbackUrl)
+    ? `/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`
+    : '/sign-in';
+}
+
 export default function SignUpPage() {
+  // useSearchParams needs a Suspense boundary at build time.
+  return (
+    <Suspense fallback={<Card className="w-full max-w-sm" />}>
+      <SignUpForm />
+    </Suspense>
+  );
+}
+
+function SignUpForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl');
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -30,7 +56,7 @@ export default function SignUpPage() {
       setError(failure.message ?? 'Sign-up failed. Try a different email address.');
       return;
     }
-    router.push('/dashboard');
+    router.push(isSafeCallbackUrl(callbackUrl) ? callbackUrl : '/dashboard');
   }
 
   return (
@@ -72,7 +98,7 @@ export default function SignUpPage() {
         </form>
         <p className="mt-4 text-center text-sm text-muted-foreground">
           Already have an account?{' '}
-          <Link href="/sign-in" className="text-primary underline-offset-4 hover:underline">
+          <Link href={crossLink(callbackUrl)} className="text-primary underline-offset-4 hover:underline">
             Sign in
           </Link>
         </p>

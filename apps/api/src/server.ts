@@ -3,7 +3,7 @@ import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import crypto from 'node:crypto';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { failureCodeSchema, healthStatusSchema } from '@deployz/contracts';
@@ -29,7 +29,7 @@ import {
   setConfigBodySchema,
 } from './config.js';
 import { env } from './env.js';
-import { ApiError, NotFoundError, toErrorEnvelope } from './errors.js';
+import { ApiError, NotFoundError, UnauthorizedError, toErrorEnvelope } from './errors.js';
 import {
   createGithubStore,
   handleInstallationWebhook,
@@ -41,8 +41,39 @@ import {
   type GithubWebhookEvent,
   type ResolveOrganization,
 } from './github.js';
+import { createEmailSender, type EmailSender } from './email.js';
+import {
+  acceptInvitation,
+  activateOrganization,
+  createInvitation,
+  createOrganization,
+  createOrganizationBodySchema,
+  deleteAccount,
+  deleteAccountBodySchema,
+  deleteOrganization,
+  deleteOrganizationBodySchema,
+  inviteMemberBodySchema,
+  getPublicInvitation,
+  leaveOrganization,
+  listInvitations,
+  listInvitationsForEmail,
+  listMembers,
+  listOrganizations,
+  rejectInvitation,
+  removeMember,
+  resendInvitation,
+  revokeInvitation,
+  transferOwnership,
+  transferOwnershipBodySchema,
+  updateMemberRole,
+  updateMemberRoleBodySchema,
+  updateOrganization,
+  updateOrganizationBodySchema,
+  type Actor,
+  type OrganizationDeps,
+} from './organizations.js';
 import { createRelayStore } from './relay-store.js';
-import { createRequireAuth } from './require-auth.js';
+import { createRequireAuth, requireRole, type OrganizationRow } from './require-auth.js';
 
 export interface ServerDeps {
   auth: Auth;
@@ -56,6 +87,9 @@ export interface ServerDeps {
   // implementation hits GitHub; tests can supply a fake instead). Defaults
   // to analysis.ts's createAnalysisRunner wired to env/fixture GitHub deps.
   analysisRunner?: AnalysisRunner | undefined;
+  // Injectable transactional-email seam (invitations, membership changes).
+  // Defaults to email.ts's env-driven sender; tests supply a recorder.
+  emailSender?: EmailSender | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -91,6 +125,33 @@ function requireSessionOrganizationId(request: { organization?: { id: string } |
     throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
   }
   return organizationId;
+}
+
+/** Session organization row, or 401 when the request has none. */
+function requireSessionOrganization(request: FastifyRequest): OrganizationRow {
+  const organization = request.organization;
+  if (!organization) {
+    throw new ApiError(401, 'UNAUTHORIZED', 'An organization is required');
+  }
+  return organization;
+}
+
+/** The signed-in user as an audit/email actor. */
+function requireActor(request: FastifyRequest): Actor {
+  const user = request.user;
+  if (!user) {
+    throw new UnauthorizedError();
+  }
+  return { id: user.id, name: user.name, email: user.email };
+}
+
+/** The caller's session row id — the tenant pointer writes target it. */
+function requireSessionId(request: FastifyRequest): string {
+  const sessionId = request.sessionId;
+  if (!sessionId) {
+    throw new UnauthorizedError();
+  }
+  return sessionId;
 }
 
 /**
@@ -388,6 +449,7 @@ export async function buildServer({
   githubWebhookSecret,
   githubFixtureMode,
   analysisRunner,
+  emailSender,
 }: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
@@ -504,40 +566,250 @@ export async function buildServer({
 
   const requireAuth = createRequireAuth({ auth, db });
 
+  const organizationDeps: OrganizationDeps = {
+    db,
+    emailSender: emailSender ?? createEmailSender(),
+    webUrl: env.webUrl,
+  };
+
   app.get('/api/me', { preHandler: requireAuth }, async (request) => ({
     user: request.user ?? null,
     organization: request.organization ?? null,
+    role: request.member?.role ?? null,
+    organizations: request.user ? await listOrganizations(db, request.user.id) : [],
   }));
+
+  // ── Organizations ───────────────────────────────────────────────
+
+  // Every organization the caller belongs to — the tenant switcher's data.
+  app.get('/api/organizations', { preHandler: requireAuth }, async (request) => ({
+    organizations: await listOrganizations(db, requireActor(request).id),
+  }));
+
+  app.post('/api/organizations', { preHandler: requireAuth }, async (request, reply) => {
+    const body = createOrganizationBodySchema.parse(request.body);
+    const created = await createOrganization(
+      db,
+      requireActor(request),
+      requireSessionId(request),
+      body,
+    );
+    return reply.code(201).send(created);
+  });
+
+  // Switch the active tenant. Membership is re-checked here, so an id the
+  // caller does not belong to is a 404, not a switch.
+  app.post('/api/organizations/:id/activate', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    return activateOrganization(db, requireActor(request), requireSessionId(request), id);
+  });
 
   // §41 screen 18 organization settings.
   app.get('/api/organization', { preHandler: requireAuth }, async (request) => {
-    const organizationId = requireSessionOrganizationId(request);
-    const rows = await db
-      .select()
-      .from(schema.organization)
-      .where(eq(schema.organization.id, organizationId))
-      .limit(1);
-    if (rows.length === 0) {
-      throw new NotFoundError('Organization not found');
-    }
-    const org = rows[0]!;
-    return { id: org.id, name: org.name, plan: org.plan, createdAt: org.createdAt };
+    const organization = requireSessionOrganization(request);
+    const members = await listMembers(db, organization.id);
+    return {
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
+      plan: organization.plan,
+      createdAt: organization.createdAt,
+      role: requireRole(request),
+      memberCount: members.length,
+    };
   });
-
-  const patchOrganizationBodySchema = z.object({ name: z.string().min(1) });
 
   app.patch('/api/organization', { preHandler: requireAuth }, async (request) => {
     const organizationId = requireSessionOrganizationId(request);
-    const body = patchOrganizationBodySchema.parse(request.body);
-    const [row] = await db
-      .update(schema.organization)
-      .set({ name: body.name })
-      .where(eq(schema.organization.id, organizationId))
-      .returning();
-    if (!row) {
-      throw new NotFoundError('Organization not found');
-    }
-    return { id: row.id, name: row.name, plan: row.plan, createdAt: row.createdAt };
+    const body = updateOrganizationBodySchema.parse(request.body);
+    const row = await updateOrganization(
+      db,
+      requireActor(request),
+      organizationId,
+      requireRole(request),
+      body,
+    );
+    return { id: row.id, name: row.name, slug: row.slug, plan: row.plan, createdAt: row.createdAt };
+  });
+
+  app.delete('/api/organization', { preHandler: requireAuth }, async (request, reply) => {
+    const organizationId = requireSessionOrganizationId(request);
+    const body = deleteOrganizationBodySchema.parse(request.body);
+    await deleteOrganization(
+      db,
+      organizationDeps,
+      requireActor(request),
+      organizationId,
+      requireRole(request),
+      body,
+    );
+    return reply.code(204).send();
+  });
+
+  // ── Members ────────────────────────────────────────────────────
+
+  app.get('/api/organization/members', { preHandler: requireAuth }, async (request) => ({
+    members: await listMembers(db, requireSessionOrganizationId(request)),
+  }));
+
+  app.patch(
+    '/api/organization/members/:memberId',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { memberId } = request.params as { memberId: string };
+      const body = updateMemberRoleBodySchema.parse(request.body);
+      return updateMemberRole(
+        db,
+        organizationDeps,
+        requireActor(request),
+        requireSessionOrganizationId(request),
+        requireRole(request),
+        memberId,
+        body,
+      );
+    },
+  );
+
+  app.delete(
+    '/api/organization/members/:memberId',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { memberId } = request.params as { memberId: string };
+      await removeMember(
+        db,
+        organizationDeps,
+        requireActor(request),
+        requireSessionOrganizationId(request),
+        requireRole(request),
+        memberId,
+      );
+      return reply.code(204).send();
+    },
+  );
+
+  app.post('/api/organization/leave', { preHandler: requireAuth }, async (request, reply) => {
+    await leaveOrganization(
+      db,
+      requireActor(request),
+      requireSessionOrganizationId(request),
+      requireRole(request),
+    );
+    return reply.code(204).send();
+  });
+
+  app.post(
+    '/api/organization/transfer-ownership',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const body = transferOwnershipBodySchema.parse(request.body);
+      await transferOwnership(
+        db,
+        organizationDeps,
+        requireActor(request),
+        requireSessionOrganizationId(request),
+        requireRole(request),
+        body,
+      );
+      return reply.code(204).send();
+    },
+  );
+
+  // ── Invitations ─────────────────────────────────────────────
+
+  app.get('/api/organization/invitations', { preHandler: requireAuth }, async (request) => ({
+    invitations: await listInvitations(db, requireSessionOrganizationId(request)),
+  }));
+
+  app.post(
+    '/api/organization/invitations',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const body = inviteMemberBodySchema.parse(request.body);
+      const created = await createInvitation(
+        organizationDeps,
+        requireActor(request),
+        requireSessionOrganizationId(request),
+        requireRole(request),
+        body,
+      );
+      return reply.code(201).send(created);
+    },
+  );
+
+  app.post(
+    '/api/organization/invitations/:invitationId/resend',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { invitationId } = request.params as { invitationId: string };
+      return resendInvitation(
+        organizationDeps,
+        requireActor(request),
+        requireSessionOrganizationId(request),
+        requireRole(request),
+        invitationId,
+      );
+    },
+  );
+
+  app.delete(
+    '/api/organization/invitations/:invitationId',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { invitationId } = request.params as { invitationId: string };
+      await revokeInvitation(
+        db,
+        requireActor(request),
+        requireSessionOrganizationId(request),
+        requireRole(request),
+        invitationId,
+      );
+      return reply.code(204).send();
+    },
+  );
+
+  // Pending invitations addressed to the caller, across every tenant.
+  app.get('/api/invitations', { preHandler: requireAuth }, async (request) => ({
+    invitations: await listInvitationsForEmail(db, requireActor(request).email),
+  }));
+
+  // UNAUTHENTICATED by design — the invitee may not have an account yet, and
+  // the accept screen has to name the organization before they sign in. Only
+  // non-sensitive display fields: no member list, no tenant internals.
+  app.get('/api/invitations/:invitationId', async (request) => {
+    const { invitationId } = request.params as { invitationId: string };
+    return getPublicInvitation(db, invitationId);
+  });
+
+  app.post(
+    '/api/invitations/:invitationId/accept',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { invitationId } = request.params as { invitationId: string };
+      return acceptInvitation(
+        organizationDeps,
+        requireActor(request),
+        requireSessionId(request),
+        invitationId,
+      );
+    },
+  );
+
+  app.post(
+    '/api/invitations/:invitationId/reject',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { invitationId } = request.params as { invitationId: string };
+      await rejectInvitation(db, requireActor(request), invitationId);
+      return reply.code(204).send();
+    },
+  );
+
+  // ── Account ────────────────────────────────────────────────────
+
+  app.delete('/api/account', { preHandler: requireAuth }, async (request, reply) => {
+    const body = deleteAccountBodySchema.parse(request.body);
+    await deleteAccount(db, organizationDeps, requireActor(request), body);
+    return reply.code(204).send();
   });
 
   // §12/§44 public customer installation page. UNAUTHENTICATED by design —
@@ -1243,28 +1515,44 @@ export async function buildServer({
 
   // ── Onboarding (§42) ────────────────────────────────────────────────────
 
-  // GET /api/onboarding — Onboarding state
+  // GET /api/onboarding — where the organization stands on the six §42
+  // steps. The step KEYS are the wire contract; the labels stay in the copy
+  // map (§65) so there is one source of copy, not two.
+  //
+  // The counts below read row LENGTH, not a `count` alias over a uuid column:
+  // the previous shape aliased applications.id as `count` and put it through
+  // Number(), which is NaN for a uuid, so every step read as incomplete.
   app.get('/api/onboarding', { preHandler: requireAuth }, async (request) => {
     const organizationId = requireSessionOrganizationId(request);
-    const appCount = await db
-      .select({ count: schema.applications.id })
+    const applications = await db
+      .select({
+        analysisStatus: schema.applications.analysisStatus,
+        compatibilityStatus: schema.applications.compatibilityStatus,
+      })
       .from(schema.applications)
       .where(eq(schema.applications.organizationId, organizationId));
-    const depCount = await db
-      .select({ count: schema.deployments.id })
+    const deployments = await db
+      .select({ state: schema.deployments.state })
       .from(schema.deployments)
       .where(eq(schema.deployments.organizationId, organizationId));
-    const hasApps = Number(appCount[0]?.count ?? 0) > 0;
-    const hasDeployments = Number(depCount[0]?.count ?? 0) > 0;
-    return {
-      steps: [
-        { step: 'connect_github', completed: hasApps },
-        { step: 'create_application', completed: hasApps },
-        { step: 'add_customer', completed: hasDeployments },
-        { step: 'create_deployment', completed: hasDeployments },
-        { step: 'first_deploy', completed: false },
-      ],
-    };
+
+    const hasApplication = applications.length > 0;
+    const analysed = applications.some((row) => row.analysisStatus === 'COMPLETE');
+    const compatible = applications.some((row) => row.compatibilityStatus === 'READY');
+    const hasDeployment = deployments.length > 0;
+    // §5: the success moment is readiness — a deployment that actually runs.
+    const ready = compatible && deployments.some((row) => row.state === 'HEALTHY');
+
+    const steps = [
+      { step: 'connect_github', completed: hasApplication },
+      { step: 'choose_repository', completed: hasApplication },
+      { step: 'analyse', completed: analysed },
+      { step: 'fix_compatibility', completed: compatible },
+      { step: 'create_test_deployment', completed: hasDeployment },
+      { step: 'ready_for_customer_deployment', completed: ready },
+    ];
+    const firstIncomplete = steps.findIndex((step) => !step.completed);
+    return { steps, currentStep: firstIncomplete === -1 ? steps.length : firstIncomplete + 1 };
   });
 
   // Better Auth over Fastify: construct a Fetch Request, call auth.handler,
