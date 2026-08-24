@@ -38,6 +38,8 @@ export interface ApplicationConfig {
   applicationId: string;
   /** Null when viewing vendor defaults; the customer id when scoped. */
   customerId: string | null;
+  /** The scoped customer's name — the screen names the customer, never its id. */
+  customerName: string | null;
   vendorDefaults: MaskedConfigEntry[];
   customerOverrides: MaskedConfigEntry[];
   effective: EffectiveConfigEntry[];
