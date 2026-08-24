@@ -23,6 +23,8 @@ import type {
   APIGatewayProxyEventV2,
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
+
+import { toInjectOptions, toLambdaResult } from './api-gateway-adapter.js';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
@@ -109,39 +111,6 @@ export async function handler(
   event: APIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResultV2> {
   const app = await getApp();
-
-  const path = event.rawPath;
-  const query = event.rawQueryString ? `?${event.rawQueryString}` : '';
-
-  const response = await app.inject({
-    method: event.requestContext.http.method as
-      | 'GET'
-      | 'POST'
-      | 'PUT'
-      | 'DELETE'
-      | 'PATCH'
-      | 'HEAD'
-      | 'OPTIONS',
-    url: `${path}${query}`,
-    headers: (event.headers as Record<string, string>) ?? {},
-    body: event.body ?? undefined,
-  });
-
-  // Build API Gateway v2 response. Fastify inject returns headers as
-  // an object; multi-value headers (set-cookie) come as a joined string.
-  const headers: Record<string, string> = {};
-  if (response.headers) {
-    for (const [key, value] of Object.entries(response.headers)) {
-      if (value !== undefined) {
-        headers[key] = String(value);
-      }
-    }
-  }
-
-  return {
-    statusCode: response.statusCode,
-    headers,
-    body: response.body,
-    isBase64Encoded: false,
-  };
+  const response = await app.inject(toInjectOptions(event));
+  return toLambdaResult(response);
 }

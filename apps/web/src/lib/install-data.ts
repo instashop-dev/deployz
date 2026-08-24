@@ -2,7 +2,7 @@
 // unauthenticated /install/:installationId page. Wired to the real
 // (public, no-auth) `GET /api/install/:installationId` endpoint.
 
-const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { serverApiUrl } from '@/lib/api-url';
 
 export interface InstallData {
   applicationName: string;
@@ -15,7 +15,7 @@ export interface InstallData {
 
 /** Fetch the public install page data. Returns null on a 404 (unknown/invalid link). */
 export async function fetchInstallData(installationId: string): Promise<InstallData | null> {
-  const response = await fetch(`${apiUrl}/api/install/${encodeURIComponent(installationId)}`, {
+  const response = await fetch(`${serverApiUrl()}/api/install/${encodeURIComponent(installationId)}`, {
     cache: 'no-store',
   });
   if (response.status === 404) return null;

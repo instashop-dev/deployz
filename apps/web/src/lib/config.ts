@@ -6,7 +6,7 @@
 // config — or reporting a failed save as a success — would be misleading.
 // §65: copy is jargon-free.
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 

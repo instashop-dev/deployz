@@ -21,7 +21,24 @@ export function createAuth(db: RuntimeDb) {
     baseURL: env.apiUrl,
     basePath: '/api/auth',
     ...(env.betterAuthSecret ? { secret: env.betterAuthSecret } : {}),
-    trustedOrigins: [env.webUrl],
+    // The dashboard and the marketing site are separate origins from the API,
+    // so both must be trusted for Better Auth's origin check to pass.
+    trustedOrigins: [...env.webOrigins],
+    // Production splits the app across api./app./apex of one registrable
+    // domain, so the session cookie has to be domain-scoped or the dashboard
+    // never sees the cookie the API sets. SameSite=Lax (not None) is correct
+    // here: app.deployz.dev -> api.deployz.dev is cross-ORIGIN but same-SITE,
+    // so Lax cookies are still sent, and Lax avoids the third-party-cookie
+    // blocking that None invites in Safari and Firefox. Absent COOKIE_DOMAIN
+    // (local dev) this whole block is omitted and cookies stay host-scoped.
+    ...(env.cookieDomain
+      ? {
+          advanced: {
+            crossSubDomainCookies: { enabled: true, domain: env.cookieDomain },
+            defaultCookieAttributes: { secure: true, sameSite: 'lax' as const },
+          },
+        }
+      : {}),
     database: drizzleAdapter(db, { provider: 'pg', schema }),
     emailAndPassword: { enabled: true },
     socialProviders: {

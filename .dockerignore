@@ -1,0 +1,20 @@
+# The web image is built with the repository root as its context, so this
+# lives at the root rather than in apps/web.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+**/cdk.out
+packages/db/.pgdata
+.git
+.github
+.claude
+.env
+.env.*
+!.env.example
+coverage
+test-results
+playwright-report
+e2e
+docs

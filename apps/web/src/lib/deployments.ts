@@ -6,7 +6,7 @@ import type { DeploymentState } from './deployment-vocabulary';
 // vocabulary only — no raw AWS/CFN/ECS terms at the top level (M14:
 // deployment health only).
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 

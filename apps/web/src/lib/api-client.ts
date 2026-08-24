@@ -2,7 +2,7 @@
 // dashboard goes through here so the session cookie, the JSON headers and the
 // error envelope ({ error: { code, message } }) are handled once.
 
-export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 export class ApiRequestError extends Error {
   constructor(

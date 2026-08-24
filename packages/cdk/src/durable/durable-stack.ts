@@ -23,6 +23,12 @@ import { join } from 'node:path';
 export interface DurableExecutionProps {
   readonly vpc: IVpc;
   readonly httpApi?: HttpApi;
+  /**
+   * Public origin to build the callback URL from, e.g.
+   * `https://api.deployz.dev`. Defaults to the API's generated
+   * execute-api endpoint when omitted.
+   */
+  readonly publicBaseUrl?: string;
 }
 
 /**
@@ -75,7 +81,13 @@ export class DurableExecution extends Construct {
         methods: [HttpMethod.POST],
         integration: new HttpLambdaIntegration('DurableCallback', this.function),
       });
-      this.callbackUrl = `${props.httpApi.apiEndpoint}/durable/{workflowName}/{executionId}/callback`;
+      // The relay in the customer's account POSTs here, so this must be the
+      // externally reachable origin. Prefer the custom domain when one is
+      // configured — the generated execute-api endpoint keeps working, but
+      // baking it into customer templates would tie them to a URL we would
+      // rather be free to retire.
+      const origin = props.publicBaseUrl ?? props.httpApi.apiEndpoint;
+      this.callbackUrl = `${origin}/durable/{workflowName}/{executionId}/callback`;
     } else {
       this.callbackUrl =
         'https://api.deployz.dev/durable/{workflowName}/{executionId}/callback';

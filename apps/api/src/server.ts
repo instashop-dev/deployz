@@ -473,7 +473,7 @@ export async function buildServer({
   // explicitly: the default is GET,HEAD,POST, which fails the preflight for
   // the config PUT and the organization PATCH.
   await app.register(cors, {
-    origin: [env.webUrl],
+    origin: [...env.webOrigins],
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
@@ -1561,7 +1561,14 @@ export async function buildServer({
     method: ['GET', 'POST'],
     url: '/api/auth/*',
     handler: async (request, reply) => {
-      const url = new URL(request.url, `http://${request.headers.host}`);
+      // Resolve against the canonical API origin rather than the request's
+      // Host header. Two reasons: API Gateway terminates TLS, so the old
+      // hardcoded `http://` handed Better Auth an http origin that failed its
+      // own https origin check; and Host is client-controlled, which made this
+      // a header-injection surface on the auth endpoint. request.url is a path
+      // plus query, so this keeps both and guarantees the origin matches the
+      // baseURL Better Auth was configured with.
+      const url = new URL(request.url, env.apiUrl);
       const headers = fromNodeHeaders(request.headers);
       const init: RequestInit = {
         method: request.method,
