@@ -1,13 +1,39 @@
 import { config } from 'dotenv';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
-import { findEnvFile, moduleDirectory } from './find-env-file.js';
+/**
+ * Locate the monorepo-root .env by walking up from the working directory.
+ *
+ * `dotenv/config` alone is not enough: `turbo dev` runs each package from its
+ * own directory, so the repo-root .env (where the README documents it) would
+ * never load. Walking up finds it from any package.
+ *
+ * Deliberately NOT `fileURLToPath(import.meta.url)`. The API is bundled to
+ * CJS for Lambda because pg uses dynamic require(), and esbuild compiles
+ * `import.meta` to `{}` in CJS output — so import.meta.url is undefined and
+ * fileURLToPath throws at module load, killing the function during INIT
+ * before any handler runs. packages/db/src/client.ts avoids the same trap by
+ * evaluating import.meta.url lazily inside a function.
+ */
+function findRepoEnvFile(): string | undefined {
+  let dir = process.cwd();
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidate = join(dir, '.env');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
 
-// The repo-root .env, found by walking up from this file (see findEnvFile for
-// why it searches). dotenv is skipped entirely when there is none —
-// production / CI rely on real environment variables.
-const envFile = findEnvFile(moduleDirectory(import.meta.url));
-if (envFile) {
-  config({ path: envFile });
+// Lambda injects the environment directly and ships no .env, so skip the
+// filesystem probe there entirely. dotenv also no-ops silently when the file
+// is absent, so CI and any other real-env deployment are unaffected.
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  const envFile = findRepoEnvFile();
+  if (envFile) config({ path: envFile });
 }
 
 // Single place that reads process.env for the API. Anything undefined falls
