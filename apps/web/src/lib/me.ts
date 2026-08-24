@@ -11,13 +11,13 @@ export interface Me {
   organizations: OrganizationSummary[];
 }
 
-const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { serverApiUrl } from '@/lib/api-url';
 
 // Server-side session resolution: forward the incoming request's cookies to
 // the control-plane API. Returns null when the session is absent or invalid.
 export async function fetchMe(): Promise<Me | null> {
   const cookieHeader = (await cookies()).toString();
-  const response = await fetch(`${apiUrl}/api/me`, {
+  const response = await fetch(`${serverApiUrl()}/api/me`, {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     cache: 'no-store',
   });
@@ -37,7 +37,7 @@ export interface PendingInvitation {
 /** Live invitations addressed to the signed-in user, across every tenant. */
 export async function fetchMyInvitations(): Promise<PendingInvitation[]> {
   const cookieHeader = (await cookies()).toString();
-  const response = await fetch(`${apiUrl}/api/invitations`, {
+  const response = await fetch(`${serverApiUrl()}/api/invitations`, {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     cache: 'no-store',
   });
@@ -61,7 +61,7 @@ export interface PublicInvitation {
 /** The invitation as its recipient sees it. Unauthenticated: the invitee may
  *  not have an account yet. Returns null when the link is unknown. */
 export async function fetchPublicInvitation(id: string): Promise<PublicInvitation | null> {
-  const response = await fetch(`${apiUrl}/api/invitations/${encodeURIComponent(id)}`, {
+  const response = await fetch(`${serverApiUrl()}/api/invitations/${encodeURIComponent(id)}`, {
     cache: 'no-store',
   });
   if (!response.ok) {
