@@ -44,6 +44,8 @@ import migration0002 from '../../../db/drizzle/0002_dizzy_red_shift.sql';
 import migration0003 from '../../../db/drizzle/0003_orange_phalanx.sql';
 import migration0004 from '../../../db/drizzle/0004_married_blob.sql';
 import migration0005 from '../../../db/drizzle/0005_deep_gambit.sql';
+import migration0006 from '../../../db/drizzle/0006_funny_pete_wisdom.sql';
+import migration0007 from '../../../db/drizzle/0007_relay_enrollment.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -64,6 +66,8 @@ const MIGRATION_SQL: Record<string, string> = {
   '0003_orange_phalanx': migration0003,
   '0004_married_blob': migration0004,
   '0005_deep_gambit': migration0005,
+  '0006_funny_pete_wisdom': migration0006,
+  '0007_relay_enrollment': migration0007,
 };
 
 let appPromise: Promise<FastifyInstance> | null = null;
