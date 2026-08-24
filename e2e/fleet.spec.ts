@@ -101,6 +101,7 @@ test('fleet dashboard shows the §43 empty state for a fresh org', async ({ page
     route.fulfill({ json: { deployments: [] } }),
   );
   await signUp(page);
+  await page.goto('/dashboard/deployments');
 
   await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible();
   await expect(
@@ -113,6 +114,7 @@ test('fleet dashboard top-level copy is jargon-free', async ({ page }) => {
     route.fulfill({ json: { deployments: [] } }),
   );
   await signUp(page);
+  await page.goto('/dashboard/deployments');
 
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(JARGON);
@@ -124,7 +126,7 @@ test('fleet dashboard lists a real deployment with Customer/Version/Region/Statu
   await signUp(page);
   const { applicationName, customerName } = await seedDeployment(page);
 
-  await page.goto('/dashboard');
+  await page.goto('/dashboard/deployments');
   await expect(page.getByTestId('deployment-list')).toBeVisible();
   await expect(page.getByText(customerName, { exact: true })).toBeVisible();
   await expect(page.getByText(applicationName, { exact: true })).toBeVisible();
@@ -209,7 +211,7 @@ test('a deployment driven to HEALTHY via the relay job workflow is §25 bulk-dep
   );
   expect(releaseResponse.ok()).toBeTruthy();
 
-  await page.goto('/dashboard');
+  await page.goto('/dashboard/deployments');
   const row = page.locator('[data-testid="deployment-list"] tbody tr', { hasText: customerName });
   await expect(row.getByText('Healthy', { exact: true })).toBeVisible();
 
