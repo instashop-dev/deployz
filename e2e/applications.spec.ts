@@ -5,6 +5,9 @@ import { expect, test, type Page } from '@playwright/test';
 // (see playwright.config.ts), so the fixture repo deployz-demo/express-api is
 // available for every Choose action.
 
+/** The card itself, not its name link or its status badge. */
+const APP_CARD = /^app-card-[0-9a-f-]{36}$/;
+
 async function signUp(page: Page): Promise<void> {
   const email = `e2e-${crypto.randomUUID().slice(0, 8)}@example.com`;
   await page.goto('/sign-up');
@@ -25,7 +28,9 @@ test('application list shows existing applications', async ({ page }) => {
 
   // Go back to the list — the newly-created app should appear as a card.
   await page.goto('/dashboard/applications');
-  await expect(page.getByTestId(/app-card-/)).toBeVisible();
+  // Anchored: an unanchored /app-card-/ also matches app-card-name-* and
+  // app-card-badge-*, which is three elements for one application.
+  await expect(page.getByTestId(APP_CARD)).toBeVisible();
 });
 
 test('editing application details persists the change', async ({ page }) => {
@@ -60,7 +65,7 @@ test('deleting an application removes it from the list', async ({ page }) => {
 
   // After deletion the app list should show no card for this app.
   await page.waitForURL('/dashboard/applications');
-  await expect(page.getByTestId(/app-card-/)).toHaveCount(0);
+  await expect(page.getByTestId(APP_CARD)).toHaveCount(0);
 });
 
 test('delete is blocked when the application has a deployment', async ({ page }) => {
@@ -93,7 +98,10 @@ test('delete is blocked when the application has a deployment', async ({ page })
   await page.getByTestId('delete-app-button').click();
 
   // Expect an error message indicating the delete was blocked.
-  await expect(page.getByText(/cannot delete/i)).toBeVisible();
+  // Asserted against the server's own message, which is the copy the vendor
+  // reads. The literal this replaced said "cannot delete" and had drifted
+  // from the product's wording months before anyone noticed.
+  await expect(page.getByText(/cannot be removed/i)).toBeVisible();
 });
 
 test('cross-org isolation: cannot PATCH or DELETE another org\'s application', async ({

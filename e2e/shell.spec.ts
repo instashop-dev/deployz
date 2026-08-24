@@ -25,7 +25,9 @@ test('sign-up page renders', async ({ page }) => {
 
 test('unauthenticated visit to /dashboard redirects to /sign-in', async ({ page }) => {
   await page.goto('/dashboard');
-  await page.waitForURL('/sign-in');
+  // The destination rides along so signing in lands where the visitor was
+  // going, instead of dropping everyone on the dashboard home.
+  await page.waitForURL(/\/sign-in\?callbackUrl=%2Fdashboard/);
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });
 

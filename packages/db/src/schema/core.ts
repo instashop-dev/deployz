@@ -27,7 +27,12 @@ export const applications = pgTable('applications', {
   compatibilityReason: text('compatibility_reason'),
   detectedMetadata: jsonb('detected_metadata').$type<Record<string, unknown>>(),
   ...auditFields(),
-});
+}, (t) => [
+  // One application per repository per organization. Choosing the same repo
+  // twice used to create a second application with its own releases and
+  // deployments, which makes "deploy this app" ambiguous.
+  unique('applications_org_repo_uidx').on(t.organizationId, t.repoFullName),
+]);
 
 export const releases = pgTable('releases', {
   id: id(),
@@ -39,9 +44,17 @@ export const releases = pgTable('releases', {
   imageDigest: text('image_digest'),
   migrationCommand: text('migration_command'),
   buildStatus: buildStatusEnum('build_status').notNull().default('PENDING'),
-  releaseStatus: releaseStatusEnum('release_status').notNull().default('BUILDING'),
+  // §36 a release is an immutable version record. Nothing builds an image in
+  // the MVP, so a release is READY the moment it is recorded; a BUILDING that
+  // never advances is a status nobody can act on. Restore the build states
+  // with the §21 pipeline, not before.
+  releaseStatus: releaseStatusEnum('release_status').notNull().default('READY'),
   ...auditFields(),
-});
+}, (t) => [
+  // §36 one release per version per application — "deploy 1.0.0" must name
+  // exactly one immutable record.
+  unique('releases_application_version_uidx').on(t.applicationId, t.version),
+]);
 
 export const customers = pgTable('customers', {
   id: id(),

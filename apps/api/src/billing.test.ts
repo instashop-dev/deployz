@@ -221,6 +221,8 @@ describe('billing — usage reporting (§48/U8 + §7)', () => {
         region: 'us-east-1',
         state: state as never,
         installationId: `inst-${crypto.randomUUID()}`,
+      enrollmentCode: crypto.randomUUID(),
+        enrollmentCode: crypto.randomUUID(),
         isTestDeployment,
       })
       .returning({ id: schema.deployments.id });

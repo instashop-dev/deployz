@@ -27,12 +27,17 @@ function createMockStore(input: {
   exists?: boolean;
   vendorDefaults?: readonly ConfigEntry[];
   overrides?: Record<string, readonly ConfigEntry[]>;
-}): ConfigStore & { written: { customerId: string | null; entry: ConfigEntry }[] } {
+}): ConfigStore & {
+  written: { customerId: string | null; entry: ConfigEntry }[];
+  removedKeys: { customerId: string | null; key: string }[];
+} {
   const written: { customerId: string | null; entry: ConfigEntry }[] = [];
+  const removedKeys: { customerId: string | null; key: string }[] = [];
   const vendorRows = [...(input.vendorDefaults ?? [])];
   const overrideRows = new Map(Object.entries(input.overrides ?? {}));
   return {
     written,
+    removedKeys,
     applicationExists: () => Promise.resolve(input.exists ?? true),
     list: (_applicationId, customerId) => {
       if (customerId === null) return Promise.resolve(vendorRows);
@@ -54,17 +59,33 @@ function createMockStore(input: {
       }
       return Promise.resolve();
     },
+    remove: (_applicationId, customerId, key) => {
+      removedKeys.push({ customerId, key });
+      const rows = customerId === null ? vendorRows : overrideRows.get(customerId);
+      if (rows) {
+        const index = rows.findIndex((row) => row.key === key);
+        if (index >= 0) rows.splice(index, 1);
+      }
+      return Promise.resolve();
+    },
   };
 }
 
 function createMockWriter(): ConfigSecretWriter & {
   calls: { customerId: string; entries: readonly ConfigEntry[] }[];
+  removed: { customerId: string; keys: readonly string[] }[];
 } {
   const calls: { customerId: string; entries: readonly ConfigEntry[] }[] = [];
+  const removed: { customerId: string; keys: readonly string[] }[] = [];
   return {
     calls,
+    removed,
     writeSecrets: (customerId, entries) => {
       calls.push({ customerId, entries });
+      return Promise.resolve();
+    },
+    removeSecrets: (customerId, keys) => {
+      removed.push({ customerId, keys });
       return Promise.resolve();
     },
   };
@@ -399,5 +420,58 @@ describe('config — request body schema (route boundary)', () => {
     expect(() =>
       setConfigBodySchema.parse({ entries: [{ key: 'A', value: 'x', isSecret: 'yes' }] }),
     ).toThrow();
+  });
+});
+
+// ── Removal (§31) ─────────────────────────────────────────────────────────
+
+describe('config — removing a value', () => {
+  // There was no delete path at all: not in the UI, and not by omitting an
+  // entry, because setConfig only ever upserted what it was given. A mistyped
+  // key was permanent and kept being injected into every deployment.
+  it('removes a vendor default', async () => {
+    const store = createMockStore({
+      vendorDefaults: [
+        { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
+        { key: 'DATABSE_URL', value: 'oops', isSecret: false },
+      ],
+    });
+    const view = await setConfig(APP_ID, null, [], { store, secretWriter: createMockWriter() }, [
+      'DATABSE_URL',
+    ]);
+
+    expect(store.removedKeys).toEqual([{ customerId: null, key: 'DATABSE_URL' }]);
+    expect(view.vendorDefaults.map((entry) => entry.key)).toEqual(['LOG_LEVEL']);
+  });
+
+  it("removes a customer's secret from their own secret store too", async () => {
+    const store = createMockStore({
+      overrides: { [CUSTOMER_ID]: [{ key: 'API_TOKEN', value: SECRET_MASK, isSecret: true }] },
+    });
+    const writer = createMockWriter();
+    await setConfig(APP_ID, CUSTOMER_ID, [], { store, secretWriter: writer }, ['API_TOKEN']);
+
+    // The control plane never held the plaintext, so the relay is the only
+    // thing that can remove it from the customer's account.
+    expect(writer.removed).toEqual([{ customerId: CUSTOMER_ID, keys: ['API_TOKEN'] }]);
+    expect(store.removedKeys).toEqual([{ customerId: CUSTOMER_ID, key: 'API_TOKEN' }]);
+  });
+
+  it('refuses to set and remove the same key in one save', async () => {
+    const store = createMockStore({ vendorDefaults: [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }] });
+    await expect(
+      setConfig(
+        APP_ID,
+        null,
+        [{ key: 'LOG_LEVEL', value: 'info', isSecret: false }],
+        { store, secretWriter: createMockWriter() },
+        ['LOG_LEVEL'],
+      ),
+    ).rejects.toMatchObject({ code: 'CONFIG_CONFLICTING_WRITE' });
+  });
+
+  it('accepts deletes through the request body schema', () => {
+    const parsed = setConfigBodySchema.parse({ customerId: null, entries: [], deletes: ['OLD_KEY'] });
+    expect(parsed.deletes).toEqual(['OLD_KEY']);
   });
 });

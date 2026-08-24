@@ -11,7 +11,15 @@ import { apiUrl } from '@/lib/api-url';
 // ── Wire shapes ────────────────────────────────────────────────────────────
 
 export type RelayStatus = 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
-export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
+export type HealthStatus = 'UNKNOWN' | 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
+
+/** §24 the components a relay reports on. Absent = not reported, not healthy. */
+export interface HealthComponents {
+  application?: HealthStatus;
+  database?: HealthStatus;
+  storage?: HealthStatus;
+  loadBalancer?: HealthStatus;
+}
 
 /**
  * A deployment row exactly as `GET /api/deployments` returns it: the raw
@@ -31,6 +39,10 @@ export interface FleetDeployment {
   previousReleaseId: string | null;
   relayStatus: RelayStatus;
   healthStatus: HealthStatus;
+  /** Per-component health as last reported. Null until the relay reports. */
+  components: HealthComponents | null;
+  /** The public install link id — never the relay's installation id. */
+  installLinkId: string;
   desiredState: Record<string, unknown>;
   observedState: Record<string, unknown> | null;
   infraVersion: string;
@@ -188,6 +200,20 @@ export function deployBulk(
 /** §25 deployable states — the fleet-view states a release can be rolled out to. */
 export const BULK_DEPLOYABLE_STATES: readonly DeploymentState[] = ['HEALTHY', 'UPDATE_AVAILABLE'];
 
+/**
+ * §14 clear the relay binding and mint a fresh enrollment code.
+ *
+ * The recovery path when a customer has to install again: the binding is
+ * single-use, so something has to be able to clear it, and that something is
+ * a deliberate vendor action rather than anyone who has the link.
+ */
+export function resetRelay(deploymentId: string): Promise<{ installLinkId: string }> {
+  return postJson<{ installLinkId: string }>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/relay/reset`,
+    {},
+  );
+}
+
 // ── Create Customer Deployment (§12, §41 screen 12) ─────────────────────────
 
 export interface CreateCustomerInput {
@@ -232,7 +258,8 @@ export interface DeploymentRecord {
   organizationId: string;
   region: string;
   state: DeploymentState;
-  installationId: string;
+  /** The public install link id. The relay's own id is minted in the customer's account. */
+  installLinkId: string;
   isTestDeployment: boolean;
   createdAt: string;
 }

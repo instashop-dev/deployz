@@ -50,6 +50,7 @@ describe('constraints and enums', () => {
         region: 'eu-north-1',
         state: 'UPDATE_AVAILABLE',
         installationId: 'inst-valid-enum',
+        enrollmentCode: 'code-inst-valid-enum',
       });
     });
 
@@ -82,6 +83,7 @@ describe('constraints and enums', () => {
         organizationId: ids.organizationId,
         region: 'us-west-2',
         installationId: 'inst-job-types',
+        enrollmentCode: 'code-inst-job-types',
       });
       const types = [
         'INSTALL',
@@ -118,6 +120,7 @@ describe('constraints and enums', () => {
         organizationId: ids.organizationId,
         region: 'us-west-2',
         installationId: 'inst-bad-job-type',
+        enrollmentCode: 'code-inst-bad-job-type',
       });
       await expect(
         client!.query(
@@ -137,6 +140,7 @@ describe('constraints and enums', () => {
         organizationId: ids.organizationId,
         region: 'us-west-2',
         installationId: 'inst-bad-job-state',
+        enrollmentCode: 'code-inst-bad-job-state',
       });
       await expect(
         client!.query(
@@ -156,6 +160,7 @@ describe('constraints and enums', () => {
         organizationId: ids.organizationId,
         region: 'us-west-2',
         installationId: 'inst-bad-failure-code',
+        enrollmentCode: 'code-inst-bad-failure-code',
       });
       await expect(
         client!.query(
@@ -177,6 +182,7 @@ describe('constraints and enums', () => {
         organizationId: ids.organizationId,
         region: 'us-east-1',
         installationId: 'inst-idem',
+        enrollmentCode: 'code-inst-idem',
       });
       await db!.insert(deploymentJobs).values({
         deploymentId,
@@ -200,6 +206,7 @@ describe('constraints and enums', () => {
         organizationId: ids.organizationId,
         region: 'us-east-1',
         installationId: 'inst-dup',
+        enrollmentCode: 'code-inst-dup',
       });
       await expectPgError(
         db!.insert(deployments).values({
@@ -208,6 +215,7 @@ describe('constraints and enums', () => {
           organizationId: ids.organizationId,
           region: 'us-east-1',
           installationId: 'inst-dup',
+          enrollmentCode: 'code-inst-dup',
         }),
         /duplicate key value violates unique constraint/,
       );
@@ -281,6 +289,7 @@ describe('constraints and enums', () => {
           organizationId: ids.organizationId,
           region: 'us-east-1',
           installationId: 'inst-bad-fk',
+          enrollmentCode: 'code-inst-bad-fk',
         }),
         /violates foreign key constraint/,
       );

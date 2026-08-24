@@ -92,10 +92,11 @@ export async function saveConfig(
   applicationId: string,
   customerId: string | null,
   entries: readonly ConfigEntry[],
+  deletes: readonly string[] = [],
 ): Promise<ApplicationConfig> {
   return putJson<ApplicationConfig>(
     `/api/applications/${encodeURIComponent(applicationId)}/config`,
-    { customerId, entries },
+    { customerId, entries, deletes },
   );
 }
 

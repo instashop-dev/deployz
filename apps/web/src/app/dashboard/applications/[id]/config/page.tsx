@@ -199,6 +199,11 @@ function ConfigSection({
   const [drafts, setDrafts] = useState<DraftEntry[]>([]);
   const [nextDraftId, setNextDraftId] = useState(0);
   const [draftError, setDraftError] = useState<string | null>(null);
+  // Removals are staged until Save, so one save is one atomic change and a
+  // mis-click is undoable before it reaches the server. There was no way to
+  // remove a saved value at all before: a mistyped key was permanent, and it
+  // kept being injected into every customer deployment.
+  const [removed, setRemoved] = useState<readonly string[]>([]);
   // Bumping the form key remounts the fields after a save: non-secret inputs
   // pick up the saved values and write-only secret inputs reset to empty.
   const [version, setVersion] = useState(0);
@@ -213,11 +218,13 @@ function ConfigSection({
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const writes: ConfigEntry[] = entries.map((entry) => ({
-      key: entry.key,
-      value: String(formData.get(entry.key) ?? ''),
-      isSecret: entry.isSecret,
-    }));
+    const writes: ConfigEntry[] = entries
+      .filter((entry) => !removed.includes(entry.key))
+      .map((entry) => ({
+        key: entry.key,
+        value: String(formData.get(entry.key) ?? ''),
+        isSecret: entry.isSecret,
+      }));
 
     for (const draft of drafts) {
       const key = draft.key.trim();
@@ -243,9 +250,10 @@ function ConfigSection({
     setDraftError(null);
     setSaveState('saving');
     try {
-      const next = await saveConfig(applicationId, customerId, writes);
+      const next = await saveConfig(applicationId, customerId, writes, removed);
       onSaved(next);
       setDrafts([]);
+      setRemoved([]);
       setVersion((current) => current + 1);
       setSaveState('saved');
     } catch {
@@ -254,6 +262,15 @@ function ConfigSection({
   }
 
   const empty = entries.length === 0 && drafts.length === 0;
+  // Keyed on the SECTION, not on customerId — the overrides card also has a
+  // null customerId when no customer is selected, so it used to show the
+  // defaults card's copy: "No defaults set yet." inside Customer overrides.
+  const emptyMessage =
+    title === 'Defaults'
+      ? 'No defaults set yet.'
+      : customerId === null
+        ? 'Open a deployment to set overrides for one customer.'
+        : 'No overrides for this customer yet.';
 
   return (
     <Card data-testid={testId}>
@@ -265,9 +282,7 @@ function ConfigSection({
         <form key={version} onSubmit={handleSubmit} className="flex flex-col gap-5">
           {empty ? (
             <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-              {customerId === null
-                ? 'No defaults set yet.'
-                : 'No overrides for this customer yet.'}
+              {emptyMessage}
             </p>
           ) : null}
 
@@ -279,6 +294,17 @@ function ConfigSection({
               showVendorValue={customerId !== null}
               disabled={!editable}
               inputId={`${testId}-${entry.key}`}
+              removed={removed.includes(entry.key)}
+              onToggleRemove={
+                editable
+                  ? () =>
+                      setRemoved((current) =>
+                        current.includes(entry.key)
+                          ? current.filter((key) => key !== entry.key)
+                          : [...current, entry.key],
+                      )
+                  : undefined
+              }
             />
           ))}
 
@@ -366,22 +392,42 @@ function ConfigField({
   showVendorValue,
   disabled,
   inputId,
+  removed,
+  onToggleRemove,
 }: {
   entry: MaskedConfigEntry;
   vendorDefault: MaskedConfigEntry | null;
   showVendorValue: boolean;
   disabled: boolean;
   inputId: string;
+  removed: boolean;
+  onToggleRemove?: (() => void) | undefined;
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className={`flex flex-col gap-2 ${removed ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-2">
         <Label htmlFor={inputId} className="font-mono">
           {entry.key}
         </Label>
         {entry.isSecret ? <Badge variant="outline">Secret</Badge> : null}
+        {removed ? <Badge variant="destructive">Removing</Badge> : null}
+        {onToggleRemove ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={onToggleRemove}
+          >
+            {removed ? 'Keep' : 'Remove'}
+          </Button>
+        ) : null}
       </div>
-      {entry.isSecret ? (
+      {removed ? (
+        <p className="text-xs text-muted-foreground">
+          Removed when you save. {entry.isSecret ? 'The value is deleted from the customer’s own secret store too.' : ''}
+        </p>
+      ) : entry.isSecret ? (
         <>
           <SecretInput
             id={inputId}

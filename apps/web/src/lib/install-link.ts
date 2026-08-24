@@ -21,6 +21,9 @@ export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
 /** The bootstrap stack's single (non-secret) template parameter. */
 export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 
+/** The bootstrap stack's single-use enrollment parameter. */
+export const ENROLLMENT_CODE_PARAMETER = 'EnrollmentCode';
+
 /**
  * Fixture defaults so the public install pages render with zero backend and
  * zero configuration. Production overrides come from the environment.
@@ -64,11 +67,15 @@ export function getInstallLinkConfig(): InstallLinkConfig {
  *     ?templateURL={url-encoded templateUrl}
  *     &stackName={stackName}
  *     &param_ControlPlaneUrl={controlPlaneUrl}
+ *     &param_EnrollmentCode={enrollmentCode}
  *
  * Pure — same inputs, same URL. `URLSearchParams` keeps the parameter order
  * deterministic (templateURL, stackName, then params).
  */
-export function buildBootstrapQuickCreateUrl(config: InstallLinkConfig): string {
+export function buildBootstrapQuickCreateUrl(
+  config: InstallLinkConfig,
+  enrollmentCode: string,
+): string {
   const base =
     `https://${config.region}.console.aws.amazon.com/cloudformation/home` +
     `?region=${encodeURIComponent(config.region)}` +
@@ -78,6 +85,7 @@ export function buildBootstrapQuickCreateUrl(config: InstallLinkConfig): string 
   query.set('templateURL', config.templateUrl);
   query.set('stackName', config.stackName);
   query.set(`param_${CONTROL_PLANE_URL_PARAMETER}`, config.controlPlaneUrl);
+  query.set(`param_${ENROLLMENT_CODE_PARAMETER}`, enrollmentCode);
 
   return `${base}?${query.toString()}`;
 }

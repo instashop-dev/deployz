@@ -70,6 +70,13 @@ export const setConfigBodySchema = z.object({
   /** Null/absent = write vendor defaults; a customer id = write overrides. */
   customerId: z.string().min(1).nullish(),
   entries: z.array(configEntrySchema).max(200),
+  /**
+   * Keys to remove in this same write. Adds, edits and removals travel
+   * together so one Save is one atomic change to the scope. Without this
+   * there was no delete path at all — not in the UI, and not by omitting an
+   * entry, since setConfig only ever upserted what it was given.
+   */
+  deletes: z.array(z.string().min(1)).max(200).optional(),
 });
 
 // ── Seams ─────────────────────────────────────────────────────────────────
@@ -80,6 +87,8 @@ export interface ConfigStore {
   /** Rows for the vendor scope (customerId null) or one customer's overrides. */
   list(applicationId: string, customerId: string | null): Promise<readonly ConfigEntry[]>;
   upsert(applicationId: string, customerId: string | null, entry: ConfigEntry): Promise<void>;
+  /** Remove one key from a scope. Absent keys are not an error. */
+  remove(applicationId: string, customerId: string | null, key: string): Promise<void>;
 }
 
 /**
@@ -88,6 +97,12 @@ export interface ConfigStore {
  */
 export interface ConfigSecretWriter {
   writeSecrets(customerId: string, entries: readonly ConfigEntry[]): Promise<void>;
+  /**
+   * Remove secrets from the CUSTOMER's own secret store. A key deleted here
+   * must not keep existing in their account — the control plane never held
+   * the plaintext, so the relay is the only thing that can remove it.
+   */
+  removeSecrets(customerId: string, keys: readonly string[]): Promise<void>;
 }
 
 export interface ConfigDeps {
@@ -194,10 +209,23 @@ export async function setConfig(
   customerId: string | null,
   entries: readonly ConfigEntry[],
   deps: ConfigDeps,
+  deletes: readonly string[] = [],
 ): Promise<ApplicationConfigView> {
   validateEntries(entries);
   if (!(await deps.store.applicationExists(applicationId))) {
     throw new NotFoundError('Application not found');
+  }
+
+  // A key cannot be written and removed in one save — that is a client bug,
+  // and guessing which the vendor meant is worse than saying so.
+  const writtenKeys = new Set(entries.map((entry) => entry.key));
+  const conflicting = deletes.filter((key) => writtenKeys.has(key));
+  if (conflicting.length > 0) {
+    throw new ApiError(
+      400,
+      'CONFIG_CONFLICTING_WRITE',
+      `These values are both set and removed in the same save: ${conflicting.join(', ')}.`,
+    );
   }
 
   const freshSecrets = entries.filter((entry) => entry.isSecret && entry.value.length > 0);
@@ -219,6 +247,30 @@ export async function setConfig(
       ? { key: entry.key, value: SECRET_MASK, isSecret: true }
       : entry;
     await deps.store.upsert(applicationId, customerId, stored);
+  }
+
+  if (deletes.length > 0) {
+    // The customer's own secret store has to lose the value too, or a removed
+    // secret keeps existing in their account with nothing in Deployz showing
+    // it. Only secrets need this; plain values never left the control plane.
+    const existing = await deps.store.list(applicationId, customerId);
+    const secretKeys = existing
+      .filter((entry) => entry.isSecret && deletes.includes(entry.key))
+      .map((entry) => entry.key);
+    if (customerId !== null && secretKeys.length > 0) {
+      try {
+        await deps.secretWriter.removeSecrets(customerId, secretKeys);
+      } catch {
+        throw new ApiError(
+          502,
+          'CONFIG_WRITE_FAILED',
+          'The configuration could not be written. Try again in a moment.',
+        );
+      }
+    }
+    for (const key of deletes) {
+      await deps.store.remove(applicationId, customerId, key);
+    }
   }
 
   return getConfig(applicationId, customerId, deps.store);
@@ -315,6 +367,14 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
         isSecret: entry.isSecret,
       });
     },
+
+    async remove(applicationId, customerId, key) {
+      if (!UUID_PATTERN.test(applicationId)) return;
+      if (customerId !== null && !UUID_PATTERN.test(customerId)) return;
+      await db
+        .delete(schema.applicationConfigs)
+        .where(scopeWhere(applicationId, customerId, key));
+    },
   };
 }
 
@@ -341,6 +401,19 @@ export function createRelaySecretWriter(): ConfigSecretWriter {
         new SendMessageCommand({
           QueueUrl: queueUrl,
           MessageBody: JSON.stringify(payload),
+        }),
+      );
+    },
+
+    async removeSecrets(customerId, keys) {
+      const queueUrl = process.env.JOB_QUEUE_URL;
+      if (!queueUrl) return;
+
+      const client = new SqSClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
+      await client.send(
+        new SendMessageCommand({
+          QueueUrl: queueUrl,
+          MessageBody: JSON.stringify({ type: 'CONFIG_UPDATE', customerId, removeKeys: [...keys] }),
         }),
       );
     },

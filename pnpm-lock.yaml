@@ -53,6 +53,9 @@ importers:
       '@deployz/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@deployz/copy-map':
+        specifier: workspace:*
+        version: link:../../packages/copy-map
       '@deployz/db':
         specifier: workspace:*
         version: link:../../packages/db

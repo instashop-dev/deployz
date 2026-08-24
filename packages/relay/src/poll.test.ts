@@ -86,6 +86,7 @@ function makeDeps(overrides: Partial<PollDependencies> = {}): PollDependencies {
     fetchFn: async () => ({ status: 200, headers: { get: () => null }, json: async () => ({ commands: [] }) }),
     controlPlaneUrl: 'https://api.deployz.dev',
     installationId: 'inst-test',
+    enrollmentCode: 'code-test',
     executors: makeExecutors(),
     idempotency: new IdempotencyStore(),
     ...overrides,
@@ -110,7 +111,7 @@ describe('pollOnce — registration', () => {
     expect(registerReq?.method).toBe('POST');
   });
 
-  it('returns error when registration fails', async () => {
+  it('returns a retryable error when enrollment fails transiently', async () => {
     const { fetchFn } = makeMockFetch({ registerStatus: 401 });
     const deps = makeDeps({ fetchFn });
     const authState = createAuthState('inst-test', 'tok-bad');
@@ -118,8 +119,35 @@ describe('pollOnce — registration', () => {
     const result = await pollOnce(deps, authState);
 
     expect(result.ok).toBe(false);
-    expect(result.error).toContain('Registration failed');
+    expect(result.error).toContain('try again');
+    expect(result.fatal).toBeUndefined();
     expect(authState.registered).toBe(false);
+  });
+
+  // The enrollment code is single use. A 409 means another relay already
+  // spent it, so this one must stop rather than retry forever — and say
+  // something the customer can act on.
+  it('stops on a rejected enrollment rather than retrying', async () => {
+    const { fetchFn } = makeMockFetch({ registerStatus: 409 });
+    const deps = makeDeps({ fetchFn });
+    const authState = createAuthState('inst-test', 'tok-late');
+
+    const result = await pollOnce(deps, authState);
+
+    expect(result.ok).toBe(false);
+    expect(result.fatal).toBe(true);
+    expect(result.error).toContain('already connected');
+    expect(authState.registered).toBe(false);
+  });
+
+  it('sends the enrollment code with the registration', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({ fetchFn, enrollmentCode: 'code-xyz' });
+
+    await pollOnce(deps, createAuthState('inst-test', 'tok'));
+
+    const registerReq = getRequests().find((r) => r.url.includes('/api/relay/register'));
+    expect(JSON.parse(registerReq?.body ?? '{}')).toMatchObject({ enrollmentCode: 'code-xyz' });
   });
 
   it('skips registration when already registered', async () => {

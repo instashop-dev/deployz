@@ -59,7 +59,7 @@ export function deploymentStateLabel(state: string): string {
 
 // ── §65 event-type labels (§40 families) ──────────────────────────────────
 
-/** The 6 §40 event families (§65): install/deploy/rollback/config/destroy/health. */
+/** The §40 event families (§65). Mirrors @deployz/copy-map verbatim. */
 export const EVENT_FAMILIES = [
   'install',
   'deploy',
@@ -67,11 +67,12 @@ export const EVENT_FAMILIES = [
   'config',
   'destroy',
   'health',
+  'relay',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
 
-/** First dot-segment of an event type, if it is one of the 6 families. */
+/** First dot-segment of an event type, if it is one of the families. */
 export function eventFamily(eventType: string): EventFamily | null {
   const family = eventType.split('.')[0];
   if (!family) return null;
@@ -87,6 +88,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   config: 'Configuration',
   destroy: 'Teardown',
   health: 'Health',
+  relay: 'Helper',
 };
 
 /**
@@ -116,6 +118,29 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'rollback.restore': 'Previous version restored',
   'rollback.health': 'Health check after rollback',
   'rollback.state.healthy': 'Rolled back and healthy',
+
+  // The vocabulary the API emits at its own transition points. The entries
+  // below this block are the durable workflows' finer-grained vocabulary,
+  // kept because those events are still the intended shape once the workflow
+  // layer runs.
+  'install.requested': 'Installation started',
+  'install.completed': 'Installed and healthy',
+  'install.failed': 'Installation failed',
+  'install.enrollment.rejected': 'Another helper tried to connect',
+  'deploy.requested': 'Update started',
+  'deploy.completed': 'Update complete',
+  'deploy.failed': 'Update failed',
+  'rollback.requested': 'Rollback started',
+  'rollback.completed': 'Rolled back',
+  'rollback.failed': 'Rollback failed',
+  'destroy.requested': 'Removal started',
+  'destroy.completed': 'Deployment removed',
+  'destroy.failed': 'Removal failed',
+  'config.updated': 'Configuration updated',
+  'health.reported': 'Health reported',
+  'health.degraded': 'Health degraded',
+  'health.recovered': 'Back to healthy',
+  'relay.reenrollment.requested': 'Reconnect requested',
 
   'config.validate': 'Configuration checked',
   'config.write': 'Configuration updated',

@@ -27,6 +27,7 @@ import {
   type GithubInstallation,
   type GithubRepository,
 } from '@/lib/github';
+import { errorMessage } from '@/lib/api-client';
 import { VERDICT_PRESENTATION } from '@/lib/readiness';
 
 type AppsState =
@@ -163,6 +164,13 @@ export default function ApplicationsPage() {
           <RepoList
             installations={githubState.installations}
             repositories={githubState.repositories}
+            connectedRepos={
+              new Map(
+                appsState.status === 'loaded'
+                  ? appsState.applications.map((app) => [app.repoFullName, app.id])
+                  : [],
+              )
+            }
           />
         ) : null}
       </section>
@@ -255,9 +263,12 @@ function ConnectGitHubEmptyState({ connectUrl }: { connectUrl: string | null }) 
 function RepoList({
   installations,
   repositories,
+  connectedRepos,
 }: {
   installations: GithubInstallation[];
   repositories: Record<string, GithubRepository[]>;
+  /** repoFullName -> the application already connected to it. */
+  connectedRepos: Map<string, string>;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -278,7 +289,12 @@ function RepoList({
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
               {repos.map((repo) => (
-                <RepoRow key={repo.id} installationId={installation.id} repo={repo} />
+                <RepoRow
+                  key={repo.id}
+                  installationId={installation.id}
+                  repo={repo}
+                  connectedApplicationId={connectedRepos.get(repo.fullName) ?? null}
+                />
               ))}
               {repos.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No repositories to show.</p>
@@ -299,9 +315,12 @@ function RepoList({
 function RepoRow({
   installationId,
   repo,
+  connectedApplicationId,
 }: {
   installationId: string;
   repo: GithubRepository;
+  /** Set when this repository is already an application in this organization. */
+  connectedApplicationId: string | null;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -320,8 +339,8 @@ function RepoRow({
       });
       await triggerAnalysis(application.id);
       router.push(`/dashboard/applications/${application.id}`);
-    } catch {
-      setError("We couldn't set up this application. Try again.");
+    } catch (caught) {
+      setError(errorMessage(caught));
       setPending(false);
     }
   }
@@ -335,9 +354,21 @@ function RepoRow({
             <p className="truncate text-xs text-muted-foreground">{repo.description}</p>
           ) : null}
         </div>
-        <Button variant="outline" size="sm" disabled={pending} onClick={onChoose}>
-          {pending ? 'Setting up…' : 'Choose'}
-        </Button>
+        {/*
+          A repository that is already an application links to it instead of
+          offering Choose again. Choosing twice used to create a second
+          application for the same repo, with its own releases and
+          deployments.
+        */}
+        {connectedApplicationId ? (
+          <Button asChild variant="ghost" size="sm">
+            <Link href={`/dashboard/applications/${connectedApplicationId}`}>Connected</Link>
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" disabled={pending} onClick={onChoose}>
+            {pending ? 'Setting up…' : 'Choose'}
+          </Button>
+        )}
       </div>
       {error ? (
         <p role="alert" className="text-xs text-destructive">

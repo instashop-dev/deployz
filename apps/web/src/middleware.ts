@@ -48,7 +48,12 @@ export function middleware(request: NextRequest) {
   if (pathname.startsWith('/dashboard') && !getSessionCookie(request)) {
     const signIn = request.nextUrl.clone();
     signIn.pathname = '/sign-in';
-    signIn.search = '';
+    // Carry the destination so signing in lands where the visitor was going.
+    // Clearing the search string sent everyone to the dashboard home instead,
+    // even though both auth pages already handle callbackUrl (and guard it
+    // against open redirects).
+    const destination = `${pathname}${request.nextUrl.search}`;
+    signIn.search = `?callbackUrl=${encodeURIComponent(destination)}`;
     return NextResponse.redirect(signIn);
   }
 

@@ -25,7 +25,13 @@ async function signUp(page: Page): Promise<void> {
 
 async function seedDeployment(
   page: Page,
-): Promise<{ deploymentId: string; applicationId: string; installationId: string }> {
+): Promise<{
+  deploymentId: string;
+  applicationId: string;
+  installationId: string;
+  installLinkId: string;
+  enrollmentCode: string;
+}> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const appResponse = await page.request.post(`${API_URL}/api/applications`, {
     data: {
@@ -46,11 +52,18 @@ async function seedDeployment(
   const deploymentResponse = await page.request.post(`${API_URL}/api/deployments`, {
     data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
   });
-  const deployment = (await deploymentResponse.json()) as { id: string; installationId: string };
+  const deployment = (await deploymentResponse.json()) as {
+    id: string;
+    installLinkId: string;
+    enrollmentCode: string;
+  };
   return {
     deploymentId: deployment.id,
     applicationId: application.id,
-    installationId: deployment.installationId,
+    // The relay mints its own id; a fresh one per seeded deployment.
+    installationId: `inst-${crypto.randomUUID()}`,
+    installLinkId: deployment.installLinkId,
+    enrollmentCode: deployment.enrollmentCode,
   };
 }
 
@@ -66,12 +79,17 @@ async function driveDeploymentToFailed(
   applicationId: string,
   deploymentId: string,
   installationId: string,
+  enrollmentCode: string,
 ): Promise<void> {
   const authHeaders = { Authorization: `Bearer ${installationId}` };
 
+  // Enrollment, not just registration: the installation id a real relay
+  // reports is minted inside the CUSTOMER's account, so the control plane has
+  // never seen it. The single-use enrollment code is what ties this relay to
+  // the vendor's deployment, and it is spent on this call.
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
     headers: authHeaders,
-    data: { installationId },
+    data: { installationId, enrollmentCode },
   });
   expect(registerResponse.ok()).toBeTruthy();
 
@@ -153,8 +171,8 @@ test('a deployment failed via the relay job workflow shows a real §29 classific
   page,
 }) => {
   await signUp(page);
-  const { deploymentId, applicationId, installationId } = await seedDeployment(page);
-  await driveDeploymentToFailed(page, applicationId, deploymentId, installationId);
+  const { deploymentId, applicationId, installationId, enrollmentCode } = await seedDeployment(page);
+  await driveDeploymentToFailed(page, applicationId, deploymentId, installationId, enrollmentCode);
 
   await page.goto(`/dashboard/deployments/${deploymentId}/diagnostics`);
 

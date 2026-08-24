@@ -53,6 +53,11 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
       "Description": "Base URL of the Deployz control plane the relay polls. NOT a credential.",
       "Type": "String",
     },
+    "EnrollmentCode": {
+      "Default": "",
+      "Description": "Single-use code from your install link. Ties this installation to your deployment.",
+      "Type": "String",
+    },
   },
   "Resources": {
     "InstallIdFunctionE00E99D3": {
@@ -606,7 +611,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "1b6b58939bb863bfc3bb40e91920f246b29caa6366178d40fef0962966833522.zip",
+          "S3Key": "b9dad26f1e8ec0154cf8c501d015e30eab10ce000e0fc9260ef7e57e849358c9.zip",
         },
         "Environment": {
           "Variables": {
@@ -615,6 +620,9 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             "DEPLOYZ_CREDENTIAL_SECRET_ARN": {
               "Ref": "RelayCredential6AA8BC18",
+            },
+            "DEPLOYZ_ENROLLMENT_CODE": {
+              "Ref": "EnrollmentCode",
             },
             "DEPLOYZ_INSTALLATION_ID": {
               "Fn::GetAtt": [
