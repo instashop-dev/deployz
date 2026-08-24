@@ -458,6 +458,9 @@ describe('github — server routes over PGlite', () => {
       db,
       githubWebhookSecret: WEBHOOK_SECRET,
       githubFixtureMode: true,
+      // Empty = no App install URL. Without saying so, this suite passed only
+      // on a machine with no .env and failed wherever one was present.
+      githubAppInstallUrl: '',
     });
   }, 60_000);
 
@@ -539,7 +542,12 @@ describe('github — server routes over PGlite', () => {
   });
 
   it('returns 503 for the webhook when no secret is configured', async () => {
-    const bareApp = await buildServer({ auth, db, githubFixtureMode: true });
+    const bareApp = await buildServer({
+      auth,
+      db,
+      githubFixtureMode: true,
+      githubWebhookSecret: '', // explicitly unconfigured, never "whatever .env has"
+    });
     const payload = JSON.stringify({ action: 'created', installation: { id: 1 } });
     const response = await bareApp.inject({
       method: 'POST',

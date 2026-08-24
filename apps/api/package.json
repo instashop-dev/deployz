@@ -15,6 +15,10 @@
     "./auth": {
       "types": "./dist/auth.d.ts",
       "import": "./dist/auth.js"
+    },
+    "./find-env-file": {
+      "types": "./dist/find-env-file.d.ts",
+      "import": "./dist/find-env-file.js"
     }
   },
   "scripts": {
