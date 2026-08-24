@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
+import crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -18,15 +19,26 @@ async function insertOrganization(db: Db, id: string): Promise<void> {
   await db.insert(schema.organization).values({ id, name: 'Acme', slug: id });
 }
 
+/**
+ * Seed an application in a FRESH organization.
+ *
+ * One application per repository per organization is a database constraint
+ * now, and several of these tests analyse the same fixture repo more than
+ * once — which is the point, since the fixture keys off repoFullName. Giving
+ * each application its own organization keeps those tests saying what they
+ * meant without weakening the constraint.
+ */
 async function insertApplication(
   db: Db,
   organizationId: string,
   overrides: Partial<typeof schema.applications.$inferInsert> = {},
 ): Promise<typeof schema.applications.$inferSelect> {
+  const ownOrgId = `${organizationId}-${crypto.randomUUID().slice(0, 8)}`;
+  await insertOrganization(db, ownOrgId);
   const [row] = await db
     .insert(schema.applications)
     .values({
-      organizationId,
+      organizationId: ownOrgId,
       name: 'Test App',
       repoFullName: 'acme/test-app',
       repoUrl: 'https://github.com/acme/test-app',

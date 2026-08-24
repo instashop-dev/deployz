@@ -39,6 +39,9 @@ export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
 /** The bootstrap stack's single (non-secret) template parameter. */
 export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 
+/** The bootstrap stack's single-use enrollment parameter. */
+export const ENROLLMENT_CODE_PARAMETER = 'EnrollmentCode';
+
 export interface QuickCreateUrlOptions {
   /** AWS region the console deep-link targets (e.g. `us-east-1`). */
   readonly region: string;
@@ -84,13 +87,29 @@ export interface BootstrapQuickCreateUrlOptions {
   readonly templateUrl: string;
   /** Base URL of the Deployz control plane the relay polls (non-secret). */
   readonly controlPlaneUrl: string;
+  /**
+   * Single-use enrollment code from the install link.
+   *
+   * Optional because the template publisher builds a URL for the PUBLISHED
+   * template itself, before any deployment exists and so before any code has
+   * been minted. Omitting it leaves the stack's EnrollmentCode parameter at
+   * its empty default, which the relay then refuses to enrol with — the
+   * customer-facing URL always comes from the install page, which has the
+   * code for their specific deployment.
+   */
+  readonly enrollmentCode?: string | undefined;
   readonly stackName?: string;
 }
 
 /**
- * Builds the bootstrap Quick Create URL: template URL + stack name + the
- * single non-secret `ControlPlaneUrl` parameter. The credential and install ID
- * are never present.
+ * Builds the bootstrap Quick Create URL: template URL + stack name + the two
+ * non-secret parameters, `ControlPlaneUrl` and `EnrollmentCode`.
+ *
+ * The relay's communication credential is still never here — CloudFormation
+ * mints it inside the customer's account. The enrollment code is not that
+ * credential: it is single use, it is spent the moment the relay binds, and
+ * it exists because the installation identifier is minted in the customer's
+ * account too, so nothing else ties this stack to a deployment.
  */
 export function buildBootstrapQuickCreateUrl(
   options: BootstrapQuickCreateUrlOptions,
@@ -99,6 +118,11 @@ export function buildBootstrapQuickCreateUrl(
     region: options.region,
     templateUrl: options.templateUrl,
     ...(options.stackName !== undefined ? { stackName: options.stackName } : {}),
-    parameters: { [CONTROL_PLANE_URL_PARAMETER]: options.controlPlaneUrl },
+    parameters: {
+      [CONTROL_PLANE_URL_PARAMETER]: options.controlPlaneUrl,
+      ...(options.enrollmentCode !== undefined
+        ? { [ENROLLMENT_CODE_PARAMETER]: options.enrollmentCode }
+        : {}),
+    },
   });
 }

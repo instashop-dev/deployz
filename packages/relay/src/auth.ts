@@ -69,18 +69,32 @@ export async function readCredential(
   return (parsed as { token: string }).token;
 }
 
+/** Outcome of an enrollment attempt. */
+export type RegistrationResult = 'registered' | 'rejected' | 'retry';
+
 /**
- * Register the installation with the control plane on first contact.
+ * Enroll the installation with the control plane on first contact.
  *
- * POSTs the installation ID + token to the control plane, which binds them.
- * Returns true on success (HTTP 200/201).
+ * The enrollment code is what identifies the DEPLOYMENT: this installation id
+ * is minted here, inside the customer's account, so the control plane has
+ * never seen it before this call and cannot look anything up by it. The code
+ * comes from the bootstrap stack's EnrollmentCode parameter, is single use,
+ * and the control plane burns it when it binds this id and token.
+ *
+ * Returns:
+ *   'registered' — bound (or an identical replay of an earlier bind)
+ *   'rejected'   — 409: the code is already spent by a DIFFERENT relay, or
+ *                  404: no such code. Retrying cannot fix either, and
+ *                  hammering the endpoint would bury the vendor's alert.
+ *   'retry'      — transient; the next poll tries again.
  */
 export async function registerInstallation(
   fetchFn: FetchFn,
   controlPlaneUrl: string,
   installationId: string,
   token: string,
-): Promise<boolean> {
+  enrollmentCode: string,
+): Promise<RegistrationResult> {
   const url = `${controlPlaneUrl}/api/relay/register`;
   const response = await fetchFn(url, {
     method: 'POST',
@@ -88,9 +102,11 @@ export async function registerInstallation(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ installationId }),
+    body: JSON.stringify({ installationId, enrollmentCode }),
   });
-  return response.status === 200 || response.status === 201;
+  if (response.status === 200 || response.status === 201) return 'registered';
+  if (response.status === 404 || response.status === 409) return 'rejected';
+  return 'retry';
 }
 
 /**

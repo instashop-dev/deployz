@@ -89,6 +89,7 @@ describe('relay handler (integration)', () => {
       DEPLOYZ_INSTALLATION_ID: 'inst-int',
       DEPLOYZ_CREDENTIAL_SECRET_ARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:test',
       DEPLOYZ_CONTROL_PLANE_URL: 'https://api.deployz.dev',
+      DEPLOYZ_ENROLLMENT_CODE: 'code-int',
     });
 
     try {
@@ -120,6 +121,7 @@ describe('relay handler (integration)', () => {
       DEPLOYZ_INSTALLATION_ID: undefined,
       DEPLOYZ_CREDENTIAL_SECRET_ARN: undefined,
       DEPLOYZ_CONTROL_PLANE_URL: undefined,
+      DEPLOYZ_ENROLLMENT_CODE: undefined,
     });
 
     try {
@@ -145,6 +147,7 @@ describe('relay handler (integration)', () => {
       DEPLOYZ_INSTALLATION_ID: 'inst-err',
       DEPLOYZ_CREDENTIAL_SECRET_ARN: 'arn:...',
       DEPLOYZ_CONTROL_PLANE_URL: 'https://api.deployz.dev',
+      DEPLOYZ_ENROLLMENT_CODE: 'code-int',
     });
 
     try {
@@ -174,6 +177,7 @@ describe('relay handler (integration)', () => {
       DEPLOYZ_INSTALLATION_ID: 'inst-warm',
       DEPLOYZ_CREDENTIAL_SECRET_ARN: 'arn:...',
       DEPLOYZ_CONTROL_PLANE_URL: 'https://api.deployz.dev',
+      DEPLOYZ_ENROLLMENT_CODE: 'code-int',
     });
 
     try {
@@ -206,6 +210,7 @@ describe('relay handler (integration)', () => {
       DEPLOYZ_INSTALLATION_ID: 'inst-idem',
       DEPLOYZ_CREDENTIAL_SECRET_ARN: 'arn:...',
       DEPLOYZ_CONTROL_PLANE_URL: 'https://api.deployz.dev',
+      DEPLOYZ_ENROLLMENT_CODE: 'code-int',
     });
 
     try {

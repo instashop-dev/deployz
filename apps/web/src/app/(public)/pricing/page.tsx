@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
@@ -5,6 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+
+export const metadata: Metadata = {
+  title: 'Pricing',
+  description: '$49/month plus $19 for each healthy customer deployment. No infrastructure resale.',
+};
 
 const USAGE_ROWS = [
   { deployments: 'Base only', count: 0, total: '$49' },

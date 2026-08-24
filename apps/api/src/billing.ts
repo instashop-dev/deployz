@@ -207,6 +207,7 @@ export async function handleWebhookEvent(
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
       });
+      await syncOrganizationPlan(db, stripeSubscriptionId, status as SubscriptionStatus);
       return true;
     }
     case 'invoice.paid':
@@ -230,11 +231,44 @@ export async function handleWebhookEvent(
         },
         { byStripeSubscriptionId: true },
       );
+      await syncOrganizationPlan(db, stripeSubscriptionId, status as SubscriptionStatus | undefined);
       return true;
     }
     default:
       return false;
   }
+}
+
+/**
+ * Keep organizations.plan in step with the subscription.
+ *
+ * The column was written once at signup and never again — not even here — so
+ * Settings read "Plan: Free" forever while the billing screen showed a $49
+ * charge, and nothing in the product ever recorded that an organization was
+ * paying. Derived from the subscription status so there is one source of
+ * truth, not two that can drift.
+ */
+async function syncOrganizationPlan(
+  db: RuntimeDb,
+  stripeSubscriptionId: string,
+  status: SubscriptionStatus | undefined,
+): Promise<void> {
+  if (!status) return;
+  const rows = await db
+    .select({ organizationId: schema.subscriptions.organizationId })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.stripeSubscriptionId, stripeSubscriptionId))
+    .limit(1);
+  const organizationId = rows[0]?.organizationId;
+  if (!organizationId) return;
+
+  // TRIALING counts as paying: the vendor has a live subscription and the
+  // product should not behave as though they are on the free plan.
+  const plan = status === 'ACTIVE' || status === 'TRIALING' || status === 'PAST_DUE' ? 'STARTER' : 'FREE';
+  await db
+    .update(schema.organization)
+    .set({ plan })
+    .where(eq(schema.organization.id, organizationId));
 }
 
 function extractInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {

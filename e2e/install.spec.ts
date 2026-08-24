@@ -1,10 +1,10 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 // §44 public install page + §45 trust page, against the REAL (public,
-// no-auth) `GET /api/install/:installationId` endpoint. Seeds a real
+// no-auth) `GET /api/install/:installLinkId` endpoint. Seeds a real
 // application/customer/deployment directly against the API (no browser
 // session needed — these routes are unauthenticated by design, §44) to get a
-// real installationId, then visits the public pages as an anonymous
+// real installLinkId, then visits the public pages as an anonymous
 // customer. Unknown installation ids now get an honest not-found state
 // instead of fabricated content.
 
@@ -16,7 +16,7 @@ const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC)\b/;
 
 async function seedInstall(
   request: APIRequestContext,
-): Promise<{ installationId: string; applicationName: string; publisherName: string }> {
+): Promise<{ installLinkId: string; applicationName: string; publisherName: string }> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const email = `e2e-install-${suffix}@example.com`;
   const signUp = await request.post(`${API_URL}/api/auth/sign-up/email`, {
@@ -46,10 +46,10 @@ async function seedInstall(
     data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
   });
   expect(deploymentResponse.ok()).toBeTruthy();
-  const deployment = (await deploymentResponse.json()) as { installationId: string };
+  const deployment = (await deploymentResponse.json()) as { installLinkId: string };
 
   return {
-    installationId: deployment.installationId,
+    installLinkId: deployment.installLinkId,
     applicationName: application.name,
     publisherName: `Install Vendor ${suffix}`,
   };
@@ -67,9 +67,9 @@ test('install page renders the real application/publisher and the Deploy to AWS 
   page,
   request,
 }) => {
-  const { installationId, applicationName } = await seedInstall(request);
+  const { installLinkId, applicationName } = await seedInstall(request);
 
-  const response = await page.goto(`/install/${installationId}`);
+  const response = await page.goto(`/install/${installLinkId}`);
   expect(response?.status()).toBe(200);
 
   await expect(page.getByText(applicationName, { exact: true })).toBeVisible();
@@ -86,7 +86,10 @@ test('install page renders the real application/publisher and the Deploy to AWS 
   expect(href).toContain('templateURL=');
   expect(href).toContain('stackName=deployz-bootstrap');
   expect(href).toContain('param_ControlPlaneUrl=');
-  // The URL carries no credential or installation identifier.
+  // The single-use enrollment code is what ties this stack to the vendor's
+  // deployment. The relay's own communication credential is still minted by
+  // CloudFormation inside the customer's account and never travels here.
+  expect(href).toContain('param_EnrollmentCode=');
   expect(href).not.toMatch(/token|secret|credential|installationId/i);
 
   // §44 framing: the customer authenticates at their own cloud provider.
@@ -94,18 +97,24 @@ test('install page renders the real application/publisher and the Deploy to AWS 
   // Plain-English relay explanation (§65).
   await expect(page.getByText(/small helper that runs in your cloud account/)).toBeVisible();
   // The unique installation reference is shown.
-  await expect(page.getByText(installationId)).toBeVisible();
+  await expect(page.getByText(installLinkId)).toBeVisible();
 });
 
 test('install page top-level copy is jargon-free', async ({ page, request }) => {
-  const { installationId } = await seedInstall(request);
-  await page.goto(`/install/${installationId}`);
+  const { installLinkId } = await seedInstall(request);
+  await page.goto(`/install/${installLinkId}`);
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(JARGON);
 });
 
-test('security page top level is jargon-free and tells the honest story', async ({ page }) => {
-  const response = await page.goto('/install/e2e-fixture-install-01/security');
+test('security page top level is jargon-free and tells the honest story', async ({
+  page,
+  request,
+}) => {
+  // A real install link. This page used to render the full security story for
+  // ANY id, including ones the parent route had already called invalid.
+  const { installLinkId } = await seedInstall(request);
+  const response = await page.goto(`/install/${installLinkId}/security`);
   expect(response?.status()).toBe(200);
 
   await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
@@ -128,8 +137,12 @@ test('security page top level is jargon-free and tells the honest story', async 
   expect(text).not.toMatch(JARGON);
 });
 
-test('security page reveals the actual permissions only after expanding', async ({ page }) => {
-  await page.goto('/install/e2e-fixture-install-01/security');
+test('security page reveals the actual permissions only after expanding', async ({
+  page,
+  request,
+}) => {
+  const { installLinkId } = await seedInstall(request);
+  await page.goto(`/install/${installLinkId}/security`);
 
   // Collapsed: no technical permission names in the rendered text.
   let text = await page.locator('body').innerText();
@@ -160,13 +173,13 @@ test('security page reveals the actual permissions only after expanding', async 
 });
 
 test('install page links to security details and back', async ({ page, request }) => {
-  const { installationId } = await seedInstall(request);
-  await page.goto(`/install/${installationId}`);
+  const { installLinkId } = await seedInstall(request);
+  await page.goto(`/install/${installLinkId}`);
   await page.getByRole('link', { name: 'Security details' }).click();
-  await page.waitForURL(`**/install/${installationId}/security`);
+  await page.waitForURL(`**/install/${installLinkId}/security`);
   await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Back to install' }).click();
-  await page.waitForURL(`**/install/${installationId}`);
+  await page.waitForURL(`**/install/${installLinkId}`);
   await expect(page.getByText('Deployz will create')).toBeVisible();
 });

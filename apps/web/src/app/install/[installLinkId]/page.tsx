@@ -43,10 +43,10 @@ const CANNOT_DO = [
 export default async function InstallPage({
   params,
 }: {
-  params: Promise<{ installationId: string }>;
+  params: Promise<{ installLinkId: string }>;
 }) {
-  const { installationId } = await params;
-  const data = await fetchInstallData(installationId);
+  const { installLinkId } = await params;
+  const data = await fetchInstallData(installLinkId);
 
   if (!data) {
     return (
@@ -61,7 +61,7 @@ export default async function InstallPage({
     );
   }
 
-  const deployUrl = buildBootstrapQuickCreateUrl(getInstallLinkConfig());
+  const deployUrl = buildBootstrapQuickCreateUrl(getInstallLinkConfig(), data.enrollmentCode);
 
   return (
     <div className="flex flex-col gap-10">
@@ -165,14 +165,14 @@ export default async function InstallPage({
             <a href={deployUrl}>Deploy to AWS</a>
           </Button>
           <Button asChild variant="ghost" size="lg">
-            <Link href={`/install/${encodeURIComponent(installationId)}/security`}>
+            <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
               Security details
             </Link>
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
           Installation reference:{' '}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installationId}</code>
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
         </p>
       </section>
     </div>

@@ -121,7 +121,25 @@ export type FailureCode = z.infer<typeof failureCodeSchema>;
 export const relayStatusSchema = z.enum(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']);
 export type RelayStatus = z.infer<typeof relayStatusSchema>;
 
-export const healthStatusSchema = z.enum(['HEALTHY', 'DEGRADED', 'UNHEALTHY']);
+// UNKNOWN first: a deployment that has never checked in has no observed
+// health, and the column defaults to it. Reporting UNKNOWN is a relay saying
+// "I cannot tell", which is different from saying nothing at all.
+export const healthStatusSchema = z.enum(['UNKNOWN', 'HEALTHY', 'DEGRADED', 'UNHEALTHY']);
+
+/**
+ * §24 per-component health. Every field optional — the relay reports only the
+ * components a deployment actually has, so an application with no database
+ * simply omits it rather than claiming one is healthy.
+ */
+export const healthComponentsSchema = z
+  .object({
+    application: healthStatusSchema.optional(),
+    database: healthStatusSchema.optional(),
+    storage: healthStatusSchema.optional(),
+    loadBalancer: healthStatusSchema.optional(),
+  })
+  .strict();
+export type HealthComponents = z.infer<typeof healthComponentsSchema>;
 export type HealthStatus = z.infer<typeof healthStatusSchema>;
 
 export const orgPlanSchema = z.enum(['FREE', 'STARTER', 'PRO']);

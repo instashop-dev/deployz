@@ -20,32 +20,46 @@ const FIXTURE_CONFIG = {
   stackName: DEFAULT_BOOTSTRAP_STACK_NAME,
 } as const;
 
+/** A representative enrollment code. Single use; not a standing credential. */
+const FIXTURE_ENROLLMENT_CODE = 'e2e0000000000000000000000000000000000000000000000000000000000000';
+
 const EXPECTED_FIXTURE_URL =
   'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1' +
   '#/stacks/create/review' +
   '?templateURL=https%3A%2F%2Ffixtures.deployz.dev%2Ftemplates%2Fbootstrap-template-v1.json' +
   '&stackName=deployz-bootstrap' +
-  '&param_ControlPlaneUrl=https%3A%2F%2Fapi.deployz.dev';
+  '&param_ControlPlaneUrl=https%3A%2F%2Fapi.deployz.dev' +
+  `&param_EnrollmentCode=${FIXTURE_ENROLLMENT_CODE}`;
 
 describe('buildBootstrapQuickCreateUrl', () => {
   it('produces the deterministic fixture URL byte-for-byte', () => {
-    expect(buildBootstrapQuickCreateUrl(FIXTURE_CONFIG)).toBe(EXPECTED_FIXTURE_URL);
+    expect(buildBootstrapQuickCreateUrl(FIXTURE_CONFIG, FIXTURE_ENROLLMENT_CODE)).toBe(EXPECTED_FIXTURE_URL);
   });
 
   it('URL-encodes the templateURL parameter', () => {
-    const url = buildBootstrapQuickCreateUrl(FIXTURE_CONFIG);
+    const url = buildBootstrapQuickCreateUrl(FIXTURE_CONFIG, FIXTURE_ENROLLMENT_CODE);
     expect(url).toContain('templateURL=https%3A%2F%2F');
     expect(url).not.toContain('templateURL=https://');
   });
 
   it('carries the non-secret ControlPlaneUrl parameter with the param_ prefix', () => {
-    const url = buildBootstrapQuickCreateUrl(FIXTURE_CONFIG);
+    const url = buildBootstrapQuickCreateUrl(FIXTURE_CONFIG, FIXTURE_ENROLLMENT_CODE);
     expect(url).toContain(`param_ControlPlaneUrl=${encodeURIComponent(DEFAULT_CONTROL_PLANE_URL)}`);
   });
 
   it('carries no credential, token, or installation identifier', () => {
-    const url = buildBootstrapQuickCreateUrl(FIXTURE_CONFIG);
+    const url = buildBootstrapQuickCreateUrl(FIXTURE_CONFIG, FIXTURE_ENROLLMENT_CODE);
+    // The enrollment code is deliberately NOT covered by this: it is a
+    // single-use value that the control plane burns on the relay's first
+    // contact, not a standing credential. The relay's communication token is
+    // still minted by CloudFormation inside the customer's account and never
+    // appears here.
     expect(url).not.toMatch(/token|secret|credential|installationId/i);
+  });
+
+  it('carries the single-use enrollment code', () => {
+    const url = buildBootstrapQuickCreateUrl(FIXTURE_CONFIG, FIXTURE_ENROLLMENT_CODE);
+    expect(url).toContain(`param_EnrollmentCode=${FIXTURE_ENROLLMENT_CODE}`);
   });
 });
 
