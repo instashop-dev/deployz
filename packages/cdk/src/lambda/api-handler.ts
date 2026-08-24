@@ -38,9 +38,33 @@ import * as schema from '@deployz/db/schema';
 
 // Migration SQL files bundled via esbuild text loader (declared as strings).
 // The _journal.json is bundled via esbuild's JSON loader.
-import migration0 from '../../../db/drizzle/0000_parallel_triton.sql';
-import migration1 from '../../../db/drizzle/0001_event_logs_immutable.sql';
+import migration0000 from '../../../db/drizzle/0000_parallel_triton.sql';
+import migration0001 from '../../../db/drizzle/0001_event_logs_immutable.sql';
+import migration0002 from '../../../db/drizzle/0002_dizzy_red_shift.sql';
+import migration0003 from '../../../db/drizzle/0003_orange_phalanx.sql';
+import migration0004 from '../../../db/drizzle/0004_married_blob.sql';
+import migration0005 from '../../../db/drizzle/0005_deep_gambit.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
+
+/**
+ * Migration SQL keyed by journal tag.
+ *
+ * esbuild cannot glob-import, so every migration has to be listed by hand. A
+ * migration added under packages/db/drizzle without a line here is invisible
+ * until the deployed Lambda tries to apply it and drizzle fails with a bare
+ * "No file ... found in /tmp/drizzle folder". writeMigrationsToTmp checks this
+ * map against the journal up front and names what is missing instead;
+ * packages/cdk/test/api-handler-migrations.test.ts fails the build even
+ * earlier.
+ */
+const MIGRATION_SQL: Record<string, string> = {
+  '0000_parallel_triton': migration0000,
+  '0001_event_logs_immutable': migration0001,
+  '0002_dizzy_red_shift': migration0002,
+  '0003_orange_phalanx': migration0003,
+  '0004_married_blob': migration0004,
+  '0005_deep_gambit': migration0005,
+};
 
 let appPromise: Promise<FastifyInstance> | null = null;
 
@@ -68,8 +92,21 @@ function writeMigrationsToTmp(): string {
   const metaDir = join(migrationsDir, 'meta');
   mkdirSync(metaDir, { recursive: true });
 
-  writeFileSync(join(migrationsDir, '0000_parallel_triton.sql'), migration0);
-  writeFileSync(join(migrationsDir, '0001_event_logs_immutable.sql'), migration1);
+  const tags = (journal as { entries: readonly { tag: string }[] }).entries.map(
+    (entry) => entry.tag,
+  );
+
+  const missing = tags.filter((tag) => MIGRATION_SQL[tag] === undefined);
+  if (missing.length > 0) {
+    throw new Error(
+      `Migrations listed in the drizzle journal but not bundled into the Lambda: ${missing.join(', ')}. ` +
+        'Add an import and a MIGRATION_SQL entry for each in packages/cdk/src/lambda/api-handler.ts.',
+    );
+  }
+
+  for (const tag of tags) {
+    writeFileSync(join(migrationsDir, `${tag}.sql`), MIGRATION_SQL[tag] as string);
+  }
   writeFileSync(join(metaDir, '_journal.json'), JSON.stringify(journal));
 
   return migrationsDir;
