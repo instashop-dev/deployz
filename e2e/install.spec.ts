@@ -183,3 +183,25 @@ test('install page links to security details and back', async ({ page, request }
   await page.waitForURL(`**/install/${installLinkId}`);
   await expect(page.getByText('Deployz will create')).toBeVisible();
 });
+
+test('a setup link that has already been used says so instead of leading to a dead end', async ({
+  page,
+  request,
+}) => {
+  const { installLinkId } = await seedInstall(request);
+
+  // Enrol a relay, which spends the single-use code.
+  const install = await request.get(`${API_URL}/api/install/${installLinkId}`);
+  const { enrollmentCode } = (await install.json()) as { enrollmentCode: string };
+  const register = await request.post(`${API_URL}/api/relay/register`, {
+    headers: { Authorization: 'Bearer relay-token-for-e2e' },
+    data: { installationId: `inst-${crypto.randomUUID()}`, enrollmentCode },
+  });
+  expect(register.ok()).toBeTruthy();
+
+  await page.goto(`/install/${installLinkId}`);
+  await expect(page.getByRole('heading', { name: 'This app is already set up' })).toBeVisible();
+  // Running the setup again would fail only AFTER the customer approved a
+  // stack in their own account, so the CTA must be gone, not just disabled.
+  await expect(page.getByRole('link', { name: 'Deploy to AWS' })).toHaveCount(0);
+});

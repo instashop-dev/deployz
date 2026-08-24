@@ -61,6 +61,22 @@ export default async function InstallPage({
     );
   }
 
+  // The enrollment code is single use. Once a relay has traded it, running the
+  // setup again would fail at the point of no return — after the customer has
+  // approved a stack in their own account — so say so before they start.
+  if (data.alreadyInstalled) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">This app is already set up</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          {data.applicationName} is already running in your cloud account, so this setup link has
+          been used. If you need to install it again, ask {data.publisherName} to send you a new
+          link.
+        </p>
+      </div>
+    );
+  }
+
   const deployUrl = buildBootstrapQuickCreateUrl(getInstallLinkConfig(), data.enrollmentCode);
 
   return (
