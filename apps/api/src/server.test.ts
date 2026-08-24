@@ -556,6 +556,96 @@ describe('server — IDOR guards on :id routes (§2)', () => {
   });
 });
 
+// ── §31: the config scope carries the customer NAME, and is org-owned ──────
+describe('server — config scope resolution (§31,§65)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let orgA: { userId: string; organizationId: string; cookie: string };
+  let orgB: { userId: string; organizationId: string; cookie: string };
+  let application: typeof schema.applications.$inferSelect;
+  let customer: typeof schema.customers.$inferSelect;
+  let otherOrgCustomer: typeof schema.customers.$inferSelect;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    orgA = await signUpAndGetOrg(auth, db, 'config-scope-a@example.com');
+    orgB = await signUpAndGetOrg(auth, db, 'config-scope-b@example.com');
+    app = await buildServer({ auth, db });
+    application = await insertApplication(db, orgA.organizationId, { name: 'Config Scope App' });
+    customer = await insertCustomer(db, orgA.organizationId, { name: 'Acme Industries' });
+    otherOrgCustomer = await insertCustomer(db, orgB.organizationId, { name: 'Other Org Customer' });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  // §65: the screen names the customer, so the id never has to be rendered.
+  it('GET scoped to a customer returns that customer name', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/config?customerId=${customer.id}`,
+      headers: { cookie: orgA.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ customerId: customer.id, customerName: 'Acme Industries' });
+  });
+
+  it('GET without a customer is the vendor scope — no customer id, no name', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/config`,
+      headers: { cookie: orgA.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ customerId: null, customerName: null });
+  });
+
+  it('PUT scoped to a customer returns that customer name alongside the saved values', async () => {
+    const response = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/config`,
+      { customerId: customer.id, entries: [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }] },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { customerName: string | null; customerOverrides: { key: string; value: string | null }[] };
+    expect(body.customerName).toBe('Acme Industries');
+    expect(body.customerOverrides).toContainEqual({ key: 'LOG_LEVEL', value: 'debug', isSecret: false });
+  });
+
+  it('a customer of another organization 404s on read and on write (§2)', async () => {
+    const read = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/config?customerId=${otherOrgCustomer.id}`,
+      headers: { cookie: orgA.cookie },
+    });
+    expect(read.statusCode).toBe(404);
+
+    const write = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/config`,
+      { customerId: otherOrgCustomer.id, entries: [{ key: 'LEAK', value: 'no', isSecret: false }] },
+      { cookie: orgA.cookie },
+    );
+    expect(write.statusCode).toBe(404);
+
+    const rows = await db
+      .select()
+      .from(schema.applicationConfigs)
+      .where(eq(schema.applicationConfigs.customerId, otherOrgCustomer.id));
+    expect(rows).toHaveLength(0);
+  });
+});
+
 // ── §36/§37: PATCH and DELETE /api/applications/:id ─────────────────────────
 describe('server — PATCH/DELETE /api/applications/:id (§36,§37)', () => {
   let client: PGlite | undefined;

@@ -83,6 +83,10 @@ export interface ServerDeps {
   // repo/installations routes to the fixture store.
   githubWebhookSecret?: string | undefined;
   githubFixtureMode?: boolean | undefined;
+  // The App install URL offered by the "Connect GitHub" empty state. An empty
+  // string means "not configured" (same as the webhook secret), which is what
+  // lets a test assert the unconfigured screen on a machine that has a .env.
+  githubAppInstallUrl?: string | undefined;
   // Injectable §18/§19 analysis runner for POST /:id/analyse (real
   // implementation hits GitHub; tests can supply a fake instead). Defaults
   // to analysis.ts's createAnalysisRunner wired to env/fixture GitHub deps.
@@ -242,6 +246,25 @@ async function loadOwnedCustomer(
     throw new NotFoundError('Customer not found');
   }
   return rows[0]!;
+}
+
+/**
+ * Resolve the config scope from a request's customer id: an absent/empty id
+ * is the vendor scope, otherwise the customer is loaded to get its NAME.
+ * The config screen names the customer — a raw customer id is an internal
+ * identifier that means nothing to the vendor (§65) — and loading it here
+ * also keeps the scope org-owned: a customer of another organization 404s.
+ */
+async function resolveConfigScope(
+  db: RuntimeDb,
+  customerId: string | null | undefined,
+  organizationId: string,
+): Promise<{ customerId: string | null; customerName: string | null }> {
+  if (customerId === null || customerId === undefined || customerId.length === 0) {
+    return { customerId: null, customerName: null };
+  }
+  const customer = await loadOwnedCustomer(db, customerId, organizationId);
+  return { customerId: customer.id, customerName: customer.name };
 }
 
 /**
@@ -448,6 +471,7 @@ export async function buildServer({
   db,
   githubWebhookSecret,
   githubFixtureMode,
+  githubAppInstallUrl,
   analysisRunner,
   emailSender,
 }: ServerDeps): Promise<FastifyInstance> {
@@ -862,7 +886,8 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId); // 404s on cross-org access
     const { customerId } = request.query as { customerId?: string | undefined };
-    return getConfig(id, customerId ?? null, configStore);
+    const scope = await resolveConfigScope(db, customerId, organizationId);
+    return { ...(await getConfig(id, scope.customerId, configStore)), customerName: scope.customerName };
   });
 
   app.put('/api/applications/:id/config', { preHandler: requireAuth }, async (request) => {
@@ -870,10 +895,12 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId); // 404s on cross-org access
     const body = setConfigBodySchema.parse(request.body);
-    return setConfig(id, body.customerId ?? null, body.entries, {
+    const scope = await resolveConfigScope(db, body.customerId, organizationId);
+    const view = await setConfig(id, scope.customerId, body.entries, {
       store: configStore,
       secretWriter: configSecretWriter,
     });
+    return { ...view, customerName: scope.customerName };
   });
 
   // GitHub repo-selection surface (auth-gated). Fixture mode serves the
@@ -889,7 +916,7 @@ export async function buildServer({
     const installations = await listInstallations(githubStore, organizationId, { fixtureMode });
     return {
       installations,
-      connectUrl: env.githubAppInstallUrl ?? null,
+      connectUrl: (githubAppInstallUrl ?? env.githubAppInstallUrl) || null,
     };
   });
 
