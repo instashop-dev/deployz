@@ -17,10 +17,13 @@
     "dev": "tsc -p tsconfig.json --watch",
     "synth:bootstrap": "node scripts/synth-bootstrap.mjs",
     "synth:app": "node scripts/synth-app.mjs",
-    "cdk": "cdk"
+    "cdk": "cdk",
+    "publish:bootstrap": "node scripts/publish-bootstrap.mjs"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.34",
     "@aws-sdk/client-cloudformation": "^3.1115.0",
+    "@aws-sdk/client-codebuild": "^3.1115.0",
     "@aws-sdk/client-ecr": "^3.1115.0",
     "@aws-sdk/client-ecs": "^3.1115.0",
     "@aws-sdk/client-elastic-load-balancing-v2": "^3.1115.0",
@@ -28,21 +31,24 @@
     "@aws-sdk/client-rds": "^3.1115.0",
     "@aws-sdk/client-s3": "^3.1115.0",
     "@aws-sdk/client-secrets-manager": "^3.1115.0",
-    "@aws-sdk/client-ses": "^3.1115.0",
     "@aws-sdk/client-service-quotas": "^3.1115.0",
+    "@aws-sdk/client-ses": "^3.1115.0",
     "@aws-sdk/client-sts": "^3.1115.0",
-    "@ai-sdk/openai-compatible": "^3.0.34",
-    "ai": "^7.0.73",
     "@deployz/analysis": "workspace:*",
     "@deployz/api": "workspace:*",
+    "@deployz/contracts": "workspace:*",
     "@deployz/relay": "workspace:*",
+    "ai": "^7.0.73",
     "aws-cdk-lib": "^2.180.0",
     "constructs": "^10.4.0",
+    "drizzle-orm": "^0.45.2",
     "esbuild": "^0.25.0",
+    "pg": "^8.13.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@deployz/db": "workspace:*",
+    "@electric-sql/pglite": "^0.5.5",
     "@types/aws-lambda": "^8.10.0",
     "dotenv": "^16.4.0",
     "tsx": "^4.19.0"

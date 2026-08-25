@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { and, eq } from 'drizzle-orm';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -297,6 +298,14 @@ describe('server — organization identity comes from the session, not the clien
     auth = createAuth(db);
     orgA = await signUpAndGetOrg(auth, db, 'org-a@example.com');
     orgB = await signUpAndGetOrg(auth, db, 'org-b@example.com');
+    // An application may only point at an installation its own organization
+    // connected, so the connected installation has to exist first.
+    await db.insert(schema.githubInstallations).values({
+      id: 'inst-1',
+      organizationId: orgA.organizationId,
+      accountLogin: 'org-a',
+      accountType: 'Organization',
+    });
     app = await buildServer({ auth, db });
   }, 60_000);
 
@@ -1521,8 +1530,8 @@ describe('server — POST /api/applications/:id/analyse wires ServerDeps.analysi
         .where(eq(schema.applications.id, application.id));
       expect(rows[0]?.analysisStatus).toBe('ANALYZING');
 
-      // The runner is fire-and-forget; give its microtask a tick to run.
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // With no job queue configured the runner is awaited inline, so it has
+      // already run by the time the 202 comes back.
       expect(calls).toEqual([application.id]);
     } finally {
       await app.close();
@@ -1546,12 +1555,155 @@ describe('server — POST /api/applications/:id/analyse wires ServerDeps.analysi
         headers: { cookie: org.cookie },
       });
 
+      // A rejecting runner must not surface as an unhandled rejection or
+      // turn the accepted request into a 500.
       expect(response.statusCode).toBe(202);
-      // Give the rejected background promise a tick — it must not surface
-      // as an unhandled rejection or crash the process.
-      await new Promise((resolve) => setTimeout(resolve, 0));
     } finally {
       await app.close();
+    }
+  });
+});
+
+// ── GitHub App installation binding (§15/§17) ──────────────────────────────
+describe('server — GitHub installation binding', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let other: { userId: string; organizationId: string; cookie: string };
+
+  // GitHub's own view of the installation. The setup route reads the account
+  // from the API rather than trusting the browser for anything but the id.
+  const githubFetch = (async (url: string) => ({
+    status: url.includes('/app/installations/4242') ? 200 : 404,
+    headers: { get: () => null },
+    json: async () => ({ account: { login: 'acme-inc', type: 'Organization' } }),
+  })) as unknown as Parameters<typeof buildServer>[0]['githubFetch'];
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({
+      auth,
+      db,
+      githubFixtureMode: false,
+      githubFetch,
+      githubAppId: 'test-app-id',
+      // A real key: the setup route signs an RS256 App JWT, so a placeholder
+      // string fails inside node:crypto rather than in the route.
+      githubAppPrivateKey: generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+      }).privateKey,
+    });
+    org = await signUpAndGetOrg(auth, db, 'gh-owner@example.com');
+    other = await signUpAndGetOrg(auth, db, 'gh-other@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('binds an installation to the caller organization and redirects to the dashboard', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/setup?installation_id=4242',
+      headers: { cookie: org.cookie },
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toContain('/dashboard/applications?github=connected');
+
+    const rows = await db.select().from(schema.githubInstallations);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: '4242',
+        organizationId: org.organizationId,
+        accountLogin: 'acme-inc',
+        accountType: 'Organization',
+      }),
+    ]);
+  });
+
+  it('lists the bound installation for its own organization only', async () => {
+    const mine = await app.inject({
+      method: 'GET',
+      url: '/api/github/installations',
+      headers: { cookie: org.cookie },
+    });
+    expect((mine.json() as { installations: unknown[] }).installations).toEqual([
+      { id: '4242', accountLogin: 'acme-inc', accountType: 'Organization' },
+    ]);
+
+    const theirs = await app.inject({
+      method: 'GET',
+      url: '/api/github/installations',
+      headers: { cookie: other.cookie },
+    });
+    expect((theirs.json() as { installations: unknown[] }).installations).toEqual([]);
+  });
+
+  // An installation id is a small integer: without this check any signed-in
+  // user could list the repositories of any installation by guessing one.
+  it('404s repo listing for an installation the caller does not own', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/repos?installationId=4242',
+      headers: { cookie: other.cookie },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('404s application creation against an installation the caller does not own', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/applications',
+      headers: { cookie: other.cookie },
+      payload: {
+        name: 'Borrowed',
+        githubInstallationId: '4242',
+        repoFullName: 'acme-inc/private',
+        repoUrl: 'https://github.com/acme-inc/private',
+        defaultBranch: 'main',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('drops the installation on the installation.deleted webhook', async () => {
+    const secret = 'webhook-secret';
+    const webhookApp = await buildServer({
+      auth,
+      db,
+      githubWebhookSecret: secret,
+      githubFixtureMode: false,
+      githubFetch,
+    });
+    try {
+      const body = JSON.stringify({ action: 'deleted', installation: { id: 4242 } });
+      const signature = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+
+      const response = await webhookApp.inject({
+        method: 'POST',
+        url: '/api/github/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'x-github-event': 'installation',
+          'x-hub-signature-256': signature,
+        },
+        payload: body,
+      });
+
+      expect(response.json()).toStrictEqual({ received: true, handled: 'removed' });
+      expect(await db.select().from(schema.githubInstallations)).toEqual([]);
+    } finally {
+      await webhookApp.close();
     }
   });
 });
@@ -1629,9 +1781,12 @@ describe('server — organization settings, public install page, and bulk deploy
       publisherName: orgRow!.name,
       customerName: 'Acme Analytics',
       region: 'eu-west-1',
-      enrollmentCode: deployment.enrollmentCode,
       alreadyInstalled: false,
       resourcesCreated: ['Application runtime', 'PostgreSQL database', 'Networking', 'Monitoring'],
+      // No BOOTSTRAP_TEMPLATE_URL in the test environment: nothing is
+      // published, so there is no link to hand out. The enrollment code
+      // travels inside that link, never as a field of its own.
+      quickCreateUrl: null,
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('999999999999');

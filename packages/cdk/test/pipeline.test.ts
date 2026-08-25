@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import { Bucket, type IBucket } from 'aws-cdk-lib/aws-s3';
 
 import { BuildPipeline } from '../src/pipeline/build-pipeline.js';
 import {
@@ -30,7 +31,11 @@ describe('BuildPipeline', () => {
     const stack = new Stack(app, 'PipelineTest', {
       env: { region: 'us-east-1' },
     });
-    const pipeline = new BuildPipeline(stack, 'BuildPipeline');
+    // CodeBuild reads the repository tarball the control plane uploaded; the
+    // source comes from a GitHub App installation token, which CodeBuild
+    // cannot hold, so the project has no source of its own.
+    const sourceBucket = new Bucket(stack, 'SourceBucket') as IBucket;
+    const pipeline = new BuildPipeline(stack, 'BuildPipeline', { sourceBucket });
     const template = Template.fromStack(stack);
     return { app, stack, pipeline, template };
   }
@@ -97,8 +102,10 @@ describe('BuildPipeline', () => {
     const sourceJson = JSON.stringify(project!.Properties!['Source']);
     // Key build phase should contain docker build
     expect(sourceJson).toContain('docker build');
-    // Post-build phase should record the image digest
-    expect(sourceJson).toContain('image-digest.txt');
+    // Post-build phase should record the image digest, exported so the
+    // build's state-change event carries it back to the control plane.
+    expect(sourceJson).toContain('IMAGE_DIGEST');
+    expect(sourceJson).toContain('exported-variables');
   });
 
   it('never falls back to the mutable `latest` tag (§21)', () => {
@@ -143,6 +150,7 @@ describe('BuildPipeline', () => {
       env: { region: 'us-east-1' },
     });
     new BuildPipeline(stack, 'CustomPipeline', {
+      sourceBucket: new Bucket(stack, 'SourceBucket') as IBucket,
       repositoryName: 'my-custom-images',
     });
     const template = Template.fromStack(stack);
@@ -158,6 +166,7 @@ describe('BuildPipeline', () => {
     });
     const { ComputeType } = await import('aws-cdk-lib/aws-codebuild');
     new BuildPipeline(stack, 'CustomPipeline', {
+      sourceBucket: new Bucket(stack, 'SourceBucket') as IBucket,
       computeType: ComputeType.MEDIUM,
     });
     const template = Template.fromStack(stack);
@@ -174,6 +183,7 @@ describe('BuildPipeline', () => {
       env: { region: 'us-east-1' },
     });
     new BuildPipeline(stack, 'CustomPipeline', {
+      sourceBucket: new Bucket(stack, 'SourceBucket') as IBucket,
       timeoutMinutes: 60,
     });
     const template = Template.fromStack(stack);
