@@ -37,6 +37,7 @@ describe('resolveHostRoute', () => {
       '/organizations/new',
       '/install/abc-123',
       '/accept-invitation/xyz',
+      '/github/setup',
     ])('sends %s to the app host on the same path', (pathname) => {
       expect(route(MARKETING, pathname)).toEqual({ host: APP, pathname });
     });
@@ -60,6 +61,7 @@ describe('resolveHostRoute', () => {
       '/dashboard/settings/billing',
       '/install/abc-123',
       '/accept-invitation/xyz',
+      '/github/setup',
     ])('serves %s in place', (pathname) => {
       expect(route(APP, pathname)).toBeNull();
     });

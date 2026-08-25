@@ -38,9 +38,11 @@ Run from the repo root:
    to that URL. Until it is set the API returns `quickCreateUrl: null` and the
    install page tells the customer no template has been published yet, rather
    than handing them a link CloudFormation cannot resolve.
-4. Point the GitHub App's **Setup URL** at `<API_URL>/api/github/setup` with
-   "Redirect on update" enabled — that redirect binds an installation to the
-   vendor's organization.
+4. Point the GitHub App's **Setup URL** at `<WEB_URL>/github/setup` with
+   "Redirect on update" enabled — that page binds the installation to the
+   vendor's organization, by way of `<API_URL>/api/github/setup`. It is on the
+   web app rather than the API because a vendor who installs the App while
+   signed out has to be offered sign-in, not handed an error.
 
 ## Module-resolution scheme
 

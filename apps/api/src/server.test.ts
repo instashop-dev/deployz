@@ -1629,6 +1629,23 @@ describe('server — GitHub installation binding', () => {
     ]);
   });
 
+  // GitHub redirects the installing vendor here whether or not they hold a
+  // Deployz session. A JSON 401 strands them on an error page with the
+  // installation unbound; sign-in carries the id so the binding still
+  // completes on the way back. The callback is relative because the sign-in
+  // page rejects absolute URLs as open redirects.
+  it('redirects a signed-out setup hit to sign-in rather than erroring', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/setup?installation_id=4242',
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toContain(
+      '/sign-in?callbackUrl=%2Fgithub%2Fsetup%3Finstallation_id%3D4242',
+    );
+  });
+
   it('lists the bound installation for its own organization only', async () => {
     const mine = await app.inject({
       method: 'GET',

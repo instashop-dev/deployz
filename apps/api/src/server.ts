@@ -2,7 +2,7 @@ import cors from '@fastify/cors';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import {
@@ -976,9 +976,32 @@ export async function buildServer({
   // Deployz session are both present, so it is where the two get bound.
   //
   // The redirect is a top-level GET navigation, so the Lax session cookie is
-  // sent; an unauthenticated hit lands on sign-in rather than erroring, and
-  // GitHub's own retry of the setup link completes the binding afterwards.
-  app.get('/api/github/setup', { preHandler: requireAuth }, async (request, reply) => {
+  // sent. A vendor who installed the App while signed out has no cookie to
+  // send, though, and a JSON 401 would strand them on an error page with the
+  // installation unbound — so that case goes to sign-in instead, carrying the
+  // installation id back to the web setup page. The callback is RELATIVE
+  // because the sign-in page rejects absolute URLs as open redirects.
+  const redirectSignedOutToSignIn = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    try {
+      await requireAuth(request);
+    } catch (error) {
+      // Only a missing session redirects. Anything else (a database failure
+      // resolving the tenant, say) must surface as itself rather than be
+      // disguised as "please sign in".
+      if (!(error instanceof UnauthorizedError)) throw error;
+      const { installation_id: installationId } = request.query as {
+        installation_id?: string | undefined;
+      };
+      const target = installationId
+        ? `/github/setup?installation_id=${encodeURIComponent(installationId)}`
+        : '/github/setup';
+      return reply.redirect(`${env.webUrl}/sign-in?callbackUrl=${encodeURIComponent(target)}`);
+    }
+  };
+  app.get('/api/github/setup', { preHandler: redirectSignedOutToSignIn }, async (request, reply) => {
     const { installation_id: installationId } = request.query as {
       installation_id?: string | undefined;
     };

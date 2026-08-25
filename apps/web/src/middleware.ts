@@ -80,5 +80,6 @@ export const config = {
     '/organizations/:path*',
     '/install/:path*',
     '/accept-invitation/:path*',
+    '/github/setup',
   ],
 };
