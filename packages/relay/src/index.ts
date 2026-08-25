@@ -28,7 +28,7 @@ import { pollOnce, type PollDependencies } from './poll.js';
 // ── Default command executors ────────────────────────────────────────────────
 
 /**
- * Default executors for the eight command types.
+ * Default executors for the ten command types.
  *
  * ⚠️ THESE ARE STUBS. Each one logs and reports success without touching the
  * customer's account, so a deployment reaches "Healthy" in the control plane
@@ -68,6 +68,11 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
     DESTROY: noop,
     MIGRATE: noop,
     REFRESH_METADATA: noop,
+    // Task 7 replaces these with real ACM/ALB executors — for now the relay
+    // just acks so the control-plane state machine (in domains.ts) can be
+    // exercised end-to-end without a real AWS account behind it.
+    CONFIGURE_DOMAIN: noop,
+    REMOVE_DOMAIN: noop,
   };
 }
 

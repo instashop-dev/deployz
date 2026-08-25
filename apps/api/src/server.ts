@@ -87,6 +87,7 @@ import {
   type OrganizationDeps,
 } from './organizations.js';
 import { recordEvent, type DeploymentEventType } from './events.js';
+import { applyDomainJobResult, createCustomDomain, findActiveDomain, isDomainJobType, toDomainView } from './domains.js';
 import { deriveHealthStatus, deriveRelayStatus } from './relay-liveness.js';
 import {
   hashRelayToken,
@@ -1183,6 +1184,8 @@ export async function buildServer({
     organizationId: z.string().min(1).optional(),
   });
 
+  const addDomainBodySchema = z.object({ hostname: z.string() });
+
   // ── Applications (§17–§19) ──────────────────────────────────────────────
 
   // POST /api/applications — Create application from GitHub repo selection
@@ -1854,6 +1857,27 @@ export async function buildServer({
     return { installLinkId: deployment.installLinkId };
   });
 
+  // ── Custom domain (custom-domains MVP) ────────────────────────────────
+  app.post('/api/deployments/:id/domain', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const actor = requireActor(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const body = addDomainBodySchema.parse(request.body);
+    const domain = await createCustomDomain(db, deployment, body.hostname, actor.id);
+    return reply.code(201).send({ domain: toDomainView(domain) });
+  });
+
+  app.get('/api/deployments/:id/domain', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const domain = await findActiveDomain(db, deployment.id);
+    return { domain: domain ? toDomainView(domain) : null };
+  });
+
   // ── Events & diagnostics (§24, §29, §40) ────────────────────────────────
 
   // GET /api/deployments/:id/events — Event log
@@ -2330,7 +2354,13 @@ export async function buildServer({
         : undefined;
 
     // A finished job is what advances the deployment's own §46 state.
-    const nextState = state === 'FAILED' ? 'FAILED' : JOB_SUCCESS_STATE[job.type];
+    // Domain jobs manage the custom_domains row, never the deployment
+    // lifecycle — a failed cert request must not mark the deployment FAILED.
+    const nextState = isDomainJobType(job.type)
+      ? undefined
+      : state === 'FAILED'
+        ? 'FAILED'
+        : JOB_SUCCESS_STATE[job.type];
     const releaseId =
       state === 'SUCCEEDED' && RELEASE_ADVANCING_JOBS.has(job.type)
         ? ((job.payload as { releaseId?: string } | null)?.releaseId ?? null)
@@ -2346,6 +2376,10 @@ export async function buildServer({
           ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
         })
         .where(eq(schema.deploymentJobs.id, id));
+
+      if (isDomainJobType(job.type)) {
+        await applyDomainJobResult(tx, deployment, job, body);
+      }
 
       if (nextState) {
         await tx
