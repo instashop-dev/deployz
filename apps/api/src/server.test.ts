@@ -1511,9 +1511,31 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       verdict: null,
       score: null,
       changesRequired: null,
+      failureReason: null,
       ready: [],
       needsAttention: [],
       unsupported: [],
+    });
+  });
+
+  // A FAILED analysis used to reach the page as an indistinguishable
+  // "not COMPLETE yet" — same empty shape as ANALYZING, reason dropped. The
+  // vendor saw "Analysing your app" for ever and Re-analyse looked inert.
+  it('readiness: a FAILED analysis carries the reason it failed', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'FAILED',
+      compatibilityReason: 'Failed to mint a GitHub installation token',
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      analysisStatus: 'FAILED',
+      verdict: null,
+      failureReason: 'Failed to mint a GitHub installation token',
     });
   });
 

@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -189,6 +189,22 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('FAILED');
     expect(row.compatibilityReason).toBe('Repository not found');
+  });
+
+  // The analysis runs detached on the worker Lambda and catches EVERY error,
+  // so without this line a failed run leaves no trace anywhere: the row says
+  // FAILED, CloudWatch says nothing, and production is undiagnosable.
+  it('logs the failure so a failed run is visible in the worker log', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const application = await insertApplication(db, orgId, { repoFullName: 'someone/unknown-repo' });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    expect(logged).toHaveBeenCalledOnce();
+    const [message] = logged.mock.calls[0] as [string];
+    expect(message).toContain(application.id);
+    expect(message).toContain('Repository not found');
+    logged.mockRestore();
   });
 });
 

@@ -4,6 +4,7 @@ import {
   ONBOARDING_STEPS,
   VERDICT_PRESENTATION,
   deriveOnboardingStep,
+  readinessFailure,
   readinessSummaryLabel,
   type ApplicationReadiness,
 } from '../src/lib/readiness';
@@ -113,6 +114,7 @@ describe('§19 readiness result shape (GET /api/applications/:id/readiness)', ()
       verdict: null,
       score: null,
       changesRequired: null,
+      failureReason: null,
       ready: [],
       needsAttention: [],
       unsupported: [],
@@ -128,6 +130,7 @@ describe('§19 readiness result shape (GET /api/applications/:id/readiness)', ()
       verdict: 'NEEDS_ATTENTION',
       score: 82,
       changesRequired: 2,
+      failureReason: null,
       ready: [{ label: 'Docker container detected' }],
       needsAttention: [
         {
@@ -157,10 +160,55 @@ describe('§19 readiness result shape (GET /api/applications/:id/readiness)', ()
       verdict: 'NOT_COMPATIBLE',
       score: 0,
       changesRequired: 0,
+      failureReason: null,
       ready: [],
       needsAttention: [],
       unsupported: [{ title: 'Persistent Redis required', reason: 'Persistent Redis is required.' }],
     };
     expect(readiness.unsupported[0]?.reason).toBe('Persistent Redis is required.');
+  });
+});
+
+// A FAILED analysis rendered as "Analysing your app — this usually takes a
+// minute" and polling stopped, so Re-analyse looked like it did nothing at
+// all. FAILED is its own state, and it says what went wrong.
+describe('readinessFailure (FAILED analysis)', () => {
+  const failed = (failureReason: string | null): ApplicationReadiness => ({
+    analysisStatus: 'FAILED',
+    verdict: null,
+    score: null,
+    changesRequired: null,
+    failureReason,
+    ready: [],
+    needsAttention: [],
+    unsupported: [],
+  });
+
+  it('is null while the analysis is still running', () => {
+    expect(
+      readinessFailure({
+        analysisStatus: 'ANALYZING',
+        verdict: null,
+        score: null,
+        changesRequired: null,
+        failureReason: null,
+        ready: [],
+        needsAttention: [],
+        unsupported: [],
+      }),
+    ).toBeNull();
+  });
+
+  it('surfaces the reason the analysis failed', () => {
+    expect(readinessFailure(failed('Failed to mint a GitHub installation token'))?.detail).toBe(
+      'Failed to mint a GitHub installation token',
+    );
+  });
+
+  it('falls back to jargon-free copy when the API sent no reason', () => {
+    const failure = readinessFailure(failed(null));
+    expect(failure?.detail).toBeTruthy();
+    expect(failure?.detail).not.toMatch(JARGON);
+    expect(failure?.heading).not.toMatch(JARGON);
   });
 });
