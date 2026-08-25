@@ -28,21 +28,47 @@ Run from the repo root:
 
 ## Deploying the control plane
 
-1. `pnpm build`, then `pnpm --filter @deployz/cdk exec cdk deploy Deployz` — VPC,
-   RDS, API Lambda, the SQS job queue with its worker, the CodeBuild/ECR release
-   pipeline, and the public template bucket.
-2. `pnpm --filter @deployz/cdk run publish:bootstrap` — publishes the customer
-   bootstrap template (repacked to be self-contained, Lambda assets zipped) to
-   that bucket and prints its URL.
-3. Redeploy with `BOOTSTRAP_TEMPLATE_URL` (or `-c bootstrapTemplateUrl=...`) set
-   to that URL. Until it is set the API returns `quickCreateUrl: null` and the
-   install page tells the customer no template has been published yet, rather
-   than handing them a link CloudFormation cannot resolve.
-4. Point the GitHub App's **Setup URL** at `<WEB_URL>/github/setup` with
-   "Redirect on update" enabled — that page binds the installation to the
-   vendor's organization, by way of `<API_URL>/api/github/setup`. It is on the
-   web app rather than the API because a vendor who installs the App while
-   signed out has to be offered sign-in, not handed an error.
+**Deploys run in CI, not from a laptop.** `.github/workflows/deploy-api.yml`
+deploys the stack — VPC, RDS, API Lambda, the SQS job queue with its worker, the
+CodeBuild/ECR release pipeline, and the public template bucket — on every push to
+`main` that touches the API, and on demand from the Actions tab. It supplies the
+Lambda's entire environment from repository secrets.
+
+`packages/cdk/bin/deployz.ts` refuses to run outside CI, because a hand-run
+deploy rebuilds that environment from the developer's `.env`: `collectEnvVars()`
+replaces the deployed environment rather than merging with it, so local values
+overwrite production and every allowlisted key the `.env` lacks is *deleted* from
+the running function — `API_DOMAIN_NAME` among them, which takes
+`api.deployz.dev` offline.
+
+To inspect the stack locally, opt in explicitly:
+
+```bash
+pnpm --filter @deployz/cdk exec cdk diff Deployz -c local=true
+```
+
+The CDK CLI passes the app no indication of which command invoked it, so that
+flag necessarily re-enables `deploy` as well as `synth` and `diff`. It is there
+for previewing changes, not for shipping them.
+
+Publishing the customer bootstrap template is still a local step, because it
+uploads an artifact rather than changing the stack:
+
+1. `pnpm --filter @deployz/cdk run publish:bootstrap` — repacks the template to
+   be self-contained, zips its Lambda assets, uploads both to the template
+   bucket, and prints the URL.
+2. Set that URL as the `BOOTSTRAP_TEMPLATE_URL` repository **variable**, then
+   re-run the deploy workflow. Until it is set the API returns
+   `quickCreateUrl: null` and the install page tells the customer no template has
+   been published yet, rather than handing them a link CloudFormation cannot
+   resolve.
+
+One piece of configuration lives on GitHub rather than in this repo: the App's
+**Setup URL** must be `<WEB_URL>/github/setup` with "Redirect on update"
+enabled — that page binds the installation to the vendor's organization, by way
+of `<API_URL>/api/github/setup`. It is on the web app rather than the API
+because a vendor who installs the App while signed out has to be offered
+sign-in, not handed an error.
 
 ## Module-resolution scheme
 
