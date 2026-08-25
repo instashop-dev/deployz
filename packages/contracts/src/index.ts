@@ -77,6 +77,8 @@ export const jobTypeSchema = z.enum([
   'HEALTH_REPORT',
   'PREFLIGHT',
   'HEALTH_CHECK',
+  'CONFIGURE_DOMAIN',
+  'REMOVE_DOMAIN',
 ]);
 export type JobType = z.infer<typeof jobTypeSchema>;
 
@@ -157,6 +159,16 @@ export const subscriptionStatusSchema = z.enum([
   'INCOMPLETE',
 ]);
 export type SubscriptionStatus = z.infer<typeof subscriptionStatusSchema>;
+
+export const customDomainStatusSchema = z.enum([
+  'PENDING',
+  'WAITING_FOR_DNS',
+  'CONFIGURING',
+  'ACTIVE',
+  'ERROR',
+  'REMOVING',
+]);
+export type CustomDomainStatus = z.infer<typeof customDomainStatusSchema>;
 
 // ---------------------------------------------------------------------------
 // Shared column groups
