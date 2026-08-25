@@ -167,6 +167,10 @@ describe('worker handler', () => {
         customerId,
         region: 'us-east-1',
         installationId: randomUUID(),
+        // Single-use enrollment code the bootstrap stack carries; NOT NULL,
+        // because a deployment no relay can ever enrol with is not a
+        // deployment.
+        enrollmentCode: randomUUID(),
       })
       .returning();
 
