@@ -15,8 +15,13 @@ export interface InstallData {
   region: string;
   /** §44 "Deployz will create" list, e.g. ["Application runtime", "PostgreSQL database", ...]. */
   resourcesCreated: string[];
-  /** Single-use code the bootstrap stack carries. Spent on the relay's first contact. */
-  enrollmentCode: string;
+  /**
+   * CloudFormation Quick Create deep-link for THIS deployment, built by the
+   * control plane: it owns the published template URL, the deployment's
+   * region and the single-use enrollment code. Null when no bootstrap
+   * template is published yet.
+   */
+  quickCreateUrl: string | null;
   /** True once a relay has enrolled — the link has already been used. */
   alreadyInstalled: boolean;
 }

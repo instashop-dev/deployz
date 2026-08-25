@@ -27,17 +27,36 @@ export interface DetectorFinding {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Safely parse a package.json file from the file tree. Returns null on parse failure or missing file. */
-function parsePackageJson(tree: FileTree): Record<string, unknown> | null {
-  const raw = tree['package.json'];
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
+/** Matches a package.json at the repository root or in any workspace package. */
+const PACKAGE_JSON_REGEX = /(?:^|\/)package\.json$/;
+
+/**
+ * Parse every package.json in the tree, repository root first.
+ *
+ * A monorepo keeps its dependencies and scripts in the workspace packages,
+ * not in the root manifest — reading only the root manifest makes a
+ * workspace repository look dependency-free, so every detector that asks
+ * about dependencies or scripts asks about ALL of them.
+ */
+function parsePackageJsons(tree: FileTree): Record<string, unknown>[] {
+  const paths = Object.keys(tree)
+    .filter((path) => PACKAGE_JSON_REGEX.test(path))
+    .sort((a, b) => a.split('/').length - b.split('/').length);
+
+  const parsed: Record<string, unknown>[] = [];
+  for (const path of paths) {
+    const raw = tree[path];
+    if (!raw) continue;
+    try {
+      const value = JSON.parse(raw);
+      if (typeof value === 'object' && value !== null) {
+        parsed.push(value as Record<string, unknown>);
+      }
+    } catch {
+      // A malformed manifest is "no manifest" — never a failed analysis.
+    }
   }
+  return parsed;
 }
 
 /** Get all keys from the package.json "scripts" field, or empty object. */
@@ -63,6 +82,34 @@ function getDependencyNames(pkg: Record<string, unknown> | null): string[] {
   return [...names];
 }
 
+/**
+ * Every dependency declared anywhere in the repository — the root manifest
+ * plus every workspace package manifest. Shared with the §10 rejection
+ * checks so both sides of the verdict read the same dependency set.
+ */
+export function collectDependencyNames(tree: FileTree): string[] {
+  const names = new Set<string>();
+  for (const pkg of parsePackageJsons(tree)) {
+    for (const name of getDependencyNames(pkg)) {
+      names.add(name);
+    }
+  }
+  return [...names];
+}
+
+/** Every script entry declared anywhere in the repository. */
+function collectScripts(tree: FileTree): [string, string][] {
+  const entries: [string, string][] = [];
+  for (const pkg of parsePackageJsons(tree)) {
+    for (const [name, command] of Object.entries(getScripts(pkg))) {
+      if (typeof command === 'string') {
+        entries.push([name, command]);
+      }
+    }
+  }
+  return entries;
+}
+
 /** Find all files whose path matches a regex and return their paths. */
 function findFiles(tree: FileTree, pathRegex: RegExp): string[] {
   return Object.keys(tree).filter((p) => pathRegex.test(p));
@@ -80,7 +127,11 @@ function findFileContent(tree: FileTree, pathRegex: RegExp): string | null {
 // 1. Dockerfile
 // ---------------------------------------------------------------------------
 
-const DOCKERFILE_REGEX = /^dockerfile$/i;
+// Matches a Dockerfile in ANY directory, with or without a suffix:
+// `Dockerfile`, `dockerfile`, `docker/Dockerfile`, `apps/web/Dockerfile.prod`.
+// A repository that keeps its Dockerfile out of the root is the common case,
+// not the exception.
+const DOCKERFILE_REGEX = /(?:^|\/)dockerfile(?:\.[\w.-]+)?$/i;
 
 /**
  * Detect a Dockerfile (case-insensitive: `Dockerfile`, `dockerfile`, `Dockerfile.prod`, etc.).
@@ -119,11 +170,7 @@ const KNOWN_FRAMEWORKS = [
  * Returns the first matching framework name.
  */
 export function detectFramework(tree: FileTree): DetectorFinding {
-  const pkg = parsePackageJson(tree);
-  if (!pkg) {
-    return { detector: 'framework', detected: false };
-  }
-  const deps = getDependencyNames(pkg);
+  const deps = collectDependencyNames(tree);
   for (const framework of KNOWN_FRAMEWORKS) {
     if (deps.includes(framework)) {
       return {
@@ -202,13 +249,22 @@ export function detectPort(tree: FileTree): DetectorFinding {
 // ---------------------------------------------------------------------------
 
 const HEALTHCHECK_REGEX = /HEALTHCHECK\b/i;
-const HEALTH_ROUTE_REGEX = /(?:get|post|put|all|route)\s*\(.*['"`]\/health['"`]/i;
-const HEALTH_HTTP_ADAPTER_REGEX = /\.getHttpAdapter\(\)\..*?['"`]\/health['"`]/;
+// Route registrations, including the prefixed forms a real application uses:
+// `/health`, `/healthz`, `/api/health`, `/api/v1/healthcheck`.
+const HEALTH_ROUTE_REGEX =
+  /(?:get|post|put|all|route)\s*\(.*['"`][\w/-]*\/(?:health|healthz|healthcheck|heartbeat)\b/i;
+const HEALTH_HTTP_ADAPTER_REGEX =
+  /\.getHttpAdapter\(\)\..*?['"`][\w/-]*\/(?:health|healthz|healthcheck|heartbeat)\b/;
 const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
+// File-based routing (Next.js, Remix, Nuxt, SvelteKit) declares the path in
+// the FILE NAME, so there is no route string to match: `api/health.ts`,
+// `app/api/health/route.ts`, `pages/api/healthz.js`.
+const HEALTH_ROUTE_FILE_REGEX =
+  /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
 
 /**
  * Detect a health check endpoint from Dockerfile HEALTHCHECK, package.json scripts,
- * or route patterns in source code.
+ * route patterns in source code, or a file-based route path.
  */
 export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   const sources: string[] = [];
@@ -224,19 +280,18 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   }
 
   // 2. package.json "healthcheck" script
-  const pkg = parsePackageJson(tree);
-  if (pkg) {
-    const scripts = getScripts(pkg);
-    for (const name of Object.keys(scripts)) {
-      if (HEALTH_SCRIPT_REGEX.test(name)) {
-        sources.push(`healthcheck (package.json script "${name}")`);
-      }
+  for (const [name] of collectScripts(tree)) {
+    if (HEALTH_SCRIPT_REGEX.test(name)) {
+      sources.push(`healthcheck (package.json script "${name}")`);
     }
   }
 
-  // 3. Route patterns in source code
+  // 3. Route patterns in source code, or a file-based route path
   for (const [path, content] of Object.entries(tree)) {
     if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
+      if (HEALTH_ROUTE_FILE_REGEX.test(path)) {
+        sources.push(`health route file (${path})`);
+      }
       if (HEALTH_ROUTE_REGEX.test(content)) {
         sources.push(`/health route (${path})`);
       }
@@ -327,8 +382,7 @@ const PG_DRIVERS = ['pg', 'postgres', 'drizzle-orm', 'knex'] as const;
  */
 export function detectPostgresql(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
-  const pkg = parsePackageJson(tree);
-  const deps = getDependencyNames(pkg);
+  const deps = collectDependencyNames(tree);
 
   // Check for postgres-specific drivers
   for (const driver of PG_DRIVERS) {
@@ -360,19 +414,23 @@ export function detectPostgresql(tree: FileTree): DetectorFinding {
 // 7. Local filesystem usage
 // ---------------------------------------------------------------------------
 
+// WRITES only. A read (`fs.readFileSync` of a bundled template, a certificate,
+// a migration file) is not persistent local storage — every container image
+// ships files its own code reads back, so rejecting on a read rejects almost
+// every real application. What breaks in an ephemeral container is state
+// WRITTEN to local disk and expected to still be there on the next request.
 const FS_PATTERNS: { pattern: RegExp; name: string }[] = [
   { pattern: /fs\.writeFileSync\b/, name: 'fs.writeFileSync' },
   { pattern: /fs\.writeFile\b/, name: 'fs.writeFile' },
-  { pattern: /fs\.readFileSync\b/, name: 'fs.readFileSync' },
-  { pattern: /fs\.readFile\b/, name: 'fs.readFile' },
   { pattern: /fs\.mkdirSync\b/, name: 'fs.mkdirSync' },
   { pattern: /fs\.mkdir\b/, name: 'fs.mkdir' },
   { pattern: /fs\.appendFileSync\b/, name: 'fs.appendFileSync' },
   { pattern: /fs\.appendFile\b/, name: 'fs.appendFile' },
+  { pattern: /fs\.createWriteStream\b/, name: 'fs.createWriteStream' },
 ];
 
 /**
- * Detect local filesystem usage (fs.writeFile, fs.readFileSync, mkdirSync, etc.).
+ * Detect persistent local filesystem usage (fs.writeFile, mkdirSync, etc.).
  * Signals persistent local storage — unsupported in Deployz's ephemeral container model.
  */
 export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
@@ -413,8 +471,7 @@ export function detectWorker(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
 
   // Check package.json dependencies
-  const pkg = parsePackageJson(tree);
-  const deps = getDependencyNames(pkg);
+  const deps = collectDependencyNames(tree);
   for (const dep of WORKER_DEPS) {
     if (deps.includes(dep)) {
       detected.push(dep);
@@ -457,8 +514,7 @@ export function detectS3(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
 
   // Check package.json dependencies
-  const pkg = parsePackageJson(tree);
-  const deps = getDependencyNames(pkg);
+  const deps = collectDependencyNames(tree);
   for (const dep of S3_DEPS) {
     if (deps.includes(dep)) {
       detected.push(dep);
@@ -506,15 +562,9 @@ const MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
  * Detect migration commands from package.json scripts.
  */
 export function detectMigrationCommand(tree: FileTree): DetectorFinding {
-  const pkg = parsePackageJson(tree);
-  if (!pkg) {
-    return { detector: 'migration-command', detected: false };
-  }
-
-  const scripts = getScripts(pkg);
   const detected: string[] = [];
 
-  for (const [, command] of Object.entries(scripts)) {
+  for (const [, command] of collectScripts(tree)) {
     for (const { pattern, name } of MIGRATION_PATTERNS) {
       if (pattern.test(command) && !detected.includes(name)) {
         detected.push(name);
@@ -564,12 +614,9 @@ export function detectStartupCommand(tree: FileTree): DetectorFinding {
   }
 
   // 2. package.json "start" script
-  const pkg = parsePackageJson(tree);
-  if (pkg) {
-    const scripts = getScripts(pkg);
-    const startScript = scripts['start'];
-    if (startScript) {
-      sources.push(`start: ${startScript}`);
+  for (const [name, command] of collectScripts(tree)) {
+    if (name === 'start') {
+      sources.push(`start: ${command}`);
     }
   }
 
@@ -613,8 +660,7 @@ export function detectExternalServices(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
 
   // 1. Check package.json for known external service SDKs
-  const pkg = parsePackageJson(tree);
-  const deps = getDependencyNames(pkg);
+  const deps = collectDependencyNames(tree);
   for (const sdk of EXTERNAL_SERVICE_SDKS) {
     if (deps.includes(sdk) && !detected.includes(sdk)) {
       detected.push(sdk);

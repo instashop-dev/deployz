@@ -390,3 +390,84 @@ export const errorEnvelopeSchema = z.object({
   }),
 });
 export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;
+
+// ---------------------------------------------------------------------------
+// CloudFormation Quick Create install link.
+//
+// Shared because three sides build or check the same URL: the API returns it
+// on GET /api/install/:installationId, the publisher (packages/cdk) reports
+// it after uploading a template, and the tests assert the exact format. One
+// implementation, so the three can never drift.
+//
+// The URL carries NO credential and NO secret: only the non-secret
+// `ControlPlaneUrl` template parameter. The bootstrap-generated credential
+// and the minted installation identifier are produced at deploy time inside
+// the customer's account and never appear in a URL.
+// ---------------------------------------------------------------------------
+
+/** Default CloudFormation stack name for the customer bootstrap stack. */
+export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
+
+/** The bootstrap stack's non-secret control-plane parameter. */
+export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
+
+/** The bootstrap stack's single-use enrollment parameter. */
+export const ENROLLMENT_CODE_PARAMETER = 'EnrollmentCode';
+
+export interface BootstrapQuickCreateOptions {
+  /** AWS region the console deep-link targets. */
+  readonly region: string;
+  /** Public HTTPS URL of the published bootstrap template. */
+  readonly templateUrl: string;
+  /** Base URL of the Deployz control plane the relay polls (non-secret). */
+  readonly controlPlaneUrl: string;
+  /**
+   * Single-use enrollment code from the install link.
+   *
+   * Optional because the template publisher builds a URL for the PUBLISHED
+   * template itself, before any deployment exists and so before any code has
+   * been minted. Omitting it leaves the stack's EnrollmentCode parameter at
+   * its empty default, which the relay then refuses to enrol with — the
+   * customer-facing URL always comes from the install page, which has the
+   * code for their specific deployment.
+   */
+  readonly enrollmentCode?: string | undefined;
+  /** CloudFormation stack name. Defaults to `deployz-bootstrap`. */
+  readonly stackName?: string | undefined;
+}
+
+/**
+ * Builds the deterministic CloudFormation Quick Create deep-link:
+ *
+ *   https://{region}.console.aws.amazon.com/cloudformation/home?region={region}
+ *     #/stacks/create/review
+ *     ?templateURL={url-encoded templateUrl}
+ *     &stackName={stackName}
+ *     &param_ControlPlaneUrl={controlPlaneUrl}
+ *     &param_EnrollmentCode={enrollmentCode}
+ *
+ * The relay's communication credential is never here — CloudFormation mints
+ * it inside the customer's account. The enrollment code is not that
+ * credential: it is single use, it is spent the moment the relay binds, and
+ * it exists because the installation identifier is minted in the customer's
+ * account too, so nothing else ties this stack to a deployment.
+ *
+ * Pure — same inputs, same URL. `URLSearchParams` keeps the parameter order
+ * deterministic (templateURL, stackName, then params).
+ */
+export function buildBootstrapQuickCreateUrl(options: BootstrapQuickCreateOptions): string {
+  const base =
+    `https://${options.region}.console.aws.amazon.com/cloudformation/home` +
+    `?region=${encodeURIComponent(options.region)}` +
+    `#/stacks/create/review`;
+
+  const query = new URLSearchParams();
+  query.set('templateURL', options.templateUrl);
+  query.set('stackName', options.stackName ?? DEFAULT_BOOTSTRAP_STACK_NAME);
+  query.set(`param_${CONTROL_PLANE_URL_PARAMETER}`, options.controlPlaneUrl);
+  if (options.enrollmentCode !== undefined) {
+    query.set(`param_${ENROLLMENT_CODE_PARAMETER}`, options.enrollmentCode);
+  }
+
+  return `${base}?${query.toString()}`;
+}

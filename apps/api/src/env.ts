@@ -105,6 +105,13 @@ export const env = {
   emailFrom: process.env.EMAIL_FROM,
   sesAccessKeyId: process.env.AWS_SES_ACCESS_KEY_ID,
   sesSecretAccessKey: process.env.AWS_SES_SECRET_ACCESS_KEY,
+  // Public HTTPS URL of the published bootstrap template. Written by the
+  // publisher (`pnpm --filter @deployz/cdk run publish:bootstrap`) into the
+  // control-plane stack's environment. Unset means no install link can be
+  // handed out yet — GET /api/install/:id then returns quickCreateUrl null
+  // and the install page says so, instead of pointing the customer at a
+  // template that does not exist.
+  bootstrapTemplateUrl: process.env.BOOTSTRAP_TEMPLATE_URL,
   awsRegion: process.env.AWS_REGION ?? 'us-east-1',
   githubFixtureMode:
     process.env.GITHUB_FIXTURE_MODE === 'true' || process.env.GITHUB_FIXTURE_MODE === '1',
