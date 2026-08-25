@@ -16,6 +16,7 @@ import {
   domainErrorCopy,
   fetchDomainAccess,
   fetchDomainByLink,
+  isGenericDomainError,
   removeDomain,
   type CustomDomainStatus,
   type CustomDomainView,
@@ -29,11 +30,6 @@ const DNS_RECORD_PURPOSE_LABEL: Record<DnsRecordView['purpose'], string> = {
   verification: 'Verify ownership',
   routing: 'Route traffic',
 };
-
-// domainErrorCopy's generic connect-failure fallback — matched by title so
-// the "Check again"/"Retry" label switch doesn't need a second export from
-// lib/domains just to distinguish a known code from the catch-all.
-const GENERIC_ERROR_TITLE = "We couldn't connect this domain";
 
 type Panel = 'none' | 'add' | 'remove';
 
@@ -57,6 +53,7 @@ export function CustomDomainCard(props: {
   const [ready, setReady] = useState(false);
   const [canManage, setCanManage] = useState(false);
   const [domain, setDomain] = useState<CustomDomainView | null>(initialDomain);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>('none');
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -65,7 +62,12 @@ export function CustomDomainCard(props: {
   // Mode detection. `fetchDomain` collapses "no domain yet" and "no access"
   // into the same `null`, which can't tell a vendor with an empty domain
   // apart from a customer without dashboard access — `fetchDomainAccess`
-  // keeps the two apart via its `canManage` flag.
+  // keeps the two apart via its `canManage` flag, and already resolves
+  // (doesn't throw) for the UNAUTHORIZED/FORBIDDEN/NOT_FOUND "no access"
+  // cases. So anything that reaches this `catch` is a genuine failure
+  // (network down, a 5xx, an unrecognised error code) — surface it instead
+  // of silently pretending this is a customer view, which would hide a real
+  // outage behind an empty-looking card.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -76,17 +78,23 @@ export function CustomDomainCard(props: {
           if (access.canManage) {
             setCanManage(true);
             setDomain(access.domain);
+            setLoadError(null);
             setReady(true);
             return;
           }
-        } catch {
-          // Unexpected failure reading the deployment-scoped endpoint — fall
-          // back to the customer view below rather than getting stuck.
+        } catch (caught) {
+          if (cancelled) return;
+          setLoadError(errorMessage(caught));
+          setCanManage(false);
+          setDomain(initialDomain);
+          setReady(true);
+          return;
         }
       }
       if (cancelled) return;
       setCanManage(false);
       setDomain(initialDomain);
+      setLoadError(null);
       setReady(true);
     })();
     return () => {
@@ -155,6 +163,12 @@ export function CustomDomainCard(props: {
           </div>
 
           {!ready ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+
+          {ready && loadError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {loadError}
+            </p>
+          ) : null}
 
           {ready && domain === null ? (
             canManage ? (
@@ -332,7 +346,7 @@ function DomainStatusBody({
 
     case 'error': {
       const copy = domainErrorCopy(domain.error);
-      const isGeneric = copy === null || copy.title === GENERIC_ERROR_TITLE;
+      const isGeneric = isGenericDomainError(domain.error);
       return (
         <>
           {copy ? (
@@ -356,9 +370,20 @@ function DomainStatusBody({
 
     case 'removing':
       return (
-        <p className="text-sm text-muted-foreground">
-          This domain is being removed. It will stop routing once removal finishes.
-        </p>
+        <>
+          <p className="text-sm text-muted-foreground">
+            This domain is being removed. It will stop routing once removal finishes.
+          </p>
+          <CheckAndRemoveRow
+            canManage={canManage}
+            checking={checking}
+            checkLabel="Check now"
+            checkError={checkError}
+            onCheck={onCheck}
+            onOpenRemove={onOpenRemove}
+            disabled
+          />
+        </>
       );
 
     default:
@@ -373,6 +398,7 @@ function CheckAndRemoveRow({
   checkError,
   onCheck,
   onOpenRemove,
+  disabled = false,
 }: {
   canManage: boolean;
   checking: boolean;
@@ -380,14 +406,18 @@ function CheckAndRemoveRow({
   checkError: string | null;
   onCheck: () => void;
   onOpenRemove: () => void;
+  /** Forces both actions off — used for the 'removing' state, which still
+   *  shows the row (so the layout doesn't jump) but nothing in it is
+   *  actionable while removal is in flight (spec: "actions disabled"). */
+  disabled?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="button" size="sm" variant="outline" disabled={checking} onClick={onCheck}>
+      <Button type="button" size="sm" variant="outline" disabled={disabled || checking} onClick={onCheck}>
         {checking ? 'Checking…' : checkLabel}
       </Button>
       {canManage ? (
-        <Button type="button" size="sm" variant="destructive" onClick={onOpenRemove}>
+        <Button type="button" size="sm" variant="destructive" disabled={disabled} onClick={onOpenRemove}>
           Remove domain
         </Button>
       ) : null}

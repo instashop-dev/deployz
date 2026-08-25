@@ -4,6 +4,7 @@ import {
   DOMAIN_STATUS_LABEL,
   domainErrorCopy,
   fetchDomainAccess,
+  isGenericDomainError,
   type CustomDomainStatus,
 } from '../src/lib/domains';
 
@@ -58,6 +59,28 @@ describe('domainErrorCopy', () => {
         title: "We couldn't connect this domain",
         body: 'Check the DNS records and try again.',
       });
+    },
+  );
+});
+
+// CustomDomainCard uses this to switch its "Check again"/"Retry" button
+// label without re-declaring GENERIC_ERROR_COPY's strings itself.
+describe('isGenericDomainError', () => {
+  it('returns false for null (no error)', () => {
+    expect(isGenericDomainError(null)).toBe(false);
+  });
+
+  it.each(['DNS_VALIDATION_NOT_FOUND', 'DNS_ROUTING_MISMATCH', 'AWS_PERMISSION_DENIED'])(
+    'returns false for the specifically-copied code %s',
+    (code) => {
+      expect(isGenericDomainError(code)).toBe(false);
+    },
+  );
+
+  it.each(['CONFIGURE_FAILED', 'HTTPS_NOT_REACHABLE', 'REMOVE_FAILED', 'SOME_UNKNOWN_CODE'])(
+    'returns true for %s (generic connect-failure copy)',
+    (code) => {
+      expect(isGenericDomainError(code)).toBe(true);
     },
   );
 });

@@ -73,6 +73,16 @@ export function domainErrorCopy(code: string | null): { title: string; body: str
   return DOMAIN_ERROR_COPY[code] ?? GENERIC_ERROR_COPY;
 }
 
+/** True when `code` resolves to the generic connect-failure copy (an unknown
+ *  code, or one of the codes explicitly mapped to it) rather than one of the
+ *  specific §65 messages. `null` (no error) is not generic — it's "no error"
+ *  — so this returns `false`. Checked against `GENERIC_ERROR_COPY` itself
+ *  rather than re-declaring its strings, so the two can never drift apart. */
+export function isGenericDomainError(code: string | null): boolean {
+  if (code === null) return false;
+  return (DOMAIN_ERROR_COPY[code] ?? GENERIC_ERROR_COPY) === GENERIC_ERROR_COPY;
+}
+
 // ── Deployment-scoped client (authenticated dashboard) ──────────────────────
 
 /** GET /api/deployments/:id/domain. Read-only: 401/403/404 (no session, no
