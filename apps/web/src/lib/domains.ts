@@ -96,6 +96,28 @@ function isReadOnlyCode(code: string): boolean {
   return code === 'UNAUTHORIZED' || code === 'FORBIDDEN' || code === 'NOT_FOUND';
 }
 
+/** GET /api/deployments/:id/domain, distinguishing "no domain yet" from "no
+ *  access to this deployment" — the two cases `fetchDomain` collapses into a
+ *  bare `null`. `CustomDomainCard` needs that distinction to pick manage vs.
+ *  customer mode: a vendor with no domain still gets the "set up a domain"
+ *  panel, while a customer without dashboard access falls back to the
+ *  install-link-scoped endpoints. */
+export async function fetchDomainAccess(
+  deploymentId: string,
+): Promise<{ canManage: boolean; domain: CustomDomainView | null }> {
+  try {
+    const body = await apiRequest<{ domain: CustomDomainView | null }>(
+      `/api/deployments/${encodeURIComponent(deploymentId)}/domain`,
+    );
+    return { canManage: true, domain: body.domain };
+  } catch (error) {
+    if (error instanceof ApiRequestError && isReadOnlyCode(error.code)) {
+      return { canManage: false, domain: null };
+    }
+    throw error;
+  }
+}
+
 /** POST /api/deployments/:id/domain — attach a custom domain (§65 "Add domain"). */
 export function addDomain(deploymentId: string, hostname: string): Promise<CustomDomainView> {
   return apiRequest<{ domain: CustomDomainView }>(

@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DOMAIN_STATUS_LABEL,
   domainErrorCopy,
+  fetchDomainAccess,
   type CustomDomainStatus,
 } from '../src/lib/domains';
 
@@ -59,4 +60,45 @@ describe('domainErrorCopy', () => {
       });
     },
   );
+});
+
+// `fetchDomain` collapses "no domain yet" and "no access" into the same
+// `null`, which is exactly the distinction CustomDomainCard's manage-vs-
+// customer mode detection needs. `fetchDomainAccess` keeps them apart.
+describe('fetchDomainAccess', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubFetch(response: { ok: boolean; status: number; body: unknown }): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: response.ok,
+        status: response.status,
+        json: async () => response.body,
+      }),
+    );
+  }
+
+  it('reports canManage true with the domain on a successful read (including no domain yet)', async () => {
+    stubFetch({ ok: true, status: 200, body: { domain: null } });
+    await expect(fetchDomainAccess('dep-1')).resolves.toEqual({ canManage: true, domain: null });
+  });
+
+  it.each(['UNAUTHORIZED', 'FORBIDDEN', 'NOT_FOUND'])(
+    'reports canManage false when the server rejects with %s',
+    async (code) => {
+      stubFetch({ ok: false, status: 403, body: { error: { code } } });
+      await expect(fetchDomainAccess('dep-1')).resolves.toEqual({
+        canManage: false,
+        domain: null,
+      });
+    },
+  );
+
+  it('rethrows other errors instead of masking them as no-access', async () => {
+    stubFetch({ ok: false, status: 500, body: { error: { code: 'REQUEST_FAILED' } } });
+    await expect(fetchDomainAccess('dep-1')).rejects.toThrow();
+  });
 });
