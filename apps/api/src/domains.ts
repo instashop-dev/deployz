@@ -3,6 +3,7 @@ import { and, desc, eq, isNull, like } from 'drizzle-orm';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import type { DomainCheckDeps } from './domain-check.js';
 import { normalizeHostname, validateHostname } from './domain-validation.js';
 import { ApiError } from './errors.js';
 import { recordEvent } from './events.js';
@@ -222,7 +223,14 @@ export async function createCustomDomain(
   return row;
 }
 
-export async function removeCustomDomain(
+/**
+ * Ensures exactly one live REMOVE_DOMAIN job is chasing this domain's
+ * teardown, and marks it REMOVING. The REMOVE_DOMAIN analog of
+ * ensureConfigureJob — shared by removeCustomDomain (first call from a
+ * vendor action) and runDomainCheck's REMOVING branch (nudging a removal
+ * that has stalled or whose prior job died).
+ */
+async function ensureRemoveJob(
   db: RuntimeDb,
   deployment: { id: string },
   domain: CustomDomainRow,
@@ -268,6 +276,14 @@ export async function removeCustomDomain(
   });
 
   return updated!;
+}
+
+export async function removeCustomDomain(
+  db: RuntimeDb,
+  deployment: { id: string },
+  domain: CustomDomainRow,
+): Promise<CustomDomainRow> {
+  return ensureRemoveJob(db, deployment, domain);
 }
 
 /**
@@ -376,4 +392,105 @@ export async function applyDomainJobResult(
   if (Object.keys(update).length > 0) {
     await tx.update(schema.customDomains).set(update).where(eq(schema.customDomains.id, domain.id));
   }
+}
+
+/**
+ * Drives one domain forward a step, throttled by deps.minCheckIntervalMs so
+ * repeated "Check now" clicks (and the relay-heartbeat auto-check) do not
+ * hammer public DNS or the customer's origin. Pass a freshly-loaded `domain`
+ * row — its cycle bookkeeping (checkCycle) depends on the current row, not a
+ * stale caller-held copy. Returns the fresh row either way.
+ */
+export async function runDomainCheck(
+  db: RuntimeDb,
+  deployment: { id: string; organizationId: string; customerId: string },
+  domain: CustomDomainRow,
+  deps: DomainCheckDeps,
+): Promise<CustomDomainRow> {
+  if (
+    domain.lastCheckedAt &&
+    Date.now() - domain.lastCheckedAt.getTime() < deps.minCheckIntervalMs
+  ) {
+    return domain;
+  }
+  await db
+    .update(schema.customDomains)
+    .set({ lastCheckedAt: new Date() })
+    .where(eq(schema.customDomains.id, domain.id));
+
+  switch (domain.status) {
+    case 'PENDING':
+      await ensureConfigureJob(db, deployment, domain, { forceNewCycle: false });
+      break;
+    case 'WAITING_FOR_DNS': {
+      const validationOk =
+        domain.validationName && domain.validationValue
+          ? await deps.checkCname(domain.validationName, domain.validationValue)
+          : false;
+      const routingOk = domain.routingTarget
+        ? await deps.checkCname(domain.hostname, domain.routingTarget)
+        : false;
+      const lastError = !validationOk
+        ? 'DNS_VALIDATION_NOT_FOUND'
+        : !routingOk
+          ? 'DNS_ROUTING_MISMATCH'
+          : null;
+      await db
+        .update(schema.customDomains)
+        .set({ lastError })
+        .where(eq(schema.customDomains.id, domain.id));
+      if (validationOk && routingOk) {
+        // DNS is in place — nudge the relay to progress ACM/listener state.
+        await ensureConfigureJob(db, deployment, domain, { forceNewCycle: true });
+      }
+      break;
+    }
+    case 'CONFIGURING': {
+      if (await deps.probeHttps(domain.hostname)) {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(schema.customDomains)
+            .set({ status: 'ACTIVE', lastError: null })
+            .where(eq(schema.customDomains.id, domain.id));
+          await recordEvent(tx, {
+            organizationId: deployment.organizationId,
+            eventType: 'domain.activated',
+            actorType: 'system',
+            actorId: deployment.id,
+            deploymentId: deployment.id,
+            customerId: deployment.customerId,
+            result: 'success',
+            payload: { hostname: domain.hostname },
+          });
+        });
+      } else {
+        await db
+          .update(schema.customDomains)
+          .set({ lastError: 'HTTPS_NOT_REACHABLE' })
+          .where(eq(schema.customDomains.id, domain.id));
+      }
+      break;
+    }
+    case 'ERROR': {
+      // Retry: fall back to the earliest still-plausible stage and re-run.
+      const nextStatus = domain.validationName ? 'WAITING_FOR_DNS' : 'PENDING';
+      await db
+        .update(schema.customDomains)
+        .set({ status: nextStatus, lastError: null })
+        .where(eq(schema.customDomains.id, domain.id));
+      await ensureConfigureJob(db, deployment, domain, { forceNewCycle: true });
+      break;
+    }
+    case 'REMOVING':
+      await ensureRemoveJob(db, deployment, domain);
+      break;
+    case 'ACTIVE':
+      break;
+  }
+  const fresh = await db
+    .select()
+    .from(schema.customDomains)
+    .where(eq(schema.customDomains.id, domain.id))
+    .limit(1);
+  return fresh[0] ?? domain;
 }

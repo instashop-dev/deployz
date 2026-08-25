@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import type { DomainCheckDeps } from './domain-check.js';
 import {
   applyDomainJobResult,
   classifyDomainUniqueViolation,
@@ -13,6 +14,7 @@ import {
   findActiveDomain,
   isDomainJobType,
   removeCustomDomain,
+  runDomainCheck,
   toDomainView,
   type CustomDomainRow,
 } from './domains.js';
@@ -422,6 +424,276 @@ describe('domains (custom-domain service)', () => {
       const cycle1 = jobsAfterForce.find((job) => job.idempotencyKey.endsWith(':1'));
       expect(cycle1).toBeDefined();
       expect(cycle1!.idempotencyKey).toBe(`${deployment.id}:CONFIGURE_DOMAIN:${domain.id}:1`);
+    });
+  });
+
+  describe('runDomainCheck', () => {
+    async function reload(id: string): Promise<CustomDomainRow> {
+      const rows = await db.select().from(schema.customDomains).where(eq(schema.customDomains.id, id));
+      return rows[0]!;
+    }
+
+    function fakeDeps(overrides: Partial<DomainCheckDeps> = {}): DomainCheckDeps {
+      return {
+        minCheckIntervalMs: 0,
+        checkCname: async () => true,
+        probeHttps: async () => true,
+        ...overrides,
+      };
+    }
+
+    async function markSucceeded(deploymentId: string, type: 'CONFIGURE_DOMAIN' | 'REMOVE_DOMAIN') {
+      const jobs = (await jobsFor(deploymentId)).filter((job) => job.type === type);
+      const job = jobs[jobs.length - 1]!;
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'SUCCEEDED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.id, job.id));
+    }
+
+    it('PENDING with an in-flight job is a no-op on the job (still nudges ensureConfigureJob, but the in-flight job blocks a duplicate)', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+
+      const fresh = await runDomainCheck(db, deployment, domain, fakeDeps());
+
+      expect(fresh.status).toBe('PENDING');
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      expect(jobs).toHaveLength(1);
+    });
+
+    it('WAITING_FOR_DNS with a failing validation CNAME sets error DNS_VALIDATION_NOT_FOUND, status unchanged', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await markSucceeded(deployment.id, 'CONFIGURE_DOMAIN');
+      await db
+        .update(schema.customDomains)
+        .set({
+          status: 'WAITING_FOR_DNS',
+          validationName: `_acme.${domain.hostname}`,
+          validationValue: '_xyz.acm-validations.aws.',
+          routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+        })
+        .where(eq(schema.customDomains.id, domain.id));
+      const waiting = await reload(domain.id);
+
+      const fresh = await runDomainCheck(db, deployment, waiting, fakeDeps({ checkCname: async () => false }));
+
+      expect(fresh.status).toBe('WAITING_FOR_DNS');
+      expect(fresh.lastError).toBe('DNS_VALIDATION_NOT_FOUND');
+      // Only the already-succeeded cycle-0 job should exist — a failing
+      // check must not mint a new one.
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      expect(jobs).toHaveLength(1);
+    });
+
+    it('WAITING_FOR_DNS with validation resolved but routing not sets error DNS_ROUTING_MISMATCH', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await markSucceeded(deployment.id, 'CONFIGURE_DOMAIN');
+      await db
+        .update(schema.customDomains)
+        .set({
+          status: 'WAITING_FOR_DNS',
+          validationName: `_acme.${domain.hostname}`,
+          validationValue: '_xyz.acm-validations.aws.',
+          routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+        })
+        .where(eq(schema.customDomains.id, domain.id));
+      const waiting = await reload(domain.id);
+
+      const fresh = await runDomainCheck(
+        db,
+        deployment,
+        waiting,
+        fakeDeps({ checkCname: async (name) => name === waiting.validationName }),
+      );
+
+      expect(fresh.status).toBe('WAITING_FOR_DNS');
+      expect(fresh.lastError).toBe('DNS_ROUTING_MISMATCH');
+    });
+
+    it('WAITING_FOR_DNS with both validation and routing resolved enqueues a new (cycle-bumped) CONFIGURE_DOMAIN job', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await markSucceeded(deployment.id, 'CONFIGURE_DOMAIN');
+      await db
+        .update(schema.customDomains)
+        .set({
+          status: 'WAITING_FOR_DNS',
+          validationName: `_acme.${domain.hostname}`,
+          validationValue: '_xyz.acm-validations.aws.',
+          routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+        })
+        .where(eq(schema.customDomains.id, domain.id));
+      const waiting = await reload(domain.id);
+
+      const fresh = await runDomainCheck(db, deployment, waiting, fakeDeps());
+
+      expect(fresh.status).toBe('WAITING_FOR_DNS');
+      expect(fresh.lastError).toBeNull();
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      expect(jobs).toHaveLength(2);
+      expect(jobs.some((job) => job.idempotencyKey.endsWith(':1'))).toBe(true);
+    });
+
+    it('CONFIGURING with a successful HTTPS probe activates the domain and records domain.activated', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await db
+        .update(schema.customDomains)
+        .set({ status: 'CONFIGURING' })
+        .where(eq(schema.customDomains.id, domain.id));
+      const configuring = await reload(domain.id);
+
+      const fresh = await runDomainCheck(db, deployment, configuring, fakeDeps({ probeHttps: async () => true }));
+
+      expect(fresh.status).toBe('ACTIVE');
+      expect(fresh.lastError).toBeNull();
+
+      const events = await db
+        .select()
+        .from(schema.eventLogs)
+        .where(and(eq(schema.eventLogs.deploymentId, deployment.id), eq(schema.eventLogs.eventType, 'domain.activated')));
+      expect(events).toHaveLength(1);
+      expect(events[0]!.actorType).toBe('system');
+      expect(events[0]!.actorId).toBe(deployment.id);
+      expect(events[0]!.result).toBe('success');
+      expect(events[0]!.payload).toMatchObject({ hostname: domain.hostname });
+    });
+
+    it('CONFIGURING with a failing HTTPS probe sets error HTTPS_NOT_REACHABLE, status unchanged', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await db
+        .update(schema.customDomains)
+        .set({ status: 'CONFIGURING' })
+        .where(eq(schema.customDomains.id, domain.id));
+      const configuring = await reload(domain.id);
+
+      const fresh = await runDomainCheck(db, deployment, configuring, fakeDeps({ probeHttps: async () => false }));
+
+      expect(fresh.status).toBe('CONFIGURING');
+      expect(fresh.lastError).toBe('HTTPS_NOT_REACHABLE');
+    });
+
+    it('two checks within minCheckIntervalMs: the second is a no-op (lastCheckedAt unchanged, no duplicate work)', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+
+      const first = await runDomainCheck(db, deployment, domain, fakeDeps());
+      expect(first.lastCheckedAt).not.toBeNull();
+
+      const second = await runDomainCheck(
+        db,
+        deployment,
+        first,
+        fakeDeps({ minCheckIntervalMs: 60_000 }),
+      );
+      expect(second.lastCheckedAt?.getTime()).toBe(first.lastCheckedAt!.getTime());
+
+      const reloaded = await reload(domain.id);
+      expect(reloaded.lastCheckedAt?.getTime()).toBe(first.lastCheckedAt!.getTime());
+    });
+
+    it('minCheckIntervalMs: 0 allows an immediate re-check (lastCheckedAt advances)', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await markSucceeded(deployment.id, 'CONFIGURE_DOMAIN');
+      await db
+        .update(schema.customDomains)
+        .set({
+          status: 'WAITING_FOR_DNS',
+          validationName: `_acme.${domain.hostname}`,
+          validationValue: '_xyz.acm-validations.aws.',
+        })
+        .where(eq(schema.customDomains.id, domain.id));
+      const waiting = await reload(domain.id);
+
+      let calls = 0;
+      const deps = fakeDeps({
+        checkCname: async () => {
+          calls += 1;
+          return false;
+        },
+      });
+
+      await runDomainCheck(db, deployment, waiting, deps);
+      const afterFirst = await reload(domain.id);
+      await runDomainCheck(db, deployment, afterFirst, deps);
+
+      // checkCname is invoked once per call (validation only — routingTarget
+      // is unset here) — two calls to runDomainCheck means two invocations,
+      // proving the second call was not throttled away.
+      expect(calls).toBe(2);
+    });
+
+    it('ERROR status falls back to WAITING_FOR_DNS (validation already known) and enqueues a fresh job (the Retry path)', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await markSucceeded(deployment.id, 'CONFIGURE_DOMAIN');
+      await db
+        .update(schema.customDomains)
+        .set({
+          status: 'ERROR',
+          lastError: 'CONFIGURE_FAILED',
+          validationName: `_acme.${domain.hostname}`,
+          validationValue: '_xyz.acm-validations.aws.',
+        })
+        .where(eq(schema.customDomains.id, domain.id));
+      const errored = await reload(domain.id);
+
+      const fresh = await runDomainCheck(db, deployment, errored, fakeDeps());
+
+      expect(fresh.status).toBe('WAITING_FOR_DNS');
+      expect(fresh.lastError).toBeNull();
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      expect(jobs).toHaveLength(2);
+      expect(jobs.some((job) => job.idempotencyKey.endsWith(':1'))).toBe(true);
+    });
+
+    it('ERROR status with no validation known yet falls back to PENDING', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await markSucceeded(deployment.id, 'CONFIGURE_DOMAIN');
+      await db
+        .update(schema.customDomains)
+        .set({ status: 'ERROR', lastError: 'CONFIGURE_FAILED' })
+        .where(eq(schema.customDomains.id, domain.id));
+      const errored = await reload(domain.id);
+
+      const fresh = await runDomainCheck(db, deployment, errored, fakeDeps());
+
+      expect(fresh.status).toBe('PENDING');
+      expect(fresh.lastError).toBeNull();
+    });
+
+    it('REMOVING nudges (and idempotently reuses) the REMOVE_DOMAIN job', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      const removing = await removeCustomDomain(db, deployment, domain);
+
+      const fresh = await runDomainCheck(db, deployment, removing, fakeDeps());
+
+      expect(fresh.status).toBe('REMOVING');
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'REMOVE_DOMAIN');
+      expect(jobs).toHaveLength(1);
+    });
+
+    it('ACTIVE is a no-op beyond bumping lastCheckedAt', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await db
+        .update(schema.customDomains)
+        .set({ status: 'ACTIVE' })
+        .where(eq(schema.customDomains.id, domain.id));
+      const active = await reload(domain.id);
+
+      const fresh = await runDomainCheck(db, deployment, active, fakeDeps());
+
+      expect(fresh.status).toBe('ACTIVE');
+      expect(fresh.lastError).toBeNull();
+      expect(fresh.lastCheckedAt).not.toBeNull();
     });
   });
 

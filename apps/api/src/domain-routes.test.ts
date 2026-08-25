@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -8,6 +8,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
+import type { DomainCheckDeps } from './domain-check.js';
 import { DOMAIN_VALIDATION_MESSAGES } from './domain-validation.js';
 import { hashRelayToken } from './relay-store.js';
 import { buildServer } from './server.js';
@@ -15,6 +16,11 @@ import { buildServer } from './server.js';
 // Task 4 — POST/GET /api/deployments/:id/domain and the relay-result
 // integration that applies CONFIGURE_DOMAIN outcomes to the domain row
 // without ever touching deployments.state.
+//
+// Task 5 — the verification flow: POST .../domain/check ("Check now"),
+// DELETE .../domain (removal), the unauthenticated link-scoped check route,
+// and the destroy-time domain cleanup (both the request-time REMOVE_DOMAIN
+// enqueue and the DESTROY-success safety net).
 
 // ── Shared test helpers (mirrors server.test.ts) ────────────────────────────
 
@@ -360,5 +366,304 @@ describe('custom domain relay result integration', () => {
       .from(schema.deployments)
       .where(eq(schema.deployments.id, deployment.id));
     expect(updatedDeployment!.state).toBe('HEALTHY');
+  });
+});
+
+// ── POST /api/deployments/:id/domain/check and DELETE /api/deployments/:id/domain ──
+
+describe('custom domain check-now and DELETE routes', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let deployment: typeof schema.deployments.$inferSelect;
+
+  // Deterministic and swappable per test — buildServer is constructed once
+  // in beforeAll, so each test point these closures at what it needs rather
+  // than rebuilding the server.
+  let checkCnameResult: (name: string) => boolean = () => true;
+  const probeHttpsResult = true;
+  const domainCheckDeps: DomainCheckDeps = {
+    minCheckIntervalMs: 0,
+    checkCname: async (name) => checkCnameResult(name),
+    probeHttps: async () => probeHttpsResult,
+  };
+
+  async function jobsFor(deploymentId: string, type: 'CONFIGURE_DOMAIN' | 'REMOVE_DOMAIN') {
+    return db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deploymentId), eq(schema.deploymentJobs.type, type)));
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db, domainCheckDeps });
+
+    org = await signUpAndGetOrg(auth, db, 'domain-check-owner@example.com');
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('check-now 404s when the deployment has no active domain', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/deployments/${deployment.id}/domain/check`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('unauthenticated check-now is rejected', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/deployments/${deployment.id}/domain/check`,
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('unauthenticated DELETE is rejected', async () => {
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/deployments/${deployment.id}/domain`,
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('check-now on WAITING_FOR_DNS with a failing validation CNAME reports DNS_VALIDATION_NOT_FOUND', async () => {
+    const created = await postJson(
+      app,
+      `/api/deployments/${deployment.id}/domain`,
+      { hostname: 'check.customer.com' },
+      { cookie: org.cookie },
+    );
+    expect(created.statusCode).toBe(201);
+    await db
+      .update(schema.customDomains)
+      .set({
+        status: 'WAITING_FOR_DNS',
+        validationName: '_acme.check.customer.com',
+        validationValue: '_xyz.acm-validations.aws.',
+      })
+      .where(eq(schema.customDomains.deploymentId, deployment.id));
+
+    checkCnameResult = () => false;
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/deployments/${deployment.id}/domain/check`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { domain: { status: string; error: string | null } };
+    expect(body.domain.status).toBe('waiting_for_dns');
+    expect(body.domain.error).toBe('DNS_VALIDATION_NOT_FOUND');
+  });
+
+  it('DELETE removes the domain (removing status + a REMOVE_DOMAIN job); DELETE again is 200 with no duplicate unfinished job', async () => {
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/deployments/${deployment.id}/domain`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { domain: { status: string } };
+    expect(body.domain.status).toBe('removing');
+
+    const jobsAfterFirst = await jobsFor(deployment.id, 'REMOVE_DOMAIN');
+    expect(jobsAfterFirst).toHaveLength(1);
+
+    const second = await app.inject({
+      method: 'DELETE',
+      url: `/api/deployments/${deployment.id}/domain`,
+      headers: { cookie: org.cookie },
+    });
+    expect(second.statusCode).toBe(200);
+    expect((second.json() as { domain: { status: string } }).domain.status).toBe('removing');
+
+    const jobsAfterSecond = await jobsFor(deployment.id, 'REMOVE_DOMAIN');
+    expect(jobsAfterSecond).toHaveLength(1);
+  });
+});
+
+// ── POST /api/install/:installLinkId/domain/check (link-scoped, unauthenticated) ──
+
+describe('custom domain link-scoped check route', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let deployment: typeof schema.deployments.$inferSelect;
+
+  const domainCheckDeps: DomainCheckDeps = {
+    minCheckIntervalMs: 0,
+    checkCname: async () => true,
+    probeHttps: async () => true,
+  };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db, domainCheckDeps });
+
+    org = await signUpAndGetOrg(auth, db, 'domain-link-owner@example.com');
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('404s on an unknown install link', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/install/${crypto.randomUUID()}/domain/check`,
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('404s when the deployment behind a known install link has no active domain', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/install/${deployment.installLinkId}/domain/check`,
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('works unauthenticated and returns the domain view once a domain exists', async () => {
+    await postJson(
+      app,
+      `/api/deployments/${deployment.id}/domain`,
+      { hostname: 'linkcheck.customer.com' },
+      { cookie: org.cookie },
+    );
+    await db
+      .update(schema.customDomains)
+      .set({ status: 'CONFIGURING' })
+      .where(eq(schema.customDomains.deploymentId, deployment.id));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/install/${deployment.installLinkId}/domain/check`,
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { domain: { status: string; url: string | null } };
+    expect(body.domain.status).toBe('active');
+    expect(body.domain.url).toBe('https://linkcheck.customer.com');
+  });
+});
+
+// ── Destroy-time domain cleanup ──────────────────────────────────────────────
+
+describe('custom domain destroy cleanup', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  const RELAY_TOKEN = 'relay-token-destroy-xyz';
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db });
+    org = await signUpAndGetOrg(auth, db, 'domain-destroy-owner@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  /** A HEALTHY, relay-bound deployment with a live custom domain — the shape
+   *  that reaches the destroy route's relay-job branch (not the
+   *  never-installed shortcut). */
+  async function seedHealthyDeploymentWithDomain() {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      installationId: `inst-${crypto.randomUUID()}`,
+      relayTokenHash: hashRelayToken(RELAY_TOKEN),
+    });
+    const created = await postJson(
+      app,
+      `/api/deployments/${deployment.id}/domain`,
+      { hostname: `destroy-${crypto.randomUUID().slice(0, 8)}.customer.com` },
+      { cookie: org.cookie },
+    );
+    const domain = (created.json() as { domain: { hostname: string } }).domain;
+    return { deployment, domain };
+  }
+
+  it('destroying a deployment also enqueues a REMOVE_DOMAIN job and marks the domain removing', async () => {
+    const { deployment } = await seedHealthyDeploymentWithDomain();
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/destroy`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(202);
+
+    const [domainRow] = await db
+      .select()
+      .from(schema.customDomains)
+      .where(eq(schema.customDomains.deploymentId, deployment.id));
+    expect(domainRow!.status).toBe('REMOVING');
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs.some((job) => job.type === 'DESTROY')).toBe(true);
+    expect(jobs.some((job) => job.type === 'REMOVE_DOMAIN')).toBe(true);
+  });
+
+  it('a successful DESTROY relay result force-removes the domain even if its own REMOVE_DOMAIN job never finished (safety net)', async () => {
+    const { deployment } = await seedHealthyDeploymentWithDomain();
+    const destroyResponse = await postJson(
+      app,
+      `/api/deployments/${deployment.id}/destroy`,
+      {},
+      { cookie: org.cookie },
+    );
+    const { jobId } = destroyResponse.json() as { jobId: string };
+
+    // The domain's own REMOVE_DOMAIN job is left RUNNING/unfinished on
+    // purpose — the point of this test is that DESTROY succeeding is enough
+    // on its own, without waiting on that job.
+    const result = await postJson(
+      app,
+      `/api/relay/commands/${jobId}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(result.statusCode).toBe(200);
+
+    const [domainRow] = await db
+      .select()
+      .from(schema.customDomains)
+      .where(eq(schema.customDomains.deploymentId, deployment.id));
+    expect(domainRow!.removedAt).not.toBeNull();
+
+    const [deploymentRow] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deployment.id));
+    expect(deploymentRow!.state).toBe('DELETED');
   });
 });
