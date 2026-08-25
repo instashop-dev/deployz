@@ -22,6 +22,10 @@ export default defineConfig({
         // Fixture mode: the GitHub routes serve the fixture org/repos so the
         // repo-selection E2E renders without a real GitHub App.
         GITHUB_FIXTURE_MODE: 'true',
+        // Fixture mode: DNS/HTTPS domain checks pass only for
+        // *.deployz-fixture.test names, with no check throttle — lets the
+        // custom-domain E2E drive the state machine without real DNS/network.
+        DOMAIN_FIXTURE_MODE: 'true',
         // A published bootstrap template is what turns the install page's
         // "Deploy to AWS" button into a real Quick Create link. The value is
         // a stand-in for the URL `publish:bootstrap` prints; the E2E only
