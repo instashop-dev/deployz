@@ -101,6 +101,10 @@ export interface ServerDeps {
   // lookup). Defaults to global fetch; tests supply a stub so no request
   // ever leaves the machine.
   githubFetch?: FetchFn | undefined;
+  // The App's own credentials. Default to env; injectable so the App routes
+  // are testable on a machine (or a CI runner) with no .env.
+  githubAppId?: string | undefined;
+  githubAppPrivateKey?: string | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -438,6 +442,8 @@ export async function buildServer({
   analysisRunner,
   emailSender,
   githubFetch: injectedGithubFetch,
+  githubAppId: injectedGithubAppId,
+  githubAppPrivateKey: injectedGithubAppPrivateKey,
 }: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
@@ -507,6 +513,8 @@ export async function buildServer({
   // created with their GitHub org name as the slug.
   const githubStore = createGithubStore(db);
   const githubFetch: FetchFn = injectedGithubFetch ?? globalThis.fetch.bind(globalThis);
+  const githubAppId = injectedGithubAppId ?? env.githubAppId;
+  const githubAppPrivateKey = injectedGithubAppPrivateKey ?? env.githubAppPrivateKey;
   // §18/§19: real GitHub-backed analysis by default; tests inject a fake
   // via ServerDeps.analysisRunner instead of hitting GitHub.
   const runAnalysis: AnalysisRunner =
@@ -514,8 +522,8 @@ export async function buildServer({
     createAnalysisRunner({
       db,
       fetchFn: githubFetch,
-      githubAppId: env.githubAppId,
-      githubAppPrivateKey: env.githubAppPrivateKey,
+      githubAppId,
+      githubAppPrivateKey,
       githubFixtureMode: githubFixtureMode ?? env.githubFixtureMode,
     });
   app.post('/api/github/webhook', async (request, reply) => {
@@ -888,12 +896,10 @@ export async function buildServer({
       return reply.redirect(`${dashboardUrl}?github=missing_installation`);
     }
 
-    const appId = env.githubAppId;
-    const privateKey = env.githubAppPrivateKey;
-    if (!appId || !privateKey) {
+    if (!githubAppId || !githubAppPrivateKey) {
       throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
     }
-    const jwt = createAppJwt(appId, privateKey, Date.now());
+    const jwt = createAppJwt(githubAppId, githubAppPrivateKey, Date.now());
     const account = await fetchInstallationAccount(installationId, jwt, githubFetch);
 
     await githubStore.set({
@@ -940,12 +946,16 @@ export async function buildServer({
     if (!record || record.organizationId !== organizationId) {
       throw new NotFoundError('GitHub installation not found');
     }
-    const appId = env.githubAppId;
-    const privateKey = env.githubAppPrivateKey;
-    if (!appId || !privateKey) {
+    if (!githubAppId || !githubAppPrivateKey) {
       throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
     }
-    const { token } = await mintInstallationToken(installationId, appId, privateKey, Date.now(), githubFetch);
+    const { token } = await mintInstallationToken(
+      installationId,
+      githubAppId,
+      githubAppPrivateKey,
+      Date.now(),
+      githubFetch,
+    );
     const repositories = await listRepositories(installationId, {
       fixtureMode: false,
       installationToken: token,

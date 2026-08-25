@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { and, eq } from 'drizzle-orm';
-import { createHmac } from 'node:crypto';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -290,6 +290,14 @@ describe('server — organization identity comes from the session, not the clien
     auth = createAuth(db);
     orgA = await signUpAndGetOrg(auth, db, 'org-a@example.com');
     orgB = await signUpAndGetOrg(auth, db, 'org-b@example.com');
+    // An application may only point at an installation its own organization
+    // connected, so the connected installation has to exist first.
+    await db.insert(schema.githubInstallations).values({
+      id: 'inst-1',
+      organizationId: orgA.organizationId,
+      accountLogin: 'org-a',
+      accountType: 'Organization',
+    });
     app = await buildServer({ auth, db });
   }, 60_000);
 
@@ -1512,7 +1520,20 @@ describe('server — GitHub installation binding', () => {
     await applyMigrations(client);
     db = createDb(client);
     auth = createAuth(db);
-    app = await buildServer({ auth, db, githubFixtureMode: false, githubFetch });
+    app = await buildServer({
+      auth,
+      db,
+      githubFixtureMode: false,
+      githubFetch,
+      githubAppId: 'test-app-id',
+      // A real key: the setup route signs an RS256 App JWT, so a placeholder
+      // string fails inside node:crypto rather than in the route.
+      githubAppPrivateKey: generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+      }).privateKey,
+    });
     org = await signUpAndGetOrg(auth, db, 'gh-owner@example.com');
     other = await signUpAndGetOrg(auth, db, 'gh-other@example.com');
   }, 60_000);
