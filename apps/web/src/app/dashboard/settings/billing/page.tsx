@@ -1,5 +1,6 @@
 import { Receipt } from 'lucide-react';
 
+import { SubscribeButton } from '@/components/subscribe-button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { fetchBillingSummary, formatDollars, type BillingSummary } from '@/lib/billing';
@@ -21,6 +22,8 @@ export default async function BillingPage() {
       </div>
 
       <BillingSummaryCard billing={billing} />
+
+      <SubscribeButton status={billing.subscription?.status ?? null} />
 
       <p className="text-xs text-muted-foreground">
         A vendor-owned test deployment is not charged. The $19/month fee applies once a customer

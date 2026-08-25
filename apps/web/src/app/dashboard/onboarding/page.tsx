@@ -3,14 +3,19 @@ import Link from 'next/link';
 import { OnboardingFlow } from '@/components/onboarding-flow';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { OrganizationForm } from '@/components/organization-form';
 import { fetchOnboarding } from '@/lib/onboarding';
+import { fetchOrganization } from '@/lib/organization';
 
 // §42 onboarding overview — the six-step first-run flow at a glance, against
 // real organization state (GET /api/onboarding), not a hard-coded step. Step 1
 // (Connect GitHub) starts on the Applications page; steps 2+ live on each
 // application's readiness page. Success is readiness, not first install (§5).
 export default async function OnboardingPage() {
-  const { currentStep } = await fetchOnboarding();
+  const [{ currentStep, steps }, organization] = await Promise.all([
+    fetchOnboarding(),
+    fetchOrganization(),
+  ]);
   const complete = currentStep >= 6;
 
   return (
@@ -26,7 +31,7 @@ export default async function OnboardingPage() {
         <h2 id="steps" className="text-base font-semibold">
           Getting your app ready
         </h2>
-        <OnboardingFlow currentStep={currentStep} />
+        <OnboardingFlow currentStep={currentStep} completed={steps.map((step) => step.completed)} />
       </section>
 
       <Card>
@@ -44,6 +49,20 @@ export default async function OnboardingPage() {
               {complete ? 'Create Customer Deployment' : 'Connect GitHub'}
             </Link>
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Name your organization</CardTitle>
+          <CardDescription>
+            Your customers see this name on their install page — &ldquo;{organization.name} wants
+            to deploy inside your AWS account&rdquo;. It starts as the first part of your email
+            address, which is rarely what you want a customer to read.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <OrganizationForm organization={organization} />
         </CardContent>
       </Card>
 

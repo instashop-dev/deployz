@@ -1,0 +1,174 @@
+# Deploys the control-plane stack (API Lambda, RDS, API Gateway, durable
+# execution) with CDK.
+#
+# This exists because the API used to be deployed by hand while the web app
+# shipped on every push, so production drifted: the dashboard ran current code
+# against an API several releases behind and expected fields it could not
+# return.
+#
+# The deploying identity only assumes the CDK bootstrap roles — it holds no
+# raw service permissions of its own. See .github/aws-cdk-deploy-policy.json.
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'packages/cdk/**'
+      - 'packages/db/**'
+      - 'packages/contracts/**'
+      - 'packages/analysis/**'
+      - 'packages/relay/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/deploy-api.yml'
+  workflow_dispatch:
+
+# One deployment at a time. Two overlapping `cdk deploy` runs against the same
+# stack leave CloudFormation in UPDATE_IN_PROGRESS and the second one fails.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy control plane
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-1
+      CDK_DEFAULT_REGION: us-east-1
+      CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      # Everything below is read by packages/cdk collectEnvVars() and becomes
+      # the deployed Lambda's environment. That function builds the
+      # environment from what is present, so a value missing here is REMOVED
+      # from the running function rather than left alone — which is why the
+      # verification step below refuses to deploy on a missing one.
+      API_URL: https://api.deployz.dev
+      WEB_URL: https://app.deployz.dev
+      MARKETING_URL: https://deployz.dev
+      COOKIE_DOMAIN: .deployz.dev
+      EMAIL_FROM: info@e.deployz.dev
+      API_DOMAIN_NAME: api.deployz.dev
+      API_CERTIFICATE_ARN: ${{ secrets.API_CERTIFICATE_ARN }}
+      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+      BETTER_AUTH_URL: https://api.deployz.dev
+      GITHUB_CLIENT_ID: ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
+      GITHUB_CLIENT_SECRET: ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
+      GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+      GITHUB_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+      GITHUB_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+      GITHUB_APP_INSTALL_URL: ${{ secrets.GH_APP_INSTALL_URL }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_PRICE_BASE: ${{ secrets.STRIPE_PRICE_BASE }}
+      STRIPE_PRICE_METERED: ${{ secrets.STRIPE_PRICE_METERED }}
+      AWS_SES_ACCESS_KEY_ID: ${{ secrets.AWS_SES_ACCESS_KEY_ID }}
+      AWS_SES_SECRET_ACCESS_KEY: ${{ secrets.AWS_SES_SECRET_ACCESS_KEY }}
+      # AI explanations. Required: AI_GATEWAY_BASE_URL + AI_PROVIDER_API_KEY.
+      # AI_MODEL is optional (env.ts defaults it). AI_GATEWAY_TOKEN is optional
+      # and must be set ONLY for a gateway with Authenticated Gateway switched
+      # on — an unauthenticated gateway 401s on a cf-aig-authorization header it
+      # cannot validate. Leaving all of these unset is safe: diagnostics fall
+      # back to the deterministic copy-map remediation rather than failing.
+      AI_GATEWAY_BASE_URL: ${{ secrets.AI_GATEWAY_BASE_URL }}
+      AI_MODEL: ${{ secrets.AI_MODEL }}
+      AI_PROVIDER_API_KEY: ${{ secrets.AI_PROVIDER_API_KEY }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+
+      # Where customer CloudFormation fetches the bootstrap template from,
+      # printed by `pnpm --filter @deployz/cdk run publish:bootstrap`. A
+      # repository *variable* rather than a secret: it is a public URL, and a
+      # secret would be masked in the logs that are the only way to confirm it
+      # deployed. Until it is set the API hands out no install link at all
+      # (quickCreateUrl: null) — which is the state production is in today.
+      #
+      # This has to live here now that the deploy gate makes CI the only route
+      # to production: it used to be set by redeploying by hand.
+      BOOTSTRAP_TEMPLATE_URL: ${{ vars.BOOTSTRAP_TEMPLATE_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fail before touching CloudFormation rather than after. A blank value
+      # here silently strips a capability from the running API — an unset
+      # EMAIL_FROM stops every invitation being delivered, an unset
+      # API_CERTIFICATE_ARN deletes the api.deployz.dev domain mapping and
+      # takes the API offline until the Cloudflare CNAME is repointed by hand.
+      - name: Verify the deploy environment is complete
+        run: |
+          set -euo pipefail
+          missing=()
+          for key in CDK_DEFAULT_ACCOUNT API_CERTIFICATE_ARN BETTER_AUTH_SECRET \
+                     GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GITHUB_APP_ID \
+                     GITHUB_APP_PRIVATE_KEY GITHUB_WEBHOOK_SECRET \
+                     GITHUB_APP_INSTALL_URL STRIPE_SECRET_KEY \
+                     STRIPE_WEBHOOK_SECRET STRIPE_PRICE_BASE \
+                     STRIPE_PRICE_METERED AWS_SES_ACCESS_KEY_ID \
+                     AWS_SES_SECRET_ACCESS_KEY; do
+            if [ -z "${!key:-}" ]; then missing+=("$key"); fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "Missing repository secrets for: ${missing[*]}" >&2
+            echo "Deploying without them would remove these values from the running API." >&2
+            exit 1
+          fi
+          echo "Every required value is present."
+
+      # The Stripe price ids must be price ids. STRIPE_PRICE_BASE was once set
+      # to the literal "49", which Stripe rejects at checkout — every vendor
+      # hit it, and nothing caught it until someone tried to subscribe.
+      - name: Verify the Stripe price ids look like price ids
+        run: |
+          set -euo pipefail
+          for key in STRIPE_PRICE_BASE STRIPE_PRICE_METERED; do
+            case "${!key}" in
+              price_*) ;;
+              *) echo "$key is '${!key}', expected a Stripe price id (price_…)" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Build workspace packages
+        run: pnpm build
+
+      - name: Deploy the control-plane stack
+        working-directory: packages/cdk
+        run: |
+          set -euo pipefail
+          npx cdk deploy Deployz \
+            --require-approval never \
+            --app "npx tsx bin/deployz.ts"
+
+      # The stack can report CREATE_COMPLETE while the function itself dies at
+      # INIT — a migration that cannot apply does exactly that, and it is how
+      # the API sat two releases behind without anyone noticing.
+      - name: Verify the deployed API answers
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              https://api.deployz.dev/health || true)
+            echo "health: $code"
+            if [ "$code" = "200" ]; then
+              echo "API healthy at https://api.deployz.dev" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "API did not return 200 after deploying" >&2
+          exit 1

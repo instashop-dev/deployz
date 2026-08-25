@@ -6,7 +6,7 @@
 // config — or reporting a failed save as a success — would be misleading.
 // §65: copy is jargon-free.
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 
@@ -38,6 +38,8 @@ export interface ApplicationConfig {
   applicationId: string;
   /** Null when viewing vendor defaults; the customer id when scoped. */
   customerId: string | null;
+  /** The scoped customer's name — the screen names the customer, never its id. */
+  customerName: string | null;
   vendorDefaults: MaskedConfigEntry[];
   customerOverrides: MaskedConfigEntry[];
   effective: EffectiveConfigEntry[];
@@ -90,10 +92,11 @@ export async function saveConfig(
   applicationId: string,
   customerId: string | null,
   entries: readonly ConfigEntry[],
+  deletes: readonly string[] = [],
 ): Promise<ApplicationConfig> {
   return putJson<ApplicationConfig>(
     `/api/applications/${encodeURIComponent(applicationId)}/config`,
-    { customerId, entries },
+    { customerId, entries, deletes },
   );
 }
 

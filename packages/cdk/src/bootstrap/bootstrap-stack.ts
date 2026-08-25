@@ -61,6 +61,12 @@ export interface BootstrapStackProps extends StackProps {
    * but it is never a credential. Defaults to the production control plane.
    */
   readonly controlPlaneUrl?: string;
+  /**
+   * Single-use enrollment code minted by the control plane and carried in the
+   * install link. Not a standing credential: it is spent on the relay's first
+   * contact and is worthless afterwards.
+   */
+  readonly enrollmentCode?: string;
   /** Deployz application identifier — applied as `deployz:application` tag. */
   readonly applicationId?: string;
   /** Deployz vendor identifier — applied as `deployz:vendor` tag. */
@@ -136,6 +142,25 @@ export class BootstrapStack extends Stack {
       description:
         'Base URL of the Deployz control plane the relay polls. NOT a credential.',
       default: props.controlPlaneUrl ?? DEFAULT_CONTROL_PLANE_URL,
+    });
+
+    // ── Enrollment code (single-use, non-secret parameter) ──────────────
+    //
+    // The one thing that ties this stack to a deployment in the control
+    // plane. The installation identifier below is minted HERE, inside the
+    // customer's account, so the control plane has never seen it and cannot
+    // look anything up by it — without this code the relay's first call
+    // would 404 and the deployment would never leave "Not installed".
+    //
+    // Single use: the control plane burns it when it binds this relay's id
+    // and token, and refuses any later attempt to bind the same code to a
+    // different relay. That is what stops whoever holds the install link
+    // from registering a token of their own and taking the deployment over.
+    const enrollmentCodeParam = new CfnParameter(this, 'EnrollmentCode', {
+      type: 'String',
+      description:
+        'Single-use code from your install link. Ties this installation to your deployment.',
+      default: props.enrollmentCode ?? '',
     });
 
     // ── 1. Installation identifier (minted at deploy time) ──────────────
@@ -300,6 +325,7 @@ export class BootstrapStack extends Stack {
         DEPLOYZ_INSTALLATION_ID: this.installationId,
         DEPLOYZ_CREDENTIAL_SECRET_ARN: this.credentialSecret.secretArn,
         DEPLOYZ_CONTROL_PLANE_URL: controlPlaneUrlParam.valueAsString,
+        DEPLOYZ_ENROLLMENT_CODE: enrollmentCodeParam.valueAsString,
       },
       bundling: {
         format: 'esm' as OutputFormat,

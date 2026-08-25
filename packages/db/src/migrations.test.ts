@@ -18,7 +18,7 @@ describe('migrations', () => {
     await client?.close();
   });
 
-  it('creates all 16 core tables', async () => {
+  it('creates all 17 core tables', async () => {
     const { rows } = await client!.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -32,6 +32,7 @@ describe('migrations', () => {
       'deployment_jobs',
       'deployments',
       'event_logs',
+      'github_installations',
       'invitation',
       'member',
       'organization',
@@ -44,13 +45,14 @@ describe('migrations', () => {
     ]);
   });
 
-  it('creates the 13 enum types', async () => {
+  it('creates the 14 enum types', async () => {
     const { rows } = await client!.query<{ typname: string }>(
       `SELECT typname FROM pg_type
        WHERE typtype = 'e' AND typnamespace = 'public'::regnamespace
        ORDER BY typname`,
     );
     expect(rows.map((r) => r.typname)).toEqual([
+      'ai_explanation_state',
       'analysis_status',
       'build_status',
       'compatibility_status',

@@ -6,7 +6,7 @@ export {
 } from './install-link.js';
 export type {
   QuickCreateUrlOptions,
-  BootstrapQuickCreateUrlOptions,
+  BootstrapQuickCreateOptions,
 } from './install-link.js';
 
 export {
@@ -19,10 +19,13 @@ export {
 export type { TemplateLimitsReport } from './limits.js';
 
 export { repackTemplate } from './repack.js';
+export { createZip } from './zip.js';
+export type { ZipEntry } from './zip.js';
 export type { RepackOptions, RepackResult } from './repack.js';
 
 export {
   BootstrapPublisher,
+  createRealS3Client,
   synthesizeBootstrapStack,
   readBundledIndexMjs,
 } from './publish.js';

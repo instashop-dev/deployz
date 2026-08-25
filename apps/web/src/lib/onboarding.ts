@@ -4,7 +4,7 @@
 
 import { cookies } from 'next/headers';
 
-const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { serverApiUrl } from '@/lib/api-url';
 
 export interface OnboardingState {
   steps: { step: string; completed: boolean }[];
@@ -13,7 +13,7 @@ export interface OnboardingState {
 
 export async function fetchOnboarding(): Promise<OnboardingState> {
   const cookieHeader = (await cookies()).toString();
-  const response = await fetch(`${apiUrl}/api/onboarding`, {
+  const response = await fetch(`${serverApiUrl()}/api/onboarding`, {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     cache: 'no-store',
   });

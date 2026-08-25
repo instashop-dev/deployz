@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { ArchitectureDiagram } from '@/components/architecture-diagram';
+import { fetchInstallData } from '@/lib/install-data';
 import { Button } from '@/components/ui/button';
 import {
   AWS_RESOURCES_CREATED,
@@ -66,9 +67,25 @@ function DetailSection({ title, children }: { title: string; children: ReactNode
 export default async function SecurityDetailsPage({
   params,
 }: {
-  params: Promise<{ installationId: string }>;
+  params: Promise<{ installLinkId: string }>;
 }) {
-  const { installationId } = await params;
+  const { installLinkId } = await params;
+  // Resolve the link first: this page used to render the full security story
+  // for any id at all, including ones the parent route had already told the
+  // reader were invalid.
+  const data = await fetchInstallData(installLinkId);
+
+  if (!data) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">This link isn&apos;t valid</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          This installation link doesn&apos;t match an active deployment. Contact whoever sent you
+          this link for a new one.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-10">
@@ -273,7 +290,7 @@ export default async function SecurityDetailsPage({
 
       <section aria-label="Back to install" className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Button asChild variant="ghost" size="lg">
-          <Link href={`/install/${encodeURIComponent(installationId)}`}>Back to install</Link>
+          <Link href={`/install/${encodeURIComponent(installLinkId)}`}>Back to install</Link>
         </Button>
       </section>
     </div>

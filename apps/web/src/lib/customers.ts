@@ -7,7 +7,7 @@ import { cookies } from 'next/headers';
 // Server-side data access: the API URL is the server env (not the public
 // one), and the incoming request's session cookie is forwarded so the
 // auth-gated endpoint resolves the caller's organization.
-const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { serverApiUrl } from '@/lib/api-url';
 
 export interface Customer {
   id: string;
@@ -19,7 +19,7 @@ export interface Customer {
 
 async function getJson<T>(path: string): Promise<T> {
   const cookieHeader = (await cookies()).toString();
-  const response = await fetch(`${apiUrl}${path}`, {
+  const response = await fetch(`${serverApiUrl()}${path}`, {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     cache: 'no-store',
   });

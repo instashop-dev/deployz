@@ -5,6 +5,9 @@ import { expect, test, type Page } from '@playwright/test';
 // (see playwright.config.ts), so the fixture repo deployz-demo/express-api is
 // available for every Choose action.
 
+/** The card itself, not its name link or its status badge. */
+const APP_CARD = /^app-card-[0-9a-f-]{36}$/;
+
 async function signUp(page: Page): Promise<void> {
   const email = `e2e-${crypto.randomUUID().slice(0, 8)}@example.com`;
   await page.goto('/sign-up');
@@ -25,7 +28,40 @@ test('application list shows existing applications', async ({ page }) => {
 
   // Go back to the list — the newly-created app should appear as a card.
   await page.goto('/dashboard/applications');
-  await expect(page.getByTestId(/app-card-/)).toBeVisible();
+  // Anchored: an unanchored /app-card-/ also matches app-card-name-* and
+  // app-card-badge-*, which is three elements for one application.
+  await expect(page.getByTestId(APP_CARD)).toBeVisible();
+});
+
+// The repo picker is expanded inline only while the org has no applications
+// (§42 onboarding). Once an application exists the list becomes the subject of
+// the page and the picker hides behind "Add application" — which is what makes
+// it discoverable that a vendor can connect more than one repository.
+test('the repo picker hides behind Add application once an application exists', async ({
+  page,
+}) => {
+  await signUp(page);
+  await page.goto('/dashboard/applications');
+
+  // Empty org: the picker is inline, so Choose is clickable without any reveal.
+  await expect(page.getByTestId('add-application-section')).toBeVisible();
+  await expect(page.getByTestId('add-application-button')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
+
+  // With one application the picker is gated behind the header button.
+  await page.goto('/dashboard/applications');
+  await expect(page.getByTestId(APP_CARD)).toBeVisible();
+  await expect(page.getByTestId('add-application-section')).toHaveCount(0);
+
+  // Opening it brings the repo picker back so another repo can be connected.
+  await page.getByTestId('add-application-button').click();
+  await expect(page.getByTestId('add-application-section')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose' }).first()).toBeVisible();
+
+  // Cancel closes it again.
+  await page.getByTestId('add-application-cancel').click();
+  await expect(page.getByTestId('add-application-section')).toHaveCount(0);
 });
 
 test('editing application details persists the change', async ({ page }) => {
@@ -60,7 +96,7 @@ test('deleting an application removes it from the list', async ({ page }) => {
 
   // After deletion the app list should show no card for this app.
   await page.waitForURL('/dashboard/applications');
-  await expect(page.getByTestId(/app-card-/)).toHaveCount(0);
+  await expect(page.getByTestId(APP_CARD)).toHaveCount(0);
 });
 
 test('delete is blocked when the application has a deployment', async ({ page }) => {
@@ -93,11 +129,13 @@ test('delete is blocked when the application has a deployment', async ({ page })
   await page.getByTestId('delete-app-button').click();
 
   // Expect an error message indicating the delete was blocked.
-  await expect(page.getByText(/cannot delete/i)).toBeVisible();
+  // Asserted against the server's own message, which is the copy the vendor
+  // reads. The literal this replaced said "cannot delete" and had drifted
+  // from the product's wording months before anyone noticed.
+  await expect(page.getByText(/cannot be removed/i)).toBeVisible();
 });
 
 test('cross-org isolation: cannot PATCH or DELETE another org\'s application', async ({
-  page,
   browser,
 }) => {
   // Org A: sign up, choose a repo, capture the app id.

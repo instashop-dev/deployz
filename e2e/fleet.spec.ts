@@ -28,6 +28,8 @@ async function seedDeployment(page: Page): Promise<{
   deploymentId: string;
   applicationId: string;
   installationId: string;
+  installLinkId: string;
+  enrollmentCode: string;
   applicationName: string;
   customerName: string;
 }> {
@@ -54,12 +56,20 @@ async function seedDeployment(page: Page): Promise<{
     data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
   });
   expect(deploymentResponse.ok()).toBeTruthy();
-  const deployment = (await deploymentResponse.json()) as { id: string; installationId: string };
+  const deployment = (await deploymentResponse.json()) as {
+    id: string;
+    installLinkId: string;
+    enrollmentCode: string;
+  };
 
   return {
     deploymentId: deployment.id,
     applicationId: application.id,
-    installationId: deployment.installationId,
+    // The relay mints its own id inside the customer's account; a fresh one
+    // per seeded deployment stands in for that here.
+    installationId: `inst-${crypto.randomUUID()}`,
+    installLinkId: deployment.installLinkId,
+    enrollmentCode: deployment.enrollmentCode,
     applicationName: application.name,
     customerName: customer.name,
   };
@@ -72,12 +82,20 @@ async function seedDeployment(page: Page): Promise<{
  * advance `deployments.state` (previously it never did, so a deployment sat
  * at INSTALLING forever and was never §25 bulk-deployable).
  */
-async function driveDeploymentToHealthy(page: Page, installationId: string): Promise<void> {
+async function driveDeploymentToHealthy(
+  page: Page,
+  installationId: string,
+  enrollmentCode: string,
+): Promise<void> {
   const authHeaders = { Authorization: `Bearer ${installationId}` };
 
+  // Enrollment, not just registration: the installation id a real relay
+  // reports is minted inside the CUSTOMER's account, so the control plane has
+  // never seen it. The single-use enrollment code is what ties this relay to
+  // the vendor's deployment, and it is spent on this call.
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
     headers: authHeaders,
-    data: { installationId },
+    data: { installationId, enrollmentCode },
   });
   expect(registerResponse.ok()).toBeTruthy();
 
@@ -101,6 +119,7 @@ test('fleet dashboard shows the §43 empty state for a fresh org', async ({ page
     route.fulfill({ json: { deployments: [] } }),
   );
   await signUp(page);
+  await page.goto('/dashboard/deployments');
 
   await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible();
   await expect(
@@ -113,6 +132,7 @@ test('fleet dashboard top-level copy is jargon-free', async ({ page }) => {
     route.fulfill({ json: { deployments: [] } }),
   );
   await signUp(page);
+  await page.goto('/dashboard/deployments');
 
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(JARGON);
@@ -124,7 +144,7 @@ test('fleet dashboard lists a real deployment with Customer/Version/Region/Statu
   await signUp(page);
   const { applicationName, customerName } = await seedDeployment(page);
 
-  await page.goto('/dashboard');
+  await page.goto('/dashboard/deployments');
   await expect(page.getByTestId('deployment-list')).toBeVisible();
   await expect(page.getByText(customerName, { exact: true })).toBeVisible();
   await expect(page.getByText(applicationName, { exact: true })).toBeVisible();
@@ -150,12 +170,39 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
   await expect(page.getByRole('link', { name: 'Configuration' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Disconnect Deployment' })).toBeVisible();
 
-  // §24 the five named infrastructure rows.
+  // §24 infrastructure. A deployment nobody has installed has no observed
+  // health, so the honest render is the empty state — not four green rows all
+  // showing the same column default, which is what this used to assert.
+  await expect(
+    page.getByText('No health reports yet — this deployment has not checked in.'),
+  ).toBeVisible();
+  await expect(page.getByText('Deployz Relay', { exact: true })).toBeVisible();
+  await expect(page.getByText('Database', { exact: true })).toHaveCount(0);
+});
+
+test('infrastructure rows appear only for the components the relay reports', async ({ page }) => {
+  await signUp(page);
+  const { deploymentId, installationId, enrollmentCode } = await seedDeployment(page);
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode);
+
+  // This application has no storage, so the relay reports on three components
+  // and the page must not invent a fourth.
+  const health = await page.request.post(`${API_URL}/api/relay/health`, {
+    headers: { Authorization: `Bearer ${installationId}` },
+    data: {
+      installationId,
+      healthStatus: 'HEALTHY',
+      components: { application: 'HEALTHY', database: 'DEGRADED', loadBalancer: 'HEALTHY' },
+    },
+  });
+  expect(health.ok()).toBeTruthy();
+
+  await page.goto(`/dashboard/deployments/${deploymentId}`);
   await expect(page.getByText('Application', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Database', { exact: true })).toBeVisible();
-  await expect(page.getByText('Storage', { exact: true })).toBeVisible();
   await expect(page.getByText('Load Balancer', { exact: true })).toBeVisible();
-  await expect(page.getByText('Deployz Relay', { exact: true })).toBeVisible();
+  await expect(page.getByText('Storage', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Degraded', { exact: true })).toBeVisible();
 });
 
 test('deployment detail top-level copy is jargon-free', async ({ page }) => {
@@ -200,8 +247,8 @@ test('a deployment driven to HEALTHY via the relay job workflow is §25 bulk-dep
   page,
 }) => {
   await signUp(page);
-  const { applicationId, installationId, customerName } = await seedDeployment(page);
-  await driveDeploymentToHealthy(page, installationId);
+  const { applicationId, installationId, enrollmentCode, customerName } = await seedDeployment(page);
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode);
 
   const releaseResponse = await page.request.post(
     `${API_URL}/api/applications/${applicationId}/releases`,
@@ -209,9 +256,12 @@ test('a deployment driven to HEALTHY via the relay job workflow is §25 bulk-dep
   );
   expect(releaseResponse.ok()).toBeTruthy();
 
-  await page.goto('/dashboard');
+  await page.goto('/dashboard/deployments');
   const row = page.locator('[data-testid="deployment-list"] tbody tr', { hasText: customerName });
-  await expect(row.getByText('Healthy', { exact: true })).toBeVisible();
+  // Publishing that release put this healthy deployment behind, which is what
+  // §22/§25 mean by "update available" — and is the state bulk deploy exists
+  // to clear. Nothing wrote it before, so the fleet could never show it.
+  await expect(row.getByText('Update available', { exact: true })).toBeVisible();
 
   // Previously the deployment was stuck at INSTALLING forever, so this
   // checkbox was permanently disabled and §25 bulk deploy was unreachable.

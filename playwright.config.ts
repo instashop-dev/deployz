@@ -17,9 +17,18 @@ export default defineConfig({
       url: `http://localhost:${apiPort}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
-      // Fixture mode: the GitHub routes serve the fixture org/repos so the
-      // repo-selection E2E renders without a real GitHub App.
-      env: { ...process.env, GITHUB_FIXTURE_MODE: 'true' },
+      env: {
+        ...process.env,
+        // Fixture mode: the GitHub routes serve the fixture org/repos so the
+        // repo-selection E2E renders without a real GitHub App.
+        GITHUB_FIXTURE_MODE: 'true',
+        // A published bootstrap template is what turns the install page's
+        // "Deploy to AWS" button into a real Quick Create link. The value is
+        // a stand-in for the URL `publish:bootstrap` prints; the E2E only
+        // asserts the shape of the link built from it.
+        BOOTSTRAP_TEMPLATE_URL:
+          'https://deployz-templates.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json',
+      },
     },
     {
       command: 'pnpm --filter @deployz/web dev',

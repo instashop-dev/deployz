@@ -30,10 +30,15 @@ import { pollOnce, type PollDependencies } from './poll.js';
 /**
  * Default executors for the eight command types.
  *
- * In the MVP, these are no-op stubs that log and return success. Real
- * implementations (CloudFormation stack operations, ECS service updates,
- * etc.) arrive in later todos (13, 17-20). The command vocabulary + dispatch
- * + idempotency layer is the todo 12 deliverable.
+ * ⚠️ THESE ARE STUBS. Each one logs and reports success without touching the
+ * customer's account, so a deployment reaches "Healthy" in the control plane
+ * with nothing provisioned behind it. The real implementations
+ * (CloudFormation stack operations, ECS service updates, migrations) are the
+ * remaining half of the product — see Phase 0 of the remediation plan. Until
+ * they land, no deployment is real, and the control plane's state machine is
+ * a simulation.
+ *
+ * The command vocabulary + dispatch + idempotency layer around them IS real.
  */
 function createDefaultExecutors(): Record<string, CommandExecutor> {
   const noop: CommandExecutor = async (command) => {
@@ -94,14 +99,20 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
     const installationId = process.env['DEPLOYZ_INSTALLATION_ID'];
     const secretArn = process.env['DEPLOYZ_CREDENTIAL_SECRET_ARN'];
     const controlPlaneUrl = process.env['DEPLOYZ_CONTROL_PLANE_URL'];
+    // Set by the bootstrap stack from its EnrollmentCode parameter. Without
+    // it the control plane has no way to tell which deployment this relay
+    // belongs to — the installation id above is minted here, in the
+    // customer's account, and has never been seen by the control plane.
+    const enrollmentCode = process.env['DEPLOYZ_ENROLLMENT_CODE'];
 
-    if (!installationId || !secretArn || !controlPlaneUrl) {
+    if (!installationId || !secretArn || !controlPlaneUrl || !enrollmentCode) {
       console.error(
         JSON.stringify({
           event: 'relay:missing-config',
           hasInstallationId: !!installationId,
           hasSecretArn: !!secretArn,
           hasControlPlaneUrl: !!controlPlaneUrl,
+          hasEnrollmentCode: !!enrollmentCode,
         }),
       );
       return;
@@ -127,6 +138,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       fetchFn: deps.fetchFn,
       controlPlaneUrl,
       installationId,
+      enrollmentCode,
       executors,
       idempotency,
     };

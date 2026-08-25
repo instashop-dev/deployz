@@ -5,7 +5,7 @@
 
 import { cookies } from 'next/headers';
 
-const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { serverApiUrl } from '@/lib/api-url';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 
@@ -25,13 +25,15 @@ export interface BillingSummary {
   deployments: BillingDeploymentLine[];
   /** base + sum(deployments.amount), in whole dollars. */
   total: number;
+  /** The org's subscription, or null when it has never subscribed. */
+  subscription: { status: string; currentPeriodEnd: string | null } | null;
 }
 
 // ── Fetch ───────────────────────────────────────────────────────────────────
 
 async function getJson<T>(path: string): Promise<T> {
   const cookieHeader = (await cookies()).toString();
-  const response = await fetch(`${apiUrl}${path}`, {
+  const response = await fetch(`${serverApiUrl()}${path}`, {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     cache: 'no-store',
   });

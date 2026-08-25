@@ -1,16 +1,27 @@
 import cors from '@fastify/cors';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import crypto from 'node:crypto';
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import { failureCodeSchema, healthStatusSchema } from '@deployz/contracts';
+import {
+  createAiGateway,
+  type AiGateway,
+  type StructuredEvent,
+} from '@deployz/analysis';
+import {
+  buildBootstrapQuickCreateUrl,
+  failureCodeSchema,
+  healthComponentsSchema,
+  healthStatusSchema,
+} from '@deployz/contracts';
+import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
+import { resolveExplanation } from './ai-explanation.js';
 import { createAnalysisRunner, readVendorOverrides, type AnalysisRunner } from './analysis.js';
 import {
   createCheckoutSession,
@@ -31,7 +42,9 @@ import {
 import { env } from './env.js';
 import { ApiError, NotFoundError, UnauthorizedError, toErrorEnvelope } from './errors.js';
 import {
+  createAppJwt,
   createGithubStore,
+  fetchInstallationAccount,
   handleInstallationWebhook,
   listInstallations,
   listRepositories,
@@ -39,9 +52,10 @@ import {
   verifyWebhookSignature,
   type FetchFn,
   type GithubWebhookEvent,
-  type ResolveOrganization,
 } from './github.js';
 import { createEmailSender, type EmailSender } from './email.js';
+import { createOrReuseJob } from './jobs.js';
+import { enqueue } from './queue.js';
 import {
   acceptInvitation,
   activateOrganization,
@@ -72,7 +86,14 @@ import {
   type Actor,
   type OrganizationDeps,
 } from './organizations.js';
-import { createRelayStore } from './relay-store.js';
+import { recordEvent, type DeploymentEventType } from './events.js';
+import { deriveHealthStatus, deriveRelayStatus } from './relay-liveness.js';
+import {
+  hashRelayToken,
+  mintEnrollmentCode,
+  verifyRelayToken,
+  verifyRelayTokenWithRotation,
+} from './relay-store.js';
 import { createRequireAuth, requireRole, type OrganizationRow } from './require-auth.js';
 
 export interface ServerDeps {
@@ -83,6 +104,10 @@ export interface ServerDeps {
   // repo/installations routes to the fixture store.
   githubWebhookSecret?: string | undefined;
   githubFixtureMode?: boolean | undefined;
+  // The App install URL offered by the "Connect GitHub" empty state. An empty
+  // string means "not configured" (same as the webhook secret), which is what
+  // lets a test assert the unconfigured screen on a machine that has a .env.
+  githubAppInstallUrl?: string | undefined;
   // Injectable §18/§19 analysis runner for POST /:id/analyse (real
   // implementation hits GitHub; tests can supply a fake instead). Defaults
   // to analysis.ts's createAnalysisRunner wired to env/fixture GitHub deps.
@@ -90,6 +115,18 @@ export interface ServerDeps {
   // Injectable transactional-email seam (invitations, membership changes).
   // Defaults to email.ts's env-driven sender; tests supply a recorder.
   emailSender?: EmailSender | undefined;
+  // Injectable fetch for the GitHub App calls (token minting, installation
+  // lookup). Defaults to global fetch; tests supply a stub so no request
+  // ever leaves the machine.
+  githubFetch?: FetchFn | undefined;
+  // The App's own credentials. Default to env; injectable so the App routes
+  // are testable on a machine (or a CI runner) with no .env.
+  githubAppId?: string | undefined;
+  githubAppPrivateKey?: string | undefined;
+  // Injectable §16/§29 AI gateway for diagnostic explanations. Defaults to the
+  // env-configured Cloudflare AI Gateway, which degrades to a throwing stub
+  // when unconfigured so diagnostics fall back to deterministic remediation.
+  aiGateway?: AiGateway | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -118,6 +155,18 @@ const CONTRACT_FIELDS = [
 function requireUuidId(id: string): void {
   if (!UUID_PATTERN.test(id)) {
     throw new NotFoundError('Resource not found');
+  }
+}
+
+/**
+ * Reject a malformed uuid in a QUERY parameter with a 400, not a 404: an
+ * absent filter is legitimate, a malformed one is a bad request. Unchecked,
+ * the value reached the uuid column and Postgres raised, which surfaced as a
+ * bare 500 with no error envelope.
+ */
+function requireUuidQueryParam(value: string | undefined, field: string): void {
+  if (value !== undefined && !UUID_PATTERN.test(value)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', `${field} must be a valid identifier.`);
   }
 }
 
@@ -257,6 +306,25 @@ async function loadOwnedCustomer(
 }
 
 /**
+ * Resolve the config scope from a request's customer id: an absent/empty id
+ * is the vendor scope, otherwise the customer is loaded to get its NAME.
+ * The config screen names the customer — a raw customer id is an internal
+ * identifier that means nothing to the vendor (§65) — and loading it here
+ * also keeps the scope org-owned: a customer of another organization 404s.
+ */
+async function resolveConfigScope(
+  db: RuntimeDb,
+  customerId: string | null | undefined,
+  organizationId: string,
+): Promise<{ customerId: string | null; customerName: string | null }> {
+  if (customerId === null || customerId === undefined || customerId.length === 0) {
+    return { customerId: null, customerName: null };
+  }
+  const customer = await loadOwnedCustomer(db, customerId, organizationId);
+  return { customerId: customer.id, customerName: customer.name };
+}
+
+/**
  * A release is owned through its application. Deploy/rollback take a
  * uuid-shaped releaseId from the client; without this check a release that
  * does not exist (or belongs to another application) is accepted and queued
@@ -295,59 +363,28 @@ function toFleetRow(row: {
   applicationName: string;
   version: string | null;
 }) {
+  // §28 liveness and health are derived here, not read raw, so every screen
+  // that renders a deployment agrees about whether the relay is still there.
+  const relayStatus = deriveRelayStatus(
+    row.deployment.relayStatus,
+    row.deployment.lastHealthAt,
+    new Date(),
+  );
   return {
     ...row.deployment,
     awsAccountId: maskAwsAccountId(row.deployment.awsAccountId),
+    relayStatus,
+    healthStatus: deriveHealthStatus(row.deployment.healthStatus, relayStatus),
+    // §24 per-component health, reported by the relay. Absent until it has
+    // reported at least once — the detail page renders nothing rather than
+    // inventing four healthy rows out of one column default.
+    components: (row.deployment.observedState as { components?: unknown } | null)?.components ?? null,
     customerName: row.customerName,
     applicationName: row.applicationName,
     version: row.version,
   };
 }
 
-// §39 idempotency: unique-constraint-violation-as-signal. A retry (same
-// derived or client-supplied key) must return the job that already exists,
-// never create a second one and never 500.
-async function createOrReuseJob(
-  db: RuntimeDb,
-  params: {
-    deploymentId: string;
-    type: (typeof schema.deploymentJobs.$inferInsert)['type'];
-    idempotencyKey: string;
-    payload: Record<string, unknown>;
-    requestedBy: string | null;
-  },
-): Promise<{ job: typeof schema.deploymentJobs.$inferSelect; created: boolean }> {
-  const inserted = await db
-    .insert(schema.deploymentJobs)
-    .values({
-      deploymentId: params.deploymentId,
-      type: params.type,
-      state: 'REQUESTED',
-      idempotencyKey: params.idempotencyKey,
-      payload: params.payload,
-      requestedBy: params.requestedBy,
-    })
-    .onConflictDoNothing({ target: schema.deploymentJobs.idempotencyKey })
-    .returning();
-
-  if (inserted.length > 0) {
-    return { job: inserted[0]!, created: true };
-  }
-
-  // Conflict: the idempotency key already exists — return the existing job
-  // (200) rather than manufacturing a duplicate or 500ing on the constraint.
-  const existing = await db
-    .select()
-    .from(schema.deploymentJobs)
-    .where(eq(schema.deploymentJobs.idempotencyKey, params.idempotencyKey))
-    .limit(1);
-  if (existing.length === 0) {
-    // Should be unreachable (we just conflicted on this exact key), but keep
-    // the error path honest rather than asserting.
-    throw new ApiError(500, 'INTERNAL_ERROR', 'Failed to create or locate the job');
-  }
-  return { job: existing[0]!, created: false };
-}
 
 // §19 readiness derivation. The analyser (out of scope here) is expected to
 // persist its findings on `applications.detected_metadata` as:
@@ -431,6 +468,29 @@ function computeReadiness(app: {
 // silently targeted.
 const BULK_DEPLOYABLE_STATES = new Set<DeploymentRow['state']>(['HEALTHY', 'UPDATE_AVAILABLE']);
 
+// States where a deploy or rollback has nothing to act on: no relay has ever
+// enrolled, or the deployment is gone. Wider than BULK_DEPLOYABLE_STATES on
+// purpose — that set answers "which customers does a fan-out include", while
+// this one answers "can this one deployment be deployed at all", so an
+// in-flight UPDATING retry still reaches the idempotent job path.
+const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
+  'NOT_INSTALLED',
+  'DELETING',
+  'DELETED',
+]);
+
+/** 409s a deploy/rollback aimed at a deployment that has nothing to deploy
+ *  into — the single-deployment mirror of the skip reason deploy-bulk gives. */
+function requireDeployableState(deployment: DeploymentRow): void {
+  if (UNDEPLOYABLE_STATES.has(deployment.state)) {
+    throw new ApiError(
+      409,
+      'DEPLOYMENT_NOT_DEPLOYABLE',
+      `Deployment is ${deployment.state}, not deployable`,
+    );
+  }
+}
+
 /**
  * §46 deployment state a finished job leaves behind. The relay reporting a
  * command result is what actually moves a deployment through its lifecycle —
@@ -452,6 +512,16 @@ const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
 /** Job types that carry a release pointer forward on success (§38). */
 const RELEASE_ADVANCING_JOBS = new Set<JobType>(['DEPLOY_RELEASE', 'ROLLBACK']);
 
+/** §40 event type per job outcome. Job types with no vendor-visible event are absent. */
+const JOB_RESULT_EVENT: Partial<
+  Record<JobType, { completed: DeploymentEventType; failed: DeploymentEventType }>
+> = {
+  INSTALL: { completed: 'install.completed', failed: 'install.failed' },
+  DEPLOY_RELEASE: { completed: 'deploy.completed', failed: 'deploy.failed' },
+  ROLLBACK: { completed: 'rollback.completed', failed: 'rollback.failed' },
+  DESTROY: { completed: 'destroy.completed', failed: 'destroy.failed' },
+};
+
 // Control-plane surface: /health, /api/me, /api/auth/*.
 // Errors cross the boundary as structured envelopes via toErrorEnvelope;
 // Sentry capture lives in its onError hook (never in the render path).
@@ -460,8 +530,13 @@ export async function buildServer({
   db,
   githubWebhookSecret,
   githubFixtureMode,
+  githubAppInstallUrl,
   analysisRunner,
   emailSender,
+  githubFetch: injectedGithubFetch,
+  githubAppId: injectedGithubAppId,
+  githubAppPrivateKey: injectedGithubAppPrivateKey,
+  aiGateway = createAiGateway(env.aiGateway),
 }: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
@@ -485,7 +560,7 @@ export async function buildServer({
   // explicitly: the default is GET,HEAD,POST, which fails the preflight for
   // the config PUT and the organization PATCH.
   await app.register(cors, {
-    origin: [env.webUrl],
+    origin: [...env.webOrigins],
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
@@ -529,8 +604,10 @@ export async function buildServer({
   // raw body. The account->org resolver (#13) matches the GitHub login to
   // the organization slug — sufficient for the MVP since vendor orgs are
   // created with their GitHub org name as the slug.
-  const githubStore = createGithubStore();
-  const githubFetch: FetchFn = globalThis.fetch.bind(globalThis);
+  const githubStore = createGithubStore(db);
+  const githubFetch: FetchFn = injectedGithubFetch ?? globalThis.fetch.bind(globalThis);
+  const githubAppId = injectedGithubAppId ?? env.githubAppId;
+  const githubAppPrivateKey = injectedGithubAppPrivateKey ?? env.githubAppPrivateKey;
   // §18/§19: real GitHub-backed analysis by default; tests inject a fake
   // via ServerDeps.analysisRunner instead of hitting GitHub.
   const runAnalysis: AnalysisRunner =
@@ -538,19 +615,10 @@ export async function buildServer({
     createAnalysisRunner({
       db,
       fetchFn: githubFetch,
-      githubAppId: env.githubAppId,
-      githubAppPrivateKey: env.githubAppPrivateKey,
+      githubAppId,
+      githubAppPrivateKey,
       githubFixtureMode: githubFixtureMode ?? env.githubFixtureMode,
     });
-  const resolveGithubOrganization: ResolveOrganization = async (accountLogin) => {
-    const rows = await db
-      .select({ id: schema.organization.id })
-      .from(schema.organization)
-      .where(eq(schema.organization.slug, accountLogin))
-      .limit(1);
-    return rows[0]?.id ?? null;
-  };
-
   app.post('/api/github/webhook', async (request, reply) => {
     const webhookSecret = githubWebhookSecret ?? env.githubWebhookSecret;
     if (!webhookSecret) {
@@ -572,7 +640,7 @@ export async function buildServer({
       installation: body.installation,
       sender: body.sender,
     };
-    const handled = await handleInstallationWebhook(githubStore, event, resolveGithubOrganization);
+    const handled = await handleInstallationWebhook(githubStore, event);
     return reply.code(200).send({ received: true, handled });
   });
 
@@ -827,8 +895,14 @@ export async function buildServer({
   // §12/§44 public customer installation page. UNAUTHENTICATED by design —
   // the customer has no Deployz account. Only non-sensitive display fields:
   // never AWS account ids, tokens, config values, or internal db ids.
-  app.get('/api/install/:installationId', async (request) => {
-    const { installationId } = request.params as { installationId: string };
+  // The public install page. Keyed on install_link_id, NOT on the relay's
+  // installation id: the link is emailed to a customer and lives in browser
+  // history, so it must not double as the identifier that authenticates a
+  // relay. The enrollment code it returns is single-use and is what the
+  // customer's bootstrap stack carries.
+  app.get('/api/install/:installLinkId', async (request) => {
+    const { installLinkId } = request.params as { installLinkId: string };
+    requireUuidId(installLinkId);
     const rows = await db
       .select({
         applicationName: schema.applications.name,
@@ -837,17 +911,23 @@ export async function buildServer({
         region: schema.deployments.region,
         databaseRequired: schema.applications.databaseRequired,
         storageRequired: schema.applications.storageRequired,
+        enrollmentCode: schema.deployments.enrollmentCode,
+        enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
       .innerJoin(schema.organization, eq(schema.deployments.organizationId, schema.organization.id))
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
-      .where(eq(schema.deployments.installationId, installationId))
+      .where(eq(schema.deployments.installLinkId, installLinkId))
       .limit(1);
     if (rows.length === 0) {
       throw new NotFoundError('Installation not found');
     }
     const row = rows[0]!;
+    // Spent codes are of no use to the install page — it renders the "already
+    // set up" state instead — so stop handing the credential to anyone who
+    // replays the link out of a mailbox or browser history.
+    const alreadyInstalled = row.enrollmentUsedAt !== null;
     const resourcesCreated = ['Application runtime'];
     if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
     if (row.storageRequired) resourcesCreated.push('Storage');
@@ -858,6 +938,25 @@ export async function buildServer({
       customerName: row.customerName,
       region: row.region,
       resourcesCreated,
+      // The Quick Create link is built HERE, not in the web app: only the
+      // control plane knows which template is currently published, which
+      // region this customer's deployment targets, and this deployment's
+      // single-use enrollment code. The link carries no credential — the
+      // relay's is minted by CloudFormation inside the customer's account.
+      //
+      // Spent codes get no link. The page renders its "already set up" state
+      // in that case and never follows the URL, so building one only hands
+      // the enrollment code to whoever replays the link out of a mailbox.
+      quickCreateUrl:
+        env.bootstrapTemplateUrl && !alreadyInstalled
+          ? buildBootstrapQuickCreateUrl({
+              region: row.region,
+              templateUrl: env.bootstrapTemplateUrl,
+              controlPlaneUrl: env.apiUrl,
+              enrollmentCode: row.enrollmentCode,
+            })
+          : null,
+      alreadyInstalled,
     };
   });
 
@@ -874,7 +973,8 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId); // 404s on cross-org access
     const { customerId } = request.query as { customerId?: string | undefined };
-    return getConfig(id, customerId ?? null, configStore);
+    const scope = await resolveConfigScope(db, customerId, organizationId);
+    return { ...(await getConfig(id, scope.customerId, configStore)), customerName: scope.customerName };
   });
 
   app.put('/api/applications/:id/config', { preHandler: requireAuth }, async (request) => {
@@ -882,16 +982,78 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId); // 404s on cross-org access
     const body = setConfigBodySchema.parse(request.body);
-    return setConfig(id, body.customerId ?? null, body.entries, {
-      store: configStore,
-      secretWriter: configSecretWriter,
+    const scope = await resolveConfigScope(db, body.customerId, organizationId);
+    const view = await setConfig(
+      id,
+      scope.customerId,
+      body.entries,
+      { store: configStore, secretWriter: configSecretWriter },
+      body.deletes ?? [],
+    );
+    return { ...view, customerName: scope.customerName };
+  });
+
+  // The GitHub App's Setup URL. GitHub sends the vendor here right after they
+  // install (or reconfigure) the App, with `installation_id` in the query —
+  // this is the one moment where the GitHub installation and the vendor's
+  // Deployz session are both present, so it is where the two get bound.
+  //
+  // The redirect is a top-level GET navigation, so the Lax session cookie is
+  // sent. A vendor who installed the App while signed out has no cookie to
+  // send, though, and a JSON 401 would strand them on an error page with the
+  // installation unbound — so that case goes to sign-in instead, carrying the
+  // installation id back to the web setup page. The callback is RELATIVE
+  // because the sign-in page rejects absolute URLs as open redirects.
+  const redirectSignedOutToSignIn = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    try {
+      await requireAuth(request);
+    } catch (error) {
+      // Only a missing session redirects. Anything else (a database failure
+      // resolving the tenant, say) must surface as itself rather than be
+      // disguised as "please sign in".
+      if (!(error instanceof UnauthorizedError)) throw error;
+      const { installation_id: installationId } = request.query as {
+        installation_id?: string | undefined;
+      };
+      const target = installationId
+        ? `/github/setup?installation_id=${encodeURIComponent(installationId)}`
+        : '/github/setup';
+      return reply.redirect(`${env.webUrl}/sign-in?callbackUrl=${encodeURIComponent(target)}`);
+    }
+  };
+  app.get('/api/github/setup', { preHandler: redirectSignedOutToSignIn }, async (request, reply) => {
+    const { installation_id: installationId } = request.query as {
+      installation_id?: string | undefined;
+    };
+    const organizationId = requireSessionOrganizationId(request);
+    const dashboardUrl = `${env.webUrl}/dashboard/applications`;
+    if (!installationId) {
+      return reply.redirect(`${dashboardUrl}?github=missing_installation`);
+    }
+
+    if (!githubAppId || !githubAppPrivateKey) {
+      throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
+    }
+    const jwt = createAppJwt(githubAppId, githubAppPrivateKey, Date.now());
+    const account = await fetchInstallationAccount(installationId, jwt, githubFetch);
+
+    await githubStore.set({
+      id: installationId,
+      organizationId,
+      accountLogin: account.accountLogin,
+      accountType: account.accountType,
     });
+
+    return reply.redirect(`${dashboardUrl}?github=connected`);
   });
 
   // GitHub repo-selection surface (auth-gated). Fixture mode serves the
   // fixture org/repos so the dashboard renders test data without a real App;
-  // otherwise the installation store (populated by the webhook) is the source
-  // of truth, and repo listing needs a minted installation token.
+  // otherwise the installation store (written by /api/github/setup) is the
+  // source of truth, and repo listing needs a minted installation token.
   app.get('/api/github/installations', { preHandler: requireAuth }, async (request) => {
     const organizationId = request.organization?.id;
     if (!organizationId) {
@@ -901,7 +1063,7 @@ export async function buildServer({
     const installations = await listInstallations(githubStore, organizationId, { fixtureMode });
     return {
       installations,
-      connectUrl: env.githubAppInstallUrl ?? null,
+      connectUrl: (githubAppInstallUrl ?? env.githubAppInstallUrl) || null,
     };
   });
 
@@ -910,17 +1072,28 @@ export async function buildServer({
     if (!installationId) {
       throw new ApiError(400, 'INSTALLATION_ID_REQUIRED', 'installationId query parameter is required');
     }
+    const organizationId = requireSessionOrganizationId(request);
     const fixtureMode = githubFixtureMode ?? env.githubFixtureMode;
     if (fixtureMode) {
       const repositories = await listRepositories(installationId, { fixtureMode: true });
       return { repositories };
     }
-    const appId = env.githubAppId;
-    const privateKey = env.githubAppPrivateKey;
-    if (!appId || !privateKey) {
+    // An installation id is a guessable integer, and the token minted below
+    // can read every repository in it — so the caller must own it.
+    const record = await githubStore.get(installationId);
+    if (!record || record.organizationId !== organizationId) {
+      throw new NotFoundError('GitHub installation not found');
+    }
+    if (!githubAppId || !githubAppPrivateKey) {
       throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
     }
-    const { token } = await mintInstallationToken(installationId, appId, privateKey, Date.now(), githubFetch);
+    const { token } = await mintInstallationToken(
+      installationId,
+      githubAppId,
+      githubAppPrivateKey,
+      Date.now(),
+      githubFetch,
+    );
     const repositories = await listRepositories(installationId, {
       fixtureMode: false,
       installationToken: token,
@@ -1016,6 +1189,40 @@ export async function buildServer({
   app.post('/api/applications', { preHandler: requireAuth }, async (request, reply) => {
     const body = createApplicationBodySchema.parse(request.body);
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
+    // The installation id is what analysis later mints a repo-read token
+    // from, so an application may only point at an installation this
+    // organization connected.
+    if (!(githubFixtureMode ?? env.githubFixtureMode)) {
+      const record = await githubStore.get(body.githubInstallationId);
+      if (!record || record.organizationId !== organizationId) {
+        throw new NotFoundError('GitHub installation not found');
+      }
+    }
+
+    // One application per repository per organization. Choosing the same repo
+    // twice used to create a second application with its own releases and
+    // deployments, and the repo list went on offering "Choose" as though it
+    // were not already connected. The id comes back so the client can send
+    // the vendor to the application they already have.
+    const existing = await db
+      .select({ id: schema.applications.id })
+      .from(schema.applications)
+      .where(
+        and(
+          eq(schema.applications.organizationId, organizationId),
+          eq(schema.applications.repoFullName, body.repoFullName),
+        ),
+      )
+      .limit(1);
+    if (existing.length > 0) {
+      throw new ApiError(
+        409,
+        'APPLICATION_ALREADY_CONNECTED',
+        'This repository is already connected. Open it from your applications list.',
+        { applicationId: existing[0]!.id },
+      );
+    }
+
     const [row] = await db
       .insert(schema.applications)
       .values({
@@ -1140,13 +1347,19 @@ export async function buildServer({
       .update(schema.applications)
       .set({ analysisStatus: 'ANALYZING', updatedBy: request.user?.id ?? null })
       .where(eq(schema.applications.id, id));
-    // Fire-and-forget: the 202 below returns immediately; the §18/§19
-    // pipeline runs in the background and persists COMPLETE/FAILED itself
-    // (analysis.ts). runAnalysis already catches every internal failure and
-    // writes FAILED rather than throwing — the `.catch` here is a second,
-    // defense-in-depth net so a rejected promise can never crash the
-    // process or surface as an unhandled rejection.
-    void runAnalysis(id).catch(() => {});
+    // The §18/§19 pipeline runs on the worker, not after this response.
+    // Detaching it here with `void runAnalysis(id)` works on a long-lived
+    // server and silently does nothing on Lambda, which freezes the
+    // execution environment as soon as the reply is sent — the application
+    // would sit at ANALYZING for ever. Without a queue (local dev) the
+    // long-lived server can and does run it inline.
+    const queued = await enqueue({ type: 'ANALYSE_APPLICATION', applicationId: id });
+    if (!queued) {
+      // runAnalysis catches every internal failure and persists FAILED
+      // rather than throwing; the `.catch` is a second net so a rejected
+      // promise can never surface as an unhandled rejection.
+      await runAnalysis(id).catch(() => {});
+    }
     return reply.code(202).send({ status: 'ANALYZING' });
   });
 
@@ -1200,7 +1413,11 @@ export async function buildServer({
     // the INSERT below hits a foreign-key violation and surfaces as a 500.
     await loadOwnedApplication(db, body.applicationId, organizationId);
     await loadOwnedCustomer(db, body.customerId, organizationId);
-    const installationId = crypto.randomUUID();
+    // The relay mints its own installationId inside the customer's account, so
+    // it is unknown until enrollment. What the control plane mints here is the
+    // single-use enrollment code the bootstrap stack carries, plus the public
+    // install-link id — deliberately a different value, so the link a customer
+    // is emailed is not also the credential that identifies their relay.
     const [row] = await db
       .insert(schema.deployments)
       .values({
@@ -1209,7 +1426,7 @@ export async function buildServer({
         organizationId,
         region: body.region,
         state: 'NOT_INSTALLED',
-        installationId,
+        enrollmentCode: mintEnrollmentCode(),
         isTestDeployment: body.isTestDeployment ?? false,
         createdBy: request.user?.id ?? null,
         updatedBy: request.user?.id ?? null,
@@ -1223,17 +1440,28 @@ export async function buildServer({
   // Region / Status (and application name / masked AWS account / created
   // date for §24) without a second round trip per row.
   app.get('/api/deployments', { preHandler: requireAuth }, async (request) => {
-    const { customerId, applicationId } = request.query as {
+    const { customerId, applicationId, includeDeleted } = request.query as {
       customerId?: string;
       applicationId?: string;
+      includeDeleted?: string;
     };
     const organizationId = requireSessionOrganizationId(request);
+    // These reach a uuid column directly. Unvalidated, a hand-typed URL made
+    // Postgres raise and the request 500 with no error envelope.
+    requireUuidQueryParam(customerId, 'customerId');
+    requireUuidQueryParam(applicationId, 'applicationId');
     const conditions = [eq(schema.deployments.organizationId, organizationId)];
     if (customerId) {
       conditions.push(eq(schema.deployments.customerId, customerId));
     }
     if (applicationId) {
       conditions.push(eq(schema.deployments.applicationId, applicationId));
+    }
+    // §63 a removed deployment stays in the audit trail but leaves the fleet:
+    // the homepage already excluded it and this list did not, so the two
+    // screens disagreed about what the fleet was.
+    if (includeDeleted !== 'true') {
+      conditions.push(ne(schema.deployments.state, 'DELETED'));
     }
     const rows = await db
       .select({
@@ -1287,6 +1515,23 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
     const body = createReleaseBodySchema.parse(request.body);
+
+    // §36 one immutable record per version. Two releases called 1.0.0 make
+    // "deploy 1.0.0" ambiguous, so the unique index refuses the second and
+    // this turns it into a message a person can act on.
+    const duplicate = await db
+      .select({ id: schema.releases.id })
+      .from(schema.releases)
+      .where(and(eq(schema.releases.applicationId, id), eq(schema.releases.version, body.version)))
+      .limit(1);
+    if (duplicate.length > 0) {
+      throw new ApiError(
+        409,
+        'RELEASE_VERSION_EXISTS',
+        `Version ${body.version} already exists for this application. Use a different version number.`,
+      );
+    }
+
     const [row] = await db
       .insert(schema.releases)
       .values({
@@ -1295,11 +1540,31 @@ export async function buildServer({
         gitSha: body.gitSha,
         migrationCommand: body.migrationCommand ?? null,
         buildStatus: 'PENDING',
-        releaseStatus: 'BUILDING',
         createdBy: request.user?.id ?? null,
         updatedBy: request.user?.id ?? null,
       })
       .returning();
+    // A release with no build is a release that can never deploy: the
+    // §21 image digest only exists once CodeBuild has pushed the image.
+    // The worker fetches the repository source and starts that build.
+    if (row) {
+      await enqueue({ type: 'BUILD_RELEASE', releaseId: row.id });
+    }
+
+    // §22/§25: every live deployment of this application is now behind. The
+    // state existed and was read by the billing rule and the bulk-deploy
+    // gate, but nothing ever wrote it, so the fleet could never show who
+    // needed updating.
+    await db
+      .update(schema.deployments)
+      .set({ state: 'UPDATE_AVAILABLE' })
+      .where(
+        and(
+          eq(schema.deployments.applicationId, id),
+          eq(schema.deployments.state, 'HEALTHY'),
+        ),
+      );
+
     return reply.code(201).send(row);
   });
 
@@ -1325,6 +1590,48 @@ export async function buildServer({
 
   // ── Job triggers (§25, §27, §63) ────────────────────────────────────────
 
+  /**
+   * Record a vendor-initiated job: move the deployment into its §46 in-flight
+   * state and append the §40 event, atomically.
+   *
+   * Both used to be missing. The deployment stayed on HEALTHY from the moment
+   * a deploy was requested until the relay answered, so a vendor who clicked
+   * "Deploy Update" watched the page return to exactly the state it was in —
+   * and no row was ever written to the event log, so "Recent activity" stayed
+   * empty through a deployment's entire life.
+   */
+  async function markJobRequested(params: {
+    deployment: DeploymentRow;
+    jobId: string;
+    inFlightState: DeploymentRow['state'] | null;
+    eventType: DeploymentEventType;
+    actorId: string | null;
+    releaseId?: string | undefined;
+  }): Promise<void> {
+    await db.transaction(async (tx) => {
+      if (params.inFlightState) {
+        await tx
+          .update(schema.deployments)
+          .set({ state: params.inFlightState, updatedBy: params.actorId })
+          .where(eq(schema.deployments.id, params.deployment.id));
+      }
+      await recordEvent(tx, {
+        organizationId: params.deployment.organizationId,
+        eventType: params.eventType,
+        actorType: 'user',
+        actorId: params.actorId ?? 'system',
+        deploymentId: params.deployment.id,
+        customerId: params.deployment.customerId,
+        jobId: params.jobId,
+        releaseId: params.releaseId,
+        previousState: params.deployment.state,
+        requestedState: params.inFlightState,
+        result: 'pending',
+      });
+    });
+  }
+
+
   // POST /api/deployments/:id/deploy — Trigger (or reuse) a DEPLOY_RELEASE job
   app.post('/api/deployments/:id/deploy', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -1332,6 +1639,10 @@ export async function buildServer({
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
     await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
+    // The same rule deploy-bulk applies. Without it this route accepted a
+    // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
+    // in the customer's account to ever run it.
+    requireDeployableState(deployment);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
@@ -1342,6 +1653,16 @@ export async function buildServer({
       payload: { releaseId: body.releaseId },
       requestedBy: request.user?.id ?? null,
     });
+    if (created) {
+      await markJobRequested({
+        deployment,
+        jobId: job.id,
+        inFlightState: BULK_DEPLOYABLE_STATES.has(deployment.state) ? 'UPDATING' : null,
+        eventType: 'deploy.requested',
+        actorId: request.user?.id ?? null,
+        releaseId: body.releaseId,
+      });
+    }
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
@@ -1409,6 +1730,7 @@ export async function buildServer({
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = rollbackBodySchema.parse(request.body);
     await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
+    requireDeployableState(deployment);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:ROLLBACK:${body.releaseId}`;
@@ -1419,6 +1741,16 @@ export async function buildServer({
       payload: { releaseId: body.releaseId },
       requestedBy: request.user?.id ?? null,
     });
+    if (created) {
+      await markJobRequested({
+        deployment,
+        jobId: job.id,
+        inFlightState: BULK_DEPLOYABLE_STATES.has(deployment.state) ? 'UPDATING' : null,
+        eventType: 'rollback.requested',
+        actorId: request.user?.id ?? null,
+        releaseId: body.releaseId,
+      });
+    }
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
@@ -1428,6 +1760,40 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = destroyBodySchema.parse(request.body);
+
+    if (deployment.state === 'DELETED') {
+      throw new ApiError(
+        409,
+        'DEPLOYMENT_ALREADY_REMOVED',
+        'This deployment has already been removed.',
+      );
+    }
+
+    // Nothing was ever installed, so there is nothing in the customer's
+    // account to remove and no relay to ask. Queuing a DESTROY job here left
+    // the deployment sitting at "Not installed" forever while the vendor
+    // watched a confirmation dialog close and nothing happen.
+    if (deployment.state === 'NOT_INSTALLED') {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.deployments)
+          .set({ state: 'DELETED', deletedAt: new Date(), updatedBy: request.user?.id ?? null })
+          .where(eq(schema.deployments.id, deployment.id));
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'destroy.completed',
+          actorType: 'user',
+          actorId: request.user?.id ?? 'system',
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          previousState: deployment.state,
+          requestedState: 'DELETED',
+          payload: { reason: 'never installed — removed without a relay job' },
+        });
+      });
+      return reply.code(200).send({ jobId: null, state: 'DELETED' });
+    }
+
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:DESTROY`;
     const { job, created } = await createOrReuseJob(db, {
@@ -1437,7 +1803,55 @@ export async function buildServer({
       payload: { finalSnapshot: body.finalSnapshot ?? false },
       requestedBy: request.user?.id ?? null,
     });
+    if (created) {
+      await markJobRequested({
+        deployment,
+        jobId: job.id,
+        inFlightState: 'DELETING',
+        eventType: 'destroy.requested',
+        actorId: request.user?.id ?? null,
+      });
+    }
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
+  });
+
+  // POST /api/deployments/:id/relay/reset — §14 re-enrollment.
+  //
+  // The recovery path for a lost credential, a rebuilt bootstrap stack, or a
+  // rejected enrollment. Without it a 409 from /api/relay/register would be
+  // unrecoverable: the binding is single-use by design, so something has to
+  // be able to clear it, and that something is a deliberate vendor action.
+  app.post('/api/deployments/:id/relay/reset', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const enrollmentCode = mintEnrollmentCode();
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deployments)
+        .set({
+          enrollmentCode,
+          enrollmentUsedAt: null,
+          installationId: null,
+          relayTokenHash: null,
+          relayBoundAt: null,
+          relayStatus: 'UNKNOWN',
+          updatedBy: request.user?.id ?? null,
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'relay.reenrollment.requested',
+        actorType: 'user',
+        actorId: request.user?.id ?? 'system',
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        previousState: deployment.state,
+      });
+    });
+
+    return { installLinkId: deployment.installLinkId };
   });
 
   // ── Events & diagnostics (§24, §29, §40) ────────────────────────────────
@@ -1478,16 +1892,53 @@ export async function buildServer({
     // back to UNKNOWN when the job carried no code is honest; hardcoding it
     // when the job DOES carry one throws away the only classification we have.
     const [failedJob] = await db
-      .select({ failureCode: schema.deploymentJobs.failureCode })
+      .select({
+        id: schema.deploymentJobs.id,
+        type: schema.deploymentJobs.type,
+        failureCode: schema.deploymentJobs.failureCode,
+        result: schema.deploymentJobs.result,
+      })
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, id), eq(schema.deploymentJobs.state, 'FAILED')))
       .orderBy(desc(schema.deploymentJobs.finishedAt))
       .limit(1);
+    // §29/§61: the remediation is looked up from the code the relay actually
+    // reported. These three fields used to be string literals, identical for
+    // every failure, and the fix line told the vendor to read an event log
+    // that was never written and had no screen.
+    const failureCode = failedJob?.failureCode ?? 'UNKNOWN';
+    const remediation = FAILURE_REMEDIATION[failureCode as FailureCode] ?? FAILURE_REMEDIATION.UNKNOWN;
+    // What the relay said, verbatim. Stored on the job all along and never
+    // surfaced, which left "Technical detail" empty on every failure.
+    const jobResult = failedJob?.result as { error?: string } | null;
+
+    // §16: the AI explanation is built from the deterministic code plus
+    // STRUCTURED fields only. There is no raw-log field here, and none may be
+    // added — the data boundary is what keeps customer log content out of the
+    // AI payload. (jobResult.error above is shown to the vendor, never sent.)
+    const event: StructuredEvent = {
+      source: 'deployment',
+      ...(failedJob?.type ? { action: failedJob.type } : {}),
+      context: { deploymentState: deployment.state },
+    };
+
+    // Generated once per attempt and cached; `remediation` is the fallback for
+    // every path where AI is unavailable, so the copy map stays the single
+    // source of this copy (§65). Never throws, never touches deployment state.
+    const explanation = failedJob
+      ? await resolveExplanation(
+          { db, gateway: aiGateway },
+          { jobId: failedJob.id, failureCode, event },
+          remediation,
+        )
+      : remediation;
+
     return {
-      failureCode: failedJob?.failureCode ?? 'UNKNOWN',
-      what: 'Deployment failed',
-      why: 'The deployment did not reach a healthy state',
-      fix: 'Check the event log for details and retry the deployment',
+      failureCode,
+      what: explanation.what,
+      why: explanation.why,
+      fix: explanation.fix,
+      technicalDetail: jobResult?.error ?? null,
       events,
     };
   });
@@ -1530,7 +1981,25 @@ export async function buildServer({
       amount: METERED_PRICE_DOLLARS,
     }));
     const total = BASE_PRICE_DOLLARS + deploymentItems.length * METERED_PRICE_DOLLARS;
-    return { base: BASE_PRICE_DOLLARS, deployments: deploymentItems, total };
+
+    // The billing screen has to tell "never subscribed" from "subscribed" from
+    // "payment failed" — without it the page showed charges for a subscription
+    // that may not exist, and offered no way to start one.
+    const [subscription] = await db
+      .select({
+        status: schema.subscriptions.status,
+        currentPeriodEnd: schema.subscriptions.currentPeriodEnd,
+      })
+      .from(schema.subscriptions)
+      .where(eq(schema.subscriptions.organizationId, organizationId))
+      .limit(1);
+
+    return {
+      base: BASE_PRICE_DOLLARS,
+      deployments: deploymentItems,
+      total,
+      subscription: subscription ?? null,
+    };
   });
 
   // ── Onboarding (§42) ────────────────────────────────────────────────────
@@ -1581,7 +2050,14 @@ export async function buildServer({
     method: ['GET', 'POST'],
     url: '/api/auth/*',
     handler: async (request, reply) => {
-      const url = new URL(request.url, `http://${request.headers.host}`);
+      // Resolve against the canonical API origin rather than the request's
+      // Host header. Two reasons: API Gateway terminates TLS, so the old
+      // hardcoded `http://` handed Better Auth an http origin that failed its
+      // own https origin check; and Host is client-controlled, which made this
+      // a header-injection surface on the auth endpoint. request.url is a path
+      // plus query, so this keeps both and guarantees the origin matches the
+      // baseURL Better Auth was configured with.
+      const url = new URL(request.url, env.apiUrl);
       const headers = fromNodeHeaders(request.headers);
       const init: RequestInit = {
         method: request.method,
@@ -1619,11 +2095,10 @@ export async function buildServer({
   // installationId is public (it's in the install URL), so it cannot be the
   // credential.
 
-  const relayStore = createRelayStore();
-
   async function requireRelayDeployment(
     installationId: string | undefined,
     token: string,
+    oldToken?: string | undefined,
   ): Promise<DeploymentRow> {
     if (!installationId) {
       throw new ApiError(400, 'INSTALLATION_ID_REQUIRED', 'installationId is required');
@@ -1634,10 +2109,16 @@ export async function buildServer({
       .where(eq(schema.deployments.installationId, installationId))
       .limit(1);
     const deployment = rows[0];
-    if (!deployment || !relayStore.verify(installationId, token)) {
+    if (!deployment || !verifyRelayTokenWithRotation(deployment.relayTokenHash, token, oldToken)) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
     }
     return deployment;
+  }
+
+  /** The rotation grace header the relay sends while adopting a new token. */
+  function oldRelayToken(request: { headers: Record<string, unknown> }): string | undefined {
+    const value = request.headers['x-deployz-old-token'];
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
 
   function requireBearerToken(request: { headers: Record<string, unknown> }): string {
@@ -1650,42 +2131,116 @@ export async function buildServer({
 
   app.post('/api/relay/register', async (request, reply) => {
     const token = requireBearerToken(request);
-    const body = request.body as { installationId?: string };
-    if (!body?.installationId) {
-      throw new ApiError(400, 'INVALID_REQUEST', 'installationId is required');
+    const body = request.body as {
+      enrollmentCode?: string;
+      installationId?: string;
+      awsAccountId?: string;
+    };
+    if (!body?.enrollmentCode || !body?.installationId) {
+      throw new ApiError(
+        400,
+        'INVALID_REQUEST',
+        'enrollmentCode and installationId are required',
+      );
     }
-    // §3: registration must correspond to a REAL deployment — otherwise
-    // anyone could register an arbitrary installationId/token pair.
+
+    // The enrollment code — not the installation id — is what identifies the
+    // deployment. The id is minted by the customer's own bootstrap stack and
+    // is unknown here until this call; the code is minted by the control
+    // plane, carried into the stack as a template parameter, and burned on
+    // first use. Anything else and there is nothing tying a relay in some AWS
+    // account to a deployment a vendor created.
     const rows = await db
       .select()
       .from(schema.deployments)
-      .where(eq(schema.deployments.installationId, body.installationId))
+      .where(eq(schema.deployments.enrollmentCode, body.enrollmentCode))
       .limit(1);
     const deployment = rows[0];
     if (!deployment) {
       throw new NotFoundError('Deployment not found');
     }
 
-    relayStore.register(body.installationId, token);
+    const tokenHash = hashRelayToken(token);
+
+    if (deployment.enrollmentUsedAt !== null) {
+      // Already enrolled. A relay cold start or a retry replays this call
+      // with the same id and token, which must stay harmless.
+      const sameRelay =
+        deployment.installationId === body.installationId &&
+        verifyRelayToken(deployment.relayTokenHash, token);
+      if (sameRelay) {
+        return reply.code(200).send({ registered: true });
+      }
+      // Anything else is a second party trying to take the deployment over.
+      // Refusing (rather than rebinding, which is what this route used to do)
+      // is what keeps the real relay connected; the vendor recovers with
+      // "Reconnect relay", which mints a fresh code.
+      await recordEvent(db, {
+        organizationId: deployment.organizationId,
+        eventType: 'install.enrollment.rejected',
+        actorType: 'relay',
+        actorId: body.installationId,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        result: 'failure',
+        payload: { reason: 'enrollment code already used by another relay' },
+      });
+      throw new ApiError(
+        409,
+        'RELAY_ALREADY_ENROLLED',
+        'This installation is already connected. Ask the vendor to reconnect it before installing again.',
+      );
+    }
 
     // §6/§39: an INSTALL job must be reachable through the API so a fresh
     // deployment can ever progress past NOT_INSTALLED. We create it here
     // (first relay registration) rather than at deployment-creation time —
     // the deployment row can legitimately exist before any relay has called
     // home, and this is the first point where we know the relay is alive.
-    if (deployment.state === 'NOT_INSTALLED') {
-      await createOrReuseJob(db, {
-        deploymentId: deployment.id,
-        type: 'INSTALL',
-        idempotencyKey: `${deployment.id}:INSTALL`,
-        payload: {},
-        requestedBy: null,
-      });
-      await db
+    const installJob =
+      deployment.state === 'NOT_INSTALLED'
+        ? (
+            await createOrReuseJob(db, {
+              deploymentId: deployment.id,
+              type: 'INSTALL',
+              idempotencyKey: `${deployment.id}:INSTALL`,
+              payload: {},
+              requestedBy: null,
+            })
+          ).job
+        : null;
+
+    await db.transaction(async (tx) => {
+      await tx
         .update(schema.deployments)
-        .set({ state: 'INSTALLING' })
+        .set({
+          installationId: body.installationId!,
+          relayTokenHash: tokenHash,
+          relayBoundAt: new Date(),
+          enrollmentUsedAt: new Date(),
+          relayStatus: 'CONNECTED',
+          // §24 the customer's account id is knowable only from inside their
+          // account; the relay is the only thing that can tell us.
+          ...(body.awsAccountId ? { awsAccountId: body.awsAccountId } : {}),
+          ...(deployment.state === 'NOT_INSTALLED' ? { state: 'INSTALLING' as const } : {}),
+        })
         .where(eq(schema.deployments.id, deployment.id));
-    }
+
+      if (installJob) {
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'install.requested',
+          actorType: 'relay',
+          actorId: body.installationId!,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          jobId: installJob.id,
+          previousState: deployment.state,
+          requestedState: 'INSTALLING',
+          result: 'pending',
+        });
+      }
+    });
 
     return reply.code(200).send({ registered: true });
   });
@@ -1750,7 +2305,10 @@ export async function buildServer({
       .where(eq(schema.deployments.id, job.deploymentId))
       .limit(1);
     const deployment = deploymentRows[0];
-    if (!deployment || !relayStore.verify(deployment.installationId, token)) {
+    if (
+      !deployment ||
+      !verifyRelayTokenWithRotation(deployment.relayTokenHash, token, oldRelayToken(request))
+    ) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
     }
 
@@ -1762,35 +2320,68 @@ export async function buildServer({
     };
     const state = body.success === false ? 'FAILED' : 'SUCCEEDED';
     const failureCodeParsed = state === 'FAILED' ? failureCodeSchema.safeParse(body.failureCode) : undefined;
-
-    await db
-      .update(schema.deploymentJobs)
-      .set({
-        state,
-        result: body as Record<string, unknown>,
-        finishedAt: new Date(),
-        ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
-      })
-      .where(eq(schema.deploymentJobs.id, id));
+    // A code the enum does not know used to be dropped on the floor, which
+    // left the vendor looking at "Unknown issue" with no trace of what the
+    // relay actually said. Keep the raw string in the event payload so a
+    // vocabulary drift is visible in the audit trail instead of silent.
+    const unrecognisedFailureCode =
+      state === 'FAILED' && body.failureCode !== undefined && !failureCodeParsed?.success
+        ? body.failureCode
+        : undefined;
 
     // A finished job is what advances the deployment's own §46 state.
     const nextState = state === 'FAILED' ? 'FAILED' : JOB_SUCCESS_STATE[job.type];
-    if (nextState) {
-      const releaseId =
-        state === 'SUCCEEDED' && RELEASE_ADVANCING_JOBS.has(job.type)
-          ? ((job.payload as { releaseId?: string } | null)?.releaseId ?? null)
-          : null;
-      await db
-        .update(schema.deployments)
+    const releaseId =
+      state === 'SUCCEEDED' && RELEASE_ADVANCING_JOBS.has(job.type)
+        ? ((job.payload as { releaseId?: string } | null)?.releaseId ?? null)
+        : null;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deploymentJobs)
         .set({
-          state: nextState,
-          ...(releaseId
-            ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId }
-            : {}),
-          ...(nextState === 'DELETED' ? { deletedAt: new Date() } : {}),
+          state,
+          result: body as Record<string, unknown>,
+          finishedAt: new Date(),
+          ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
         })
-        .where(eq(schema.deployments.id, deployment.id));
-    }
+        .where(eq(schema.deploymentJobs.id, id));
+
+      if (nextState) {
+        await tx
+          .update(schema.deployments)
+          .set({
+            state: nextState,
+            ...(releaseId
+              ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId }
+              : {}),
+            ...(nextState === 'DELETED' ? { deletedAt: new Date() } : {}),
+          })
+          .where(eq(schema.deployments.id, deployment.id));
+      }
+
+      const eventType = JOB_RESULT_EVENT[job.type]?.[state === 'FAILED' ? 'failed' : 'completed'];
+      if (eventType) {
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType,
+          actorType: 'relay',
+          actorId: deployment.installationId ?? deployment.id,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          jobId: job.id,
+          releaseId: releaseId ?? undefined,
+          previousState: deployment.state,
+          requestedState: nextState ?? null,
+          result: state === 'FAILED' ? 'failure' : 'success',
+          payload: {
+            ...(body.error ? { error: body.error } : {}),
+            ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
+            ...(unrecognisedFailureCode ? { unrecognisedFailureCode } : {}),
+          },
+        });
+      }
+    });
 
     return reply.code(200).send({ received: true });
   });
@@ -1801,20 +2392,58 @@ export async function buildServer({
       installationId?: string;
       observedState?: Record<string, unknown>;
       healthStatus?: string;
+      components?: Record<string, unknown>;
     };
-    const deployment = await requireRelayDeployment(body?.installationId, token);
+    const deployment = await requireRelayDeployment(
+      body?.installationId,
+      token,
+      oldRelayToken(request),
+    );
 
     const healthStatusParsed = healthStatusSchema.safeParse(body.healthStatus);
+    // §24 per-component health rides in observed_state — the column already
+    // exists for exactly this and needs no migration. The relay reports only
+    // the components a deployment actually has, which is what lets the detail
+    // page stop rendering a Database row for an app with no database.
+    const componentsParsed = body.components
+      ? healthComponentsSchema.safeParse(body.components)
+      : undefined;
+    const observedState =
+      componentsParsed?.success === true
+        ? { ...(body.observedState ?? deployment.observedState ?? {}), components: componentsParsed.data }
+        : (body.observedState ?? deployment.observedState);
 
-    await db
-      .update(schema.deployments)
-      .set({
-        observedState: body.observedState ?? deployment.observedState,
-        relayStatus: 'CONNECTED',
-        lastHealthAt: new Date(),
-        ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
-      })
-      .where(eq(schema.deployments.id, deployment.id));
+    const previousHealth = deployment.healthStatus;
+    const nextHealth = healthStatusParsed.success ? healthStatusParsed.data : previousHealth;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deployments)
+        .set({
+          observedState,
+          relayStatus: 'CONNECTED',
+          lastHealthAt: new Date(),
+          ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+
+      // Only a CHANGE is worth an event — the relay reports on every poll and
+      // an append-only log of "still healthy" would bury everything else.
+      if (nextHealth !== previousHealth) {
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: nextHealth === 'HEALTHY' ? 'health.recovered' : 'health.degraded',
+          actorType: 'relay',
+          actorId: deployment.installationId ?? deployment.id,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          previousState: previousHealth,
+          requestedState: nextHealth,
+          result: nextHealth === 'HEALTHY' ? 'success' : 'failure',
+          payload: componentsParsed?.success ? { components: componentsParsed.data } : {},
+        });
+      }
+    });
 
     return reply.code(200).send({ received: true });
   });

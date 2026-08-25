@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
@@ -5,6 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+
+export const metadata: Metadata = {
+  title: 'Pricing',
+  description: '$49/month plus $19 for each healthy customer deployment. No infrastructure resale.',
+};
 
 const USAGE_ROWS = [
   { deployments: 'Base only', count: 0, total: '$49' },
@@ -14,6 +20,11 @@ const USAGE_ROWS = [
   { deployments: '50 deployments', count: 50, total: '$999' },
 ] as const;
 
+// prefetch={false} on every /sign-in and /sign-up link: those paths live on
+// the app hostname and middleware redirects them there, so Next's prefetch
+// leaves the marketing origin, follows a cross-origin redirect and fails
+// CORS — dead requests and console errors on every marketing page view, for
+// a payload that could never have been used.
 export default function PricingPage() {
   return (
     <div className="flex min-h-screen flex-col">
@@ -27,10 +38,10 @@ export default function PricingPage() {
           </Link>
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="sm">
-              <Link href="/sign-in">Sign In</Link>
+              <Link href="/sign-in" prefetch={false}>Sign In</Link>
             </Button>
             <Button asChild size="sm">
-              <Link href="/sign-up">Get Started</Link>
+              <Link href="/sign-up" prefetch={false}>Get Started</Link>
             </Button>
           </div>
         </div>
@@ -102,7 +113,7 @@ export default function PricingPage() {
 
         <section className="mt-8 flex flex-col items-center gap-3">
           <Button asChild size="lg">
-            <Link href="/sign-up">
+            <Link href="/sign-up" prefetch={false}>
               Get Started
               <ArrowRight aria-hidden className="size-4" />
             </Link>

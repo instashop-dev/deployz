@@ -6,9 +6,29 @@ import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
+// The same build answers on two hostnames, so relative metadata URLs would
+// resolve differently depending on which one the reader arrived at. Pinning
+// metadataBase to the marketing origin makes every canonical and Open Graph
+// URL point at deployz.dev regardless — the app host is marked noindex in
+// middleware.ts, so marketing is the only version that should be indexed.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+
 export const metadata: Metadata = {
-  title: 'Deployz',
+  metadataBase: new URL(siteUrl),
+  // A template, so each page names itself and only the home page falls back
+  // to the bare product name. Every public page used to render the same
+  // <title>Deployz</title>, which is both a search-result problem and a
+  // usability one once a visitor has more than one tab open.
+  title: { default: 'Deployz', template: '%s · Deployz' },
   description: 'Deploy your app into your customers’ cloud accounts.',
+  alternates: { canonical: './' },
+  openGraph: {
+    title: 'Deployz',
+    description: 'Deploy your app into your customers’ cloud accounts.',
+    url: './',
+    siteName: 'Deployz',
+    type: 'website',
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

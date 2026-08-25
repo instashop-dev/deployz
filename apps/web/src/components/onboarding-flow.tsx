@@ -7,12 +7,21 @@ import { cn } from '@/lib/utils';
 export interface OnboardingFlowProps {
   /** 1-based current step (1..6). Lower steps render complete; higher muted. */
   currentStep: number;
+  /**
+   * Per-step completion straight from GET /api/onboarding, in step order.
+   *
+   * Without it a step the API reports as done still rendered as pending,
+   * because completion was inferred from `currentStep` alone — so an
+   * organization that had already made a test deployment saw that step greyed
+   * out while an earlier one was current.
+   */
+  completed?: readonly boolean[];
 }
 
 // §42 six-step onboarding — the vendor's first-run flow. Success is readiness,
 // not first install (§5). The step labels come VERBATIM from ONBOARDING_STEPS.
 // Presentational only: the caller derives `currentStep` from real state.
-export function OnboardingFlow({ currentStep }: OnboardingFlowProps) {
+export function OnboardingFlow({ currentStep, completed }: OnboardingFlowProps) {
   return (
     <ol
       aria-label="Getting your app ready"
@@ -21,7 +30,7 @@ export function OnboardingFlow({ currentStep }: OnboardingFlowProps) {
     >
       {ONBOARDING_STEPS.map((label, index) => {
         const step = index + 1;
-        const complete = step < currentStep;
+        const complete = completed?.[index] ?? step < currentStep;
         const current = step === currentStep;
         return (
           <li

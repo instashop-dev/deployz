@@ -13,7 +13,7 @@ import {
   buildAppJwt,
   buildFileTreeForAnalysis,
   createAppJwt,
-  createGithubStore,
+  InMemoryGithubInstallationStore,
   createInstallationToken,
   fetchRepositoryTreeEntries,
   getFileTreeForAnalysis,
@@ -99,8 +99,11 @@ describe('github — App JWT (RS256)', () => {
 
     expect(decodeJwtSegment(header!)).toStrictEqual({ alg: 'RS256', typ: 'JWT' });
     const claims = decodeJwtSegment(payload!) as { iat: number; exp: number; iss: string };
-    expect(claims.iat).toBe(1_700_000_000);
-    expect(claims.exp).toBe(1_700_000_600); // iat + 10 minutes (GitHub max)
+    // Backdated by the 60s skew margin, expiring 60s inside GitHub's 10-minute
+    // ceiling: GitHub compares both claims against ITS clock, so issuing at
+    // exactly now + 600 is rejected whenever our clock runs a moment fast.
+    expect(claims.iat).toBe(1_699_999_940);
+    expect(claims.exp).toBe(1_700_000_420);
     expect(claims.iss).toBe(TEST_APP_ID);
     expect(signature).toBe(`sig-of-${`${header}.${payload}`.length}`);
   });
@@ -168,51 +171,42 @@ describe('github — installation token vending + S4 permission scope', () => {
   });
 });
 
-describe('github — installation created/deleted handling', () => {
-  it('stores the installation on installation.created (resolver returns an org)', async () => {
-    const store = createGithubStore();
+describe('github — installation deleted handling', () => {
+  it('removes the installation on installation.deleted', async () => {
+    const store = new InMemoryGithubInstallationStore();
+    await store.set({ id: '77', organizationId: 'org-1', accountLogin: 'acme', accountType: 'Organization' });
+    const event: GithubWebhookEvent = { type: 'installation', action: 'deleted', installation: { id: 77 } };
+    const result = await handleInstallationWebhook(store, event);
+    expect(result).toBe('removed');
+    expect(await store.listByOrganization('org-1')).toEqual([]);
+  });
+
+  it('ignores non-installation events', async () => {
+    const store = new InMemoryGithubInstallationStore();
+    const event: GithubWebhookEvent = { type: 'push' };
+    expect(await handleInstallationWebhook(store, event)).toBe('ignored');
+  });
+
+  // installation.created carries a GitHub account, not a Deployz tenant —
+  // the binding is made by GET /api/github/setup, where the vendor's session
+  // is present.
+  it('ignores installation.created', async () => {
+    const store = new InMemoryGithubInstallationStore();
     const event: GithubWebhookEvent = {
       type: 'installation',
       action: 'created',
       installation: { id: 77, account: { login: 'acme', type: 'Organization' } },
     };
-    const result = await handleInstallationWebhook(store, event, async () => 'org-1');
-    expect(result).toBe('stored');
-    expect(store.listByOrganization('org-1')).toEqual([
-      { id: '77', organizationId: 'org-1', accountLogin: 'acme', accountType: 'Organization' },
-    ]);
-  });
-
-  it('removes the installation on installation.deleted', async () => {
-    const store = createGithubStore();
-    store.set({ id: '77', organizationId: 'org-1', accountLogin: 'acme', accountType: 'Organization' });
-    const event: GithubWebhookEvent = { type: 'installation', action: 'deleted', installation: { id: 77 } };
-    const result = await handleInstallationWebhook(store, event, async () => 'org-1');
-    expect(result).toBe('removed');
-    expect(store.listByOrganization('org-1')).toEqual([]);
-  });
-
-  it('ignores non-installation events', async () => {
-    const store = createGithubStore();
-    const event: GithubWebhookEvent = { type: 'push' };
-    expect(await handleInstallationWebhook(store, event, async () => 'org-1')).toBe('ignored');
-  });
-
-  it('ignores installation.created when the account has no resolvable org', async () => {
-    const store = createGithubStore();
-    const event: GithubWebhookEvent = {
-      type: 'installation',
-      action: 'created',
-      installation: { id: 77, account: { login: 'acme' } },
-    };
-    expect(await handleInstallationWebhook(store, event, async () => null)).toBe('ignored');
-    expect(store.listByOrganization('org-1')).toEqual([]);
+    expect(await handleInstallationWebhook(store, event)).toBe('ignored');
+    expect(await store.listByOrganization('org-1')).toEqual([]);
   });
 });
 
 describe('github — fixture-backed list helpers', () => {
   it('lists fixture installations in fixture mode', async () => {
-    const installations = await listInstallations(createGithubStore(), 'org-1', { fixtureMode: true });
+    const installations = await listInstallations(new InMemoryGithubInstallationStore(), 'org-1', {
+      fixtureMode: true,
+    });
     expect(installations).toEqual([
       { id: 'fixture-install-1', accountLogin: 'deployz-demo', accountType: 'Organization' },
     ]);
@@ -232,7 +226,9 @@ describe('github — fixture-backed list helpers', () => {
   });
 
   it('is empty when not in fixture mode and the store is empty', async () => {
-    const installations = await listInstallations(createGithubStore(), 'org-1', { fixtureMode: false });
+    const installations = await listInstallations(new InMemoryGithubInstallationStore(), 'org-1', {
+      fixtureMode: false,
+    });
     expect(installations).toEqual([]);
   });
 });
@@ -458,6 +454,9 @@ describe('github — server routes over PGlite', () => {
       db,
       githubWebhookSecret: WEBHOOK_SECRET,
       githubFixtureMode: true,
+      // Empty = no App install URL. Without saying so, this suite passed only
+      // on a machine with no .env and failed wherever one was present.
+      githubAppInstallUrl: '',
     });
   }, 60_000);
 
@@ -539,7 +538,12 @@ describe('github — server routes over PGlite', () => {
   });
 
   it('returns 503 for the webhook when no secret is configured', async () => {
-    const bareApp = await buildServer({ auth, db, githubFixtureMode: true });
+    const bareApp = await buildServer({
+      auth,
+      db,
+      githubFixtureMode: true,
+      githubWebhookSecret: '', // explicitly unconfigured, never "whatever .env has"
+    });
     const payload = JSON.stringify({ action: 'created', installation: { id: 1 } });
     const response = await bareApp.inject({
       method: 'POST',

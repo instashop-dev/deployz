@@ -33,7 +33,7 @@ export {
 } from './quick-create/index.js';
 export type {
   QuickCreateUrlOptions,
-  BootstrapQuickCreateUrlOptions,
+  BootstrapQuickCreateOptions,
   S3Client,
   TemplateAsset,
   SynthOutput,

@@ -29,7 +29,22 @@ export class SesEmailSender implements EmailSender {
   private readonly client: SESClient;
 
   constructor(private readonly from: string, region = env.awsRegion) {
-    this.client = new SESClient({ region });
+    // The verified sending identity lives in a different AWS account from the
+    // one the API Lambda runs in, so the default credential chain (the Lambda
+    // execution role) is denied ses:SendEmail. When the dedicated SES keys are
+    // configured, use them; otherwise fall back to the chain, which is what
+    // local dev and any same-account deployment want.
+    this.client = new SESClient({
+      region,
+      ...(env.sesAccessKeyId && env.sesSecretAccessKey
+        ? {
+            credentials: {
+              accessKeyId: env.sesAccessKeyId,
+              secretAccessKey: env.sesSecretAccessKey,
+            },
+          }
+        : {}),
+    });
   }
 
   async send(message: EmailMessage): Promise<void> {

@@ -1,6 +1,11 @@
 import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-import { failureCodeEnum, jobStateEnum, jobTypeEnum } from '../enums.js';
+import {
+  aiExplanationStateEnum,
+  failureCodeEnum,
+  jobStateEnum,
+  jobTypeEnum,
+} from '../enums.js';
 import { auditFields, id } from './common.js';
 import { deployments } from './deployments.js';
 
@@ -26,5 +31,23 @@ export const deploymentJobs = pgTable('deployment_jobs', {
   requestedBy: text('requested_by'),
   startedAt: timestamp('started_at', { withTimezone: true }),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
+  // §16/§29 cached AI explanation of this attempt's failure. Generated lazily
+  // on the first diagnostics request and served from here afterwards, so a
+  // deployment never waits on (or fails because of) the model. Cached on the
+  // ATTEMPT rather than the deployment: a later attempt gets its own
+  // explanation instead of inheriting a stale one.
+  aiExplanationState: aiExplanationStateEnum('ai_explanation_state')
+    .notNull()
+    .default('PENDING'),
+  aiExplanationWhat: text('ai_explanation_what'),
+  aiExplanationWhy: text('ai_explanation_why'),
+  aiExplanationFix: text('ai_explanation_fix'),
+  // When the GENERATING claim was taken. Lets a later request reclaim a row
+  // orphaned by a process that died mid-generation, which would otherwise pin
+  // the attempt in GENERATING forever.
+  aiExplanationClaimedAt: timestamp('ai_explanation_claimed_at', { withTimezone: true }),
+  aiExplanationGeneratedAt: timestamp('ai_explanation_generated_at', {
+    withTimezone: true,
+  }),
   ...auditFields(),
 });
