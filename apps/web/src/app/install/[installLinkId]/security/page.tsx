@@ -319,9 +319,12 @@ export default async function SecurityDetailsPage({
             <ActionList actions={DENIED_LOG_READ_ACTIONS} />
             <p>
               The install-time ceiling (a permissions boundary) is the union of phases 1 and 2 —
-              the relay&apos;s permissions can never grow beyond this page. Every phase-2 action
-              is constrained by the <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{TAG_BOUNDARY_KEY}</code>{' '}
-              tag boundary.
+              the relay&apos;s permissions can never grow beyond this page. Almost every phase-2
+              action is constrained by the{' '}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{TAG_BOUNDARY_KEY}</code>{' '}
+              tag boundary; the two exceptions above (handing off the service role, and reading
+              load-balancer listener info) use a role path and a no-condition read instead, for
+              the reasons explained there.
             </p>
           </DetailSection>
         </div>
