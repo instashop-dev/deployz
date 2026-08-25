@@ -31,6 +31,20 @@ function allResources(template: Template): Record<string, TemplateResource> {
 }
 
 /**
+ * Replace every bundled-asset hash with a fixed placeholder.
+ *
+ * esbuild emits a byte-different bundle on Windows and on Linux, so the hash
+ * in `Code.S3Key` depends on the machine that ran the test, not on the stack.
+ * Without this the committed snapshot fails everywhere except the platform
+ * that wrote it.
+ */
+function withStableAssetHashes(template: unknown): unknown {
+  return JSON.parse(
+    JSON.stringify(template).replace(/[0-9a-f]{64}\.zip/g, '<asset-hash>.zip'),
+  );
+}
+
+/**
  * Collect every IAM action granted anywhere in the template: inline role
  * `Policies`, standalone `AWS::IAM::Policy`, and `AWS::IAM::ManagedPolicy`.
  */
@@ -317,6 +331,6 @@ describe('BootstrapStack', () => {
 
   it('matches the committed snapshot', () => {
     const { template } = synth();
-    expect(template.toJSON()).toMatchSnapshot();
+    expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();
   });
 });

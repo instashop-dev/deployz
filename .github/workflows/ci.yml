@@ -27,9 +27,6 @@ jobs:
       - name: Build workspace packages
         run: pnpm build
 
-      - name: Update CDK snapshots (platform-specific S3Key hashes)
-        run: pnpm vitest run packages/cdk/test/bootstrap-stack.test.ts packages/cdk/test/application-stack.test.ts -u || true
-
       - name: Run tests
         run: pnpm vitest run
 
