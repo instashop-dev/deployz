@@ -626,6 +626,33 @@ describe('server — PATCH/DELETE /api/applications/:id (§36,§37)', () => {
     expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
   });
 
+  it('PATCH records a changed contract field as a vendor override', async () => {
+    const application = await insertApplication(db, org.organizationId, { containerPort: 3000 });
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { containerPort: 8080 }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    const metadata = (response.json() as { detectedMetadata: { vendorOverrides?: string[] } }).detectedMetadata;
+    expect(metadata.vendorOverrides).toEqual(['containerPort']);
+  });
+
+  it('PATCH does not claim a contract field the vendor re-submitted unchanged', async () => {
+    const application = await insertApplication(db, org.organizationId, { containerPort: 3000, healthPath: '/health' });
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { containerPort: 3000, healthPath: '/live' }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    const metadata = (response.json() as { detectedMetadata: { vendorOverrides?: string[] } }).detectedMetadata;
+    expect(metadata.vendorOverrides).toEqual(['healthPath']);
+  });
+
+  it('PATCH keeps the analysis findings on detectedMetadata when claiming a field', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      containerPort: 3000,
+      detectedMetadata: { checks: { ready: [{ label: 'Dockerfile found' }] } },
+    });
+    const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { containerPort: 8080 }, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    const metadata = (response.json() as { detectedMetadata: Record<string, unknown> }).detectedMetadata;
+    expect(metadata['checks']).toEqual({ ready: [{ label: 'Dockerfile found' }] });
+  });
+
   it('PATCH sets updatedBy to the session user id', async () => {
     const application = await insertApplication(db, org.organizationId);
     const response = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { name: 'Updated' }, { cookie: org.cookie });

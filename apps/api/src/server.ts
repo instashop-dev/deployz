@@ -11,7 +11,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
-import { createAnalysisRunner, type AnalysisRunner } from './analysis.js';
+import { createAnalysisRunner, readVendorOverrides, type AnalysisRunner } from './analysis.js';
 import {
   createCheckoutSession,
   createStripe,
@@ -102,6 +102,18 @@ const METERED_PRICE_DOLLARS = METERED_PRICE_CENTS / 100;
 // would raise a Postgres "invalid input syntax for type uuid" error and
 // surface as a 500, so non-uuid ids map to 404 instead.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The §35 contract fields the analyser auto-detects and the vendor can take
+// ownership of by editing them (see PATCH /api/applications/:id). `name` is
+// not one — the analyser never writes it.
+const CONTRACT_FIELDS = [
+  'containerPort',
+  'healthPath',
+  'migrationCommand',
+  'workerCommand',
+  'databaseRequired',
+  'storageRequired',
+] as const;
 
 function requireUuidId(id: string): void {
   if (!UUID_PATTERN.test(id)) {
@@ -1044,15 +1056,14 @@ export async function buildServer({
   });
 
   // PATCH /api/applications/:id — Update deployability fields
-  // ⚠️ Race with analysis.ts:302 deriveContractFieldUpdates: the analysis
-  // pipeline runs fire-and-forget and backfills the same contract fields
-  // (containerPort, healthPath, migrationCommand, etc.) from auto-detected
-  // values. A PATCH that lands before the analysis completes may be
-  // overwritten when the analysis persists its results. The analysis only
-  // writes where the row is still null (nullable fields) or false (booleans),
-  // so a user-set non-null value survives — but a PATCH that sets a field
-  // from null → value and the analysis that loaded the row before the PATCH
-  // both write, and the last writer wins.
+  // A field the vendor actually CHANGES here becomes vendor-owned: it is
+  // recorded on detected_metadata.vendorOverrides and analysis.ts never
+  // auto-detects it again (§35 provenance). Everything else stays
+  // auto-detected, so a re-analysis keeps tracking the repository.
+  // ⚠️ Race with the fire-and-forget analysis run: a PATCH that lands while
+  // an analysis is in flight can still be overwritten by that run's write —
+  // the override is recorded, but the analysis loaded the row before it. The
+  // UI warns against editing mid-analysis; re-saving after it settles wins.
   app.patch('/api/applications/:id', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
@@ -1067,6 +1078,15 @@ export async function buildServer({
     if (body.databaseRequired !== undefined) set.databaseRequired = body.databaseRequired;
     if (body.storageRequired !== undefined) set.storageRequired = body.storageRequired;
     if (Object.keys(set).length === 0) return existing;
+    // The details form re-submits every field on every save, so only a value
+    // that actually differs counts as the vendor claiming that field.
+    const claimed = CONTRACT_FIELDS.filter(
+      (field) => set[field] !== undefined && set[field] !== existing[field],
+    );
+    if (claimed.length > 0) {
+      const overrides = new Set([...readVendorOverrides(existing.detectedMetadata), ...claimed]);
+      set.detectedMetadata = { ...(existing.detectedMetadata ?? {}), vendorOverrides: [...overrides] };
+    }
     set.updatedBy = request.user?.id ?? null;
     const [row] = await db
       .update(schema.applications)

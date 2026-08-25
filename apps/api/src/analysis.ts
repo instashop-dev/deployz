@@ -70,7 +70,11 @@ export async function runApplicationAnalysis(
     const analysis = analyseRepo(tree);
     const compatibility = evaluateCompatibility(analysis);
     const checks = buildChecks(analysis, compatibility);
-    const contractFieldUpdates = deriveContractFieldUpdates(application, tree, analysis);
+    // The vendor-owned field list lives on detected_metadata, which this
+    // write replaces wholesale — carry it across or every re-analysis would
+    // forget which fields the vendor edited.
+    const vendorOverrides = readVendorOverrides(application.detectedMetadata);
+    const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, analysis);
 
     await deps.db
       .update(schema.applications)
@@ -78,7 +82,7 @@ export async function runApplicationAnalysis(
         analysisStatus: 'COMPLETE',
         compatibilityStatus: compatibility.verdict,
         compatibilityReason: compatibility.reason,
-        detectedMetadata: { ...analysis.metadata, checks },
+        detectedMetadata: { ...analysis.metadata, checks, vendorOverrides },
         ...contractFieldUpdates,
       })
       .where(eq(schema.applications.id, applicationId));
@@ -293,21 +297,42 @@ interface ContractFieldUpdates {
 }
 
 /**
- * Backfills the §35 contract fields the analyser found — but ONLY where the
- * application row doesn't already carry a value (nullable fields: null;
- * boolean fields: an auto-detected `true` never overrides a value the
- * vendor already set, and a still-default `false` may be upgraded to `true`
- * when the analyser found positive evidence — never downgraded).
+ * The §35 contract fields the vendor has explicitly edited, as recorded by
+ * PATCH /api/applications/:id on `detected_metadata.vendorOverrides`. Any
+ * other shape (older rows, hand-written metadata) reads as "nothing is
+ * vendor-owned yet".
+ */
+export function readVendorOverrides(metadata: Record<string, unknown> | null): string[] {
+  const raw = metadata?.['vendorOverrides'];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is string => typeof entry === 'string');
+}
+
+/**
+ * Writes the §35 contract fields the analyser found, so a re-analysis picks
+ * up what actually changed in the repository (a moved port, a new /health
+ * route, a renamed migrate script). Two rules bound it:
+ *
+ *   - A field the vendor edited (`vendorOverrides`) is never touched again.
+ *     Being non-null is NOT enough on its own — the previous analysis wrote
+ *     most of these values, and treating its own output as vendor intent is
+ *     exactly what froze re-analysis.
+ *   - Only a positive detection writes. Finding nothing never clears an
+ *     existing value: a single unreadable blob drops that file from the
+ *     tree (fetchBlobContent returns null on error), so "not detected" is
+ *     not reliable enough to wipe a vendor's deployment contract. Booleans
+ *     move false -> true on evidence, never back.
  */
 function deriveContractFieldUpdates(
-  application: ApplicationRow,
+  vendorOverrides: string[],
   tree: FileTree,
   analysis: AnalysisResult,
 ): ContractFieldUpdates {
   const updates: ContractFieldUpdates = {};
+  const vendorOwned = new Set(vendorOverrides);
   const finding = (name: string) => analysis.findings.find((f) => f.detector === name);
 
-  if (application.containerPort === null) {
+  if (!vendorOwned.has('containerPort')) {
     const port = finding('port');
     if (port?.detected && typeof port.value === 'string') {
       const parsed = Number.parseInt(port.value, 10);
@@ -317,7 +342,7 @@ function deriveContractFieldUpdates(
     }
   }
 
-  if (application.healthPath === null) {
+  if (!vendorOwned.has('healthPath')) {
     const health = finding('health-endpoint');
     if (health?.detected) {
       // §18's health-endpoint detector only ever matches the literal
@@ -329,22 +354,22 @@ function deriveContractFieldUpdates(
 
   const scripts = parsePackageJsonScripts(tree);
 
-  if (application.migrationCommand === null) {
+  if (!vendorOwned.has('migrationCommand')) {
     const command = findScriptCommand(scripts, MIGRATION_SCRIPT_KEY_REGEX);
     if (command) updates.migrationCommand = command;
   }
 
-  if (application.workerCommand === null) {
+  if (!vendorOwned.has('workerCommand')) {
     const command = findScriptCommand(scripts, WORKER_SCRIPT_KEY_REGEX);
     if (command) updates.workerCommand = command;
   }
 
-  if (!application.databaseRequired) {
+  if (!vendorOwned.has('databaseRequired')) {
     const postgresql = finding('postgresql');
     if (postgresql?.detected) updates.databaseRequired = true;
   }
 
-  if (!application.storageRequired) {
+  if (!vendorOwned.has('storageRequired')) {
     const s3 = finding('s3');
     if (s3?.detected) updates.storageRequired = true;
   }

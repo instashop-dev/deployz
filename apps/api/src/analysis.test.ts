@@ -116,20 +116,51 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(checks.unsupported.some((c) => c.title === 'Redis is not supported')).toBe(true);
   });
 
-  it('never overrides a contract field the vendor already set', async () => {
+  it('refreshes a previously auto-detected contract field when the repo has changed', async () => {
+    // The values a PREVIOUS analysis wrote, before the repo changed. Nothing
+    // marks them as vendor-owned, so re-analysis must replace them.
+    const application = await insertApplication(db, orgId, {
+      repoFullName: 'deployz-demo/express-api',
+      containerPort: 9999,
+      migrationCommand: 'npm run old:migrate',
+    });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.containerPort).toBe(3000);
+    expect(row.migrationCommand).toBe('npx drizzle-kit push');
+  });
+
+  it('never overrides a contract field the vendor edited', async () => {
     const application = await insertApplication(db, orgId, {
       repoFullName: 'deployz-demo/express-api',
       containerPort: 8080,
-      databaseRequired: false,
+      detectedMetadata: { vendorOverrides: ['containerPort'] },
     });
 
     await runApplicationAnalysis(deps, application.id);
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
-    // Explicitly set before analysis ran -> untouched, even though the
-    // detector would have found 3000.
+    // Vendor-owned -> untouched, even though the detector found 3000.
     expect(row.containerPort).toBe(8080);
+    // Fields the vendor never touched still refresh.
+    expect(row.healthPath).toBe('/health');
+  });
+
+  it('carries the vendor-override list across the analysis write', async () => {
+    const application = await insertApplication(db, orgId, {
+      repoFullName: 'deployz-demo/express-api',
+      containerPort: 8080,
+      detectedMetadata: { vendorOverrides: ['containerPort'] },
+    });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    const metadata = row.detectedMetadata as { vendorOverrides?: string[] };
+    expect(metadata.vendorOverrides).toEqual(['containerPort']);
   });
 
   it('is a no-op (never throws) when the application row no longer exists', async () => {

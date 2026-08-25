@@ -78,3 +78,30 @@ test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => 
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(JARGON);
 });
+
+test('re-analysing settles the button back to Re-analyse and refreshes the application row', async ({
+  page,
+}) => {
+  await signUp(page);
+  await page.goto('/dashboard/applications');
+  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.waitForURL(/\/dashboard\/applications\/([0-9a-f-]{36})$/);
+  await expect(page.getByTestId('readiness-verdict')).toBeVisible();
+
+  const applicationId = page.url().split('/').pop()!;
+  // Stand in for the change a real re-analysis persists: the row moves
+  // underneath the page while it is on screen.
+  const renamed = await page.request.patch(
+    `http://localhost:${process.env.API_PORT ?? 3001}/api/applications/${applicationId}`,
+    { data: { name: 'Renamed Elsewhere' } },
+  );
+  expect(renamed.ok()).toBe(true);
+
+  await page.getByTestId('app-details-reanalyse').click();
+
+  // The button must come back — analysis settles, so it can be run again.
+  await expect(page.getByTestId('app-details-reanalyse')).toBeEnabled({ timeout: 20_000 });
+  await expect(page.getByTestId('app-details-reanalyse')).toHaveText('Re-analyse');
+  // ...and the page shows the row as it now is, without a manual reload.
+  await expect(page.getByRole('heading', { name: 'Renamed Elsewhere' })).toBeVisible();
+});

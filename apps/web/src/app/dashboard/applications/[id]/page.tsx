@@ -27,6 +27,17 @@ import { deriveOnboardingStep, fetchReadiness, type ApplicationReadiness } from 
 /** How often to re-check a still-running analysis (§19). */
 const ANALYSIS_POLL_MS = 2000;
 
+// An analysis rewrites the application row (the §35 contract fields it
+// detected) as well as the readiness verdict, so the two are always re-read
+// together — refreshing the verdict alone leaves the details card showing
+// pre-analysis values until the vendor reloads by hand.
+async function fetchAnalysedState(
+  id: string,
+): Promise<{ application: Application; readiness: ApplicationReadiness }> {
+  const [application, readiness] = await Promise.all([fetchApplication(id), fetchReadiness(id)]);
+  return { application, readiness };
+}
+
 type PageState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
@@ -88,10 +99,10 @@ export default function ApplicationReadinessPage() {
     if (analysisStatus !== 'PENDING' && analysisStatus !== 'ANALYZING') return;
     let cancelled = false;
     const timer = setInterval(() => {
-      void fetchReadiness(id)
-        .then((readiness) => {
+      void fetchAnalysedState(id)
+        .then((next) => {
           if (cancelled) return;
-          setState((prev) => (prev.status === 'loaded' ? { ...prev, readiness } : prev));
+          setState((prev) => (prev.status === 'loaded' ? { ...prev, ...next } : prev));
         })
         .catch(() => {
           /* A transient failure just means the next tick tries again. */
@@ -134,17 +145,15 @@ export default function ApplicationReadinessPage() {
           onApplicationUpdated={(next) =>
             setState((prev) => (prev.status === 'loaded' ? { ...prev, application: next } : prev))
           }
-          onReanalyseTriggered={() => {
-            void fetchReadiness(id)
-              .then((readiness) =>
-                setState((prev) =>
-                  prev.status === 'loaded' ? { ...prev, readiness } : prev,
-                ),
+          onReanalyseTriggered={() =>
+            fetchAnalysedState(id)
+              .then((next) =>
+                setState((prev) => (prev.status === 'loaded' ? { ...prev, ...next } : prev)),
               )
               .catch(() => {
                 /* A transient failure just means the next poll tick tries again. */
-              });
-          }}
+              })
+          }
         />
       ) : null}
     </div>
@@ -162,7 +171,7 @@ function ReadinessBody({
   readiness: ApplicationReadiness;
   testDeploymentCreated: boolean;
   onApplicationUpdated: (next: Application) => void;
-  onReanalyseTriggered: () => void;
+  onReanalyseTriggered: () => Promise<void>;
 }) {
   const currentStep = deriveOnboardingStep({
     analysisStatus: readiness.analysisStatus,
@@ -221,7 +230,7 @@ function ApplicationDetailsSection({
   application: Application;
   analysisStatus: AnalysisStatus;
   onApplicationUpdated: (next: Application) => void;
-  onReanalyseTriggered: () => void;
+  onReanalyseTriggered: () => Promise<void>;
 }) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [version, setVersion] = useState(0);
@@ -255,13 +264,33 @@ function ApplicationDetailsSection({
     setTriggering(true);
     try {
       await triggerAnalysis(application.id);
-      onReanalyseTriggered();
+      await onReanalyseTriggered();
     } catch {
+      /* The button re-enables below, so the vendor can just try again. */
+    } finally {
+      // From here the run belongs to the server: `analysisStatus` keeps the
+      // button disabled while it is ANALYZING and releases it when the poll
+      // sees it settle. Leaving `triggering` set stranded the button on
+      // "Re-analysing…" for the rest of the page's life.
       setTriggering(false);
     }
   }
 
   const reanalyseDisabled = analysisStatus === 'ANALYZING' || triggering;
+
+  // The inputs are uncontrolled (defaultValue), so the form only picks up new
+  // values by remounting. Keyed on the detected values themselves rather than
+  // on the row's updatedAt: an analysis that changed nothing the vendor can
+  // see must not remount the form and discard what they are typing.
+  const detectedValuesKey = [
+    application.containerPort,
+    application.healthPath,
+    application.migrationCommand,
+    application.workerCommand,
+    application.databaseRequired,
+    application.storageRequired,
+    version,
+  ].join('|');
 
   return (
     <Card data-testid="app-details">
@@ -274,7 +303,7 @@ function ApplicationDetailsSection({
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <form
-          key={version}
+          key={detectedValuesKey}
           onSubmit={handleSubmit}
           className="flex flex-col gap-5"
           data-testid="app-details-form"
