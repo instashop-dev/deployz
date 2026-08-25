@@ -7,6 +7,7 @@ import * as schema from '@deployz/db/schema';
 
 import {
   applyDomainJobResult,
+  classifyDomainUniqueViolation,
   createCustomDomain,
   ensureConfigureJob,
   findActiveDomain,
@@ -318,6 +319,28 @@ describe('domains (custom-domain service)', () => {
       expect((await reload(domain.id)).lastError).toBe('AWS_PERMISSION_DENIED');
     });
 
+    it('CONFIGURE failure on an ACTIVE domain is ignored (a stale failure must never knock it offline)', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      const job = await configureJobFor(deployment.id);
+      await db
+        .update(schema.customDomains)
+        .set({ status: 'ACTIVE' })
+        .where(eq(schema.customDomains.id, domain.id));
+
+      await applyDomainJobResult(db, deployment, job, { success: false, error: 'stale failure' });
+
+      const reloaded = await reload(domain.id);
+      expect(reloaded.status).toBe('ACTIVE');
+      expect(reloaded.lastError).toBeNull();
+
+      const events = await db
+        .select()
+        .from(schema.eventLogs)
+        .where(and(eq(schema.eventLogs.deploymentId, deployment.id), eq(schema.eventLogs.eventType, 'domain.failed')));
+      expect(events).toHaveLength(0);
+    });
+
     it('CONFIGURE result while REMOVING is ignored (stale result changes nothing)', async () => {
       const { deployment } = await seedDeployment();
       const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
@@ -407,6 +430,31 @@ describe('domains (custom-domain service)', () => {
       expect(isDomainJobType('CONFIGURE_DOMAIN')).toBe(true);
       expect(isDomainJobType('REMOVE_DOMAIN')).toBe(true);
       expect(isDomainJobType('DEPLOY_RELEASE')).toBe(false);
+    });
+  });
+
+  describe('classifyDomainUniqueViolation', () => {
+    it('classifies the deployment-idx constraint as DOMAIN_EXISTS', () => {
+      expect(
+        classifyDomainUniqueViolation({ code: '23505', constraint: 'custom_domains_active_deployment_idx' }),
+      ).toBe('DOMAIN_EXISTS');
+    });
+
+    it('classifies the hostname-idx constraint as DOMAIN_TAKEN', () => {
+      expect(
+        classifyDomainUniqueViolation({ code: '23505', constraint: 'custom_domains_active_hostname_idx' }),
+      ).toBe('DOMAIN_TAKEN');
+    });
+
+    it('classifies a 23505 with an unknown or missing constraint as DOMAIN_TAKEN (ambiguous prefers DOMAIN_TAKEN)', () => {
+      expect(classifyDomainUniqueViolation({ code: '23505', constraint: 'some_other_idx' })).toBe('DOMAIN_TAKEN');
+      expect(classifyDomainUniqueViolation({ code: '23505' })).toBe('DOMAIN_TAKEN');
+    });
+
+    it('returns null for a non-23505 error (caller rethrows)', () => {
+      expect(classifyDomainUniqueViolation({ code: '23503' })).toBeNull();
+      expect(classifyDomainUniqueViolation(new Error('boom'))).toBeNull();
+      expect(classifyDomainUniqueViolation(undefined)).toBeNull();
     });
   });
 

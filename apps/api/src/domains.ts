@@ -36,6 +36,26 @@ export function isDomainJobType(type: string): boolean {
   return DOMAIN_JOB_TYPES.has(type);
 }
 
+/**
+ * Classifies a Postgres unique-violation (23505) against the two partial
+ * unique indexes on custom_domains, so createCustomDomain's insert-race
+ * catch can surface the SAME 409 a pre-check would have thrown. Returns
+ * null for anything that is not a 23505 — the caller should rethrow those.
+ */
+export function classifyDomainUniqueViolation(error: unknown): 'DOMAIN_EXISTS' | 'DOMAIN_TAKEN' | null {
+  const code = (error as { code?: string } | undefined)?.code;
+  if (code !== '23505') {
+    return null;
+  }
+  const constraint = (error as { constraint?: string } | undefined)?.constraint;
+  if (constraint === 'custom_domains_active_deployment_idx') {
+    return 'DOMAIN_EXISTS';
+  }
+  // 'custom_domains_active_hostname_idx' or an ambiguous/unknown constraint —
+  // prefer DOMAIN_TAKEN, the more conservative of the two 409s.
+  return 'DOMAIN_TAKEN';
+}
+
 // Jobs in these states are still on their way to a result — a caller must
 // not mint a second one on top of them.
 const IN_FLIGHT_JOB_STATES = new Set(['REQUESTED', 'QUEUED', 'RUNNING']);
@@ -177,12 +197,11 @@ export async function createCustomDomain(
     // A concurrent request can win the race between our pre-checks above and
     // the insert; the partial unique indexes are the real source of truth,
     // so surface the SAME 409s rather than a raw constraint violation.
-    const code = (error as { code?: string } | undefined)?.code;
-    if (code === '23505') {
-      const constraint = (error as { constraint?: string } | undefined)?.constraint;
-      if (constraint === 'custom_domains_active_deployment_idx') {
-        throw new ApiError(409, 'DOMAIN_EXISTS', 'This deployment already has a custom domain.');
-      }
+    const classification = classifyDomainUniqueViolation(error);
+    if (classification === 'DOMAIN_EXISTS') {
+      throw new ApiError(409, 'DOMAIN_EXISTS', 'This deployment already has a custom domain.');
+    }
+    if (classification === 'DOMAIN_TAKEN') {
       throw new ApiError(409, 'DOMAIN_TAKEN', 'This domain is already connected to a deployment.');
     }
     throw error;
@@ -302,6 +321,11 @@ export async function applyDomainJobResult(
   }
 
   if (!isSuccess) {
+    if (domain.status === 'ACTIVE') {
+      // A late/stale configure failure must never knock an active domain
+      // offline — the domain is already serving traffic successfully.
+      return;
+    }
     const lastError = body.failureCode === 'AWS_PERMISSION_DENIED' ? 'AWS_PERMISSION_DENIED' : 'CONFIGURE_FAILED';
     await tx
       .update(schema.customDomains)
