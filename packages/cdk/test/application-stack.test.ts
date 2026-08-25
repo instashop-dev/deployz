@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import {
-
-import { withStableAssetHashes } from './stable-template.js';
   ApplicationStack,
   type ApplicationStackProps,
 } from '../src/application/application-stack.js';
+
+import { withStableAssetHashes } from './stable-template.js';
 
 function synth(expressMode = false, extraProps: Partial<ApplicationStackProps> = {}) {
   const app = new App();
