@@ -5,6 +5,11 @@
       "Default": "https://api.deployz.dev",
       "Description": "Base URL of the Deployz control plane the relay polls. NOT a credential."
     },
+    "EnrollmentCode": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Single-use code from your install link. Ties this installation to your deployment."
+    },
     "BootstrapVersion": {
       "Type": "AWS::SSM::Parameter::Value<String>",
       "Default": "/cdk-bootstrap/hnb659fds/version",
@@ -364,6 +369,78 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerAppResourceManage"
+            },
+            {
+              "Action": [
+                "acm:RequestCertificate",
+                "acm:AddTagsToCertificate"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAcmRequest"
+            },
+            {
+              "Action": [
+                "acm:DescribeCertificate",
+                "acm:DeleteCertificate",
+                "acm:ListTagsForCertificate"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAcmManage"
+            },
+            {
+              "Action": [
+                "elasticloadbalancing:DescribeListeners",
+                "elasticloadbalancing:DescribeListenerCertificates",
+                "elasticloadbalancing:DescribeTags",
+                "elasticloadbalancing:DescribeRules"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressDescribe"
+            },
+            {
+              "Action": [
+                "elasticloadbalancing:CreateListener",
+                "elasticloadbalancing:ModifyListener",
+                "elasticloadbalancing:DeleteListener",
+                "elasticloadbalancing:AddListenerCertificates",
+                "elasticloadbalancing:RemoveListenerCertificates"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressWrite"
             }
           ],
           "Version": "2012-10-17"
@@ -456,6 +533,78 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerAppResourceManage"
+            },
+            {
+              "Action": [
+                "acm:RequestCertificate",
+                "acm:AddTagsToCertificate"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAcmRequest"
+            },
+            {
+              "Action": [
+                "acm:DescribeCertificate",
+                "acm:DeleteCertificate",
+                "acm:ListTagsForCertificate"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAcmManage"
+            },
+            {
+              "Action": [
+                "elasticloadbalancing:DescribeListeners",
+                "elasticloadbalancing:DescribeListenerCertificates",
+                "elasticloadbalancing:DescribeTags",
+                "elasticloadbalancing:DescribeRules"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressDescribe"
+            },
+            {
+              "Action": [
+                "elasticloadbalancing:CreateListener",
+                "elasticloadbalancing:ModifyListener",
+                "elasticloadbalancing:DeleteListener",
+                "elasticloadbalancing:AddListenerCertificates",
+                "elasticloadbalancing:RemoveListenerCertificates"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressWrite"
             }
           ],
           "Version": "2012-10-17"
@@ -544,7 +693,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "e6e321d9cedd0aa60d2a81b37809a841245463355d323e76561f96fd6d12136d.zip"
+          "S3Key": "ab8b6da6b4796fb7eb4f393d5632eeb7a76c73d989a3d87133bc9b08d9bd0374.zip"
         },
         "Environment": {
           "Variables": {
@@ -559,6 +708,9 @@
             },
             "DEPLOYZ_CONTROL_PLANE_URL": {
               "Ref": "ControlPlaneUrl"
+            },
+            "DEPLOYZ_ENROLLMENT_CODE": {
+              "Ref": "EnrollmentCode"
             }
           }
         },

@@ -143,4 +143,7 @@ export const env = {
   awsRegion: process.env.AWS_REGION ?? 'us-east-1',
   githubFixtureMode:
     process.env.GITHUB_FIXTURE_MODE === 'true' || process.env.GITHUB_FIXTURE_MODE === '1',
+  // Custom-domains MVP E2E fixture mode — see domain-check.ts's
+  // createFixtureDomainCheckDeps. Mirrors githubFixtureMode.
+  domainFixtureMode: process.env.DOMAIN_FIXTURE_MODE === 'true',
 } as const;

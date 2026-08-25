@@ -23,12 +23,13 @@ import type { ScheduledEvent } from 'aws-lambda';
 import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
+import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
 import { pollOnce, type PollDependencies } from './poll.js';
 
 // ── Default command executors ────────────────────────────────────────────────
 
 /**
- * Default executors for the eight command types.
+ * Default executors for the ten command types.
  *
  * ⚠️ THESE ARE STUBS. Each one logs and reports success without touching the
  * customer's account, so a deployment reaches "Healthy" in the control plane
@@ -59,6 +60,15 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
     };
   };
 
+  // Real ACM/ALB clients are lazy SDK singletons (see ./domain.js) — no AWS
+  // SDK call happens until a domain command is actually executed, so this
+  // stays safe to construct even in unit tests that never touch AWS.
+  const installationId = process.env['DEPLOYZ_INSTALLATION_ID'] ?? '';
+  const domainExecutors = createDomainExecutors({
+    ...createRealDomainAwsClients(),
+    installationId,
+  });
+
   return {
     INSTALL: noop,
     REPORT_HEALTH: noop,
@@ -68,6 +78,8 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
     DESTROY: noop,
     MIGRATE: noop,
     REFRESH_METADATA: noop,
+    CONFIGURE_DOMAIN: domainExecutors.CONFIGURE_DOMAIN,
+    REMOVE_DOMAIN: domainExecutors.REMOVE_DOMAIN,
   };
 }
 

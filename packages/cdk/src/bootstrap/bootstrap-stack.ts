@@ -124,6 +124,26 @@ const PHASE_2_APP_RESOURCE_ACTIONS = [
   'elasticloadbalancing:DescribeTargetHealth',
 ] as const;
 
+/** Phase 2 — custom-domain certificate lifecycle (custom-domains MVP). */
+const PHASE_2_ACM_REQUEST_ACTIONS = ['acm:RequestCertificate', 'acm:AddTagsToCertificate'] as const;
+const PHASE_2_ACM_MANAGE_ACTIONS = [
+  'acm:DescribeCertificate',
+  'acm:DeleteCertificate',
+  'acm:ListTagsForCertificate',
+] as const;
+/** Phase 2 — custom-domain HTTPS listener management on the deployment's ALB. */
+const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
+  'elasticloadbalancing:DescribeListeners',
+  'elasticloadbalancing:DescribeListenerCertificates',
+  'elasticloadbalancing:DescribeTags',
+  'elasticloadbalancing:DescribeRules',
+  'elasticloadbalancing:CreateListener',
+  'elasticloadbalancing:ModifyListener',
+  'elasticloadbalancing:DeleteListener',
+  'elasticloadbalancing:AddListenerCertificates',
+  'elasticloadbalancing:RemoveListenerCertificates',
+] as const;
+
 export class BootstrapStack extends Stack {
   public readonly relayFunction: NodejsFunction;
   public readonly relayRole: Role;
@@ -270,11 +290,75 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // Phase 2 — custom-domain certificate lifecycle (custom-domains MVP).
+    // Request/tag requires the request tag (same pattern as stack create);
+    // ACM has no way to scope RequestCertificate to a resource ARN, since the
+    // certificate doesn't exist yet.
+    const phase2AcmRequest = new PolicyStatement({
+      sid: 'ProvisionerAcmRequest',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_ACM_REQUEST_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:RequestTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
+    // Describe/delete/list-tags requires the certificate already carries the
+    // installation's resource tag (same pattern as stack manage/delete).
+    const phase2AcmManage = new PolicyStatement({
+      sid: 'ProvisionerAcmManage',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_ACM_MANAGE_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
+    // Phase 2 — custom-domain HTTPS listener management on the deployment's
+    // ALB. The Describe* actions do not support resource-level restrictions,
+    // so they stay condition-free (read-only); the listener-write actions are
+    // scoped to the ALB/listener resources carrying the installation's tag.
+    const domainIngressReadActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter((action) =>
+      action.startsWith('elasticloadbalancing:Describe'),
+    );
+    const domainIngressWriteActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter(
+      (action) => !action.startsWith('elasticloadbalancing:Describe'),
+    );
+
+    const phase2DomainIngressDescribe = new PolicyStatement({
+      sid: 'ProvisionerDomainIngressDescribe',
+      effect: Effect.ALLOW,
+      actions: domainIngressReadActions,
+      resources: ['*'],
+    });
+
+    const phase2DomainIngressWrite = new PolicyStatement({
+      sid: 'ProvisionerDomainIngressWrite',
+      effect: Effect.ALLOW,
+      actions: domainIngressWriteActions,
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
     const phase2Statements = [
       phase2CreateStacks,
       phase2ManageStacks,
       phase2PassRole,
       phase2AppResources,
+      phase2AcmRequest,
+      phase2AcmManage,
+      phase2DomainIngressDescribe,
+      phase2DomainIngressWrite,
     ];
 
     // The permissions boundary is the CEILING for the relay role: the union of

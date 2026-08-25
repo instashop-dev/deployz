@@ -36,6 +36,7 @@ interface CommandReportPayload {
   success: boolean;
   output?: Record<string, unknown>;
   error?: string;
+  failureCode?: string;
 }
 
 /** Payload for POST /api/relay/health (§59 desired-vs-observed) */
@@ -205,6 +206,7 @@ async function reportCommandResult(
     success: result.success,
     ...(result.output ? { output: result.output } : {}),
     ...(result.error ? { error: result.error } : {}),
+    ...(result.failureCode ? { failureCode: result.failureCode } : {}),
   };
 
   try {

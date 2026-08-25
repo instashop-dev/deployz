@@ -36,6 +36,7 @@ import migration0006 from '../../../db/drizzle/0006_funny_pete_wisdom.sql';
 import migration0007 from '../../../db/drizzle/0007_relay_enrollment.sql';
 import migration0008 from '../../../db/drizzle/0008_github_installations.sql';
 import migration0009 from '../../../db/drizzle/0009_ai_explanation_cache.sql';
+import migration0010 from '../../../db/drizzle/0010_needy_nuke.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -59,6 +60,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0007_relay_enrollment': migration0007,
   '0008_github_installations': migration0008,
   '0009_ai_explanation_cache': migration0009,
+  '0010_needy_nuke': migration0010,
 };
 
 interface RdsSecret {

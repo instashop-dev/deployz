@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { CustomDomainCard } from '@/components/custom-domain-card';
 import { Button } from '@/components/ui/button';
 import { fetchInstallData } from '@/lib/install-data';
 
@@ -63,13 +64,53 @@ export default async function InstallPage({
   // setup again would fail at the point of no return — after the customer has
   // approved a stack in their own account — so say so before they start.
   if (data.alreadyInstalled) {
+    const primaryUrl = data.domain?.status === 'active' ? data.domain.url : null;
     return (
-      <div className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">This app is already set up</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          {data.applicationName} is already running in your cloud account, so this setup link has
-          been used. If you need to install it again, ask {data.publisherName} to send you a new
-          link.
+      <div className="flex flex-col gap-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Running in your cloud account · deployed by {data.publisherName}
+          </p>
+        </div>
+
+        <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
+          <h2 id="deployment-access" className="text-base font-semibold">
+            Access
+          </h2>
+          {primaryUrl ? (
+            <p className="text-sm">
+              Your deployment is available at{' '}
+              <a className="font-medium underline underline-offset-4" href={primaryUrl}>
+                {primaryUrl}
+              </a>
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {data.routingTarget
+                ? 'Set up a custom domain below to give this deployment a permanent address.'
+                : 'This deployment does not have a public address configured yet.'}
+            </p>
+          )}
+          {data.routingTarget ? (
+            <p className="text-xs text-muted-foreground">
+              Deployment endpoint:{' '}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                {data.routingTarget}
+              </code>
+            </p>
+          ) : null}
+        </section>
+
+        <CustomDomainCard
+          deploymentId={data.deploymentId}
+          installLinkId={installLinkId}
+          initialDomain={data.domain}
+        />
+
+        <p className="text-xs text-muted-foreground">
+          This setup link has been used — {data.applicationName} is already installed. To install
+          again, ask {data.publisherName} for a new link.
         </p>
       </div>
     );

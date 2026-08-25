@@ -74,6 +74,8 @@ export const jobTypeEnum = pgEnum('job_type', [
   'HEALTH_REPORT',
   'PREFLIGHT',
   'HEALTH_CHECK',
+  'CONFIGURE_DOMAIN',
+  'REMOVE_DOMAIN',
 ]);
 
 // §39 job states. WAITING semantics: the job is waiting on customer approval
@@ -159,4 +161,17 @@ export const aiExplanationStateEnum = pgEnum('ai_explanation_state', [
   'GENERATING',
   'READY',
   'FAILED',
+]);
+
+// Custom-domain lifecycle (custom-domains MVP). Six states; the UI maps
+// them 1:1 (Setting up / Waiting for DNS / Connecting / Active / Needs
+// attention / Removing). Deliberately separate from deployment_state: a
+// domain failure must never look like a deployment failure.
+export const customDomainStatusEnum = pgEnum('custom_domain_status', [
+  'PENDING',
+  'WAITING_FOR_DNS',
+  'CONFIGURING',
+  'ACTIVE',
+  'ERROR',
+  'REMOVING',
 ]);

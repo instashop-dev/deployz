@@ -42,8 +42,8 @@ function makeExecutors(
 // ── Command vocabulary ───────────────────────────────────────────────────────
 
 describe('command vocabulary', () => {
-  it('has exactly eight command types', () => {
-    expect(RELAY_COMMAND_TYPES).toHaveLength(8);
+  it('has exactly ten command types', () => {
+    expect(RELAY_COMMAND_TYPES).toHaveLength(10);
   });
 
   it('includes all required types', () => {
@@ -55,9 +55,11 @@ describe('command vocabulary', () => {
     expect(RELAY_COMMAND_TYPES).toContain('DESTROY');
     expect(RELAY_COMMAND_TYPES).toContain('MIGRATE');
     expect(RELAY_COMMAND_TYPES).toContain('REFRESH_METADATA');
+    expect(RELAY_COMMAND_TYPES).toContain('CONFIGURE_DOMAIN');
+    expect(RELAY_COMMAND_TYPES).toContain('REMOVE_DOMAIN');
   });
 
-  it('isKnownCommandType returns true for all eight types', () => {
+  it('isKnownCommandType returns true for all ten types', () => {
     for (const type of RELAY_COMMAND_TYPES) {
       expect(isKnownCommandType(type)).toBe(true);
     }

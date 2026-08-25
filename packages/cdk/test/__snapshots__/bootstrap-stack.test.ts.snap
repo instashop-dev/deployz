@@ -474,6 +474,78 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Resource": "*",
               "Sid": "ProvisionerAppResourceManage",
             },
+            {
+              "Action": [
+                "acm:RequestCertificate",
+                "acm:AddTagsToCertificate",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAcmRequest",
+            },
+            {
+              "Action": [
+                "acm:DescribeCertificate",
+                "acm:DeleteCertificate",
+                "acm:ListTagsForCertificate",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAcmManage",
+            },
+            {
+              "Action": [
+                "elasticloadbalancing:DescribeListeners",
+                "elasticloadbalancing:DescribeListenerCertificates",
+                "elasticloadbalancing:DescribeTags",
+                "elasticloadbalancing:DescribeRules",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressDescribe",
+            },
+            {
+              "Action": [
+                "elasticloadbalancing:CreateListener",
+                "elasticloadbalancing:ModifyListener",
+                "elasticloadbalancing:DeleteListener",
+                "elasticloadbalancing:AddListenerCertificates",
+                "elasticloadbalancing:RemoveListenerCertificates",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressWrite",
+            },
           ],
           "Version": "2012-10-17",
         },
@@ -565,6 +637,78 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerAppResourceManage",
+            },
+            {
+              "Action": [
+                "acm:RequestCertificate",
+                "acm:AddTagsToCertificate",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAcmRequest",
+            },
+            {
+              "Action": [
+                "acm:DescribeCertificate",
+                "acm:DeleteCertificate",
+                "acm:ListTagsForCertificate",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerAcmManage",
+            },
+            {
+              "Action": [
+                "elasticloadbalancing:DescribeListeners",
+                "elasticloadbalancing:DescribeListenerCertificates",
+                "elasticloadbalancing:DescribeTags",
+                "elasticloadbalancing:DescribeRules",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressDescribe",
+            },
+            {
+              "Action": [
+                "elasticloadbalancing:CreateListener",
+                "elasticloadbalancing:ModifyListener",
+                "elasticloadbalancing:DeleteListener",
+                "elasticloadbalancing:AddListenerCertificates",
+                "elasticloadbalancing:RemoveListenerCertificates",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressWrite",
             },
           ],
           "Version": "2012-10-17",

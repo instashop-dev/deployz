@@ -7,6 +7,7 @@
 // customer is emailed also the identifier a relay authenticates against.
 
 import { serverApiUrl } from '@/lib/api-url';
+import type { CustomDomainView } from '@/lib/domains';
 
 export interface InstallData {
   applicationName: string;
@@ -24,6 +25,13 @@ export interface InstallData {
   quickCreateUrl: string | null;
   /** True once a relay has enrolled — the link has already been used. */
   alreadyInstalled: boolean;
+  /** The deployment this install link names — needed once installed, to scope the domain card. */
+  deploymentId: string;
+  deploymentState: string;
+  /** This deployment's active custom domain, if any. */
+  domain: CustomDomainView | null;
+  /** The CNAME target a customer without a custom domain yet would point at. */
+  routingTarget: string | null;
 }
 
 /** Fetch the public install page data. Returns null on a 404 (unknown/invalid link). */

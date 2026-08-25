@@ -92,6 +92,16 @@ import {
   type OrganizationDeps,
 } from './organizations.js';
 import { recordEvent, type DeploymentEventType } from './events.js';
+import { createFixtureDomainCheckDeps, createRealDomainCheckDeps, type DomainCheckDeps } from './domain-check.js';
+import {
+  applyDomainJobResult,
+  createCustomDomain,
+  findActiveDomain,
+  isDomainJobType,
+  removeCustomDomain,
+  runDomainCheck,
+  toDomainView,
+} from './domains.js';
 import { deriveHealthStatus, deriveRelayStatus } from './relay-liveness.js';
 import {
   hashRelayToken,
@@ -135,6 +145,10 @@ export interface ServerDeps {
   // env-configured Cloudflare AI Gateway, which degrades to a throwing stub
   // when unconfigured so diagnostics fall back to deterministic remediation.
   aiGateway?: AiGateway | undefined;
+  // Injectable custom-domains MVP DNS/HTTPS-probe seam (runDomainCheck).
+  // Defaults to env.domainFixtureMode's real-vs-fixture split; tests inject a
+  // fake so no real DNS lookup or HTTPS probe ever leaves the machine.
+  domainCheckDeps?: DomainCheckDeps | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -553,6 +567,7 @@ export async function buildServer({
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
   aiGateway = createAiGateway(env.aiGateway),
+  domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
   loggerInstance,
 }: ServerDeps): Promise<FastifyInstance> {
   // `logger: false` meant a 500 left NO trace anywhere: not in CloudWatch, not
@@ -946,6 +961,8 @@ export async function buildServer({
         storageRequired: schema.applications.storageRequired,
         enrollmentCode: schema.deployments.enrollmentCode,
         enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
+        deploymentId: schema.deployments.id,
+        deploymentState: schema.deployments.state,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
@@ -965,12 +982,21 @@ export async function buildServer({
     if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
     if (row.storageRequired) resourcesCreated.push('Storage');
     resourcesCreated.push('Networking', 'Monitoring');
+    // The install link already identifies exactly this deployment, so its
+    // own id/state/domain are within the scope the link already grants —
+    // this is not a tenant-boundary crossing, just more detail about the
+    // one deployment the link names.
+    const domain = await findActiveDomain(db, row.deploymentId);
     return {
       applicationName: row.applicationName,
       publisherName: row.publisherName,
       customerName: row.customerName,
       region: row.region,
       resourcesCreated,
+      deploymentId: row.deploymentId,
+      deploymentState: row.deploymentState,
+      domain: domain ? toDomainView(domain) : null,
+      routingTarget: domain?.routingTarget ?? null,
       // The Quick Create link is built HERE, not in the web app: only the
       // control plane knows which template is currently published, which
       // region this customer's deployment targets, and this deployment's
@@ -1226,6 +1252,8 @@ export async function buildServer({
   const checkoutBodySchema = z.object({
     organizationId: z.string().min(1).optional(),
   });
+
+  const addDomainBodySchema = z.object({ hostname: z.string() });
 
   // ── Applications (§17–§19) ──────────────────────────────────────────────
 
@@ -1548,7 +1576,12 @@ export async function buildServer({
       .from(schema.deploymentJobs)
       .where(eq(schema.deploymentJobs.deploymentId, id))
       .orderBy(schema.deploymentJobs.createdAt);
-    return { ...toFleetRow(rows[0]!), jobs };
+    // Task 11: a compact status/reference for the internal detail page —
+    // attached here rather than inside toFleetRow so the fleet LIST endpoint
+    // doesn't pick up an extra per-row domain query.
+    const domain = await findActiveDomain(db, rows[0]!.deployment.id);
+    const customDomain = domain ? { hostname: domain.hostname, status: domain.status.toLowerCase() } : null;
+    return { ...toFleetRow(rows[0]!), jobs, customDomain };
   });
 
   // ── Releases (§22) ──────────────────────────────────────────────────────
@@ -1856,6 +1889,16 @@ export async function buildServer({
         actorId: request.user?.id ?? null,
       });
     }
+
+    // The stack is coming down — start tearing down any custom domain
+    // alongside it rather than leaving it dangling once the deployment is
+    // gone. The DESTROY-success handler below is the safety net if this
+    // REMOVE_DOMAIN job never finishes.
+    const activeDomain = await findActiveDomain(db, deployment.id);
+    if (activeDomain) {
+      await removeCustomDomain(db, deployment, activeDomain);
+    }
+
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
@@ -1896,6 +1939,67 @@ export async function buildServer({
     });
 
     return { installLinkId: deployment.installLinkId };
+  });
+
+  // ── Custom domain (custom-domains MVP) ────────────────────────────────
+  app.post('/api/deployments/:id/domain', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const actor = requireActor(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const body = addDomainBodySchema.parse(request.body);
+    const domain = await createCustomDomain(db, deployment, body.hostname, actor.id);
+    return reply.code(201).send({ domain: toDomainView(domain) });
+  });
+
+  app.get('/api/deployments/:id/domain', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const domain = await findActiveDomain(db, deployment.id);
+    return { domain: domain ? toDomainView(domain) : null };
+  });
+
+  app.post('/api/deployments/:id/domain/check', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const domain = await findActiveDomain(db, deployment.id);
+    if (!domain) throw new NotFoundError('Custom domain not found');
+    const fresh = await runDomainCheck(db, deployment, domain, domainCheckDeps);
+    return { domain: toDomainView(fresh) };
+  });
+
+  app.delete('/api/deployments/:id/domain', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const domain = await findActiveDomain(db, deployment.id);
+    if (!domain) throw new NotFoundError('Custom domain not found');
+    const fresh = await removeCustomDomain(db, deployment, domain);
+    return { domain: toDomainView(fresh) };
+  });
+
+  // Customer-facing "Check now" — link-scoped like GET /api/install/:installLinkId.
+  // Read-only trigger; runDomainCheck's own interval floor is the rate limit.
+  app.post('/api/install/:installLinkId/domain/check', async (request) => {
+    const { installLinkId } = request.params as { installLinkId: string };
+    requireUuidId(installLinkId);
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installLinkId, installLinkId))
+      .limit(1);
+    const deployment = rows[0];
+    if (!deployment) throw new NotFoundError('Installation not found');
+    const domain = await findActiveDomain(db, deployment.id);
+    if (!domain) throw new NotFoundError('Custom domain not found');
+    const fresh = await runDomainCheck(db, deployment, domain, domainCheckDeps);
+    return { domain: toDomainView(fresh) };
   });
 
   // ── Events & diagnostics (§24, §29, §40) ────────────────────────────────
@@ -2374,7 +2478,13 @@ export async function buildServer({
         : undefined;
 
     // A finished job is what advances the deployment's own §46 state.
-    const nextState = state === 'FAILED' ? 'FAILED' : JOB_SUCCESS_STATE[job.type];
+    // Domain jobs manage the custom_domains row, never the deployment
+    // lifecycle — a failed cert request must not mark the deployment FAILED.
+    const nextState = isDomainJobType(job.type)
+      ? undefined
+      : state === 'FAILED'
+        ? 'FAILED'
+        : JOB_SUCCESS_STATE[job.type];
     const releaseId =
       state === 'SUCCEEDED' && RELEASE_ADVANCING_JOBS.has(job.type)
         ? ((job.payload as { releaseId?: string } | null)?.releaseId ?? null)
@@ -2391,6 +2501,10 @@ export async function buildServer({
         })
         .where(eq(schema.deploymentJobs.id, id));
 
+      if (isDomainJobType(job.type)) {
+        await applyDomainJobResult(tx, deployment, job, body);
+      }
+
       if (nextState) {
         await tx
           .update(schema.deployments)
@@ -2402,6 +2516,21 @@ export async function buildServer({
             ...(nextState === 'DELETED' ? { deletedAt: new Date() } : {}),
           })
           .where(eq(schema.deployments.id, deployment.id));
+      }
+
+      // Safety net: a DESTROY success means the whole stack (and with it any
+      // custom domain's ALB listener/routing) is gone regardless of whether
+      // its own REMOVE_DOMAIN job ever reported back. Force it removed so it
+      // never lingers as a phantom "removing" row for a deployment that no
+      // longer exists.
+      if (job.type === 'DESTROY' && nextState === 'DELETED') {
+        const danglingDomain = await findActiveDomain(tx, deployment.id);
+        if (danglingDomain) {
+          await tx
+            .update(schema.customDomains)
+            .set({ removedAt: new Date() })
+            .where(eq(schema.customDomains.id, danglingDomain.id));
+        }
       }
 
       const eventType = JOB_RESULT_EVENT[job.type]?.[state === 'FAILED' ? 'failed' : 'completed'];
@@ -2488,6 +2617,22 @@ export async function buildServer({
         });
       }
     });
+
+    // Custom-domain auto-check piggybacks on the ~5-minute relay heartbeat —
+    // the existing background cadence, no new scheduler. Best-effort: a DNS
+    // hiccup must never fail a health report.
+    const activeDomain = await findActiveDomain(db, deployment.id);
+    if (
+      activeDomain &&
+      ['PENDING', 'WAITING_FOR_DNS', 'CONFIGURING', 'REMOVING'].includes(activeDomain.status) &&
+      (!activeDomain.lastCheckedAt || Date.now() - activeDomain.lastCheckedAt.getTime() > 180_000)
+    ) {
+      try {
+        await runDomainCheck(db, deployment, activeDomain, domainCheckDeps);
+      } catch {
+        // swallowed — heartbeat must succeed regardless
+      }
+    }
 
     return reply.code(200).send({ received: true });
   });
