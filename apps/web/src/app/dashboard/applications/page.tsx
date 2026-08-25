@@ -1,9 +1,9 @@
 'use client';
 
-import { GitBranch } from 'lucide-react';
+import { GitBranch, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -53,6 +53,8 @@ type GithubState =
 export default function ApplicationsPage() {
   const [appsState, setAppsState] = useState<AppsState>({ status: 'loading' });
   const [githubState, setGithubState] = useState<GithubState>({ status: 'loading' });
+  const [addOpen, setAddOpen] = useState(false);
+  const addSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,13 +112,39 @@ export default function ApplicationsPage() {
     };
   }, []);
 
+  // An org with no applications yet is mid-onboarding (§42 steps 1-2), so the
+  // repo picker stays expanded inline — there is nothing to add *to* and no
+  // list for it to crowd out. Once applications exist the list becomes the
+  // subject of the page and the picker hides behind "Add application", which
+  // is also what makes it obvious you can connect more than one repository.
+  const hasApplications = appsState.status === 'loaded' && appsState.applications.length > 0;
+  const addSectionVisible = !hasApplications || addOpen;
+
+  // The picker renders below the application list, which can sit off-screen on
+  // a long list — scroll it into view so the reveal is never invisible.
+  useEffect(() => {
+    if (addOpen) {
+      addSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [addOpen]);
+
   return (
     <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Applications</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connect your code, then choose which repositories you deploy.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Applications</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {hasApplications
+              ? 'Each application is one repository you deploy to your customers. Add as many as you need.'
+              : 'Connect your code, then choose which repositories you deploy.'}
+          </p>
+        </div>
+        {hasApplications ? (
+          <Button data-testid="add-application-button" onClick={() => setAddOpen(true)}>
+            <Plus className="size-4" aria-hidden />
+            Add application
+          </Button>
+        ) : null}
       </div>
 
       {appsState.status === 'loaded' && appsState.applications.length > 0 ? (
@@ -143,37 +171,57 @@ export default function ApplicationsPage() {
         </section>
       ) : null}
 
-      <section className="flex flex-col gap-6">
-        <h2 className="text-base font-semibold">Add application</h2>
-        {githubState.status === 'loading' ? <LoadingState /> : null}
-        {githubState.status === 'error' ? (
-          <section
-            aria-labelledby="github-error"
-            className="rounded-xl border border-dashed px-6 py-16 text-center"
-          >
-            <h2 id="github-error" className="text-lg font-semibold">
-              Something went wrong
+      {addSectionVisible ? (
+        <section
+          ref={addSectionRef}
+          data-testid="add-application-section"
+          className="flex flex-col gap-6"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold">
+              {hasApplications ? 'Add another application' : 'Add application'}
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">{githubState.message}</p>
-          </section>
-        ) : null}
-        {githubState.status === 'empty' ? (
-          <ConnectGitHubEmptyState connectUrl={githubState.connectUrl} />
-        ) : null}
-        {githubState.status === 'loaded' ? (
-          <RepoList
-            installations={githubState.installations}
-            repositories={githubState.repositories}
-            connectedRepos={
-              new Map(
-                appsState.status === 'loaded'
-                  ? appsState.applications.map((app) => [app.repoFullName, app.id])
-                  : [],
-              )
-            }
-          />
-        ) : null}
-      </section>
+            {hasApplications ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="add-application-cancel"
+                onClick={() => setAddOpen(false)}
+              >
+                Cancel
+              </Button>
+            ) : null}
+          </div>
+          {githubState.status === 'loading' ? <LoadingState /> : null}
+          {githubState.status === 'error' ? (
+            <section
+              aria-labelledby="github-error"
+              className="rounded-xl border border-dashed px-6 py-16 text-center"
+            >
+              <h2 id="github-error" className="text-lg font-semibold">
+                Something went wrong
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">{githubState.message}</p>
+            </section>
+          ) : null}
+          {githubState.status === 'empty' ? (
+            <ConnectGitHubEmptyState connectUrl={githubState.connectUrl} />
+          ) : null}
+          {githubState.status === 'loaded' ? (
+            <RepoList
+              installations={githubState.installations}
+              repositories={githubState.repositories}
+              connectedRepos={
+                new Map(
+                  appsState.status === 'loaded'
+                    ? appsState.applications.map((app) => [app.repoFullName, app.id])
+                    : [],
+                )
+              }
+            />
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -33,6 +33,37 @@ test('application list shows existing applications', async ({ page }) => {
   await expect(page.getByTestId(APP_CARD)).toBeVisible();
 });
 
+// The repo picker is expanded inline only while the org has no applications
+// (§42 onboarding). Once an application exists the list becomes the subject of
+// the page and the picker hides behind "Add application" — which is what makes
+// it discoverable that a vendor can connect more than one repository.
+test('the repo picker hides behind Add application once an application exists', async ({
+  page,
+}) => {
+  await signUp(page);
+  await page.goto('/dashboard/applications');
+
+  // Empty org: the picker is inline, so Choose is clickable without any reveal.
+  await expect(page.getByTestId('add-application-section')).toBeVisible();
+  await expect(page.getByTestId('add-application-button')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
+
+  // With one application the picker is gated behind the header button.
+  await page.goto('/dashboard/applications');
+  await expect(page.getByTestId(APP_CARD)).toBeVisible();
+  await expect(page.getByTestId('add-application-section')).toHaveCount(0);
+
+  // Opening it brings the repo picker back so another repo can be connected.
+  await page.getByTestId('add-application-button').click();
+  await expect(page.getByTestId('add-application-section')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose' }).first()).toBeVisible();
+
+  // Cancel closes it again.
+  await page.getByTestId('add-application-cancel').click();
+  await expect(page.getByTestId('add-application-section')).toHaveCount(0);
+});
+
 test('editing application details persists the change', async ({ page }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
@@ -105,7 +136,6 @@ test('delete is blocked when the application has a deployment', async ({ page })
 });
 
 test('cross-org isolation: cannot PATCH or DELETE another org\'s application', async ({
-  page,
   browser,
 }) => {
   // Org A: sign up, choose a repo, capture the app id.
