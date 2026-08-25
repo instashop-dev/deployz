@@ -46,3 +46,38 @@ export type {
   VerdictStore,
 } from './rules.js';
 export { evaluateCompatibility, persistVerdict } from './rules.js';
+
+export type { FailureCode, StructuredEvent } from './failure-codes.js';
+export { FAILURE_CODES } from './failure-codes.js';
+
+export type { Remediation } from './remediation.js';
+export { getRemediation } from './remediation.js';
+
+export type {
+  AiGateway,
+  AiGatewayConfig,
+  AiGatewayResponse,
+  AiGenerateOptions,
+  TokenUsage,
+} from './ai-gateway.js';
+export {
+  AiGatewayNotAvailableError,
+  DEFAULT_TIMEOUT_MS,
+  MAX_OUTPUT_TOKENS,
+  MAX_PROMPT_TOKENS,
+  MAX_TOTAL_TOKENS,
+  SpendLimitExceededError,
+  createAiGateway,
+  estimateTokens,
+  truncateToTokens,
+} from './ai-gateway.js';
+
+export type {
+  DiagnosticExplainOptions,
+  DiagnosticExplanation,
+} from './diagnostic-explainer.js';
+export {
+  buildDiagnosticPrompt,
+  diagnosticExplanationSchema,
+  explainDiagnostic,
+} from './diagnostic-explainer.js';

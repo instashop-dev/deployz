@@ -1115,6 +1115,84 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect((diagnostics.json() as { failureCode: string }).failureCode).toBe('IMAGE_HEALTH_CHECK_FAILED');
   });
 
+  // §29: the what/why/fix a failed deployment reports must come from the
+  // deterministic remediation engine or the AI explainer — never a hardcoded
+  // placeholder that says the same thing for every failure code.
+  it('explains a failure with AI text when a gateway is configured', async () => {
+    const aiApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          return {
+            object: {
+              failureCode: 'IMAGE_HEALTH_CHECK_FAILED',
+              what: 'The app started but never reported itself healthy.',
+              why: 'The health check never passed.',
+              fix: 'Check the health endpoint returns success.',
+            },
+            usage: { promptTokens: 20, completionTokens: 10 },
+          };
+        },
+      },
+    });
+    // Set the failure state directly so the test does not depend on which
+    // other tests in this file have already run.
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'DEPLOY_RELEASE',
+      state: 'FAILED',
+      failureCode: 'IMAGE_HEALTH_CHECK_FAILED',
+      finishedAt: new Date(),
+      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:ai-explained`,
+      payload: {},
+    });
+    await db
+      .update(schema.deployments)
+      .set({ state: 'FAILED' })
+      .where(eq(schema.deployments.id, deployment.id));
+
+    const response = await aiApp.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/diagnostics`,
+      headers: { cookie: org.cookie },
+    });
+
+    const body = response.json() as { what: string; why: string; fix: string };
+    expect(body.what).toBe('The app started but never reported itself healthy.');
+    expect(body.fix).toBe('Check the health endpoint returns success.');
+    await aiApp.close();
+  });
+
+  it('explains a failure with deterministic remediation when no gateway is configured', async () => {
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'DEPLOY_RELEASE',
+      state: 'FAILED',
+      failureCode: 'PORT_MISMATCH',
+      finishedAt: new Date(),
+      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:no-gateway`,
+      payload: {},
+    });
+    await db
+      .update(schema.deployments)
+      .set({ state: 'FAILED' })
+      .where(eq(schema.deployments.id, deployment.id));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/diagnostics`,
+      headers: { cookie: org.cookie },
+    });
+
+    const body = response.json() as { failureCode: string; what: string; fix: string };
+    expect(body.failureCode).toBe('PORT_MISMATCH');
+    // Code-specific guidance, not the old one-size-fits-all placeholder.
+    expect(body.what).toContain('port');
+    expect(body.what).not.toBe('Deployment failed');
+    expect(body.fix.length).toBeGreaterThan(0);
+  });
+
   // §31 config writes are non-disruptive — they must not disturb the lifecycle.
   it('a CONFIG_UPDATE result leaves the deployment state untouched', async () => {
     await db.update(schema.deployments).set({ state: 'HEALTHY' }).where(eq(schema.deployments.id, deployment.id));

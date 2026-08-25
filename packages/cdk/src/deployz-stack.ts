@@ -335,8 +335,10 @@ function collectEnvVars(): Record<string, string> {
     'WEB_URL',
     'MARKETING_URL',
     'COOKIE_DOMAIN',
-    'CLOUDFLARE_AI_GATEWAY_ENDPOINT',
-    'CLOUDFLARE_AI_GATEWAY_API_TOKEN',
+    'AI_GATEWAY_BASE_URL',
+    'AI_MODEL',
+    'AI_PROVIDER_API_KEY',
+    'AI_GATEWAY_TOKEN',
     'AWS_SES_ACCESS_KEY_ID',
     'AWS_SES_SECRET_ACCESS_KEY',
   ];

@@ -45,13 +45,14 @@ describe('migrations', () => {
     ]);
   });
 
-  it('creates the 13 enum types', async () => {
+  it('creates the 14 enum types', async () => {
     const { rows } = await client!.query<{ typname: string }>(
       `SELECT typname FROM pg_type
        WHERE typtype = 'e' AND typnamespace = 'public'::regnamespace
        ORDER BY typname`,
     );
     expect(rows.map((r) => r.typname)).toEqual([
+      'ai_explanation_state',
       'analysis_status',
       'build_status',
       'compatibility_status',

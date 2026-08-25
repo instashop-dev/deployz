@@ -6,6 +6,11 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { z } from 'zod';
 
 import {
+  createAiGateway,
+  type AiGateway,
+  type StructuredEvent,
+} from '@deployz/analysis';
+import {
   buildBootstrapQuickCreateUrl,
   failureCodeSchema,
   healthComponentsSchema,
@@ -16,6 +21,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
+import { resolveExplanation } from './ai-explanation.js';
 import { createAnalysisRunner, type AnalysisRunner } from './analysis.js';
 import {
   createCheckoutSession,
@@ -117,6 +123,10 @@ export interface ServerDeps {
   // are testable on a machine (or a CI runner) with no .env.
   githubAppId?: string | undefined;
   githubAppPrivateKey?: string | undefined;
+  // Injectable §16/§29 AI gateway for diagnostic explanations. Defaults to the
+  // env-configured Cloudflare AI Gateway, which degrades to a throwing stub
+  // when unconfigured so diagnostics fall back to deterministic remediation.
+  aiGateway?: AiGateway | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -514,6 +524,7 @@ export async function buildServer({
   githubFetch: injectedGithubFetch,
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
+  aiGateway = createAiGateway(env.aiGateway),
 }: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
@@ -1861,7 +1872,12 @@ export async function buildServer({
     // back to UNKNOWN when the job carried no code is honest; hardcoding it
     // when the job DOES carry one throws away the only classification we have.
     const [failedJob] = await db
-      .select({ failureCode: schema.deploymentJobs.failureCode, result: schema.deploymentJobs.result })
+      .select({
+        id: schema.deploymentJobs.id,
+        type: schema.deploymentJobs.type,
+        failureCode: schema.deploymentJobs.failureCode,
+        result: schema.deploymentJobs.result,
+      })
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, id), eq(schema.deploymentJobs.state, 'FAILED')))
       .orderBy(desc(schema.deploymentJobs.finishedAt))
@@ -1875,11 +1891,33 @@ export async function buildServer({
     // What the relay said, verbatim. Stored on the job all along and never
     // surfaced, which left "Technical detail" empty on every failure.
     const jobResult = failedJob?.result as { error?: string } | null;
+
+    // §16: the AI explanation is built from the deterministic code plus
+    // STRUCTURED fields only. There is no raw-log field here, and none may be
+    // added — the data boundary is what keeps customer log content out of the
+    // AI payload. (jobResult.error above is shown to the vendor, never sent.)
+    const event: StructuredEvent = {
+      source: 'deployment',
+      ...(failedJob?.type ? { action: failedJob.type } : {}),
+      context: { deploymentState: deployment.state },
+    };
+
+    // Generated once per attempt and cached; `remediation` is the fallback for
+    // every path where AI is unavailable, so the copy map stays the single
+    // source of this copy (§65). Never throws, never touches deployment state.
+    const explanation = failedJob
+      ? await resolveExplanation(
+          { db, gateway: aiGateway },
+          { jobId: failedJob.id, failureCode, event },
+          remediation,
+        )
+      : remediation;
+
     return {
       failureCode,
-      what: remediation.what,
-      why: remediation.why,
-      fix: remediation.fix,
+      what: explanation.what,
+      why: explanation.why,
+      fix: explanation.fix,
       technicalDetail: jobResult?.error ?? null,
       events,
     };
