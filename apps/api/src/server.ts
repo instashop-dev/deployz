@@ -1532,7 +1532,12 @@ export async function buildServer({
       .from(schema.deploymentJobs)
       .where(eq(schema.deploymentJobs.deploymentId, id))
       .orderBy(schema.deploymentJobs.createdAt);
-    return { ...toFleetRow(rows[0]!), jobs };
+    // Task 11: a compact status/reference for the internal detail page —
+    // attached here rather than inside toFleetRow so the fleet LIST endpoint
+    // doesn't pick up an extra per-row domain query.
+    const domain = await findActiveDomain(db, rows[0]!.deployment.id);
+    const customDomain = domain ? { hostname: domain.hostname, status: domain.status.toLowerCase() } : null;
+    return { ...toFleetRow(rows[0]!), jobs, customDomain };
   });
 
   // ── Releases (§22) ──────────────────────────────────────────────────────

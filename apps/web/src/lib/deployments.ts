@@ -1,4 +1,5 @@
 import type { DeploymentState } from './deployment-vocabulary';
+import type { CustomDomainStatus } from './domains';
 
 // Fleet-surface data access. Wired to the real `/api/deployments` endpoints.
 // No fixture fallback: a 404/error is a real failure, not a loading state
@@ -79,6 +80,8 @@ export interface DeploymentJob {
 /** `GET /api/deployments/:id` — the fleet row plus its job history. */
 export interface FleetDeploymentDetail extends FleetDeployment {
   jobs: DeploymentJob[];
+  /** Compact custom-domain summary for the detail page, or null if none is attached. */
+  customDomain: { hostname: string; status: CustomDomainStatus } | null;
 }
 
 /** A single §40 activity-feed event. */

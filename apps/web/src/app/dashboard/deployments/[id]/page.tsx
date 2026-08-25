@@ -23,6 +23,7 @@ import {
   type HealthStatus,
   type RelayStatus,
 } from '@/lib/deployments';
+import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
 import { fetchReleases, releaseStatusLabel, type Release } from '@/lib/releases';
 
 type DetailState =
@@ -176,6 +177,9 @@ function DetailBody({
         <Card>
           <CardContent className="flex flex-col gap-3 py-4">
             <MetaRow label="Application" value={detail.applicationName} />
+            {detail.customDomain?.status === 'active' ? (
+              <MetaRow label="URL" value={`https://${detail.customDomain.hostname}`} />
+            ) : null}
             <MetaRow label="AWS account" value={detail.awsAccountId ?? 'Not connected yet'} />
             <MetaRow label="Region" value={detail.region} />
             <MetaRow label="Version" value={detail.version ?? 'Not deployed yet'} />
@@ -190,6 +194,27 @@ function DetailBody({
           </CardContent>
         </Card>
       </section>
+
+      {detail.customDomain ? (
+        <section aria-labelledby="custom-domain" className="flex flex-col gap-3">
+          <h2 id="custom-domain" className="text-base font-semibold">
+            Custom domain
+          </h2>
+          <Card>
+            <CardContent className="flex flex-wrap items-center gap-3 py-4">
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">
+                {detail.customDomain.hostname}
+              </code>
+              <span className="text-sm text-muted-foreground">
+                {DOMAIN_STATUS_LABEL[detail.customDomain.status]}
+              </span>
+              <Button asChild size="sm" variant="ghost" className="ml-auto">
+                <Link href={`/install/${detail.installLinkId}`}>Manage →</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
       {detail.state === 'NOT_INSTALLED' ? <InstallLinkCard detail={detail} /> : null}
 

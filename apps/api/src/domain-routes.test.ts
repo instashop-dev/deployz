@@ -827,3 +827,69 @@ describe('custom domain relay-heartbeat auto-check', () => {
     expect(deploymentRow!.healthStatus).toBe('DEGRADED');
   });
 });
+
+// ── GET /api/deployments/:id — customDomain summary (Task 11) ───────────────
+//
+// The deployment-detail route attaches a compact { hostname, status }
+// summary of the active custom domain, sourced via findActiveDomain — the
+// fleet LIST endpoint (toFleetRow) must stay untouched.
+
+describe('GET /api/deployments/:id customDomain summary', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db });
+    org = await signUpAndGetOrg(auth, db, 'detail-domain-owner@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('is null when the deployment has no custom domain', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().customDomain).toBeNull();
+  });
+
+  it('is { hostname, status } (lowercase) when an active custom domain exists', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    const hostname = `active-${crypto.randomUUID().slice(0, 8)}.customer.com`;
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname,
+      status: 'ACTIVE',
+      createdBy: org.userId,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().customDomain).toEqual({ hostname, status: 'active' });
+  });
+});
