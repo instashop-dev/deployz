@@ -1794,6 +1794,38 @@ describe('server — organization settings, public install page, and bulk deploy
     expect(serialized).not.toContain(org.organizationId);
   });
 
+  it('GET /api/install/:installationId stops handing out a link once the code is spent', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Spent Code App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    // env is read at module load, so publish a template for this test only.
+    const mutableEnv = env as { bootstrapTemplateUrl: string | undefined };
+    const previous = mutableEnv.bootstrapTemplateUrl;
+    mutableEnv.bootstrapTemplateUrl = 'https://templates.example.com/bootstrap-v1.json';
+    try {
+      const fresh = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      const freshBody = fresh.json() as Record<string, unknown>;
+      expect(freshBody['alreadyInstalled']).toBe(false);
+      expect(String(freshBody['quickCreateUrl'])).toContain(deployment.enrollmentCode);
+
+      // The relay has bound: the code is spent, the page renders its
+      // "already set up" state, and a replayed link must not carry the code.
+      await db
+        .update(schema.deployments)
+        .set({ enrollmentUsedAt: new Date() })
+        .where(eq(schema.deployments.id, deployment.id));
+
+      const replayed = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      const replayedBody = replayed.json() as Record<string, unknown>;
+      expect(replayedBody['alreadyInstalled']).toBe(true);
+      expect(replayedBody['quickCreateUrl']).toBeNull();
+      expect(JSON.stringify(replayedBody)).not.toContain(deployment.enrollmentCode);
+    } finally {
+      mutableEnv.bootstrapTemplateUrl = previous;
+    }
+  });
+
   it('GET /api/install/:installationId 404s for an unknown installation', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/install/does-not-exist' });
     expect(response.statusCode).toBe(404);
