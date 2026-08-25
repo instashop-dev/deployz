@@ -27,6 +27,7 @@ import {
   type GithubInstallation,
   type GithubRepository,
 } from '@/lib/github';
+import { loadGithubState, type GithubState } from '@/lib/github-state';
 import { errorMessage } from '@/lib/api-client';
 import { VERDICT_PRESENTATION } from '@/lib/readiness';
 
@@ -34,16 +35,6 @@ type AppsState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'loaded'; applications: Application[] };
-
-type GithubState =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'empty'; connectUrl: string | null }
-  | {
-      status: 'loaded';
-      installations: GithubInstallation[];
-      repositories: Record<string, GithubRepository[]>;
-    };
 
 // §42 onboarding step 1: "Connect GitHub". This page shows the org's existing
 // applications above the GitHub installations and their repositories so the
@@ -54,6 +45,10 @@ export default function ApplicationsPage() {
   const [appsState, setAppsState] = useState<AppsState>({ status: 'loading' });
   const [githubState, setGithubState] = useState<GithubState>({ status: 'loading' });
   const [addOpen, setAddOpen] = useState(false);
+  // Bumped by "Try again" so the GitHub load re-runs. A GitHub outage is the
+  // kind of thing that clears on its own, and a full page reload would throw
+  // away the application list with it.
+  const [githubAttempt, setGithubAttempt] = useState(0);
   const addSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -80,37 +75,17 @@ export default function ApplicationsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    async function load(): Promise<void> {
-      try {
-        const { installations, connectUrl } = await fetchGithubInstallations();
-        if (cancelled) return;
-        if (installations.length === 0) {
-          setGithubState({ status: 'empty', connectUrl });
-          return;
-        }
-        const repositories: Record<string, GithubRepository[]> = {};
-        await Promise.all(
-          installations.map(async (installation) => {
-            const { repositories: repos } = await fetchGithubRepositories(installation.id);
-            repositories[installation.id] = repos;
-          }),
-        );
-        if (cancelled) return;
-        setGithubState({ status: 'loaded', installations, repositories });
-      } catch {
-        if (!cancelled) {
-          setGithubState({
-            status: 'error',
-            message: "We couldn't reach GitHub. Try again in a moment.",
-          });
-        }
-      }
-    }
-    void load();
+    setGithubState({ status: 'loading' });
+    void loadGithubState({
+      fetchInstallations: fetchGithubInstallations,
+      fetchRepositories: fetchGithubRepositories,
+    }).then((state) => {
+      if (!cancelled) setGithubState(state);
+    });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [githubAttempt]);
 
   // An org with no applications yet is mid-onboarding (§42 steps 1-2), so the
   // repo picker stays expanded inline — there is nothing to add *to* and no
@@ -196,12 +171,20 @@ export default function ApplicationsPage() {
           {githubState.status === 'error' ? (
             <section
               aria-labelledby="github-error"
-              className="rounded-xl border border-dashed px-6 py-16 text-center"
+              data-testid="github-error"
+              className="flex flex-col items-center gap-4 rounded-xl border border-dashed px-6 py-16 text-center"
             >
               <h2 id="github-error" className="text-lg font-semibold">
                 Something went wrong
               </h2>
-              <p className="mt-1 text-sm text-muted-foreground">{githubState.message}</p>
+              <p className="text-sm text-muted-foreground">{githubState.message}</p>
+              <Button
+                variant="outline"
+                data-testid="github-retry"
+                onClick={() => setGithubAttempt((attempt) => attempt + 1)}
+              >
+                Try again
+              </Button>
             </section>
           ) : null}
           {githubState.status === 'empty' ? (
@@ -211,6 +194,8 @@ export default function ApplicationsPage() {
             <RepoList
               installations={githubState.installations}
               repositories={githubState.repositories}
+              unreachable={new Set(githubState.unreachable)}
+              connectUrl={githubState.connectUrl}
               connectedRepos={
                 new Map(
                   appsState.status === 'loaded'
@@ -311,10 +296,16 @@ function ConnectGitHubEmptyState({ connectUrl }: { connectUrl: string | null }) 
 function RepoList({
   installations,
   repositories,
+  unreachable,
+  connectUrl,
   connectedRepos,
 }: {
   installations: GithubInstallation[];
   repositories: Record<string, GithubRepository[]>;
+  /** Installation ids GitHub would not list repositories for — said out loud
+   *  rather than shown as an account with no repositories. */
+  unreachable: Set<string>;
+  connectUrl: string | null;
   /** repoFullName -> the application already connected to it. */
   connectedRepos: Map<string, string>;
 }) {
@@ -322,6 +313,7 @@ function RepoList({
     <div className="flex flex-col gap-6">
       <h2 className="text-base font-semibold">Choose a repository</h2>
       {installations.map((installation) => {
+        const failed = unreachable.has(installation.id);
         const repos = repositories[installation.id] ?? [];
         return (
           <Card key={installation.id}>
@@ -332,7 +324,9 @@ function RepoList({
                 <Badge variant="secondary">{installation.accountType}</Badge>
               </div>
               <CardDescription>
-                {repos.length} {repos.length === 1 ? 'repository' : 'repositories'}
+                {failed
+                  ? "We couldn't reach GitHub for this account"
+                  : `${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'}`}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
@@ -344,13 +338,31 @@ function RepoList({
                   connectedApplicationId={connectedRepos.get(repo.fullName) ?? null}
                 />
               ))}
-              {repos.length === 0 ? (
+              {failed ? (
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid={`repos-unavailable-${installation.id}`}
+                >
+                  We couldn&apos;t load the repositories for {installation.accountLogin}. Try again
+                  in a moment, or check that Deployz is still installed on GitHub.
+                </p>
+              ) : null}
+              {!failed && repos.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No repositories to show.</p>
               ) : null}
             </CardContent>
           </Card>
         );
       })}
+      {/* Always reachable, even when every listing above failed: it is both
+          how you add another account and how you repair a broken one. */}
+      {connectUrl ? (
+        <div>
+          <Button variant="outline" asChild data-testid="github-manage">
+            <a href={connectUrl}>Manage GitHub access</a>
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
