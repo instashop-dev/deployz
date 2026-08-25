@@ -92,9 +92,10 @@ function readAiGatewayConfig(): AiGatewayConfig | undefined {
   const { config, problem } = describeAiGatewayConfig(process.env);
   if (problem === 'missing') {
     console.warn(
-      '[ai] AI_GATEWAY_BASE_URL/AI_PROVIDER_API_KEY/AI_GATEWAY_TOKEN not all set — ' +
-        'AI explanations are disabled and diagnostics fall back to deterministic ' +
-        'remediation guidance. Set them in .env.',
+      '[ai] AI_GATEWAY_BASE_URL/AI_PROVIDER_API_KEY not both set — AI explanations ' +
+        'are disabled and diagnostics fall back to deterministic remediation ' +
+        'guidance. Set them in .env. (AI_GATEWAY_TOKEN is only needed for a ' +
+        'gateway with authentication switched on.)',
     );
   }
   if (problem === 'reused-secret') {

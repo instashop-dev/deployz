@@ -34,8 +34,16 @@ export const MAX_PROMPT_TOKENS = 700;
  * Max tokens the COMPLETION may occupy. Passed to the model as
  * `maxOutputTokens`, so the provider enforces it on its side rather than the
  * limit being discovered after the tokens are already billed.
+ *
+ * Sized for a REASONING model. Models like `@cf/deepseek-ai/deepseek-v4-flash`
+ * emit `reasoning_content` first and charge it to the same budget, so the cap
+ * has to cover the thinking as well as the JSON. Measured against the live
+ * gateway: a 300-token cap truncated the response in 3 of 6 runs
+ * (`finish_reason: "length"`, unparseable JSON, which surfaces as a silent
+ * fallback to deterministic text); 700 was 6 of 6 with a peak completion of
+ * 499. Do not lower this without re-measuring against a reasoning model.
  */
-export const MAX_OUTPUT_TOKENS = 300;
+export const MAX_OUTPUT_TOKENS = 800;
 
 /**
  * Total per-request budget: prompt + completion. A post-hoc backstop against a
@@ -126,8 +134,8 @@ export class AiGatewayNotAvailableError extends Error {
   constructor(model: string) {
     super(
       `Cloudflare AI Gateway is not configured, so the "${model}" model cannot ` +
-        `be reached. Set AI_GATEWAY_BASE_URL, AI_PROVIDER_API_KEY and ` +
-        `AI_GATEWAY_TOKEN to enable AI explanations.`,
+        `be reached. Set AI_GATEWAY_BASE_URL and AI_PROVIDER_API_KEY to enable ` +
+        `AI explanations (AI_GATEWAY_TOKEN only for an authenticated gateway).`,
     );
     this.name = 'AiGatewayNotAvailableError';
   }
@@ -158,11 +166,16 @@ export interface AiGatewayConfig {
    */
   readonly providerApiKey: string;
   /**
-   * The GATEWAY's own token. Sent as `cf-aig-authorization` — what an
+   * The GATEWAY's own token, sent as `cf-aig-authorization` — what an
    * authenticated AI Gateway checks before forwarding upstream. Distinct from
    * `providerApiKey`; conflating the two makes an authenticated gateway 401.
+   *
+   * OPTIONAL, because Cloudflare only requires this header on a gateway with
+   * authentication switched on. An unauthenticated gateway answers 401 to a
+   * cf-aig-authorization header it cannot validate, so leaving this unset must
+   * omit the header rather than send an empty or placeholder one.
    */
-  readonly gatewayToken: string;
+  readonly gatewayToken?: string | undefined;
 }
 
 /**
@@ -171,7 +184,8 @@ export interface AiGatewayConfig {
  *
  * The two credentials travel on two DIFFERENT headers by design: the gateway
  * authenticates the caller via `cf-aig-authorization`, then authenticates
- * itself to the upstream provider with the `Authorization` bearer.
+ * itself to the upstream provider with the `Authorization` bearer. The former
+ * is omitted entirely for an unauthenticated gateway.
  *
  * `fetchFn` is injectable so tests can assert the request the SDK actually
  * builds without any network access.
@@ -193,9 +207,10 @@ export function createAiGateway(
     name: 'cloudflare-ai-gateway',
     baseURL,
     apiKey: config.providerApiKey,
-    headers: {
-      'cf-aig-authorization': `Bearer ${config.gatewayToken}`,
-    },
+    // Only sent when the gateway is authenticated — see `gatewayToken`.
+    ...(config.gatewayToken
+      ? { headers: { 'cf-aig-authorization': `Bearer ${config.gatewayToken}` } }
+      : {}),
     // Without this the SDK downgrades to `response_format: json_object`, which
     // asks for "some JSON" rather than JSON matching the schema. The strict
     // Zod schema would then be a post-hoc rejection instead of a constraint the
