@@ -53,6 +53,13 @@ export interface RelayCommandResult {
   readonly output?: Record<string, unknown>;
   /** Human-readable error message (set on failure). */
   readonly error?: string;
+  /**
+   * Machine-readable failure classification (set on some failures). The
+   * control plane's `applyDomainJobResult` reads
+   * `failureCode === 'AWS_PERMISSION_DENIED'` to show domain-specific
+   * remediation copy — this field is the load-bearing link to that.
+   */
+  readonly failureCode?: string;
 }
 
 // ── Idempotency (§39) ───────────────────────────────────────────────────────

@@ -1,0 +1,372 @@
+import { describe, expect, it } from 'vitest';
+
+import type { RelayCommand } from './commands.js';
+import {
+  createDomainExecutors,
+  type AcmClient,
+  type ElbClient,
+  type ListenerInfo,
+  type LoadBalancerInfo,
+} from './domain.js';
+
+// ── Fakes ────────────────────────────────────────────────────────────────────
+
+interface FakeCertificate {
+  status: string;
+  validationRecord?: { name: string; value: string };
+}
+
+class FakeAcmClient implements AcmClient {
+  certificates = new Map<string, FakeCertificate>();
+  requestCalls: Array<{ domainName: string; idempotencyToken: string; tags: Record<string, string> }> = [];
+  deleteCalls: string[] = [];
+  requestError: Error | undefined;
+  deleteError: Error | undefined;
+  #arnCounter = 0;
+
+  async requestCertificate(p: {
+    domainName: string;
+    idempotencyToken: string;
+    tags: Record<string, string>;
+  }): Promise<string> {
+    this.requestCalls.push(p);
+    if (this.requestError) throw this.requestError;
+    const arn = `arn:aws:acm:us-east-1:123456789012:certificate/new-${this.#arnCounter++}`;
+    if (!this.certificates.has(arn)) {
+      this.certificates.set(arn, { status: 'PENDING_VALIDATION' });
+    }
+    return arn;
+  }
+
+  async describeCertificate(arn: string): Promise<FakeCertificate> {
+    const cert = this.certificates.get(arn);
+    if (!cert) throw new Error(`no fake certificate registered for ${arn}`);
+    return cert;
+  }
+
+  async deleteCertificate(arn: string): Promise<void> {
+    this.deleteCalls.push(arn);
+    if (this.deleteError) throw this.deleteError;
+    // Real client contract: swallow ResourceNotFoundException. The fake
+    // models that by simply no-op'ing on an arn it doesn't know about.
+    this.certificates.delete(arn);
+  }
+}
+
+class FakeElbClient implements ElbClient {
+  loadBalancer: LoadBalancerInfo | undefined;
+  listeners: ListenerInfo[] = [];
+  targetGroups: string[] = [];
+
+  createHttpsListenerCalls: Array<{ loadBalancerArn: string; certificateArn: string; targetGroupArn: string }> = [];
+  addListenerCertificateCalls: Array<{ listenerArn: string; certificateArn: string }> = [];
+  removeListenerCertificateCalls: Array<{ listenerArn: string; certificateArn: string }> = [];
+  deleteListenerCalls: string[] = [];
+  setHttpRedirectCalls: string[] = [];
+  setHttpForwardCalls: Array<{ listenerArn: string; targetGroupArn: string }> = [];
+
+  async findTaggedLoadBalancer(tagKey: string, tagValue: string): Promise<LoadBalancerInfo | undefined> {
+    void tagKey;
+    void tagValue;
+    return this.loadBalancer;
+  }
+
+  async describeListeners(loadBalancerArn: string): Promise<ListenerInfo[]> {
+    void loadBalancerArn;
+    return this.listeners;
+  }
+
+  async describeTargetGroups(loadBalancerArn: string): Promise<string[]> {
+    void loadBalancerArn;
+    return this.targetGroups;
+  }
+
+  async createHttpsListener(p: { loadBalancerArn: string; certificateArn: string; targetGroupArn: string }): Promise<void> {
+    this.createHttpsListenerCalls.push(p);
+  }
+
+  async addListenerCertificate(listenerArn: string, certificateArn: string): Promise<void> {
+    this.addListenerCertificateCalls.push({ listenerArn, certificateArn });
+  }
+
+  async removeListenerCertificate(listenerArn: string, certificateArn: string): Promise<void> {
+    this.removeListenerCertificateCalls.push({ listenerArn, certificateArn });
+  }
+
+  async deleteListener(listenerArn: string): Promise<void> {
+    this.deleteListenerCalls.push(listenerArn);
+  }
+
+  async setHttpRedirect(listenerArn: string): Promise<void> {
+    this.setHttpRedirectCalls.push(listenerArn);
+  }
+
+  async setHttpForward(listenerArn: string, targetGroupArn: string): Promise<void> {
+    this.setHttpForwardCalls.push({ listenerArn, targetGroupArn });
+  }
+}
+
+// ── Fixtures ─────────────────────────────────────────────────────────────────
+
+const INSTALLATION_ID = 'inst-abc123';
+
+function configureCommand(overrides: Partial<Record<string, unknown>> = {}): RelayCommand {
+  return {
+    id: 'job-1',
+    deploymentId: 'dep-1',
+    type: 'CONFIGURE_DOMAIN',
+    idempotencyKey: 'ik-1',
+    payload: {
+      hostname: 'custom.example.com',
+      domainId: '11111111-2222-3333-4444-555555555555',
+      ...overrides,
+    },
+  };
+}
+
+function removeCommand(overrides: Partial<Record<string, unknown>> = {}): RelayCommand {
+  return {
+    id: 'job-2',
+    deploymentId: 'dep-1',
+    type: 'REMOVE_DOMAIN',
+    idempotencyKey: 'ik-2',
+    payload: {
+      hostname: 'custom.example.com',
+      domainId: '11111111-2222-3333-4444-555555555555',
+      ...overrides,
+    },
+  };
+}
+
+function makeLb(): LoadBalancerInfo {
+  return { arn: 'arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/lb/abc', dnsName: 'lb-abc.us-east-1.elb.amazonaws.com' };
+}
+
+// ── CONFIGURE_DOMAIN ─────────────────────────────────────────────────────────
+
+describe('createDomainExecutors — CONFIGURE_DOMAIN', () => {
+  it('fresh configure: requests a cert, reports validation record + routing target, httpsConfigured false while pending', async () => {
+    const acm = new FakeAcmClient();
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const command = configureCommand();
+    const domainId = (command.payload as { domainId: string }).domainId;
+    const result = await executors.CONFIGURE_DOMAIN(command);
+
+    expect(acm.requestCalls).toHaveLength(1);
+    expect(acm.requestCalls[0]).toEqual({
+      domainName: 'custom.example.com',
+      idempotencyToken: domainId.replace(/-/g, ''),
+      tags: { 'deployz:installation': INSTALLATION_ID },
+    });
+    // 32-char idempotency token: uuid sans dashes — ACM's IdempotencyToken limit.
+    expect(acm.requestCalls[0]?.idempotencyToken).toHaveLength(32);
+
+    expect(result.success).toBe(true);
+    expect(result.output?.certificateStatus).toBe('PENDING_VALIDATION');
+    expect(result.output?.httpsConfigured).toBe(false);
+    expect(result.output?.routingTarget).toBe('lb-abc.us-east-1.elb.amazonaws.com');
+    expect(elb.createHttpsListenerCalls).toHaveLength(0);
+    expect(elb.addListenerCertificateCalls).toHaveLength(0);
+  });
+
+  it('configure with certificateArn in payload does not request a new certificate', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:existing-cert', { status: 'PENDING_VALIDATION' });
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:existing-cert' }));
+
+    expect(acm.requestCalls).toHaveLength(0);
+    expect(result.success).toBe(true);
+    expect(result.output?.certificateArn).toBe('arn:existing-cert');
+  });
+
+  it('issued + no 443 listener: creates HTTPS listener with the 80-listener target group and sets the 80 redirect', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    const lb = makeLb();
+    elb.loadBalancer = lb;
+    elb.listeners = [
+      { arn: 'listener-80', port: 80, redirectsToHttps: false, forwardTargetGroupArn: 'tg-1' },
+    ];
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(elb.createHttpsListenerCalls).toEqual([
+      { loadBalancerArn: lb.arn, certificateArn: 'arn:cert-1', targetGroupArn: 'tg-1' },
+    ]);
+    expect(elb.setHttpRedirectCalls).toEqual(['listener-80']);
+    expect(result.success).toBe(true);
+    expect(result.output?.httpsConfigured).toBe(true);
+  });
+
+  it('issued + 443 already ours: no create/add calls (idempotent), still httpsConfigured true', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    const lb = makeLb();
+    elb.loadBalancer = lb;
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:cert-1', redirectsToHttps: false },
+      { arn: 'listener-80', port: 80, redirectsToHttps: true },
+    ];
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(elb.createHttpsListenerCalls).toHaveLength(0);
+    expect(elb.addListenerCertificateCalls).toHaveLength(0);
+    expect(elb.setHttpRedirectCalls).toHaveLength(0);
+    expect(result.success).toBe(true);
+    expect(result.output?.httpsConfigured).toBe(true);
+  });
+
+  it('issued + 443 with a different default cert: addListenerCertificate is called', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    const lb = makeLb();
+    elb.loadBalancer = lb;
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:other-cert', redirectsToHttps: false },
+      { arn: 'listener-80', port: 80, redirectsToHttps: true },
+    ];
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(elb.addListenerCertificateCalls).toEqual([{ listenerArn: 'listener-443', certificateArn: 'arn:cert-1' }]);
+    expect(elb.createHttpsListenerCalls).toHaveLength(0);
+    expect(result.success).toBe(true);
+    expect(result.output?.httpsConfigured).toBe(true);
+  });
+
+  it('no load balancer found: succeeds with routingTarget undefined and no listener calls', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    elb.loadBalancer = undefined;
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(true);
+    expect(result.output?.routingTarget).toBeUndefined();
+    expect(elb.createHttpsListenerCalls).toHaveLength(0);
+    expect(elb.addListenerCertificateCalls).toHaveLength(0);
+  });
+
+  it('AccessDenied from ACM produces success:false with failureCode AWS_PERMISSION_DENIED', async () => {
+    const acm = new FakeAcmClient();
+    const err = new Error('not allowed');
+    err.name = 'AccessDeniedException';
+    acm.requestError = err;
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand());
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('AWS_PERMISSION_DENIED');
+    expect(result.error).toBeDefined();
+  });
+
+  it('an unrelated AWS error produces failureCode UNKNOWN', async () => {
+    const acm = new FakeAcmClient();
+    acm.requestError = new Error('throttled');
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand());
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('UNKNOWN');
+  });
+});
+
+// ── REMOVE_DOMAIN ────────────────────────────────────────────────────────────
+
+describe('createDomainExecutors — REMOVE_DOMAIN', () => {
+  it('remove with our default cert: deletes the listener, restores the 80 forward, deletes the cert', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    const lb = makeLb();
+    elb.loadBalancer = lb;
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:cert-1', redirectsToHttps: false },
+      { arn: 'listener-80', port: 80, redirectsToHttps: true },
+    ];
+    elb.targetGroups = ['tg-1'];
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(elb.deleteListenerCalls).toEqual(['listener-443']);
+    expect(elb.setHttpForwardCalls).toEqual([{ listenerArn: 'listener-80', targetGroupArn: 'tg-1' }]);
+    expect(elb.removeListenerCertificateCalls).toHaveLength(0);
+    expect(acm.deleteCalls).toEqual(['arn:cert-1']);
+    expect(result.success).toBe(true);
+    expect(result.output).toEqual({ removed: true });
+  });
+
+  it('remove when the listener default cert is not ours: only removes the SNI certificate', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    const lb = makeLb();
+    elb.loadBalancer = lb;
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:other-cert', redirectsToHttps: false },
+      { arn: 'listener-80', port: 80, redirectsToHttps: true },
+    ];
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(elb.removeListenerCertificateCalls).toEqual([{ listenerArn: 'listener-443', certificateArn: 'arn:cert-1' }]);
+    expect(elb.deleteListenerCalls).toHaveLength(0);
+    expect(acm.deleteCalls).toEqual(['arn:cert-1']);
+    expect(result.success).toBe(true);
+  });
+
+  it('remove when everything is already gone: still succeeds', async () => {
+    const acm = new FakeAcmClient();
+    // No certificate registered — the fake's deleteCertificate swallows the
+    // not-found case, matching the real client's contract.
+    const elb = new FakeElbClient();
+    elb.loadBalancer = undefined;
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:long-gone' }));
+
+    expect(result.success).toBe(true);
+    expect(result.output).toEqual({ removed: true });
+    expect(acm.deleteCalls).toEqual(['arn:long-gone']);
+  });
+
+  it('remove with cert in use returns success:false so the control plane retries', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const err = new Error('certificate is in use');
+    err.name = 'ResourceInUseException';
+    acm.deleteError = err;
+    const elb = new FakeElbClient();
+    elb.loadBalancer = undefined;
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+  });
+});
