@@ -305,6 +305,16 @@ export class DeployzStack extends Stack {
  * Collect credential env vars from process.env. The .env file is loaded by
  * bin/deployz.ts before the CDK app runs, so these are available here.
  * Only the vars that are actually set are included.
+ *
+ * Two things follow from "only the vars that are actually set":
+ *  - A key missing from .env is REMOVED from the deployed function, not left
+ *    at its previous value. Every key the API needs in production has to be
+ *    present in the environment the deploy runs from.
+ *  - GITHUB_FIXTURE_MODE is deliberately NOT here. It makes the GitHub routes
+ *    serve the fixture org and repos, which is right for local dev and the
+ *    e2e run (playwright.config.ts sets it for the API it starts) and is
+ *    never right for a real tenant. Keeping it out of the allowlist means a
+ *    developer's .env cannot ship it to production by accident.
  */
 function collectEnvVars(): Record<string, string> {
   const keys = [
@@ -320,7 +330,7 @@ function collectEnvVars(): Record<string, string> {
     'GITHUB_APP_PRIVATE_KEY',
     'GITHUB_WEBHOOK_SECRET',
     'GITHUB_APP_INSTALL_URL',
-    'GITHUB_FIXTURE_MODE',
+    'EMAIL_FROM',
     'API_URL',
     'WEB_URL',
     'MARKETING_URL',
@@ -329,7 +339,6 @@ function collectEnvVars(): Record<string, string> {
     'CLOUDFLARE_AI_GATEWAY_API_TOKEN',
     'AWS_SES_ACCESS_KEY_ID',
     'AWS_SES_SECRET_ACCESS_KEY',
-    'EMAIL_FROM',
   ];
   const env: Record<string, string> = {};
   for (const key of keys) {

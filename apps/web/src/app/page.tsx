@@ -28,6 +28,11 @@ const FEATURES = [
   },
 ] as const;
 
+// prefetch={false} on every /sign-in and /sign-up link: those paths live on
+// the app hostname and middleware redirects them there, so Next's prefetch
+// leaves the marketing origin, follows a cross-origin redirect and fails
+// CORS — dead requests and console errors on every marketing page view, for
+// a payload that could never have been used.
 export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
@@ -36,10 +41,10 @@ export default function LandingPage() {
           <span className="font-heading text-lg font-semibold tracking-tight">Deployz</span>
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="sm">
-              <Link href="/sign-in">Sign In</Link>
+              <Link href="/sign-in" prefetch={false}>Sign In</Link>
             </Button>
             <Button asChild size="sm">
-              <Link href="/sign-up">Get Started</Link>
+              <Link href="/sign-up" prefetch={false}>Get Started</Link>
             </Button>
           </div>
         </div>
@@ -57,13 +62,13 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button asChild size="lg">
-              <Link href="/sign-up">
+              <Link href="/sign-up" prefetch={false}>
                 Get Started
                 <ArrowRight aria-hidden className="size-4" />
               </Link>
             </Button>
             <Button asChild variant="outline" size="lg">
-              <Link href="/sign-in">Sign In</Link>
+              <Link href="/sign-in" prefetch={false}>Sign In</Link>
             </Button>
           </div>
         </section>
@@ -96,7 +101,7 @@ export default function LandingPage() {
 
         <section className="mx-auto flex w-full max-w-3xl flex-col items-center gap-4 px-4 py-12 text-center">
           <Button asChild size="lg">
-            <Link href="/sign-up">
+            <Link href="/sign-up" prefetch={false}>
               Get Started
               <ArrowRight aria-hidden className="size-4" />
             </Link>

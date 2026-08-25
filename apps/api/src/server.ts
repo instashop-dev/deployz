@@ -446,6 +446,29 @@ function computeReadiness(app: {
 // silently targeted.
 const BULK_DEPLOYABLE_STATES = new Set<DeploymentRow['state']>(['HEALTHY', 'UPDATE_AVAILABLE']);
 
+// States where a deploy or rollback has nothing to act on: no relay has ever
+// enrolled, or the deployment is gone. Wider than BULK_DEPLOYABLE_STATES on
+// purpose — that set answers "which customers does a fan-out include", while
+// this one answers "can this one deployment be deployed at all", so an
+// in-flight UPDATING retry still reaches the idempotent job path.
+const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
+  'NOT_INSTALLED',
+  'DELETING',
+  'DELETED',
+]);
+
+/** 409s a deploy/rollback aimed at a deployment that has nothing to deploy
+ *  into — the single-deployment mirror of the skip reason deploy-bulk gives. */
+function requireDeployableState(deployment: DeploymentRow): void {
+  if (UNDEPLOYABLE_STATES.has(deployment.state)) {
+    throw new ApiError(
+      409,
+      'DEPLOYMENT_NOT_DEPLOYABLE',
+      `Deployment is ${deployment.state}, not deployable`,
+    );
+  }
+}
+
 /**
  * §46 deployment state a finished job leaves behind. The relay reporting a
  * command result is what actually moves a deployment through its lifecycle —
@@ -878,6 +901,10 @@ export async function buildServer({
       throw new NotFoundError('Installation not found');
     }
     const row = rows[0]!;
+    // Spent codes are of no use to the install page — it renders the "already
+    // set up" state instead — so stop handing the credential to anyone who
+    // replays the link out of a mailbox or browser history.
+    const alreadyInstalled = row.enrollmentUsedAt !== null;
     const resourcesCreated = ['Application runtime'];
     if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
     if (row.storageRequired) resourcesCreated.push('Storage');
@@ -893,15 +920,20 @@ export async function buildServer({
       // region this customer's deployment targets, and this deployment's
       // single-use enrollment code. The link carries no credential — the
       // relay's is minted by CloudFormation inside the customer's account.
-      quickCreateUrl: env.bootstrapTemplateUrl
-        ? buildBootstrapQuickCreateUrl({
-            region: row.region,
-            templateUrl: env.bootstrapTemplateUrl,
-            controlPlaneUrl: env.apiUrl,
-            enrollmentCode: row.enrollmentCode,
-          })
-        : null,
-      alreadyInstalled: row.enrollmentUsedAt !== null,
+      //
+      // Spent codes get no link. The page renders its "already set up" state
+      // in that case and never follows the URL, so building one only hands
+      // the enrollment code to whoever replays the link out of a mailbox.
+      quickCreateUrl:
+        env.bootstrapTemplateUrl && !alreadyInstalled
+          ? buildBootstrapQuickCreateUrl({
+              region: row.region,
+              templateUrl: env.bootstrapTemplateUrl,
+              controlPlaneUrl: env.apiUrl,
+              enrollmentCode: row.enrollmentCode,
+            })
+          : null,
+      alreadyInstalled,
     };
   });
 
@@ -1553,6 +1585,10 @@ export async function buildServer({
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
     await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
+    // The same rule deploy-bulk applies. Without it this route accepted a
+    // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
+    // in the customer's account to ever run it.
+    requireDeployableState(deployment);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
@@ -1640,6 +1676,7 @@ export async function buildServer({
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = rollbackBodySchema.parse(request.body);
     await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
+    requireDeployableState(deployment);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:ROLLBACK:${body.releaseId}`;
