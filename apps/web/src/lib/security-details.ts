@@ -11,11 +11,16 @@
  *   - Phase 1 (install-time): write relay logs + read/write the relay's own
  *     bootstrap-generated credential secret. Nothing else.
  *   - Phase 2 (post-first-contact): provisioner permissions to apply the
- *     versioned application stack, ALL constrained by the `deployz:installation`
- *     tag boundary. Defined at install time but NOT attached until the control
- *     plane attaches it after the relay's first contact. Includes requesting
- *     and managing the TLS certificate for a custom domain you configure, and
- *     attaching it to the deployment's load balancer (custom-domains MVP).
+ *     versioned application stack. Every WRITE action is constrained by the
+ *     `deployz:installation` tag boundary. The one exception is read-only: the
+ *     load balancer's `Describe*` actions (listeners, listener certificates,
+ *     tags, rules) cannot be scoped by tag at all — AWS does not support
+ *     resource-level or condition-key restrictions on those API calls — so
+ *     they are granted without a tag condition. Defined at install time but
+ *     NOT attached until the control plane attaches it after the relay's
+ *     first contact. Includes requesting and managing the TLS certificate for
+ *     a custom domain you configure, and attaching it to the deployment's
+ *     load balancer (custom-domains MVP).
  *   - A permissions boundary (union of phase 1 + phase 2) caps the relay role
  *     forever — its permissions can never grow beyond what is listed here.
  *   - Data boundary (§16): the relay writes logs but is never granted

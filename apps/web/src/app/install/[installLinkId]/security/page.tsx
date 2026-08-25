@@ -35,6 +35,18 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+// PHASE_2_DOMAIN_INGRESS_ACTIONS mixes read-only ELB `Describe*` lookups
+// (which AWS does not allow scoping by tag) with tag-scoped listener writes.
+// Split for disclosure so each group can be labeled with its actual
+// condition — mirrors the split bootstrap-stack.ts makes when building the
+// two IAM statements.
+const domainIngressReadActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter((action) =>
+  action.startsWith('elasticloadbalancing:Describe'),
+);
+const domainIngressWriteActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter(
+  (action) => !action.startsWith('elasticloadbalancing:Describe'),
+);
+
 function ActionList({ actions }: { actions: readonly string[] }) {
   return (
     <ul className="flex flex-col gap-1">
@@ -267,12 +279,29 @@ export default async function SecurityDetailsPage({
             <p>Reconcile your app&apos;s running resources — same tag boundary:</p>
             <ActionList actions={PHASE_2_APP_RESOURCE_ACTIONS} />
             <p>
-              Request and manage the TLS certificate for a custom domain you configure, and
-              attach it to the deployment&apos;s load balancer:
+              Request the TLS certificate for a custom domain you configure — only when the
+              request carries your installation tag (
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
             </p>
             <ActionList actions={PHASE_2_ACM_REQUEST_ACTIONS} />
+            <p>
+              Look up and remove that certificate — only on a certificate already carrying your
+              tag (
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
+            </p>
             <ActionList actions={PHASE_2_ACM_MANAGE_ACTIONS} />
-            <ActionList actions={PHASE_2_DOMAIN_INGRESS_ACTIONS} />
+            <p>
+              Read your load balancer&apos;s listeners, certificates, tags, and routing rules —
+              these are read-only lookups that AWS does not let us restrict by tag, so they are
+              not limited to your installation:
+            </p>
+            <ActionList actions={domainIngressReadActions} />
+            <p>
+              Attach that certificate to your load balancer and manage the HTTPS listener it
+              serves — only on load-balancer resources already carrying your tag (
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
+            </p>
+            <ActionList actions={domainIngressWriteActions} />
             <p>
               Hand your app&apos;s own service role to the deployment service — limited to{' '}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{PASS_ROLE_RESOURCE_ARN}</code>{' '}
