@@ -94,6 +94,12 @@ export async function runApplicationAnalysis(
 async function markFailed(db: RuntimeDb, applicationId: string, error: unknown): Promise<void> {
   const reason =
     error instanceof ApiError ? error.message : 'Repository analysis failed unexpectedly';
+  // This runs detached on the worker Lambda and every error above is caught,
+  // so this line is the ONLY trace a failed run leaves anywhere. Without it a
+  // vendor's "Re-analyse does nothing" is undiagnosable: the row says FAILED,
+  // the worker log says nothing at all. The original error goes out too — the
+  // persisted `reason` is deliberately vendor-facing and loses the detail.
+  console.error(`[analysis] application ${applicationId} FAILED: ${reason}`, error);
   try {
     await db
       .update(schema.applications)

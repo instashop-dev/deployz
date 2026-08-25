@@ -415,6 +415,8 @@ function computeReadiness(app: {
   verdict: string | null;
   score: number | null;
   changesRequired: number | null;
+  /** Why a FAILED analysis failed. Null in every other state. */
+  failureReason: string | null;
   ready: ReadyCheck[];
   needsAttention: AttentionCheck[];
   unsupported: UnsupportedCheck[];
@@ -425,6 +427,11 @@ function computeReadiness(app: {
       verdict: null,
       score: null,
       changesRequired: null,
+      // A FAILED analysis used to look exactly like a still-running one on
+      // the wire, so the page showed "Analysing your app" for ever and
+      // Re-analyse appeared to do nothing. The reason is on the row either
+      // way (analysis.ts persists it) — it just was never sent.
+      failureReason: app.analysisStatus === 'FAILED' ? app.compatibilityReason : null,
       ready: [],
       needsAttention: [],
       unsupported: [],
@@ -456,6 +463,7 @@ function computeReadiness(app: {
     verdict: app.compatibilityStatus ?? 'NEEDS_ATTENTION',
     score,
     changesRequired: needsAttention.length,
+    failureReason: null,
     ready,
     needsAttention,
     unsupported,

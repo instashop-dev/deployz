@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   VERDICT_PRESENTATION,
+  readinessFailure,
   readinessSummaryLabel,
   type ApplicationReadiness,
 } from '@/lib/readiness';
@@ -24,6 +25,27 @@ const TONE_HEADING: Record<'ready' | 'attention' | 'incompatible', string> = {
 };
 
 export function ReadinessResult({ readiness }: { readiness: ApplicationReadiness }) {
+  // FAILED first: it is NOT a slower kind of pending. Falling through to the
+  // pending card left the vendor watching "this usually takes a minute" for
+  // ever, with polling already stopped and no hint that Re-analyse had run
+  // and failed.
+  const failure = readinessFailure(readiness);
+  if (failure) {
+    return (
+      <Card data-testid="readiness-verdict">
+        <CardContent className="py-6 text-center">
+          <h3 className="font-heading text-base font-medium text-destructive">{failure.heading}</h3>
+          <p className="mt-1 text-sm text-muted-foreground" data-testid="readiness-failure">
+            {failure.detail}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Press Re-analyse above to try again.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (readiness.analysisStatus !== 'COMPLETE' || readiness.verdict === null) {
     return (
       <Card data-testid="readiness-verdict">
