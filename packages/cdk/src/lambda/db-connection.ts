@@ -32,7 +32,9 @@ import migration0002 from '../../../db/drizzle/0002_dizzy_red_shift.sql';
 import migration0003 from '../../../db/drizzle/0003_orange_phalanx.sql';
 import migration0004 from '../../../db/drizzle/0004_married_blob.sql';
 import migration0005 from '../../../db/drizzle/0005_deep_gambit.sql';
-import migration0006 from '../../../db/drizzle/0006_github_installations.sql';
+import migration0006 from '../../../db/drizzle/0006_funny_pete_wisdom.sql';
+import migration0007 from '../../../db/drizzle/0007_relay_enrollment.sql';
+import migration0008 from '../../../db/drizzle/0008_github_installations.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -43,8 +45,7 @@ import journal from '../../../db/drizzle/meta/_journal.json';
  * until the deployed Lambda tries to apply it and drizzle fails with a bare
  * "No file ... found in /tmp/drizzle folder". writeMigrationsToTmp checks this
  * map against the journal up front and names what is missing instead;
- * packages/cdk/test/api-handler-migrations.test.ts fails the build even
- * earlier.
+ * packages/cdk/test/lambda-migrations.test.ts fails the build even earlier.
  */
 const MIGRATION_SQL: Record<string, string> = {
   '0000_parallel_triton': migration0000,
@@ -53,7 +54,9 @@ const MIGRATION_SQL: Record<string, string> = {
   '0003_orange_phalanx': migration0003,
   '0004_married_blob': migration0004,
   '0005_deep_gambit': migration0005,
-  '0006_github_installations': migration0006,
+  '0006_funny_pete_wisdom': migration0006,
+  '0007_relay_enrollment': migration0007,
+  '0008_github_installations': migration0008,
 };
 
 interface RdsSecret {

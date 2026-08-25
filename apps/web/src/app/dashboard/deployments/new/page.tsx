@@ -108,7 +108,7 @@ function NewDeploymentScreen() {
       setCreatedCustomerId(customer.id);
       setCreatedApplicationId(applicationId);
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      setInstallLink(`${origin}/install/${deployment.installationId}`);
+      setInstallLink(`${origin}/install/${deployment.installLinkId}`);
     } catch {
       setError("We couldn't create this deployment. Try again in a moment.");
     } finally {
@@ -120,7 +120,7 @@ function NewDeploymentScreen() {
     <div className="flex flex-col gap-8">
       <div className="flex items-center gap-2">
         <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href="/dashboard">
+          <Link href="/dashboard/deployments">
             <ArrowLeft aria-hidden className="size-4" />
             Deployments
           </Link>
@@ -267,7 +267,7 @@ function InstallLinkCard({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button asChild variant="outline" size="sm">
-            <Link href="/dashboard">Back to deployments</Link>
+            <Link href="/dashboard/deployments">Back to deployments</Link>
           </Button>
           {applicationId && customerId ? (
             <Button asChild variant="outline" size="sm">

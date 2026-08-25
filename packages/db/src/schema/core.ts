@@ -43,7 +43,12 @@ export const applications = pgTable('applications', {
   compatibilityReason: text('compatibility_reason'),
   detectedMetadata: jsonb('detected_metadata').$type<Record<string, unknown>>(),
   ...auditFields(),
-});
+}, (t) => [
+  // One application per repository per organization. Choosing the same repo
+  // twice used to create a second application with its own releases and
+  // deployments, which makes "deploy this app" ambiguous.
+  unique('applications_org_repo_uidx').on(t.organizationId, t.repoFullName),
+]);
 
 export const releases = pgTable('releases', {
   id: id(),
@@ -55,9 +60,17 @@ export const releases = pgTable('releases', {
   imageDigest: text('image_digest'),
   migrationCommand: text('migration_command'),
   buildStatus: buildStatusEnum('build_status').notNull().default('PENDING'),
+  // §36 a release is an immutable version record, and now a built one: the
+  // §21 pipeline builds the image and the worker moves the release to READY
+  // (or FAILED) when CodeBuild reports the digest. It starts BUILDING again
+  // because READY before an image exists is a claim nothing has checked.
   releaseStatus: releaseStatusEnum('release_status').notNull().default('BUILDING'),
   ...auditFields(),
-});
+}, (t) => [
+  // §36 one release per version per application — "deploy 1.0.0" must name
+  // exactly one immutable record.
+  unique('releases_application_version_uidx').on(t.applicationId, t.version),
+]);
 
 export const customers = pgTable('customers', {
   id: id(),

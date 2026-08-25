@@ -1,6 +1,10 @@
 // §12/§44 public customer installation data — server-side fetch for the
-// unauthenticated /install/:installationId page. Wired to the real
-// (public, no-auth) `GET /api/install/:installationId` endpoint.
+// unauthenticated /install/:installLinkId page. Wired to the real
+// (public, no-auth) `GET /api/install/:installLinkId` endpoint.
+//
+// The route parameter is the install-LINK id, which is not the relay's
+// installation id. They used to be the same value, which made the link a
+// customer is emailed also the identifier a relay authenticates against.
 
 import { serverApiUrl } from '@/lib/api-url';
 
@@ -13,15 +17,18 @@ export interface InstallData {
   resourcesCreated: string[];
   /**
    * CloudFormation Quick Create deep-link for THIS deployment, built by the
-   * control plane (it owns both the published template URL and the
-   * deployment's region). Null when no bootstrap template is published yet.
+   * control plane: it owns the published template URL, the deployment's
+   * region and the single-use enrollment code. Null when no bootstrap
+   * template is published yet.
    */
   quickCreateUrl: string | null;
+  /** True once a relay has enrolled — the link has already been used. */
+  alreadyInstalled: boolean;
 }
 
 /** Fetch the public install page data. Returns null on a 404 (unknown/invalid link). */
-export async function fetchInstallData(installationId: string): Promise<InstallData | null> {
-  const response = await fetch(`${serverApiUrl()}/api/install/${encodeURIComponent(installationId)}`, {
+export async function fetchInstallData(installLinkId: string): Promise<InstallData | null> {
+  const response = await fetch(`${serverApiUrl()}/api/install/${encodeURIComponent(installLinkId)}`, {
     cache: 'no-store',
   });
   if (response.status === 404) return null;

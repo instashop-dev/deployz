@@ -109,6 +109,7 @@ export const EVENT_FAMILIES = [
   'config',
   'destroy',
   'health',
+  'relay',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
@@ -129,6 +130,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   config: 'Configuration',
   destroy: 'Teardown',
   health: 'Health',
+  relay: 'Helper',
 };
 
 /**
@@ -158,6 +160,29 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'rollback.restore': 'Previous version restored',
   'rollback.health': 'Health check after rollback',
   'rollback.state.healthy': 'Rolled back and healthy',
+
+  // The vocabulary the API emits at its own transition points. The entries
+  // below this block are the durable workflows' finer-grained vocabulary,
+  // kept because those events are still the intended shape once the workflow
+  // layer runs.
+  'install.requested': 'Installation started',
+  'install.completed': 'Installed and healthy',
+  'install.failed': 'Installation failed',
+  'install.enrollment.rejected': 'Another helper tried to connect',
+  'deploy.requested': 'Update started',
+  'deploy.completed': 'Update complete',
+  'deploy.failed': 'Update failed',
+  'rollback.requested': 'Rollback started',
+  'rollback.completed': 'Rolled back',
+  'rollback.failed': 'Rollback failed',
+  'destroy.requested': 'Removal started',
+  'destroy.completed': 'Deployment removed',
+  'destroy.failed': 'Removal failed',
+  'config.updated': 'Configuration updated',
+  'health.reported': 'Health reported',
+  'health.degraded': 'Health degraded',
+  'health.recovered': 'Back to healthy',
+  'relay.reenrollment.requested': 'Reconnect requested',
 
   'config.validate': 'Configuration checked',
   'config.write': 'Configuration updated',
@@ -331,6 +356,123 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     label: 'Unknown issue',
     description: "Something failed and we couldn't pin down the cause.",
     severity: 'critical',
+  },
+};
+
+/** §29 what happened / why / how to fix, per failure code. */
+export interface FailureRemediation {
+  /** What happened, in the vendor's terms. */
+  what: string;
+  /** Why it happened. */
+  why: string;
+  /** The next action the vendor (or their customer) can actually take. */
+  fix: string;
+}
+
+/**
+ * §29 remediation per §61 failure code.
+ *
+ * The diagnostics endpoint used to answer every failure with the same three
+ * hardcoded sentences — "Deployment failed / The deployment did not reach a
+ * healthy state / Check the event log for details and retry the deployment" —
+ * regardless of what the relay reported. That last line also pointed at an
+ * event log the vendor had no way to see. These are per-code, and every fix
+ * names something the reader can do.
+ *
+ * §65 applies as strictly here as anywhere: no CloudFormation, IAM, ECS, ALB,
+ * VPC or RDS in this copy. The raw code and the relay's own message sit
+ * behind the "Technical detail" disclosure for anyone who wants them.
+ */
+export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
+  AWS_SCP_BLOCKED: {
+    what: 'Setup was blocked by a policy in your customer’s cloud organization.',
+    why: 'Their organization restricts what can be created in this account or region.',
+    fix: 'Ask your customer to allow the Deployz setup in this account, or to choose an account without that restriction, then run the install link again.',
+  },
+  PORT_MISMATCH: {
+    what: 'The application started but nothing answered on the expected port.',
+    why: 'The port Deployz was told to route traffic to is not the port the app listens on.',
+    fix: 'Check the port on the application’s settings screen against the one your app binds, correct it, and deploy again.',
+  },
+  REGION_NOT_SUPPORTED: {
+    what: 'This deployment cannot run in the region it was created for.',
+    why: 'Deployz does not support that region yet.',
+    fix: 'Remove this deployment and create it again in a supported region.',
+  },
+  QUOTA_EXCEEDED: {
+    what: 'Your customer’s cloud account hit a resource limit during setup.',
+    why: 'The account has reached the maximum it is allowed for one of the resources this deployment needs.',
+    fix: 'Ask your customer to request a limit increase from their cloud provider, then deploy again.',
+  },
+  IMAGE_HEALTH_CHECK_FAILED: {
+    what: 'The application started but never reported itself healthy.',
+    why: 'The health check endpoint did not return a success response within the startup window.',
+    fix: 'Confirm the health check path on the application’s settings screen returns a 200 once the app is ready, then deploy again.',
+  },
+  MIGRATION_FAILED: {
+    what: 'The database migration step failed, so the new version was not started.',
+    why: 'The migration command exited with an error.',
+    fix: 'Fix the migration in your repository, publish a new release, and deploy it. The previous version is still running.',
+  },
+  RELAY_DISCONNECTED: {
+    what: 'The helper running in your customer’s cloud account stopped checking in.',
+    why: 'It was removed, it lost its credential, or the account can no longer reach Deployz.',
+    fix: 'Use Reconnect relay on this deployment and ask your customer to run the install link again.',
+  },
+  ECS_DEPLOYMENT_FAILED: {
+    what: 'The new version could not be rolled out.',
+    why: 'The updated application did not reach a running state, so the rollout was stopped.',
+    fix: 'Open Technical detail for the reported error, fix it in a new release, and deploy again. The previous version keeps serving traffic.',
+  },
+  RDS_UNAVAILABLE: {
+    what: 'The database was not reachable during the deployment.',
+    why: 'The managed database was still starting, or is unavailable in your customer’s account.',
+    fix: 'Wait for the database to finish starting and deploy again. If it keeps failing, ask your customer to check the database in their account.',
+  },
+  AWS_PERMISSION_DENIED: {
+    what: 'The helper was refused permission for something this deployment needs.',
+    why: 'The permissions granted at install time do not cover this action.',
+    fix: 'Ask your customer to re-run the install link so the setup can grant the current permissions.',
+  },
+  STACK_CREATE_FAILED: {
+    what: 'The initial setup in your customer’s account did not complete.',
+    why: 'One of the resources being created failed, so the whole setup was rolled back.',
+    fix: 'Open Technical detail for the failing resource, then ask your customer to run the install link again.',
+  },
+  DATABASE_CREATE_FAILED: {
+    what: 'The database could not be created.',
+    why: 'The account rejected the database this application requires.',
+    fix: 'Check whether your customer’s account limits databases in this region, then run the install link again.',
+  },
+  DATABASE_CONNECTION_FAILED: {
+    what: 'The application started but could not reach its database.',
+    why: 'The connection was refused or timed out.',
+    fix: 'Confirm the application reads its database settings from the environment Deployz provides, then deploy again.',
+  },
+  IMAGE_PULL_FAILED: {
+    what: 'The application image could not be downloaded into your customer’s account.',
+    why: 'The image is missing, or the account is not allowed to download it.',
+    fix: 'Publish the release again, then deploy it. If it keeps failing, remove and re-create the deployment.',
+  },
+  CONTAINER_START_FAILED: {
+    what: 'The application started and then stopped.',
+    why: 'It exited during startup — usually a missing setting or an error before it began serving.',
+    fix: 'Check the required values on the Configuration screen are all set, then deploy again.',
+  },
+  MISSING_SECRET: {
+    what: 'A required secret has no value for this customer.',
+    why: 'The application asks for a secret that is not set as a default or an override.',
+    fix: 'Set the missing value on the Configuration screen, then deploy again.',
+  },
+  UNSUPPORTED_ARCHITECTURE: {
+    what: 'This application cannot be deployed as it is built.',
+    why: 'It uses something Deployz does not support yet.',
+    fix: 'Open the application’s readiness screen for the specific change needed, make it, and publish a new release.',
+  },
+  UNKNOWN: {
+    what: 'The deployment failed.',
+    why: 'The helper reported a failure without a cause Deployz recognises.',
+    fix: 'Open Technical detail for the reported error, then deploy again. If it keeps failing, remove the deployment and create it again.',
   },
 };
 

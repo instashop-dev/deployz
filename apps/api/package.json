@@ -47,6 +47,7 @@
     "@aws-sdk/client-sqs": "^3.1115.0",
     "@deployz/analysis": "workspace:*",
     "@deployz/contracts": "workspace:*",
+    "@deployz/copy-map": "workspace:*",
     "@deployz/db": "workspace:*",
     "@fastify/cors": "^11.0.0",
     "@sentry/node": "^10.70.0",

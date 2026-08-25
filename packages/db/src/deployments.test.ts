@@ -30,6 +30,7 @@ describe('deployments desired-state and audit fields', () => {
       organizationId: ids.organizationId,
       region: 'us-east-1',
       installationId: 'inst-defaults',
+      enrollmentCode: 'code-inst-defaults',
     });
     const [row] = await db!.select().from(deployments).where(eq(deployments.id, id));
     expect(row?.state).toBe('NOT_INSTALLED');
@@ -39,8 +40,10 @@ describe('deployments desired-state and audit fields', () => {
     expect(row?.desiredState).toEqual({});
     expect(row?.lastHealthAt).toBeNull();
     expect(row?.relayStatus).toBe('UNKNOWN');
-    // No health report has arrived yet, so there is no health to claim.
-    expect(row?.healthStatus).toBeNull();
+    // A deployment nobody has installed has no observed health. This column
+    // defaulted to HEALTHY, which is what let the dashboard show four green
+    // infrastructure rows for an environment that did not exist.
+    expect(row?.healthStatus).toBe('UNKNOWN');
     expect(row?.deletedAt).toBeNull();
     expect(row?.awsAccountId).toBeNull();
     expect(row?.currentReleaseId).toBeNull();
@@ -57,6 +60,7 @@ describe('deployments desired-state and audit fields', () => {
       organizationId: ids.organizationId,
       region: 'eu-west-1',
       installationId: 'inst-jsonb',
+      enrollmentCode: 'code-inst-jsonb',
       desiredState: desired,
     });
 
@@ -77,6 +81,7 @@ describe('deployments desired-state and audit fields', () => {
       organizationId: ids.organizationId,
       region: 'us-east-1',
       installationId: 'inst-audit',
+      enrollmentCode: 'code-inst-audit',
       createdBy: 'user_admin',
     });
     const [row] = await db!.select().from(deployments).where(eq(deployments.id, id));

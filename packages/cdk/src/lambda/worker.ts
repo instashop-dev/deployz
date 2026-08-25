@@ -176,14 +176,13 @@ type ConfigUpdateMessage = Extract<QueueMessage, { type: 'CONFIG_UPDATE' }>;
  */
 async function configUpdate(
   db: RuntimeDb,
-  customerId: string,
-  entries: ConfigUpdateMessage['entries'],
+  message: ConfigUpdateMessage,
   messageId: string,
 ): Promise<void> {
   const deployments = await db
     .select()
     .from(schema.deployments)
-    .where(eq(schema.deployments.customerId, customerId));
+    .where(eq(schema.deployments.customerId, message.customerId));
 
   for (const deployment of deployments) {
     await createOrReuseJob(db, {
@@ -193,7 +192,10 @@ async function configUpdate(
       // the job it already created while a genuinely new write makes a new
       // one — writing the same key twice is a legitimate second job.
       idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${messageId}`,
-      payload: { entries },
+      payload: {
+        ...(message.entries ? { entries: message.entries } : {}),
+        ...(message.removeKeys ? { removeKeys: message.removeKeys } : {}),
+      },
       requestedBy: null,
     });
   }
@@ -250,7 +252,7 @@ export async function handleMessage(
       await buildRelease(deps, message.releaseId);
       return;
     case 'CONFIG_UPDATE':
-      await configUpdate(deps.db, message.customerId, message.entries, messageId);
+      await configUpdate(deps.db, message, messageId);
       return;
   }
 }

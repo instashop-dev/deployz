@@ -296,10 +296,14 @@ describe('BootstrapStack', () => {
       expect(name.toLowerCase(), `parameter ${name} looks like a credential`).not.toMatch(
         /token|secret|credential|password|api.?key/,
       );
-      // The one application parameter we DO have is the non-secret URL.
-      expect(name).toBe('ControlPlaneUrl');
+      // Both application parameters are non-secret.
+      expect(['ControlPlaneUrl', 'EnrollmentCode']).toContain(name);
     }
-    expect(Object.keys(appParams)).toEqual(['ControlPlaneUrl']);
+    // EnrollmentCode is single use: the control plane burns it when the relay
+    // first binds, and refuses to bind it to a second relay afterwards. It is
+    // not the relay's communication credential — CloudFormation still mints
+    // that inside the customer's account, and it is still never a parameter.
+    expect(Object.keys(appParams).sort()).toEqual(['ControlPlaneUrl', 'EnrollmentCode']);
   });
 
   it('exports the control-plane handshake outputs', () => {

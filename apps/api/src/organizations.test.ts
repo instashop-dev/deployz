@@ -113,6 +113,7 @@ async function insertDeployment(
       region: 'us-east-1',
       state: 'NOT_INSTALLED',
       installationId: `inst-${crypto.randomUUID()}`,
+      enrollmentCode: crypto.randomUUID(),
       ...overrides,
     })
     .returning();

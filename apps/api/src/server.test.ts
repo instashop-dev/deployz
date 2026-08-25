@@ -51,7 +51,10 @@ async function insertApplication(
     .values({
       organizationId,
       name: 'Test App',
-      repoFullName: 'acme/test-app',
+      // Unique per call: one application per repo per organization is now a
+      // database constraint, and several tests seed two applications in the
+      // same org.
+      repoFullName: `acme/test-app-${crypto.randomUUID().slice(0, 8)}`,
       repoUrl: 'https://github.com/acme/test-app',
       defaultBranch: 'main',
       ...overrides,
@@ -86,7 +89,9 @@ async function insertRelease(
     .insert(schema.releases)
     .values({
       applicationId,
-      version: 'v1.0.0',
+      // Unique per call: one release per version per application is now a
+      // database constraint, and several tests seed two releases for one app.
+      version: `v1.0.0-${crypto.randomUUID().slice(0, 8)}`,
       gitSha: 'a1b2c3d',
       ...overrides,
     })
@@ -110,6 +115,9 @@ async function insertDeployment(
       region: 'us-east-1',
       state: 'NOT_INSTALLED',
       installationId: `inst-${crypto.randomUUID()}`,
+      // The control plane mints this when a deployment is created; the relay
+      // trades it once for its binding.
+      enrollmentCode: crypto.randomUUID(),
       ...overrides,
     })
     .returning();
@@ -796,6 +804,9 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   let org: { userId: string; organizationId: string; cookie: string };
   let deployment: typeof schema.deployments.$inferSelect;
   const RELAY_TOKEN = 'relay-token-abc123';
+  // The id the RELAY mints for itself inside the customer's account. The
+  // control plane learns it at enrollment and never before.
+  const RELAY_INSTALLATION_ID = 'inst-minted-in-customer-account';
 
   beforeAll(async () => {
     client = new PGlite();
@@ -809,6 +820,9 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     const customer = await insertCustomer(db, org.organizationId);
     deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
+      // Unbound: no relay has enrolled yet, which is the real shape of a
+      // deployment a vendor has just created.
+      installationId: null,
     });
   }, 60_000);
 
@@ -818,31 +832,44 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   });
 
   it('POST /api/relay/register without a bearer token is rejected', async () => {
-    const response = await postJson(app, '/api/relay/register', { installationId: deployment.installationId });
+    const response = await postJson(app, '/api/relay/register', {
+      enrollmentCode: deployment.enrollmentCode,
+      installationId: RELAY_INSTALLATION_ID,
+    });
     expect(response.statusCode).toBe(401);
   });
 
-  it('POST /api/relay/register 404s for an installationId with no matching deployment', async () => {
+  it('POST /api/relay/register 404s for an enrollment code with no matching deployment', async () => {
     const response = await postJson(
       app,
       '/api/relay/register',
-      { installationId: 'not-a-real-installation' },
+      { enrollmentCode: 'not-a-real-code', installationId: RELAY_INSTALLATION_ID },
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
     expect(response.statusCode).toBe(404);
   });
 
-  it('registers the token, creates the INSTALL job, and moves the deployment to INSTALLING (§6)', async () => {
+  it('binds the relay, creates the INSTALL job, and moves the deployment to INSTALLING (§6)', async () => {
     const response = await postJson(
       app,
       '/api/relay/register',
-      { installationId: deployment.installationId },
+      {
+        enrollmentCode: deployment.enrollmentCode,
+        installationId: RELAY_INSTALLATION_ID,
+        awsAccountId: '123456789012',
+      },
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
     expect(response.statusCode).toBe(200);
 
     const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
     expect(dep!.state).toBe('INSTALLING');
+    // The binding, the relay's self-minted id and the customer's account id
+    // are all learned here — none of them were knowable before this call.
+    expect(dep!.installationId).toBe(RELAY_INSTALLATION_ID);
+    expect(dep!.relayTokenHash).not.toBeNull();
+    expect(dep!.enrollmentUsedAt).not.toBeNull();
+    expect(dep!.awsAccountId).toBe('123456789012');
 
     const jobs = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id));
     expect(jobs).toHaveLength(1);
@@ -850,13 +877,14 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(jobs[0]!.state).toBe('REQUESTED');
   });
 
-  it('re-registering the same installation does not create a second INSTALL job', async () => {
-    await postJson(
+  it('a replay from the same relay is idempotent and creates no second INSTALL job', async () => {
+    const response = await postJson(
       app,
       '/api/relay/register',
-      { installationId: deployment.installationId },
+      { enrollmentCode: deployment.enrollmentCode, installationId: RELAY_INSTALLATION_ID },
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
+    expect(response.statusCode).toBe(200);
     const jobs = await db
       .select()
       .from(schema.deploymentJobs)
@@ -864,10 +892,48 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(jobs).toHaveLength(1);
   });
 
+  // The takeover this replaced: registration used to bind whatever token the
+  // caller supplied, checking only that the installation id existed — and
+  // that id travelled in the customer's install URL. Anyone holding the link
+  // could rebind the deployment to a token of their own, lock the real relay
+  // out, read its job payloads, and drive the deployment's state into and out
+  // of the states that start and stop billing.
+  it('refuses a second relay with a different token, and leaves the first one working', async () => {
+    const takeover = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId: 'inst-attacker' },
+      { authorization: 'Bearer attacker-chosen-token' },
+    );
+    expect(takeover.statusCode).toBe(409);
+    expect(takeover.json()).toMatchObject({ error: { code: 'RELAY_ALREADY_ENROLLED' } });
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.installationId).toBe(RELAY_INSTALLATION_ID);
+
+    // Health, not the command poll: polling would consume the pending INSTALL
+    // job that the next test asserts on, and authenticating is the point here.
+    const stillWorks = await postJson(
+      app,
+      '/api/relay/health',
+      { installationId: RELAY_INSTALLATION_ID },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(stillWorks.statusCode).toBe(200);
+  });
+
+  it('records a rejected enrollment as an event the vendor can see', async () => {
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, deployment.id));
+    expect(events.some((row) => row.eventType === 'install.enrollment.rejected')).toBe(true);
+  });
+
   it('GET /api/relay/commands rejects a wrong bearer token', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: `/api/relay/commands?installationId=${deployment.installationId}`,
+      url: `/api/relay/commands?installationId=${RELAY_INSTALLATION_ID}`,
       headers: { authorization: 'Bearer wrong-token' },
     });
     expect(response.statusCode).toBe(401);
@@ -876,7 +942,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   it('returns the pending INSTALL command and moves it to RUNNING', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: `/api/relay/commands?installationId=${deployment.installationId}`,
+      url: `/api/relay/commands?installationId=${RELAY_INSTALLATION_ID}`,
       headers: { authorization: `Bearer ${RELAY_TOKEN}` },
     });
     expect(response.statusCode).toBe(200);
@@ -893,7 +959,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   it('a second poll returns no commands (the job already left REQUESTED/QUEUED)', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: `/api/relay/commands?installationId=${deployment.installationId}`,
+      url: `/api/relay/commands?installationId=${RELAY_INSTALLATION_ID}`,
       headers: { authorization: `Bearer ${RELAY_TOKEN}` },
     });
     expect((response.json() as { commands: unknown[] }).commands).toHaveLength(0);
@@ -1102,7 +1168,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     const response = await postJson(
       app,
       '/api/relay/health',
-      { installationId: deployment.installationId, healthStatus: 'HEALTHY' },
+      { installationId: RELAY_INSTALLATION_ID, healthStatus: 'HEALTHY' },
       { authorization: 'Bearer wrong-token' },
     );
     expect(response.statusCode).toBe(401);
@@ -1112,7 +1178,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     const response = await postJson(
       app,
       '/api/relay/health',
-      { installationId: deployment.installationId, observedState: { tasksRunning: 2 }, healthStatus: 'DEGRADED' },
+      { installationId: RELAY_INSTALLATION_ID, observedState: { tasksRunning: 2 }, healthStatus: 'DEGRADED' },
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
     expect(response.statusCode).toBe(200);
@@ -1705,7 +1771,9 @@ describe('server — organization settings, public install page, and bulk deploy
     });
     const [orgRow] = await db.select().from(schema.organization).where(eq(schema.organization.id, org.organizationId));
 
-    const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installationId}` });
+    // Keyed on the install-LINK id. The relay's installation id is minted in
+    // the customer's account and must never be the value in a public URL.
+    const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
     expect(response.statusCode).toBe(200);
     const body = response.json() as Record<string, unknown>;
     expect(body).toStrictEqual({
@@ -1713,9 +1781,11 @@ describe('server — organization settings, public install page, and bulk deploy
       publisherName: orgRow!.name,
       customerName: 'Acme Analytics',
       region: 'eu-west-1',
+      alreadyInstalled: false,
       resourcesCreated: ['Application runtime', 'PostgreSQL database', 'Networking', 'Monitoring'],
       // No BOOTSTRAP_TEMPLATE_URL in the test environment: nothing is
-      // published, so there is no link to hand out.
+      // published, so there is no link to hand out. The enrollment code
+      // travels inside that link, never as a field of its own.
       quickCreateUrl: null,
     });
     const serialized = JSON.stringify(body);

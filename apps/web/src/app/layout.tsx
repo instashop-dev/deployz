@@ -15,7 +15,11 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: 'Deployz',
+  // A template, so each page names itself and only the home page falls back
+  // to the bare product name. Every public page used to render the same
+  // <title>Deployz</title>, which is both a search-result problem and a
+  // usability one once a visitor has more than one tab open.
+  title: { default: 'Deployz', template: '%s · Deployz' },
   description: 'Deploy your app into your customers’ cloud accounts.',
   alternates: { canonical: './' },
   openGraph: {

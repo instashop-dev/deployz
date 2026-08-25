@@ -121,7 +121,25 @@ export type FailureCode = z.infer<typeof failureCodeSchema>;
 export const relayStatusSchema = z.enum(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']);
 export type RelayStatus = z.infer<typeof relayStatusSchema>;
 
-export const healthStatusSchema = z.enum(['HEALTHY', 'DEGRADED', 'UNHEALTHY']);
+// UNKNOWN first: a deployment that has never checked in has no observed
+// health, and the column defaults to it. Reporting UNKNOWN is a relay saying
+// "I cannot tell", which is different from saying nothing at all.
+export const healthStatusSchema = z.enum(['UNKNOWN', 'HEALTHY', 'DEGRADED', 'UNHEALTHY']);
+
+/**
+ * §24 per-component health. Every field optional — the relay reports only the
+ * components a deployment actually has, so an application with no database
+ * simply omits it rather than claiming one is healthy.
+ */
+export const healthComponentsSchema = z
+  .object({
+    application: healthStatusSchema.optional(),
+    database: healthStatusSchema.optional(),
+    storage: healthStatusSchema.optional(),
+    loadBalancer: healthStatusSchema.optional(),
+  })
+  .strict();
+export type HealthComponents = z.infer<typeof healthComponentsSchema>;
 export type HealthStatus = z.infer<typeof healthStatusSchema>;
 
 export const orgPlanSchema = z.enum(['FREE', 'STARTER', 'PRO']);
@@ -279,8 +297,7 @@ export const deploymentSchema = z.object({
   currentReleaseId: z.uuid().nullable(),
   previousReleaseId: z.uuid().nullable(),
   relayStatus: relayStatusSchema,
-  // Null until the relay reports health for the first time.
-  healthStatus: healthStatusSchema.nullable(),
+  healthStatus: healthStatusSchema,
   desiredState: jsonRecord,
   observedState: jsonRecord.nullable(),
   infraVersion: z.string(),
@@ -391,8 +408,11 @@ export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;
 /** Default CloudFormation stack name for the customer bootstrap stack. */
 export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
 
-/** The bootstrap stack's single (non-secret) template parameter. */
+/** The bootstrap stack's non-secret control-plane parameter. */
 export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
+
+/** The bootstrap stack's single-use enrollment parameter. */
+export const ENROLLMENT_CODE_PARAMETER = 'EnrollmentCode';
 
 export interface BootstrapQuickCreateOptions {
   /** AWS region the console deep-link targets. */
@@ -401,6 +421,17 @@ export interface BootstrapQuickCreateOptions {
   readonly templateUrl: string;
   /** Base URL of the Deployz control plane the relay polls (non-secret). */
   readonly controlPlaneUrl: string;
+  /**
+   * Single-use enrollment code from the install link.
+   *
+   * Optional because the template publisher builds a URL for the PUBLISHED
+   * template itself, before any deployment exists and so before any code has
+   * been minted. Omitting it leaves the stack's EnrollmentCode parameter at
+   * its empty default, which the relay then refuses to enrol with — the
+   * customer-facing URL always comes from the install page, which has the
+   * code for their specific deployment.
+   */
+  readonly enrollmentCode?: string | undefined;
   /** CloudFormation stack name. Defaults to `deployz-bootstrap`. */
   readonly stackName?: string | undefined;
 }
@@ -413,6 +444,13 @@ export interface BootstrapQuickCreateOptions {
  *     ?templateURL={url-encoded templateUrl}
  *     &stackName={stackName}
  *     &param_ControlPlaneUrl={controlPlaneUrl}
+ *     &param_EnrollmentCode={enrollmentCode}
+ *
+ * The relay's communication credential is never here — CloudFormation mints
+ * it inside the customer's account. The enrollment code is not that
+ * credential: it is single use, it is spent the moment the relay binds, and
+ * it exists because the installation identifier is minted in the customer's
+ * account too, so nothing else ties this stack to a deployment.
  *
  * Pure — same inputs, same URL. `URLSearchParams` keeps the parameter order
  * deterministic (templateURL, stackName, then params).
@@ -427,6 +465,9 @@ export function buildBootstrapQuickCreateUrl(options: BootstrapQuickCreateOption
   query.set('templateURL', options.templateUrl);
   query.set('stackName', options.stackName ?? DEFAULT_BOOTSTRAP_STACK_NAME);
   query.set(`param_${CONTROL_PLANE_URL_PARAMETER}`, options.controlPlaneUrl);
+  if (options.enrollmentCode !== undefined) {
+    query.set(`param_${ENROLLMENT_CODE_PARAMETER}`, options.enrollmentCode);
+  }
 
   return `${base}?${query.toString()}`;
 }

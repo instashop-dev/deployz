@@ -43,6 +43,7 @@ export {
   buildBootstrapQuickCreateUrl,
   CONTROL_PLANE_URL_PARAMETER,
   DEFAULT_BOOTSTRAP_STACK_NAME,
+  ENROLLMENT_CODE_PARAMETER,
   type BootstrapQuickCreateOptions,
 } from '@deployz/contracts';
 
@@ -85,5 +86,4 @@ export function buildQuickCreateUrl(options: QuickCreateUrlOptions): string {
 
   return `${base}?${query.toString()}`;
 }
-
 

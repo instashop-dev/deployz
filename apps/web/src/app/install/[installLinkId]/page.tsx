@@ -41,10 +41,10 @@ const CANNOT_DO = [
 export default async function InstallPage({
   params,
 }: {
-  params: Promise<{ installationId: string }>;
+  params: Promise<{ installLinkId: string }>;
 }) {
-  const { installationId } = await params;
-  const data = await fetchInstallData(installationId);
+  const { installLinkId } = await params;
+  const data = await fetchInstallData(installLinkId);
 
   if (!data) {
     return (
@@ -54,6 +54,22 @@ export default async function InstallPage({
           This installation link doesn&apos;t match an active deployment. It may have been
           removed, or the link may be incorrect. Contact whoever sent you this link for a new
           one.
+        </p>
+      </div>
+    );
+  }
+
+  // The enrollment code is single use. Once a relay has traded it, running the
+  // setup again would fail at the point of no return — after the customer has
+  // approved a stack in their own account — so say so before they start.
+  if (data.alreadyInstalled) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">This app is already set up</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          {data.applicationName} is already running in your cloud account, so this setup link has
+          been used. If you need to install it again, ask {data.publisherName} to send you a new
+          link.
         </p>
       </div>
     );
@@ -170,7 +186,7 @@ export default async function InstallPage({
             </Button>
           )}
           <Button asChild variant="ghost" size="lg">
-            <Link href={`/install/${encodeURIComponent(installationId)}/security`}>
+            <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
               Security details
             </Link>
           </Button>
@@ -183,7 +199,7 @@ export default async function InstallPage({
         )}
         <p className="text-xs text-muted-foreground">
           Installation reference:{' '}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installationId}</code>
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
         </p>
       </section>
     </div>
