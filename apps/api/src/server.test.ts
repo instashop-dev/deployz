@@ -280,6 +280,50 @@ describe('server (Fastify base over PGlite)', () => {
     expect(serialized).not.toContain('hunter2-internal-db-password');
     expect(serialized).not.toContain('at '); // no stack frames
   });
+
+  // The 5xx envelope above is generic on purpose, so the log is the ONLY place
+  // the real cause survives. The API ran `logger: false`, which meant a 500
+  // left no trace anywhere — three production failures in a row could only be
+  // diagnosed by reading configuration and guessing.
+  it('logs the real cause of a 5xx, which the envelope deliberately withholds', async () => {
+    const logged: Array<Record<string, unknown>> = [];
+    const recorder = {
+      level: 'warn',
+      error: (obj: unknown) => {
+        logged.push(obj as Record<string, unknown>);
+      },
+      warn: () => {},
+      info: () => {},
+      debug: () => {},
+      trace: () => {},
+      fatal: () => {},
+      silent: () => {},
+      child: () => recorder,
+    } as unknown as Parameters<typeof buildServer>[0]['loggerInstance'];
+
+    const logging = await buildServer({ auth, db, loggerInstance: recorder });
+    logging.get('/api/probe-logged-error', async () => {
+      throw new Error('hunter2-internal-db-password');
+    });
+    logging.get('/api/probe-logged-client-error', async () => {
+      throw new ApiError(404, 'NOT_FOUND', 'nope');
+    });
+
+    await logging.inject({ method: 'GET', url: '/api/probe-logged-error' });
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({
+      method: 'GET',
+      url: '/api/probe-logged-error',
+      code: 'INTERNAL_ERROR',
+    });
+    expect((logged[0]!['err'] as Error).message).toBe('hunter2-internal-db-password');
+
+    // A 4xx is the caller's problem, not an incident — it stays out of the log.
+    await logging.inject({ method: 'GET', url: '/api/probe-logged-client-error' });
+    expect(logged).toHaveLength(1);
+
+    await logging.close();
+  });
 });
 
 // ── §1: organization identity comes from the session, never the client ─────

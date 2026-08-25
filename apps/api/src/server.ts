@@ -2,7 +2,12 @@ import cors from '@fastify/cors';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, {
+  type FastifyBaseLogger,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from 'fastify';
 import { z } from 'zod';
 
 import {
@@ -123,6 +128,9 @@ export interface ServerDeps {
   // are testable on a machine (or a CI runner) with no .env.
   githubAppId?: string | undefined;
   githubAppPrivateKey?: string | undefined;
+  // Injectable logger, so a test can read back what a failing request
+  // reported. Production uses the default below.
+  loggerInstance?: FastifyBaseLogger | undefined;
   // Injectable §16/§29 AI gateway for diagnostic explanations. Defaults to the
   // env-configured Cloudflare AI Gateway, which degrades to a throwing stub
   // when unconfigured so diagnostics fall back to deterministic remediation.
@@ -545,8 +553,16 @@ export async function buildServer({
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
   aiGateway = createAiGateway(env.aiGateway),
+  loggerInstance,
 }: ServerDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  // `logger: false` meant a 500 left NO trace anywhere: not in CloudWatch, not
+  // in the response (the envelope is deliberately generic), nowhere. Three
+  // production failures in a row could only be diagnosed by reading
+  // configuration and guessing. `warn` keeps the per-request info lines off
+  // while letting the error handler below say what actually broke.
+  const app = Fastify(
+    loggerInstance ? { loggerInstance } : { logger: { level: 'warn' } },
+  );
 
   // Sentry owns capture via the onError hook this registers. Capture filter:
   // ApiError 4xx are expected client errors — not reportable; everything else
@@ -558,8 +574,17 @@ export async function buildServer({
 
   // Single render path for every thrown error: structured envelope, no stack
   // traces, no internal messages.
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const { statusCode, body } = toErrorEnvelope(error);
+    // The envelope a 5xx returns is generic on purpose — it must not leak
+    // internals to the caller. That makes the log the ONLY place the real
+    // cause survives, so write it there.
+    if (statusCode >= 500) {
+      request.log.error(
+        { err: error, method: request.method, url: request.url, code: body.error.code },
+        'request failed',
+      );
+    }
     return reply.code(statusCode).send(body);
   });
 
