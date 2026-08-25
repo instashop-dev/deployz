@@ -55,9 +55,32 @@ export interface ApplicationReadiness {
   verdict: CompatibilityVerdict | null;
   score: number | null;
   changesRequired: number | null;
+  /** Why a FAILED analysis failed. Null in every other state. */
+  failureReason: string | null;
   ready: ReadyCheck[];
   needsAttention: AttentionCheck[];
   unsupported: UnsupportedCheck[];
+}
+
+/** What to show when the analysis FAILED, or null when it did not. */
+export interface ReadinessFailure {
+  heading: string;
+  detail: string;
+}
+
+/**
+ * A FAILED analysis is its own state, not a slow one. It used to render as
+ * "Analysing your app — this usually takes a minute" while polling had
+ * already stopped, so pressing Re-analyse looked like it did nothing
+ * whatsoever. Say what happened, and say that pressing it again is the retry.
+ */
+export function readinessFailure(readiness: ApplicationReadiness): ReadinessFailure | null {
+  if (readiness.analysisStatus !== 'FAILED') return null;
+  return {
+    heading: "We couldn't analyse your app",
+    detail:
+      readiness.failureReason ?? 'Something went wrong while reading your repository.',
+  };
 }
 
 // ── §19 verdict presentation ────────────────────────────────────────────────

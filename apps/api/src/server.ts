@@ -2,7 +2,12 @@ import cors from '@fastify/cors';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, {
+  type FastifyBaseLogger,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from 'fastify';
 import { z } from 'zod';
 
 import {
@@ -133,6 +138,9 @@ export interface ServerDeps {
   // are testable on a machine (or a CI runner) with no .env.
   githubAppId?: string | undefined;
   githubAppPrivateKey?: string | undefined;
+  // Injectable logger, so a test can read back what a failing request
+  // reported. Production uses the default below.
+  loggerInstance?: FastifyBaseLogger | undefined;
   // Injectable §16/§29 AI gateway for diagnostic explanations. Defaults to the
   // env-configured Cloudflare AI Gateway, which degrades to a throwing stub
   // when unconfigured so diagnostics fall back to deterministic remediation.
@@ -429,6 +437,8 @@ function computeReadiness(app: {
   verdict: string | null;
   score: number | null;
   changesRequired: number | null;
+  /** Why a FAILED analysis failed. Null in every other state. */
+  failureReason: string | null;
   ready: ReadyCheck[];
   needsAttention: AttentionCheck[];
   unsupported: UnsupportedCheck[];
@@ -439,6 +449,11 @@ function computeReadiness(app: {
       verdict: null,
       score: null,
       changesRequired: null,
+      // A FAILED analysis used to look exactly like a still-running one on
+      // the wire, so the page showed "Analysing your app" for ever and
+      // Re-analyse appeared to do nothing. The reason is on the row either
+      // way (analysis.ts persists it) — it just was never sent.
+      failureReason: app.analysisStatus === 'FAILED' ? app.compatibilityReason : null,
       ready: [],
       needsAttention: [],
       unsupported: [],
@@ -470,6 +485,7 @@ function computeReadiness(app: {
     verdict: app.compatibilityStatus ?? 'NEEDS_ATTENTION',
     score,
     changesRequired: needsAttention.length,
+    failureReason: null,
     ready,
     needsAttention,
     unsupported,
@@ -552,8 +568,16 @@ export async function buildServer({
   githubAppPrivateKey: injectedGithubAppPrivateKey,
   aiGateway = createAiGateway(env.aiGateway),
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
+  loggerInstance,
 }: ServerDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  // `logger: false` meant a 500 left NO trace anywhere: not in CloudWatch, not
+  // in the response (the envelope is deliberately generic), nowhere. Three
+  // production failures in a row could only be diagnosed by reading
+  // configuration and guessing. `warn` keeps the per-request info lines off
+  // while letting the error handler below say what actually broke.
+  const app = Fastify(
+    loggerInstance ? { loggerInstance } : { logger: { level: 'warn' } },
+  );
 
   // Sentry owns capture via the onError hook this registers. Capture filter:
   // ApiError 4xx are expected client errors — not reportable; everything else
@@ -565,8 +589,17 @@ export async function buildServer({
 
   // Single render path for every thrown error: structured envelope, no stack
   // traces, no internal messages.
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const { statusCode, body } = toErrorEnvelope(error);
+    // The envelope a 5xx returns is generic on purpose — it must not leak
+    // internals to the caller. That makes the log the ONLY place the real
+    // cause survives, so write it there.
+    if (statusCode >= 500) {
+      request.log.error(
+        { err: error, method: request.method, url: request.url, code: body.error.code },
+        'request failed',
+      );
+    }
     return reply.code(statusCode).send(body);
   });
 
@@ -1063,15 +1096,26 @@ export async function buildServer({
     if (!githubAppId || !githubAppPrivateKey) {
       throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
     }
-    const jwt = createAppJwt(githubAppId, githubAppPrivateKey, Date.now());
-    const account = await fetchInstallationAccount(installationId, jwt, githubFetch);
+    // GitHub sends a *browser* to this URL, so a thrown error would render the
+    // JSON envelope at the vendor and strand them there — the same dead end
+    // the signed-out redirect above exists to avoid. Whatever goes wrong
+    // (GitHub unreachable, an installation this App does not own, a private
+    // key it cannot sign with), put them back on the dashboard, which reports
+    // the state it can actually see.
+    try {
+      const jwt = createAppJwt(githubAppId, githubAppPrivateKey, Date.now());
+      const account = await fetchInstallationAccount(installationId, jwt, githubFetch);
 
-    await githubStore.set({
-      id: installationId,
-      organizationId,
-      accountLogin: account.accountLogin,
-      accountType: account.accountType,
-    });
+      await githubStore.set({
+        id: installationId,
+        organizationId,
+        accountLogin: account.accountLogin,
+        accountType: account.accountType,
+      });
+    } catch (error) {
+      request.log.error({ err: error, installationId }, 'github setup binding failed');
+      return reply.redirect(`${dashboardUrl}?github=failed`);
+    }
 
     return reply.redirect(`${dashboardUrl}?github=connected`);
   });

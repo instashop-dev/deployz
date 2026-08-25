@@ -280,6 +280,50 @@ describe('server (Fastify base over PGlite)', () => {
     expect(serialized).not.toContain('hunter2-internal-db-password');
     expect(serialized).not.toContain('at '); // no stack frames
   });
+
+  // The 5xx envelope above is generic on purpose, so the log is the ONLY place
+  // the real cause survives. The API ran `logger: false`, which meant a 500
+  // left no trace anywhere — three production failures in a row could only be
+  // diagnosed by reading configuration and guessing.
+  it('logs the real cause of a 5xx, which the envelope deliberately withholds', async () => {
+    const logged: Array<Record<string, unknown>> = [];
+    const recorder = {
+      level: 'warn',
+      error: (obj: unknown) => {
+        logged.push(obj as Record<string, unknown>);
+      },
+      warn: () => {},
+      info: () => {},
+      debug: () => {},
+      trace: () => {},
+      fatal: () => {},
+      silent: () => {},
+      child: () => recorder,
+    } as unknown as Parameters<typeof buildServer>[0]['loggerInstance'];
+
+    const logging = await buildServer({ auth, db, loggerInstance: recorder });
+    logging.get('/api/probe-logged-error', async () => {
+      throw new Error('hunter2-internal-db-password');
+    });
+    logging.get('/api/probe-logged-client-error', async () => {
+      throw new ApiError(404, 'NOT_FOUND', 'nope');
+    });
+
+    await logging.inject({ method: 'GET', url: '/api/probe-logged-error' });
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({
+      method: 'GET',
+      url: '/api/probe-logged-error',
+      code: 'INTERNAL_ERROR',
+    });
+    expect((logged[0]!['err'] as Error).message).toBe('hunter2-internal-db-password');
+
+    // A 4xx is the caller's problem, not an incident — it stays out of the log.
+    await logging.inject({ method: 'GET', url: '/api/probe-logged-client-error' });
+    expect(logged).toHaveLength(1);
+
+    await logging.close();
+  });
 });
 
 // ── §1: organization identity comes from the session, never the client ─────
@@ -1511,9 +1555,31 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       verdict: null,
       score: null,
       changesRequired: null,
+      failureReason: null,
       ready: [],
       needsAttention: [],
       unsupported: [],
+    });
+  });
+
+  // A FAILED analysis used to reach the page as an indistinguishable
+  // "not COMPLETE yet" — same empty shape as ANALYZING, reason dropped. The
+  // vendor saw "Analysing your app" for ever and Re-analyse looked inert.
+  it('readiness: a FAILED analysis carries the reason it failed', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'FAILED',
+      compatibilityReason: 'Failed to mint a GitHub installation token',
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      analysisStatus: 'FAILED',
+      verdict: null,
+      failureReason: 'Failed to mint a GitHub installation token',
     });
   });
 
@@ -1749,6 +1815,27 @@ describe('server — GitHub installation binding', () => {
     expect(response.headers['location']).toContain(
       '/sign-in?callbackUrl=%2Fgithub%2Fsetup%3Finstallation_id%3D4242',
     );
+  });
+
+  // Same principle as the signed-out case above, for the other way this route
+  // fails. GitHub sends a *browser* here, so an error envelope renders raw
+  // JSON at the vendor — which is what a mangled App key produced in
+  // production: `{"error":{"code":"INTERNAL_ERROR",...}}` on screen, and no
+  // way back. Land them on the dashboard, which says what it knows.
+  it('returns a failed setup to the dashboard instead of rendering JSON', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/setup?installation_id=9999',
+      headers: { cookie: org.cookie },
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toContain('/dashboard/applications?github=failed');
+    expect(response.body).not.toContain('INTERNAL_ERROR');
+
+    // A binding that did not happen is never recorded as if it had.
+    const rows = await db.select().from(schema.githubInstallations);
+    expect(rows.map((row) => row.id)).not.toContain('9999');
   });
 
   it('lists the bound installation for its own organization only', async () => {

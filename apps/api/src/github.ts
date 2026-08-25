@@ -103,14 +103,49 @@ function base64Url(input: string | Buffer): string {
   return buf.toString('base64url');
 }
 
+// The App's private key reaches this process as one environment variable, and
+// it collects escapes on the way: the repo-root `.env` stores the PEM
+// double-quoted with `\n` escapes (which the .env parser decodes), while a
+// GitHub Actions secret is copied through verbatim (nothing decodes it). So a
+// key can arrive fully escaped, or — as production did — with only its first
+// and last line breaks still written as two characters. node:crypto sees a
+// PEM with no header line and throws `DECODER routines::unsupported`.
+//
+// Decoding the escapes here is safe: `\n` cannot occur inside base64 or inside
+// the PEM armour, so there is nothing legitimate to corrupt.
+// Anything that is not a PEM string (a KeyObject, as the tests pass) is
+// already structured and goes through untouched.
+export function normalizeAppPrivateKey<T>(privateKey: T): T | string {
+  if (typeof privateKey !== 'string') return privateKey;
+  return privateKey
+    .split(String.raw`\r\n`)
+    .join('\n')
+    .split(String.raw`\n`)
+    .join('\n')
+    .replace(/\r/g, '');
+}
+
 // RS256 signer backed by the App's private key.
 export function createRsaSigner(privateKey: string): AppJwtSigner {
+  const key = normalizeAppPrivateKey(privateKey);
   return {
     sign(input: string): string {
       const signer = createSign('RSA-SHA256');
       signer.update(input);
       signer.end();
-      return signer.sign(privateKey).toString('base64url');
+      try {
+        return signer.sign(key).toString('base64url');
+      } catch {
+        // A key we cannot sign with is a GitHub configuration problem, and it
+        // has to say so. Left bare, node:crypto's error is not an ApiError, so
+        // the error funnel renders it as an anonymous 500 INTERNAL_ERROR —
+        // which is how a mangled key once looked exactly like a broken API.
+        throw new ApiError(
+          503,
+          'GITHUB_APP_KEY_INVALID',
+          'The GitHub App private key could not be read',
+        );
+      }
     },
   };
 }
