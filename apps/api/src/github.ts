@@ -1,6 +1,10 @@
 import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
 
+import { eq } from 'drizzle-orm';
+
 import type { FileTree } from '@deployz/analysis';
+import type { RuntimeDb } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
 
 import { ApiError } from './errors.js';
 
@@ -111,12 +115,20 @@ export function createRsaSigner(privateKey: string): AppJwtSigner {
   };
 }
 
-// Builds the App JWT from an injectable signer. `iat` = floor(nowMs / 1000),
-// `exp` = iat + 10 minutes (GitHub's maximum token lifetime).
+// Clock-skew margin. GitHub rejects a JWT whose `exp` is more than 10 minutes
+// ahead of GITHUB's clock, so issuing at exactly iat + 600 fails whenever our
+// clock runs even a second fast ("'Expiration time' claim ('exp') is too far
+// in the future"). Backdating `iat` and shortening the lifetime, as GitHub's
+// own documentation recommends, leaves a minute of slack at both ends.
+const JWT_CLOCK_SKEW_SECONDS = 60;
+
+// Builds the App JWT from an injectable signer. `iat` = floor(nowMs / 1000)
+// backdated by the skew margin, `exp` = iat + 9 minutes (inside GitHub's
+// 10-minute maximum even when our clock is a minute fast).
 export function buildAppJwt(appId: string, signer: AppJwtSigner, nowMs: number): string {
   const header = { alg: 'RS256', typ: 'JWT' };
-  const iat = Math.floor(nowMs / 1000);
-  const payload = { iat, exp: iat + 600, iss: String(appId) };
+  const iat = Math.floor(nowMs / 1000) - JWT_CLOCK_SKEW_SECONDS;
+  const payload = { iat, exp: iat + 600 - 2 * JWT_CLOCK_SKEW_SECONDS, iss: String(appId) };
   const headerB64 = base64Url(JSON.stringify(header));
   const payloadB64 = base64Url(JSON.stringify(payload));
   const signature = signer.sign(`${headerB64}.${payloadB64}`);
@@ -221,9 +233,12 @@ export async function listInstallationRepositories(
 }
 
 // ---------------------------------------------------------------------------
-// Installation store (in-memory — there is no installations table yet, and
-// packages/db is guarded; the applications.github_installation_id column is
-// the durable pointer once a repo is selected in todo 25).
+// Installation store (Postgres — github_installations).
+//
+// Durable because the control plane runs as a Lambda: an in-memory map is
+// empty on the next cold start and invisible to every other concurrent
+// execution environment, so a vendor who connected GitHub would find the
+// connection gone on the next request.
 // ---------------------------------------------------------------------------
 
 export interface GithubInstallationRecord {
@@ -234,29 +249,88 @@ export interface GithubInstallationRecord {
 }
 
 export interface GithubInstallationStore {
-  set(installation: GithubInstallationRecord): void;
-  delete(installationId: string): void;
-  listByOrganization(organizationId: string): GithubInstallationRecord[];
+  set(installation: GithubInstallationRecord): Promise<void>;
+  delete(installationId: string): Promise<void>;
+  get(installationId: string): Promise<GithubInstallationRecord | null>;
+  listByOrganization(organizationId: string): Promise<GithubInstallationRecord[]>;
 }
 
+function toRecord(row: {
+  id: string;
+  organizationId: string;
+  accountLogin: string;
+  accountType: string;
+}): GithubInstallationRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    accountLogin: row.accountLogin,
+    accountType: row.accountType === 'User' ? 'User' : 'Organization',
+  };
+}
+
+export function createGithubStore(db: RuntimeDb): GithubInstallationStore {
+  return {
+    async set(installation) {
+      await db
+        .insert(schema.githubInstallations)
+        .values(installation)
+        .onConflictDoUpdate({
+          target: schema.githubInstallations.id,
+          set: {
+            organizationId: installation.organizationId,
+            accountLogin: installation.accountLogin,
+            accountType: installation.accountType,
+            updatedAt: new Date(),
+          },
+        });
+    },
+
+    async delete(installationId) {
+      await db
+        .delete(schema.githubInstallations)
+        .where(eq(schema.githubInstallations.id, installationId));
+    },
+
+    async get(installationId) {
+      const rows = await db
+        .select()
+        .from(schema.githubInstallations)
+        .where(eq(schema.githubInstallations.id, installationId))
+        .limit(1);
+      const row = rows[0];
+      return row ? toRecord(row) : null;
+    },
+
+    async listByOrganization(organizationId) {
+      const rows = await db
+        .select()
+        .from(schema.githubInstallations)
+        .where(eq(schema.githubInstallations.organizationId, organizationId));
+      return rows.map(toRecord);
+    },
+  };
+}
+
+/** In-memory store — tests only; production always uses `createGithubStore`. */
 export class InMemoryGithubInstallationStore implements GithubInstallationStore {
   private byId = new Map<string, GithubInstallationRecord>();
 
-  set(installation: GithubInstallationRecord): void {
+  async set(installation: GithubInstallationRecord): Promise<void> {
     this.byId.set(installation.id, installation);
   }
 
-  delete(installationId: string): void {
+  async delete(installationId: string): Promise<void> {
     this.byId.delete(installationId);
   }
 
-  listByOrganization(organizationId: string): GithubInstallationRecord[] {
+  async get(installationId: string): Promise<GithubInstallationRecord | null> {
+    return this.byId.get(installationId) ?? null;
+  }
+
+  async listByOrganization(organizationId: string): Promise<GithubInstallationRecord[]> {
     return [...this.byId.values()].filter((record) => record.organizationId === organizationId);
   }
-}
-
-export function createGithubStore(): GithubInstallationStore {
-  return new InMemoryGithubInstallationStore();
 }
 
 // ---------------------------------------------------------------------------
@@ -275,21 +349,21 @@ export interface GithubWebhookEvent {
   sender?: { login: string } | undefined;
 }
 
-// Maps a GitHub account login to a Deployz organization id. The real mapping
-// (vendor installs the App on their GitHub org while signed in) is BLOCKED —
-// no account->org table exists yet, so the default resolver returns null and
-// the handler degrades to a no-op. Tests inject a resolver returning a known
-// org id.
-export type ResolveOrganization = (accountLogin: string) => Promise<string | null>;
+export type InstallationWebhookResult = 'removed' | 'ignored';
 
-export type InstallationWebhookResult = 'stored' | 'removed' | 'ignored';
-
-// Handles installation.created (store the installation id against the org) and
-// installation.deleted (remove it). Any other action/type is ignored.
+// Handles installation.deleted (drop the installation) — the ONLY installation
+// event that carries enough information to act on.
+//
+// A webhook cannot bind an installation to a Deployz organization: the payload
+// names a GitHub account, and nothing in it identifies the vendor's tenant.
+// Matching the GitHub login against an organization slug cannot work either —
+// `organizationSlug` always appends a random seed, so no slug ever equals a
+// GitHub login. The binding therefore happens where the vendor's session is
+// present: GET /api/github/setup, the App's Setup URL, which GitHub redirects
+// the installing user to with `installation_id` in the query.
 export async function handleInstallationWebhook(
   store: GithubInstallationStore,
   event: GithubWebhookEvent,
-  resolveOrganization: ResolveOrganization,
 ): Promise<InstallationWebhookResult> {
   if (event.type !== 'installation') {
     return 'ignored';
@@ -300,29 +374,43 @@ export async function handleInstallationWebhook(
   }
 
   if (event.action === 'deleted') {
-    store.delete(String(installation.id));
+    await store.delete(String(installation.id));
     return 'removed';
   }
 
-  if (event.action === 'created') {
-    const accountLogin = installation.account?.login;
-    if (!accountLogin) {
-      return 'ignored';
-    }
-    const organizationId = await resolveOrganization(accountLogin);
-    if (!organizationId) {
-      return 'ignored';
-    }
-    store.set({
-      id: String(installation.id),
-      organizationId,
-      accountLogin,
-      accountType: installation.account?.type === 'User' ? 'User' : 'Organization',
-    });
-    return 'stored';
-  }
-
   return 'ignored';
+}
+
+// Reads an installation's own account (login + type) with the App JWT, so the
+// setup route can record who the installation belongs to without trusting
+// anything the browser sent beyond the installation id itself.
+export async function fetchInstallationAccount(
+  installationId: string,
+  jwt: string,
+  fetchFn: FetchFn,
+): Promise<{ accountLogin: string; accountType: 'Organization' | 'User' }> {
+  const response = await fetchFn(`${GITHUB_API_BASE}/app/installations/${installationId}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new ApiError(502, 'GITHUB_INSTALLATION_FETCH_FAILED', 'Failed to read the GitHub installation');
+  }
+  const data = (await response.json()) as {
+    account?: { login?: string; type?: string } | undefined;
+  };
+  const accountLogin = data.account?.login;
+  if (!accountLogin) {
+    throw new ApiError(502, 'GITHUB_INSTALLATION_FETCH_FAILED', 'GitHub installation has no account');
+  }
+  return {
+    accountLogin,
+    accountType: data.account?.type === 'User' ? 'User' : 'Organization',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -380,7 +468,8 @@ export async function listInstallations(
       accountType: installation.accountType,
     }));
   }
-  return store.listByOrganization(organizationId).map((record) => ({
+  const records = await store.listByOrganization(organizationId);
+  return records.map((record) => ({
     id: record.id,
     accountLogin: record.accountLogin,
     accountType: record.accountType,
@@ -439,6 +528,10 @@ interface GitTreeEntry {
 // memory/time cost of running the detectors themselves.
 export const ANALYSIS_MAX_FILES = 200;
 export const ANALYSIS_MAX_FILE_BYTES = 200_000; // 200 KB per file
+// Parallel blob reads. GitHub's secondary rate limits allow ~100 concurrent
+// requests per installation; 12 keeps a comfortable margin while turning a
+// minutes-long serial fetch into a few seconds.
+export const ANALYSIS_FETCH_CONCURRENCY = 12;
 
 // Directories the §18 detectors never need and that would otherwise blow the
 // file cap on repos that (unusually) commit build output or vendored deps.
@@ -456,6 +549,16 @@ const IGNORED_DIR_SEGMENTS = new Set([
 ]);
 
 const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx)$/i;
+// A manifest, a Dockerfile or a Prisma schema anywhere in the tree — a
+// workspace repository keeps all three outside the root, and the detectors
+// read every one of them (packages/analysis/src/detectors.ts).
+const MANIFEST_REGEX = /(?:^|\/)package\.json$/i;
+const DOCKERFILE_REGEX = /(?:^|\/)dockerfile(?:\.[\w.-]+)?$/i;
+const PRISMA_SCHEMA_REGEX = /schema\.prisma$/i;
+// File-based health routes — the same shape detectHealthEndpoint matches on
+// the path rather than on the file's contents.
+const HEALTH_ROUTE_FILE_REGEX =
+  /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
 
 function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
@@ -466,25 +569,30 @@ function isIgnoredPath(path: string): boolean {
 // Keep this in sync if a detector starts reading a new file shape.
 function isRelevantPath(path: string): boolean {
   if (isIgnoredPath(path)) return false;
+  if (MANIFEST_REGEX.test(path)) return true;
+  if (DOCKERFILE_REGEX.test(path)) return true;
+  if (PRISMA_SCHEMA_REGEX.test(path)) return true;
   const isRoot = !path.includes('/');
   if (isRoot) {
-    if (/^package\.json$/i.test(path)) return true;
-    if (/^dockerfile$/i.test(path)) return true;
     if (/^docker-compose\.ya?ml$/i.test(path)) return true;
     if (/^\.env(\.\w+)?$/i.test(path)) return true;
   }
-  if (/schema\.prisma$/i.test(path)) return true;
   if (SOURCE_EXTENSION_REGEX.test(path)) return true;
   return false;
 }
 
 // Priority order for trimming to ANALYSIS_MAX_FILES when a repo has more
-// relevant files than the cap: the small, high-signal root config files
-// always win a slot before the (potentially numerous) source files.
+// relevant files than the cap: the small, high-signal config files always
+// win a slot before the (potentially numerous) source files. A health-route
+// file ranks above ordinary source because it is the only evidence of a
+// health endpoint in a file-routed application.
 function relevancePriority(path: string): number {
+  if (MANIFEST_REGEX.test(path)) return 0;
+  if (DOCKERFILE_REGEX.test(path)) return 0;
   if (!path.includes('/')) return 0; // root config files
-  if (/schema\.prisma$/i.test(path)) return 1;
-  return 2; // source files
+  if (PRISMA_SCHEMA_REGEX.test(path)) return 1;
+  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 2;
+  return 3; // source files
 }
 
 export interface RepositoryRef {
@@ -614,13 +722,26 @@ export async function buildFileTreeForAnalysis(
     .sort((a, b) => relevancePriority(a.path) - relevancePriority(b.path))
     .slice(0, ANALYSIS_MAX_FILES);
 
+  // Fetched ANALYSIS_FETCH_CONCURRENCY at a time. One-at-a-time turns 200
+  // independent blob reads into 200 round trips in series, which is minutes
+  // of wall clock on a real repository — far longer than any request or
+  // Lambda invocation lives.
   const tree: FileTree = {};
-  for (const entry of candidates) {
-    const content = await fetchBlobContent(ref, entry.sha, installationToken, fetchFn);
-    if (content !== null) {
-      tree[entry.path] = content;
-    }
-  }
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(ANALYSIS_FETCH_CONCURRENCY, candidates.length) },
+    async () => {
+      while (next < candidates.length) {
+        const entry = candidates[next++];
+        if (!entry) break;
+        const content = await fetchBlobContent(ref, entry.sha, installationToken, fetchFn);
+        if (content !== null) {
+          tree[entry.path] = content;
+        }
+      }
+    },
+  );
+  await Promise.all(workers);
   return tree;
 }
 

@@ -49,6 +49,19 @@ function send(
   });
 }
 
+/**
+ * An application may only point at an installation its own organization
+ * connected, so the connected installation has to exist first.
+ */
+async function connectInstallation(db: Db, organizationId: string) {
+  await db.insert(schema.githubInstallations).values({
+    id: 'inst-1',
+    organizationId,
+    accountLogin: 'acme',
+    accountType: 'Organization',
+  });
+}
+
 describe('deployment lifecycle — states, events, and removal', () => {
   let client: PGlite | undefined;
   let db: Db;
@@ -63,7 +76,9 @@ describe('deployment lifecycle — states, events, and removal', () => {
     db = createDb(client);
     const auth = createAuth(db);
     app = await buildServer({ auth, db });
-    ({ cookie } = await signUp(auth, db, 'lifecycle@example.com'));
+    const { cookie: sessionCookie, organizationId } = await signUp(auth, db, 'lifecycle@example.com');
+    cookie = sessionCookie;
+    await connectInstallation(db, organizationId);
 
     const application = await send(
       app,
@@ -230,7 +245,9 @@ describe('duplicate guards', () => {
     db = createDb(client);
     const auth = createAuth(db);
     app = await buildServer({ auth, db });
-    ({ cookie } = await signUp(auth, db, 'duplicates@example.com'));
+    const { cookie: sessionCookie, organizationId } = await signUp(auth, db, 'duplicates@example.com');
+    cookie = sessionCookie;
+    await connectInstallation(db, organizationId);
   }, 60_000);
 
   afterAll(async () => {

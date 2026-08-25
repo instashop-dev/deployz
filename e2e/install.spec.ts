@@ -86,10 +86,14 @@ test('install page renders the real application/publisher and the Deploy to AWS 
   expect(href).toContain('templateURL=');
   expect(href).toContain('stackName=deployz-bootstrap');
   expect(href).toContain('param_ControlPlaneUrl=');
+  // The console deep-link targets the deployment's OWN region, which only the
+  // control plane knows — the web app never hardcodes one.
+  expect(href).toContain('region=us-east-1');
   // The single-use enrollment code is what ties this stack to the vendor's
   // deployment. The relay's own communication credential is still minted by
   // CloudFormation inside the customer's account and never travels here.
   expect(href).toContain('param_EnrollmentCode=');
+  // The URL carries no credential or installation identifier.
   expect(href).not.toMatch(/token|secret|credential|installationId/i);
 
   // §44 framing: the customer authenticates at their own cloud provider.

@@ -26,6 +26,22 @@ Run from the repo root:
 - `pnpm lint` — lint every package via Turborepo (ESLint flat config at root)
 - `pnpm dev` — run every package's persistent dev script (`tsc --watch`)
 
+## Deploying the control plane
+
+1. `pnpm build`, then `pnpm --filter @deployz/cdk exec cdk deploy Deployz` — VPC,
+   RDS, API Lambda, the SQS job queue with its worker, the CodeBuild/ECR release
+   pipeline, and the public template bucket.
+2. `pnpm --filter @deployz/cdk run publish:bootstrap` — publishes the customer
+   bootstrap template (repacked to be self-contained, Lambda assets zipped) to
+   that bucket and prints its URL.
+3. Redeploy with `BOOTSTRAP_TEMPLATE_URL` (or `-c bootstrapTemplateUrl=...`) set
+   to that URL. Until it is set the API returns `quickCreateUrl: null` and the
+   install page tells the customer no template has been published yet, rather
+   than handing them a link CloudFormation cannot resolve.
+4. Point the GitHub App's **Setup URL** at `<API_URL>/api/github/setup` with
+   "Redirect on update" enabled — that redirect binds an installation to the
+   vendor's organization.
+
 ## Module-resolution scheme
 
 One base config (`tsconfig.base.json`, `strict: true` plus strict-adjacent flags), two per-package flavors:
