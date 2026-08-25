@@ -1773,6 +1773,27 @@ describe('server — GitHub installation binding', () => {
     );
   });
 
+  // Same principle as the signed-out case above, for the other way this route
+  // fails. GitHub sends a *browser* here, so an error envelope renders raw
+  // JSON at the vendor — which is what a mangled App key produced in
+  // production: `{"error":{"code":"INTERNAL_ERROR",...}}` on screen, and no
+  // way back. Land them on the dashboard, which says what it knows.
+  it('returns a failed setup to the dashboard instead of rendering JSON', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/setup?installation_id=9999',
+      headers: { cookie: org.cookie },
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toContain('/dashboard/applications?github=failed');
+    expect(response.body).not.toContain('INTERNAL_ERROR');
+
+    // A binding that did not happen is never recorded as if it had.
+    const rows = await db.select().from(schema.githubInstallations);
+    expect(rows.map((row) => row.id)).not.toContain('9999');
+  });
+
   it('lists the bound installation for its own organization only', async () => {
     const mine = await app.inject({
       method: 'GET',

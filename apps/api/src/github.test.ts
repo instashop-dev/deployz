@@ -118,6 +118,48 @@ describe('github — App JWT (RS256)', () => {
     expect(verifier.verify(publicKey, Buffer.from(signature!, 'base64url'))).toBe(true);
     expect(decodeJwtSegment(header!)).toMatchObject({ alg: 'RS256' });
   });
+
+  // The PEM reaches us through `.env` (double-quoted, backslash-n escapes) and
+  // through a GitHub Actions secret, and only the .env parser decodes those
+  // escapes. A key that arrives with them intact used to be handed to
+  // node:crypto verbatim, which threw a bare Error — rendered to the vendor as
+  // a 500 INTERNAL_ERROR with nothing in the logs to explain it.
+  it('accepts a private key whose newlines arrived as escapes', () => {
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const pem = privateKey.export({ type: 'pkcs1', format: 'pem' }).toString();
+    const escaped = pem.split('\n').join(String.raw`\n`);
+    expect(escaped.includes('\n')).toBe(false);
+
+    const jwt = createAppJwt(TEST_APP_ID, escaped, 1_700_000_000_000);
+    const [header, payload, signature] = jwt.split('.');
+    const verifier = createVerify('RSA-SHA256');
+    verifier.update(`${header}.${payload}`);
+    verifier.end();
+    expect(verifier.verify(publicKey, Buffer.from(signature!, 'base64url'))).toBe(true);
+  });
+
+  // Exactly how production broke: a real multi-line PEM whose FIRST and LAST
+  // line breaks alone were re-escaped on the way into the Actions secret.
+  it('accepts a key with only some of its line breaks escaped', () => {
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const lines = privateKey.export({ type: 'pkcs1', format: 'pem' }).toString().trimEnd().split('\n');
+    const mixed = [lines[0], lines.slice(1, -1).join('\n'), lines.at(-1)].join(String.raw`\n`);
+
+    const jwt = createAppJwt(TEST_APP_ID, mixed, 1_700_000_000_000);
+    const [header, payload, signature] = jwt.split('.');
+    const verifier = createVerify('RSA-SHA256');
+    verifier.update(`${header}.${payload}`);
+    verifier.end();
+    expect(verifier.verify(publicKey, Buffer.from(signature!, 'base64url'))).toBe(true);
+  });
+
+  // A key that is simply unusable has to name itself as a GitHub configuration
+  // problem. An anonymous 500 is what made this cost an afternoon.
+  it('reports an unusable key as a configuration error rather than a bare crash', () => {
+    expect(() => createAppJwt(TEST_APP_ID, 'not-a-pem', 1_700_000_000_000)).toThrow(
+      expect.objectContaining({ code: 'GITHUB_APP_KEY_INVALID', statusCode: 503 }),
+    );
+  });
 });
 
 describe('github — installation token vending + S4 permission scope', () => {
