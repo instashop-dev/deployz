@@ -267,6 +267,69 @@ describe('BootstrapStack', () => {
     expect(flatKeys).toContain('iam:PassedToService');
   });
 
+  it('grants the relay least-privilege custom-domain ACM + listener permissions', () => {
+    const { stack } = synth();
+    const actions = collectActions(stack.provisionerPolicy.document.toJSON()['Statement']);
+
+    // ACM certificate lifecycle.
+    expect(actions).toContain('acm:RequestCertificate');
+    expect(actions).toContain('acm:AddTagsToCertificate');
+    expect(actions).toContain('acm:DescribeCertificate');
+    expect(actions).toContain('acm:DeleteCertificate');
+    expect(actions).toContain('acm:ListTagsForCertificate');
+
+    // ELB listener management on the deployment's ALB.
+    expect(actions).toContain('elasticloadbalancing:DescribeListeners');
+    expect(actions).toContain('elasticloadbalancing:DescribeListenerCertificates');
+    expect(actions).toContain('elasticloadbalancing:DescribeTags');
+    expect(actions).toContain('elasticloadbalancing:DescribeRules');
+    expect(actions).toContain('elasticloadbalancing:CreateListener');
+    expect(actions).toContain('elasticloadbalancing:ModifyListener');
+    expect(actions).toContain('elasticloadbalancing:DeleteListener');
+    expect(actions).toContain('elasticloadbalancing:AddListenerCertificates');
+    expect(actions).toContain('elasticloadbalancing:RemoveListenerCertificates');
+
+    // No wildcard ACM grant anywhere.
+    expect(actions).not.toContain('acm:*');
+
+    // Statement structure: ACM request is request-tag-conditioned, ACM manage
+    // and the ELB writes are resource-tag-conditioned, and the ELB Describe*
+    // set is condition-free (Describe actions don't support resource scoping).
+    const statements = stack.provisionerPolicy.document.toJSON()[
+      'Statement'
+    ] as Array<Record<string, unknown>>;
+
+    const findBySid = (sid: string) => statements.find((s) => s['Sid'] === sid);
+
+    const acmRequestStatement = findBySid('ProvisionerAcmRequest');
+    expect(acmRequestStatement).toBeDefined();
+    expect(
+      (acmRequestStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ]?.['aws:RequestTag/deployz:installation'],
+    ).toBeDefined();
+
+    const acmManageStatement = findBySid('ProvisionerAcmManage');
+    expect(acmManageStatement).toBeDefined();
+    expect(
+      (acmManageStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ]?.['aws:ResourceTag/deployz:installation'],
+    ).toBeDefined();
+
+    const domainIngressDescribeStatement = findBySid('ProvisionerDomainIngressDescribe');
+    expect(domainIngressDescribeStatement).toBeDefined();
+    expect(domainIngressDescribeStatement?.['Condition']).toBeUndefined();
+
+    const domainIngressWriteStatement = findBySid('ProvisionerDomainIngressWrite');
+    expect(domainIngressWriteStatement).toBeDefined();
+    expect(
+      (domainIngressWriteStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ]?.['aws:ResourceTag/deployz:installation'],
+    ).toBeDefined();
+  });
+
   it('DENIES log read (§16: no logs:GetLogEvents / logs:FilterLogEvents)', () => {
     const { stack, template } = synth();
 

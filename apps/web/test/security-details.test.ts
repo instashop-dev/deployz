@@ -9,8 +9,11 @@ import {
   PASSED_TO_SERVICE,
   PHASE_1_LOG_WRITE_ACTIONS,
   PHASE_1_SECRET_ACTIONS,
+  PHASE_2_ACM_MANAGE_ACTIONS,
+  PHASE_2_ACM_REQUEST_ACTIONS,
   PHASE_2_APP_RESOURCE_ACTIONS,
   PHASE_2_CREATE_STACK_ACTIONS,
+  PHASE_2_DOMAIN_INGRESS_ACTIONS,
   PHASE_2_MANAGE_STACK_ACTIONS,
   PHASE_2_PASS_ROLE_ACTION,
   REQUEST_TAG_CONDITION,
@@ -62,6 +65,24 @@ describe('security-details ↔ bootstrap-stack truthfulness', () => {
     );
   });
 
+  it('phase 2 ACM request actions match the bootstrap stack exactly', () => {
+    expect([...PHASE_2_ACM_REQUEST_ACTIONS]).toEqual(
+      extractActions('PHASE_2_ACM_REQUEST_ACTIONS'),
+    );
+  });
+
+  it('phase 2 ACM manage actions match the bootstrap stack exactly', () => {
+    expect([...PHASE_2_ACM_MANAGE_ACTIONS]).toEqual(
+      extractActions('PHASE_2_ACM_MANAGE_ACTIONS'),
+    );
+  });
+
+  it('phase 2 domain-ingress actions match the bootstrap stack exactly', () => {
+    expect([...PHASE_2_DOMAIN_INGRESS_ACTIONS]).toEqual(
+      extractActions('PHASE_2_DOMAIN_INGRESS_ACTIONS'),
+    );
+  });
+
   it('pass-role disclosure matches the bootstrap stack (action, ARN, service)', () => {
     expect(source).toContain(`'${PHASE_2_PASS_ROLE_ACTION}'`);
     expect(source).toContain(`'${PASS_ROLE_RESOURCE_ARN}'`);
@@ -82,6 +103,9 @@ describe('security-details ↔ bootstrap-stack truthfulness', () => {
       ...extractActions('PHASE_2_CREATE_STACK_ACTIONS'),
       ...extractActions('PHASE_2_MANAGE_STACK_ACTIONS'),
       ...extractActions('PHASE_2_APP_RESOURCE_ACTIONS'),
+      ...extractActions('PHASE_2_ACM_REQUEST_ACTIONS'),
+      ...extractActions('PHASE_2_ACM_MANAGE_ACTIONS'),
+      ...extractActions('PHASE_2_DOMAIN_INGRESS_ACTIONS'),
     ];
     for (const denied of DENIED_LOG_READ_ACTIONS) {
       expect(granted).not.toContain(denied);

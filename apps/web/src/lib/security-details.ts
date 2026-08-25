@@ -13,7 +13,9 @@
  *   - Phase 2 (post-first-contact): provisioner permissions to apply the
  *     versioned application stack, ALL constrained by the `deployz:installation`
  *     tag boundary. Defined at install time but NOT attached until the control
- *     plane attaches it after the relay's first contact.
+ *     plane attaches it after the relay's first contact. Includes requesting
+ *     and managing the TLS certificate for a custom domain you configure, and
+ *     attaching it to the deployment's load balancer (custom-domains MVP).
  *   - A permissions boundary (union of phase 1 + phase 2) caps the relay role
  *     forever — its permissions can never grow beyond what is listed here.
  *   - Data boundary (§16): the relay writes logs but is never granted
@@ -63,6 +65,32 @@ export const PHASE_2_APP_RESOURCE_ACTIONS = [
   'elasticloadbalancing:DescribeLoadBalancers',
   'elasticloadbalancing:DescribeTargetGroups',
   'elasticloadbalancing:DescribeTargetHealth',
+] as const;
+
+/** Phase 2 — request and manage the TLS certificate for a custom domain you configure (requires the request tag). */
+export const PHASE_2_ACM_REQUEST_ACTIONS = [
+  'acm:RequestCertificate',
+  'acm:AddTagsToCertificate',
+] as const;
+
+/** Phase 2 — read and remove that certificate (requires the resource tag). */
+export const PHASE_2_ACM_MANAGE_ACTIONS = [
+  'acm:DescribeCertificate',
+  'acm:DeleteCertificate',
+  'acm:ListTagsForCertificate',
+] as const;
+
+/** Phase 2 — attach the certificate to the deployment's load balancer (custom-domains MVP). */
+export const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
+  'elasticloadbalancing:DescribeListeners',
+  'elasticloadbalancing:DescribeListenerCertificates',
+  'elasticloadbalancing:DescribeTags',
+  'elasticloadbalancing:DescribeRules',
+  'elasticloadbalancing:CreateListener',
+  'elasticloadbalancing:ModifyListener',
+  'elasticloadbalancing:DeleteListener',
+  'elasticloadbalancing:AddListenerCertificates',
+  'elasticloadbalancing:RemoveListenerCertificates',
 ] as const;
 
 /** Phase 2 — hand the application stack's own service role to the deployment service. */

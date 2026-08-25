@@ -16,8 +16,11 @@ import {
   PASSED_TO_SERVICE,
   PHASE_1_LOG_WRITE_ACTIONS,
   PHASE_1_SECRET_ACTIONS,
+  PHASE_2_ACM_MANAGE_ACTIONS,
+  PHASE_2_ACM_REQUEST_ACTIONS,
   PHASE_2_APP_RESOURCE_ACTIONS,
   PHASE_2_CREATE_STACK_ACTIONS,
+  PHASE_2_DOMAIN_INGRESS_ACTIONS,
   PHASE_2_MANAGE_STACK_ACTIONS,
   PHASE_2_PASS_ROLE_ACTION,
   RAW_LOGS_GUARANTEE,
@@ -263,6 +266,13 @@ export default async function SecurityDetailsPage({
             <ActionList actions={PHASE_2_MANAGE_STACK_ACTIONS} />
             <p>Reconcile your app&apos;s running resources — same tag boundary:</p>
             <ActionList actions={PHASE_2_APP_RESOURCE_ACTIONS} />
+            <p>
+              Request and manage the TLS certificate for a custom domain you configure, and
+              attach it to the deployment&apos;s load balancer:
+            </p>
+            <ActionList actions={PHASE_2_ACM_REQUEST_ACTIONS} />
+            <ActionList actions={PHASE_2_ACM_MANAGE_ACTIONS} />
+            <ActionList actions={PHASE_2_DOMAIN_INGRESS_ACTIONS} />
             <p>
               Hand your app&apos;s own service role to the deployment service — limited to{' '}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{PASS_ROLE_RESOURCE_ARN}</code>{' '}
