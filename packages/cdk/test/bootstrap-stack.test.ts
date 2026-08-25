@@ -3,6 +3,8 @@ import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { BootstrapStack } from '../src/bootstrap/bootstrap-stack.js';
 
+import { withStableAssetHashes } from './stable-template.js';
+
 /**
  * Collect the IAM action strings from a list of policy statements.
  * Handles both `Action: 'x'` and `Action: ['x', 'y']`, and `NotAction`.
@@ -317,6 +319,6 @@ describe('BootstrapStack', () => {
 
   it('matches the committed snapshot', () => {
     const { template } = synth();
-    expect(template.toJSON()).toMatchSnapshot();
+    expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();
   });
 });

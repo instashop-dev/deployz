@@ -1,38 +1,21 @@
 import { config } from 'dotenv';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 
-/**
- * Locate the monorepo-root .env by walking up from the working directory.
- *
- * `dotenv/config` alone is not enough: `turbo dev` runs each package from its
- * own directory, so the repo-root .env (where the README documents it) would
- * never load. Walking up finds it from any package.
- *
- * Deliberately NOT `fileURLToPath(import.meta.url)`. The API is bundled to
- * CJS for Lambda because pg uses dynamic require(), and esbuild compiles
- * `import.meta` to `{}` in CJS output — so import.meta.url is undefined and
- * fileURLToPath throws at module load, killing the function during INIT
- * before any handler runs. packages/db/src/client.ts avoids the same trap by
- * evaluating import.meta.url lazily inside a function.
- */
-function findRepoEnvFile(): string | undefined {
-  let dir = process.cwd();
-  for (let depth = 0; depth < 6; depth += 1) {
-    const candidate = join(dir, '.env');
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return undefined;
-}
+import { findEnvFile } from './find-env-file.js';
 
 // Lambda injects the environment directly and ships no .env, so skip the
 // filesystem probe there entirely. dotenv also no-ops silently when the file
 // is absent, so CI and any other real-env deployment are unaffected.
+//
+// findEnvFile walks up from the working directory to the filesystem root —
+// deliberately not a fixed number of hops, and deliberately not
+// `fileURLToPath(import.meta.url)`: the API is bundled to CJS for Lambda
+// because pg uses dynamic require(), and esbuild compiles `import.meta` to
+// `{}` in CJS output, so import.meta.url is undefined and fileURLToPath
+// throws at module load, killing the function during INIT before any handler
+// runs. packages/db/src/client.ts avoids the same trap by evaluating
+// import.meta.url lazily inside a function.
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
-  const envFile = findRepoEnvFile();
+  const envFile = findEnvFile(process.cwd());
   if (envFile) config({ path: envFile });
 }
 
@@ -120,6 +103,8 @@ export const env = {
   githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
   githubAppInstallUrl: process.env.GITHUB_APP_INSTALL_URL,
   emailFrom: process.env.EMAIL_FROM,
+  sesAccessKeyId: process.env.AWS_SES_ACCESS_KEY_ID,
+  sesSecretAccessKey: process.env.AWS_SES_SECRET_ACCESS_KEY,
   awsRegion: process.env.AWS_REGION ?? 'us-east-1',
   githubFixtureMode:
     process.env.GITHUB_FIXTURE_MODE === 'true' || process.env.GITHUB_FIXTURE_MODE === '1',

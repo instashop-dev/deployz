@@ -69,7 +69,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "579c1012eaf9cfc20829741166ed26b158cadaaccd368e459c3430948809c589.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Handler": "index.handler",
         "MemorySize": 128,
@@ -137,7 +137,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "e16ffb3b34af185b8b30c88fdb19faa13b6c42bb38580485c4e84b384ee48b63.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Description": "AWS CDK resource provider framework - onEvent (BootstrapTest/InstallIdProvider)",
         "Environment": {
@@ -284,7 +284,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Handler": "index.handler",
         "Role": {
@@ -611,7 +611,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "b9dad26f1e8ec0154cf8c501d015e30eab10ce000e0fc9260ef7e57e849358c9.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Environment": {
           "Variables": {

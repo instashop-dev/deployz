@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import {
+
+import { withStableAssetHashes } from './stable-template.js';
   ApplicationStack,
   type ApplicationStackProps,
 } from '../src/application/application-stack.js';
@@ -208,7 +210,7 @@ describe('ApplicationStack', () => {
 
   it('matches the committed snapshot (plain Fargate)', () => {
     const { template } = synth(false);
-    expect(template.toJSON()).toMatchSnapshot();
+    expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();
   });
 
   describe('worker + expressMode validation (§8.1)', () => {
