@@ -35,7 +35,12 @@ export type DeploymentEventType =
   | 'health.reported'
   | 'health.degraded'
   | 'health.recovered'
-  | 'relay.reenrollment.requested';
+  | 'relay.reenrollment.requested'
+  // domain family — custom-domains MVP.
+  | 'domain.added'
+  | 'domain.activated'
+  | 'domain.failed'
+  | 'domain.removed';
 
 export interface DeploymentEvent {
   readonly organizationId: string;
