@@ -207,23 +207,15 @@ test('custom domain: add, verify DNS, connect, activate, appear on the dashboard
     },
   });
 
-  // ── 9. UI: Connecting. Per the §65 spec (task-9), the "Connecting"
-  // (`configuring`) status intentionally renders no "Check now" control —
-  // only a collapsible "View DNS records" — because advancing out of it is
-  // meant to happen via the relay's health heartbeat (server.ts's
-  // `/api/relay/health` auto-check), not a manual click. That auto-check is
-  // gated by a hardcoded 3-minute staleness floor independent of
-  // DOMAIN_FIXTURE_MODE's 0ms check throttle, which would make an E2E run
-  // wait 3 real minutes. Driving the authenticated `/domain/check` endpoint
-  // directly exercises the exact same `runDomainCheck()` transition
-  // (CONFIGURING -> ACTIVE via the fixture HTTPS probe) a "Check now" click
-  // or a relay heartbeat would otherwise trigger — see the report for this
-  // task for the full note on the brief/UI mismatch here.
+  // ── 9. UI: Connecting. The relay's health heartbeat is the *usual* way
+  // CONFIGURING advances to ACTIVE, but a stalled relay must not strand the
+  // vendor with no recourse — so the card also renders a "Check now" button
+  // here (same `CheckAndRemoveRow` used for waiting_for_dns/error). Clicking
+  // it drives the exact same `runDomainCheck()` transition (CONFIGURING ->
+  // ACTIVE via the fixture HTTPS probe) a relay heartbeat would otherwise
+  // trigger, and the card re-renders from the check response.
   await expect(card.getByText('Connecting', { exact: true })).toBeVisible({ timeout: 10_000 });
-  const checkResponse = await page.request.post(
-    `${API_URL}/api/deployments/${deploymentId}/domain/check`,
-  );
-  expect(checkResponse.ok()).toBeTruthy();
+  await card.getByRole('button', { name: 'Check now' }).click();
 
   await expect(card.getByText('Active', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('link', { name: `https://${hostname}` })).toBeVisible();

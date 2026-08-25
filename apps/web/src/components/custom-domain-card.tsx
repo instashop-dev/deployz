@@ -307,6 +307,14 @@ function DomainStatusBody({
             </Button>
             {recordsOpen ? <DnsRecordsList records={domain.records} /> : null}
           </div>
+          <CheckAndRemoveRow
+            canManage={canManage}
+            checking={checking}
+            checkLabel="Check now"
+            checkError={checkError}
+            onCheck={onCheck}
+            onOpenRemove={onOpenRemove}
+          />
         </>
       );
 
