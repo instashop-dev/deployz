@@ -78,9 +78,11 @@ const recordedExtraField: AiGatewayResponse = {
   usage: { promptTokens: 110, completionTokens: 40 },
 };
 
+// Derived from the budget rather than hardcoded, so raising the budget cannot
+// silently turn this into a test that no longer exercises the guard.
 const recordedOverspend: AiGatewayResponse = {
   object: { failureCode: 'ECS_DEPLOYMENT_FAILED', what: 'w', why: 'y', fix: 'f' },
-  usage: { promptTokens: 700, completionTokens: 500 },
+  usage: { promptTokens: DEFAULT_MAX_TOKENS, completionTokens: 1 },
 };
 
 /** Build a recorded-fixture gateway that replays one response (optionally capturing the prompt). */
@@ -205,7 +207,6 @@ describe('diagnosticExplanationSchema — S10 explanations-only (no code/config/
 
 describe('explainDiagnostic — spend-limit enforcement', () => {
   it('refuses when the gateway reports usage above the budget', async () => {
-    // 700 + 500 = 1200 > DEFAULT_MAX_TOKENS (1000).
     await expect(
       explainDiagnostic('ECS_DEPLOYMENT_FAILED', ecsEvent, recordedGateway(recordedOverspend)),
     ).rejects.toThrow(/spend limit exceeded/i);
