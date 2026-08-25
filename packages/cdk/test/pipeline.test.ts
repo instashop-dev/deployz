@@ -108,6 +108,28 @@ describe('BuildPipeline', () => {
     expect(sourceJson).toContain('exported-variables');
   });
 
+  it('builds with the Dockerfile directory as context, not always the repo root', () => {
+    // A Dockerfile that lives in a subdirectory (e.g. `backend/Dockerfile`) is
+    // conventionally written to be built with that subdirectory as its
+    // context — `COPY requirements.txt .` resolves against `backend/`, not the
+    // repo root. Building with a hardcoded `.` context breaks every such app.
+    // The buildspec must derive the context from DOCKERFILE_PATH's directory.
+    const { template } = synth();
+    const resources = (template.toJSON() as { Resources: Record<string, { Properties?: Record<string, unknown> }> })
+      .Resources;
+    const project = Object.values(resources).find(
+      (r) => r.Properties?.['Source']?.['Type'] === 'NO_SOURCE',
+    );
+    expect(project).toBeDefined();
+    const sourceJson = JSON.stringify(project!.Properties!['Source']);
+    // Context is derived from the Dockerfile's directory.
+    expect(sourceJson).toContain('BUILD_CONTEXT=$(dirname');
+    // The build passes that context to docker, never a bare `.`.
+    expect(sourceJson).toContain('-t $ECR_REPOSITORY_URI:$IMAGE_TAG');
+    expect(sourceJson).toContain('$BUILD_CONTEXT');
+    expect(sourceJson).not.toContain('$ECR_REPOSITORY_URI:$IMAGE_TAG .');
+  });
+
   it('never falls back to the mutable `latest` tag (§21)', () => {
     const { template } = synth();
     const resources = (template.toJSON() as { Resources: Record<string, { Properties?: Record<string, unknown> }> })
