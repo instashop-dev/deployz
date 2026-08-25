@@ -16,6 +16,13 @@ import { DeployzStack } from '../src/deployz-stack.js';
 const envFile = findEnvFile(moduleDirectory(import.meta.url));
 if (envFile) {
   config({ path: envFile });
+  // .env.production sits next to .env and wins over it. .env holds the
+  // localhost defaults local development needs, while DeployzStack builds the
+  // deployed Lambda's environment from these files alone — so without this a
+  // deploy pushes localhost origins into production and, with API_DOMAIN_NAME
+  // unset, deletes the api.deployz.dev mapping. The file is absent on a
+  // machine that only develops locally, which makes this a no-op there.
+  config({ path: `${envFile}.production`, override: true });
 }
 
 const app = new App();
