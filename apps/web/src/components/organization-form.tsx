@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { OrganizationInfo } from '@/lib/organization-vocabulary';
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 // §41 screen 18 — organization settings form. Submits PATCH /api/organization
 // for real (previously had no handler at all). §65: plain confirmation text,

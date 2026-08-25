@@ -8,7 +8,7 @@ import type { FailureCode } from './diagnostic-vocabulary';
 // expandable technical detail. Code-driven ONLY: no diagnostic bundles, no
 // log export (S3).
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 

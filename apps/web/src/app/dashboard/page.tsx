@@ -1,368 +1,180 @@
 'use client';
 
+import { ArrowRight, Check } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
-import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { ApplicationPreparingCard } from '@/components/application-preparing-card';
+import { ApplicationReadyCard } from '@/components/application-ready-card';
+import { DeploymentList } from '@/components/deployment-list';
+import { FirstDeploymentCard } from '@/components/first-deployment-card';
+import { FleetSummary } from '@/components/fleet-summary';
+import { GetStartedCard } from '@/components/get-started-card';
+import { NeedsAttentionList } from '@/components/needs-attention-list';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { fetchApplications } from '@/lib/applications';
+import { fetchDeployments } from '@/lib/deployments';
 import {
-  BULK_DEPLOYABLE_STATES,
-  deployBulk,
-  fetchDeployments,
-  type FleetDeployment,
-} from '@/lib/deployments';
-import { fetchReleases, releaseStatusLabel, type Release } from '@/lib/releases';
+  deriveHomeState,
+  HOMEPAGE_ATTENTION_LIMIT,
+  HOMEPAGE_DEPLOYMENT_LIMIT,
+  type HomeState,
+} from '@/lib/home-state';
+
+/** How often to re-check while something is still being set up. */
+const TRANSIENT_POLL_MS = 5000;
 
 type LoadState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'empty' }
-  | { status: 'loaded'; deployments: FleetDeployment[] };
+  | { status: 'error' }
+  | { status: 'loaded'; home: HomeState };
 
-// §23 the fleet dashboard — the vendor's primary recurring-value view.
-// Customer / Version / Region / Status, exactly as §23 specifies. §46
-// vocabulary only (no raw AWS/CFN/ECS terms); M14: deployment health only,
-// no app observability. §25: a vendor can select one, several, or all
-// compatible customers and deploy a release to them at once.
-export default function DeploymentsPage() {
+// The homepage. One route, five states, all derived from the organization's
+// real applications and deployments: get started, preparing an application,
+// ready to deploy, following the first deployment, and the operational fleet
+// view. The full Customer/Version/Region/Status table lives one click deeper,
+// on /dashboard/deployments.
+export default function HomePage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const load = useCallback(async (): Promise<HomeState> => {
+    const [applications, deployments] = await Promise.all([
+      fetchApplications(),
+      fetchDeployments(),
+    ]);
+    return deriveHomeState({ applications, deployments });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function run(): Promise<void> {
       try {
-        const deployments = await fetchDeployments();
-        if (cancelled) return;
-        setState(
-          deployments.length === 0
-            ? { status: 'empty' }
-            : { status: 'loaded', deployments },
-        );
+        const home = await load();
+        if (!cancelled) setState({ status: 'loaded', home });
       } catch {
-        if (!cancelled) {
-          setState({
-            status: 'error',
-            message: "We couldn't load your deployments. Try again in a moment.",
-          });
-        }
+        if (!cancelled) setState({ status: 'error' });
       }
     }
     void run();
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [load, attempt]);
 
-  function reload(): void {
-    setSelected(new Set());
-    setAttempt((n) => n + 1);
+  // While an application is being prepared or a first deployment is being set
+  // up, the answer changes without the person doing anything — so keep asking.
+  const transient =
+    state.status === 'loaded' &&
+    (state.home.kind === 'first-deployment' ||
+      (state.home.kind === 'preparing' && state.home.application.analysisStatus !== 'COMPLETE'));
+
+  useEffect(() => {
+    if (!transient) return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      void load()
+        .then((home) => {
+          if (!cancelled) setState({ status: 'loaded', home });
+        })
+        .catch(() => {
+          // A failed poll leaves the last known state on screen; the next
+          // tick tries again.
+        });
+    }, TRANSIENT_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [transient, load]);
+
+  if (state.status === 'loading') return <LoadingState />;
+  if (state.status === 'error') return <ErrorState onRetry={() => setAttempt((n) => n + 1)} />;
+
+  switch (state.home.kind) {
+    case 'setup':
+      return <GetStartedCard />;
+    case 'preparing':
+      return <ApplicationPreparingCard application={state.home.application} />;
+    case 'ready':
+      return <ApplicationReadyCard application={state.home.application} />;
+    case 'first-deployment':
+      return <FirstDeploymentCard deployment={state.home.deployment} />;
+    case 'operational':
+      return <OperationalHome home={state.home} />;
   }
+}
+
+function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operational' }> }) {
+  const attention = home.attention.slice(0, HOMEPAGE_ATTENTION_LIMIT);
+  const rows = home.deployments.slice(0, HOMEPAGE_DEPLOYMENT_LIMIT);
 
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Every customer installation of your app, in one place.
-          </p>
-        </div>
-        {/* The empty state owns the sole call to action; a header copy of it
-            would show the same button twice on one screen. */}
-        {state.status === 'empty' ? null : (
-          <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Create Customer Deployment</Link>
-          </Button>
-        )}
+        <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
+        <Button asChild size="sm">
+          <Link href="/dashboard/deployments/new">Deploy customer</Link>
+        </Button>
       </div>
 
-      {state.status === 'loading' ? <LoadingState /> : null}
-      {state.status === 'error' ? (
-        <ErrorState message={state.message} onRetry={() => setAttempt((n) => n + 1)} />
+      <FleetSummary summary={home.summary} />
+
+      {attention.length > 0 ? <NeedsAttentionList items={attention} /> : null}
+      {/* Only claimed when it is true of every deployment — a fleet that is
+          still installing is not yet healthy. */}
+      {home.summary.attention === 0 && home.summary.healthy === home.summary.total ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Check className="size-4 shrink-0" aria-hidden />
+          All deployments healthy
+        </p>
       ) : null}
-      {state.status === 'empty' ? <EmptyState /> : null}
-      {state.status === 'loaded' ? (
-        <FleetTable
-          deployments={state.deployments}
-          selected={selected}
-          onSelectedChange={setSelected}
-          onChanged={reload}
-        />
-      ) : null}
+
+      <section aria-labelledby="customer-deployments" className="flex flex-col gap-3">
+        <h2 id="customer-deployments" className="text-base font-semibold">
+          Customer deployments
+        </h2>
+        <DeploymentList deployments={rows} showApplication={home.showApplication} />
+        {/* Always offered: the homepage shows the first few rows and the most
+            urgent attention items, never the whole fleet. */}
+        <Link
+          href="/dashboard/deployments"
+          className="inline-flex items-center gap-1 self-start rounded-md text-sm font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          View all deployments
+          <ArrowRight className="size-3.5" aria-hidden />
+        </Link>
+      </section>
     </div>
   );
 }
 
 function LoadingState() {
   return (
-    <div className="flex flex-col gap-3" data-testid="deployments-loading">
-      <Skeleton className="h-24 w-full rounded-xl" />
-      <Skeleton className="h-24 w-full rounded-xl" />
-      <Skeleton className="h-24 w-full rounded-xl" />
+    <div className="flex flex-col gap-6" aria-busy="true" data-testid="home-loading">
+      <Skeleton className="h-8 w-56" />
+      <Skeleton className="h-4 w-72" />
+      <Skeleton className="h-48 w-full rounded-xl" />
     </div>
   );
 }
 
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+function ErrorState({ onRetry }: { onRetry: () => void }) {
   return (
     <section
-      aria-labelledby="deployments-error"
+      aria-labelledby="home-error"
       className="flex flex-col items-center gap-4 rounded-xl border border-dashed px-6 py-16 text-center"
     >
-      <h2 id="deployments-error" className="text-lg font-semibold">
+      <h1 id="home-error" className="text-lg font-semibold">
         Something went wrong
-      </h2>
-      <p className="max-w-md text-sm text-muted-foreground">{message}</p>
+      </h1>
+      <p className="max-w-md text-sm text-muted-foreground">
+        We couldn&apos;t load this page. Try again in a moment.
+      </p>
       <Button variant="outline" onClick={onRetry}>
         Try again
       </Button>
     </section>
-  );
-}
-
-// §43 the post-onboarding empty-state product experience — exact copy.
-function EmptyState() {
-  return (
-    <section
-      aria-labelledby="empty-deployments"
-      className="flex flex-col items-center gap-4 rounded-xl border border-dashed px-6 py-16 text-center"
-    >
-      <h2 id="empty-deployments" className="text-lg font-semibold">
-        Your app is ready for private deployment
-      </h2>
-      <p className="max-w-md text-sm text-muted-foreground">
-        Give your next customer their own AWS deployment.
-      </p>
-      <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row">
-        <Button asChild>
-          <Link href="/dashboard/deployments/new">Create Customer Deployment</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link href="/dashboard/applications">View Test Deployment</Link>
-        </Button>
-        <Button asChild variant="ghost">
-          <Link href="/dashboard/applications">Create Release</Link>
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function FleetTable({
-  deployments,
-  selected,
-  onSelectedChange,
-  onChanged,
-}: {
-  deployments: FleetDeployment[];
-  selected: Set<string>;
-  onSelectedChange: (next: Set<string>) => void;
-  onChanged: () => void;
-}) {
-  const deployableIds = useMemo(
-    () =>
-      new Set(
-        deployments
-          .filter((d) => BULK_DEPLOYABLE_STATES.includes(d.state))
-          .map((d) => d.id),
-      ),
-    [deployments],
-  );
-  const allDeployableSelected =
-    deployableIds.size > 0 && [...deployableIds].every((id) => selected.has(id));
-
-  function toggleAll(): void {
-    onSelectedChange(allDeployableSelected ? new Set() : new Set(deployableIds));
-  }
-
-  function toggleOne(id: string): void {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onSelectedChange(next);
-  }
-
-  const selectedDeployments = deployments.filter((d) => selected.has(d.id));
-
-  return (
-    <div className="flex flex-col gap-3">
-      {selectedDeployments.length > 0 ? (
-        <BulkDeployBar
-          selected={selectedDeployments}
-          onDone={() => {
-            onSelectedChange(new Set());
-            onChanged();
-          }}
-          onCancel={() => onSelectedChange(new Set())}
-        />
-      ) : null}
-
-      <Card>
-        <CardContent className="overflow-x-auto p-0">
-          <table className="w-full text-sm" data-testid="deployment-list">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="w-10 px-4 py-2.5">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all deployable customers"
-                    checked={allDeployableSelected}
-                    disabled={deployableIds.size === 0}
-                    onChange={toggleAll}
-                  />
-                </th>
-                <th className="px-2 py-2.5 font-medium">Customer</th>
-                <th className="px-2 py-2.5 font-medium">Version</th>
-                <th className="px-2 py-2.5 font-medium">Region</th>
-                <th className="px-2 py-2.5 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deployments.map((deployment) => (
-                <tr key={deployment.id} className="border-b last:border-0 hover:bg-accent/50">
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${deployment.customerName}`}
-                      checked={selected.has(deployment.id)}
-                      disabled={!deployableIds.has(deployment.id)}
-                      onChange={() => toggleOne(deployment.id)}
-                    />
-                  </td>
-                  <td className="px-2 py-3">
-                    <Link
-                      href={`/dashboard/deployments/${deployment.id}`}
-                      className="font-medium hover:underline"
-                    >
-                      {deployment.customerName}
-                    </Link>
-                    <p className="text-xs text-muted-foreground">{deployment.applicationName}</p>
-                  </td>
-                  <td className="px-2 py-3 text-muted-foreground">
-                    {deployment.version ?? '—'}
-                  </td>
-                  <td className="px-2 py-3 text-muted-foreground">{deployment.region}</td>
-                  <td className="px-2 py-3">
-                    <DeploymentStatusBadge state={deployment.state} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// §25 upgrade workflow — deploy a release to one, several, or all compatible
-// (HEALTHY / UPDATE_AVAILABLE) customers via POST /api/applications/:id/deploy-bulk.
-// deploy-bulk is scoped to a single application, so a mixed-application
-// selection is called out rather than silently deploying to the wrong app.
-function BulkDeployBar({
-  selected,
-  onDone,
-  onCancel,
-}: {
-  selected: FleetDeployment[];
-  onDone: () => void;
-  onCancel: () => void;
-}) {
-  const applicationIds = useMemo(
-    () => [...new Set(selected.map((d) => d.applicationId))],
-    [selected],
-  );
-  const singleApplicationId = applicationIds.length === 1 ? applicationIds[0]! : null;
-
-  const [releases, setReleases] = useState<Release[] | null>(null);
-  const [releaseId, setReleaseId] = useState('');
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setReleases(null);
-    setReleaseId('');
-    if (!singleApplicationId) return;
-    async function load(): Promise<void> {
-      try {
-        const rows = await fetchReleases(singleApplicationId!);
-        if (cancelled) return;
-        setReleases(rows);
-        setReleaseId(rows[0]?.id ?? '');
-      } catch {
-        if (!cancelled) setReleases([]);
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [singleApplicationId]);
-
-  async function onDeploy(): Promise<void> {
-    if (!singleApplicationId || !releaseId) return;
-    setPending(true);
-    setError(null);
-    try {
-      await deployBulk(
-        singleApplicationId,
-        releaseId,
-        selected.map((d) => d.id),
-      );
-      onDone();
-    } catch {
-      setError("We couldn't start this deployment. Try again in a moment.");
-      setPending(false);
-    }
-  }
-
-  return (
-    <Card data-testid="bulk-deploy-bar">
-      <CardContent className="flex flex-wrap items-center gap-3 py-3">
-        <p className="text-sm font-medium">
-          {selected.length} {selected.length === 1 ? 'customer' : 'customers'} selected
-        </p>
-        {!singleApplicationId ? (
-          <p className="text-sm text-muted-foreground">
-            Select customers for a single application to deploy a release to them together.
-          </p>
-        ) : releases === null ? (
-          <p className="text-sm text-muted-foreground">Loading releases…</p>
-        ) : releases.length === 0 ? (
-          <p className="text-sm text-muted-foreground">This application has no releases yet.</p>
-        ) : (
-          <>
-            <select
-              aria-label="Release to deploy"
-              className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none"
-              value={releaseId}
-              onChange={(event) => setReleaseId(event.target.value)}
-            >
-              {releases.map((release) => (
-                <option key={release.id} value={release.id}>
-                  {release.version} ({releaseStatusLabel(release.status)})
-                </option>
-              ))}
-            </select>
-            <Button size="sm" disabled={pending} onClick={onDeploy}>
-              {pending ? 'Deploying…' : 'Deploy release'}
-            </Button>
-          </>
-        )}
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Clear selection
-        </Button>
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
   );
 }

@@ -51,6 +51,8 @@ export interface PollDependencies {
   fetchFn: FetchFn;
   controlPlaneUrl: string;
   installationId: string;
+  /** Single-use code from the bootstrap stack; identifies the deployment. */
+  enrollmentCode: string;
   executors: Readonly<Record<string, CommandExecutor>>;
   idempotency: IdempotencyStore;
 }
@@ -69,6 +71,8 @@ export interface PollResult {
   ok: boolean;
   /** Error message if the poll itself failed (not individual commands). */
   error?: string;
+  /** Set when retrying cannot help — the caller should stop, not back off. */
+  fatal?: boolean;
 }
 
 // ── Poll loop ────────────────────────────────────────────────────────────────
@@ -83,24 +87,32 @@ export async function pollOnce(
   deps: PollDependencies,
   authState: AuthState,
 ): Promise<PollResult> {
-  const { fetchFn, controlPlaneUrl, installationId, executors, idempotency } = deps;
+  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency } = deps;
 
-  // ── 1. Register on first contact ──────────────────────────────────────
+  // ── 1. Enroll on first contact ────────────────────────────────────────
   if (!authState.registered) {
-    const registered = await registerInstallation(
+    const result = await registerInstallation(
       fetchFn,
       controlPlaneUrl,
       installationId,
       authState.token,
+      enrollmentCode,
     );
-    if (!registered) {
+    if (result !== 'registered') {
       return {
         fetched: 0,
         executed: 0,
         succeeded: 0,
         failed: 0,
         ok: false,
-        error: 'Registration failed — control plane rejected the installation',
+        // A rejection is final: the code is spent by another relay, or it is
+        // not a code the control plane knows. The vendor has to reconnect the
+        // deployment, which mints a new one — retrying here cannot help.
+        error:
+          result === 'rejected'
+            ? 'Enrollment rejected — this installation is already connected. Ask the vendor to reconnect it.'
+            : 'Enrollment could not be completed — will try again on the next poll.',
+        ...(result === 'rejected' ? { fatal: true } : {}),
       };
     }
     authState.registered = true;

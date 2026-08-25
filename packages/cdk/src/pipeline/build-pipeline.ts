@@ -21,13 +21,15 @@ import {
   LinuxBuildImage,
   Project,
   type BuildEnvironmentVariable,
-  type IProject,
 } from 'aws-cdk-lib/aws-codebuild';
 import { Repository, TagMutability } from 'aws-cdk-lib/aws-ecr';
 import type { IRepository } from 'aws-cdk-lib/aws-ecr';
+import type { IBucket } from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 
 export interface BuildPipelineProps {
+  /** Bucket the control plane uploads repository tarballs to. */
+  readonly sourceBucket: IBucket;
   /** ECR repository name (default: `deployz-images`). */
   readonly repositoryName?: string;
   /** CodeBuild compute type (default: SMALL). */
@@ -50,17 +52,17 @@ export interface BuildPipelineProps {
  */
 export class BuildPipeline extends Construct {
   public readonly repository: IRepository;
-  public readonly project: IProject;
+  public readonly project: Project;
 
-  constructor(scope: Construct, id: string, props?: BuildPipelineProps) {
+  constructor(scope: Construct, id: string, props: BuildPipelineProps) {
     super(scope, id);
 
-    const repoName = props?.repositoryName ?? 'deployz-images';
+    const repoName = props.repositoryName ?? 'deployz-images';
 
     this.repository = new Repository(this, 'Repository', {
       repositoryName: repoName,
       imageTagMutability: TagMutability.IMMUTABLE,
-      removalPolicy: props?.removalPolicy ?? RemovalPolicy.RETAIN,
+      removalPolicy: props.removalPolicy ?? RemovalPolicy.RETAIN,
     });
 
     // The ECR repository URI is baked into the buildspec as an environment
@@ -71,18 +73,33 @@ export class BuildPipeline extends Construct {
     this.project = new Project(this, 'BuildProject', {
       environment: {
         buildImage: LinuxBuildImage.STANDARD_7_0,
-        computeType: props?.computeType ?? ComputeType.SMALL,
+        computeType: props.computeType ?? ComputeType.SMALL,
         privileged: true, // Required for Docker-in-Docker builds
         environmentVariables: {
           ECR_REPOSITORY_URI: { value: ecrUri },
         } as Record<string, BuildEnvironmentVariable>,
       },
-      timeout: Duration.minutes(props?.timeoutMinutes ?? 30),
+      timeout: Duration.minutes(props.timeoutMinutes ?? 30),
       buildSpec: BuildSpec.fromObject({
         version: '0.2',
+        // Exported so the build's CodeBuild state-change event carries the
+        // digest to the worker, which writes it to releases.image_digest.
+        // Reading it out of the build log would be guesswork.
+        env: { 'exported-variables': ['IMAGE_DIGEST', 'RELEASE_ID'] },
         phases: {
           pre_build: {
             commands: [
+              // The project is NO_SOURCE: the control plane put the
+              // repository tarball in S3 (SOURCE_S3_URI, passed via
+              // startBuild) because the source comes from a GitHub App
+              // installation token, which CodeBuild cannot hold.
+              'echo "Fetching source from $SOURCE_S3_URI"',
+              'if [ -z "$SOURCE_S3_URI" ]; then echo "ERROR: SOURCE_S3_URI is not set" >&2; exit 1; fi',
+              'aws s3 cp "$SOURCE_S3_URI" /tmp/source.tar.gz',
+              // GitHub tarballs wrap everything in one `owner-repo-sha`
+              // directory; --strip-components=1 unwraps it.
+              'mkdir -p /tmp/src && tar xzf /tmp/source.tar.gz -C /tmp/src --strip-components=1',
+              'cd /tmp/src',
               'echo "Logging in to Amazon ECR..."',
               'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI',
               // §21: image tags must be immutable identifiers — `latest` is
@@ -104,8 +121,12 @@ export class BuildPipeline extends Construct {
           },
           build: {
             commands: [
-              'echo "Building Docker image: $ECR_REPOSITORY_URI:$IMAGE_TAG"',
-              'docker build -t $ECR_REPOSITORY_URI:$IMAGE_TAG .',
+              'cd /tmp/src',
+              // Analysis records where the Dockerfile actually is; a
+              // repository is free to keep it out of the root.
+              'export DOCKERFILE_PATH=${DOCKERFILE_PATH:-Dockerfile}',
+              'echo "Building Docker image: $ECR_REPOSITORY_URI:$IMAGE_TAG from $DOCKERFILE_PATH"',
+              'docker build -f "$DOCKERFILE_PATH" -t $ECR_REPOSITORY_URI:$IMAGE_TAG .',
               // Tag with the git SHA for traceability. GIT_SHA is passed via
               // startBuild environmentVariablesOverride.
               'echo "Tagging with GIT_SHA: ${GIT_SHA:-unknown}"',
@@ -122,19 +143,18 @@ export class BuildPipeline extends Construct {
               // for docker inspect; CodeBuild does NOT interpret `{{ }}`.
               // The shell receives the literal `{{index .RepoDigests 0}}`.
               'echo "Recording image digest..."',
-              'IMAGE_DIGEST=$(docker inspect --format="{{index .RepoDigests 0}}" $ECR_REPOSITORY_URI:$IMAGE_TAG)',
+              'export IMAGE_DIGEST=$(docker inspect --format="{{index .RepoDigests 0}}" $ECR_REPOSITORY_URI:$IMAGE_TAG)',
               'echo "IMAGE_DIGEST=$IMAGE_DIGEST"',
-              // Write to a file so the CodeBuild report or log consumer
-              // can extract it.
-              'echo "$IMAGE_DIGEST" > /tmp/image-digest.txt',
             ],
           },
         },
       }),
     });
 
-    // Grant CodeBuild permission to push images to the ECR repository.
+    // Grant CodeBuild permission to push images to the ECR repository and
+    // to read the source tarball the control plane uploaded.
     this.repository.grantPullPush(this.project);
+    props.sourceBucket.grantRead(this.project);
 
     // ── Stack outputs ──────────────────────────────────────────────────
     const stack = Stack.of(this);

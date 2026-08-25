@@ -10,11 +10,13 @@ import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { errorMessage } from '@/lib/api-client';
 import {
   deployRelease,
   destroyDeployment,
   fetchDeployment,
   fetchDeploymentEvents,
+  resetRelay,
   rollbackDeployment,
   type ActivityEvent,
   type FleetDeploymentDetail,
@@ -34,16 +36,26 @@ type DetailState =
     };
 
 const HEALTH_LABEL: Record<HealthStatus, string> = {
+  UNKNOWN: 'Not reported',
   HEALTHY: 'Healthy',
   DEGRADED: 'Degraded',
   UNHEALTHY: 'Unhealthy',
 };
 
 const HEALTH_DOT: Record<HealthStatus, string> = {
+  UNKNOWN: 'bg-muted-foreground',
   HEALTHY: 'bg-primary',
   DEGRADED: 'bg-amber-500',
   UNHEALTHY: 'bg-destructive',
 };
+
+/** The components a relay can report, in the order they are shown. */
+const COMPONENT_LABELS = [
+  ['application', 'Application'],
+  ['database', 'Database'],
+  ['storage', 'Storage'],
+  ['loadBalancer', 'Load Balancer'],
+] as const;
 
 const RELAY_LABEL: Record<RelayStatus, string> = {
   CONNECTED: 'Connected',
@@ -91,7 +103,7 @@ export default function DeploymentDetailPage() {
     <div className="flex flex-col gap-8">
       <div className="flex items-center gap-2">
         <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href="/dashboard">
+          <Link href="/dashboard/deployments">
             <ArrowLeft aria-hidden className="size-4" />
             Deployments
           </Link>
@@ -179,17 +191,32 @@ function DetailBody({
         </Card>
       </section>
 
+      {detail.state === 'NOT_INSTALLED' ? <InstallLinkCard detail={detail} /> : null}
+
       <section aria-labelledby="infrastructure" className="flex flex-col gap-3">
         <h2 id="infrastructure" className="text-base font-semibold">
           Infrastructure
         </h2>
+        {/*
+          Only components the relay has actually reported on. These four rows
+          used to render the SAME single healthStatus column four times — a
+          value the database defaulted to HEALTHY at row creation — so a
+          deployment with nothing provisioned showed four green ticks, and a
+          Database row appeared for applications that have no database.
+        */}
         <ul className="flex flex-col gap-2">
-          <InfraRow label="Application" status={detail.healthStatus} />
-          <InfraRow label="Database" status={detail.healthStatus} />
-          <InfraRow label="Storage" status={detail.healthStatus} />
-          <InfraRow label="Load Balancer" status={detail.healthStatus} />
+          {COMPONENT_LABELS.filter(([key]) => detail.components?.[key] !== undefined).map(
+            ([key, label]) => (
+              <InfraRow key={key} label={label} status={detail.components![key]!} />
+            ),
+          )}
           <RelayRow status={detail.relayStatus} />
         </ul>
+        {detail.components === null ? (
+          <p className="text-sm text-muted-foreground">
+            No health reports yet — this deployment has not checked in.
+          </p>
+        ) : null}
       </section>
 
       <section aria-labelledby="activity" className="flex flex-col gap-3">
@@ -523,5 +550,81 @@ function DetailSkeleton() {
       <Skeleton className="h-48 w-full rounded-xl" />
       <Skeleton className="h-48 w-full rounded-xl" />
     </div>
+  );
+}
+
+/**
+ * §67 step 8 — the install link, after the moment it was created.
+ *
+ * It used to appear only on the success screen right after creating the
+ * deployment: not on this page, not on the customers table, nowhere. A vendor
+ * who closed that tab, or whose customer lost the email, had no way to get it
+ * back, which made sending a customer their install link a one-shot.
+ */
+function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
+  const [copied, setCopied] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const url =
+    typeof window === 'undefined'
+      ? ''
+      : `${window.location.origin}/install/${detail.installLinkId}`;
+
+  async function copy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Copying failed. Select the link and copy it by hand.');
+    }
+  }
+
+  async function reconnect(): Promise<void> {
+    setResetting(true);
+    setError(null);
+    try {
+      await resetRelay(detail.id);
+      window.location.reload();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      setResetting(false);
+    }
+  }
+
+  return (
+    <section aria-labelledby="install-link" className="flex flex-col gap-3">
+      <h2 id="install-link" className="text-base font-semibold">
+        Install link
+      </h2>
+      <Card>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-sm text-muted-foreground">
+            Send this to {detail.customerName}. They sign in to their own cloud account — their
+            credentials never touch Deployz.
+          </p>
+          <code className="block overflow-x-auto rounded-lg border bg-muted px-3 py-2 font-mono text-xs">
+            {url}
+          </code>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" onClick={copy}>
+              {copied ? 'Copied' : 'Copy link'}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={resetting} onClick={reconnect}>
+              {resetting ? 'Reconnecting…' : 'Reconnect relay'}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Reconnecting issues a new link and stops the old one working. Use it if the customer
+            needs to install again.
+          </p>
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+    </section>
   );
 }

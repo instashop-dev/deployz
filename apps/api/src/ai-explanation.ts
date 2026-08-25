@@ -3,7 +3,6 @@ import { and, eq, inArray, lt, or } from 'drizzle-orm';
 import {
   DEFAULT_TIMEOUT_MS,
   explainDiagnostic,
-  getRemediation,
   type AiGateway,
   type FailureCode,
   type StructuredEvent,
@@ -22,8 +21,8 @@ import * as schema from '@deployz/db/schema';
 //      an atomic claim; the losers fall back to deterministic text rather than
 //      queueing behind the winner or spending a second call.
 //   3. It ALWAYS returns usable text. Every failure path degrades to the
-//      deterministic §61 remediation guidance, so the diagnostics page never
-//      shows an error where an explanation belongs.
+//      caller-supplied deterministic copy (the §65 copy map), so the
+//      diagnostics page never shows an error where an explanation belongs.
 //
 // The explanation is cached on the ATTEMPT (the job row), not the deployment:
 // a later attempt of the same deployment gets its own explanation instead of
@@ -62,38 +61,23 @@ export interface ExplanationTarget {
 const DEFAULT_STALE_CLAIM_MS = 5 * 60 * 1000;
 
 /**
- * The deterministic fallback: §61 remediation guidance rendered as what/why/fix.
- *
- * Used whenever AI text is unavailable — unconfigured gateway, gateway error,
- * timeout, schema violation, or another request already generating. It is
- * strictly better than a placeholder: the guidance is real, code-specific, and
- * §65 jargon-free.
- */
-export function deterministicExplanation(
-  failureCode: FailureCode,
-  event?: StructuredEvent,
-): ExplanationText {
-  const remediation = getRemediation(failureCode, event);
-  return {
-    what: remediation.summary,
-    why: 'The deployment reported signals that match this known problem.',
-    fix: remediation.steps.join(' '),
-  };
-}
-
-/**
  * Return the plain-English explanation for a failed attempt, generating it
  * once and serving it from the database thereafter.
+ *
+ * `fallback` is returned unchanged on every path where AI text is unavailable
+ * — unconfigured gateway, gateway error, timeout, schema violation, or another
+ * request already generating. The caller supplies it (from the §65 copy map)
+ * rather than this module deriving a second source of the same copy.
  *
  * Never throws and never writes deployment or job state.
  */
 export async function resolveExplanation(
   deps: ExplanationDeps,
   target: ExplanationTarget,
+  fallback: ExplanationText,
 ): Promise<ExplanationText> {
   const { db, gateway } = deps;
   const { jobId, failureCode, event } = target;
-  const fallback = deterministicExplanation(failureCode, event);
 
   const cached = await readCached(db, jobId);
   if (cached) return cached;

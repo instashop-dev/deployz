@@ -1,0 +1,192 @@
+# Builds apps/web into a container image and ships it to the Lightsail
+# container service that serves deployz.dev and app.deployz.dev.
+#
+# The build happens here rather than on a developer machine because the image
+# must be linux/amd64 and because `aws lightsail push-container-image` needs
+# the lightsailctl plugin, which is trivial to install on a runner and
+# annoying everywhere else.
+name: Deploy web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/copy-map/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: Lightsail container service name
+        default: deployz-web
+      api_url:
+        description: Public API origin baked into the client bundle
+        default: https://api.deployz.dev
+      marketing_host:
+        description: Marketing hostname
+        default: deployz.dev
+      app_host:
+        description: Dashboard hostname
+        default: app.deployz.dev
+
+# One deployment at a time. Lightsail replaces the running container in place,
+# and two overlapping deployments race each other's health checks.
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: us-east-1
+  SERVICE: ${{ inputs.service_name || 'deployz-web' }}
+  API_URL: ${{ inputs.api_url || 'https://api.deployz.dev' }}
+  MARKETING_HOST: ${{ inputs.marketing_host || 'deployz.dev' }}
+  APP_HOST: ${{ inputs.app_host || 'app.deployz.dev' }}
+
+jobs:
+  deploy:
+    name: Build and deploy to Lightsail
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # push-container-image is an AWS CLI *plugin*, not a built-in
+      # subcommand. Without lightsailctl on PATH it fails with an opaque
+      # "Invalid choice" error that looks like a typo.
+      - name: Install lightsailctl
+        run: |
+          set -euo pipefail
+          sudo curl -fsSL \
+            "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" \
+            -o /usr/local/bin/lightsailctl
+          sudo chmod +x /usr/local/bin/lightsailctl
+
+      - name: Ensure the container service exists and is ready
+        run: |
+          set -euo pipefail
+          if ! aws lightsail get-container-services --service-name "$SERVICE" >/dev/null 2>&1; then
+            echo "Creating container service $SERVICE"
+            aws lightsail create-container-service \
+              --service-name "$SERVICE" --power micro --scale 1
+          fi
+          # push-container-image rejects a service that is still PENDING.
+          for _ in $(seq 1 60); do
+            state=$(aws lightsail get-container-services --service-name "$SERVICE" \
+              --query 'containerServices[0].state' --output text)
+            echo "service state: $state"
+            if [ "$state" = "READY" ] || [ "$state" = "RUNNING" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Service never became ready" >&2
+          exit 1
+
+      # --platform linux/amd64 is explicit: Lightsail container services do
+      # not run arm64 images, and a silently-arm64 build fails at runtime with
+      # an exec format error rather than at build time.
+      #
+      # The NEXT_PUBLIC_* values are inlined into the client bundle here and
+      # cannot be changed by a deployment environment variable afterwards.
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          docker build \
+            --platform linux/amd64 \
+            -f apps/web/Dockerfile \
+            --build-arg "NEXT_PUBLIC_API_URL=$API_URL" \
+            --build-arg "NEXT_PUBLIC_APP_HOST=$APP_HOST" \
+            --build-arg "NEXT_PUBLIC_MARKETING_HOST=$MARKETING_HOST" \
+            --build-arg "NEXT_PUBLIC_SITE_URL=https://$MARKETING_HOST" \
+            -t "deployz-web:${GITHUB_SHA}" .
+
+      - name: Push the image to Lightsail
+        run: |
+          set -euo pipefail
+          aws lightsail push-container-image \
+            --service-name "$SERVICE" \
+            --label web \
+            --image "deployz-web:${GITHUB_SHA}"
+
+      # A deployment spec cannot reference a local docker tag. It has to use
+      # the reference Lightsail assigned on push — ":<service>.web.<N>", where
+      # N increments every push. Read it back from the API rather than
+      # scraping it out of the push output.
+      - name: Resolve the pushed image reference
+        id: image
+        run: |
+          set -euo pipefail
+          ref=$(aws lightsail get-container-images --service-name "$SERVICE" \
+            --query 'sort_by(containerImages, &createdAt)[-1].image' --output text)
+          echo "resolved image: $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Create the deployment
+        run: |
+          set -euo pipefail
+          cat > containers.json <<JSON
+          {
+            "web": {
+              "image": "${{ steps.image.outputs.ref }}",
+              "ports": { "3000": "HTTP" },
+              "environment": {
+                "NODE_ENV": "production",
+                "PORT": "3000",
+                "HOSTNAME": "0.0.0.0",
+                "API_URL": "${API_URL}"
+              }
+            }
+          }
+          JSON
+          cat > endpoint.json <<JSON
+          {
+            "containerName": "web",
+            "containerPort": 3000,
+            "healthCheck": {
+              "path": "/healthz",
+              "successCodes": "200-299",
+              "intervalSeconds": 10,
+              "timeoutSeconds": 5,
+              "healthyThreshold": 2,
+              "unhealthyThreshold": 5
+            }
+          }
+          JSON
+          aws lightsail create-container-service-deployment \
+            --service-name "$SERVICE" \
+            --containers file://containers.json \
+            --public-endpoint file://endpoint.json
+
+      # The CLI returns 0 as soon as the deployment is accepted. A container
+      # that never passes its health check leaves the deployment FAILED and
+      # rolls back silently, so without this the workflow would report success
+      # on a deploy that never went live.
+      - name: Wait for the deployment to go live
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            state=$(aws lightsail get-container-service-deployments \
+              --service-name "$SERVICE" \
+              --query 'sort_by(deployments, &version)[-1].state' --output text)
+            echo "deployment state: $state"
+            case "$state" in
+              ACTIVE) exit 0 ;;
+              FAILED|INACTIVE)
+                aws lightsail get-container-log \
+                  --service-name "$SERVICE" --container-name web || true
+                exit 1
+                ;;
+            esac
+            sleep 15
+          done
+          echo "Deployment did not become ACTIVE in time" >&2
+          exit 1
+
+      - name: Report the service URL
+        run: |
+          url=$(aws lightsail get-container-services --service-name "$SERVICE" \
+            --query 'containerServices[0].url' --output text)
+          echo "Deployed: $url" >> "$GITHUB_STEP_SUMMARY"

@@ -9,7 +9,7 @@
  * full publish flow with a mock and no AWS credentials.
  */
 import { App } from 'aws-cdk-lib';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -18,9 +18,10 @@ import {
 } from '@aws-sdk/client-s3';
 
 import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
-import { buildBootstrapQuickCreateUrl } from './install-link.js';
+import { buildBootstrapQuickCreateUrl } from '@deployz/contracts';
 import { requireWithinLimits } from './limits.js';
 import { repackTemplate } from './repack.js';
+import { createZip, type ZipEntry } from './zip.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -94,21 +95,40 @@ interface AssetManifest {
 /** Reads the bundled bytes of a Lambda asset from disk (mockable seam). */
 export type AssetReader = (asset: TemplateAsset) => Promise<Uint8Array>;
 
+/** Every file under `dir`, as archive-relative POSIX paths. */
+async function listFiles(dir: string, prefix = ''): Promise<string[]> {
+  const found: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const name = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      found.push(...(await listFiles(join(dir, entry.name), name)));
+    } else {
+      found.push(name);
+    }
+  }
+  return found;
+}
+
 /**
- * Default asset reader: returns the esbuild bundle entry (`index.mjs`) bytes.
+ * Default asset reader: ZIPs the asset directory that CDK's esbuild bundling
+ * produced (`index.mjs`, plus its source map when one was emitted).
  *
- * For a `format: 'esm'` NodejsFunction, esbuild emits a single `index.mjs`
- * (plus an optional `index.mjs.map` for source-mapped bundles). The final
- * Lambda deployment package is a ZIP containing that file; wrapping the bundle
- * into the ZIP container is part of the AWS-enabled asset-publishing step
- * (todo 14 harness) and is BLOCKED here — a ZIP is only verifiable by actually
- * invoking a Lambda from it, which needs AWS.
+ * A Lambda `Code.S3Key` must be a ZIP archive. Publishing the bare bundle
+ * instead fails stack creation in the CUSTOMER's account with "Could not
+ * unzip uploaded file" — after IAM roles have already been created, so they
+ * see a rollback rather than an install.
  */
 export async function readBundledIndexMjs(
   asset: TemplateAsset,
 ): Promise<Uint8Array> {
-  const bytes = await readFile(join(asset.sourcePath, 'index.mjs'));
-  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const names = (await listFiles(asset.sourcePath)).sort();
+  const entries: ZipEntry[] = [];
+  for (const name of names) {
+    const bytes = await readFile(join(asset.sourcePath, ...name.split('/')));
+    entries.push({ name, content: new Uint8Array(bytes) });
+  }
+  const zip = createZip(entries);
+  return new Uint8Array(zip.buffer, zip.byteOffset, zip.byteLength);
 }
 
 /**

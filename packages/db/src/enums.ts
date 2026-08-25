@@ -128,6 +128,7 @@ export const relayStatusEnum = pgEnum('relay_status', [
 ]);
 
 export const healthStatusEnum = pgEnum('health_status', [
+  'UNKNOWN',
   'HEALTHY',
   'DEGRADED',
   'UNHEALTHY',

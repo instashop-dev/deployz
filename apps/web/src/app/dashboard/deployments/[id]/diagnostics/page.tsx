@@ -106,7 +106,9 @@ function DiagnosticsBody({
             No issues found
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            This deployment is healthy, so there is nothing to diagnose.
+            {detail.state === 'NOT_INSTALLED'
+              ? 'This deployment has not been installed yet, so there is nothing to diagnose.'
+              : 'This deployment is healthy, so there is nothing to diagnose.'}
           </p>
         </section>
       ) : (

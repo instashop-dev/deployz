@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { AiGatewayNotAvailableError, type AiGateway } from '@deployz/analysis';
+import { FAILURE_REMEDIATION } from '@deployz/copy-map';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -56,6 +57,10 @@ function hangingGateway(calls: { n: number }): AiGateway {
 
 const event = { source: 'ecs', action: 'deploy', signal: 'target-health' } as const;
 
+// The §65 copy map is the single source of the deterministic what/why/fix; the
+// route passes it in, so the tests use exactly what production uses.
+const fallback = FAILURE_REMEDIATION.PORT_MISMATCH;
+
 describe('resolveExplanation', () => {
   let client: PGlite | undefined;
   let db: Db;
@@ -96,6 +101,8 @@ describe('resolveExplanation', () => {
       organizationId,
       region: 'us-east-1',
       installationId: 'inst-explain',
+      // Minted by the control plane at creation; the relay trades it once.
+      enrollmentCode: crypto.randomUUID(),
     });
   });
 
@@ -131,22 +138,30 @@ describe('resolveExplanation', () => {
   // ── Happy path ──────────────────────────────────────────────────────────
 
   it('generates and returns AI text on the first request', async () => {
-    const text = await resolveExplanation(deps(countingGateway(calls)), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    const text = await resolveExplanation(
+      deps(countingGateway(calls)),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     expect(text).toEqual({ what: 'AI what', why: 'AI why', fix: 'AI fix' });
     expect(calls.n).toBe(1);
   });
 
   it('persists the generated text as READY', async () => {
-    await resolveExplanation(deps(countingGateway(calls)), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    await resolveExplanation(
+      deps(countingGateway(calls)),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     const row = await readJob();
     expect(row.aiExplanationState).toBe('READY');
@@ -155,17 +170,25 @@ describe('resolveExplanation', () => {
   });
 
   it('serves a cached explanation without calling the model again', async () => {
-    await resolveExplanation(deps(countingGateway(calls)), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    await resolveExplanation(
+      deps(countingGateway(calls)),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
-    const second = await resolveExplanation(deps(countingGateway(calls)), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    const second = await resolveExplanation(
+      deps(countingGateway(calls)),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     expect(second).toEqual({ what: 'AI what', why: 'AI why', fix: 'AI fix' });
     expect(calls.n).toBe(1);
@@ -177,9 +200,9 @@ describe('resolveExplanation', () => {
     const gateway = countingGateway(calls, 50);
 
     const results = await Promise.all([
-      resolveExplanation(deps(gateway), { jobId, failureCode: 'PORT_MISMATCH', event }),
-      resolveExplanation(deps(gateway), { jobId, failureCode: 'PORT_MISMATCH', event }),
-      resolveExplanation(deps(gateway), { jobId, failureCode: 'PORT_MISMATCH', event }),
+      resolveExplanation(deps(gateway), { jobId, failureCode: 'PORT_MISMATCH', event }, fallback),
+      resolveExplanation(deps(gateway), { jobId, failureCode: 'PORT_MISMATCH', event }, fallback),
+      resolveExplanation(deps(gateway), { jobId, failureCode: 'PORT_MISMATCH', event }, fallback),
     ]);
 
     expect(calls.n).toBe(1);
@@ -196,11 +219,15 @@ describe('resolveExplanation', () => {
       .set({ aiExplanationState: 'GENERATING', aiExplanationClaimedAt: new Date() })
       .where(eq(schema.deploymentJobs.id, jobId));
 
-    await resolveExplanation(deps(countingGateway(calls)), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    await resolveExplanation(
+      deps(countingGateway(calls)),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     expect(calls.n).toBe(0);
   });
@@ -217,6 +244,7 @@ describe('resolveExplanation', () => {
     const text = await resolveExplanation(
       deps(countingGateway(calls), { staleClaimMs: 5 * 60 * 1000 }),
       { jobId, failureCode: 'PORT_MISMATCH', event },
+      fallback,
     );
 
     expect(calls.n).toBe(1);
@@ -229,6 +257,7 @@ describe('resolveExplanation', () => {
     const text = await resolveExplanation(
       deps(throwingGateway(calls, new AiGatewayNotAvailableError('none'))),
       { jobId, failureCode: 'PORT_MISMATCH', event },
+      fallback,
     );
 
     // PORT_MISMATCH remediation, not the model's words and not a placeholder.
@@ -237,21 +266,29 @@ describe('resolveExplanation', () => {
   });
 
   it('marks the row FAILED after a gateway error', async () => {
-    await resolveExplanation(deps(throwingGateway(calls, new Error('gateway 500'))), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    await resolveExplanation(
+      deps(throwingGateway(calls, new Error('gateway 500'))),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     expect((await readJob()).aiExplanationState).toBe('FAILED');
   });
 
   it('never changes the job or deployment state when generation fails', async () => {
-    await resolveExplanation(deps(throwingGateway(calls, new Error('gateway 500'))), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    await resolveExplanation(
+      deps(throwingGateway(calls, new Error('gateway 500'))),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     const [deployment] = await db
       .select()
@@ -262,18 +299,26 @@ describe('resolveExplanation', () => {
   });
 
   it('retries generation on a later request after a failure', async () => {
-    await resolveExplanation(deps(throwingGateway(calls, new Error('gateway 500'))), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    await resolveExplanation(
+      deps(throwingGateway(calls, new Error('gateway 500'))),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     const retryCalls = { n: 0 };
-    const text = await resolveExplanation(deps(countingGateway(retryCalls)), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    const text = await resolveExplanation(
+      deps(countingGateway(retryCalls)),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     expect(retryCalls.n).toBe(1);
     expect(text.what).toBe('AI what');
@@ -284,6 +329,7 @@ describe('resolveExplanation', () => {
     const text = await resolveExplanation(
       deps(hangingGateway(calls), { timeoutMs: 50 }),
       { jobId, failureCode: 'PORT_MISMATCH', event },
+      fallback,
     );
 
     expect(text.what).toContain('port');
@@ -301,11 +347,15 @@ describe('resolveExplanation', () => {
       },
     };
 
-    const text = await resolveExplanation(deps(badGateway), {
-      jobId,
-      failureCode: 'PORT_MISMATCH',
-      event,
-    });
+    const text = await resolveExplanation(
+      deps(badGateway),
+      {
+        jobId,
+        failureCode: 'PORT_MISMATCH',
+        event,
+      },
+      fallback,
+    );
 
     expect(text.what).toContain('port');
     expect((await readJob()).aiExplanationState).toBe('FAILED');

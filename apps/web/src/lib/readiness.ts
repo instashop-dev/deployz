@@ -5,7 +5,7 @@
 // explanation endpoint exists — never fabricated client-side). §65: all copy
 // here is jargon-free.
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 // ── §42 onboarding steps (VERBATIM) ─────────────────────────────────────────
 

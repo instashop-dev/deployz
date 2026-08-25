@@ -1,5 +1,5 @@
 {
-  "id": "7290dd29-c7cc-45df-a1f8-c79d3b7090f3",
+  "id": "6f5d2b0d-cafa-4f7a-8183-d8b0950b6f2c",
   "prevId": "3bda19c9-7370-4054-bece-fb3f762f542a",
   "version": "7",
   "dialect": "postgresql",
@@ -992,7 +992,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "applications_org_repo_uidx": {
+          "name": "applications_org_repo_uidx",
+          "nullsNotDistinct": false,
+          "columns": [
+            "organization_id",
+            "repo_full_name"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1130,7 +1139,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'BUILDING'"
+          "default": "'READY'"
         },
         "created_at": {
           "name": "created_at",
@@ -1176,7 +1185,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "releases_application_version_uidx": {
+          "name": "releases_application_version_uidx",
+          "nullsNotDistinct": false,
+          "columns": [
+            "application_id",
+            "version"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1257,7 +1275,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'HEALTHY'"
+          "default": "'UNKNOWN'"
         },
         "desired_state": {
           "name": "desired_state",
@@ -1279,11 +1297,42 @@
           "notNull": true,
           "default": "'runtime-v1'"
         },
+        "install_link_id": {
+          "name": "install_link_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "enrollment_code": {
+          "name": "enrollment_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "enrollment_used_at": {
+          "name": "enrollment_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "installation_id": {
           "name": "installation_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "relay_token_hash": {
+          "name": "relay_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "relay_bound_at": {
+          "name": "relay_bound_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "is_test_deployment": {
           "name": "is_test_deployment",
@@ -1401,6 +1450,20 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
+        "deployments_install_link_id_unique": {
+          "name": "deployments_install_link_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "install_link_id"
+          ]
+        },
+        "deployments_enrollment_code_unique": {
+          "name": "deployments_enrollment_code_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "enrollment_code"
+          ]
+        },
         "deployments_installation_id_unique": {
           "name": "deployments_installation_id_unique",
           "nullsNotDistinct": false,
@@ -1485,44 +1548,6 @@
         },
         "finished_at": {
           "name": "finished_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ai_explanation_state": {
-          "name": "ai_explanation_state",
-          "type": "ai_explanation_state",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'PENDING'"
-        },
-        "ai_explanation_what": {
-          "name": "ai_explanation_what",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ai_explanation_why": {
-          "name": "ai_explanation_why",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ai_explanation_fix": {
-          "name": "ai_explanation_fix",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ai_explanation_claimed_at": {
-          "name": "ai_explanation_claimed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ai_explanation_generated_at": {
-          "name": "ai_explanation_generated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -1885,16 +1910,6 @@
     }
   },
   "enums": {
-    "public.ai_explanation_state": {
-      "name": "ai_explanation_state",
-      "schema": "public",
-      "values": [
-        "PENDING",
-        "GENERATING",
-        "READY",
-        "FAILED"
-      ]
-    },
     "public.analysis_status": {
       "name": "analysis_status",
       "schema": "public",
@@ -1967,6 +1982,7 @@
       "name": "health_status",
       "schema": "public",
       "values": [
+        "UNKNOWN",
         "HEALTHY",
         "DEGRADED",
         "UNHEALTHY"

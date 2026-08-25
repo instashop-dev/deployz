@@ -3,6 +3,8 @@ import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { BootstrapStack } from '../src/bootstrap/bootstrap-stack.js';
 
+import { withStableAssetHashes } from './stable-template.js';
+
 /**
  * Collect the IAM action strings from a list of policy statements.
  * Handles both `Action: 'x'` and `Action: ['x', 'y']`, and `NotAction`.
@@ -28,6 +30,20 @@ type TemplateResource = { Type: string; Properties?: Record<string, unknown> };
 
 function allResources(template: Template): Record<string, TemplateResource> {
   return (template.toJSON() as { Resources: Record<string, TemplateResource> })['Resources'];
+}
+
+/**
+ * Replace every bundled-asset hash with a fixed placeholder.
+ *
+ * esbuild emits a byte-different bundle on Windows and on Linux, so the hash
+ * in `Code.S3Key` depends on the machine that ran the test, not on the stack.
+ * Without this the committed snapshot fails everywhere except the platform
+ * that wrote it.
+ */
+function withStableAssetHashes(template: unknown): unknown {
+  return JSON.parse(
+    JSON.stringify(template).replace(/[0-9a-f]{64}\.zip/g, '<asset-hash>.zip'),
+  );
 }
 
 /**
@@ -296,10 +312,14 @@ describe('BootstrapStack', () => {
       expect(name.toLowerCase(), `parameter ${name} looks like a credential`).not.toMatch(
         /token|secret|credential|password|api.?key/,
       );
-      // The one application parameter we DO have is the non-secret URL.
-      expect(name).toBe('ControlPlaneUrl');
+      // Both application parameters are non-secret.
+      expect(['ControlPlaneUrl', 'EnrollmentCode']).toContain(name);
     }
-    expect(Object.keys(appParams)).toEqual(['ControlPlaneUrl']);
+    // EnrollmentCode is single use: the control plane burns it when the relay
+    // first binds, and refuses to bind it to a second relay afterwards. It is
+    // not the relay's communication credential — CloudFormation still mints
+    // that inside the customer's account, and it is still never a parameter.
+    expect(Object.keys(appParams).sort()).toEqual(['ControlPlaneUrl', 'EnrollmentCode']);
   });
 
   it('exports the control-plane handshake outputs', () => {
@@ -313,6 +333,6 @@ describe('BootstrapStack', () => {
 
   it('matches the committed snapshot', () => {
     const { template } = synth();
-    expect(template.toJSON()).toMatchSnapshot();
+    expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();
   });
 });

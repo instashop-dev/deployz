@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 // Todo 5 smoke assertions: the shell renders the auth pages, gates
-// /dashboard for anonymous visitors, and shows an authenticated user the §43
-// empty state (no fake deployment data anywhere).
+// /dashboard for anonymous visitors, and shows an authenticated user the
+// first-run homepage (no fake deployment data anywhere).
 
 const API_URL = 'http://localhost:3001';
 
@@ -25,16 +25,21 @@ test('sign-up page renders', async ({ page }) => {
 
 test('unauthenticated visit to /dashboard redirects to /sign-in', async ({ page }) => {
   await page.goto('/dashboard');
-  await page.waitForURL('/sign-in');
+  // The destination rides along so signing in lands where the visitor was
+  // going, instead of dropping everyone on the dashboard home.
+  await page.waitForURL(/\/sign-in\?callbackUrl=%2Fdashboard/);
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });
 
-test('authenticated user reaches the dashboard and sees the §43 empty state', async ({ page }) => {
-  // A fresh org has no deployments; the API returns { deployments: [] }.
-  // The mock ensures the empty list is the source of truth even if a
-  // prior test created deployments in the shared PGlite database.
+test('authenticated user reaches the homepage and sees the first-run state', async ({ page }) => {
+  // A fresh org has no applications and no deployments; the API returns
+  // empty lists. The mocks make that the source of truth even if a prior
+  // test created rows in the shared PGlite database.
   await page.route('**/api/deployments', (route) =>
     route.fulfill({ json: { deployments: [] } }),
+  );
+  await page.route('**/api/applications', (route) =>
+    route.fulfill({ json: { applications: [] } }),
   );
 
   const email = `e2e-${crypto.randomUUID().slice(0, 8)}@example.com`;
@@ -46,15 +51,15 @@ test('authenticated user reaches the dashboard and sees the §43 empty state', a
   await page.getByRole('button', { name: 'Create account' }).click();
 
   await page.waitForURL('/dashboard');
-  await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible();
-  // §43 exact copy.
   await expect(
-    page.getByRole('heading', { name: 'Your app is ready for private deployment' }),
+    page.getByRole('heading', { name: 'Get your first customer deployed' }),
   ).toBeVisible();
-  await expect(page.getByText('Give your next customer their own AWS deployment.')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create Customer Deployment' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'View Test Deployment' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create Release' })).toBeVisible();
+  await expect(
+    page.getByText(
+      'Connect your application and Deployz will prepare it for private deployment on AWS.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Connect GitHub repository' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Dashboard' })).toBeVisible();
 });
 

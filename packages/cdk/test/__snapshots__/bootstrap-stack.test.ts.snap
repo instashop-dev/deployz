@@ -53,6 +53,11 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
       "Description": "Base URL of the Deployz control plane the relay polls. NOT a credential.",
       "Type": "String",
     },
+    "EnrollmentCode": {
+      "Default": "",
+      "Description": "Single-use code from your install link. Ties this installation to your deployment.",
+      "Type": "String",
+    },
   },
   "Resources": {
     "InstallIdFunctionE00E99D3": {
@@ -64,7 +69,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "579c1012eaf9cfc20829741166ed26b158cadaaccd368e459c3430948809c589.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Handler": "index.handler",
         "MemorySize": 128,
@@ -132,7 +137,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "e16ffb3b34af185b8b30c88fdb19faa13b6c42bb38580485c4e84b384ee48b63.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Description": "AWS CDK resource provider framework - onEvent (BootstrapTest/InstallIdProvider)",
         "Environment": {
@@ -279,7 +284,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "2819175352ad1ce0dae768e83fc328fb70fb5f10b4a8ff0ccbcb791f02b0716d.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Handler": "index.handler",
         "Role": {
@@ -606,7 +611,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "1b6b58939bb863bfc3bb40e91920f246b29caa6366178d40fef0962966833522.zip",
+          "S3Key": "<asset-hash>.zip",
         },
         "Environment": {
           "Variables": {
@@ -615,6 +620,9 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             "DEPLOYZ_CREDENTIAL_SECRET_ARN": {
               "Ref": "RelayCredential6AA8BC18",
+            },
+            "DEPLOYZ_ENROLLMENT_CODE": {
+              "Ref": "EnrollmentCode",
             },
             "DEPLOYZ_INSTALLATION_ID": {
               "Fn::GetAtt": [

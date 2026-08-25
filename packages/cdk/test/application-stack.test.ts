@@ -6,6 +6,8 @@ import {
   type ApplicationStackProps,
 } from '../src/application/application-stack.js';
 
+import { withStableAssetHashes } from './stable-template.js';
+
 function synth(expressMode = false, extraProps: Partial<ApplicationStackProps> = {}) {
   const app = new App();
   const stack = new ApplicationStack(app, 'ApplicationTest', {
@@ -208,7 +210,7 @@ describe('ApplicationStack', () => {
 
   it('matches the committed snapshot (plain Fargate)', () => {
     const { template } = synth(false);
-    expect(template.toJSON()).toMatchSnapshot();
+    expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();
   });
 
   describe('worker + expressMode validation (§8.1)', () => {

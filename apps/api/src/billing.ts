@@ -115,13 +115,10 @@ async function ensureBasePrice(stripe: Stripe): Promise<Stripe.Price> {
 }
 
 async function ensureMeteredPrice(stripe: Stripe): Promise<Stripe.Price> {
-  const meter = await stripe.billing.meters.create({
-    display_name: 'Healthy deployment days',
-    event_name: METER_EVENT_NAME,
-    default_aggregation: { formula: 'sum' },
-    customer_mapping: { type: 'by_id', event_payload_key: 'stripe_customer_id' },
-    value_settings: { event_payload_key: 'value' },
-  });
+  // Stripe refuses a second active meter with the same event name, so
+  // creating one unconditionally fails every checkout after the first and
+  // never recovers. Reuse the meter that is already there.
+  const meter = (await findActiveMeter(stripe)) ?? (await createMeter(stripe));
   const product = await stripe.products.create({ name: 'Deployz Healthy Deployment' });
   return stripe.prices.create({
     product: product.id,
@@ -129,6 +126,21 @@ async function ensureMeteredPrice(stripe: Stripe): Promise<Stripe.Price> {
     unit_amount: METERED_PRICE_CENTS,
     billing_scheme: 'per_unit',
     recurring: { interval: 'month', usage_type: 'metered', meter: meter.id },
+  });
+}
+
+async function findActiveMeter(stripe: Stripe): Promise<Stripe.Billing.Meter | undefined> {
+  const meters = await stripe.billing.meters.list({ status: 'active', limit: 100 });
+  return meters.data.find((meter) => meter.event_name === METER_EVENT_NAME);
+}
+
+async function createMeter(stripe: Stripe): Promise<Stripe.Billing.Meter> {
+  return stripe.billing.meters.create({
+    display_name: 'Healthy deployment days',
+    event_name: METER_EVENT_NAME,
+    default_aggregation: { formula: 'sum' },
+    customer_mapping: { type: 'by_id', event_payload_key: 'stripe_customer_id' },
+    value_settings: { event_payload_key: 'value' },
   });
 }
 
@@ -207,6 +219,7 @@ export async function handleWebhookEvent(
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
       });
+      await syncOrganizationPlan(db, stripeSubscriptionId, status as SubscriptionStatus);
       return true;
     }
     case 'invoice.paid':
@@ -230,11 +243,44 @@ export async function handleWebhookEvent(
         },
         { byStripeSubscriptionId: true },
       );
+      await syncOrganizationPlan(db, stripeSubscriptionId, status as SubscriptionStatus | undefined);
       return true;
     }
     default:
       return false;
   }
+}
+
+/**
+ * Keep organizations.plan in step with the subscription.
+ *
+ * The column was written once at signup and never again — not even here — so
+ * Settings read "Plan: Free" forever while the billing screen showed a $49
+ * charge, and nothing in the product ever recorded that an organization was
+ * paying. Derived from the subscription status so there is one source of
+ * truth, not two that can drift.
+ */
+async function syncOrganizationPlan(
+  db: RuntimeDb,
+  stripeSubscriptionId: string,
+  status: SubscriptionStatus | undefined,
+): Promise<void> {
+  if (!status) return;
+  const rows = await db
+    .select({ organizationId: schema.subscriptions.organizationId })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.stripeSubscriptionId, stripeSubscriptionId))
+    .limit(1);
+  const organizationId = rows[0]?.organizationId;
+  if (!organizationId) return;
+
+  // TRIALING counts as paying: the vendor has a live subscription and the
+  // product should not behave as though they are on the free plan.
+  const plan = status === 'ACTIVE' || status === 'TRIALING' || status === 'PAST_DUE' ? 'STARTER' : 'FREE';
+  await db
+    .update(schema.organization)
+    .set({ plan })
+    .where(eq(schema.organization.id, organizationId));
 }
 
 function extractInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {

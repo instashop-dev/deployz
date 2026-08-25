@@ -82,39 +82,55 @@ describe('readCredential', () => {
 // ── registerInstallation ─────────────────────────────────────────────────────
 
 describe('registerInstallation', () => {
-  it('returns true on HTTP 200', async () => {
+  it('reports registered on HTTP 200', async () => {
     const fetchFn = makeFetchFn(200);
-    const result = await registerInstallation(fetchFn, 'https://api.example.com', 'inst-1', 'tok');
-    expect(result).toBe(true);
+    const result = await registerInstallation(fetchFn, 'https://api.example.com', 'inst-1', 'tok', 'code-1');
+    expect(result).toBe('registered');
   });
 
-  it('returns true on HTTP 201', async () => {
+  it('reports registered on HTTP 201', async () => {
     const fetchFn = makeFetchFn(201);
-    const result = await registerInstallation(fetchFn, 'https://api.example.com', 'inst-1', 'tok');
-    expect(result).toBe(true);
+    const result = await registerInstallation(fetchFn, 'https://api.example.com', 'inst-1', 'tok', 'code-1');
+    expect(result).toBe('registered');
   });
 
-  it('returns false on HTTP 401', async () => {
+  it('reports retry on a transient failure', async () => {
     const fetchFn = makeFetchFn(401);
-    const result = await registerInstallation(fetchFn, 'https://api.example.com', 'inst-1', 'tok');
-    expect(result).toBe(false);
+    const result = await registerInstallation(fetchFn, 'https://api.example.com', 'inst-1', 'tok', 'code-1');
+    expect(result).toBe('retry');
   });
 
-  it('sends the installationId in the body', async () => {
+  // 409 means the enrollment code is already spent by a DIFFERENT relay, and
+  // 404 means the control plane has never heard of it. Retrying cannot fix
+  // either, and a relay that hammered the endpoint would bury the vendor's
+  // alert under its own noise.
+  it.each([404, 409])('reports rejected on HTTP %i', async (status) => {
+    const fetchFn = makeFetchFn(status);
+    const result = await registerInstallation(fetchFn, 'https://api.example.com', 'inst-1', 'tok', 'code-1');
+    expect(result).toBe('rejected');
+  });
+
+  it('sends the installationId and the enrollment code in the body', async () => {
     const spy = vi.fn<FetchFn>().mockResolvedValue({
       status: 200,
       headers: { get: () => null },
       json: async () => ({}),
     });
 
-    await registerInstallation(spy, 'https://api.example.com', 'inst-xyz', 'tok-123');
+    await registerInstallation(spy, 'https://api.example.com', 'inst-xyz', 'tok-123', 'code-abc');
 
     expect(spy).toHaveBeenCalledTimes(1);
     const [url, init] = spy.mock.calls[0]!;
     expect(url).toBe('https://api.example.com/api/relay/register');
     expect(init?.method).toBe('POST');
     expect(init?.headers).toHaveProperty('Authorization', 'Bearer tok-123');
-    expect(JSON.parse(init?.body ?? '{}')).toEqual({ installationId: 'inst-xyz' });
+    // The code is what identifies the DEPLOYMENT: this installation id was
+    // minted inside the customer's account and the control plane has never
+    // seen it before this call.
+    expect(JSON.parse(init?.body ?? '{}')).toEqual({
+      installationId: 'inst-xyz',
+      enrollmentCode: 'code-abc',
+    });
   });
 });
 

@@ -1,8 +1,8 @@
 // §35 application data access. Client-side (fetched from 'use client'
-// components), so NEXT_PUBLIC_API_URL — mirrors lib/github.ts and
+// components), so the browser-facing origin — mirrors lib/github.ts and
 // lib/deployments.ts.
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 /** Mirrors `analysisStatusEnum` in packages/db. */
 export type AnalysisStatus = 'PENDING' | 'ANALYZING' | 'COMPLETE' | 'FAILED';

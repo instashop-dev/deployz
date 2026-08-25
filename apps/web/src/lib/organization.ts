@@ -14,11 +14,11 @@ import type {
   OrganizationSummary,
 } from './organization-vocabulary';
 
-const apiUrl = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { serverApiUrl } from '@/lib/api-url';
 
 async function getJson<T>(path: string): Promise<T> {
   const cookieHeader = (await cookies()).toString();
-  const response = await fetch(`${apiUrl}${path}`, {
+  const response = await fetch(`${serverApiUrl()}${path}`, {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     cache: 'no-store',
   });

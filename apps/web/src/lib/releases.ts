@@ -2,7 +2,7 @@
 // genuinely does not exist for the caller's organization — it is surfaced,
 // never swallowed into look-alike placeholder data. §65: copy is jargon-free.
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiUrl } from '@/lib/api-url';
 
 export type ReleaseStatus = 'BUILDING' | 'READY' | 'FAILED';
 

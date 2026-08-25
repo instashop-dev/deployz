@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { and, eq } from 'drizzle-orm';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -50,7 +51,10 @@ async function insertApplication(
     .values({
       organizationId,
       name: 'Test App',
-      repoFullName: 'acme/test-app',
+      // Unique per call: one application per repo per organization is now a
+      // database constraint, and several tests seed two applications in the
+      // same org.
+      repoFullName: `acme/test-app-${crypto.randomUUID().slice(0, 8)}`,
       repoUrl: 'https://github.com/acme/test-app',
       defaultBranch: 'main',
       ...overrides,
@@ -85,7 +89,9 @@ async function insertRelease(
     .insert(schema.releases)
     .values({
       applicationId,
-      version: 'v1.0.0',
+      // Unique per call: one release per version per application is now a
+      // database constraint, and several tests seed two releases for one app.
+      version: `v1.0.0-${crypto.randomUUID().slice(0, 8)}`,
       gitSha: 'a1b2c3d',
       ...overrides,
     })
@@ -109,6 +115,9 @@ async function insertDeployment(
       region: 'us-east-1',
       state: 'NOT_INSTALLED',
       installationId: `inst-${crypto.randomUUID()}`,
+      // The control plane mints this when a deployment is created; the relay
+      // trades it once for its binding.
+      enrollmentCode: crypto.randomUUID(),
       ...overrides,
     })
     .returning();
@@ -289,6 +298,14 @@ describe('server — organization identity comes from the session, not the clien
     auth = createAuth(db);
     orgA = await signUpAndGetOrg(auth, db, 'org-a@example.com');
     orgB = await signUpAndGetOrg(auth, db, 'org-b@example.com');
+    // An application may only point at an installation its own organization
+    // connected, so the connected installation has to exist first.
+    await db.insert(schema.githubInstallations).values({
+      id: 'inst-1',
+      organizationId: orgA.organizationId,
+      accountLogin: 'org-a',
+      accountType: 'Organization',
+    });
     app = await buildServer({ auth, db });
   }, 60_000);
 
@@ -556,6 +573,96 @@ describe('server — IDOR guards on :id routes (§2)', () => {
   });
 });
 
+// ── §31: the config scope carries the customer NAME, and is org-owned ──────
+describe('server — config scope resolution (§31,§65)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let orgA: { userId: string; organizationId: string; cookie: string };
+  let orgB: { userId: string; organizationId: string; cookie: string };
+  let application: typeof schema.applications.$inferSelect;
+  let customer: typeof schema.customers.$inferSelect;
+  let otherOrgCustomer: typeof schema.customers.$inferSelect;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    orgA = await signUpAndGetOrg(auth, db, 'config-scope-a@example.com');
+    orgB = await signUpAndGetOrg(auth, db, 'config-scope-b@example.com');
+    app = await buildServer({ auth, db });
+    application = await insertApplication(db, orgA.organizationId, { name: 'Config Scope App' });
+    customer = await insertCustomer(db, orgA.organizationId, { name: 'Acme Industries' });
+    otherOrgCustomer = await insertCustomer(db, orgB.organizationId, { name: 'Other Org Customer' });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  // §65: the screen names the customer, so the id never has to be rendered.
+  it('GET scoped to a customer returns that customer name', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/config?customerId=${customer.id}`,
+      headers: { cookie: orgA.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ customerId: customer.id, customerName: 'Acme Industries' });
+  });
+
+  it('GET without a customer is the vendor scope — no customer id, no name', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/config`,
+      headers: { cookie: orgA.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ customerId: null, customerName: null });
+  });
+
+  it('PUT scoped to a customer returns that customer name alongside the saved values', async () => {
+    const response = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/config`,
+      { customerId: customer.id, entries: [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }] },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { customerName: string | null; customerOverrides: { key: string; value: string | null }[] };
+    expect(body.customerName).toBe('Acme Industries');
+    expect(body.customerOverrides).toContainEqual({ key: 'LOG_LEVEL', value: 'debug', isSecret: false });
+  });
+
+  it('a customer of another organization 404s on read and on write (§2)', async () => {
+    const read = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/config?customerId=${otherOrgCustomer.id}`,
+      headers: { cookie: orgA.cookie },
+    });
+    expect(read.statusCode).toBe(404);
+
+    const write = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/config`,
+      { customerId: otherOrgCustomer.id, entries: [{ key: 'LEAK', value: 'no', isSecret: false }] },
+      { cookie: orgA.cookie },
+    );
+    expect(write.statusCode).toBe(404);
+
+    const rows = await db
+      .select()
+      .from(schema.applicationConfigs)
+      .where(eq(schema.applicationConfigs.customerId, otherOrgCustomer.id));
+    expect(rows).toHaveLength(0);
+  });
+});
+
 // ── §36/§37: PATCH and DELETE /api/applications/:id ─────────────────────────
 describe('server — PATCH/DELETE /api/applications/:id (§36,§37)', () => {
   let client: PGlite | undefined;
@@ -697,6 +804,9 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   let org: { userId: string; organizationId: string; cookie: string };
   let deployment: typeof schema.deployments.$inferSelect;
   const RELAY_TOKEN = 'relay-token-abc123';
+  // The id the RELAY mints for itself inside the customer's account. The
+  // control plane learns it at enrollment and never before.
+  const RELAY_INSTALLATION_ID = 'inst-minted-in-customer-account';
 
   beforeAll(async () => {
     client = new PGlite();
@@ -710,6 +820,9 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     const customer = await insertCustomer(db, org.organizationId);
     deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
+      // Unbound: no relay has enrolled yet, which is the real shape of a
+      // deployment a vendor has just created.
+      installationId: null,
     });
   }, 60_000);
 
@@ -719,31 +832,44 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   });
 
   it('POST /api/relay/register without a bearer token is rejected', async () => {
-    const response = await postJson(app, '/api/relay/register', { installationId: deployment.installationId });
+    const response = await postJson(app, '/api/relay/register', {
+      enrollmentCode: deployment.enrollmentCode,
+      installationId: RELAY_INSTALLATION_ID,
+    });
     expect(response.statusCode).toBe(401);
   });
 
-  it('POST /api/relay/register 404s for an installationId with no matching deployment', async () => {
+  it('POST /api/relay/register 404s for an enrollment code with no matching deployment', async () => {
     const response = await postJson(
       app,
       '/api/relay/register',
-      { installationId: 'not-a-real-installation' },
+      { enrollmentCode: 'not-a-real-code', installationId: RELAY_INSTALLATION_ID },
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
     expect(response.statusCode).toBe(404);
   });
 
-  it('registers the token, creates the INSTALL job, and moves the deployment to INSTALLING (§6)', async () => {
+  it('binds the relay, creates the INSTALL job, and moves the deployment to INSTALLING (§6)', async () => {
     const response = await postJson(
       app,
       '/api/relay/register',
-      { installationId: deployment.installationId },
+      {
+        enrollmentCode: deployment.enrollmentCode,
+        installationId: RELAY_INSTALLATION_ID,
+        awsAccountId: '123456789012',
+      },
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
     expect(response.statusCode).toBe(200);
 
     const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
     expect(dep!.state).toBe('INSTALLING');
+    // The binding, the relay's self-minted id and the customer's account id
+    // are all learned here — none of them were knowable before this call.
+    expect(dep!.installationId).toBe(RELAY_INSTALLATION_ID);
+    expect(dep!.relayTokenHash).not.toBeNull();
+    expect(dep!.enrollmentUsedAt).not.toBeNull();
+    expect(dep!.awsAccountId).toBe('123456789012');
 
     const jobs = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id));
     expect(jobs).toHaveLength(1);
@@ -751,13 +877,14 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(jobs[0]!.state).toBe('REQUESTED');
   });
 
-  it('re-registering the same installation does not create a second INSTALL job', async () => {
-    await postJson(
+  it('a replay from the same relay is idempotent and creates no second INSTALL job', async () => {
+    const response = await postJson(
       app,
       '/api/relay/register',
-      { installationId: deployment.installationId },
+      { enrollmentCode: deployment.enrollmentCode, installationId: RELAY_INSTALLATION_ID },
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
+    expect(response.statusCode).toBe(200);
     const jobs = await db
       .select()
       .from(schema.deploymentJobs)
@@ -765,10 +892,48 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(jobs).toHaveLength(1);
   });
 
+  // The takeover this replaced: registration used to bind whatever token the
+  // caller supplied, checking only that the installation id existed — and
+  // that id travelled in the customer's install URL. Anyone holding the link
+  // could rebind the deployment to a token of their own, lock the real relay
+  // out, read its job payloads, and drive the deployment's state into and out
+  // of the states that start and stop billing.
+  it('refuses a second relay with a different token, and leaves the first one working', async () => {
+    const takeover = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId: 'inst-attacker' },
+      { authorization: 'Bearer attacker-chosen-token' },
+    );
+    expect(takeover.statusCode).toBe(409);
+    expect(takeover.json()).toMatchObject({ error: { code: 'RELAY_ALREADY_ENROLLED' } });
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.installationId).toBe(RELAY_INSTALLATION_ID);
+
+    // Health, not the command poll: polling would consume the pending INSTALL
+    // job that the next test asserts on, and authenticating is the point here.
+    const stillWorks = await postJson(
+      app,
+      '/api/relay/health',
+      { installationId: RELAY_INSTALLATION_ID },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(stillWorks.statusCode).toBe(200);
+  });
+
+  it('records a rejected enrollment as an event the vendor can see', async () => {
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, deployment.id));
+    expect(events.some((row) => row.eventType === 'install.enrollment.rejected')).toBe(true);
+  });
+
   it('GET /api/relay/commands rejects a wrong bearer token', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: `/api/relay/commands?installationId=${deployment.installationId}`,
+      url: `/api/relay/commands?installationId=${RELAY_INSTALLATION_ID}`,
       headers: { authorization: 'Bearer wrong-token' },
     });
     expect(response.statusCode).toBe(401);
@@ -777,7 +942,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   it('returns the pending INSTALL command and moves it to RUNNING', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: `/api/relay/commands?installationId=${deployment.installationId}`,
+      url: `/api/relay/commands?installationId=${RELAY_INSTALLATION_ID}`,
       headers: { authorization: `Bearer ${RELAY_TOKEN}` },
     });
     expect(response.statusCode).toBe(200);
@@ -794,7 +959,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   it('a second poll returns no commands (the job already left REQUESTED/QUEUED)', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: `/api/relay/commands?installationId=${deployment.installationId}`,
+      url: `/api/relay/commands?installationId=${RELAY_INSTALLATION_ID}`,
       headers: { authorization: `Bearer ${RELAY_TOKEN}` },
     });
     expect((response.json() as { commands: unknown[] }).commands).toHaveLength(0);
@@ -1081,7 +1246,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     const response = await postJson(
       app,
       '/api/relay/health',
-      { installationId: deployment.installationId, healthStatus: 'HEALTHY' },
+      { installationId: RELAY_INSTALLATION_ID, healthStatus: 'HEALTHY' },
       { authorization: 'Bearer wrong-token' },
     );
     expect(response.statusCode).toBe(401);
@@ -1091,7 +1256,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     const response = await postJson(
       app,
       '/api/relay/health',
-      { installationId: deployment.installationId, observedState: { tasksRunning: 2 }, healthStatus: 'DEGRADED' },
+      { installationId: RELAY_INSTALLATION_ID, observedState: { tasksRunning: 2 }, healthStatus: 'DEGRADED' },
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
     expect(response.statusCode).toBe(200);
@@ -1443,8 +1608,8 @@ describe('server — POST /api/applications/:id/analyse wires ServerDeps.analysi
         .where(eq(schema.applications.id, application.id));
       expect(rows[0]?.analysisStatus).toBe('ANALYZING');
 
-      // The runner is fire-and-forget; give its microtask a tick to run.
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // With no job queue configured the runner is awaited inline, so it has
+      // already run by the time the 202 comes back.
       expect(calls).toEqual([application.id]);
     } finally {
       await app.close();
@@ -1468,12 +1633,172 @@ describe('server — POST /api/applications/:id/analyse wires ServerDeps.analysi
         headers: { cookie: org.cookie },
       });
 
+      // A rejecting runner must not surface as an unhandled rejection or
+      // turn the accepted request into a 500.
       expect(response.statusCode).toBe(202);
-      // Give the rejected background promise a tick — it must not surface
-      // as an unhandled rejection or crash the process.
-      await new Promise((resolve) => setTimeout(resolve, 0));
     } finally {
       await app.close();
+    }
+  });
+});
+
+// ── GitHub App installation binding (§15/§17) ──────────────────────────────
+describe('server — GitHub installation binding', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let other: { userId: string; organizationId: string; cookie: string };
+
+  // GitHub's own view of the installation. The setup route reads the account
+  // from the API rather than trusting the browser for anything but the id.
+  const githubFetch = (async (url: string) => ({
+    status: url.includes('/app/installations/4242') ? 200 : 404,
+    headers: { get: () => null },
+    json: async () => ({ account: { login: 'acme-inc', type: 'Organization' } }),
+  })) as unknown as Parameters<typeof buildServer>[0]['githubFetch'];
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({
+      auth,
+      db,
+      githubFixtureMode: false,
+      githubFetch,
+      githubAppId: 'test-app-id',
+      // A real key: the setup route signs an RS256 App JWT, so a placeholder
+      // string fails inside node:crypto rather than in the route.
+      githubAppPrivateKey: generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+      }).privateKey,
+    });
+    org = await signUpAndGetOrg(auth, db, 'gh-owner@example.com');
+    other = await signUpAndGetOrg(auth, db, 'gh-other@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('binds an installation to the caller organization and redirects to the dashboard', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/setup?installation_id=4242',
+      headers: { cookie: org.cookie },
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toContain('/dashboard/applications?github=connected');
+
+    const rows = await db.select().from(schema.githubInstallations);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: '4242',
+        organizationId: org.organizationId,
+        accountLogin: 'acme-inc',
+        accountType: 'Organization',
+      }),
+    ]);
+  });
+
+  // GitHub redirects the installing vendor here whether or not they hold a
+  // Deployz session. A JSON 401 strands them on an error page with the
+  // installation unbound; sign-in carries the id so the binding still
+  // completes on the way back. The callback is relative because the sign-in
+  // page rejects absolute URLs as open redirects.
+  it('redirects a signed-out setup hit to sign-in rather than erroring', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/setup?installation_id=4242',
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toContain(
+      '/sign-in?callbackUrl=%2Fgithub%2Fsetup%3Finstallation_id%3D4242',
+    );
+  });
+
+  it('lists the bound installation for its own organization only', async () => {
+    const mine = await app.inject({
+      method: 'GET',
+      url: '/api/github/installations',
+      headers: { cookie: org.cookie },
+    });
+    expect((mine.json() as { installations: unknown[] }).installations).toEqual([
+      { id: '4242', accountLogin: 'acme-inc', accountType: 'Organization' },
+    ]);
+
+    const theirs = await app.inject({
+      method: 'GET',
+      url: '/api/github/installations',
+      headers: { cookie: other.cookie },
+    });
+    expect((theirs.json() as { installations: unknown[] }).installations).toEqual([]);
+  });
+
+  // An installation id is a small integer: without this check any signed-in
+  // user could list the repositories of any installation by guessing one.
+  it('404s repo listing for an installation the caller does not own', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/repos?installationId=4242',
+      headers: { cookie: other.cookie },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('404s application creation against an installation the caller does not own', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/applications',
+      headers: { cookie: other.cookie },
+      payload: {
+        name: 'Borrowed',
+        githubInstallationId: '4242',
+        repoFullName: 'acme-inc/private',
+        repoUrl: 'https://github.com/acme-inc/private',
+        defaultBranch: 'main',
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('drops the installation on the installation.deleted webhook', async () => {
+    const secret = 'webhook-secret';
+    const webhookApp = await buildServer({
+      auth,
+      db,
+      githubWebhookSecret: secret,
+      githubFixtureMode: false,
+      githubFetch,
+    });
+    try {
+      const body = JSON.stringify({ action: 'deleted', installation: { id: 4242 } });
+      const signature = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+
+      const response = await webhookApp.inject({
+        method: 'POST',
+        url: '/api/github/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'x-github-event': 'installation',
+          'x-hub-signature-256': signature,
+        },
+        payload: body,
+      });
+
+      expect(response.json()).toStrictEqual({ received: true, handled: 'removed' });
+      expect(await db.select().from(schema.githubInstallations)).toEqual([]);
+    } finally {
+      await webhookApp.close();
     }
   });
 });
@@ -1541,7 +1866,9 @@ describe('server — organization settings, public install page, and bulk deploy
     });
     const [orgRow] = await db.select().from(schema.organization).where(eq(schema.organization.id, org.organizationId));
 
-    const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installationId}` });
+    // Keyed on the install-LINK id. The relay's installation id is minted in
+    // the customer's account and must never be the value in a public URL.
+    const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
     expect(response.statusCode).toBe(200);
     const body = response.json() as Record<string, unknown>;
     expect(body).toStrictEqual({
@@ -1549,12 +1876,49 @@ describe('server — organization settings, public install page, and bulk deploy
       publisherName: orgRow!.name,
       customerName: 'Acme Analytics',
       region: 'eu-west-1',
+      alreadyInstalled: false,
       resourcesCreated: ['Application runtime', 'PostgreSQL database', 'Networking', 'Monitoring'],
+      // No BOOTSTRAP_TEMPLATE_URL in the test environment: nothing is
+      // published, so there is no link to hand out. The enrollment code
+      // travels inside that link, never as a field of its own.
+      quickCreateUrl: null,
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('999999999999');
     expect(serialized).not.toContain(deployment.id);
     expect(serialized).not.toContain(org.organizationId);
+  });
+
+  it('GET /api/install/:installationId stops handing out a link once the code is spent', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Spent Code App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    // env is read at module load, so publish a template for this test only.
+    const mutableEnv = env as { bootstrapTemplateUrl: string | undefined };
+    const previous = mutableEnv.bootstrapTemplateUrl;
+    mutableEnv.bootstrapTemplateUrl = 'https://templates.example.com/bootstrap-v1.json';
+    try {
+      const fresh = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      const freshBody = fresh.json() as Record<string, unknown>;
+      expect(freshBody['alreadyInstalled']).toBe(false);
+      expect(String(freshBody['quickCreateUrl'])).toContain(deployment.enrollmentCode);
+
+      // The relay has bound: the code is spent, the page renders its
+      // "already set up" state, and a replayed link must not carry the code.
+      await db
+        .update(schema.deployments)
+        .set({ enrollmentUsedAt: new Date() })
+        .where(eq(schema.deployments.id, deployment.id));
+
+      const replayed = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      const replayedBody = replayed.json() as Record<string, unknown>;
+      expect(replayedBody['alreadyInstalled']).toBe(true);
+      expect(replayedBody['quickCreateUrl']).toBeNull();
+      expect(JSON.stringify(replayedBody)).not.toContain(deployment.enrollmentCode);
+    } finally {
+      mutableEnv.bootstrapTemplateUrl = previous;
+    }
   });
 
   it('GET /api/install/:installationId 404s for an unknown installation', async () => {

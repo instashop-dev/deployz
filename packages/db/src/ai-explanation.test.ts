@@ -27,6 +27,8 @@ describe('deployment_jobs AI explanation cache', () => {
       organizationId: ids.organizationId,
       region: 'us-east-1',
       installationId: 'inst-ai',
+      // Minted by the control plane at creation; the relay trades it once.
+      enrollmentCode: crypto.randomUUID(),
     });
   });
 

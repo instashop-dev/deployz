@@ -15,6 +15,26 @@
     "./auth": {
       "types": "./dist/auth.d.ts",
       "import": "./dist/auth.js"
+    },
+    "./find-env-file": {
+      "types": "./dist/find-env-file.d.ts",
+      "import": "./dist/find-env-file.js"
+    },
+    "./analysis": {
+      "types": "./dist/analysis.d.ts",
+      "import": "./dist/analysis.js"
+    },
+    "./github": {
+      "types": "./dist/github.d.ts",
+      "import": "./dist/github.js"
+    },
+    "./jobs": {
+      "types": "./dist/jobs.d.ts",
+      "import": "./dist/jobs.js"
+    },
+    "./queue": {
+      "types": "./dist/queue.d.ts",
+      "import": "./dist/queue.js"
     }
   },
   "scripts": {
@@ -27,6 +47,7 @@
     "@aws-sdk/client-sqs": "^3.1115.0",
     "@deployz/analysis": "workspace:*",
     "@deployz/contracts": "workspace:*",
+    "@deployz/copy-map": "workspace:*",
     "@deployz/db": "workspace:*",
     "@fastify/cors": "^11.0.0",
     "@sentry/node": "^10.70.0",
