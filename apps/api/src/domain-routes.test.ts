@@ -667,3 +667,136 @@ describe('custom domain destroy cleanup', () => {
     expect(deploymentRow!.state).toBe('DELETED');
   });
 });
+
+// ── Relay-heartbeat custom-domain auto-check ─────────────────────────────────
+//
+// POST /api/relay/health piggybacks a best-effort runDomainCheck call onto
+// the relay's existing ~5-minute heartbeat (server.ts ~2561-2575), gated on
+// domain status and a 180s lastCheckedAt staleness floor. Nothing about the
+// hook may ever fail the health report itself.
+
+describe('custom domain relay-heartbeat auto-check', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  const RELAY_TOKEN = 'relay-token-heartbeat-xyz';
+
+  // Swappable per test — buildServer is constructed once in beforeAll.
+  let checkCname: DomainCheckDeps['checkCname'] = async () => true;
+  const domainCheckDeps: DomainCheckDeps = {
+    minCheckIntervalMs: 0,
+    checkCname: async (name, expectedTarget) => checkCname(name, expectedTarget),
+    probeHttps: async () => true,
+  };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db, domainCheckDeps });
+    org = await signUpAndGetOrg(auth, db, 'domain-heartbeat-owner@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  /** A relay-bound, HEALTHY deployment with an active WAITING_FOR_DNS
+   *  domain — the shape the heartbeat auto-check acts on. */
+  async function seedHeartbeatDeployment(lastCheckedAt: Date | null) {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const installationId = `inst-${crypto.randomUUID()}`;
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      installationId,
+      relayTokenHash: hashRelayToken(RELAY_TOKEN),
+    });
+    const [domain] = await db
+      .insert(schema.customDomains)
+      .values({
+        deploymentId: deployment.id,
+        organizationId: org.organizationId,
+        hostname: `heartbeat-${crypto.randomUUID().slice(0, 8)}.customer.com`,
+        status: 'WAITING_FOR_DNS',
+        validationName: '_acme.heartbeat.customer.com',
+        validationValue: '_xyz.acm-validations.aws.',
+        lastCheckedAt,
+        createdBy: org.userId,
+      })
+      .returning();
+    return { deployment, domain: domain! };
+  }
+
+  function postHeartbeat(installationId: string, healthStatus = 'HEALTHY') {
+    return postJson(
+      app,
+      '/api/relay/health',
+      { installationId, healthStatus },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+  }
+
+  it('fires the auto-check when the domain has never been checked (lastCheckedAt null)', async () => {
+    checkCname = async () => false;
+    const { deployment, domain } = await seedHeartbeatDeployment(null);
+
+    const response = await postHeartbeat(deployment.installationId!);
+    expect(response.statusCode).toBe(200);
+
+    const [domainRow] = await db.select().from(schema.customDomains).where(eq(schema.customDomains.id, domain.id));
+    // runDomainCheck ran: lastCheckedAt was stamped and the failing CNAME
+    // check recorded its error.
+    expect(domainRow!.lastCheckedAt).not.toBeNull();
+    expect(domainRow!.lastError).toBe('DNS_VALIDATION_NOT_FOUND');
+  });
+
+  it('fires the auto-check when lastCheckedAt is stale (> 180s ago)', async () => {
+    checkCname = async () => false;
+    const staleAt = new Date(Date.now() - 200_000);
+    const { deployment, domain } = await seedHeartbeatDeployment(staleAt);
+
+    const response = await postHeartbeat(deployment.installationId!);
+    expect(response.statusCode).toBe(200);
+
+    const [domainRow] = await db.select().from(schema.customDomains).where(eq(schema.customDomains.id, domain.id));
+    expect(domainRow!.lastCheckedAt!.getTime()).toBeGreaterThan(staleAt.getTime());
+  });
+
+  it('skips the auto-check when lastCheckedAt is fresh (< 180s ago) — the staleness gate', async () => {
+    checkCname = async () => false;
+    const freshAt = new Date();
+    const { deployment, domain } = await seedHeartbeatDeployment(freshAt);
+
+    const response = await postHeartbeat(deployment.installationId!);
+    expect(response.statusCode).toBe(200);
+
+    const [domainRow] = await db.select().from(schema.customDomains).where(eq(schema.customDomains.id, domain.id));
+    // Unchanged down to the millisecond: the hook never touched the row.
+    expect(domainRow!.lastCheckedAt!.getTime()).toBe(freshAt.getTime());
+    expect(domainRow!.lastError).toBeNull();
+  });
+
+  it('is best-effort: a throwing domainCheckDeps must not fail the heartbeat, and health data is still recorded', async () => {
+    checkCname = async () => {
+      throw new Error('DNS resolver exploded');
+    };
+    const { deployment } = await seedHeartbeatDeployment(null);
+
+    const response = await postHeartbeat(deployment.installationId!, 'DEGRADED');
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ received: true });
+
+    const [deploymentRow] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deployment.id));
+    expect(deploymentRow!.relayStatus).toBe('CONNECTED');
+    expect(deploymentRow!.lastHealthAt).not.toBeNull();
+    expect(deploymentRow!.healthStatus).toBe('DEGRADED');
+  });
+});
