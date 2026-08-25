@@ -11,6 +11,7 @@ import { config } from 'dotenv';
 import { findEnvFile, moduleDirectory } from '@deployz/api/find-env-file';
 
 import { App } from 'aws-cdk-lib';
+import { checkDeployGate } from '../src/deploy-gate.js';
 import { DeployzStack } from '../src/deployz-stack.js';
 
 const envFile = findEnvFile(moduleDirectory(import.meta.url));
@@ -26,4 +27,18 @@ if (envFile) {
 }
 
 const app = new App();
+
+// Refuse to run at all outside CI. The CDK CLI tells the app nothing about
+// which command invoked it — no CDK_* variable names `synth` vs `deploy` — so
+// this necessarily gates all three, and `-c local=true` is how synth and diff
+// stay usable. That flag would also let a deliberate deploy through; the
+// failure mode being closed here is habit, not intent.
+const gate = checkDeployGate({
+  env: process.env,
+  allowLocal: app.node.tryGetContext('local') !== undefined,
+});
+if (!gate.allowed) {
+  throw new Error(gate.reason);
+}
+
 new DeployzStack(app, 'Deployz');
