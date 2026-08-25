@@ -67,8 +67,15 @@ jobs:
       STRIPE_PRICE_METERED: ${{ secrets.STRIPE_PRICE_METERED }}
       AWS_SES_ACCESS_KEY_ID: ${{ secrets.AWS_SES_ACCESS_KEY_ID }}
       AWS_SES_SECRET_ACCESS_KEY: ${{ secrets.AWS_SES_SECRET_ACCESS_KEY }}
-      CLOUDFLARE_AI_GATEWAY_ENDPOINT: ${{ secrets.CLOUDFLARE_AI_GATEWAY_ENDPOINT }}
-      CLOUDFLARE_AI_GATEWAY_API_TOKEN: ${{ secrets.CLOUDFLARE_AI_GATEWAY_API_TOKEN }}
+      # AI explanations. AI_MODEL is optional (env.ts defaults it). The two
+      # credentials are DISTINCT and travel on different headers: the provider
+      # key on Authorization, the gateway token on cf-aig-authorization.
+      # Leaving these unset is safe — diagnostics fall back to the deterministic
+      # copy-map remediation rather than failing.
+      AI_GATEWAY_BASE_URL: ${{ secrets.AI_GATEWAY_BASE_URL }}
+      AI_MODEL: ${{ secrets.AI_MODEL }}
+      AI_PROVIDER_API_KEY: ${{ secrets.AI_PROVIDER_API_KEY }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
 
       # Where customer CloudFormation fetches the bootstrap template from,
       # printed by `pnpm --filter @deployz/cdk run publish:bootstrap`. A
