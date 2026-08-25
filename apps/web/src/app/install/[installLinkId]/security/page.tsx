@@ -322,9 +322,9 @@ export default async function SecurityDetailsPage({
               the relay&apos;s permissions can never grow beyond this page. Almost every phase-2
               action is constrained by the{' '}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{TAG_BOUNDARY_KEY}</code>{' '}
-              tag boundary; the two exceptions above (handing off the service role, and reading
-              load-balancer listener info) use a role path and a no-condition read instead, for
-              the reasons explained there.
+              tag boundary. The exceptions are read-only lookups on the load balancer — AWS does
+              not support scoping those — and the service-role handoff, which is limited by a
+              role path and a service condition instead.
             </p>
           </DetailSection>
         </div>
