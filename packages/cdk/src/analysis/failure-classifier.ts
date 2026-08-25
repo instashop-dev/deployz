@@ -17,69 +17,22 @@
  * (parity locked by `failure-classifier.test.ts` importing the live pgEnum).
  */
 
+import { FAILURE_CODES, type FailureCode, type StructuredEvent } from '@deployz/analysis';
+
 import { ALLOWED_REGIONS } from '../jobs/preflight.js';
 
-// ── §61 failure taxonomy ───────────────────────────────────────────────────
+// ── §61 failure taxonomy + structured event (shared vocabulary) ───────────
 
 /**
- * The eighteen §61 stable failure codes, copied verbatim from
- * `packages/db/src/enums.ts` `failureCodeEnum`. Do not reorder, rename, or
- * extend without updating that enum and the parity test.
+ * The failure taxonomy and the structured-event shape now live in
+ * `@deployz/analysis` so `apps/api` can reach them without importing this
+ * package (`@deployz/cdk` depends on `@deployz/api`, so that import would
+ * close a dependency cycle). They are re-exported here so every existing
+ * `./failure-classifier.js` import keeps working and there remains exactly
+ * ONE definition of the taxonomy.
  */
-export const FAILURE_CODES = [
-  'AWS_SCP_BLOCKED',
-  'AWS_PERMISSION_DENIED',
-  'PORT_MISMATCH',
-  'REGION_NOT_SUPPORTED',
-  'QUOTA_EXCEEDED',
-  'IMAGE_HEALTH_CHECK_FAILED',
-  'MIGRATION_FAILED',
-  'RELAY_DISCONNECTED',
-  'STACK_CREATE_FAILED',
-  'DATABASE_CREATE_FAILED',
-  'DATABASE_CONNECTION_FAILED',
-  'IMAGE_PULL_FAILED',
-  'CONTAINER_START_FAILED',
-  'MISSING_SECRET',
-  'ECS_DEPLOYMENT_FAILED',
-  'RDS_UNAVAILABLE',
-  'UNSUPPORTED_ARCHITECTURE',
-  'UNKNOWN',
-] as const;
-
-/** A §61 failure code — exactly the eighteen values in `FAILURE_CODES`. */
-export type FailureCode = (typeof FAILURE_CODES)[number];
-
-// ── Structured event (§16) ────────────────────────────────────────────────
-
-/**
- * The classifier's input: a STRUCTURED event, never free-form log text.
- *
- * Every field is a structured slot (§16 data boundary). The `context` record
- * carries typed structured signals (booleans, numbers, strings) — it must NOT
- * be used to smuggle free-form log lines through to the classifier. Callers
- * upstream (the relay, preflight, ECS/RDS observers) normalize their raw
- * signals into this shape before classification.
- */
-export interface StructuredEvent {
-  /** Where the event originated, e.g. 'relay', 'ecs', 'rds', 'health-check', 'deploy'. */
-  source: string;
-  /** The action being performed, e.g. 'report-health', 'deploy', 'migration'. */
-  action?: string;
-  /** The structured signal this event carries, e.g. 'target-health', 'port', 'connectivity'. */
-  signal?: string;
-  /** Structured AWS error, if the event reports a failure. */
-  error?: {
-    /** AWS error code, e.g. 'AccessDenied', 'ValidationError'. */
-    code?: string;
-    /** AWS error message (structured, no raw logs). */
-    message?: string;
-    /** HTTP status code, if the failure surfaced over HTTP. */
-    statusCode?: number;
-  };
-  /** Structured context (no free-form log fields). */
-  context?: Record<string, unknown>;
-}
+export { FAILURE_CODES } from '@deployz/analysis';
+export type { FailureCode, StructuredEvent } from '@deployz/analysis';
 
 // ── Context readers ────────────────────────────────────────────────────────
 
