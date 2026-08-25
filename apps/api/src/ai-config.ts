@@ -40,9 +40,12 @@ export function describeAiGatewayConfig(source: Record<string, string | undefine
 } {
   const baseUrl = source.AI_GATEWAY_BASE_URL;
   const providerApiKey = source.AI_PROVIDER_API_KEY;
-  const gatewayToken = source.AI_GATEWAY_TOKEN;
+  // Optional: only a gateway with authentication switched on requires it. An
+  // unauthenticated gateway 401s on a cf-aig-authorization header it cannot
+  // validate, so an unset token must mean no header at all.
+  const gatewayToken = source.AI_GATEWAY_TOKEN || undefined;
 
-  if (!baseUrl || !providerApiKey || !gatewayToken) {
+  if (!baseUrl || !providerApiKey) {
     return { config: undefined, problem: 'missing' };
   }
 
@@ -50,7 +53,7 @@ export function describeAiGatewayConfig(source: Record<string, string | undefine
   // cf-aig-authorization, the upstream provider checks Authorization. Equal
   // values mean one was pasted twice, and an authenticated gateway would
   // reject every request — better to disable AI than to fail every view.
-  if (providerApiKey === gatewayToken) {
+  if (gatewayToken && providerApiKey === gatewayToken) {
     return { config: undefined, problem: 'reused-secret' };
   }
 

@@ -28,12 +28,29 @@ describe('resolveAiGatewayConfig', () => {
     expect(resolveAiGatewayConfig({})).toBeUndefined();
   });
 
+  // An UNAUTHENTICATED gateway is a valid, common setup: Cloudflare only
+  // requires cf-aig-authorization when the gateway has authentication turned
+  // on. Requiring the token here made AI unconfigurable against such a
+  // gateway, and sending a bogus one makes it answer 401.
+  it('configures without a gateway token (unauthenticated gateway)', () => {
+    const config = resolveAiGatewayConfig({
+      AI_GATEWAY_BASE_URL: complete.AI_GATEWAY_BASE_URL,
+      AI_PROVIDER_API_KEY: 'provider-key',
+    });
+
+    expect(config).toEqual({
+      baseUrl: complete.AI_GATEWAY_BASE_URL,
+      providerApiKey: 'provider-key',
+      gatewayToken: undefined,
+      model: AI_MODEL_DEFAULT,
+    });
+  });
+
   // A half-wired gateway is worse than a disabled one: it fails at request
   // time instead of degrading to deterministic remediation.
   it.each([
     ['AI_GATEWAY_BASE_URL'],
     ['AI_PROVIDER_API_KEY'],
-    ['AI_GATEWAY_TOKEN'],
   ])('treats a config missing %s as unconfigured', (missing) => {
     const partial: Record<string, string> = { ...complete };
     delete partial[missing];
@@ -41,8 +58,13 @@ describe('resolveAiGatewayConfig', () => {
     expect(resolveAiGatewayConfig(partial)).toBeUndefined();
   });
 
-  it('treats an empty-string credential as unset', () => {
-    expect(resolveAiGatewayConfig({ ...complete, AI_GATEWAY_TOKEN: '' })).toBeUndefined();
+  it('treats an empty-string required credential as unset', () => {
+    expect(resolveAiGatewayConfig({ ...complete, AI_PROVIDER_API_KEY: '' })).toBeUndefined();
+  });
+
+  it('treats an empty-string gateway token as an unauthenticated gateway', () => {
+    expect(resolveAiGatewayConfig({ ...complete, AI_GATEWAY_TOKEN: '' })?.gatewayToken)
+      .toBeUndefined();
   });
 
   it('refuses a config that reuses one secret for both headers', () => {

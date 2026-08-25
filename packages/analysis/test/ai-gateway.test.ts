@@ -126,6 +126,22 @@ describe('createAiGateway — authentication headers', () => {
     expect(recorded[0]?.headers['cf-aig-authorization']).toBe('Bearer gateway-token-bbb');
   });
 
+  it('omits cf-aig-authorization entirely when no gateway token is set', async () => {
+    // An unauthenticated gateway 401s on a cf-aig-authorization header it
+    // cannot validate, so an absent token must mean an absent header — not an
+    // empty or bogus one.
+    const recorded: RecordedRequest[] = [];
+    const gateway = createAiGateway(
+      { ...config, gatewayToken: undefined },
+      recordingFetch(recorded),
+    );
+
+    await gateway.generate('prompt', schema);
+
+    expect(recorded[0]?.headers).not.toHaveProperty('cf-aig-authorization');
+    expect(recorded[0]?.headers['authorization']).toBe('Bearer provider-key-aaa');
+  });
+
   it('keeps the two credentials distinct (an authenticated gateway 401s otherwise)', async () => {
     const recorded: RecordedRequest[] = [];
     const gateway = createAiGateway(config, recordingFetch(recorded));
@@ -211,6 +227,16 @@ describe('createAiGateway — spend limit', () => {
     const response = await gateway.generate('prompt', schema);
 
     expect(response.usage).toEqual({ promptTokens: 11, completionTokens: 7 });
+  });
+
+  it('leaves a reasoning model room to finish its JSON', () => {
+    // Measured against the live gateway with @cf/deepseek-ai/deepseek-v4-flash:
+    // reasoning tokens are charged to max_tokens BEFORE any content is emitted,
+    // so a 300-token cap truncated the JSON in 3 of 6 runs (finish_reason
+    // "length" -> unparseable -> NoObjectGeneratedError -> silent fallback to
+    // deterministic text). At 700 it was 6/6 with a peak completion of 499.
+    // Do not lower this without re-measuring against a reasoning model.
+    expect(MAX_OUTPUT_TOKENS).toBeGreaterThanOrEqual(700);
   });
 
   it('budgets the prompt separately from the completion', () => {
