@@ -43,6 +43,13 @@
       "when": 1787472338798,
       "tag": "0005_deep_gambit",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787590641460,
+      "tag": "0006_github_installations",
+      "breakpoints": true
     }
   ]
 }

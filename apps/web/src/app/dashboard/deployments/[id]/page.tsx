@@ -33,16 +33,21 @@ type DetailState =
       releases: Release[];
     };
 
-const HEALTH_LABEL: Record<HealthStatus, string> = {
+// `null` is "no health report yet" — a deployment that is not installed has
+// no health to show, and calling that Healthy paints a green row for
+// infrastructure that does not exist.
+const HEALTH_LABEL: Record<HealthStatus | 'UNREPORTED', string> = {
   HEALTHY: 'Healthy',
   DEGRADED: 'Degraded',
   UNHEALTHY: 'Unhealthy',
+  UNREPORTED: 'Not reported yet',
 };
 
-const HEALTH_DOT: Record<HealthStatus, string> = {
+const HEALTH_DOT: Record<HealthStatus | 'UNREPORTED', string> = {
   HEALTHY: 'bg-primary',
   DEGRADED: 'bg-amber-500',
   UNHEALTHY: 'bg-destructive',
+  UNREPORTED: 'bg-muted-foreground',
 };
 
 const RELAY_LABEL: Record<RelayStatus, string> = {
@@ -202,12 +207,13 @@ function DetailBody({
   );
 }
 
-function InfraRow({ label, status }: { label: string; status: HealthStatus }) {
+function InfraRow({ label, status }: { label: string; status: HealthStatus | null }) {
+  const key = status ?? 'UNREPORTED';
   return (
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-      <span className={`size-2 shrink-0 rounded-full ${HEALTH_DOT[status]}`} aria-hidden />
+      <span className={`size-2 shrink-0 rounded-full ${HEALTH_DOT[key]}`} aria-hidden />
       <span className="text-sm font-medium">{label}</span>
-      <span className="ml-auto text-sm text-muted-foreground">{HEALTH_LABEL[status]}</span>
+      <span className="ml-auto text-sm text-muted-foreground">{HEALTH_LABEL[key]}</span>
     </li>
   );
 }

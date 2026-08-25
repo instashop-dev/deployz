@@ -4,6 +4,22 @@ import { analysisStatusEnum, buildStatusEnum, compatibilityStatusEnum, releaseSt
 import { organization } from './auth.js';
 import { auditFields, createdAt, id, updatedAt } from './common.js';
 
+// §15/§17 GitHub App installations, keyed by GitHub's own installation id.
+// Durable because the control plane runs as a Lambda: an in-memory map is
+// empty on the next cold start, which loses the vendor's repo access. The
+// row is written when the vendor returns from the App's setup redirect
+// (apps/api/src/server.ts), and deleted on the installation.deleted webhook.
+export const githubInstallations = pgTable('github_installations', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id')
+    .notNull()
+    .references(() => organization.id),
+  accountLogin: text('account_login').notNull(),
+  accountType: text('account_type').notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const applications = pgTable('applications', {
   id: id(),
   organizationId: text('organization_id')

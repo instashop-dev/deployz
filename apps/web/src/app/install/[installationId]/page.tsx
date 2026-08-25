@@ -2,12 +2,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
-import { buildBootstrapQuickCreateUrl, getInstallLinkConfig } from '@/lib/install-link';
 import { fetchInstallData } from '@/lib/install-data';
 
-// Rendered per request so DEPLOYZ_BOOTSTRAP_TEMPLATE_URL / DEPLOYZ_CONTROL_PLANE_URL
-// overrides take effect without a rebuild, and so the install data is always
-// fresh for this specific installation.
+// Rendered per request so the install data — including the Quick Create link
+// the control plane builds for this deployment's region — is always fresh.
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
@@ -60,8 +58,6 @@ export default async function InstallPage({
       </div>
     );
   }
-
-  const deployUrl = buildBootstrapQuickCreateUrl(getInstallLinkConfig());
 
   return (
     <div className="flex flex-col gap-10">
@@ -160,16 +156,31 @@ export default async function InstallPage({
       <section aria-label="Install actions" className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           {/* External handoff to the customer's own AWS console — a plain
-              anchor, not a Next Link. */}
-          <Button asChild size="lg">
-            <a href={deployUrl}>Deploy to AWS</a>
-          </Button>
+              anchor, not a Next Link. Disabled rather than broken when the
+              publisher has not published a bootstrap template yet: a link to
+              a template AWS cannot fetch fails inside the customer's console
+              with nothing to act on. */}
+          {data.quickCreateUrl ? (
+            <Button asChild size="lg">
+              <a href={data.quickCreateUrl}>Deploy to AWS</a>
+            </Button>
+          ) : (
+            <Button size="lg" disabled>
+              Deploy to AWS
+            </Button>
+          )}
           <Button asChild variant="ghost" size="lg">
             <Link href={`/install/${encodeURIComponent(installationId)}/security`}>
               Security details
             </Link>
           </Button>
         </div>
+        {!data.quickCreateUrl && (
+          <p className="text-xs text-muted-foreground">
+            {data.publisherName} hasn&apos;t published a setup template yet. Contact them for a
+            working link.
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           Installation reference:{' '}
           <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installationId}</code>

@@ -279,7 +279,8 @@ export const deploymentSchema = z.object({
   currentReleaseId: z.uuid().nullable(),
   previousReleaseId: z.uuid().nullable(),
   relayStatus: relayStatusSchema,
-  healthStatus: healthStatusSchema,
+  // Null until the relay reports health for the first time.
+  healthStatus: healthStatusSchema.nullable(),
   desiredState: jsonRecord,
   observedState: jsonRecord.nullable(),
   infraVersion: z.string(),
@@ -372,3 +373,60 @@ export const errorEnvelopeSchema = z.object({
   }),
 });
 export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;
+
+// ---------------------------------------------------------------------------
+// CloudFormation Quick Create install link.
+//
+// Shared because three sides build or check the same URL: the API returns it
+// on GET /api/install/:installationId, the publisher (packages/cdk) reports
+// it after uploading a template, and the tests assert the exact format. One
+// implementation, so the three can never drift.
+//
+// The URL carries NO credential and NO secret: only the non-secret
+// `ControlPlaneUrl` template parameter. The bootstrap-generated credential
+// and the minted installation identifier are produced at deploy time inside
+// the customer's account and never appear in a URL.
+// ---------------------------------------------------------------------------
+
+/** Default CloudFormation stack name for the customer bootstrap stack. */
+export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
+
+/** The bootstrap stack's single (non-secret) template parameter. */
+export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
+
+export interface BootstrapQuickCreateOptions {
+  /** AWS region the console deep-link targets. */
+  readonly region: string;
+  /** Public HTTPS URL of the published bootstrap template. */
+  readonly templateUrl: string;
+  /** Base URL of the Deployz control plane the relay polls (non-secret). */
+  readonly controlPlaneUrl: string;
+  /** CloudFormation stack name. Defaults to `deployz-bootstrap`. */
+  readonly stackName?: string | undefined;
+}
+
+/**
+ * Builds the deterministic CloudFormation Quick Create deep-link:
+ *
+ *   https://{region}.console.aws.amazon.com/cloudformation/home?region={region}
+ *     #/stacks/create/review
+ *     ?templateURL={url-encoded templateUrl}
+ *     &stackName={stackName}
+ *     &param_ControlPlaneUrl={controlPlaneUrl}
+ *
+ * Pure — same inputs, same URL. `URLSearchParams` keeps the parameter order
+ * deterministic (templateURL, stackName, then params).
+ */
+export function buildBootstrapQuickCreateUrl(options: BootstrapQuickCreateOptions): string {
+  const base =
+    `https://${options.region}.console.aws.amazon.com/cloudformation/home` +
+    `?region=${encodeURIComponent(options.region)}` +
+    `#/stacks/create/review`;
+
+  const query = new URLSearchParams();
+  query.set('templateURL', options.templateUrl);
+  query.set('stackName', options.stackName ?? DEFAULT_BOOTSTRAP_STACK_NAME);
+  query.set(`param_${CONTROL_PLANE_URL_PARAMETER}`, options.controlPlaneUrl);
+
+  return `${base}?${query.toString()}`;
+}

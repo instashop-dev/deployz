@@ -30,7 +30,7 @@ export interface FleetDeployment {
   currentReleaseId: string | null;
   previousReleaseId: string | null;
   relayStatus: RelayStatus;
-  healthStatus: HealthStatus;
+  healthStatus: HealthStatus | null;
   desiredState: Record<string, unknown>;
   observedState: Record<string, unknown> | null;
   infraVersion: string;

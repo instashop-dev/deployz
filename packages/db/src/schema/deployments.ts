@@ -22,7 +22,10 @@ export const deployments = pgTable('deployments', {
   currentReleaseId: uuid('current_release_id').references(() => releases.id),
   previousReleaseId: uuid('previous_release_id').references(() => releases.id),
   relayStatus: relayStatusEnum('relay_status').notNull().default('UNKNOWN'),
-  healthStatus: healthStatusEnum('health_status').notNull().default('HEALTHY'),
+  // NULL until the relay reports health for the first time. A deployment
+  // that is not installed yet has no health to report, and defaulting it to
+  // HEALTHY paints a green fleet row for infrastructure that does not exist.
+  healthStatus: healthStatusEnum('health_status'),
   desiredState: jsonb('desired_state').$type<Record<string, unknown>>().notNull().default({}),
   observedState: jsonb('observed_state').$type<Record<string, unknown>>(),
   infraVersion: text('infra_version').notNull().default('runtime-v1'),

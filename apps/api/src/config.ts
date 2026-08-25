@@ -1,11 +1,11 @@
 import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { SendMessageCommand, SQSClient as SqSClient } from '@aws-sdk/client-sqs';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { ApiError, NotFoundError } from './errors.js';
+import { enqueue } from './queue.js';
 
 // §31 application configuration API — vendor defaults (customer_id NULL)
 // vs customer-specific overrides, with write-only secrets.
@@ -320,29 +320,18 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
 
 /**
  * Relay write-through backed by SQS. Enqueues a CONFIG_UPDATE relay command
- * to the job queue so the durable execution runtime can dispatch it to the
- * relay Lambda in the customer account. The SQS queue URL is read from
- * JOB_QUEUE_URL env var (injected by CDK). When the env var is absent
- * (local dev / tests), this degrades to a no-op stub.
+ * to the job queue so the worker can dispatch it to the relay Lambda in the
+ * customer account. Without a queue (local dev / tests) `enqueue` reports
+ * false and this degrades to a no-op stub.
  */
 export function createRelaySecretWriter(): ConfigSecretWriter {
   return {
     async writeSecrets(customerId, entries) {
-      const queueUrl = process.env.JOB_QUEUE_URL;
-      if (!queueUrl) return;
-
-      const client = new SqSClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
-      const payload = {
+      await enqueue({
         type: 'CONFIG_UPDATE',
         customerId,
         entries: entries.map((e) => ({ key: e.key, value: e.value, isSecret: e.isSecret })),
-      };
-      await client.send(
-        new SendMessageCommand({
-          QueueUrl: queueUrl,
-          MessageBody: JSON.stringify(payload),
-        }),
-      );
+      });
     },
   };
 }

@@ -11,6 +11,12 @@ export interface InstallData {
   region: string;
   /** §44 "Deployz will create" list, e.g. ["Application runtime", "PostgreSQL database", ...]. */
   resourcesCreated: string[];
+  /**
+   * CloudFormation Quick Create deep-link for THIS deployment, built by the
+   * control plane (it owns both the published template URL and the
+   * deployment's region). Null when no bootstrap template is published yet.
+   */
+  quickCreateUrl: string | null;
 }
 
 /** Fetch the public install page data. Returns null on a 404 (unknown/invalid link). */

@@ -33,11 +33,18 @@
  *     the control plane passes them via the CreateStack API through the relay.
  */
 
-/** Default CloudFormation stack name for the customer bootstrap stack. */
-export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
+// The bootstrap link itself is built by @deployz/contracts so the API (which
+// serves it to the customer) and the publisher (which reports it) cannot
+// drift apart. Re-exported here because this module is the documented home
+// of the Quick Create format.
+import { DEFAULT_BOOTSTRAP_STACK_NAME } from '@deployz/contracts';
 
-/** The bootstrap stack's single (non-secret) template parameter. */
-export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
+export {
+  buildBootstrapQuickCreateUrl,
+  CONTROL_PLANE_URL_PARAMETER,
+  DEFAULT_BOOTSTRAP_STACK_NAME,
+  type BootstrapQuickCreateOptions,
+} from '@deployz/contracts';
 
 export interface QuickCreateUrlOptions {
   /** AWS region the console deep-link targets (e.g. `us-east-1`). */
@@ -79,26 +86,4 @@ export function buildQuickCreateUrl(options: QuickCreateUrlOptions): string {
   return `${base}?${query.toString()}`;
 }
 
-export interface BootstrapQuickCreateUrlOptions {
-  readonly region: string;
-  readonly templateUrl: string;
-  /** Base URL of the Deployz control plane the relay polls (non-secret). */
-  readonly controlPlaneUrl: string;
-  readonly stackName?: string;
-}
 
-/**
- * Builds the bootstrap Quick Create URL: template URL + stack name + the
- * single non-secret `ControlPlaneUrl` parameter. The credential and install ID
- * are never present.
- */
-export function buildBootstrapQuickCreateUrl(
-  options: BootstrapQuickCreateUrlOptions,
-): string {
-  return buildQuickCreateUrl({
-    region: options.region,
-    templateUrl: options.templateUrl,
-    ...(options.stackName !== undefined ? { stackName: options.stackName } : {}),
-    parameters: { [CONTROL_PLANE_URL_PARAMETER]: options.controlPlaneUrl },
-  });
-}

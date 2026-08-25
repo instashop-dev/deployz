@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import { failureCodeSchema, healthStatusSchema } from '@deployz/contracts';
+import { buildBootstrapQuickCreateUrl, failureCodeSchema, healthStatusSchema } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -31,7 +31,9 @@ import {
 import { env } from './env.js';
 import { ApiError, NotFoundError, UnauthorizedError, toErrorEnvelope } from './errors.js';
 import {
+  createAppJwt,
   createGithubStore,
+  fetchInstallationAccount,
   handleInstallationWebhook,
   listInstallations,
   listRepositories,
@@ -39,9 +41,10 @@ import {
   verifyWebhookSignature,
   type FetchFn,
   type GithubWebhookEvent,
-  type ResolveOrganization,
 } from './github.js';
 import { createEmailSender, type EmailSender } from './email.js';
+import { createOrReuseJob } from './jobs.js';
+import { enqueue } from './queue.js';
 import {
   acceptInvitation,
   activateOrganization,
@@ -94,6 +97,10 @@ export interface ServerDeps {
   // Injectable transactional-email seam (invitations, membership changes).
   // Defaults to email.ts's env-driven sender; tests supply a recorder.
   emailSender?: EmailSender | undefined;
+  // Injectable fetch for the GitHub App calls (token minting, installation
+  // lookup). Defaults to global fetch; tests supply a stub so no request
+  // ever leaves the machine.
+  githubFetch?: FetchFn | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -315,50 +322,6 @@ function toFleetRow(row: {
   };
 }
 
-// §39 idempotency: unique-constraint-violation-as-signal. A retry (same
-// derived or client-supplied key) must return the job that already exists,
-// never create a second one and never 500.
-async function createOrReuseJob(
-  db: RuntimeDb,
-  params: {
-    deploymentId: string;
-    type: (typeof schema.deploymentJobs.$inferInsert)['type'];
-    idempotencyKey: string;
-    payload: Record<string, unknown>;
-    requestedBy: string | null;
-  },
-): Promise<{ job: typeof schema.deploymentJobs.$inferSelect; created: boolean }> {
-  const inserted = await db
-    .insert(schema.deploymentJobs)
-    .values({
-      deploymentId: params.deploymentId,
-      type: params.type,
-      state: 'REQUESTED',
-      idempotencyKey: params.idempotencyKey,
-      payload: params.payload,
-      requestedBy: params.requestedBy,
-    })
-    .onConflictDoNothing({ target: schema.deploymentJobs.idempotencyKey })
-    .returning();
-
-  if (inserted.length > 0) {
-    return { job: inserted[0]!, created: true };
-  }
-
-  // Conflict: the idempotency key already exists — return the existing job
-  // (200) rather than manufacturing a duplicate or 500ing on the constraint.
-  const existing = await db
-    .select()
-    .from(schema.deploymentJobs)
-    .where(eq(schema.deploymentJobs.idempotencyKey, params.idempotencyKey))
-    .limit(1);
-  if (existing.length === 0) {
-    // Should be unreachable (we just conflicted on this exact key), but keep
-    // the error path honest rather than asserting.
-    throw new ApiError(500, 'INTERNAL_ERROR', 'Failed to create or locate the job');
-  }
-  return { job: existing[0]!, created: false };
-}
 
 // §19 readiness derivation. The analyser (out of scope here) is expected to
 // persist its findings on `applications.detected_metadata` as:
@@ -474,6 +437,7 @@ export async function buildServer({
   githubAppInstallUrl,
   analysisRunner,
   emailSender,
+  githubFetch: injectedGithubFetch,
 }: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
@@ -541,8 +505,8 @@ export async function buildServer({
   // raw body. The account->org resolver (#13) matches the GitHub login to
   // the organization slug — sufficient for the MVP since vendor orgs are
   // created with their GitHub org name as the slug.
-  const githubStore = createGithubStore();
-  const githubFetch: FetchFn = globalThis.fetch.bind(globalThis);
+  const githubStore = createGithubStore(db);
+  const githubFetch: FetchFn = injectedGithubFetch ?? globalThis.fetch.bind(globalThis);
   // §18/§19: real GitHub-backed analysis by default; tests inject a fake
   // via ServerDeps.analysisRunner instead of hitting GitHub.
   const runAnalysis: AnalysisRunner =
@@ -554,15 +518,6 @@ export async function buildServer({
       githubAppPrivateKey: env.githubAppPrivateKey,
       githubFixtureMode: githubFixtureMode ?? env.githubFixtureMode,
     });
-  const resolveGithubOrganization: ResolveOrganization = async (accountLogin) => {
-    const rows = await db
-      .select({ id: schema.organization.id })
-      .from(schema.organization)
-      .where(eq(schema.organization.slug, accountLogin))
-      .limit(1);
-    return rows[0]?.id ?? null;
-  };
-
   app.post('/api/github/webhook', async (request, reply) => {
     const webhookSecret = githubWebhookSecret ?? env.githubWebhookSecret;
     if (!webhookSecret) {
@@ -584,7 +539,7 @@ export async function buildServer({
       installation: body.installation,
       sender: body.sender,
     };
-    const handled = await handleInstallationWebhook(githubStore, event, resolveGithubOrganization);
+    const handled = await handleInstallationWebhook(githubStore, event);
     return reply.code(200).send({ received: true, handled });
   });
 
@@ -870,6 +825,18 @@ export async function buildServer({
       customerName: row.customerName,
       region: row.region,
       resourcesCreated,
+      // The Quick Create link is built HERE, not in the web app: only the
+      // control plane knows which template is currently published, and only
+      // this row knows which region the customer's deployment targets. The
+      // link carries no secret — just the published template URL and the
+      // non-secret control-plane URL.
+      quickCreateUrl: env.bootstrapTemplateUrl
+        ? buildBootstrapQuickCreateUrl({
+            region: row.region,
+            templateUrl: env.bootstrapTemplateUrl,
+            controlPlaneUrl: env.apiUrl,
+          })
+        : null,
     };
   });
 
@@ -903,10 +870,46 @@ export async function buildServer({
     return { ...view, customerName: scope.customerName };
   });
 
+  // The GitHub App's Setup URL. GitHub sends the vendor here right after they
+  // install (or reconfigure) the App, with `installation_id` in the query —
+  // this is the one moment where the GitHub installation and the vendor's
+  // Deployz session are both present, so it is where the two get bound.
+  //
+  // The redirect is a top-level GET navigation, so the Lax session cookie is
+  // sent; an unauthenticated hit lands on sign-in rather than erroring, and
+  // GitHub's own retry of the setup link completes the binding afterwards.
+  app.get('/api/github/setup', { preHandler: requireAuth }, async (request, reply) => {
+    const { installation_id: installationId } = request.query as {
+      installation_id?: string | undefined;
+    };
+    const organizationId = requireSessionOrganizationId(request);
+    const dashboardUrl = `${env.webUrl}/dashboard/applications`;
+    if (!installationId) {
+      return reply.redirect(`${dashboardUrl}?github=missing_installation`);
+    }
+
+    const appId = env.githubAppId;
+    const privateKey = env.githubAppPrivateKey;
+    if (!appId || !privateKey) {
+      throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
+    }
+    const jwt = createAppJwt(appId, privateKey, Date.now());
+    const account = await fetchInstallationAccount(installationId, jwt, githubFetch);
+
+    await githubStore.set({
+      id: installationId,
+      organizationId,
+      accountLogin: account.accountLogin,
+      accountType: account.accountType,
+    });
+
+    return reply.redirect(`${dashboardUrl}?github=connected`);
+  });
+
   // GitHub repo-selection surface (auth-gated). Fixture mode serves the
   // fixture org/repos so the dashboard renders test data without a real App;
-  // otherwise the installation store (populated by the webhook) is the source
-  // of truth, and repo listing needs a minted installation token.
+  // otherwise the installation store (written by /api/github/setup) is the
+  // source of truth, and repo listing needs a minted installation token.
   app.get('/api/github/installations', { preHandler: requireAuth }, async (request) => {
     const organizationId = request.organization?.id;
     if (!organizationId) {
@@ -925,10 +928,17 @@ export async function buildServer({
     if (!installationId) {
       throw new ApiError(400, 'INSTALLATION_ID_REQUIRED', 'installationId query parameter is required');
     }
+    const organizationId = requireSessionOrganizationId(request);
     const fixtureMode = githubFixtureMode ?? env.githubFixtureMode;
     if (fixtureMode) {
       const repositories = await listRepositories(installationId, { fixtureMode: true });
       return { repositories };
+    }
+    // An installation id is a guessable integer, and the token minted below
+    // can read every repository in it — so the caller must own it.
+    const record = await githubStore.get(installationId);
+    if (!record || record.organizationId !== organizationId) {
+      throw new NotFoundError('GitHub installation not found');
     }
     const appId = env.githubAppId;
     const privateKey = env.githubAppPrivateKey;
@@ -1031,6 +1041,15 @@ export async function buildServer({
   app.post('/api/applications', { preHandler: requireAuth }, async (request, reply) => {
     const body = createApplicationBodySchema.parse(request.body);
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
+    // The installation id is what analysis later mints a repo-read token
+    // from, so an application may only point at an installation this
+    // organization connected.
+    if (!(githubFixtureMode ?? env.githubFixtureMode)) {
+      const record = await githubStore.get(body.githubInstallationId);
+      if (!record || record.organizationId !== organizationId) {
+        throw new NotFoundError('GitHub installation not found');
+      }
+    }
     const [row] = await db
       .insert(schema.applications)
       .values({
@@ -1147,13 +1166,19 @@ export async function buildServer({
       .update(schema.applications)
       .set({ analysisStatus: 'ANALYZING', updatedBy: request.user?.id ?? null })
       .where(eq(schema.applications.id, id));
-    // Fire-and-forget: the 202 below returns immediately; the §18/§19
-    // pipeline runs in the background and persists COMPLETE/FAILED itself
-    // (analysis.ts). runAnalysis already catches every internal failure and
-    // writes FAILED rather than throwing — the `.catch` here is a second,
-    // defense-in-depth net so a rejected promise can never crash the
-    // process or surface as an unhandled rejection.
-    void runAnalysis(id).catch(() => {});
+    // The §18/§19 pipeline runs on the worker, not after this response.
+    // Detaching it here with `void runAnalysis(id)` works on a long-lived
+    // server and silently does nothing on Lambda, which freezes the
+    // execution environment as soon as the reply is sent — the application
+    // would sit at ANALYZING for ever. Without a queue (local dev) the
+    // long-lived server can and does run it inline.
+    const queued = await enqueue({ type: 'ANALYSE_APPLICATION', applicationId: id });
+    if (!queued) {
+      // runAnalysis catches every internal failure and persists FAILED
+      // rather than throwing; the `.catch` is a second net so a rejected
+      // promise can never surface as an unhandled rejection.
+      await runAnalysis(id).catch(() => {});
+    }
     return reply.code(202).send({ status: 'ANALYZING' });
   });
 
@@ -1307,6 +1332,12 @@ export async function buildServer({
         updatedBy: request.user?.id ?? null,
       })
       .returning();
+    // A release with no build is a release that can never deploy: the
+    // §21 image digest only exists once CodeBuild has pushed the image.
+    // The worker fetches the repository source and starts that build.
+    if (row) {
+      await enqueue({ type: 'BUILD_RELEASE', releaseId: row.id });
+    }
     return reply.code(201).send(row);
   });
 

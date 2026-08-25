@@ -308,6 +308,20 @@ describe('§18 detectors', () => {
       expect(result.value).toBe('dockerfile');
     });
 
+    it('detects a Dockerfile outside the repository root', () => {
+      const tree: FileTree = { 'docker/Dockerfile': 'FROM node:20\n' };
+      const result = detectDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('docker/Dockerfile');
+    });
+
+    it('detects a suffixed Dockerfile in a workspace package', () => {
+      const tree: FileTree = { 'apps/web/Dockerfile.pnpm': 'FROM node:20\n' };
+      const result = detectDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('apps/web/Dockerfile.pnpm');
+    });
+
     it('returns false when no Dockerfile exists', () => {
       const result = detectDockerfile(noDockerfileFixture);
       expect(result.detected).toBe(false);
@@ -417,6 +431,27 @@ describe('§18 detectors', () => {
 
     it('detects NestJS health adapter', () => {
       const result = detectHealthEndpoint(nestFixture);
+      expect(result.detected).toBe(true);
+    });
+
+    it('detects a file-based health route', () => {
+      const tree: FileTree = { 'apps/web/app/routes/api+/health.ts': 'export const loader = () => null;\n' };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect((result.value as string[]).some((v: string) => v.includes('health route file'))).toBe(true);
+    });
+
+    it('detects an App Router health route folder', () => {
+      const tree: FileTree = { 'app/api/health/route.ts': 'export function GET() {}\n' };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+    });
+
+    it('detects a prefixed /api/health route registration', () => {
+      const tree: FileTree = {
+        'src/server.ts': "app.get('/api/health', (_req, res) => res.json({ ok: true }));\n",
+      };
+      const result = detectHealthEndpoint(tree);
       expect(result.detected).toBe(true);
     });
 
@@ -542,10 +577,12 @@ describe('§18 detectors', () => {
       expect(result.value).toContain('fs.writeFileSync');
     });
 
-    it('detects fs.readFileSync', () => {
-      const result = detectLocalFilesystem(incompatibleLocalFsFixture);
-      expect(result.detected).toBe(true);
-      expect(result.value).toContain('fs.readFileSync');
+    it('ignores reads — a read is not persistent local storage', () => {
+      const tree: FileTree = {
+        'src/template.ts': "import fs from 'fs';\nfs.readFileSync('./banner.txt');\n",
+      };
+      const result = detectLocalFilesystem(tree);
+      expect(result.detected).toBe(false);
     });
 
     it('detects fs.mkdirSync', () => {
@@ -648,6 +685,22 @@ describe('§18 detectors', () => {
       expect(result.value).toContain('prisma migrate');
     });
 
+    it('detects a migration command in a workspace package manifest', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({
+          name: 'monorepo-root',
+          scripts: { 'prisma:migrate-deploy': 'npm run -w @app/prisma prisma:migrate-deploy' },
+        }),
+        'packages/prisma/package.json': JSON.stringify({
+          name: '@app/prisma',
+          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
+        }),
+      };
+      const result = detectMigrationCommand(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('prisma migrate');
+    });
+
     it('detects knex migrate:latest', () => {
       const result = detectMigrationCommand(compatibleFastifyFixture);
       expect(result.detected).toBe(true);
@@ -681,6 +734,16 @@ describe('§10 rejection classes', () => {
   describe('checkRedis', () => {
     it('detects ioredis dependency', () => {
       const result = checkRedis(incompatibleRedisFixture);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('ioredis');
+    });
+
+    it('detects a redis dependency declared in a workspace package', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ name: 'monorepo-root', workspaces: ['packages/*'] }),
+        'packages/queue/package.json': JSON.stringify({ dependencies: { ioredis: '^5.4.0' } }),
+      };
+      const result = checkRedis(tree);
       expect(result.detected).toBe(true);
       expect(result.dependency).toBe('ioredis');
     });

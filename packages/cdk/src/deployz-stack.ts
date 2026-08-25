@@ -11,14 +11,22 @@ import {
   type IVpc,
 } from 'aws-cdk-lib/aws-ec2';
 import { Rule } from 'aws-cdk-lib/aws-events';
-import { SqsQueue } from 'aws-cdk-lib/aws-events-targets';
+import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
 import {
   Credentials,
   DatabaseInstance,
   DatabaseInstanceEngine,
   PostgresEngineVersion,
 } from 'aws-cdk-lib/aws-rds';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Queue } from 'aws-cdk-lib/aws-sqs';
+import {
+  BlockPublicAccess,
+  Bucket,
+  BucketAccessControl,
+  ObjectOwnership,
+  type IBucket,
+} from 'aws-cdk-lib/aws-s3';
 import { DomainName, HttpApi } from 'aws-cdk-lib/aws-apigatewayv2';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -26,6 +34,8 @@ import { Construct } from 'constructs';
 
 import { ApiLambda } from './api-lambda.js';
 import { DurableExecution } from './durable/durable-stack.js';
+import { BuildPipeline } from './pipeline/build-pipeline.js';
+import { WorkerLambda } from './worker-lambda.js';
 
 /**
  * Deployz control-plane stack.
@@ -35,7 +45,9 @@ import { DurableExecution } from './durable/durable-stack.js';
  * - RDS PostgreSQL (db.t4g.micro for MVP; swap to Serverless v2 post-MVP)
  * - Lambda function wrapping the Fastify API (bundled via esbuild)
  * - HTTP API Gateway in front of the Lambda
- * - EventBridge rule + SQS queue for async job processing
+ * - SQS queue + worker Lambda for async job processing
+ * - CodeBuild + ECR release build pipeline, and the public bucket the
+ *   customer bootstrap template is published to
  * - DynamoDB-backed durable execution framework (U1 spike)
  *
  * Region: us-east-1 (hardcoded per plan §32 region allowlist).
@@ -85,14 +97,63 @@ export class DeployzStack extends Stack {
       deletionProtection: false,
     });
 
-    // ── EventBridge + SQS (async job processing) ─────────────────────────
-    const jobQueue = new Queue(this, 'JobQueue', {
-      visibilityTimeout: Duration.minutes(5),
+    // ── SQS (async job processing) ───────────────────────────────────────
+    // The dead-letter queue is what makes a poisoned message visible: without
+    // one a message that always throws is retried until it silently expires.
+    const jobDeadLetterQueue = new Queue(this, 'JobDeadLetterQueue', {
       retentionPeriod: Duration.days(14),
+    });
+    const jobQueue = new Queue(this, 'JobQueue', {
+      // Must be at least the worker's timeout, or SQS re-delivers a message
+      // that is still being processed.
+      visibilityTimeout: Duration.minutes(15),
+      retentionPeriod: Duration.days(14),
+      deadLetterQueue: { queue: jobDeadLetterQueue, maxReceiveCount: 3 },
+    });
+
+    // ── Release build pipeline (ECR + CodeBuild) ─────────────────────────
+    // Repository tarballs land here; CodeBuild reads them (the source comes
+    // from a GitHub App installation token, which CodeBuild cannot hold).
+    const sourceBucket = new Bucket(this, 'BuildSourceBucket', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      lifecycleRules: [{ expiration: Duration.days(30) }],
+    });
+    const buildPipeline = new BuildPipeline(this, 'BuildPipeline', {
+      // exactOptionalPropertyTypes: the concrete Bucket's optional members are
+      // narrower than IBucket's, so the interface type has to be asserted.
+      sourceBucket: sourceBucket as IBucket,
+    });
+
+    // ── Public template bucket ───────────────────────────────────────────
+    // CloudFormation in the CUSTOMER's account fetches the bootstrap template
+    // and its Lambda assets from here with no credentials of ours, so the
+    // objects have to be publicly readable. Nothing secret is ever published:
+    // the template's only parameter is the non-secret control-plane URL, and
+    // the relay's credential is generated inside the customer's own account.
+    const templateBucket = new Bucket(this, 'TemplateBucket', {
+      publicReadAccess: true,
+      blockPublicAccess: new BlockPublicAccess({
+        blockPublicAcls: true,
+        ignorePublicAcls: true,
+        blockPublicPolicy: false,
+        restrictPublicBuckets: false,
+      }),
+      objectOwnership: ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      accessControl: BucketAccessControl.PRIVATE,
+      enforceSSL: true,
     });
 
     // ── API Lambda ───────────────────────────────────────────────────────
     const credentialEnv = collectEnvVars();
+
+    // Set once the publisher has uploaded a template (see
+    // `pnpm --filter @deployz/cdk run publish:bootstrap`, which prints the
+    // URL). Deliberately not derived from the bucket name: a bucket with no
+    // template in it would produce a link that 404s.
+    const bootstrapTemplateUrl =
+      (this.node.tryGetContext('bootstrapTemplateUrl') as string | undefined) ??
+      process.env.BOOTSTRAP_TEMPLATE_URL;
 
     const apiLambda = new ApiLambda(this, 'ApiLambda', {
       vpc: vpcResource,
@@ -101,6 +162,10 @@ export class DeployzStack extends Stack {
       environment: {
         ...credentialEnv,
         JOB_QUEUE_URL: jobQueue.queueUrl,
+        // Where the customer's CloudFormation fetches the bootstrap template
+        // from. The API builds every install link off this value, so an
+        // unpublished template yields no link rather than a broken one.
+        ...(bootstrapTemplateUrl ? { BOOTSTRAP_TEMPLATE_URL: bootstrapTemplateUrl } : {}),
       },
     });
 
@@ -110,6 +175,29 @@ export class DeployzStack extends Stack {
       apiLambda.function.connections.securityGroups[0] ?? Peer.anyIpv4(),
       Port.tcp(5432),
       'Allow Lambda to reach RDS',
+    );
+
+    // ── Worker Lambda (SQS consumer) ─────────────────────────────────────
+    const worker = new WorkerLambda(this, 'Worker', {
+      vpc: vpcResource,
+      dbSecurityGroup,
+      dbSecretArn: dbInstance.secret?.secretArn ?? '',
+      queue: jobQueue,
+      environment: {
+        ...credentialEnv,
+        SOURCE_BUCKET: sourceBucket.bucketName,
+        BUILD_PROJECT_NAME: buildPipeline.project.projectName,
+      },
+    });
+
+    sourceBucket.grantPut(worker.function);
+    // aws-codebuild has no grant helper for StartBuild, so the statement is
+    // written out — scoped to this project, not codebuild:* on everything.
+    worker.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['codebuild:StartBuild'],
+        resources: [buildPipeline.project.projectArn],
+      }),
     );
 
     // ── HTTP API Gateway ─────────────────────────────────────────────────
@@ -150,15 +238,19 @@ export class DeployzStack extends Stack {
       ...(apiDomain ? { defaultDomainMapping: { domainName: apiDomain } } : {}),
     });
 
-    // EventBridge rule: forward deployment_job events to SQS.
-    // The actual event pattern is wired by the application at deploy time;
-    // here we create the plumbing.
-    new Rule(this, 'JobEventRule', {
+    // A finished build is the only way a release learns its image digest —
+    // CodeBuild reports completion here, and the worker writes the digest to
+    // releases.image_digest.
+    new Rule(this, 'BuildStateRule', {
       eventPattern: {
-        source: ['deployz.jobs'],
-        detailType: ['JobStateChange'],
+        source: ['aws.codebuild'],
+        detailType: ['CodeBuild Build State Change'],
+        detail: {
+          'project-name': [buildPipeline.project.projectName],
+          'build-status': ['SUCCEEDED', 'FAILED', 'STOPPED', 'FAULT', 'TIMED_OUT'],
+        },
       },
-      targets: [new SqsQueue(jobQueue)],
+      targets: [new LambdaFunction(worker.function)],
     });
 
     // ── Durable Execution (U1 spike) ─────────────────────────────────────
@@ -183,6 +275,12 @@ export class DeployzStack extends Stack {
     });
     this.exportValue(jobQueue.queueArn, {
       name: `${this.stackName}-JobQueueArn`,
+    });
+    this.exportValue(templateBucket.bucketName, {
+      name: `${this.stackName}-TemplateBucket`,
+    });
+    this.exportValue(sourceBucket.bucketName, {
+      name: `${this.stackName}-BuildSourceBucket`,
     });
     this.exportValue(durable.callbackUrl, {
       name: `${this.stackName}-DurableCallbackUrl`,

@@ -39,7 +39,8 @@ describe('deployments desired-state and audit fields', () => {
     expect(row?.desiredState).toEqual({});
     expect(row?.lastHealthAt).toBeNull();
     expect(row?.relayStatus).toBe('UNKNOWN');
-    expect(row?.healthStatus).toBe('HEALTHY');
+    // No health report has arrived yet, so there is no health to claim.
+    expect(row?.healthStatus).toBeNull();
     expect(row?.deletedAt).toBeNull();
     expect(row?.awsAccountId).toBeNull();
     expect(row?.currentReleaseId).toBeNull();
