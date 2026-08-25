@@ -1045,15 +1045,26 @@ export async function buildServer({
     if (!githubAppId || !githubAppPrivateKey) {
       throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
     }
-    const jwt = createAppJwt(githubAppId, githubAppPrivateKey, Date.now());
-    const account = await fetchInstallationAccount(installationId, jwt, githubFetch);
+    // GitHub sends a *browser* to this URL, so a thrown error would render the
+    // JSON envelope at the vendor and strand them there — the same dead end
+    // the signed-out redirect above exists to avoid. Whatever goes wrong
+    // (GitHub unreachable, an installation this App does not own, a private
+    // key it cannot sign with), put them back on the dashboard, which reports
+    // the state it can actually see.
+    try {
+      const jwt = createAppJwt(githubAppId, githubAppPrivateKey, Date.now());
+      const account = await fetchInstallationAccount(installationId, jwt, githubFetch);
 
-    await githubStore.set({
-      id: installationId,
-      organizationId,
-      accountLogin: account.accountLogin,
-      accountType: account.accountType,
-    });
+      await githubStore.set({
+        id: installationId,
+        organizationId,
+        accountLogin: account.accountLogin,
+        accountType: account.accountType,
+      });
+    } catch (error) {
+      request.log.error({ err: error, installationId }, 'github setup binding failed');
+      return reply.redirect(`${dashboardUrl}?github=failed`);
+    }
 
     return reply.redirect(`${dashboardUrl}?github=connected`);
   });
