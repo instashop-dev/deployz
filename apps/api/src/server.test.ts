@@ -1909,10 +1909,16 @@ describe('server — organization settings, public install page, and bulk deploy
       // published, so there is no link to hand out. The enrollment code
       // travels inside that link, never as a field of its own.
       quickCreateUrl: null,
+      // The install link already identifies exactly this deployment, so
+      // handing back its own id/state/domain does not cross a tenant
+      // boundary — it's the same scope the link already grants.
+      deploymentId: deployment.id,
+      deploymentState: 'NOT_INSTALLED',
+      domain: null,
+      routingTarget: null,
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('999999999999');
-    expect(serialized).not.toContain(deployment.id);
     expect(serialized).not.toContain(org.organizationId);
   });
 

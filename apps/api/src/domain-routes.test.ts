@@ -566,6 +566,33 @@ describe('custom domain link-scoped check route', () => {
     expect(body.domain.status).toBe('active');
     expect(body.domain.url).toBe('https://linkcheck.customer.com');
   });
+
+  // Task 10 — GET /api/install/:installLinkId carries the same deployment
+  // and domain context the link-scoped check route above already exposes
+  // unauthenticated, so the customer-facing page can render a domain card
+  // without a second round trip.
+  it('GET /api/install/:installLinkId includes the deployment id/state and the active domain view', async () => {
+    const [domainRow] = await db
+      .select()
+      .from(schema.customDomains)
+      .where(eq(schema.customDomains.deploymentId, deployment.id));
+
+    const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      deploymentId: string;
+      deploymentState: string;
+      domain: { status: string; hostname: string; url: string | null } | null;
+      routingTarget: string | null;
+    };
+    expect(body.deploymentId).toBe(deployment.id);
+    expect(body.deploymentState).toBe(deployment.state);
+    expect(body.domain).not.toBeNull();
+    expect(body.domain?.status).toBe('active');
+    expect(body.domain?.hostname).toBe('linkcheck.customer.com');
+    expect(body.domain?.url).toBe('https://linkcheck.customer.com');
+    expect(body.routingTarget).toBe(domainRow!.routingTarget);
+  });
 });
 
 // ── Destroy-time domain cleanup ──────────────────────────────────────────────

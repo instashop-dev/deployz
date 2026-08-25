@@ -928,6 +928,8 @@ export async function buildServer({
         storageRequired: schema.applications.storageRequired,
         enrollmentCode: schema.deployments.enrollmentCode,
         enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
+        deploymentId: schema.deployments.id,
+        deploymentState: schema.deployments.state,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
@@ -947,12 +949,21 @@ export async function buildServer({
     if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
     if (row.storageRequired) resourcesCreated.push('Storage');
     resourcesCreated.push('Networking', 'Monitoring');
+    // The install link already identifies exactly this deployment, so its
+    // own id/state/domain are within the scope the link already grants —
+    // this is not a tenant-boundary crossing, just more detail about the
+    // one deployment the link names.
+    const domain = await findActiveDomain(db, row.deploymentId);
     return {
       applicationName: row.applicationName,
       publisherName: row.publisherName,
       customerName: row.customerName,
       region: row.region,
       resourcesCreated,
+      deploymentId: row.deploymentId,
+      deploymentState: row.deploymentState,
+      domain: domain ? toDomainView(domain) : null,
+      routingTarget: domain?.routingTarget ?? null,
       // The Quick Create link is built HERE, not in the web app: only the
       // control plane knows which template is currently published, which
       // region this customer's deployment targets, and this deployment's
