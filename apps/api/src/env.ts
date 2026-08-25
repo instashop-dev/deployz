@@ -1,4 +1,8 @@
 import { config } from 'dotenv';
+
+import type { AiGatewayConfig } from '@deployz/analysis';
+
+import { describeAiGatewayConfig } from './ai-config.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -40,7 +44,30 @@ if (!process.env.GITHUB_APP_ID || !process.env.GITHUB_APP_PRIVATE_KEY) {
   );
 }
 
+// §16/§29 AI explanations. The resolution rules (all credentials required, the
+// two secrets must differ) live in ai-config.ts so they are testable without
+// mutating process.env.
+function readAiGatewayConfig(): AiGatewayConfig | undefined {
+  const { config, problem } = describeAiGatewayConfig(process.env);
+  if (problem === 'missing') {
+    console.warn(
+      '[ai] AI_GATEWAY_BASE_URL/AI_PROVIDER_API_KEY/AI_GATEWAY_TOKEN not all set — ' +
+        'AI explanations are disabled and diagnostics fall back to deterministic ' +
+        'remediation guidance. Set them in .env.',
+    );
+  }
+  if (problem === 'reused-secret') {
+    console.warn(
+      '[ai] AI_PROVIDER_API_KEY and AI_GATEWAY_TOKEN are identical — they authenticate ' +
+        'different hops (the upstream provider and the gateway itself). AI explanations ' +
+        'are disabled until they are set to their two distinct values.',
+    );
+  }
+  return config;
+}
+
 export const env = {
+  aiGateway: readAiGatewayConfig(),
   apiPort: Number(process.env.API_PORT ?? 3001),
   apiUrl: `http://localhost:${Number(process.env.API_PORT ?? 3001)}`,
   webUrl: `http://localhost:${webPort}`,

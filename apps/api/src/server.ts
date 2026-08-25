@@ -6,11 +6,17 @@ import crypto from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
+import {
+  createAiGateway,
+  type AiGateway,
+  type StructuredEvent,
+} from '@deployz/analysis';
 import { failureCodeSchema, healthStatusSchema } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
+import { deterministicExplanation, resolveExplanation } from './ai-explanation.js';
 import { createAnalysisRunner, type AnalysisRunner } from './analysis.js';
 import {
   createCheckoutSession,
@@ -90,6 +96,10 @@ export interface ServerDeps {
   // Injectable transactional-email seam (invitations, membership changes).
   // Defaults to email.ts's env-driven sender; tests supply a recorder.
   emailSender?: EmailSender | undefined;
+  // Injectable §16/§29 AI gateway for diagnostic explanations. Defaults to the
+  // env-configured Cloudflare AI Gateway, which degrades to a throwing stub
+  // when unconfigured so diagnostics fall back to deterministic remediation.
+  aiGateway?: AiGateway | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -450,6 +460,7 @@ export async function buildServer({
   githubFixtureMode,
   analysisRunner,
   emailSender,
+  aiGateway = createAiGateway(env.aiGateway),
 }: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
 
@@ -1458,16 +1469,40 @@ export async function buildServer({
     // back to UNKNOWN when the job carried no code is honest; hardcoding it
     // when the job DOES carry one throws away the only classification we have.
     const [failedJob] = await db
-      .select({ failureCode: schema.deploymentJobs.failureCode })
+      .select({
+        id: schema.deploymentJobs.id,
+        type: schema.deploymentJobs.type,
+        failureCode: schema.deploymentJobs.failureCode,
+      })
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, id), eq(schema.deploymentJobs.state, 'FAILED')))
       .orderBy(desc(schema.deploymentJobs.finishedAt))
       .limit(1);
+    const failureCode = failedJob?.failureCode ?? 'UNKNOWN';
+
+    // §16: the explanation is built from the deterministic code plus STRUCTURED
+    // fields only. There is no raw-log field here, and none may be added — the
+    // data boundary is what keeps customer log content out of the AI payload.
+    const event: StructuredEvent = {
+      source: 'deployment',
+      ...(failedJob?.type ? { action: failedJob.type } : {}),
+      context: { deploymentState: deployment.state },
+    };
+
+    // Cached on first read, deterministic remediation whenever AI is
+    // unavailable. Never throws, never touches deployment state.
+    const explanation = failedJob
+      ? await resolveExplanation(
+          { db, gateway: aiGateway },
+          { jobId: failedJob.id, failureCode, event },
+        )
+      : deterministicExplanation(failureCode, event);
+
     return {
-      failureCode: failedJob?.failureCode ?? 'UNKNOWN',
-      what: 'Deployment failed',
-      why: 'The deployment did not reach a healthy state',
-      fix: 'Check the event log for details and retry the deployment',
+      failureCode,
+      what: explanation.what,
+      why: explanation.why,
+      fix: explanation.fix,
       events,
     };
   });

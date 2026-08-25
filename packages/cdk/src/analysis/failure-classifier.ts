@@ -17,7 +17,7 @@
  * (parity locked by `failure-classifier.test.ts` importing the live pgEnum).
  */
 
-import { FAILURE_CODES, type FailureCode, type StructuredEvent } from '@deployz/analysis';
+import type { FailureCode, StructuredEvent } from '@deployz/analysis';
 
 import { ALLOWED_REGIONS } from '../jobs/preflight.js';
 

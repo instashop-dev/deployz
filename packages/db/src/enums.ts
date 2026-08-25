@@ -145,3 +145,17 @@ export const buildStatusEnum = pgEnum('build_status', [
   'SUCCEEDED',
   'FAILED',
 ]);
+
+// Lifecycle of the cached AI explanation on a deployment attempt. Deliberately
+// SEPARATE from jobState: a failed explanation says nothing about the job, and
+// must never be mistaken for a failed deployment.
+//   PENDING    — never attempted
+//   GENERATING — claimed by one request; others must not call the model
+//   READY      — text is cached and served from the database
+//   FAILED     — generation failed; retryable on a later diagnostics request
+export const aiExplanationStateEnum = pgEnum('ai_explanation_state', [
+  'PENDING',
+  'GENERATING',
+  'READY',
+  'FAILED',
+]);
