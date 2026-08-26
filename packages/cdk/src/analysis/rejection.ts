@@ -7,7 +7,7 @@
  */
 export type { RejectionFinding } from '@deployz/analysis';
 export {
-  checkRedis,
+  checkRedisUnsupported,
   checkMysql,
   checkMongo,
   checkElasticsearch,
