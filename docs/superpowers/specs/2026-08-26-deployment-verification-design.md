@@ -327,7 +327,14 @@ once a real `INSTALL` provisions that stack.
   separate failure mode.
 - Drift detection, the 10-signal health monitor, and preflight wiring.
 - `health_status` reaching anything other than `UNKNOWN`.
-- Verification for `DEPLOY_RELEASE` and `ROLLBACK`.
+- ~~Verification for `DEPLOY_RELEASE` and `ROLLBACK`.~~ **Brought into scope
+  during the final review.** Leaving them ungated left the same billing hole one
+  click away: a gated `INSTALL` fails, the vendor clicks "Deploy Update" — the
+  natural next action — and the still-stubbed `DEPLOY_RELEASE` returns success,
+  which `apps/api` maps to `HEALTHY` and bills. `FAILED` is not in
+  `UNDEPLOYABLE_STATES`, so nothing blocked that path. Both commands now run the
+  same gate. Note what it does *not* prove: that the expected release is running.
+  That needs the image digest, which this work does not fetch.
 - **Stack-level tags.** `verifyInstallation`'s `stack-tagged` check and the
   relay's tag-conditioned IAM both read CloudFormation *stack* tags — the
   `Tags` parameter of `CreateStack` — not the per-resource tags CDK's
