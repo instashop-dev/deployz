@@ -101,7 +101,7 @@ export function deploymentStateLabel(state: string): string {
 
 // ── §40 event families ──────────────────────────────────────────────────────
 
-/** The 6 §40 event families (§65): install/deploy/rollback/config/destroy/health. */
+/** The §40 event families (§65): install/deploy/rollback/config/destroy/health/relay/redis. */
 export const EVENT_FAMILIES = [
   'install',
   'deploy',
@@ -110,6 +110,7 @@ export const EVENT_FAMILIES = [
   'destroy',
   'health',
   'relay',
+  'redis',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
@@ -131,6 +132,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   destroy: 'Teardown',
   health: 'Health',
   relay: 'Helper',
+  redis: 'Cache',
 };
 
 /**
@@ -188,6 +190,10 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'config.write': 'Configuration updated',
   'config.health': 'Health check after configuration change',
   'config.state.healthy': 'Configuration applied',
+
+  'redis.provision.started': 'Setting up cache',
+  'redis.provision.succeeded': 'Cache ready',
+  'redis.provision.failed': 'Cache setup failed',
 };
 
 /** Human-readable label for an event type (§65). */
@@ -223,7 +229,7 @@ export function eventResultLabel(result: string | null): string | null {
 
 // ── §61 failure codes ───────────────────────────────────────────────────────
 
-/** The eighteen §61 stable failure codes. */
+/** The twenty §61 stable failure codes. */
 export const FAILURE_CODES = [
   'AWS_SCP_BLOCKED',
   'PORT_MISMATCH',
@@ -243,9 +249,11 @@ export const FAILURE_CODES = [
   'MISSING_SECRET',
   'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
+  'REDIS_PROVISIONING_FAILED',
+  'REDIS_CONNECTION_FAILED',
 ] as const;
 
-/** A §61 failure code — exactly the eighteen values in `FAILURE_CODES`. */
+/** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
 /** Severity drives the color-coded badge: critical (destructive) vs warning. */
@@ -355,6 +363,16 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   UNKNOWN: {
     label: 'Unknown issue',
     description: "Something failed and we couldn't pin down the cause.",
+    severity: 'critical',
+  },
+  REDIS_PROVISIONING_FAILED: {
+    label: 'Cache setup failed',
+    description: "The cache this application needs couldn't be set up.",
+    severity: 'critical',
+  },
+  REDIS_CONNECTION_FAILED: {
+    label: "App can't reach its cache",
+    description: "The app started, but it can't reach its cache.",
     severity: 'critical',
   },
 };
@@ -473,6 +491,16 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
     what: 'The deployment failed.',
     why: 'The helper reported a failure without a cause Deployz recognises.',
     fix: 'Open Technical detail for the reported error, then deploy again. If it keeps failing, remove the deployment and create it again.',
+  },
+  REDIS_PROVISIONING_FAILED: {
+    what: 'The cache this application needs could not be set up.',
+    why: 'A limit was hit, or the resource was rejected, in your customer’s cloud account while the cache was being created.',
+    fix: 'Retry the deployment. If it keeps failing, ask your customer to check their cloud account’s service limits for caches in this region.',
+  },
+  REDIS_CONNECTION_FAILED: {
+    what: 'The application started but could not reach its cache.',
+    why: 'The connection was refused or timed out.',
+    fix: 'Redeploy the application. If it keeps failing, contact Deployz support.',
   },
 };
 

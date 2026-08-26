@@ -9,6 +9,7 @@ import {
   EXPLANATION_FALLBACK,
   FAILURE_CODE_COPY,
   FAILURE_CODES,
+  FAILURE_REMEDIATION,
   FAILURE_SEVERITY_BADGE,
   FAILURE_SEVERITY_DOT,
   JARGON_PATTERN,
@@ -100,6 +101,17 @@ describe('§40 event families', () => {
     expect(eventTypeLabel('destroy.state.started')).toBe('Teardown');
   });
 
+  it('classifies the redis family and maps its known event types', () => {
+    expect(eventFamily('redis.provision.started')).toBe('redis');
+    expect(eventTypeLabel('redis.provision.started')).toBe('Setting up cache');
+    expect(eventTypeLabel('redis.provision.succeeded')).toBe('Cache ready');
+    expect(eventTypeLabel('redis.provision.failed')).toBe('Cache setup failed');
+  });
+
+  it('falls back to the redis family label for an unknown redis event (never raw)', () => {
+    expect(eventTypeLabel('redis.something.unmapped')).toBe('Cache');
+  });
+
   it('produces no raw AWS terms for any known or fallback label', () => {
     const allTypes = [
       'install.preflight.region',
@@ -127,6 +139,9 @@ describe('§40 event families', () => {
       'config.state.healthy',
       'destroy.state.started',
       'health.report',
+      'redis.provision.started',
+      'redis.provision.succeeded',
+      'redis.provision.failed',
     ];
     for (const type of allTypes) {
       expect(eventTypeLabel(type), `label for ${type}`).not.toMatch(JARGON_PATTERN);
@@ -154,7 +169,7 @@ describe('§62 event result labels', () => {
 // ── §61 failure codes ───────────────────────────────────────────────────────
 
 describe('§61 failure codes', () => {
-  it('defines exactly the eighteen §61 taxonomy codes', () => {
+  it('defines exactly the twenty §61 taxonomy codes', () => {
     expect(FAILURE_CODES).toEqual([
       'AWS_SCP_BLOCKED',
       'PORT_MISMATCH',
@@ -174,6 +189,8 @@ describe('§61 failure codes', () => {
       'MISSING_SECRET',
       'UNSUPPORTED_ARCHITECTURE',
       'UNKNOWN',
+      'REDIS_PROVISIONING_FAILED',
+      'REDIS_CONNECTION_FAILED',
     ]);
   });
 
@@ -193,6 +210,46 @@ describe('§61 failure codes', () => {
     expect(FAILURE_CODE_COPY.ECS_DEPLOYMENT_FAILED.label).toBe('Deployment failed');
     expect(FAILURE_CODE_COPY.RDS_UNAVAILABLE.label).toBe('Database unreachable');
     expect(FAILURE_CODE_COPY.RELAY_DISCONNECTED.label).toBe('Helper disconnected');
+  });
+
+  it('maps the two Redis MVP codes to plain-English, "Redis"-flavored copy', () => {
+    expect(FAILURE_CODE_COPY.REDIS_PROVISIONING_FAILED.label).toBe('Cache setup failed');
+    expect(FAILURE_CODE_COPY.REDIS_CONNECTION_FAILED.label).toBe("App can't reach its cache");
+
+    // §65 + Redis MVP global constraint: "ElastiCache"/"Valkey" (the AWS
+    // implementation names) never appear at the top level, even though
+    // "Redis" itself is acceptable product-language.
+    for (const code of ['REDIS_PROVISIONING_FAILED', 'REDIS_CONNECTION_FAILED'] as const) {
+      const copy = FAILURE_CODE_COPY[code];
+      expect(copy.label).not.toMatch(/ElastiCache|Valkey/i);
+      expect(copy.description).not.toMatch(/ElastiCache|Valkey/i);
+      const remediation = FAILURE_REMEDIATION[code];
+      expect(remediation.what).not.toMatch(/ElastiCache|Valkey/i);
+      expect(remediation.why).not.toMatch(/ElastiCache|Valkey/i);
+      expect(remediation.fix).not.toMatch(/ElastiCache|Valkey/i);
+    }
+  });
+
+  it('gives every §61 code non-empty, jargon-free what/why/fix remediation', () => {
+    for (const code of FAILURE_CODES) {
+      const remediation = FAILURE_REMEDIATION[code];
+      expect(remediation.what, `what for ${code}`).toBeTruthy();
+      expect(remediation.why, `why for ${code}`).toBeTruthy();
+      expect(remediation.fix, `fix for ${code}`).toBeTruthy();
+      expect(remediation.what, `what for ${code}`).not.toMatch(JARGON_PATTERN);
+      expect(remediation.why, `why for ${code}`).not.toMatch(JARGON_PATTERN);
+      expect(remediation.fix, `fix for ${code}`).not.toMatch(JARGON_PATTERN);
+    }
+  });
+
+  it('REDIS_CONNECTION_FAILED remediation mentions redeploying', () => {
+    expect(FAILURE_REMEDIATION.REDIS_CONNECTION_FAILED.fix.toLowerCase()).toMatch(/redeploy/);
+  });
+
+  it('REDIS_PROVISIONING_FAILED remediation mentions retrying and service limits', () => {
+    const { fix } = FAILURE_REMEDIATION.REDIS_PROVISIONING_FAILED;
+    expect(fix.toLowerCase()).toMatch(/retry/);
+    expect(fix.toLowerCase()).toMatch(/limit/);
   });
 
   it('exposes a valid severity + badge + dot mapping per code', () => {

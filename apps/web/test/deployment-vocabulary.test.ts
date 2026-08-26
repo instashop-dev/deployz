@@ -74,6 +74,13 @@ describe('§65 event-type labels', () => {
     expect(eventTypeLabel('destroy.state.started')).toBe('Teardown');
   });
 
+  it('classifies the redis family and maps its known event types', () => {
+    expect(eventFamily('redis.provision.started')).toBe('redis');
+    expect(eventTypeLabel('redis.provision.started')).toBe('Setting up cache');
+    expect(eventTypeLabel('redis.provision.succeeded')).toBe('Cache ready');
+    expect(eventTypeLabel('redis.provision.failed')).toBe('Cache setup failed');
+  });
+
   it('produces no raw AWS terms for any known or fallback label', () => {
     for (const type of [
       'install.preflight.region',

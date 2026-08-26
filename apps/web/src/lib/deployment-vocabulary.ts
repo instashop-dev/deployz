@@ -68,6 +68,7 @@ export const EVENT_FAMILIES = [
   'destroy',
   'health',
   'relay',
+  'redis',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
@@ -89,6 +90,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   destroy: 'Teardown',
   health: 'Health',
   relay: 'Helper',
+  redis: 'Cache',
 };
 
 /**
@@ -146,6 +148,10 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'config.write': 'Configuration updated',
   'config.health': 'Health check after configuration change',
   'config.state.healthy': 'Configuration applied',
+
+  'redis.provision.started': 'Setting up cache',
+  'redis.provision.succeeded': 'Cache ready',
+  'redis.provision.failed': 'Cache setup failed',
 };
 
 /** Human-readable label for an event type (§65). */

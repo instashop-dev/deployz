@@ -17,7 +17,7 @@ import {
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)\b/i;
 
 describe('§61 failure codes', () => {
-  it('defines exactly the eighteen §61 taxonomy codes', () => {
+  it('defines exactly the twenty §61 taxonomy codes', () => {
     expect(FAILURE_CODES).toEqual([
       'AWS_SCP_BLOCKED',
       'PORT_MISMATCH',
@@ -37,6 +37,8 @@ describe('§61 failure codes', () => {
       'MISSING_SECRET',
       'UNSUPPORTED_ARCHITECTURE',
       'UNKNOWN',
+      'REDIS_PROVISIONING_FAILED',
+      'REDIS_CONNECTION_FAILED',
     ]);
   });
 
@@ -56,6 +58,15 @@ describe('§61 failure codes', () => {
     expect(FAILURE_CODE_COPY.ECS_DEPLOYMENT_FAILED.label).toBe('Deployment failed');
     expect(FAILURE_CODE_COPY.RDS_UNAVAILABLE.label).toBe('Database unreachable');
     expect(FAILURE_CODE_COPY.RELAY_DISCONNECTED.label).toBe('Helper disconnected');
+  });
+
+  it('maps the two Redis MVP codes to plain-English, jargon-free copy', () => {
+    expect(FAILURE_CODE_COPY.REDIS_PROVISIONING_FAILED.label).toBe('Cache setup failed');
+    expect(FAILURE_CODE_COPY.REDIS_CONNECTION_FAILED.label).toBe("App can't reach its cache");
+    for (const code of ['REDIS_PROVISIONING_FAILED', 'REDIS_CONNECTION_FAILED'] as const) {
+      expect(FAILURE_CODE_COPY[code].label).not.toMatch(/ElastiCache|Valkey/i);
+      expect(FAILURE_CODE_COPY[code].description).not.toMatch(/ElastiCache|Valkey/i);
+    }
   });
 
   it('exposes a valid severity + badge + dot mapping per code', () => {

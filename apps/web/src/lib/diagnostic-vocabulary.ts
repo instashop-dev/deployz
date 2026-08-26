@@ -14,7 +14,7 @@
 
 // ── §61 failure codes ───────────────────────────────────────────────────────
 
-/** The eighteen §61 stable failure codes (mirrors copy-map verbatim). */
+/** The twenty §61 stable failure codes (mirrors copy-map verbatim). */
 export const FAILURE_CODES = [
   'AWS_SCP_BLOCKED',
   'PORT_MISMATCH',
@@ -34,9 +34,11 @@ export const FAILURE_CODES = [
   'MISSING_SECRET',
   'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
+  'REDIS_PROVISIONING_FAILED',
+  'REDIS_CONNECTION_FAILED',
 ] as const;
 
-/** A §61 failure code — exactly the eighteen values in `FAILURE_CODES`. */
+/** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
 // ── §65 labels + descriptions ───────────────────────────────────────────────
@@ -149,6 +151,16 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   UNKNOWN: {
     label: 'Unknown issue',
     description: "Something failed and we couldn't pin down the cause.",
+    severity: 'critical',
+  },
+  REDIS_PROVISIONING_FAILED: {
+    label: 'Cache setup failed',
+    description: "The cache this application needs couldn't be set up.",
+    severity: 'critical',
+  },
+  REDIS_CONNECTION_FAILED: {
+    label: "App can't reach its cache",
+    description: "The app started, but it can't reach its cache.",
     severity: 'critical',
   },
 };
