@@ -16,7 +16,7 @@ import {
 } from '../src/detectors.js';
 
 import {
-  checkRedis,
+  checkRedisUnsupported,
   checkMysql,
   checkMongo,
   checkElasticsearch,
@@ -105,7 +105,7 @@ const compatibleFastifyFixture: FileTree = {
   ].join('\n'),
 };
 
-/** Incompatible: Redis dependency. */
+/** Plain Redis client dependency — SUPPORTED (medium confidence alone; does not reject). */
 const incompatibleRedisFixture: FileTree = {
   ...compatibleFixture,
   'package.json': JSON.stringify({
@@ -116,6 +116,37 @@ const incompatibleRedisFixture: FileTree = {
       pg: '^8.12.0',
       'drizzle-orm': '^0.36.0',
       ioredis: '^5.4.0',
+    },
+  }),
+};
+
+/** Unsupported Redis: Redis Stack modules (@redis/json) — this DOES reject. */
+const unsupportedRedisFixture: FileTree = {
+  ...compatibleFixture,
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+    dependencies: {
+      express: '^4.18.0',
+      pg: '^8.12.0',
+      'drizzle-orm': '^0.36.0',
+      ioredis: '^5.4.0',
+      '@redis/json': '^1.0.0',
+    },
+  }),
+};
+
+/** bullmq direct dependency — high-confidence signal, Redis required. */
+const bullmqFixture: FileTree = {
+  ...compatibleFixture,
+  'package.json': JSON.stringify({
+    name: 'my-app',
+    scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+    dependencies: {
+      express: '^4.18.0',
+      pg: '^8.12.0',
+      'drizzle-orm': '^0.36.0',
+      bullmq: '^5.0.0',
     },
   }),
 };
@@ -731,48 +762,65 @@ describe('§10 rejection classes', () => {
   // ------------------------------------------------------------------
   // 1. Redis
   // ------------------------------------------------------------------
-  describe('checkRedis', () => {
-    it('detects ioredis dependency', () => {
-      const result = checkRedis(incompatibleRedisFixture);
-      expect(result.detected).toBe(true);
-      expect(result.dependency).toBe('ioredis');
+  describe('checkRedisUnsupported', () => {
+    it('does NOT reject a plain ioredis dependency (supported)', () => {
+      const result = checkRedisUnsupported(incompatibleRedisFixture);
+      expect(result.detected).toBe(false);
     });
 
-    it('detects a redis dependency declared in a workspace package', () => {
+    it('does NOT reject a plain redis dependency declared in a workspace package', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ name: 'monorepo-root', workspaces: ['packages/*'] }),
         'packages/queue/package.json': JSON.stringify({ dependencies: { ioredis: '^5.4.0' } }),
       };
-      const result = checkRedis(tree);
-      expect(result.detected).toBe(true);
-      expect(result.dependency).toBe('ioredis');
+      const result = checkRedisUnsupported(tree);
+      expect(result.detected).toBe(false);
     });
 
-    it('detects redis dependency', () => {
+    it('does NOT reject a plain redis dependency', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { redis: '^4.6.0' } }),
       };
-      const result = checkRedis(tree);
-      expect(result.detected).toBe(true);
-      expect(result.dependency).toBe('redis');
+      const result = checkRedisUnsupported(tree);
+      expect(result.detected).toBe(false);
     });
 
-    it('detects @redis/client dependency', () => {
+    it('does NOT reject a plain @redis/client dependency', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { '@redis/client': '^1.5.0' } }),
       };
-      const result = checkRedis(tree);
+      const result = checkRedisUnsupported(tree);
+      expect(result.detected).toBe(false);
+    });
+
+    it('rejects Redis Stack modules (e.g. @redis/json) with dependency "redis-unsupported"', () => {
+      const result = checkRedisUnsupported(unsupportedRedisFixture);
       expect(result.detected).toBe(true);
-      expect(result.dependency).toBe('@redis/client');
+      expect(result.dependency).toBe('redis-unsupported');
+      expect(result.reason).toContain('Redis Stack');
+    });
+
+    it('rejects Redis Cluster usage with dependency "redis-unsupported"', () => {
+      const tree: FileTree = {
+        ...compatibleFixture,
+        'package.json': JSON.stringify({
+          dependencies: { express: '^4.18.0', pg: '^8.12.0', ioredis: '^5.4.0' },
+        }),
+        'src/cluster.ts': "import Redis from 'ioredis';\nconst cluster = new Redis.Cluster([{ host: 'a' }]);\n",
+      };
+      const result = checkRedisUnsupported(tree);
+      expect(result.detected).toBe(true);
+      expect(result.dependency).toBe('redis-unsupported');
+      expect(result.reason).toContain('Cluster');
     });
 
     it('returns not detected for compatible fixture', () => {
-      const result = checkRedis(compatibleFixture);
+      const result = checkRedisUnsupported(compatibleFixture);
       expect(result.detected).toBe(false);
     });
 
     it('returns not detected for empty repo', () => {
-      const result = checkRedis(emptyRepoFixture);
+      const result = checkRedisUnsupported(emptyRepoFixture);
       expect(result.detected).toBe(false);
     });
   });
@@ -940,10 +988,26 @@ describe('analyseRepo (orchestrator)', () => {
     expect(detectedRejections).toHaveLength(0);
   });
 
-  it('detects Redis rejection in the incompatible fixture', () => {
+  it('does NOT reject a plain Redis dependency (supported)', () => {
     const result = analyseRepo(incompatibleRedisFixture);
-    const redisRejection = result.rejections.find((r) => r.dependency === 'ioredis');
+    const redisRejection = result.rejections.find((r) => r.dependency === 'redis-unsupported');
+    expect(redisRejection?.detected).toBe(false);
+  });
+
+  it('rejects an unsupported Redis setup (Redis Stack modules)', () => {
+    const result = analyseRepo(unsupportedRedisFixture);
+    const redisRejection = result.rejections.find((r) => r.dependency === 'redis-unsupported');
     expect(redisRejection?.detected).toBe(true);
+  });
+
+  it('detects Redis via bullmq and marks it required in metadata', () => {
+    const result = analyseRepo(bullmqFixture);
+    const redisFinding = result.findings.find((f) => f.detector === 'redis');
+    expect(redisFinding?.detected).toBe(true);
+    expect(redisFinding?.value).toContain('queue');
+    expect(result.metadata.usesRedis).toBe(true);
+    const redisMeta = result.metadata.redis as { required: boolean };
+    expect(redisMeta.required).toBe(true);
   });
 
   it('detects MongoDB rejection in the incompatible fixture', () => {

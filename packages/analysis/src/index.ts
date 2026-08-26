@@ -27,7 +27,7 @@ export {
 
 export type { RejectionFinding } from './rejection.js';
 export {
-  checkRedis,
+  checkRedisUnsupported,
   checkMysql,
   checkMongo,
   checkElasticsearch,
