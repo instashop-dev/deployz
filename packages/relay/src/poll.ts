@@ -6,9 +6,16 @@
  * plane never reaches INTO the customer account. Each poll cycle:
  *
  *   1. Authenticate (register on first contact, then bearer token)
- *   2. Fetch pending commands for this installation
- *   3. Execute each command (with idempotency)
- *   4. Report results + observed state back to the control plane (§59)
+ *   2. Finish and report anything an earlier cycle deferred
+ *   3. Fetch pending commands for this installation
+ *   4. Execute each command (with idempotency)
+ *   5. Report results + observed state back to the control plane (§59)
+ *
+ * Step 2 exists because not every command fits in one invocation. An
+ * INSTALL that is still creating its stack when the Lambda has to return is
+ * reported to nobody and picked up again here on the next tick — the
+ * control plane never re-offers a job it has already handed out, so the
+ * relay is the only thing that can remember it.
  */
 
 import type { RelayCommand, RelayCommandResult } from './commands.js';
@@ -63,6 +70,17 @@ export interface PollDependencies {
    * reporting a healthy-looking absence of information.
    */
   observe?: () => Promise<VerificationResult>;
+  /**
+   * Finishes work an earlier poll deferred, and returns the results that
+   * are now ready to report.
+   *
+   * The control plane moves a job to `RUNNING` the moment it hands it out
+   * and never offers it again, so a command the relay could not finish
+   * inside one invocation has to be picked back up from the relay's own
+   * durable record of it. This is where that happens. Returning an empty
+   * array means "nothing owed, or still not finished".
+   */
+  resume?: () => Promise<RelayCommandResult[]>;
 }
 
 /** Result of a single poll cycle. */
@@ -75,6 +93,10 @@ export interface PollResult {
   succeeded: number;
   /** Number of commands that failed. */
   failed: number;
+  /** Commands started but not finished — no result reported for these. */
+  deferred: number;
+  /** Results for earlier-deferred commands that finished since the last poll. */
+  resumed: number;
   /** Whether the poll completed without transport errors. */
   ok: boolean;
   /** Error message if the poll itself failed (not individual commands). */
@@ -95,7 +117,8 @@ export async function pollOnce(
   deps: PollDependencies,
   authState: AuthState,
 ): Promise<PollResult> {
-  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe } = deps;
+  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume } =
+    deps;
 
   // ── 1. Enroll on first contact ────────────────────────────────────────
   if (!authState.registered) {
@@ -112,6 +135,8 @@ export async function pollOnce(
         executed: 0,
         succeeded: 0,
         failed: 0,
+        deferred: 0,
+        resumed: 0,
         ok: false,
         // A rejection is final: the code is spent by another relay, or it is
         // not a code the control plane knows. The vendor has to reconnect the
@@ -126,8 +151,30 @@ export async function pollOnce(
     authState.registered = true;
   }
 
-  // ── 2. Fetch pending commands ─────────────────────────────────────────
   const authHeaders = buildAuthHeaders(authState);
+
+  // ── 2. Finish anything an earlier poll deferred ───────────────────────
+  //
+  // Before asking for new work: a command the relay already owes an answer
+  // to is the control plane's oldest open question, and the job it belongs
+  // to is sitting in RUNNING until it gets one.
+  let resumed = 0;
+  if (resume) {
+    let finished: RelayCommandResult[] = [];
+    try {
+      finished = await resume();
+    } catch (err) {
+      // A resume we could not run is not a reason to skip the whole poll —
+      // the pending marker survives, so the next tick tries again.
+      console.error(JSON.stringify({ event: 'relay:resume-failed', error: String(err) }));
+    }
+    for (const result of finished) {
+      await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result);
+      resumed += 1;
+    }
+  }
+
+  // ── 3. Fetch pending commands ─────────────────────────────────────────
   let commandsResponse: { status: number; headers: { get(name: string): string | null }; json(): Promise<unknown> };
 
   try {
@@ -141,6 +188,8 @@ export async function pollOnce(
       executed: 0,
       succeeded: 0,
       failed: 0,
+      deferred: 0,
+      resumed,
       ok: false,
       error: `Failed to fetch commands: ${String(err)}`,
     };
@@ -155,6 +204,8 @@ export async function pollOnce(
       executed: 0,
       succeeded: 0,
       failed: 0,
+      deferred: 0,
+      resumed,
       ok: false,
       error: `Control plane returned HTTP ${commandsResponse.status}`,
     };
@@ -168,15 +219,25 @@ export async function pollOnce(
     // commands, and that is exactly when infrastructure drift needs catching.
     await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe);
     decrementGrace(authState);
-    return { fetched: 0, executed: 0, succeeded: 0, failed: 0, ok: true };
+    return { fetched: 0, executed: 0, succeeded: 0, failed: 0, deferred: 0, resumed, ok: true };
   }
 
-  // ── 3. Execute each command ───────────────────────────────────────────
+  // ── 4. Execute each command ───────────────────────────────────────────
   let succeeded = 0;
   let failed = 0;
+  let deferred = 0;
 
   for (const command of commands) {
     const result = await dispatchCommand(command, executors, idempotency);
+
+    // A deferred command has been started, not finished. Reporting anything
+    // now would settle a job that is still genuinely running: `success:
+    // false` marks the deployment FAILED, and `success: true` is the exact
+    // unearned Healthy this whole design exists to prevent.
+    if (result.deferred) {
+      deferred += 1;
+      continue;
+    }
 
     if (result.success) {
       succeeded += 1;
@@ -184,11 +245,11 @@ export async function pollOnce(
       failed += 1;
     }
 
-    // ── 4. Report result back to the control plane ───────────────────
+    // ── 5. Report result back to the control plane ───────────────────
     await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result);
   }
 
-  // ── 5. Report observed state (§59) ────────────────────────────────────
+  // ── 6. Report observed state (§59) ────────────────────────────────────
   await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe);
 
   decrementGrace(authState);
@@ -198,6 +259,8 @@ export async function pollOnce(
     executed: commands.length,
     succeeded,
     failed,
+    deferred,
+    resumed,
     ok: true,
   };
 }

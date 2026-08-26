@@ -60,6 +60,18 @@ export interface RelayCommandResult {
    * remediation copy — this field is the load-bearing link to that.
    */
   readonly failureCode?: string;
+  /**
+   * The command was started but has not finished — no verdict yet.
+   *
+   * Set only by work that outlives one invocation (an application stack
+   * takes longer to create than a Lambda may run). A deferred result is
+   * neither reported to the control plane nor cached against its
+   * idempotency key: reporting it would turn "not yet" into a failure the
+   * job could never recover from, and caching it would stop the next
+   * invocation from asking again. The executor that defers is responsible
+   * for recording what it owes an answer to — see `./pending.ts`.
+   */
+  readonly deferred?: boolean;
 }
 
 // ── Idempotency (§39) ───────────────────────────────────────────────────────
@@ -134,7 +146,12 @@ export async function dispatchCommand(
   // Dispatch to the registered executor.
   const executor = executors[command.type];
   const result = await executor(command);
-  idempotency.set(command.idempotencyKey, result);
+  // A deferred command has not produced an answer yet, so there is nothing
+  // to remember. Caching it here would make the cache the thing that
+  // prevents the answer from ever arriving.
+  if (!result.deferred) {
+    idempotency.set(command.idempotencyKey, result);
+  }
   return result;
 }
 

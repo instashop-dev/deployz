@@ -1,0 +1,417 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import {
+  installApplicationStack,
+  INSTALLATION_TAG,
+  toInstaller,
+  type StackInstaller,
+  type StackState,
+} from './install.js';
+
+/**
+ * A scripted installer. `states` is consumed one entry per `describeStack`
+ * call, so a test spells out the exact CloudFormation progression it wants
+ * ("not there, then creating, then complete") instead of mutating a fake.
+ */
+function scriptedInstaller(
+  states: (StackState | null)[],
+  overrides: Partial<StackInstaller> = {},
+): StackInstaller & { createCalls: unknown[] } {
+  const createCalls: unknown[] = [];
+  let index = 0;
+  return {
+    createCalls,
+    createStack: overrides.createStack
+      ? overrides.createStack
+      : async (input) => {
+          createCalls.push(input);
+          return { created: true, stackId: 'stack-id-1' };
+        },
+    describeStack: overrides.describeStack
+      ? overrides.describeStack
+      : async () => {
+          const state = states[Math.min(index, states.length - 1)] ?? null;
+          index += 1;
+          return state;
+        },
+  };
+}
+
+const NEVER_SLEEP = { sleep: async () => {}, pollIntervalMs: 0 };
+
+function complete(outputs: Record<string, string> = {}): StackState {
+  return { status: 'CREATE_COMPLETE', outputs };
+}
+
+describe('installApplicationStack', () => {
+  it('creates the stack when the account has none', async () => {
+    const installer = scriptedInstaller([null, { status: 'CREATE_IN_PROGRESS', outputs: {} }, complete()]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+    expect(installer.createCalls).toHaveLength(1);
+  });
+
+  it('defaults the stack name to the shared application stack name', async () => {
+    const installer = scriptedInstaller([null, complete()]);
+
+    await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls[0]).toMatchObject({ stackName: 'deployz-app' });
+  });
+
+  it('passes the installation as a stack-level CreateStack tag', async () => {
+    const installer = scriptedInstaller([null, complete()]);
+
+    await installApplicationStack({
+      installer,
+      installationId: 'inst-42',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls[0]).toMatchObject({
+      tags: { [INSTALLATION_TAG]: 'inst-42' },
+    });
+  });
+
+  it('requests IAM capabilities — the stack creates roles', async () => {
+    const installer = scriptedInstaller([null, complete()]);
+
+    await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls[0]).toMatchObject({
+      capabilities: ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM'],
+    });
+  });
+
+  it('passes the CloudFormation execution role when one is configured', async () => {
+    const installer = scriptedInstaller([null, complete()]);
+
+    await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      executionRoleArn: 'arn:aws:iam::1:role/deployz/exec',
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls[0]).toMatchObject({
+      roleArn: 'arn:aws:iam::1:role/deployz/exec',
+    });
+  });
+
+  it('reports the stack outputs on success', async () => {
+    const installer = scriptedInstaller([
+      null,
+      complete({ 'deployz-app-PublicEndpoint': 'app.example.com' }),
+    ]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome).toMatchObject({
+      state: 'succeeded',
+      outputs: { 'deployz-app-PublicEndpoint': 'app.example.com' },
+    });
+  });
+
+  it('reports failure with the CloudFormation reason when the stack rolls back', async () => {
+    const installer = scriptedInstaller([
+      null,
+      { status: 'ROLLBACK_COMPLETE', statusReason: 'Resource creation cancelled', outputs: {} },
+    ]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.reason).toContain('ROLLBACK_COMPLETE');
+    expect(outcome.state === 'failed' && outcome.reason).toContain('Resource creation cancelled');
+  });
+
+  it('does not create a second stack when one is already in flight', async () => {
+    const installer = scriptedInstaller([
+      { status: 'CREATE_IN_PROGRESS', outputs: {} },
+      complete(),
+    ]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls).toHaveLength(0);
+    expect(outcome.state).toBe('succeeded');
+  });
+
+  it('is idempotent against an already-complete stack', async () => {
+    const installer = scriptedInstaller([complete({ a: 'b' })]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls).toHaveLength(0);
+    expect(outcome).toMatchObject({ state: 'succeeded', outputs: { a: 'b' } });
+  });
+
+  it('treats an AlreadyExists race as an in-flight create, not a failure', async () => {
+    const describeStack = vi
+      .fn<StackInstaller['describeStack']>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(complete());
+
+    const outcome = await installApplicationStack({
+      installer: {
+        createStack: async () => ({ created: false, alreadyExists: true }),
+        describeStack,
+      },
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+  });
+
+  it('reports failure when CreateStack itself is refused', async () => {
+    const outcome = await installApplicationStack({
+      installer: {
+        createStack: async () => ({
+          created: false,
+          alreadyExists: false,
+          errorCode: 'AccessDenied',
+          message: 'not authorized to perform cloudformation:CreateStack',
+        }),
+        describeStack: async () => null,
+      },
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.reason).toContain('AccessDenied');
+  });
+
+  it('reports in-progress rather than a verdict when the time budget runs out', async () => {
+    let clock = 0;
+    const outcome = await installApplicationStack({
+      installer: scriptedInstaller([null, { status: 'CREATE_IN_PROGRESS', outputs: {} }]),
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      budgetMs: 30_000,
+      pollIntervalMs: 10_000,
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+    });
+
+    expect(outcome).toMatchObject({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' });
+  });
+
+  it('stops polling once the budget is spent instead of looping forever', async () => {
+    let clock = 0;
+    const describeStack = vi
+      .fn<StackInstaller['describeStack']>()
+      .mockResolvedValue({ status: 'CREATE_IN_PROGRESS', outputs: {} });
+
+    await installApplicationStack({
+      installer: { createStack: async () => ({ created: true, stackId: 's' }), describeStack },
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      budgetMs: 25_000,
+      pollIntervalMs: 10_000,
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+    });
+
+    // 0ms, 10s, 20s — the 30s attempt is past the budget.
+    expect(describeStack.mock.calls.length).toBeLessThanOrEqual(4);
+  });
+
+  it('fails when the stack disappears mid-create', async () => {
+    const installer = scriptedInstaller([
+      { status: 'CREATE_IN_PROGRESS', outputs: {} },
+      null,
+    ]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.reason).toMatch(/no longer/i);
+  });
+
+  it('never lets an installer exception escape', async () => {
+    const outcome = await installApplicationStack({
+      installer: {
+        createStack: async () => {
+          throw new Error('socket hang up');
+        },
+        describeStack: async () => null,
+      },
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.reason).toContain('socket hang up');
+  });
+
+  it('forwards template parameters as CreateStack parameters', async () => {
+    const installer = scriptedInstaller([null, complete()]);
+
+    await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      parameters: { param_AppApiKey: 'k' },
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls[0]).toMatchObject({
+      parameters: { param_AppApiKey: 'k' },
+    });
+  });
+});
+
+describe('toInstaller', () => {
+  it('sends the installation as the CreateStack Tags parameter', async () => {
+    const send = vi.fn().mockResolvedValue({ StackId: 'arn:stack/deployz-app' });
+
+    await toInstaller({ send }).createStack({
+      stackName: 'deployz-app',
+      templateUrl: 'https://example.com/app.json',
+      parameters: { param_AppApiKey: 'k' },
+      tags: { 'deployz:installation': 'inst-7' },
+      capabilities: ['CAPABILITY_IAM'],
+      roleArn: 'arn:aws:iam::1:role/deployz/exec',
+    });
+
+    const input = (send.mock.calls[0]![0] as { input: Record<string, unknown> }).input;
+    expect(input).toMatchObject({
+      StackName: 'deployz-app',
+      TemplateURL: 'https://example.com/app.json',
+      Tags: [{ Key: 'deployz:installation', Value: 'inst-7' }],
+      Parameters: [{ ParameterKey: 'param_AppApiKey', ParameterValue: 'k' }],
+      RoleARN: 'arn:aws:iam::1:role/deployz/exec',
+    });
+  });
+
+  it('omits RoleARN entirely when no execution role is configured', async () => {
+    const send = vi.fn().mockResolvedValue({ StackId: 's' });
+
+    await toInstaller({ send }).createStack({
+      stackName: 'deployz-app',
+      templateUrl: 'https://example.com/app.json',
+      parameters: {},
+      tags: {},
+      capabilities: [],
+    });
+
+    const input = (send.mock.calls[0]![0] as { input: Record<string, unknown> }).input;
+    expect(input).not.toHaveProperty('RoleARN');
+  });
+
+  it('maps AlreadyExistsException to the race outcome, not a failure', async () => {
+    const error = new Error('Stack already exists');
+    error.name = 'AlreadyExistsException';
+    const send = vi.fn().mockRejectedValue(error);
+
+    const outcome = await toInstaller({ send }).createStack({
+      stackName: 'deployz-app',
+      templateUrl: 'https://example.com/app.json',
+      parameters: {},
+      tags: {},
+      capabilities: [],
+    });
+
+    expect(outcome).toEqual({ created: false, alreadyExists: true });
+  });
+
+  it('maps any other refusal to a failure carrying the AWS error code', async () => {
+    const error = new Error('not authorized');
+    error.name = 'AccessDenied';
+    const send = vi.fn().mockRejectedValue(error);
+
+    const outcome = await toInstaller({ send }).createStack({
+      stackName: 'deployz-app',
+      templateUrl: 'https://example.com/app.json',
+      parameters: {},
+      tags: {},
+      capabilities: [],
+    });
+
+    expect(outcome).toMatchObject({
+      created: false,
+      alreadyExists: false,
+      errorCode: 'AccessDenied',
+      message: 'not authorized',
+    });
+  });
+
+  it('reads status, reason and outputs off the described stack', async () => {
+    const send = vi.fn().mockResolvedValue({
+      Stacks: [
+        {
+          StackStatus: 'CREATE_COMPLETE',
+          StackStatusReason: 'all good',
+          Outputs: [{ OutputKey: 'PublicEndpoint', OutputValue: 'app.example.com' }],
+        },
+      ],
+    });
+
+    const state = await toInstaller({ send }).describeStack('deployz-app');
+
+    expect(state).toEqual({
+      status: 'CREATE_COMPLETE',
+      statusReason: 'all good',
+      outputs: { PublicEndpoint: 'app.example.com' },
+    });
+  });
+
+  it('returns null — never throws — when the stack cannot be described', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('ValidationError'));
+
+    await expect(toInstaller({ send }).describeStack('deployz-app')).resolves.toBeNull();
+  });
+});

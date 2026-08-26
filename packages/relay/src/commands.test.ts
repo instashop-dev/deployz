@@ -7,6 +7,8 @@ import {
   RELAY_COMMAND_TYPES,
   type CommandExecutor,
   type RelayCommand,
+  type RelayCommandResult,
+  type RelayCommandType,
 } from './commands.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -261,5 +263,35 @@ describe('IAM data-boundary (§16)', () => {
     // structural invariant: the package.json must not list it.
     // Verified by the absence of the dependency in package.json.
     expect(true).toBe(true); // structural check done via grep in CI
+  });
+});
+describe('dispatchCommand — deferred results', () => {
+  it('does not cache a deferred result, so the next attempt re-runs it', async () => {
+    const idempotency = new IdempotencyStore();
+    let attempts = 0;
+    const executors = {
+      INSTALL: async (cmd: RelayCommand): Promise<RelayCommandResult> => {
+        attempts += 1;
+        return attempts === 1
+          ? { commandId: cmd.id, idempotencyKey: cmd.idempotencyKey, success: false, deferred: true }
+          : { commandId: cmd.id, idempotencyKey: cmd.idempotencyKey, success: true };
+      },
+    } as unknown as Record<RelayCommandType, CommandExecutor>;
+
+    const command: RelayCommand = {
+      id: 'job-1',
+      deploymentId: 'dep-1',
+      type: 'INSTALL',
+      idempotencyKey: 'dep-1:INSTALL',
+      payload: {},
+    };
+
+    const first = await dispatchCommand(command, executors, idempotency);
+    expect(first.deferred).toBe(true);
+    expect(idempotency.size).toBe(0);
+
+    const second = await dispatchCommand(command, executors, idempotency);
+    expect(second.success).toBe(true);
+    expect(attempts).toBe(2);
   });
 });

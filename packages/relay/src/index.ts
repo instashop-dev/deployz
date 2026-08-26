@@ -22,8 +22,26 @@ import type { ScheduledEvent } from 'aws-lambda';
 
 import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
-import { IdempotencyStore, type CommandExecutor, type RelayCommand } from './commands.js';
+import {
+  IdempotencyStore,
+  type CommandExecutor,
+  type RelayCommand,
+  type RelayCommandResult,
+} from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
+import {
+  createStackInstaller,
+  installApplicationStack,
+  type InstallOptions,
+  type InstallOutcome,
+  type StackInstaller,
+} from './install.js';
+import {
+  createPendingStore,
+  memoryPendingStore,
+  pendingParameterName,
+  type PendingStore,
+} from './pending.js';
 import { pollOnce, type PollDependencies } from './poll.js';
 import {
   createCloudFormationReader,
@@ -32,6 +50,7 @@ import {
   type VerificationResult,
   type VerifyOptions,
 } from './verify.js';
+import { DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME } from '@deployz/contracts';
 
 // ── Lazy SDK singleton ───────────────────────────────────────────────────────
 //
@@ -51,6 +70,34 @@ function getCloudFormationReader(): CloudFormationReader {
     cloudFormationReader = createCloudFormationReader();
   }
   return cloudFormationReader;
+}
+
+let stackInstaller: StackInstaller | undefined;
+
+function getStackInstaller(): StackInstaller {
+  if (!stackInstaller) {
+    stackInstaller = createStackInstaller();
+  }
+  return stackInstaller;
+}
+
+let pendingStore: PendingStore | undefined;
+
+/**
+ * The pending-command store, keyed by the installation.
+ *
+ * Falls back to an in-memory store when there is no installation id: that
+ * only happens in a misconfigured relay, which `relayHandler` refuses to
+ * poll anyway, and a process-local store is a safer thing to hand back than
+ * a parameter name built from an empty string.
+ */
+function getPendingStore(installationId: string): PendingStore {
+  if (!pendingStore) {
+    pendingStore = installationId
+      ? createPendingStore(pendingParameterName(installationId))
+      : memoryPendingStore();
+  }
+  return pendingStore;
 }
 
 // ── Default command executors ────────────────────────────────────────────────
@@ -131,6 +178,297 @@ export function createVerifyingExecutor(
   };
 }
 
+// ── The INSTALL executor ─────────────────────────────────────────────────────
+
+/**
+ * Everything the INSTALL executor and its resumer need, as injectable
+ * seams. `install` and `verify` are functions rather than clients so the
+ * whole provision-then-prove sequence tests without AWS, and so the two
+ * entry points below cannot drift apart — both close over the same pair.
+ */
+export interface InstallExecutorDeps {
+  readonly installationId: string;
+  /** Public URL of the published application template. */
+  readonly templateUrl: string;
+  readonly install: (options: InstallRequest) => Promise<InstallOutcome>;
+  readonly verify: (options: VerifyRequest) => Promise<VerificationResult>;
+  readonly pending: PendingStore;
+  /** CloudFormation execution role ARN (`role/deployz/*`), when configured. */
+  readonly executionRoleArn?: string;
+  /** Clock for the pending marker's `startedAt`. */
+  readonly now?: () => string;
+}
+
+/** What `install` is asked for — `InstallOptions` minus the client seam. */
+export type InstallRequest = Omit<InstallOptions, 'installer'>;
+
+/** What `verify` is asked for — `VerifyOptions` minus the client seam. */
+export type VerifyRequest = Omit<VerifyOptions, 'cfn'>;
+
+/**
+ * Run an install to whatever conclusion is available right now.
+ *
+ * Two questions, asked in order and never merged: CloudFormation is asked
+ * to build the stack and say how that went, and then — only if it says it
+ * worked — `verifyInstallation` independently confirms the resources are
+ * actually there. A `CREATE_COMPLETE` that fails verification is a failure:
+ * the whole point of the second question is that the first one's answer is
+ * not evidence on its own.
+ *
+ * A stack still in progress produces neither answer. That is reported as
+ * `deferred` rather than guessed at.
+ */
+async function settleInstall(
+  deps: InstallExecutorDeps,
+  request: { stackName: string; payload: Record<string, unknown> },
+): Promise<
+  | { readonly deferred: true; readonly status: string }
+  | {
+      readonly deferred: false;
+      readonly success: boolean;
+      readonly error?: string;
+      readonly output: Record<string, unknown>;
+    }
+> {
+  const verifyOptions = readVerifyOptionsFromPayload(request.payload);
+
+  const outcome = await deps.install({
+    installationId: deps.installationId,
+    templateUrl: deps.templateUrl,
+    stackName: request.stackName,
+    ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),
+  });
+
+  if (outcome.state === 'in-progress') {
+    return { deferred: true, status: outcome.status };
+  }
+
+  if (outcome.state === 'failed') {
+    // No verification here. The stack CloudFormation just rolled back is
+    // not a stack to check for an ECS service, and a second failing answer
+    // would only bury the first one's reason — which is the one that says
+    // what actually went wrong.
+    return {
+      deferred: false,
+      success: false,
+      error: outcome.reason,
+      output: { stackStatus: outcome.status ?? null, outputs: outcome.outputs },
+    };
+  }
+
+  let verification: VerificationResult;
+  try {
+    verification = await deps.verify({
+      installationId: deps.installationId,
+      stackName: request.stackName,
+      ...verifyOptions,
+    });
+  } catch (err) {
+    verification = {
+      verified: false,
+      checks: [],
+      reason: `Verification could not run: ${String(err)}`,
+    };
+  }
+
+  return {
+    deferred: false,
+    success: verification.verified,
+    ...(verification.verified
+      ? {}
+      : { error: verification.reason ?? 'Installation could not be verified' }),
+    output: {
+      stackStatus: outcome.status,
+      outputs: outcome.outputs,
+      checks: verification.checks,
+    },
+  };
+}
+
+/**
+ * The INSTALL executor: provision the application stack, then prove it.
+ *
+ * Unlike `createVerifyingExecutor`, which only ever looked, this one
+ * actually creates the stack. It keeps the same gate on the way out — a
+ * success is reported only when `verifyInstallation` independently agrees —
+ * so implementing INSTALL does not reopen the hole that gate was added to
+ * close.
+ */
+export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecutor {
+  return async (command) => {
+    console.log(
+      JSON.stringify({
+        event: 'relay:command-executed',
+        commandId: command.id,
+        type: command.type,
+        deploymentId: command.deploymentId,
+        idempotencyKey: command.idempotencyKey,
+      }),
+    );
+
+    if (!deps.templateUrl) {
+      return failure(
+        command,
+        'No application template URL is configured for this relay — the vendor has not published one yet',
+      );
+    }
+
+    const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? DEFAULT_STACK_NAME;
+    const settled = await settleInstall(deps, { stackName, payload: command.payload });
+
+    if (!settled.deferred) {
+      logInstall(command, stackName, settled.success, settled.error);
+      return settled.success
+        ? {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: true,
+            output: { executed: true, type: command.type, ...settled.output },
+          }
+        : {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: false,
+            error: settled.error ?? 'Installation could not be verified',
+            failureCode: 'STACK_CREATE_FAILED',
+            output: settled.output,
+          };
+    }
+
+    // The stack outlived this invocation. Record what we owe an answer to
+    // BEFORE deferring — a deferral the next poll cannot find is a job that
+    // sits in RUNNING forever, which is worse than an honest failure.
+    const recorded = await deps.pending.write({
+      commandId: command.id,
+      idempotencyKey: command.idempotencyKey,
+      type: command.type,
+      stackName,
+      startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+      payload: command.payload,
+    });
+
+    if (!recorded) {
+      return failure(
+        command,
+        `Stack "${stackName}" is still ${settled.status}, but the relay could not record that it ` +
+          'must report back — failing now rather than leaving the install unaccounted for',
+      );
+    }
+
+    console.log(
+      JSON.stringify({
+        event: 'relay:command-deferred',
+        commandId: command.id,
+        type: command.type,
+        stackName,
+        status: settled.status,
+      }),
+    );
+
+    return {
+      commandId: command.id,
+      idempotencyKey: command.idempotencyKey,
+      success: false,
+      deferred: true,
+    };
+  };
+}
+
+/**
+ * The other half of `createInstallExecutor`: finish an install that an
+ * earlier invocation started and report it against its original command id.
+ *
+ * Wired into the poll loop's `resume` hook, so it runs once per five-minute
+ * tick until the stack settles.
+ */
+export function createInstallResumer(
+  deps: InstallExecutorDeps,
+): () => Promise<RelayCommandResult[]> {
+  return async () => {
+    const pending = await deps.pending.read();
+    if (pending === null) return [];
+
+    const settled = await settleInstall(deps, {
+      stackName: pending.stackName,
+      payload: pending.payload,
+    });
+
+    if (settled.deferred) {
+      console.log(
+        JSON.stringify({
+          event: 'relay:command-still-pending',
+          commandId: pending.commandId,
+          stackName: pending.stackName,
+          status: settled.status,
+          startedAt: pending.startedAt,
+        }),
+      );
+      return [];
+    }
+
+    // Clear first: a result reported twice would re-emit the control
+    // plane's install event on every poll for the life of the deployment.
+    await deps.pending.clear();
+
+    console.log(
+      JSON.stringify({
+        event: 'relay:command-resumed',
+        commandId: pending.commandId,
+        stackName: pending.stackName,
+        success: settled.success,
+        startedAt: pending.startedAt,
+        ...(settled.error ? { reason: settled.error } : {}),
+      }),
+    );
+
+    return [
+      settled.success
+        ? {
+            commandId: pending.commandId,
+            idempotencyKey: pending.idempotencyKey,
+            success: true,
+            output: { executed: true, type: pending.type, ...settled.output },
+          }
+        : {
+            commandId: pending.commandId,
+            idempotencyKey: pending.idempotencyKey,
+            success: false,
+            error: settled.error ?? 'Installation could not be verified',
+            failureCode: 'STACK_CREATE_FAILED',
+            output: settled.output,
+          },
+    ];
+  };
+}
+
+function failure(command: RelayCommand, error: string): RelayCommandResult {
+  return {
+    commandId: command.id,
+    idempotencyKey: command.idempotencyKey,
+    success: false,
+    error,
+    failureCode: 'STACK_CREATE_FAILED',
+  };
+}
+
+function logInstall(
+  command: RelayCommand,
+  stackName: string,
+  success: boolean,
+  error: string | undefined,
+): void {
+  console.log(
+    JSON.stringify({
+      event: 'relay:command-verified',
+      commandId: command.id,
+      type: command.type,
+      stackName,
+      verified: success,
+      ...(error ? { reason: error } : {}),
+    }),
+  );
+}
+
 /**
  * Extract verification overrides from a command's payload.
  *
@@ -162,21 +500,54 @@ export function readVerifyOptionsFromPayload(
 }
 
 /**
+ * The production wiring for INSTALL: real CloudFormation, real SSM, real
+ * verification, with the template URL and execution role supplied by the
+ * bootstrap stack as environment variables.
+ *
+ * `budgetMs` bounds how long a single invocation watches the stack. It has
+ * to stay comfortably under the relay Lambda's own timeout — a killed
+ * invocation reports nothing at all, which is the one outcome the deferral
+ * machinery cannot recover from, because the pending marker is written
+ * on the way out.
+ */
+function createDefaultInstallDeps(installationId: string): InstallExecutorDeps {
+  const budget = Number(process.env['DEPLOYZ_INSTALL_BUDGET_MS'] ?? '');
+  const budgetMs = Number.isFinite(budget) && budget > 0 ? budget : undefined;
+  const executionRoleArn = process.env['DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN'];
+
+  return {
+    installationId,
+    templateUrl: process.env['DEPLOYZ_APPLICATION_TEMPLATE_URL'] ?? '',
+    ...(executionRoleArn ? { executionRoleArn } : {}),
+    install: (options) =>
+      installApplicationStack({
+        ...options,
+        installer: getStackInstaller(),
+        ...(budgetMs !== undefined ? { budgetMs } : {}),
+      }),
+    verify: (options) => verifyInstallation({ ...options, cfn: getCloudFormationReader() }),
+    pending: getPendingStore(installationId),
+  };
+}
+
+/**
  * Default executors for the ten command types.
  *
  * ⚠️ FIVE OF THESE ARE STILL STUBS: REPORT_HEALTH, CONFIG_UPDATE, DESTROY,
  * MIGRATE and REFRESH_METADATA each log and report success without touching
- * the customer's account. The real implementations — CloudFormation stack
- * operations, ECS service updates, migrations — are the remaining half of
- * the product.
+ * the customer's account. The real implementations — ECS service updates,
+ * migrations, stack deletion — are the remaining half of the product.
  *
- * INSTALL, DEPLOY_RELEASE and ROLLBACK are no longer among them, but not
- * because they provision, deploy, or roll back anything — their underlying
- * steps are still missing. What changed is that all three now share the
- * `createVerifyingExecutor` gate: each proves the account contains the
- * application stack's expected resources before reporting success, so each
- * fails honestly instead of silently reaching Healthy over an empty or
- * stale account. That proof is necessarily partial — see the comment on
+ * INSTALL is now real: it creates the published application template as a
+ * CloudFormation stack, watches it to a terminal state, and reports what
+ * happened — still behind the same `verifyInstallation` gate, so a stack
+ * CloudFormation calls complete but that does not contain the application
+ * is a failure.
+ *
+ * DEPLOY_RELEASE and ROLLBACK remain gated-but-unimplemented: they share
+ * `createVerifyingExecutor`, which proves the application stack's expected
+ * resources are present but does not deploy or roll back anything. That
+ * proof is necessarily partial — see the comment on
  * `createVerifyingExecutor` for exactly what it does and does not confirm.
  * The remaining stubs still carry the same hazard and should be gated the
  * same way as each one gains a real implementation.
@@ -185,7 +556,7 @@ export function readVerifyOptionsFromPayload(
  *
  * The command vocabulary + dispatch + idempotency layer around them IS real.
  */
-function createDefaultExecutors(): Record<string, CommandExecutor> {
+function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string, CommandExecutor> {
   const noop: CommandExecutor = async (command) => {
     console.log(
       JSON.stringify({
@@ -207,10 +578,9 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
   // Real ACM/ALB clients are lazy SDK singletons (see ./domain.js) — no AWS
   // SDK call happens until a domain command is actually executed, so this
   // stays safe to construct even in unit tests that never touch AWS.
-  const installationId = process.env['DEPLOYZ_INSTALLATION_ID'] ?? '';
   const domainExecutors = createDomainExecutors({
     ...createRealDomainAwsClients(),
-    installationId,
+    installationId: installDeps.installationId,
   });
 
   const verifyingExecutor = createVerifyingExecutor((id, command) =>
@@ -222,7 +592,7 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
   );
 
   return {
-    INSTALL: verifyingExecutor,
+    INSTALL: createInstallExecutor(installDeps),
     REPORT_HEALTH: noop,
     DEPLOY_RELEASE: verifyingExecutor,
     ROLLBACK: verifyingExecutor,
@@ -251,6 +621,13 @@ export interface RelayHandlerDeps {
    * inject a stub here.
    */
   observe?: PollDependencies['observe'];
+  /**
+   * Overrides the deferred-command resume hook. When omitted, falls back to
+   * `createInstallResumer` over the production install/verify/pending
+   * wiring. Tests inject a stub here for the same reason as `observe`: the
+   * real one reads SSM on every poll.
+   */
+  resume?: PollDependencies['resume'];
 }
 
 /**
@@ -261,7 +638,8 @@ export interface RelayHandlerDeps {
  * as the CDK NodejsFunction handler.
  */
 export function createRelayHandler(deps: RelayHandlerDeps) {
-  const executors = deps.executors ?? createDefaultExecutors();
+  const installDeps = createDefaultInstallDeps(process.env['DEPLOYZ_INSTALLATION_ID'] ?? '');
+  const executors = deps.executors ?? createDefaultExecutors(installDeps);
   const idempotency = deps.idempotency ?? new IdempotencyStore();
 
   // Auth state persists across invocations within the same warm Lambda
@@ -317,6 +695,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       observe:
         deps.observe ??
         (() => verifyInstallation({ cfn: getCloudFormationReader(), installationId })),
+      resume: deps.resume ?? createInstallResumer(installDeps),
     };
 
     const result = await pollOnce(pollDeps, authState);

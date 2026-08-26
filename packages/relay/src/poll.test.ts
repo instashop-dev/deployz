@@ -423,3 +423,87 @@ describe('observed state', () => {
     expect(payload.observedState['infraHealth']).toBeNull();
   });
 });
+// ── Deferred commands and resume (§ long-running INSTALL) ────────────────────
+
+describe('pollOnce — deferred commands', () => {
+  const inFlight = {
+    id: 'job-1',
+    deploymentId: 'dep-1',
+    type: 'INSTALL',
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {},
+  };
+
+  function deferringExecutors(): Record<string, CommandExecutor> {
+    const executors = makeExecutors();
+    executors['INSTALL'] = async (cmd) => ({
+      commandId: cmd.id,
+      idempotencyKey: cmd.idempotencyKey,
+      success: false,
+      deferred: true,
+    });
+    return executors;
+  }
+
+  it('does not report a result for a command that has not finished', async () => {
+    const { fetchFn, getRequests } = makeMockFetch({ commandsBody: { commands: [inFlight] } });
+    const deps = makeDeps({ fetchFn, executors: deferringExecutors() });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    expect(getRequests().some((r) => r.url.includes('/result'))).toBe(false);
+  });
+
+  it('counts a deferred command as neither succeeded nor failed', async () => {
+    const { fetchFn } = makeMockFetch({ commandsBody: { commands: [inFlight] } });
+    const deps = makeDeps({ fetchFn, executors: deferringExecutors() });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    const result = await pollOnce(deps, authState);
+
+    expect(result).toMatchObject({ fetched: 1, succeeded: 0, failed: 0, deferred: 1 });
+  });
+
+  it('reports results that a resume hook finished since the last poll', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      resume: async () => [
+        {
+          commandId: 'job-1',
+          idempotencyKey: 'dep-1:INSTALL',
+          success: true,
+          output: { executed: true },
+        },
+      ],
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    const result = await pollOnce(deps, authState);
+
+    const reported = getRequests().find((r) => r.url.includes('/job-1/result'));
+    expect(reported?.method).toBe('POST');
+    expect(result.resumed).toBe(1);
+  });
+
+  it('keeps polling when the resume hook throws', async () => {
+    const { fetchFn } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      resume: async () => {
+        throw new Error('SSM unavailable');
+      },
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    const result = await pollOnce(deps, authState);
+
+    expect(result.ok).toBe(true);
+    expect(result.resumed).toBe(0);
+  });
+});
