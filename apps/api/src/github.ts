@@ -496,6 +496,14 @@ export const GITHUB_FIXTURE_INSTALLATIONS: readonly GithubFixtureInstallation[] 
         private: false,
         defaultBranch: 'main',
       },
+      {
+        id: 'fixture-repo-4',
+        name: 'static-api',
+        fullName: 'deployz-demo/static-api',
+        description: 'Stateless API with no database — deploys without DB resources.',
+        private: false,
+        defaultBranch: 'main',
+      },
     ],
   },
 ];
@@ -902,6 +910,34 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       '',
     ].join('\n'),
     '.env.example': ['DATABASE_URL=', 'REDIS_URL=', ''].join('\n'),
+  },
+  // A stateless API with no database: Dockerfile + HEALTHCHECK + /health +
+  // a migration script, but no PostgreSQL driver. Analysis resolves to
+  // databaseState 'none' and databaseRequired stays false — the app deploys
+  // without RDS resources or DATABASE_* env vars.
+  'deployz-demo/static-api': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'static-api',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx migrate up' },
+      dependencies: { express: '^4.18.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      'const app = express();',
+      "app.get('/health', (_req, res) => res.json({ ok: true }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
   },
 };
 

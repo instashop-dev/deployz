@@ -211,11 +211,13 @@ describe('evaluateCompatibility — REJECT rules (→ NOT_COMPATIBLE)', () => {
     expect(codes(result)).toContain('UNSUPPORTED_DATABASE');
   });
 
-  it('no PostgreSQL → NOT_COMPATIBLE (MISSING_POSTGRESQL)', () => {
+  it('no PostgreSQL (no database at all) → READY, not a reject', () => {
     const result = evaluateCompatibility(analyseRepo(noPostgresTree));
-    expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toEqual(['MISSING_POSTGRESQL']);
-    expect(result.reason).toContain('PostgreSQL');
+    expect(result.verdict).toBe('READY');
+    expect(result.issues).toEqual([]);
+    // A repository with no database is a neutral 'none' state — not the
+    // old MISSING_POSTGRESQL reject.
+    expect(analyseRepo(noPostgresTree).metadata['databaseState']).toBe('none');
   });
 
   it('local filesystem usage → NOT_COMPATIBLE (LOCAL_FILESYSTEM_USAGE)', () => {
@@ -225,17 +227,17 @@ describe('evaluateCompatibility — REJECT rules (→ NOT_COMPATIBLE)', () => {
     expect(result.reason).toContain('filesystem');
   });
 
-  it('lists ALL reject issues when multiple fire (§10 rejections + missing PostgreSQL)', () => {
+  it('lists ALL reject issues when multiple fire (§10 rejections only — missing PostgreSQL is no longer a reject)', () => {
     const result = evaluateCompatibility(analyseRepo(multiRejectTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
     const cs = codes(result);
     expect(cs).toContain('REDIS_UNSUPPORTED');
     expect(cs).toContain('MONGO_DEPENDENCY');
-    expect(cs).toContain('MISSING_POSTGRESQL');
+    // No database at all is not a reject, so MISSING_POSTGRESQL never fires.
+    expect(cs).not.toContain('MISSING_POSTGRESQL');
     // Reason lists every reject issue.
     expect(result.reason).toContain('Redis');
     expect(result.reason).toContain('MongoDB');
-    expect(result.reason).toContain('PostgreSQL');
   });
 });
 
@@ -302,6 +304,43 @@ describe('evaluateCompatibility — READY + verdict precedence', () => {
     // The attention issue must NOT leak into a NOT_COMPATIBLE result.
     expect(codes(result)).not.toContain('MISSING_DOCKERFILE');
     expect(codes(result)).toContain('REDIS_UNSUPPORTED');
+  });
+});
+
+// ==========================================================================
+// databaseState metadata — none | postgres | unsupported
+// ==========================================================================
+
+describe('databaseState metadata', () => {
+  it('postgres app → databaseState "postgres"', () => {
+    expect(analyseRepo(readyTree).metadata['databaseState']).toBe('postgres');
+  });
+
+  it('no-database app → databaseState "none"', () => {
+    expect(analyseRepo(noPostgresTree).metadata['databaseState']).toBe('none');
+  });
+
+  it('unsupported database (MySQL, no Postgres) → databaseState "unsupported"', () => {
+    // mysqlTree carries BOTH pg and mysql2 (it spreads readyTree), so its
+    // databaseState is "postgres" — the Postgres driver wins. Build a
+    // MySQL-only tree (no pg) to exercise the unsupported state.
+    const mysqlOnlyTree: FileTree = {
+      'Dockerfile': readyTree['Dockerfile']!,
+      'package.json': JSON.stringify({
+        name: 'mysql-app',
+        scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+        dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
+      }),
+      'src/index.ts': readyTree['src/index.ts']!,
+    };
+    expect(analyseRepo(mysqlOnlyTree).metadata['databaseState']).toBe('unsupported');
+  });
+
+  it('unsupported Redis (cache, not a DB) does not flip databaseState to unsupported', () => {
+    // A Postgres app that also has an unsupported Redis config stays "postgres"
+    // for DB purposes — the Redis rejection still drives the NOT_COMPATIBLE
+    // verdict, but databaseState reflects the database, not the cache.
+    expect(analyseRepo(unsupportedRedisTree).metadata['databaseState']).toBe('postgres');
   });
 });
 

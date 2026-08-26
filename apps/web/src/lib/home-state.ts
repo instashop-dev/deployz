@@ -137,7 +137,13 @@ export function preparationChecks(application: Application): PreparationCheck[] 
       analysed,
       metadata['hasDockerfile'] === true ? 'Docker' : null,
     ),
-    detectionCheck('Database detected', analysed, application.databaseRequired ? 'PostgreSQL' : null),
+    analysed
+      ? {
+          label: 'Database detected',
+          detail: application.databaseRequired ? 'PostgreSQL' : 'Not required',
+          state: 'complete',
+        }
+      : { label: 'Database detected', detail: null, state: 'pending' },
     detectionCheck('Health endpoint detected', analysed, application.healthPath),
     { label: 'Preparing deployment setup', detail: null, state: analysed ? 'complete' : 'pending' },
   ];

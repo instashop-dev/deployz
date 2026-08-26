@@ -320,6 +320,67 @@ describe('ApplicationStack', () => {
     });
   });
 
+  describe('No-database mode (databaseRequired: false)', () => {
+    it('provisions zero RDS resources and no DB security group', () => {
+      const { template } = synth(false, { databaseRequired: false });
+      template.resourceCountIs('AWS::RDS::DBInstance', 0);
+      template.resourceCountIs('AWS::RDS::DBSubnetGroup', 0);
+      // No DbSecurityGroup resource — the DB ingress SG only exists with RDS.
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toContain('DbSecurityGroup');
+    });
+
+    it('injects no DATABASE_* container env vars or secrets', () => {
+      const { template } = synth(false, { databaseRequired: false });
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toContain('DATABASE_HOST');
+      expect(json).not.toContain('DATABASE_PORT');
+      expect(json).not.toContain('DATABASE_NAME');
+      expect(json).not.toContain('DATABASE_USER');
+      expect(json).not.toContain('DATABASE_PASSWORD');
+    });
+
+    it('omits the DB stack outputs (DbHost / DbSecretArn)', () => {
+      const { template } = synth(false, { databaseRequired: false });
+      const outputs = Object.keys(template.findOutputs('*'));
+      expect(outputs).not.toContain('ExportApplicationTestDbHost');
+      expect(outputs).not.toContain('ExportApplicationTestDbSecretArn');
+      // Non-DB outputs are unaffected.
+      expect(outputs).toContain('ExportApplicationTestStorageBucketName');
+      expect(outputs).toContain('ExportApplicationTestPublicEndpoint');
+    });
+
+    it('omits the generated DB-password secret', () => {
+      const { template } = synth(false, { databaseRequired: false });
+      // No SecretsManager secret carries a generated DB password.
+      const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        { Properties?: { GenerateSecretString?: Record<string, unknown> } }
+      >;
+      for (const [, secret] of Object.entries(secrets)) {
+        expect(secret.Properties?.GenerateSecretString?.['GenerateStringKey']).not.toBe(
+          'password',
+        );
+      }
+    });
+
+    it('synthesizes without errors in Express mode without a database', () => {
+      const { template } = synth(true, { databaseRequired: false });
+      template.resourceCountIs('AWS::RDS::DBInstance', 0);
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toContain('DATABASE_HOST');
+      expect(json).not.toContain('DATABASE_PASSWORD');
+    });
+
+    it('defaults to provisioning RDS when databaseRequired is unset (no regression)', () => {
+      const { template } = synth();
+      template.resourceCountIs('AWS::RDS::DBInstance', 1);
+      const outputs = Object.keys(template.findOutputs('*'));
+      expect(outputs).toContain('ExportApplicationTestDbHost');
+      expect(outputs).toContain('ExportApplicationTestDbSecretArn');
+    });
+  });
+
   describe('ElastiCache Valkey cache (Redis MVP)', () => {
     it('provisions zero ElastiCache resources and no REDIS env vars when redisRequired is unset', () => {
       const { template } = synth();

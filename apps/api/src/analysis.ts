@@ -242,7 +242,6 @@ const UNSUPPORTED_META: Partial<Record<string, string>> = {
   ELASTICSEARCH_DEPENDENCY: 'Elasticsearch / OpenSearch is not supported',
   UNSUPPORTED_DATABASE: 'Unsupported database',
   UNSUPPORTED_DEPENDENCY: 'Unsupported dependency',
-  MISSING_POSTGRESQL: 'No PostgreSQL database detected',
   LOCAL_FILESYSTEM_USAGE: 'Persistent local storage is not supported',
 };
 
