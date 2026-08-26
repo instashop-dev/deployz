@@ -132,12 +132,64 @@ describe('verifyInstallation', () => {
   });
 
   it('honours an explicit stack name', async () => {
+    let requestedStackName: string | undefined;
+    const cfn: CloudFormationReader = {
+      describeStack: async (stackName) => {
+        requestedStackName = stackName;
+        return { found: false };
+      },
+      describeStackResources: async () => [],
+    };
+
     const result = await verifyInstallation({
-      cfn: reader({ found: false }),
+      cfn,
       installationId: INSTALLATION,
       stackName: 'custom-stack',
     });
 
+    expect(requestedStackName).toBe('custom-stack');
     expect(result.reason).toContain('custom-stack');
+  });
+
+  it('fails closed when describeStack throws instead of returning a StackLookup', async () => {
+    const cfn: CloudFormationReader = {
+      describeStack: async () => {
+        throw new Error('network layer exploded');
+      },
+      describeStackResources: async () => COMPLETE_RESOURCES,
+    };
+
+    const result = await verifyInstallation({ cfn, installationId: INSTALLATION });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBeDefined();
+    const errorCheck = result.checks.find((c) => c.name === 'verification-error');
+    expect(errorCheck).toBeDefined();
+    expect(errorCheck?.passed).toBe(false);
+    expect(errorCheck?.detail).toContain('network layer exploded');
+  });
+
+  it('fails closed when describeStackResources throws, preserving earlier passing checks', async () => {
+    const cfn: CloudFormationReader = {
+      describeStack: async () => completeStack(),
+      describeStackResources: async () => {
+        throw new Error('throttled by AWS');
+      },
+    };
+
+    const result = await verifyInstallation({ cfn, installationId: INSTALLATION });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBeDefined();
+
+    // Earlier checks that ran before the throw must still be visible.
+    expect(result.checks.find((c) => c.name === 'stack-exists')).toMatchObject({ passed: true });
+    expect(result.checks.find((c) => c.name === 'stack-complete')).toMatchObject({ passed: true });
+    expect(result.checks.find((c) => c.name === 'stack-tagged')).toMatchObject({ passed: true });
+
+    const errorCheck = result.checks.find((c) => c.name === 'verification-error');
+    expect(errorCheck).toBeDefined();
+    expect(errorCheck?.passed).toBe(false);
+    expect(errorCheck?.detail).toContain('throttled by AWS');
   });
 });

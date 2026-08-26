@@ -15,6 +15,12 @@
  * EVERY failure mode resolves to `verified: false`. A verifier that treated
  * an unreadable answer as a good one would reproduce the bug it exists to
  * catch.
+ *
+ * The no-throw guarantee is enforced here, not merely documented on
+ * `CloudFormationReader`: the whole body runs inside a try/catch, so even a
+ * reader implementation that breaks its contract (an unmapped error type, a
+ * network-layer throw) still resolves to `verified: false` rather than
+ * crashing the caller.
  */
 
 import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
@@ -92,8 +98,25 @@ const CACHE_RESOURCE = {
 } as const;
 
 export async function verifyInstallation(options: VerifyOptions): Promise<VerificationResult> {
-  const stackName = options.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
   const checks: VerificationCheck[] = [];
+  try {
+    return await runChecks(options, checks);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    checks.push({
+      name: 'verification-error',
+      passed: false,
+      detail: `Verification could not complete: ${message}`,
+    });
+    return conclude(checks);
+  }
+}
+
+async function runChecks(
+  options: VerifyOptions,
+  checks: VerificationCheck[],
+): Promise<VerificationResult> {
+  const stackName = options.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
 
   // 1. The stack exists.
   const lookup = await options.cfn.describeStack(stackName);
