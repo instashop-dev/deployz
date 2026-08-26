@@ -23,6 +23,11 @@
  * crashing the caller.
  */
 
+import {
+  CloudFormationClient,
+  DescribeStackResourcesCommand,
+  DescribeStacksCommand,
+} from '@aws-sdk/client-cloudformation';
 import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
 
 // ── Observed shapes ─────────────────────────────────────────────────────────
@@ -191,4 +196,72 @@ function conclude(checks: VerificationCheck[]): VerificationResult {
   return firstFailure
     ? { verified: false, checks, reason: firstFailure.detail }
     : { verified: true, checks };
+}
+
+// ── Real reader ─────────────────────────────────────────────────────────────
+
+/** The one method of the SDK client this module uses. */
+interface SendsCommands {
+  send(command: unknown): Promise<unknown>;
+}
+
+/**
+ * Wrap a CloudFormation client as a reader.
+ *
+ * Every throw becomes `found: false` or an empty resource list — that is the
+ * fail-closed rule, implemented once here so the pure logic above never has
+ * to handle an exception. Split out from `createCloudFormationReader` so it
+ * can be tested against a fake client with no SDK construction.
+ */
+export function toReader(client: SendsCommands): CloudFormationReader {
+  return {
+    async describeStack(stackName: string): Promise<StackLookup> {
+      try {
+        const response = (await client.send(
+          new DescribeStacksCommand({ StackName: stackName }),
+        )) as { Stacks?: { StackName?: string; StackStatus?: string; Tags?: { Key?: string; Value?: string }[] }[] };
+
+        const stack = response.Stacks?.[0];
+        if (!stack?.StackName || !stack.StackStatus) return { found: false };
+
+        const tags: Record<string, string> = {};
+        for (const tag of stack.Tags ?? []) {
+          if (tag.Key !== undefined && tag.Value !== undefined) tags[tag.Key] = tag.Value;
+        }
+
+        return {
+          found: true,
+          stack: { stackName: stack.StackName, status: stack.StackStatus, tags },
+        };
+      } catch (err) {
+        const errorCode = err instanceof Error ? err.name : undefined;
+        return errorCode ? { found: false, errorCode } : { found: false };
+      }
+    },
+
+    async describeStackResources(stackName: string): Promise<StackResource[]> {
+      try {
+        const response = (await client.send(
+          new DescribeStackResourcesCommand({ StackName: stackName }),
+        )) as { StackResources?: { LogicalResourceId?: string; ResourceType?: string; ResourceStatus?: string }[] };
+
+        return (response.StackResources ?? []).flatMap((resource) =>
+          resource.LogicalResourceId && resource.ResourceType && resource.ResourceStatus
+            ? [{
+                logicalId: resource.LogicalResourceId,
+                type: resource.ResourceType,
+                status: resource.ResourceStatus,
+              }]
+            : [],
+        );
+      } catch {
+        return [];
+      }
+    },
+  };
+}
+
+/** Production reader — credentials come from the standard SDK chain. */
+export function createCloudFormationReader(region?: string): CloudFormationReader {
+  return toReader(new CloudFormationClient(region === undefined ? {} : { region }));
 }

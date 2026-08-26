@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   verifyInstallation,
+  toReader,
   type CloudFormationReader,
   type StackResource,
   type StackLookup,
@@ -191,5 +192,74 @@ describe('verifyInstallation', () => {
     expect(errorCheck).toBeDefined();
     expect(errorCheck?.passed).toBe(false);
     expect(errorCheck?.detail).toContain('throttled by AWS');
+  });
+});
+
+describe('toReader', () => {
+  it('maps a described stack into a lookup', async () => {
+    const client = {
+      send: async () => ({
+        Stacks: [
+          {
+            StackName: 'deployz-app',
+            StackStatus: 'CREATE_COMPLETE',
+            Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }],
+          },
+        ],
+      }),
+    };
+
+    const lookup = await toReader(client).describeStack('deployz-app');
+
+    expect(lookup).toEqual({
+      found: true,
+      stack: {
+        stackName: 'deployz-app',
+        status: 'CREATE_COMPLETE',
+        tags: { 'deployz:installation': INSTALLATION },
+      },
+    });
+  });
+
+  it('reports a refused lookup as not found, with the error code', async () => {
+    const client = {
+      send: async () => {
+        throw Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
+      },
+    };
+
+    expect(await toReader(client).describeStack('deployz-app')).toEqual({
+      found: false,
+      errorCode: 'AccessDeniedException',
+    });
+  });
+
+  it('reports an empty Stacks array as not found', async () => {
+    const client = { send: async () => ({ Stacks: [] }) };
+    expect(await toReader(client).describeStack('deployz-app')).toEqual({ found: false });
+  });
+
+  it('returns no resources when the describe call throws', async () => {
+    const client = {
+      send: async () => {
+        throw new Error('throttled');
+      },
+    };
+    expect(await toReader(client).describeStackResources('deployz-app')).toEqual([]);
+  });
+
+  it('drops resources missing any required field', async () => {
+    const client = {
+      send: async () => ({
+        StackResources: [
+          { LogicalResourceId: 'A', ResourceType: 'AWS::ECS::Service', ResourceStatus: 'CREATE_COMPLETE' },
+          { LogicalResourceId: 'B', ResourceType: 'AWS::S3::Bucket' },
+        ],
+      }),
+    };
+
+    expect(await toReader(client).describeStackResources('deployz-app')).toEqual([
+      { logicalId: 'A', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+    ]);
   });
 });
