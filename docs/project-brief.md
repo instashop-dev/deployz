@@ -127,6 +127,8 @@ Web/API container
       │
       ├── S3
       │
+      ├── Optional Redis cache
+      │
       └── Optional background worker
 ```
 
@@ -394,13 +396,35 @@ Not supported:
 
 - MySQL
 - MongoDB
-- Redis as a required dependency
 - Elasticsearch/OpenSearch
 - ClickHouse
 - externally managed customer databases
 - existing RDS instances
 
 Additional services can be added later based on actual demand.
+
+---
+
+## Cache (Redis)
+
+Supported:
+
+**Standard standalone Redis-compatible usage** — caching, sessions, queues, background jobs, rate limiting, distributed locks, temporary application state.
+
+When a repository requires Redis, Deployz detects it automatically and provisions a private single-node cache using Amazon ElastiCache (Valkey engine). The application's expected connection environment variables (for example `REDIS_URL`, `REDIS_HOST`/`REDIS_PORT`, `CELERY_BROKER_URL`) are injected automatically. The cache belongs to the deployment environment, is reused across redeployments, and is removed with the deployment.
+
+No Redis configuration is exposed to the vendor or customer — no node sizes, versions, replicas, or tuning.
+
+Not supported:
+
+- Redis Cluster
+- Redis Stack / RedisJSON / RediSearch / custom modules
+- TLS-required Redis clients (`rediss://`)
+- public Redis endpoints
+- bring-your-own or existing Redis resources
+- multiple Redis instances per environment
+
+Applications requiring unsupported Redis features fail during analysis, before any infrastructure is created.
 
 ---
 
@@ -501,6 +525,7 @@ Customer AWS Account
 │       ▼                ▼         │
 │   RDS PostgreSQL      S3         │
 │                                  │
+│   ElastiCache (Valkey, optional)  │
 │   Secrets Manager                 │
 │   CloudWatch                      │
 │                                  │
@@ -560,6 +585,7 @@ The page explains:
 - ECS application
 - Load balancer
 - PostgreSQL database
+- Redis cache (only when the application requires it)
 - S3 storage
 - Secrets
 - Monitoring
@@ -757,6 +783,7 @@ It should detect:
 - environment variables
 - database usage
 - PostgreSQL requirements
+- Redis requirements (with confidence and purpose)
 - local filesystem usage
 - background worker
 - S3/object storage usage
@@ -778,6 +805,7 @@ Example:
 
 ✓ Docker container detected\
 ✓ PostgreSQL detected\
+✓ Redis detected — will be managed automatically\
 ✓ Port 3000 detected\
 ✓ Stateless web service\
 ✓ Environment configuration detected
@@ -815,7 +843,7 @@ If Deployz detects something fundamental:
 
 Reason:
 
-> Persistent Redis is required.
+> Redis Cluster mode is required.
 
 It should not attempt clever infrastructure generation to work around the contract.
 
@@ -1520,6 +1548,7 @@ Acme Software
 Deployz will create:
 • Application runtime
 • PostgreSQL database
+• Redis cache
 • Storage
 • Networking
 • Monitoring
@@ -1794,6 +1823,7 @@ Track:
 - ECS/Fargate deployment
 - Load balancer
 - RDS PostgreSQL
+- ElastiCache Valkey (when Redis is required)
 - S3
 - Secrets Manager
 - CloudWatch
@@ -1834,7 +1864,6 @@ Track:
 
 Potential future extensions:
 
-- Redis/Valkey
 - MySQL
 - multiple workers
 - scheduled jobs
@@ -2485,7 +2514,7 @@ One opinionated AWS architecture.
 
 ### MVP application constraint
 
-One containerised web/API application, optional worker, PostgreSQL and S3.
+One containerised web/API application, optional worker, PostgreSQL, S3, and an optional managed Redis cache.
 
 ### Primary UX promise
 
