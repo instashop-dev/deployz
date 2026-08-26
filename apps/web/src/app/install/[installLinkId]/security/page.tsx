@@ -49,16 +49,23 @@ const domainIngressWriteActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter(
 );
 
 // PHASE_2_CACHE_ACTIONS splits the same way, but three ways instead of two:
-// Create* needs the request tag (the cache doesn't exist yet), Delete/
-// Modify/tag-management needs the resource tag (the cache already carries
-// it), and Describe* carries no condition — ElastiCache, like the load
-// balancer above, does not support resource-level permissions on those
-// calls. Mirrors the three IAM statements bootstrap-stack.ts builds.
-const cacheCreateActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
-  action.startsWith('elasticache:Create'),
-);
+// Create needs the request tag (the cache doesn't exist yet), Delete/Modify/
+// read-tags needs the resource tag (the cache already carries it), and
+// Describe carries no condition — ElastiCache, like the load balancer above,
+// does not support resource-level permissions on those calls. Mirrors the
+// three IAM statements bootstrap-stack.ts builds.
+//
+// elasticache:AddTagsToResource is grouped with CREATE, not manage, even
+// though its name suggests "manage" — a resource-tag condition can never
+// authorize the FIRST call that tags a brand-new, untagged cache, so it has
+// to ride along with the request-tag-conditioned create actions (same
+// reasoning bootstrap-stack.ts applies to acm:AddTagsToCertificate).
 const cacheDescribeActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
   action.startsWith('elasticache:Describe'),
+);
+const cacheCreateActions = PHASE_2_CACHE_ACTIONS.filter(
+  (action) =>
+    action.startsWith('elasticache:Create') || action === 'elasticache:AddTagsToResource',
 );
 const cacheManageActions = PHASE_2_CACHE_ACTIONS.filter(
   (action) => !cacheCreateActions.includes(action) && !cacheDescribeActions.includes(action),
@@ -296,13 +303,13 @@ export default async function SecurityDetailsPage({
             <p>Reconcile your app&apos;s running resources — same tag boundary:</p>
             <ActionList actions={PHASE_2_APP_RESOURCE_ACTIONS} />
             <p>
-              Create your app&apos;s managed cache — only when the request carries your
-              installation tag (
+              Create your app&apos;s managed cache, and tag it as belonging to your installation
+              — only when the request carries your installation tag (
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
             </p>
             <ActionList actions={cacheCreateActions} />
             <p>
-              Modify, remove, and tag it — only on a cache already carrying your tag (
+              Modify, remove, or read the tags on it — only on a cache already carrying your tag (
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
             </p>
             <ActionList actions={cacheManageActions} />

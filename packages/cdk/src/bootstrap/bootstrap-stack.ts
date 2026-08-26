@@ -368,18 +368,37 @@ export class BootstrapStack extends Stack {
     //   - Create* actions provision a brand-new resource that doesn't exist
     //     yet, so (like acm:RequestCertificate) they can only be scoped by the
     //     REQUEST tag applied at creation time, not a resource tag.
-    //   - Delete/Modify/tag-management actions operate on a resource that
-    //     already carries the installation's tag, so they are scoped by the
-    //     RESOURCE tag (like ACM manage / stack manage).
+    //   - Delete/Modify actions operate on a resource that already carries
+    //     the installation's tag, so they are scoped by the RESOURCE tag
+    //     (like ACM manage / stack manage).
     //   - Describe* actions do NOT support resource-level permissions in
     //     ElastiCache (same limitation as the ELB Describe* calls above), so
     //     they stay condition-free rather than carrying a condition that
     //     would never actually be evaluated.
-    const cacheCreateActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
-      action.startsWith('elasticache:Create'),
-    );
+    //
+    // elasticache:AddTagsToResource sits in the CREATE bucket, not manage,
+    // even though its name suggests "manage" — same reasoning ACM applies to
+    // acm:AddTagsToCertificate (see PHASE_2_ACM_REQUEST_ACTIONS above). A
+    // ResourceTag condition can only match a tag the resource ALREADY
+    // carries; it can never authorize the FIRST call that applies
+    // deployz:installation to a brand-new, untagged cache — that would be
+    // asking the resource to already have the tag the call is meant to add.
+    // Two things make this safe: (1) the primary tagging path is tags-on-
+    // create — Task 7's ApplicationStack sets `Tags` directly on
+    // CfnCacheCluster/CfnSubnetGroup, so CloudFormation creates them already
+    // tagged via the Create* calls (which the RequestTag condition does
+    // cover); (2) any subsequent AddTagsToResource — e.g. CloudFormation
+    // re-applying the full tag set on a stack update — resends
+    // deployz:installation as part of the request, so it still satisfies a
+    // RequestTag condition. ListTagsForResource stays in MANAGE: it only
+    // reads tags off a resource that (by the time it's called) already
+    // carries them, so ResourceTag is the correct — and satisfiable — check.
     const cacheDescribeActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
       action.startsWith('elasticache:Describe'),
+    );
+    const cacheCreateActions = PHASE_2_CACHE_ACTIONS.filter(
+      (action) =>
+        action.startsWith('elasticache:Create') || action === 'elasticache:AddTagsToResource',
     );
     const cacheManageActions = PHASE_2_CACHE_ACTIONS.filter(
       (action) => !cacheCreateActions.includes(action) && !cacheDescribeActions.includes(action),

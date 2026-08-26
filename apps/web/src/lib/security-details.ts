@@ -23,11 +23,14 @@
  *     and managing the TLS certificate for a custom domain you configure, and
  *     attaching it to the deployment's load balancer (custom-domains MVP).
  *     Also includes creating and reconciling a managed cache for applications
- *     that need one (Redis MVP) — cache creation requires the request tag,
- *     deleting/modifying/tagging it requires the resource tag, and its
- *     `Describe*` reads carry no condition for the same reason the load
- *     balancer's `Describe*` reads don't: AWS does not support resource-level
- *     permissions on those API calls.
+ *     that need one (Redis MVP) — cache creation, including the first call
+ *     that tags a brand-new cache, requires the request tag (a resource tag
+ *     condition can never authorize tagging an untagged resource for the
+ *     first time — same reasoning as `acm:AddTagsToCertificate` above);
+ *     deleting/modifying it or reading its tags back requires the resource
+ *     tag; and its `Describe*` reads carry no condition for the same reason
+ *     the load balancer's `Describe*` reads don't: AWS does not support
+ *     resource-level permissions on those API calls.
  *   - A permissions boundary (union of phase 1 + phase 2) caps the relay role
  *     forever — its permissions can never grow beyond what is listed here.
  *   - Data boundary (§16): the relay writes logs but is never granted
@@ -106,10 +109,15 @@ export const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
 ] as const;
 
 /**
- * Phase 2 — provision and reconcile the application's managed cache (requires
- * the request tag to create, the resource tag to manage/delete). Describe*
- * actions carry no condition: AWS does not support resource-level permissions
- * on ElastiCache Describe* calls, mirroring the ELB Describe* exception above.
+ * Phase 2 — provision and reconcile the application's managed cache. The
+ * create actions require the request tag — AddTagsToResource is grouped with
+ * them, not with delete/modify, because a resource-tag condition can never
+ * authorize the FIRST tagging of a brand-new, untagged cache (same reasoning
+ * as acm:AddTagsToCertificate in PHASE_2_ACM_REQUEST_ACTIONS above). The
+ * delete, modify, and list-tags actions require the resource tag (the cache
+ * already carries it by then). The describe actions carry no condition: AWS
+ * does not support resource-level permissions on ElastiCache describe calls,
+ * mirroring the ELB describe exception above.
  */
 export const PHASE_2_CACHE_ACTIONS = [
   'elasticache:CreateCacheCluster',

@@ -348,20 +348,32 @@ describe('BootstrapStack', () => {
     expect(actions).not.toContain('elasticache:*');
 
     // Statement structure mirrors the ACM/domain-ingress precedent:
-    // Create* is request-tag-conditioned (brand-new resource, no tag yet),
-    // Delete/Modify/tag-management is resource-tag-conditioned (resource
-    // already carries the installation tag), and Describe* is condition-free
-    // because ElastiCache Describe* calls don't support resource-level
+    // Create is request-tag-conditioned (brand-new resource, no tag yet),
+    // Delete/Modify/read-tags is resource-tag-conditioned (resource already
+    // carries the installation tag), and Describe is condition-free because
+    // ElastiCache Describe* calls don't support resource-level
     // permissions/conditions.
+    //
+    // elasticache:AddTagsToResource sits in the CREATE bucket, not manage:
+    // a resource-tag condition can never authorize the FIRST call that tags
+    // a brand-new, untagged cache (same reasoning bootstrap-stack.ts applies
+    // to acm:AddTagsToCertificate, which rides with acm:RequestCertificate
+    // rather than the ACM manage/delete bucket).
     const statements = stack.provisionerPolicy.document.toJSON()[
       'Statement'
     ] as Array<Record<string, unknown>>;
     const findBySid = (sid: string) => statements.find((s) => s['Sid'] === sid);
+    const sortedActions = (statement: Record<string, unknown> | undefined): string[] =>
+      [...((statement?.['Action'] as string[] | undefined) ?? [])].sort();
 
     const cacheCreateStatement = findBySid('ProvisionerCacheCreate');
     expect(cacheCreateStatement).toBeDefined();
-    expect(cacheCreateStatement?.['Action']).toEqual(
-      expect.arrayContaining(['elasticache:CreateCacheCluster', 'elasticache:CreateCacheSubnetGroup']),
+    expect(sortedActions(cacheCreateStatement)).toEqual(
+      [
+        'elasticache:AddTagsToResource',
+        'elasticache:CreateCacheCluster',
+        'elasticache:CreateCacheSubnetGroup',
+      ].sort(),
     );
     expect(
       (cacheCreateStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
@@ -371,15 +383,16 @@ describe('BootstrapStack', () => {
 
     const cacheManageStatement = findBySid('ProvisionerCacheManage');
     expect(cacheManageStatement).toBeDefined();
-    expect(cacheManageStatement?.['Action']).toEqual(
-      expect.arrayContaining([
+    expect(sortedActions(cacheManageStatement)).toEqual(
+      [
         'elasticache:DeleteCacheCluster',
         'elasticache:ModifyCacheCluster',
         'elasticache:DeleteCacheSubnetGroup',
-        'elasticache:AddTagsToResource',
         'elasticache:ListTagsForResource',
-      ]),
+      ].sort(),
     );
+    // AddTagsToResource is explicitly NOT in the manage bucket.
+    expect(cacheManageStatement?.['Action']).not.toContain('elasticache:AddTagsToResource');
     expect(
       (cacheManageStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
         'StringEquals'
@@ -388,8 +401,8 @@ describe('BootstrapStack', () => {
 
     const cacheDescribeStatement = findBySid('ProvisionerCacheDescribe');
     expect(cacheDescribeStatement).toBeDefined();
-    expect(cacheDescribeStatement?.['Action']).toEqual(
-      expect.arrayContaining(['elasticache:DescribeCacheClusters', 'elasticache:DescribeCacheSubnetGroups']),
+    expect(sortedActions(cacheDescribeStatement)).toEqual(
+      ['elasticache:DescribeCacheClusters', 'elasticache:DescribeCacheSubnetGroups'].sort(),
     );
     expect(cacheDescribeStatement?.['Condition']).toBeUndefined();
 
