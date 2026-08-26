@@ -423,6 +423,17 @@ export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;
 /** Default CloudFormation stack name for the customer bootstrap stack. */
 export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
 
+/**
+ * CloudFormation stack name for a customer's application stack.
+ *
+ * Pinned here rather than at a call site because two independent components
+ * must agree on it: whatever creates the stack, and the verifier that looks it
+ * up afterwards. A disagreement between them reads exactly like a failed
+ * install. Matches the ECS `serviceName` in
+ * `packages/cdk/src/application/application-stack.ts:512`.
+ */
+export const DEFAULT_APPLICATION_STACK_NAME = 'deployz-app';
+
 /** The bootstrap stack's non-secret control-plane parameter. */
 export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 
