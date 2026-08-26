@@ -106,7 +106,19 @@ describe('relay handler (integration)', () => {
         ],
       });
 
-      const handler = createRelayHandler({ secretsClient, fetchFn });
+      // Inject a fake INSTALL executor so this test exercises the poll
+      // cycle (register → fetch → execute → report) without reaching AWS —
+      // the default executors call the real CloudFormationReader.
+      const executors: Record<string, CommandExecutor> = {
+        INSTALL: async (cmd) => ({
+          commandId: cmd.id,
+          idempotencyKey: cmd.idempotencyKey,
+          success: true,
+          output: { executed: true, type: cmd.type },
+        }),
+      };
+
+      const handler = createRelayHandler({ secretsClient, fetchFn, executors });
       const event = makeScheduledEvent();
 
       // Should not throw.
