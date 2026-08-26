@@ -4,7 +4,17 @@ import type { ScheduledEvent } from 'aws-lambda';
 
 import { type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
-import { createRelayHandler } from './index.js';
+import { createRelayHandler, createVerifyingExecutor, readVerifyOptionsFromPayload } from './index.js';
+import type { VerificationResult } from './verify.js';
+
+// Fast stub for the §59 observe hook — the default falls back to a real
+// CloudFormationReader, which would otherwise reach out to AWS on every
+// poll cycle these integration tests run. No test in this file exercises
+// `observe` behavior itself, so a fixed "verified" result is fine everywhere.
+const stubObserve = async (): Promise<VerificationResult> => ({
+  verified: true,
+  checks: [],
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -106,7 +116,19 @@ describe('relay handler (integration)', () => {
         ],
       });
 
-      const handler = createRelayHandler({ secretsClient, fetchFn });
+      // Inject a fake INSTALL executor so this test exercises the poll
+      // cycle (register → fetch → execute → report) without reaching AWS —
+      // the default executors call the real CloudFormationReader.
+      const executors: Record<string, CommandExecutor> = {
+        INSTALL: async (cmd) => ({
+          commandId: cmd.id,
+          idempotencyKey: cmd.idempotencyKey,
+          success: true,
+          output: { executed: true, type: cmd.type },
+        }),
+      };
+
+      const handler = createRelayHandler({ secretsClient, fetchFn, executors, observe: stubObserve });
       const event = makeScheduledEvent();
 
       // Should not throw.
@@ -191,7 +213,7 @@ describe('relay handler (integration)', () => {
 
       const fetchFn = makeFetchFn(200, { commands: [] });
 
-      const handler = createRelayHandler({ secretsClient, fetchFn });
+      const handler = createRelayHandler({ secretsClient, fetchFn, observe: stubObserve });
 
       // First invocation — should read the secret.
       await handler(makeScheduledEvent());
@@ -264,7 +286,7 @@ describe('relay handler (integration)', () => {
 
       const fetchFn = makeFetchFn(200, { commands: [command] });
 
-      const handler = createRelayHandler({ secretsClient, fetchFn, executors, idempotency });
+      const handler = createRelayHandler({ secretsClient, fetchFn, executors, idempotency, observe: stubObserve });
 
       // First invocation — executes the command.
       await handler(makeScheduledEvent());
@@ -276,5 +298,157 @@ describe('relay handler (integration)', () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe('INSTALL verification gate', () => {
+  const command = {
+    id: 'cmd-1',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {},
+  };
+
+  it('fails the install when the account cannot be verified', async () => {
+    const executor = createVerifyingExecutor(async () => ({
+      verified: false,
+      checks: [{ name: 'stack-exists', passed: false, detail: 'No CloudFormation stack named "deployz-app"' }],
+      reason: 'No CloudFormation stack named "deployz-app"',
+    }));
+
+    const result = await executor(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toContain('deployz-app');
+    expect(result.output).toMatchObject({ checks: expect.any(Array) });
+  });
+
+  it('succeeds when the account verifies', async () => {
+    const executor = createVerifyingExecutor(async () => ({
+      verified: true,
+      checks: [{ name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' }],
+    }));
+
+    const result = await executor(command);
+
+    expect(result.success).toBe(true);
+    expect(result.failureCode).toBeUndefined();
+  });
+
+  it('fails the install when verification itself throws', async () => {
+    const executor = createVerifyingExecutor(async () => {
+      throw new Error('boom');
+    });
+
+    const result = await executor(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+  });
+});
+
+// The gate closes the same hole for DEPLOY_RELEASE and ROLLBACK: both mapped
+// to the stub `noop` executor before this fix, so a vendor clicking "Deploy
+// Update" after a correctly-gated INSTALL failure could still walk straight
+// past the gate to a billable Healthy state over an empty account.
+describe('DEPLOY_RELEASE / ROLLBACK verification gate', () => {
+  it.each(['DEPLOY_RELEASE', 'ROLLBACK'] as const)(
+    'fails %s when the account cannot be verified',
+    async (type) => {
+      const command = {
+        id: `cmd-${type}`,
+        deploymentId: 'dep-1',
+        type,
+        idempotencyKey: `dep-1:${type}`,
+        payload: {},
+      };
+
+      const executor = createVerifyingExecutor(async () => ({
+        verified: false,
+        checks: [{ name: 'stack-exists', passed: false, detail: 'No CloudFormation stack named "deployz-app"' }],
+        reason: 'No CloudFormation stack named "deployz-app"',
+      }));
+
+      const result = await executor(command);
+
+      expect(result.success).toBe(false);
+      expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    },
+  );
+
+  it.each(['DEPLOY_RELEASE', 'ROLLBACK'] as const)('succeeds %s when the account verifies', async (type) => {
+    const command = {
+      id: `cmd-${type}`,
+      deploymentId: 'dep-1',
+      type,
+      idempotencyKey: `dep-1:${type}`,
+      payload: {},
+    };
+
+    const executor = createVerifyingExecutor(async () => ({
+      verified: true,
+      checks: [{ name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' }],
+    }));
+
+    const result = await executor(command);
+
+    expect(result.success).toBe(true);
+    expect(result.failureCode).toBeUndefined();
+  });
+});
+
+// The relay has command.payload in hand and, before this fix, ignored it —
+// verifyInstallation always defaulted redisRequired to false. That let a
+// deployment which genuinely requires Redis pass the relay gate over an
+// account with no ElastiCache cluster, disagreeing with the operator CLI's
+// `--redis` flag about the same installation.
+describe('createVerifyingExecutor passes the command through to verify()', () => {
+  it('hands the full command to the verify callback, not just the installation id', async () => {
+    const command = {
+      id: 'cmd-payload',
+      deploymentId: 'dep-1',
+      type: 'INSTALL' as const,
+      idempotencyKey: 'dep-1:INSTALL',
+      payload: { redisRequired: true, stackName: 'custom-stack' },
+    };
+
+    let seenCommand: typeof command | undefined;
+    const executor = createVerifyingExecutor(async (_installationId, cmd) => {
+      seenCommand = cmd as typeof command;
+      return { verified: true, checks: [] };
+    });
+
+    await executor(command);
+
+    expect(seenCommand?.payload).toEqual({ redisRequired: true, stackName: 'custom-stack' });
+  });
+});
+
+describe('readVerifyOptionsFromPayload', () => {
+  it('reads redisRequired and stackName when both are present and well-typed', () => {
+    expect(readVerifyOptionsFromPayload({ redisRequired: true, stackName: 'deployz-app-custom' })).toEqual({
+      redisRequired: true,
+      stackName: 'deployz-app-custom',
+    });
+  });
+
+  it('returns an empty object when the payload has neither field', () => {
+    expect(readVerifyOptionsFromPayload({})).toEqual({});
+  });
+
+  it('ignores a non-boolean redisRequired rather than trusting it', () => {
+    expect(readVerifyOptionsFromPayload({ redisRequired: 'true' })).toEqual({});
+    expect(readVerifyOptionsFromPayload({ redisRequired: 1 })).toEqual({});
+  });
+
+  it('ignores a non-string or empty stackName rather than trusting it', () => {
+    expect(readVerifyOptionsFromPayload({ stackName: 42 })).toEqual({});
+    expect(readVerifyOptionsFromPayload({ stackName: '' })).toEqual({});
+  });
+
+  it('reads redisRequired: false explicitly, not just truthy values', () => {
+    expect(readVerifyOptionsFromPayload({ redisRequired: false })).toEqual({ redisRequired: false });
   });
 });

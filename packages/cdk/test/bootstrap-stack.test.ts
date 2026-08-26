@@ -480,6 +480,22 @@ describe('BootstrapStack', () => {
     expect(outputs).toContain('ExportBootstrapTestInstallationId');
   });
 
+  it('lets the relay read its own application stack', () => {
+    const template = Template.fromStack(new BootstrapStack(new App(), 'TestStack'));
+
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Sid: 'RelayVerifyInstallation',
+            Effect: 'Allow',
+            Action: ['cloudformation:DescribeStacks', 'cloudformation:DescribeStackResources'],
+          }),
+        ]),
+      },
+    });
+  });
+
   it('matches the committed snapshot', () => {
     const { template } = synth();
     expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();

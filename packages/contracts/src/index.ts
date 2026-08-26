@@ -423,6 +423,29 @@ export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;
 /** Default CloudFormation stack name for the customer bootstrap stack. */
 export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
 
+/**
+ * CloudFormation stack name for a customer's application stack.
+ *
+ * Pinned here rather than at a call site because two independent components
+ * must agree on it: whatever creates the stack, and the verifier that looks it
+ * up afterwards. A disagreement between them reads exactly like a failed
+ * install.
+ *
+ * No production code creates this stack yet — `INSTALL` is still a stub.
+ * This constant is the name whoever implements it must use for
+ * `CreateStack`'s `StackName`, since `verifyInstallation()` already looks up
+ * `DEFAULT_APPLICATION_STACK_NAME` by default. It is NOT pinned by the ECS
+ * `serviceName` in `packages/cdk/src/application/application-stack.ts:512` —
+ * a service name and a stack name are different namespaces, so treating that
+ * as a match would present an unpinned contract as a pinned one. The test
+ * harness currently configures the application stack name as the different
+ * literal `'deployz-application'` (consumed by
+ * `packages/cdk/test/golden-path-e2e.test.ts` and `integration-harness.test.ts`
+ * via `packages/cdk/src/integration/runner.ts`); reconcile that with this
+ * constant when `INSTALL` lands.
+ */
+export const DEFAULT_APPLICATION_STACK_NAME = 'deployz-app';
+
 /** The bootstrap stack's non-secret control-plane parameter. */
 export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 

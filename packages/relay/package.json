@@ -13,6 +13,10 @@
     "./auth": {
       "types": "./dist/auth.d.ts",
       "import": "./dist/auth.js"
+    },
+    "./verify": {
+      "types": "./dist/verify.d.ts",
+      "import": "./dist/verify.js"
     }
   },
   "scripts": {
@@ -21,9 +25,11 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.1115.0",
     "@aws-sdk/client-acm": "^3.1115.0",
     "@aws-sdk/client-elastic-load-balancing-v2": "^3.1115.0",
-    "@aws-sdk/client-secrets-manager": "^3.1115.0"
+    "@aws-sdk/client-secrets-manager": "^3.1115.0",
+    "@deployz/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.0"

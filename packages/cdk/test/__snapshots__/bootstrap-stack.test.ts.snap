@@ -954,6 +954,25 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               },
               "Sid": "RelayAccessCredential",
             },
+            {
+              "Action": [
+                "cloudformation:DescribeStacks",
+                "cloudformation:DescribeStackResources",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayVerifyInstallation",
+            },
           ],
           "Version": "2012-10-17",
         },

@@ -107,6 +107,18 @@ const PHASE_2_MANAGE_STACK_ACTIONS = [
 ] as const;
 
 /**
+ * Phase 2 — read-only stack access so the relay can verify its own
+ * installation. Both actions are already inside
+ * `PHASE_2_MANAGE_STACK_ACTIONS`, so this grant does not raise the
+ * permissions boundary's ceiling — it only extends what the role is
+ * actually granted beneath it.
+ */
+const PHASE_2_VERIFY_STACK_ACTIONS = [
+  'cloudformation:DescribeStacks',
+  'cloudformation:DescribeStackResources',
+] as const;
+
+/**
  * Phase 2 — application-stack resource lifecycle within the tag boundary.
  * The application stack's OWN service role (todo 9) carries the bulk of the
  * resource provisioning; this set lets the relay reconcile desired-vs-observed
@@ -250,6 +262,18 @@ export class BootstrapStack extends Stack {
       effect: Effect.ALLOW,
       actions: [...PHASE_1_SECRET_ACTIONS],
       resources: [this.credentialSecret.secretArn],
+    });
+
+    const phase2VerifyStack = new PolicyStatement({
+      sid: 'RelayVerifyInstallation',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_VERIFY_STACK_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
     });
 
     // Phase 2 — provisioner permissions, all constrained by the deployz: tag
@@ -483,6 +507,7 @@ export class BootstrapStack extends Stack {
     });
     this.relayRole.addToPolicy(phase1LogWrite);
     this.relayRole.addToPolicy(phase1SecretAccess);
+    this.relayRole.addToPolicy(phase2VerifyStack);
 
     // ── 4. Relay Lambda + EventBridge schedule ──────────────────────────
     this.relayFunction = new NodejsFunction(this, 'RelayFunction', {

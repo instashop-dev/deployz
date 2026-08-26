@@ -14,6 +14,8 @@ import {
 } from '@deployz/db';
 
 import {
+  DEFAULT_APPLICATION_STACK_NAME,
+  DEFAULT_BOOTSTRAP_STACK_NAME,
   PACKAGE_NAME,
   analysisStatusSchema,
   applicationSchema,
@@ -305,5 +307,15 @@ describe('errorEnvelopeSchema', () => {
 
   it('rejects an envelope without a message', () => {
     expect(() => errorEnvelopeSchema.parse({ error: { code: 'UNAUTHORIZED' } })).toThrow(ZodError);
+  });
+});
+
+describe('stack name constants', () => {
+  it('names the application stack', () => {
+    expect(DEFAULT_APPLICATION_STACK_NAME).toBe('deployz-app');
+  });
+
+  it('does not collide with the bootstrap stack name', () => {
+    expect(DEFAULT_APPLICATION_STACK_NAME).not.toBe(DEFAULT_BOOTSTRAP_STACK_NAME);
   });
 });
