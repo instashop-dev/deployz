@@ -349,11 +349,20 @@ describe('ApplicationStack', () => {
       expect(cacheCluster?.Properties?.['ClusterName']).toBeUndefined();
     });
 
-    it('opens ingress on tcp/6379 from the VPC CIDR block (same broad-VPC pattern as RDS)', () => {
+    it('opens ingress on tcp/6379 from the VPC CIDR block only — never 0.0.0.0/0 (same broad-VPC pattern as RDS)', () => {
       const { template } = synth(false, { redisRequired: true });
+      // Resolve the VPC's own logical id dynamically rather than hardcoding
+      // the CDK-generated hash suffix, so this test doesn't silently stop
+      // checking anything if the construct tree shifts.
+      const [vpcLogicalId] = Object.keys(template.findResources('AWS::EC2::VPC'));
+      expect(vpcLogicalId).toBeDefined();
+
       // A CIDR-peer ingress rule (as opposed to an SG-to-SG rule) is emitted
       // inline on the security group resource itself, not as a separate
       // AWS::EC2::SecurityGroupIngress resource — same as dbSecurityGroup.
+      // Pin CidrIp to an Fn::GetAtt on the VPC's own CidrBlock — the whole
+      // point of this security group is to scope ingress to the VPC, never
+      // to the public internet (0.0.0.0/0).
       template.hasResourceProperties(
         'AWS::EC2::SecurityGroup',
         Match.objectLike({
@@ -362,10 +371,26 @@ describe('ApplicationStack', () => {
               IpProtocol: 'tcp',
               FromPort: 6379,
               ToPort: 6379,
+              CidrIp: { 'Fn::GetAtt': [vpcLogicalId, 'CidrBlock'] },
             }),
           ]),
         }),
       );
+
+      // Belt-and-suspenders: no security group in this stack opens 6379 to
+      // the whole internet.
+      const securityGroups = template.findResources('AWS::EC2::SecurityGroup') as Record<
+        string,
+        { Properties?: { SecurityGroupIngress?: Array<Record<string, unknown>> } }
+      >;
+      for (const [logicalId, resource] of Object.entries(securityGroups)) {
+        const rules = resource.Properties?.SecurityGroupIngress ?? [];
+        for (const rule of rules) {
+          if (rule['FromPort'] === 6379 && rule['ToPort'] === 6379) {
+            expect(rule['CidrIp'], `${logicalId} 6379 ingress`).not.toBe('0.0.0.0/0');
+          }
+        }
+      }
     });
 
     // The endpoint address is an unresolved CFN token at synth time, so a
