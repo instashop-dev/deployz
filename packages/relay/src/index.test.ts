@@ -4,7 +4,7 @@ import type { ScheduledEvent } from 'aws-lambda';
 
 import { type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
-import { createRelayHandler } from './index.js';
+import { createRelayHandler, createVerifyingInstallExecutor } from './index.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -276,5 +276,53 @@ describe('relay handler (integration)', () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe('INSTALL verification gate', () => {
+  const command = {
+    id: 'cmd-1',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {},
+  };
+
+  it('fails the install when the account cannot be verified', async () => {
+    const executor = createVerifyingInstallExecutor(async () => ({
+      verified: false,
+      checks: [{ name: 'stack-exists', passed: false, detail: 'No CloudFormation stack named "deployz-app"' }],
+      reason: 'No CloudFormation stack named "deployz-app"',
+    }));
+
+    const result = await executor(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toContain('deployz-app');
+    expect(result.output).toMatchObject({ checks: expect.any(Array) });
+  });
+
+  it('succeeds when the account verifies', async () => {
+    const executor = createVerifyingInstallExecutor(async () => ({
+      verified: true,
+      checks: [{ name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' }],
+    }));
+
+    const result = await executor(command);
+
+    expect(result.success).toBe(true);
+    expect(result.failureCode).toBeUndefined();
+  });
+
+  it('fails the install when verification itself throws', async () => {
+    const executor = createVerifyingInstallExecutor(async () => {
+      throw new Error('boom');
+    });
+
+    const result = await executor(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
   });
 });

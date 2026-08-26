@@ -25,19 +25,96 @@ import { createAuthState, readCredential, type FetchFn, type SecretsClient } fro
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
 import { pollOnce, type PollDependencies } from './poll.js';
+import { createCloudFormationReader, verifyInstallation, type VerificationResult } from './verify.js';
 
 // ── Default command executors ────────────────────────────────────────────────
 
 /**
+ * The INSTALL executor: run the install, then prove it happened.
+ *
+ * The install step itself is still the stub described below. The
+ * verification is not — and that is what matters, because it means this
+ * executor cannot report success against an account where nothing was
+ * created. Until the install step is real, every INSTALL fails honestly
+ * rather than silently reaching Healthy and billing.
+ *
+ * A throw from verification is a failure, not a pass: an install we cannot
+ * confirm is indistinguishable from one that did not happen.
+ */
+export function createVerifyingInstallExecutor(
+  verify: (installationId: string) => Promise<VerificationResult>,
+): CommandExecutor {
+  return async (command) => {
+    console.log(
+      JSON.stringify({
+        event: 'relay:command-executed',
+        commandId: command.id,
+        type: command.type,
+        deploymentId: command.deploymentId,
+        idempotencyKey: command.idempotencyKey,
+      }),
+    );
+
+    const installationId = process.env['DEPLOYZ_INSTALLATION_ID'] ?? '';
+
+    let result: VerificationResult;
+    try {
+      result = await verify(installationId);
+    } catch (err) {
+      result = {
+        verified: false,
+        checks: [],
+        reason: `Verification could not run: ${String(err)}`,
+      };
+    }
+
+    console.log(
+      JSON.stringify({
+        event: 'relay:install-verified',
+        commandId: command.id,
+        installationId,
+        verified: result.verified,
+        ...(result.reason ? { reason: result.reason } : {}),
+      }),
+    );
+
+    if (!result.verified) {
+      return {
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        success: false,
+        error: result.reason ?? 'Installation could not be verified',
+        failureCode: 'STACK_CREATE_FAILED',
+        output: { checks: result.checks },
+      };
+    }
+
+    return {
+      commandId: command.id,
+      idempotencyKey: command.idempotencyKey,
+      success: true,
+      output: { executed: true, type: command.type, checks: result.checks },
+    };
+  };
+}
+
+/**
  * Default executors for the ten command types.
  *
- * ⚠️ THESE ARE STUBS. Each one logs and reports success without touching the
- * customer's account, so a deployment reaches "Healthy" in the control plane
- * with nothing provisioned behind it. The real implementations
- * (CloudFormation stack operations, ECS service updates, migrations) are the
- * remaining half of the product — see Phase 0 of the remediation plan. Until
- * they land, no deployment is real, and the control plane's state machine is
- * a simulation.
+ * ⚠️ SEVEN OF THESE ARE STILL STUBS: REPORT_HEALTH, DEPLOY_RELEASE, ROLLBACK,
+ * CONFIG_UPDATE, DESTROY, MIGRATE and REFRESH_METADATA each log and report
+ * success without touching the customer's account. The real implementations
+ * — CloudFormation stack operations, ECS service updates, migrations — are
+ * the remaining half of the product.
+ *
+ * INSTALL is no longer among them, but not because it provisions anything.
+ * Its provisioning step is still missing; what changed is that it now proves
+ * the account contains the application before reporting success, so it fails
+ * honestly instead of reaching Healthy over an empty account. The remaining
+ * stubs still carry that hazard and should be gated the same way as each one
+ * gains a real implementation.
+ *
+ * CONFIGURE_DOMAIN and REMOVE_DOMAIN are real.
  *
  * The command vocabulary + dispatch + idempotency layer around them IS real.
  */
@@ -69,8 +146,12 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
     installationId,
   });
 
+  const installExecutor = createVerifyingInstallExecutor((id) =>
+    verifyInstallation({ cfn: createCloudFormationReader(), installationId: id }),
+  );
+
   return {
-    INSTALL: noop,
+    INSTALL: installExecutor,
     REPORT_HEALTH: noop,
     DEPLOY_RELEASE: noop,
     ROLLBACK: noop,
