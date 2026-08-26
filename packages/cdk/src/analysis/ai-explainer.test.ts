@@ -33,12 +33,12 @@ const needsAttentionVerdict: CompatibilityResult = {
 
 const notCompatibleVerdict: CompatibilityResult = {
   verdict: 'NOT_COMPATIBLE',
-  reason: 'Unsupported database dependency: Redis. Deployz does not support Redis.',
+  reason: 'Requires Redis Stack modules (RedisJSON/RediSearch), which Deployz does not support.',
   issues: [
     {
       severity: 'reject',
-      code: 'REDIS_DEPENDENCY',
-      message: 'Unsupported database dependency: Redis. Deployz does not support Redis.',
+      code: 'REDIS_UNSUPPORTED',
+      message: 'Requires Redis Stack modules (RedisJSON/RediSearch), which Deployz does not support.',
     },
   ],
 };

@@ -39,6 +39,21 @@ export default defineConfig({
       url: `http://localhost:${webPort}`,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
+      env: {
+        ...process.env,
+        // `next dev` reads $PORT, not $WEB_PORT — without this, overriding
+        // WEB_PORT to dodge a locally-running dev server silently no-ops:
+        // Next keeps binding :3000 while Playwright waits on the isolated
+        // port and eventually times out.
+        PORT: String(webPort),
+        // apps/web/src/lib/api-url.ts falls back to localhost:3001 for both
+        // the browser (`NEXT_PUBLIC_API_URL`) and server-side (`API_URL`)
+        // origins when these are unset — so overriding only API_PORT left
+        // every fetch pointed at the wrong (or no) server instead of the
+        // isolated one actually booted above.
+        NEXT_PUBLIC_API_URL: `http://localhost:${apiPort}`,
+        API_URL: `http://localhost:${apiPort}`,
+      },
     },
   ],
 });

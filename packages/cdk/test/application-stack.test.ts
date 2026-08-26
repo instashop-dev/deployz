@@ -59,6 +59,8 @@ const TAGGABLE_TYPES = [
   'AWS::SecretsManager::Secret',
   'AWS::Logs::LogGroup',
   'AWS::IAM::Role',
+  'AWS::ElastiCache::CacheCluster',
+  'AWS::ElastiCache::SubnetGroup',
 ] as const;
 
 describe('ApplicationStack', () => {
@@ -315,6 +317,200 @@ describe('ApplicationStack', () => {
           expect(tags.some((t) => t['Key'] === 'deployz:installation')).toBe(false);
         }
       }
+    });
+  });
+
+  describe('ElastiCache Valkey cache (Redis MVP)', () => {
+    it('provisions zero ElastiCache resources and no REDIS env vars when redisRequired is unset', () => {
+      const { template } = synth();
+      template.resourceCountIs('AWS::ElastiCache::CacheCluster', 0);
+      template.resourceCountIs('AWS::ElastiCache::SubnetGroup', 0);
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toContain('REDIS_URL');
+      expect(json).not.toContain('REDIS_HOST');
+      expect(json).not.toContain('REDIS_PORT');
+    });
+
+    it('provisions a single-node Valkey cache over the private subnets when redisRequired is true', () => {
+      const { template } = synth(false, { redisRequired: true });
+      template.resourceCountIs('AWS::ElastiCache::CacheCluster', 1);
+      template.hasResourceProperties('AWS::ElastiCache::CacheCluster', {
+        Engine: 'valkey',
+        CacheNodeType: 'cache.t4g.micro',
+        NumCacheNodes: 1,
+        Port: 6379,
+      });
+      template.resourceCountIs('AWS::ElastiCache::SubnetGroup', 1);
+      // No hardcoded ClusterName — CFN logical-ID naming keeps it deterministic
+      // per stack without hitting ElastiCache's name-length limits.
+      const [cacheCluster] = Object.values(
+        template.findResources('AWS::ElastiCache::CacheCluster'),
+      ) as Array<{ Properties?: Record<string, unknown> }>;
+      expect(cacheCluster?.Properties?.['ClusterName']).toBeUndefined();
+    });
+
+    it('opens ingress on tcp/6379 from the VPC CIDR block only — never 0.0.0.0/0 (same broad-VPC pattern as RDS)', () => {
+      const { template } = synth(false, { redisRequired: true });
+      // Resolve the VPC's own logical id dynamically rather than hardcoding
+      // the CDK-generated hash suffix, so this test doesn't silently stop
+      // checking anything if the construct tree shifts.
+      const [vpcLogicalId] = Object.keys(template.findResources('AWS::EC2::VPC'));
+      expect(vpcLogicalId).toBeDefined();
+
+      // A CIDR-peer ingress rule (as opposed to an SG-to-SG rule) is emitted
+      // inline on the security group resource itself, not as a separate
+      // AWS::EC2::SecurityGroupIngress resource — same as dbSecurityGroup.
+      // Pin CidrIp to an Fn::GetAtt on the VPC's own CidrBlock — the whole
+      // point of this security group is to scope ingress to the VPC, never
+      // to the public internet (0.0.0.0/0).
+      template.hasResourceProperties(
+        'AWS::EC2::SecurityGroup',
+        Match.objectLike({
+          SecurityGroupIngress: Match.arrayWith([
+            Match.objectLike({
+              IpProtocol: 'tcp',
+              FromPort: 6379,
+              ToPort: 6379,
+              CidrIp: { 'Fn::GetAtt': [vpcLogicalId, 'CidrBlock'] },
+            }),
+          ]),
+        }),
+      );
+
+      // Belt-and-suspenders: no security group in this stack opens 6379 to
+      // the whole internet.
+      const securityGroups = template.findResources('AWS::EC2::SecurityGroup') as Record<
+        string,
+        { Properties?: { SecurityGroupIngress?: Array<Record<string, unknown>> } }
+      >;
+      for (const [logicalId, resource] of Object.entries(securityGroups)) {
+        const rules = resource.Properties?.SecurityGroupIngress ?? [];
+        for (const rule of rules) {
+          if (rule['FromPort'] === 6379 && rule['ToPort'] === 6379) {
+            expect(rule['CidrIp'], `${logicalId} 6379 ingress`).not.toBe('0.0.0.0/0');
+          }
+        }
+      }
+    });
+
+    // The endpoint address is an unresolved CFN token at synth time, so a
+    // `redis://${address}:6379` binding becomes an Fn::Join intrinsic in the
+    // synthesized template rather than a plain string — assert on its parts
+    // instead of a literal regex match against Value.
+    function expectRedisUrlJoin(value: unknown) {
+      expect(value).toMatchObject({
+        'Fn::Join': ['', expect.arrayContaining(['redis://', ':6379'])],
+      });
+    }
+
+    it('injects default REDIS_URL/REDIS_HOST/REDIS_PORT container env in plain Fargate mode', () => {
+      const { template } = synth(false, { redisRequired: true });
+      const [taskDef] = Object.values(
+        template.findResources('AWS::ECS::TaskDefinition'),
+      ) as Array<{ Properties: { ContainerDefinitions: Array<{ Environment: Array<{ Name: string; Value: unknown }> }> } }>;
+      const env = taskDef.Properties.ContainerDefinitions[0].Environment;
+      const byName = Object.fromEntries(env.map((e) => [e.Name, e.Value]));
+      expect(Object.keys(byName)).toEqual(
+        expect.arrayContaining(['REDIS_URL', 'REDIS_HOST', 'REDIS_PORT']),
+      );
+      expectRedisUrlJoin(byName['REDIS_URL']);
+      expect(byName['REDIS_PORT']).toBe('6379');
+    });
+
+    it('injects default REDIS_* container env in Express mode', () => {
+      const { template } = synth(true, { redisRequired: true });
+      const [expressService] = Object.values(
+        template.findResources('AWS::ECS::ExpressGatewayService'),
+      ) as Array<{
+        Properties: { PrimaryContainer: { Environment: Array<{ Name: string; Value: unknown }> } };
+      }>;
+      const env = expressService.Properties.PrimaryContainer.Environment;
+      const byName = Object.fromEntries(env.map((e) => [e.Name, e.Value]));
+      expect(Object.keys(byName)).toEqual(
+        expect.arrayContaining(['REDIS_URL', 'REDIS_HOST', 'REDIS_PORT']),
+      );
+      expectRedisUrlJoin(byName['REDIS_URL']);
+      expect(byName['REDIS_PORT']).toBe('6379');
+    });
+
+    it('injects the worker task with the same REDIS_* container env as the app task', () => {
+      const { template } = synth(false, {
+        redisRequired: true,
+        workerCommand: 'node worker.js',
+      });
+      const taskDefs = Object.values(
+        template.findResources('AWS::ECS::TaskDefinition'),
+      ) as Array<{ Properties?: { ContainerDefinitions?: Array<{ Environment?: unknown }> } }>;
+      expect(taskDefs).toHaveLength(2);
+      for (const taskDef of taskDefs) {
+        const env = (taskDef.Properties?.ContainerDefinitions?.[0]?.Environment ??
+          []) as Array<Record<string, unknown>>;
+        const names = env.map((e) => e['Name']);
+        expect(names).toEqual(expect.arrayContaining(['REDIS_URL', 'REDIS_HOST', 'REDIS_PORT']));
+      }
+    });
+
+    it('resolves detected connectionEnvVars (e.g. CELERY_BROKER_URL) into a redis:// URL binding', () => {
+      const { template } = synth(false, {
+        redisRequired: true,
+        redisEnvVars: ['CELERY_BROKER_URL'],
+      });
+      const [taskDef] = Object.values(
+        template.findResources('AWS::ECS::TaskDefinition'),
+      ) as Array<{ Properties: { ContainerDefinitions: Array<{ Environment: Array<{ Name: string; Value: unknown }> }> } }>;
+      const env = taskDef.Properties.ContainerDefinitions[0].Environment;
+      const byName = Object.fromEntries(env.map((e) => [e.Name, e.Value]));
+      expect(Object.keys(byName)).toContain('CELERY_BROKER_URL');
+      // Only the one requested binding is injected — not the three defaults.
+      expect(Object.keys(byName)).not.toContain('REDIS_URL');
+      expectRedisUrlJoin(byName['CELERY_BROKER_URL']);
+    });
+
+    it('tags every ElastiCache resource with all four deployz:* tags', () => {
+      const { template } = synth(false, {
+        redisRequired: true,
+        applicationId: 'app-1',
+        vendorId: 'vendor-1',
+        installationId: 'inst-1',
+      });
+      for (const type of ['AWS::ElastiCache::CacheCluster', 'AWS::ElastiCache::SubnetGroup']) {
+        const resources = template.findResources(type) as Record<
+          string,
+          { Properties?: Record<string, unknown> }
+        >;
+        expect(Object.keys(resources).length).toBeGreaterThan(0);
+        for (const [logicalId, resource] of Object.entries(resources)) {
+          const tags = (resource.Properties?.['Tags'] as Array<Record<string, unknown>>) ?? [];
+          const byKey = Object.fromEntries(tags.map((t) => [t['Key'], t['Value']]));
+          expect(byKey['deployz:component'], `${type} ${logicalId}`).toBe('application');
+          expect(byKey['deployz:application'], `${type} ${logicalId}`).toBe('app-1');
+          expect(byKey['deployz:vendor'], `${type} ${logicalId}`).toBe('vendor-1');
+          expect(byKey['deployz:installation'], `${type} ${logicalId}`).toBe('inst-1');
+        }
+      }
+      // The dedicated redis security group is also tagged (it's an
+      // AWS::EC2::SecurityGroup, already covered by TAGGABLE_TYPES elsewhere,
+      // but assert directly here for the redis-specific SG among the set).
+      const securityGroups = template.findResources('AWS::EC2::SecurityGroup') as Record<
+        string,
+        { Properties?: Record<string, unknown> }
+      >;
+      const redisSg = Object.entries(securityGroups).find(([logicalId]) =>
+        logicalId.includes('Redis'),
+      );
+      expect(redisSg, 'expected a Redis security group logical id').toBeDefined();
+    });
+
+    it('exports the cache endpoint output', () => {
+      const { template } = synth(false, { redisRequired: true });
+      const outputs = Object.keys(template.findOutputs('*'));
+      expect(outputs).toContain('ExportApplicationTestCacheEndpoint');
+    });
+
+    it('does not export a cache endpoint output when redisRequired is unset', () => {
+      const { template } = synth();
+      const outputs = Object.keys(template.findOutputs('*'));
+      expect(outputs).not.toContain('ExportApplicationTestCacheEndpoint');
     });
   });
 });

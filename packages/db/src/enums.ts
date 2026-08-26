@@ -112,6 +112,10 @@ export const failureCodeEnum = pgEnum('failure_code', [
   'MISSING_SECRET',
   'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
+  // Redis MVP: provisioning the managed cache (ElastiCache Valkey) failed,
+  // vs. the app failing to reach an already-provisioned cache at runtime.
+  'REDIS_PROVISIONING_FAILED',
+  'REDIS_CONNECTION_FAILED',
 ]);
 
 // subscriptions.status — Stripe subscription lifecycle subset we persist.

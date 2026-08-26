@@ -25,12 +25,15 @@ import {
 
 import type { RejectionFinding } from './rejection.js';
 import {
-  checkRedis,
+  checkRedisUnsupported,
   checkMysql,
   checkMongo,
   checkElasticsearch,
   checkOtherUnsupportedDatabases,
 } from './rejection.js';
+
+import type { RedisRequirement } from './redis.js';
+import { assessRedis } from './redis.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -62,9 +65,8 @@ const DETECTORS = [
   detectExternalServices,
 ] as const;
 
-/** All §10 rejection check functions, in order. */
+/** All §10 rejection check functions, in order (redis is handled separately — see `analyseRepo`). */
 const REJECTION_CHECKS = [
-  checkRedis,
   checkMysql,
   checkMongo,
   checkElasticsearch,
@@ -72,10 +74,30 @@ const REJECTION_CHECKS = [
 ] as const;
 
 /**
+ * Build the `redis` detector finding from a precomputed `RedisRequirement`.
+ *
+ * `detected` follows the §7 confidence policy nuance: true whenever real
+ * Redis evidence exists (confidence 'high' or 'medium'), regardless of
+ * whether that evidence is enough to *provision* Redis — the provisioning
+ * decision lives in `metadata.redis.required`, not here.
+ */
+function buildRedisFinding(redis: RedisRequirement): DetectorFinding {
+  const detected = redis.confidence !== 'low';
+  return {
+    detector: 'redis',
+    detected,
+    value: redis.purposes,
+    details: detected
+      ? `Redis detected (${redis.confidence} confidence): ${redis.evidence.join('; ')}`
+      : 'No significant Redis usage detected',
+  };
+}
+
+/**
  * Build a flat metadata record from findings.
  * Maps detector names to their detected values for easy JSONB storage and querying.
  */
-function buildMetadata(findings: DetectorFinding[]): Record<string, unknown> {
+function buildMetadata(findings: DetectorFinding[], redis: RedisRequirement): Record<string, unknown> {
   const meta: Record<string, unknown> = {};
 
   for (const f of findings) {
@@ -104,6 +126,10 @@ function buildMetadata(findings: DetectorFinding[]): Record<string, unknown> {
       case 'postgresql':
         meta['usesPostgresql'] = f.detected;
         if (f.detected && f.value) meta['postgresqlDrivers'] = f.value;
+        break;
+      case 'redis':
+        meta['usesRedis'] = f.detected;
+        meta['redis'] = redis;
         break;
       case 'local-filesystem':
         meta['usesLocalFilesystem'] = f.detected;
@@ -154,11 +180,19 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
     findings.push(detector(tree));
   }
 
+  // Redis is computed once here (not folded into DETECTORS/REJECTION_CHECKS,
+  // which are uniform `(tree) => Finding` arrays) so the single `assessRedis`
+  // call can be shared between the `redis` finding, the unsupported-Redis
+  // rejection check, and `buildMetadata`'s full `metadata.redis` object.
+  const redis = assessRedis(tree);
+  findings.push(buildRedisFinding(redis));
+
+  rejections.push(checkRedisUnsupported(tree, redis));
   for (const check of REJECTION_CHECKS) {
     rejections.push(check(tree));
   }
 
-  const metadata = buildMetadata(findings);
+  const metadata = buildMetadata(findings, redis);
 
   return { findings, rejections, metadata };
 }

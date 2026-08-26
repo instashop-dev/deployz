@@ -330,6 +330,92 @@ describe('BootstrapStack', () => {
     ).toBeDefined();
   });
 
+  it('grants the relay least-privilege ElastiCache permissions (Redis MVP)', () => {
+    const { stack } = synth();
+    const actions = collectActions(stack.provisionerPolicy.document.toJSON()['Statement']);
+
+    expect(actions).toContain('elasticache:CreateCacheCluster');
+    expect(actions).toContain('elasticache:DeleteCacheCluster');
+    expect(actions).toContain('elasticache:DescribeCacheClusters');
+    expect(actions).toContain('elasticache:ModifyCacheCluster');
+    expect(actions).toContain('elasticache:CreateCacheSubnetGroup');
+    expect(actions).toContain('elasticache:DeleteCacheSubnetGroup');
+    expect(actions).toContain('elasticache:DescribeCacheSubnetGroups');
+    expect(actions).toContain('elasticache:AddTagsToResource');
+    expect(actions).toContain('elasticache:ListTagsForResource');
+
+    // No wildcard ElastiCache grant.
+    expect(actions).not.toContain('elasticache:*');
+
+    // Statement structure mirrors the ACM/domain-ingress precedent:
+    // Create is request-tag-conditioned (brand-new resource, no tag yet),
+    // Delete/Modify/read-tags is resource-tag-conditioned (resource already
+    // carries the installation tag), and Describe is condition-free because
+    // ElastiCache Describe* calls don't support resource-level
+    // permissions/conditions.
+    //
+    // elasticache:AddTagsToResource sits in the CREATE bucket, not manage:
+    // a resource-tag condition can never authorize the FIRST call that tags
+    // a brand-new, untagged cache (same reasoning bootstrap-stack.ts applies
+    // to acm:AddTagsToCertificate, which rides with acm:RequestCertificate
+    // rather than the ACM manage/delete bucket).
+    const statements = stack.provisionerPolicy.document.toJSON()[
+      'Statement'
+    ] as Array<Record<string, unknown>>;
+    const findBySid = (sid: string) => statements.find((s) => s['Sid'] === sid);
+    const sortedActions = (statement: Record<string, unknown> | undefined): string[] =>
+      [...((statement?.['Action'] as string[] | undefined) ?? [])].sort();
+
+    const cacheCreateStatement = findBySid('ProvisionerCacheCreate');
+    expect(cacheCreateStatement).toBeDefined();
+    expect(sortedActions(cacheCreateStatement)).toEqual(
+      [
+        'elasticache:AddTagsToResource',
+        'elasticache:CreateCacheCluster',
+        'elasticache:CreateCacheSubnetGroup',
+      ].sort(),
+    );
+    expect(
+      (cacheCreateStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ]?.['aws:RequestTag/deployz:installation'],
+    ).toBeDefined();
+
+    const cacheManageStatement = findBySid('ProvisionerCacheManage');
+    expect(cacheManageStatement).toBeDefined();
+    expect(sortedActions(cacheManageStatement)).toEqual(
+      [
+        'elasticache:DeleteCacheCluster',
+        'elasticache:ModifyCacheCluster',
+        'elasticache:DeleteCacheSubnetGroup',
+        'elasticache:ListTagsForResource',
+      ].sort(),
+    );
+    // AddTagsToResource is explicitly NOT in the manage bucket.
+    expect(cacheManageStatement?.['Action']).not.toContain('elasticache:AddTagsToResource');
+    expect(
+      (cacheManageStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ]?.['aws:ResourceTag/deployz:installation'],
+    ).toBeDefined();
+
+    const cacheDescribeStatement = findBySid('ProvisionerCacheDescribe');
+    expect(cacheDescribeStatement).toBeDefined();
+    expect(sortedActions(cacheDescribeStatement)).toEqual(
+      ['elasticache:DescribeCacheClusters', 'elasticache:DescribeCacheSubnetGroups'].sort(),
+    );
+    expect(cacheDescribeStatement?.['Condition']).toBeUndefined();
+
+    // Every ElastiCache action granted must also be within the permissions
+    // boundary (the ceiling).
+    const boundaryActions = collectActions(
+      stack.permissionsBoundary.document.toJSON()['Statement'],
+    );
+    for (const action of actions.filter((a) => a.startsWith('elasticache:'))) {
+      expect(boundaryActions).toContain(action);
+    }
+  });
+
   it('DENIES log read (§16: no logs:GetLogEvents / logs:FilterLogEvents)', () => {
     const { stack, template } = synth();
 

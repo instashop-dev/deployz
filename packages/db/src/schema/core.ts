@@ -38,6 +38,7 @@ export const applications = pgTable('applications', {
   workerCommand: text('worker_command'),
   databaseRequired: boolean('database_required').notNull().default(false),
   storageRequired: boolean('storage_required').notNull().default(false),
+  redisRequired: boolean('redis_required').notNull().default(false),
   analysisStatus: analysisStatusEnum('analysis_status').notNull().default('PENDING'),
   compatibilityStatus: compatibilityStatusEnum('compatibility_status'),
   compatibilityReason: text('compatibility_reason'),

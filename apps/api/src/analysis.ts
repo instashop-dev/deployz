@@ -174,6 +174,7 @@ const READY_LABELS: Partial<Record<string, string>> = {
   'health-endpoint': 'Health check endpoint found',
   'env-vars': 'Environment variables detected',
   postgresql: 'PostgreSQL database configured',
+  redis: 'Redis — managed automatically',
   worker: 'Background worker detected',
   s3: 'Object storage usage detected',
   'migration-command': 'Database migration command found',
@@ -235,7 +236,7 @@ function buildNeedsAttentionChecks(compatibility: CompatibilityResult): Attentio
 
 // Per-issue-code title for the §19/§10 REJECT rules.
 const UNSUPPORTED_META: Partial<Record<string, string>> = {
-  REDIS_DEPENDENCY: 'Redis is not supported',
+  REDIS_UNSUPPORTED: 'This Redis setup is not supported',
   MYSQL_DEPENDENCY: 'MySQL is not supported',
   MONGO_DEPENDENCY: 'MongoDB is not supported',
   ELASTICSEARCH_DEPENDENCY: 'Elasticsearch / OpenSearch is not supported',
@@ -300,6 +301,7 @@ interface ContractFieldUpdates {
   workerCommand?: string;
   databaseRequired?: boolean;
   storageRequired?: boolean;
+  redisRequired?: boolean;
 }
 
 /**
@@ -378,6 +380,16 @@ function deriveContractFieldUpdates(
   if (!vendorOwned.has('storageRequired')) {
     const s3 = finding('s3');
     if (s3?.detected) updates.storageRequired = true;
+  }
+
+  if (!vendorOwned.has('redisRequired')) {
+    // Unlike `databaseRequired`/`storageRequired` (driven straight off a
+    // detector's `detected` flag), Redis provisioning is gated on the §7
+    // confidence policy, not mere presence — `metadata.redis.required` is
+    // already that gate (high confidence AND a supported setup), computed
+    // once by `assessRedis` and carried through `analysis.metadata`.
+    const redis = analysis.metadata['redis'] as { required?: unknown } | undefined;
+    if (redis?.required === true) updates.redisRequired = true;
   }
 
   return updates;

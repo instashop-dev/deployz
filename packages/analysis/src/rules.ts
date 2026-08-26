@@ -30,7 +30,7 @@ export type IssueSeverity = 'reject' | 'attention';
 export interface CompatibilityIssue {
   /** `reject` issues force NOT_COMPATIBLE; `attention` issues force NEEDS_ATTENTION. */
   severity: IssueSeverity;
-  /** Stable machine-readable code (e.g. 'REDIS_DEPENDENCY', 'MISSING_DOCKERFILE'). */
+  /** Stable machine-readable code (e.g. 'REDIS_UNSUPPORTED', 'MISSING_DOCKERFILE'). */
   code: string;
   /** Human-readable, §65 jargon-free description. */
   message: string;
@@ -58,10 +58,9 @@ export interface CompatibilityResult {
  * is updated.
  */
 const REJECTION_CODE_BY_DEPENDENCY: Readonly<Record<string, string>> = {
-  // Redis family
-  ioredis: 'REDIS_DEPENDENCY',
-  redis: 'REDIS_DEPENDENCY',
-  '@redis/client': 'REDIS_DEPENDENCY',
+  // Redis — only unsupported Redis setups reject (Redis Stack modules, cluster
+  // mode, TLS). Plain standalone Redis is a supported managed dependency.
+  'redis-unsupported': 'REDIS_UNSUPPORTED',
   // MySQL family (note: `@prisma/client` only reaches a rejection finding when
   // todo 22's checkMysql found a Prisma schema with the mysql provider).
   mysql2: 'MYSQL_DEPENDENCY',

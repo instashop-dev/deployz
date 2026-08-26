@@ -8,6 +8,8 @@
 
 import type { FileTree } from './detectors.js';
 import { collectDependencyNames } from './detectors.js';
+import type { RedisRequirement } from './redis.js';
+import { assessRedis } from './redis.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,24 +35,27 @@ function prismaUsesProvider(tree: FileTree, provider: string): boolean {
 
 // ── Rejection checks ────────────────────────────────────────────────────────
 
-/** Redis: ioredis, redis, @redis/client */
-const REDIS_DEPS = ['ioredis', 'redis', '@redis/client'] as const;
-
 /**
- * Check for Redis dependencies (unsupported — Deployz uses ElastiCache PostgreSQL compatible only).
+ * Redis: standard, standalone Redis usage is a SUPPORTED managed dependency
+ * (see `assessRedis` in ./redis.ts) and never rejects. Only Redis setups that
+ * fall outside Deployz's managed profile — Redis Stack modules, cluster mode,
+ * TLS (`rediss://`) — reject.
+ *
+ * `precomputed` lets `analyseRepo` share a single `assessRedis(tree)` call
+ * with the `redis` detector finding and `buildMetadata`, instead of every
+ * consumer re-running the (more expensive) full assessment. Direct callers
+ * (e.g. tests) can simply omit it.
  */
-export function checkRedis(tree: FileTree): RejectionFinding {
-  const deps = collectDependencyNames(tree);
-  for (const dep of REDIS_DEPS) {
-    if (deps.includes(dep)) {
-      return {
-        detected: true,
-        dependency: dep,
-        reason: `Unsupported database dependency: ${dep}. Deployz does not support Redis.`,
-      };
-    }
-  }
-  return { detected: false, dependency: 'none', reason: 'No Redis dependency detected' };
+export function checkRedisUnsupported(tree: FileTree, precomputed?: RedisRequirement): RejectionFinding {
+  const assessment = precomputed ?? assessRedis(tree);
+  const detected = assessment.evidence.length > 0 && !assessment.compatibility.supported;
+  return {
+    detected,
+    dependency: 'redis-unsupported',
+    reason: detected
+      ? (assessment.compatibility.reason ?? 'Unsupported Redis configuration detected.')
+      : 'No unsupported Redis configuration detected',
+  };
 }
 
 /** MySQL: mysql2, mysql, @prisma/client with mysql provider */

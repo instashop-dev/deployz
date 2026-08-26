@@ -462,8 +462,9 @@ interface GithubFixtureInstallation extends GithubInstallation {
   repositories: GithubRepository[];
 }
 
-// §216: a fixture GitHub org with two fixture repos — one ready (health check +
-// Postgres), one that needs attention (Redis dependency). Used ONLY when
+// §216: a fixture GitHub org with three fixture repos — one ready (health
+// check + Postgres), one that needs a managed Redis cache (also ready), and
+// one that needs attention (an unsupported Redis setup). Used ONLY when
 // GITHUB_FIXTURE_MODE is set (tests / local dev); never fabricated in prod.
 export const GITHUB_FIXTURE_INSTALLATIONS: readonly GithubFixtureInstallation[] = [
   {
@@ -484,6 +485,14 @@ export const GITHUB_FIXTURE_INSTALLATIONS: readonly GithubFixtureInstallation[] 
         name: 'legacy-redis',
         fullName: 'deployz-demo/legacy-redis',
         description: "Depends on a service Deployz doesn't support yet.",
+        private: false,
+        defaultBranch: 'main',
+      },
+      {
+        id: 'fixture-repo-3',
+        name: 'bullmq-worker',
+        fullName: 'deployz-demo/bullmq-worker',
+        description: 'Node worker app using BullMQ — Redis managed automatically.',
         private: false,
         defaultBranch: 'main',
       },
@@ -583,13 +592,28 @@ const IGNORED_DIR_SEGMENTS = new Set([
   '.git',
 ]);
 
-const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx)$/i;
+const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx|py|rb)$/i;
 // A manifest, a Dockerfile or a Prisma schema anywhere in the tree — a
 // workspace repository keeps all three outside the root, and the detectors
 // read every one of them (packages/analysis/src/detectors.ts).
 const MANIFEST_REGEX = /(?:^|\/)package\.json$/i;
 const DOCKERFILE_REGEX = /(?:^|\/)dockerfile(?:\.[\w.-]+)?$/i;
 const PRISMA_SCHEMA_REGEX = /schema\.prisma$/i;
+// Non-npm manifests the §7 Redis detectors (and, for Python/Ruby/Go/PHP, the
+// rest of the analyser) read — requirements.txt/pyproject.toml (Python),
+// Gemfile (Ruby), go.mod (Go), composer.json (PHP). Any depth, same as
+// package.json — a workspace/monorepo keeps these outside the root too.
+// Mirrors the file-shape regexes in packages/analysis/src/redis.ts exactly.
+const OTHER_MANIFEST_REGEX =
+  /(?:^|\/)(?:requirements\.txt|pyproject\.toml|Gemfile|go\.mod|composer\.json)$/i;
+// docker-compose.yml/.yaml or compose.yml/.yaml, with an optional
+// `.<name>` infix (`compose.prod.yml`, `docker-compose.override.yaml`), at
+// any depth — the very-high-signal Redis/Valkey compose-image check reads
+// these wherever they live, not just the repo root.
+const COMPOSE_REGEX = /(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i;
+// .env.example/.env.template/.env.sample at any depth — the checked-in env
+// samples vendors actually commit (never a real `.env`, which is gitignored).
+const ENV_SAMPLE_REGEX = /(?:^|\/)\.env\.(?:example|template|sample)$/i;
 // File-based health routes — the same shape detectHealthEndpoint matches on
 // the path rather than on the file's contents.
 const HEALTH_ROUTE_FILE_REGEX =
@@ -599,17 +623,19 @@ function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
 }
 
-// Mirrors exactly what packages/analysis/src/detectors.ts and rejection.ts
-// read from the file tree — see that file for the authoritative patterns.
-// Keep this in sync if a detector starts reading a new file shape.
+// Mirrors exactly what packages/analysis/src/detectors.ts, rejection.ts and
+// redis.ts read from the file tree — see those files for the authoritative
+// patterns. Keep this in sync if a detector starts reading a new file shape.
 function isRelevantPath(path: string): boolean {
   if (isIgnoredPath(path)) return false;
   if (MANIFEST_REGEX.test(path)) return true;
+  if (OTHER_MANIFEST_REGEX.test(path)) return true;
   if (DOCKERFILE_REGEX.test(path)) return true;
   if (PRISMA_SCHEMA_REGEX.test(path)) return true;
+  if (COMPOSE_REGEX.test(path)) return true;
+  if (ENV_SAMPLE_REGEX.test(path)) return true;
   const isRoot = !path.includes('/');
   if (isRoot) {
-    if (/^docker-compose\.ya?ml$/i.test(path)) return true;
     if (/^\.env(\.\w+)?$/i.test(path)) return true;
   }
   if (SOURCE_EXTENSION_REGEX.test(path)) return true;
@@ -621,13 +647,27 @@ function isRelevantPath(path: string): boolean {
 // win a slot before the (potentially numerous) source files. A health-route
 // file ranks above ordinary source because it is the only evidence of a
 // health endpoint in a file-routed application.
+//
+// The generic "any relevant file sitting at the repo root" bucket is
+// DELIBERATELY one tier below the named-pattern group (tier 0), not merged
+// into it: an ordinary root-level script that happens to be relevant only
+// because of its extension (app.py, manage.py, main.rb — no manifest/
+// compose/env-sample name of its own) must never be able to outrank, and so
+// crowd out of the ANALYSIS_MAX_FILES cap, a *named* signal file like a
+// nested `docker-compose.yml` or `.env.example` that the Redis detectors
+// specifically look for. Named patterns are checked (and returned) before
+// this generic root check ever runs, so this bucket only ever catches
+// unnamed root files.
 function relevancePriority(path: string): number {
   if (MANIFEST_REGEX.test(path)) return 0;
+  if (OTHER_MANIFEST_REGEX.test(path)) return 0;
   if (DOCKERFILE_REGEX.test(path)) return 0;
-  if (!path.includes('/')) return 0; // root config files
-  if (PRISMA_SCHEMA_REGEX.test(path)) return 1;
-  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 2;
-  return 3; // source files
+  if (COMPOSE_REGEX.test(path)) return 0;
+  if (ENV_SAMPLE_REGEX.test(path)) return 0;
+  if (!path.includes('/')) return 1; // generic (unnamed) root files
+  if (PRISMA_SCHEMA_REGEX.test(path)) return 2;
+  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 3;
+  return 4; // source files
 }
 
 export interface RepositoryRef {
@@ -783,10 +823,13 @@ export async function buildFileTreeForAnalysis(
 // §216 fixture file trees, keyed by the fixture repo's `fullName` (the same
 // string `applications.repo_full_name` holds once a fixture repo is
 // "selected" — there is no separate repo-id column on the row). Mirrors the
-// two-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
+// three-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
 // compatible (Dockerfile + HEALTHCHECK + /health + Postgres + migration
-// script); legacy-redis has an unsupported Redis dependency so it reliably
-// exercises the NOT_COMPATIBLE path end-to-end without real GitHub credentials.
+// script); legacy-redis has an unsupported Redis setup (Redis Stack modules)
+// so it reliably exercises the NOT_COMPATIBLE path end-to-end without real
+// GitHub credentials; bullmq-worker is the same otherwise-READY shape as
+// express-api plus a supported, high-confidence Redis requirement,
+// exercising the "Redis — managed automatically" ready path end-to-end.
 export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   'deployz-demo/express-api': {
     'Dockerfile': [
@@ -816,7 +859,13 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'legacy-redis',
       scripts: { start: 'node index.js' },
-      dependencies: { express: '^4.18.0', ioredis: '^5.4.0' },
+      // ioredis alone is a plain, SUPPORTED Redis client — @redis/json is
+      // what actually makes this repo unsupported (Redis Stack modules,
+      // §4 of the Redis MVP spec). Both stay: without a normal client
+      // dependency too, `assessRedis` has no non-Stack evidence to report
+      // and the rejection can't be attributed to Redis at all (a known
+      // detection gap — see packages/analysis/src/redis.ts).
+      dependencies: { express: '^4.18.0', ioredis: '^5.4.0', '@redis/json': '^1.0.6' },
     }),
     'index.js': [
       "const express = require('express');",
@@ -824,6 +873,35 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       'app.listen(process.env.PORT || 3000);',
       '',
     ].join('\n'),
+  },
+  // Otherwise READY-shaped (same Dockerfile/health/Postgres/migration shape
+  // as express-api above) but with a direct `bullmq` dependency and a
+  // REDIS_URL sample — a supported, high-confidence Redis requirement that
+  // exercises the "Redis — managed automatically" ready path end-to-end.
+  'deployz-demo/bullmq-worker': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'bullmq-worker',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.7.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      'const app = express();',
+      "app.get('/health', (_req, res) => res.json({ ok: true }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+    '.env.example': ['DATABASE_URL=', 'REDIS_URL=', ''].join('\n'),
   },
 };
 

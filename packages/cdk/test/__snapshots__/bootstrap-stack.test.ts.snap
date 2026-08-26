@@ -546,6 +546,56 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Resource": "*",
               "Sid": "ProvisionerDomainIngressWrite",
             },
+            {
+              "Action": [
+                "elasticache:CreateCacheCluster",
+                "elasticache:CreateCacheSubnetGroup",
+                "elasticache:AddTagsToResource",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerCacheCreate",
+            },
+            {
+              "Action": [
+                "elasticache:DeleteCacheCluster",
+                "elasticache:ModifyCacheCluster",
+                "elasticache:DeleteCacheSubnetGroup",
+                "elasticache:ListTagsForResource",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerCacheManage",
+            },
+            {
+              "Action": [
+                "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeCacheSubnetGroups",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerCacheDescribe",
+            },
           ],
           "Version": "2012-10-17",
         },
@@ -709,6 +759,56 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerDomainIngressWrite",
+            },
+            {
+              "Action": [
+                "elasticache:CreateCacheCluster",
+                "elasticache:CreateCacheSubnetGroup",
+                "elasticache:AddTagsToResource",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerCacheCreate",
+            },
+            {
+              "Action": [
+                "elasticache:DeleteCacheCluster",
+                "elasticache:ModifyCacheCluster",
+                "elasticache:DeleteCacheSubnetGroup",
+                "elasticache:ListTagsForResource",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerCacheManage",
+            },
+            {
+              "Action": [
+                "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeCacheSubnetGroups",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerCacheDescribe",
             },
           ],
           "Version": "2012-10-17",

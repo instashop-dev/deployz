@@ -10,6 +10,7 @@ import { createAuth, type Auth } from './auth.js';
 import { errorEnvelopeSchema } from '@deployz/contracts';
 import { buildServer } from './server.js';
 import {
+  ANALYSIS_MAX_FILES,
   buildAppJwt,
   buildFileTreeForAnalysis,
   createAppJwt,
@@ -256,7 +257,7 @@ describe('github — fixture-backed list helpers', () => {
 
   it('lists fixture repositories for a known installation', async () => {
     const repos = await listRepositories('fixture-install-1', { fixtureMode: true });
-    expect(repos.map((r) => r.name)).toEqual(['express-api', 'legacy-redis']);
+    expect(repos.map((r) => r.name)).toEqual(['express-api', 'legacy-redis', 'bullmq-worker']);
     expect(repos[0]?.fullName).toBe('deployz-demo/express-api');
   });
 
@@ -401,6 +402,96 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(calls).toHaveLength(4);
   });
 
+  it('fetches the additional manifest/compose/env-sample/source shapes Redis detection needs (§7 of the Redis MVP)', async () => {
+    const calls: string[] = [];
+    const fetchFn: FetchFn = async (url) => {
+      calls.push(url);
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'requirements.txt', type: 'blob', sha: 'sha-reqs', size: 10 },
+            { path: 'services/worker/pyproject.toml', type: 'blob', sha: 'sha-pyproject', size: 10 },
+            { path: 'Gemfile', type: 'blob', sha: 'sha-gemfile', size: 10 },
+            { path: 'go.mod', type: 'blob', sha: 'sha-gomod', size: 10 },
+            { path: 'composer.json', type: 'blob', sha: 'sha-composer', size: 10 },
+            { path: 'docker-compose.yml', type: 'blob', sha: 'sha-compose-root', size: 10 },
+            { path: 'deploy/compose.prod.yml', type: 'blob', sha: 'sha-compose-nested', size: 10 },
+            { path: 'services/worker/docker-compose.override.yaml', type: 'blob', sha: 'sha-compose-override', size: 10 },
+            { path: '.env.example', type: 'blob', sha: 'sha-env-root', size: 10 },
+            { path: 'services/worker/.env.sample', type: 'blob', sha: 'sha-env-nested', size: 10 },
+            { path: 'services/worker/.env.template', type: 'blob', sha: 'sha-env-template', size: 10 },
+            { path: 'worker.py', type: 'blob', sha: 'sha-py', size: 10 },
+            { path: 'app.rb', type: 'blob', sha: 'sha-rb', size: 10 },
+            { path: 'irrelevant.txt', type: 'blob', sha: 'sha-irrelevant', size: 10 }, // still not relevant
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree).sort()).toEqual(
+      [
+        'requirements.txt',
+        'services/worker/pyproject.toml',
+        'Gemfile',
+        'go.mod',
+        'composer.json',
+        'docker-compose.yml',
+        'deploy/compose.prod.yml',
+        'services/worker/docker-compose.override.yaml',
+        '.env.example',
+        'services/worker/.env.sample',
+        'services/worker/.env.template',
+        'worker.py',
+        'app.rb',
+      ].sort(),
+    );
+    expect(tree).not.toHaveProperty('irrelevant.txt');
+  });
+
+  it('never lets a flood of generic root-level source files crowd a named nested signal file out of the ANALYSIS_MAX_FILES cap', async () => {
+    // More unnamed root-level relevant files (plain .py scripts, no
+    // manifest/compose/env-sample name of their own) than the cap alone,
+    // listed BEFORE the two named nested files below — so a naive stable
+    // sort that treated "any root file" and "a named signal file" as the
+    // same priority would let these fill every slot and drop the nested
+    // docker-compose.yml/.env.example the Redis detectors actually need.
+    const rootScripts = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
+      path: `script${i}.py`,
+      type: 'blob' as const,
+      sha: `sha-script-${i}`,
+      size: 10,
+    }));
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            ...rootScripts,
+            { path: 'nested/docker-compose.yml', type: 'blob', sha: 'sha-compose', size: 10 },
+            { path: 'nested/.env.example', type: 'blob', sha: 'sha-env', size: 10 },
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    expect(tree).toHaveProperty('nested/docker-compose.yml');
+    expect(tree).toHaveProperty('nested/.env.example');
+  });
+
   it('skips a file whose size exceeds ANALYSIS_MAX_FILE_BYTES', async () => {
     const fetchFn: FetchFn = async (url) => {
       if (url.includes('/git/trees/')) {
@@ -534,7 +625,7 @@ describe('github — server routes over PGlite', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = response.json() as { repositories: Array<{ name: string }> };
-    expect(body.repositories.map((r) => r.name)).toEqual(['express-api', 'legacy-redis']);
+    expect(body.repositories.map((r) => r.name)).toEqual(['express-api', 'legacy-redis', 'bullmq-worker']);
   });
 
   it('requires an installationId on the repos route', async () => {
@@ -599,12 +690,13 @@ describe('github — server routes over PGlite', () => {
   });
 });
 
-// Keep the fixture shape honest for the E2E: the fixture org has the two §216
-// repos (one ready, one needs attention).
-it('fixture installation exposes the §216 two-repo shape', () => {
+// Keep the fixture shape honest for the E2E: the fixture org has the three
+// §216 repos (one ready, one needs attention, one ready with Redis).
+it('fixture installation exposes the §216 three-repo shape', () => {
   expect(GITHUB_FIXTURE_INSTALLATIONS).toHaveLength(1);
   expect(GITHUB_FIXTURE_INSTALLATIONS[0]?.repositories.map((r) => r.name)).toEqual([
     'express-api',
     'legacy-redis',
+    'bullmq-worker',
   ]);
 });

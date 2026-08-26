@@ -25,6 +25,7 @@ export interface Application {
   workerCommand: string | null;
   databaseRequired: boolean;
   storageRequired: boolean;
+  redisRequired: boolean;
   analysisStatus: AnalysisStatus;
   compatibilityStatus: CompatibilityStatus | null;
   compatibilityReason: string | null;

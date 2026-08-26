@@ -28,6 +28,7 @@ function application(overrides: Partial<Application> = {}): Application {
     workerCommand: null,
     databaseRequired: true,
     storageRequired: false,
+    redisRequired: false,
     analysisStatus: 'COMPLETE',
     compatibilityStatus: 'READY',
     compatibilityReason: null,

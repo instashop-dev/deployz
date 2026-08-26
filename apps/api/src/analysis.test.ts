@@ -125,7 +125,24 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     const checks = (row.detectedMetadata as { checks: { unsupported: Array<{ title: string; reason: string }> } })
       .checks;
     expect(checks.unsupported.length).toBeGreaterThan(0);
-    expect(checks.unsupported.some((c) => c.title === 'Redis is not supported')).toBe(true);
+    expect(checks.unsupported.some((c) => c.title === 'This Redis setup is not supported')).toBe(true);
+  });
+
+  it('analyses the bullmq-worker fixture repo to a supported, high-confidence Redis requirement', async () => {
+    const application = await insertApplication(db, orgId, {
+      repoFullName: 'deployz-demo/bullmq-worker',
+    });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.compatibilityStatus).toBe('READY');
+    expect(row.databaseRequired).toBe(true);
+    expect(row.redisRequired).toBe(true);
+
+    const checks = (row.detectedMetadata as { checks: { ready: Array<{ label: string }> } }).checks;
+    expect(checks.ready).toContainEqual({ label: 'Redis — managed automatically' });
   });
 
   it('refreshes a previously auto-detected contract field when the repo has changed', async () => {

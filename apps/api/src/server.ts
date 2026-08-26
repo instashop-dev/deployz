@@ -384,6 +384,8 @@ function toFleetRow(row: {
   customerName: string;
   applicationName: string;
   version: string | null;
+  /** Whether the application requires a managed Redis cache. */
+  redisRequired?: boolean | null;
 }) {
   // §28 liveness and health are derived here, not read raw, so every screen
   // that renders a deployment agrees about whether the relay is still there.
@@ -392,15 +394,26 @@ function toFleetRow(row: {
     row.deployment.lastHealthAt,
     new Date(),
   );
+  // §24 per-component health, reported by the relay. Absent until it has
+  // reported at least once — the detail page renders nothing rather than
+  // inventing four healthy rows out of one column default.
+  const observedComponents = (row.deployment.observedState as { components?: Record<string, unknown> } | null)
+    ?.components;
+  // Redis is the one component the API itself knows to expect (from the
+  // application's `redisRequired`, not just what the relay happened to
+  // report) — mirroring `database`'s always-present-when-required shape, but
+  // synthesized here rather than merely passed through, since a redis-
+  // requiring deployment that has never reported health would otherwise omit
+  // the row entirely instead of showing it as unknown.
+  const components = row.redisRequired
+    ? { ...(observedComponents ?? {}), redis: (observedComponents?.['redis'] as string | undefined) ?? 'UNKNOWN' }
+    : (observedComponents ?? null);
   return {
     ...row.deployment,
     awsAccountId: maskAwsAccountId(row.deployment.awsAccountId),
     relayStatus,
     healthStatus: deriveHealthStatus(row.deployment.healthStatus, relayStatus),
-    // §24 per-component health, reported by the relay. Absent until it has
-    // reported at least once — the detail page renders nothing rather than
-    // inventing four healthy rows out of one column default.
-    components: (row.deployment.observedState as { components?: unknown } | null)?.components ?? null,
+    components,
     customerName: row.customerName,
     applicationName: row.applicationName,
     version: row.version,
@@ -959,6 +972,7 @@ export async function buildServer({
         region: schema.deployments.region,
         databaseRequired: schema.applications.databaseRequired,
         storageRequired: schema.applications.storageRequired,
+        redisRequired: schema.applications.redisRequired,
         enrollmentCode: schema.deployments.enrollmentCode,
         enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
         deploymentId: schema.deployments.id,
@@ -981,6 +995,7 @@ export async function buildServer({
     const resourcesCreated = ['Application runtime'];
     if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
     if (row.storageRequired) resourcesCreated.push('Storage');
+    if (row.redisRequired) resourcesCreated.push('Redis cache');
     resourcesCreated.push('Networking', 'Monitoring');
     // The install link already identifies exactly this deployment, so its
     // own id/state/domain are within the scope the link already grants —
@@ -1541,6 +1556,7 @@ export async function buildServer({
         customerName: schema.customers.name,
         applicationName: schema.applications.name,
         version: schema.releases.version,
+        redisRequired: schema.applications.redisRequired,
       })
       .from(schema.deployments)
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
@@ -1561,6 +1577,7 @@ export async function buildServer({
         customerName: schema.customers.name,
         applicationName: schema.applications.name,
         version: schema.releases.version,
+        redisRequired: schema.applications.redisRequired,
       })
       .from(schema.deployments)
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))

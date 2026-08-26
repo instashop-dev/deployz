@@ -12,6 +12,7 @@ import {
   PHASE_2_ACM_MANAGE_ACTIONS,
   PHASE_2_ACM_REQUEST_ACTIONS,
   PHASE_2_APP_RESOURCE_ACTIONS,
+  PHASE_2_CACHE_ACTIONS,
   PHASE_2_CREATE_STACK_ACTIONS,
   PHASE_2_DOMAIN_INGRESS_ACTIONS,
   PHASE_2_MANAGE_STACK_ACTIONS,
@@ -83,6 +84,10 @@ describe('security-details ↔ bootstrap-stack truthfulness', () => {
     );
   });
 
+  it('phase 2 ElastiCache cache actions match the bootstrap stack exactly (Redis MVP)', () => {
+    expect([...PHASE_2_CACHE_ACTIONS]).toEqual(extractActions('PHASE_2_CACHE_ACTIONS'));
+  });
+
   it('pass-role disclosure matches the bootstrap stack (action, ARN, service)', () => {
     expect(source).toContain(`'${PHASE_2_PASS_ROLE_ACTION}'`);
     expect(source).toContain(`'${PASS_ROLE_RESOURCE_ARN}'`);
@@ -106,6 +111,7 @@ describe('security-details ↔ bootstrap-stack truthfulness', () => {
       ...extractActions('PHASE_2_ACM_REQUEST_ACTIONS'),
       ...extractActions('PHASE_2_ACM_MANAGE_ACTIONS'),
       ...extractActions('PHASE_2_DOMAIN_INGRESS_ACTIONS'),
+      ...extractActions('PHASE_2_CACHE_ACTIONS'),
     ];
     for (const denied of DENIED_LOG_READ_ACTIONS) {
       expect(granted).not.toContain(denied);

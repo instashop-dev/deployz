@@ -62,13 +62,28 @@ const noPostgresTree: FileTree = {
   }),
 };
 
-/** Redis dependency. */
+/** Plain Redis dependency — SUPPORTED (medium confidence alone, does not reject). */
 const redisTree: FileTree = {
   ...readyTree,
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
     dependencies: { express: '^4.18.0', pg: '^8.12.0', ioredis: '^5.4.0' },
+  }),
+};
+
+/** Unsupported Redis setup — Redis Stack modules (@redis/json). Rejects. */
+const unsupportedRedisTree: FileTree = {
+  ...readyTree,
+  'package.json': JSON.stringify({
+    name: 'ready-app',
+    scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+    dependencies: {
+      express: '^4.18.0',
+      pg: '^8.12.0',
+      ioredis: '^5.4.0',
+      '@redis/json': '^1.0.0',
+    },
   }),
 };
 
@@ -124,7 +139,7 @@ const localFsTree: FileTree = {
 };
 
 /** A rejection AND an attention issue both present (reject must win). */
-const rejectPlusAttentionTree: FileTree = { ...redisTree };
+const rejectPlusAttentionTree: FileTree = { ...unsupportedRedisTree };
 delete rejectPlusAttentionTree['Dockerfile'];
 
 /** Multiple §10 rejections plus missing PostgreSQL — all must be listed. */
@@ -133,7 +148,12 @@ const multiRejectTree: FileTree = {
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-    dependencies: { express: '^4.18.0', ioredis: '^5.4.0', mongoose: '^8.0.0' },
+    dependencies: {
+      express: '^4.18.0',
+      ioredis: '^5.4.0',
+      '@redis/json': '^1.0.0',
+      mongoose: '^8.0.0',
+    },
   }),
 };
 
@@ -157,10 +177,10 @@ function codes(result: CompatibilityResult): string[] {
 // ==========================================================================
 
 describe('evaluateCompatibility — REJECT rules (→ NOT_COMPATIBLE)', () => {
-  it('Redis dependency → NOT_COMPATIBLE (REDIS_DEPENDENCY)', () => {
-    const result = evaluateCompatibility(analyseRepo(redisTree));
+  it('unsupported Redis setup → NOT_COMPATIBLE (REDIS_UNSUPPORTED)', () => {
+    const result = evaluateCompatibility(analyseRepo(unsupportedRedisTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toEqual(['REDIS_DEPENDENCY']);
+    expect(codes(result)).toEqual(['REDIS_UNSUPPORTED']);
     expect(result.issues[0]?.severity).toBe('reject');
     expect(result.reason).toContain('Redis');
   });
@@ -209,7 +229,7 @@ describe('evaluateCompatibility — REJECT rules (→ NOT_COMPATIBLE)', () => {
     const result = evaluateCompatibility(analyseRepo(multiRejectTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
     const cs = codes(result);
-    expect(cs).toContain('REDIS_DEPENDENCY');
+    expect(cs).toContain('REDIS_UNSUPPORTED');
     expect(cs).toContain('MONGO_DEPENDENCY');
     expect(cs).toContain('MISSING_POSTGRESQL');
     // Reason lists every reject issue.
@@ -270,12 +290,18 @@ describe('evaluateCompatibility — READY + verdict precedence', () => {
     expect(result.reason).toBe('Compatible with Deployz');
   });
 
-  it('REJECT wins over ATTENTION (Redis + missing Dockerfile → NOT_COMPATIBLE)', () => {
+  it('plain Redis dependency → READY (supported, not a rejection)', () => {
+    const result = evaluateCompatibility(analyseRepo(redisTree));
+    expect(result.verdict).toBe('READY');
+    expect(codes(result)).toEqual([]);
+  });
+
+  it('REJECT wins over ATTENTION (unsupported Redis + missing Dockerfile → NOT_COMPATIBLE)', () => {
     const result = evaluateCompatibility(analyseRepo(rejectPlusAttentionTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
     // The attention issue must NOT leak into a NOT_COMPATIBLE result.
     expect(codes(result)).not.toContain('MISSING_DOCKERFILE');
-    expect(codes(result)).toContain('REDIS_DEPENDENCY');
+    expect(codes(result)).toContain('REDIS_UNSUPPORTED');
   });
 });
 
@@ -295,7 +321,7 @@ describe('evaluateCompatibility — purity invariant (§20)', () => {
   });
 
   it('deterministic across every verdict class', () => {
-    for (const tree of [readyTree, noMigrationTree, redisTree]) {
+    for (const tree of [readyTree, noMigrationTree, unsupportedRedisTree]) {
       const a = evaluateCompatibility(analyseRepo(tree));
       const b = evaluateCompatibility(analyseRepo(tree));
       expect(b).toEqual(a);
@@ -349,7 +375,7 @@ describe('persistVerdict — DB persistence', () => {
 
   it('writes NOT_COMPATIBLE verdict with the rejection reason', async () => {
     const update = vi.fn<VerdictStore['update']>();
-    const analysis = analyseRepo(redisTree);
+    const analysis = analyseRepo(unsupportedRedisTree);
 
     await persistVerdict('app-456', analysis, { update });
 

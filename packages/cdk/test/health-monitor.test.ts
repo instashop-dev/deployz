@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   checkBackupConfig,
+  checkCacheStatus,
   checkHttpHealth,
   checkRelayConnectivity,
   checkServiceState,
@@ -187,6 +188,50 @@ describe('checkStateConsistency', () => {
   });
 });
 
+// ── Signal 10: cache (Redis) status ───────────────────────────────────────
+
+describe('checkCacheStatus', () => {
+  it('HEALTHY (non-signal) when redis is not required, regardless of cache status', () => {
+    expect(
+      checkCacheStatus({ redisRequired: false, cacheStatus: null }).status,
+    ).toBe('HEALTHY');
+    expect(
+      checkCacheStatus({ redisRequired: false, cacheStatus: 'failed' }).status,
+    ).toBe('HEALTHY');
+    expect(checkCacheStatus({ redisRequired: false, cacheStatus: null }).key).toBe('cache');
+  });
+
+  it('DEGRADED when redis is required but the observed status is missing', () => {
+    expect(
+      checkCacheStatus({ redisRequired: true, cacheStatus: null }).status,
+    ).toBe('DEGRADED');
+  });
+
+  it('DEGRADED when redis is required but the observed status is not yet available', () => {
+    expect(
+      checkCacheStatus({ redisRequired: true, cacheStatus: 'creating' }).status,
+    ).toBe('DEGRADED');
+  });
+
+  it('HEALTHY when redis is required and the observed status is available', () => {
+    expect(
+      checkCacheStatus({ redisRequired: true, cacheStatus: 'available' }).status,
+    ).toBe('HEALTHY');
+  });
+
+  it('UNHEALTHY when the cache is reported failed', () => {
+    expect(
+      checkCacheStatus({ redisRequired: true, cacheStatus: 'failed' }).status,
+    ).toBe('UNHEALTHY');
+  });
+
+  it('UNHEALTHY when the cache is reported deleted', () => {
+    expect(
+      checkCacheStatus({ redisRequired: true, cacheStatus: 'deleted' }).status,
+    ).toBe('UNHEALTHY');
+  });
+});
+
 // ── Aggregate ─────────────────────────────────────────────────────────────
 
 describe('evaluateHealth', () => {
@@ -236,9 +281,11 @@ describe('collectHealthSignals', () => {
     memoryPercent: 40,
     desiredState: 'HEALTHY',
     observedState: 'HEALTHY',
+    redisRequired: false,
+    cacheStatus: null,
   };
 
-  it('returns exactly the 8 §28 signals in canonical order', () => {
+  it('returns exactly the 10 §28 signals in canonical order', () => {
     const signals = collectHealthSignals(HEALTHY_DEPS);
     expect(signals.map((s) => s.key)).toEqual([...HEALTH_SIGNAL_KEYS]);
   });
@@ -251,6 +298,33 @@ describe('collectHealthSignals', () => {
     const signals = collectHealthSignals({
       ...HEALTHY_DEPS,
       relayLastContactMsAgo: null,
+    });
+    expect(evaluateHealth(signals)).toBe('UNHEALTHY');
+  });
+
+  it('redis required but not yet available drags the aggregate to DEGRADED', () => {
+    const signals = collectHealthSignals({
+      ...HEALTHY_DEPS,
+      redisRequired: true,
+      cacheStatus: 'creating',
+    });
+    expect(evaluateHealth(signals)).toBe('DEGRADED');
+  });
+
+  it('redis required and available keeps the aggregate HEALTHY', () => {
+    const signals = collectHealthSignals({
+      ...HEALTHY_DEPS,
+      redisRequired: true,
+      cacheStatus: 'available',
+    });
+    expect(evaluateHealth(signals)).toBe('HEALTHY');
+  });
+
+  it('a failed cache drags the aggregate to UNHEALTHY', () => {
+    const signals = collectHealthSignals({
+      ...HEALTHY_DEPS,
+      redisRequired: true,
+      cacheStatus: 'failed',
     });
     expect(evaluateHealth(signals)).toBe('UNHEALTHY');
   });
@@ -413,6 +487,8 @@ describe('reconcileDeploymentHealth', () => {
       memoryPercent: 10,
       desiredState: 'HEALTHY',
       observedState: 'HEALTHY',
+      redisRequired: false,
+      cacheStatus: null,
       ...overrides,
     };
   }
