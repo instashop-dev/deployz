@@ -115,7 +115,7 @@ export const EVENT_FAMILIES = [
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
 
-/** First dot-segment of an event type, if it is one of the 6 families. */
+/** First dot-segment of an event type, if it is one of the known families. */
 export function eventFamily(eventType: string): EventFamily | null {
   const family = eventType.split('.')[0];
   if (!family) return null;

@@ -30,7 +30,7 @@ export type IssueSeverity = 'reject' | 'attention';
 export interface CompatibilityIssue {
   /** `reject` issues force NOT_COMPATIBLE; `attention` issues force NEEDS_ATTENTION. */
   severity: IssueSeverity;
-  /** Stable machine-readable code (e.g. 'REDIS_DEPENDENCY', 'MISSING_DOCKERFILE'). */
+  /** Stable machine-readable code (e.g. 'REDIS_UNSUPPORTED', 'MISSING_DOCKERFILE'). */
   code: string;
   /** Human-readable, §65 jargon-free description. */
   message: string;
