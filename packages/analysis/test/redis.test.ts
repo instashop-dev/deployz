@@ -109,6 +109,14 @@ describe('assessRedis', () => {
       expect(result.required).toBe(false);
     });
 
+    it('connect-redis direct dependency → medium confidence, sessions purpose', () => {
+      const tree: FileTree = { 'package.json': JSON.stringify({ dependencies: { 'connect-redis': '^7.1.0' } }) };
+      const result = assessRedis(tree);
+      expect(result.confidence).toBe('medium');
+      expect(result.purposes).toEqual(['sessions']);
+      expect(result.required).toBe(false);
+    });
+
     it('predis/predis in composer.json require → medium confidence', () => {
       const tree: FileTree = {
         'composer.json': JSON.stringify({ require: { 'predis/predis': '^2.0' } }),
