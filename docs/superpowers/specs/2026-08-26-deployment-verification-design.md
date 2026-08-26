@@ -308,6 +308,19 @@ once a real `INSTALL` provisions that stack.
 - Drift detection, the 10-signal health monitor, and preflight wiring.
 - `health_status` reaching anything other than `UNKNOWN`.
 - Verification for `DEPLOY_RELEASE` and `ROLLBACK`.
+- **Stack-level tags.** `verifyInstallation`'s `stack-tagged` check and the
+  relay's tag-conditioned IAM both read CloudFormation *stack* tags — the
+  `Tags` parameter of `CreateStack` — not the per-resource tags CDK's
+  `Tags.of(...)` aspect writes into a template. Whoever implements `INSTALL`
+  must pass `Tags` on `CreateStack` or verification will fail and the IAM
+  condition will deny. The existing helper in
+  `packages/cdk/src/integration/aws-clients.ts` passes no `Tags`.
+- **Express mode.** The verifier requires `AWS::ECS::Service` and
+  `AWS::ElasticLoadBalancingV2::LoadBalancer`. An `expressMode: true`
+  application stack has neither (it uses `AWS::ECS::ExpressGatewayService`
+  and ECS manages the load balancer), so a correctly provisioned
+  express-mode install would never verify. Must be handled before express
+  mode is used with a real `INSTALL`.
 - **Failure caching in `dispatchCommand`.** `packages/relay/src/commands.ts:137`
   caches every result by idempotency key, failures included, for the lifetime of
   the warm Lambda container. A transient `AccessDenied` during verification
