@@ -10,6 +10,7 @@ import { createAuth, type Auth } from './auth.js';
 import { errorEnvelopeSchema } from '@deployz/contracts';
 import { buildServer } from './server.js';
 import {
+  ANALYSIS_MAX_FILES,
   buildAppJwt,
   buildFileTreeForAnalysis,
   createAppJwt,
@@ -452,6 +453,43 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
       ].sort(),
     );
     expect(tree).not.toHaveProperty('irrelevant.txt');
+  });
+
+  it('never lets a flood of generic root-level source files crowd a named nested signal file out of the ANALYSIS_MAX_FILES cap', async () => {
+    // More unnamed root-level relevant files (plain .py scripts, no
+    // manifest/compose/env-sample name of their own) than the cap alone,
+    // listed BEFORE the two named nested files below — so a naive stable
+    // sort that treated "any root file" and "a named signal file" as the
+    // same priority would let these fill every slot and drop the nested
+    // docker-compose.yml/.env.example the Redis detectors actually need.
+    const rootScripts = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
+      path: `script${i}.py`,
+      type: 'blob' as const,
+      sha: `sha-script-${i}`,
+      size: 10,
+    }));
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            ...rootScripts,
+            { path: 'nested/docker-compose.yml', type: 'blob', sha: 'sha-compose', size: 10 },
+            { path: 'nested/.env.example', type: 'blob', sha: 'sha-env', size: 10 },
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    expect(tree).toHaveProperty('nested/docker-compose.yml');
+    expect(tree).toHaveProperty('nested/.env.example');
   });
 
   it('skips a file whose size exceeds ANALYSIS_MAX_FILE_BYTES', async () => {

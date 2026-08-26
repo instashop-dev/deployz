@@ -647,16 +647,27 @@ function isRelevantPath(path: string): boolean {
 // win a slot before the (potentially numerous) source files. A health-route
 // file ranks above ordinary source because it is the only evidence of a
 // health endpoint in a file-routed application.
+//
+// The generic "any relevant file sitting at the repo root" bucket is
+// DELIBERATELY one tier below the named-pattern group (tier 0), not merged
+// into it: an ordinary root-level script that happens to be relevant only
+// because of its extension (app.py, manage.py, main.rb — no manifest/
+// compose/env-sample name of its own) must never be able to outrank, and so
+// crowd out of the ANALYSIS_MAX_FILES cap, a *named* signal file like a
+// nested `docker-compose.yml` or `.env.example` that the Redis detectors
+// specifically look for. Named patterns are checked (and returned) before
+// this generic root check ever runs, so this bucket only ever catches
+// unnamed root files.
 function relevancePriority(path: string): number {
   if (MANIFEST_REGEX.test(path)) return 0;
   if (OTHER_MANIFEST_REGEX.test(path)) return 0;
   if (DOCKERFILE_REGEX.test(path)) return 0;
   if (COMPOSE_REGEX.test(path)) return 0;
   if (ENV_SAMPLE_REGEX.test(path)) return 0;
-  if (!path.includes('/')) return 0; // root config files
-  if (PRISMA_SCHEMA_REGEX.test(path)) return 1;
-  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 2;
-  return 3; // source files
+  if (!path.includes('/')) return 1; // generic (unnamed) root files
+  if (PRISMA_SCHEMA_REGEX.test(path)) return 2;
+  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 3;
+  return 4; // source files
 }
 
 export interface RepositoryRef {
