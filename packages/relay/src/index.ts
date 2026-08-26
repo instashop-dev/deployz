@@ -152,17 +152,13 @@ export function createVerifyingExecutor(
 export function readVerifyOptionsFromPayload(
   payload: Record<string, unknown>,
 ): Pick<VerifyOptions, 'redisRequired' | 'stackName'> {
-  const options: Pick<VerifyOptions, 'redisRequired' | 'stackName'> = {};
+  const redisRequired = payload['redisRequired'];
+  const stackName = payload['stackName'];
 
-  if (typeof payload['redisRequired'] === 'boolean') {
-    options.redisRequired = payload['redisRequired'];
-  }
-
-  if (typeof payload['stackName'] === 'string' && payload['stackName'].length > 0) {
-    options.stackName = payload['stackName'];
-  }
-
-  return options;
+  return {
+    ...(typeof redisRequired === 'boolean' ? { redisRequired } : {}),
+    ...(typeof stackName === 'string' && stackName.length > 0 ? { stackName } : {}),
+  };
 }
 
 /**
