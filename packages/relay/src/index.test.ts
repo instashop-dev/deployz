@@ -5,6 +5,16 @@ import type { ScheduledEvent } from 'aws-lambda';
 import { type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
 import { createRelayHandler, createVerifyingInstallExecutor } from './index.js';
+import type { VerificationResult } from './verify.js';
+
+// Fast stub for the §59 observe hook — the default falls back to a real
+// CloudFormationReader, which would otherwise reach out to AWS on every
+// poll cycle these integration tests run. No test in this file exercises
+// `observe` behavior itself, so a fixed "verified" result is fine everywhere.
+const stubObserve = async (): Promise<VerificationResult> => ({
+  verified: true,
+  checks: [],
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -118,7 +128,7 @@ describe('relay handler (integration)', () => {
         }),
       };
 
-      const handler = createRelayHandler({ secretsClient, fetchFn, executors });
+      const handler = createRelayHandler({ secretsClient, fetchFn, executors, observe: stubObserve });
       const event = makeScheduledEvent();
 
       // Should not throw.
@@ -203,7 +213,7 @@ describe('relay handler (integration)', () => {
 
       const fetchFn = makeFetchFn(200, { commands: [] });
 
-      const handler = createRelayHandler({ secretsClient, fetchFn });
+      const handler = createRelayHandler({ secretsClient, fetchFn, observe: stubObserve });
 
       // First invocation — should read the secret.
       await handler(makeScheduledEvent());
@@ -276,7 +286,7 @@ describe('relay handler (integration)', () => {
 
       const fetchFn = makeFetchFn(200, { commands: [command] });
 
-      const handler = createRelayHandler({ secretsClient, fetchFn, executors, idempotency });
+      const handler = createRelayHandler({ secretsClient, fetchFn, executors, idempotency, observe: stubObserve });
 
       // First invocation — executes the command.
       await handler(makeScheduledEvent());

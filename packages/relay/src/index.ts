@@ -196,6 +196,15 @@ export interface RelayHandlerDeps {
   fetchFn: FetchFn;
   executors?: Record<string, CommandExecutor>;
   idempotency?: IdempotencyStore;
+  /**
+   * Overrides the §59 observed-state hook wired into every poll cycle. When
+   * omitted, falls back to the real `verifyInstallation` closure over the
+   * lazy `CloudFormationReader` singleton — the same construct-on-first-use
+   * pattern as `executors`/`domain.js`'s `getAcmSdkClient()`. Tests that
+   * don't want a real AWS call on every poll (i.e. all of them) should
+   * inject a stub here.
+   */
+  observe?: PollDependencies['observe'];
 }
 
 /**
@@ -259,8 +268,9 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       enrollmentCode,
       executors,
       idempotency,
-      observe: () =>
-        verifyInstallation({ cfn: getCloudFormationReader(), installationId }),
+      observe:
+        deps.observe ??
+        (() => verifyInstallation({ cfn: getCloudFormationReader(), installationId })),
     };
 
     const result = await pollOnce(pollDeps, authState);
