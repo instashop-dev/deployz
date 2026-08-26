@@ -44,6 +44,11 @@ import {
   ListPoliciesCommand,
 } from '@aws-sdk/client-organizations';
 
+import {
+  ElastiCacheClient as SdkElastiCacheClient,
+  DescribeCacheClustersCommand,
+} from '@aws-sdk/client-elasticache';
+
 // ── Error thrown when SDK credentials are missing ────────────────────────
 
 /**
@@ -210,6 +215,30 @@ export interface OrganizationsClient {
   ): Promise<{ policies: ScpPolicy[] }>;
 }
 
+// ── ElastiCache (Redis MVP live-AWS proof) ─────────────────────────────────
+
+/** Observable state of a single ElastiCache cache cluster (single-node, non-cluster-mode). */
+export interface CacheClusterInfo {
+  readonly cacheClusterId: string;
+  /** Raw ElastiCache lifecycle status string (e.g. 'creating', 'available', 'deleting'). */
+  readonly status: string;
+  /** Endpoint hostname — undefined until ElastiCache assigns one (early in provisioning). */
+  readonly endpointAddress: string | undefined;
+  readonly port: number | undefined;
+}
+
+export interface DescribeCacheClustersParams {
+  readonly region: string;
+  /** Filter to a single cluster. Omitted lists every cluster in the region. */
+  readonly cacheClusterId?: string | undefined;
+}
+
+export interface ElastiCacheClient {
+  describeCacheClusters(
+    params: DescribeCacheClustersParams,
+  ): Promise<{ clusters: CacheClusterInfo[] }>;
+}
+
 // ── The bundled client set (the harness's single AWS dependency) ──────────
 
 export interface AwsClients {
@@ -218,6 +247,14 @@ export interface AwsClients {
   readonly elb: ElbClient;
   readonly sts: StsClient;
   readonly organizations: OrganizationsClient;
+  /**
+   * Optional: added for the Redis MVP live-AWS cache-lifecycle proof
+   * (golden-path-live-aws.test.ts). Optional (not required on every AwsClients
+   * literal) so the pre-existing mock harnesses in integration-harness.test.ts
+   * and golden-path-e2e.test.ts — which predate ElastiCache support and don't
+   * exercise it — keep satisfying the interface unmodified.
+   */
+  readonly elastiCache?: ElastiCacheClient;
 }
 
 // ── Regional client cache ──────────────────────────────────────────────────
@@ -229,6 +266,7 @@ export interface AwsClients {
 const cfnClients = new Map<string, SdkCloudFormationClient>();
 const ecsClients = new Map<string, SdkEcsClient>();
 const elbClients = new Map<string, SdkElbClient>();
+const elastiCacheClients = new Map<string, SdkElastiCacheClient>();
 const stsClient = new SdkStsClient({});
 const orgsClient = new SdkOrganizationsClient({});
 
@@ -255,6 +293,15 @@ function getElb(region: string): SdkElbClient {
   if (!client) {
     client = new SdkElbClient({ region });
     elbClients.set(region, client);
+  }
+  return client;
+}
+
+function getElastiCache(region: string): SdkElastiCacheClient {
+  let client = elastiCacheClients.get(region);
+  if (!client) {
+    client = new SdkElastiCacheClient({ region });
+    elastiCacheClients.set(region, client);
   }
   return client;
 }
@@ -359,6 +406,25 @@ export function createAwsClients(): AwsClients {
               id: p.Id ?? '',
               name: p.Name ?? '',
               arn: p.Arn ?? '',
+            })) ?? [],
+        };
+      },
+    },
+    elastiCache: {
+      async describeCacheClusters(params) {
+        const result = await getElastiCache(params.region).send(
+          new DescribeCacheClustersCommand({
+            CacheClusterId: params.cacheClusterId,
+            ShowCacheNodeInfo: true,
+          }),
+        );
+        return {
+          clusters:
+            result.CacheClusters?.map((c) => ({
+              cacheClusterId: c.CacheClusterId ?? '',
+              status: c.CacheClusterStatus ?? 'unknown',
+              endpointAddress: c.CacheNodes?.[0]?.Endpoint?.Address,
+              port: c.CacheNodes?.[0]?.Endpoint?.Port,
             })) ?? [],
         };
       },
