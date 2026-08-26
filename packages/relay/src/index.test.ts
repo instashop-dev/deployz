@@ -4,7 +4,7 @@ import type { ScheduledEvent } from 'aws-lambda';
 
 import { type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
-import { createRelayHandler, createVerifyingExecutor } from './index.js';
+import { createRelayHandler, createVerifyingExecutor, readVerifyOptionsFromPayload } from './index.js';
 import type { VerificationResult } from './verify.js';
 
 // Fast stub for the §59 observe hook — the default falls back to a real
@@ -396,5 +396,59 @@ describe('DEPLOY_RELEASE / ROLLBACK verification gate', () => {
 
     expect(result.success).toBe(true);
     expect(result.failureCode).toBeUndefined();
+  });
+});
+
+// The relay has command.payload in hand and, before this fix, ignored it —
+// verifyInstallation always defaulted redisRequired to false. That let a
+// deployment which genuinely requires Redis pass the relay gate over an
+// account with no ElastiCache cluster, disagreeing with the operator CLI's
+// `--redis` flag about the same installation.
+describe('createVerifyingExecutor passes the command through to verify()', () => {
+  it('hands the full command to the verify callback, not just the installation id', async () => {
+    const command = {
+      id: 'cmd-payload',
+      deploymentId: 'dep-1',
+      type: 'INSTALL' as const,
+      idempotencyKey: 'dep-1:INSTALL',
+      payload: { redisRequired: true, stackName: 'custom-stack' },
+    };
+
+    let seenCommand: typeof command | undefined;
+    const executor = createVerifyingExecutor(async (_installationId, cmd) => {
+      seenCommand = cmd as typeof command;
+      return { verified: true, checks: [] };
+    });
+
+    await executor(command);
+
+    expect(seenCommand?.payload).toEqual({ redisRequired: true, stackName: 'custom-stack' });
+  });
+});
+
+describe('readVerifyOptionsFromPayload', () => {
+  it('reads redisRequired and stackName when both are present and well-typed', () => {
+    expect(readVerifyOptionsFromPayload({ redisRequired: true, stackName: 'deployz-app-custom' })).toEqual({
+      redisRequired: true,
+      stackName: 'deployz-app-custom',
+    });
+  });
+
+  it('returns an empty object when the payload has neither field', () => {
+    expect(readVerifyOptionsFromPayload({})).toEqual({});
+  });
+
+  it('ignores a non-boolean redisRequired rather than trusting it', () => {
+    expect(readVerifyOptionsFromPayload({ redisRequired: 'true' })).toEqual({});
+    expect(readVerifyOptionsFromPayload({ redisRequired: 1 })).toEqual({});
+  });
+
+  it('ignores a non-string or empty stackName rather than trusting it', () => {
+    expect(readVerifyOptionsFromPayload({ stackName: 42 })).toEqual({});
+    expect(readVerifyOptionsFromPayload({ stackName: '' })).toEqual({});
+  });
+
+  it('reads redisRequired: false explicitly, not just truthy values', () => {
+    expect(readVerifyOptionsFromPayload({ redisRequired: false })).toEqual({ redisRequired: false });
   });
 });

@@ -30,6 +30,7 @@ import {
   verifyInstallation,
   type CloudFormationReader,
   type VerificationResult,
+  type VerifyOptions,
 } from './verify.js';
 
 // ── Lazy SDK singleton ───────────────────────────────────────────────────────
@@ -131,6 +132,40 @@ export function createVerifyingExecutor(
 }
 
 /**
+ * Extract verification overrides from a command's payload.
+ *
+ * `command.payload` is `Record<string, unknown>` — shaped by the control
+ * plane, not by this module — so every field is validated defensively
+ * before use rather than trusted or cast. A missing or wrongly-typed field
+ * falls back to `verifyInstallation`'s own default, which is today's
+ * behaviour (`redisRequired: false`, the default stack name).
+ *
+ * This is what keeps the relay's gate and the operator CLI's `--redis` flag
+ * in agreement: without it, a deployment that requires Redis but has no
+ * ElastiCache cluster would pass the relay gate and only get caught later,
+ * by hand, via `audit:deployment`.
+ *
+ * The §59 `observe` hook (wired in `createRelayHandler`) is deliberately not
+ * routed through this: it runs on every poll, outside any command, so it has
+ * no payload to read — its defaults stay as they are.
+ */
+export function readVerifyOptionsFromPayload(
+  payload: Record<string, unknown>,
+): Pick<VerifyOptions, 'redisRequired' | 'stackName'> {
+  const options: Pick<VerifyOptions, 'redisRequired' | 'stackName'> = {};
+
+  if (typeof payload['redisRequired'] === 'boolean') {
+    options.redisRequired = payload['redisRequired'];
+  }
+
+  if (typeof payload['stackName'] === 'string' && payload['stackName'].length > 0) {
+    options.stackName = payload['stackName'];
+  }
+
+  return options;
+}
+
+/**
  * Default executors for the ten command types.
  *
  * ⚠️ FIVE OF THESE ARE STILL STUBS: REPORT_HEALTH, CONFIG_UPDATE, DESTROY,
@@ -182,8 +217,12 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
     installationId,
   });
 
-  const verifyingExecutor = createVerifyingExecutor((id) =>
-    verifyInstallation({ cfn: getCloudFormationReader(), installationId: id }),
+  const verifyingExecutor = createVerifyingExecutor((id, command) =>
+    verifyInstallation({
+      cfn: getCloudFormationReader(),
+      installationId: id,
+      ...readVerifyOptionsFromPayload(command.payload),
+    }),
   );
 
   return {
