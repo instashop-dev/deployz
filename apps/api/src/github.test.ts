@@ -401,6 +401,59 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(calls).toHaveLength(4);
   });
 
+  it('fetches the additional manifest/compose/env-sample/source shapes Redis detection needs (§7 of the Redis MVP)', async () => {
+    const calls: string[] = [];
+    const fetchFn: FetchFn = async (url) => {
+      calls.push(url);
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'requirements.txt', type: 'blob', sha: 'sha-reqs', size: 10 },
+            { path: 'services/worker/pyproject.toml', type: 'blob', sha: 'sha-pyproject', size: 10 },
+            { path: 'Gemfile', type: 'blob', sha: 'sha-gemfile', size: 10 },
+            { path: 'go.mod', type: 'blob', sha: 'sha-gomod', size: 10 },
+            { path: 'composer.json', type: 'blob', sha: 'sha-composer', size: 10 },
+            { path: 'docker-compose.yml', type: 'blob', sha: 'sha-compose-root', size: 10 },
+            { path: 'deploy/compose.prod.yml', type: 'blob', sha: 'sha-compose-nested', size: 10 },
+            { path: 'services/worker/docker-compose.override.yaml', type: 'blob', sha: 'sha-compose-override', size: 10 },
+            { path: '.env.example', type: 'blob', sha: 'sha-env-root', size: 10 },
+            { path: 'services/worker/.env.sample', type: 'blob', sha: 'sha-env-nested', size: 10 },
+            { path: 'services/worker/.env.template', type: 'blob', sha: 'sha-env-template', size: 10 },
+            { path: 'worker.py', type: 'blob', sha: 'sha-py', size: 10 },
+            { path: 'app.rb', type: 'blob', sha: 'sha-rb', size: 10 },
+            { path: 'irrelevant.txt', type: 'blob', sha: 'sha-irrelevant', size: 10 }, // still not relevant
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree).sort()).toEqual(
+      [
+        'requirements.txt',
+        'services/worker/pyproject.toml',
+        'Gemfile',
+        'go.mod',
+        'composer.json',
+        'docker-compose.yml',
+        'deploy/compose.prod.yml',
+        'services/worker/docker-compose.override.yaml',
+        '.env.example',
+        'services/worker/.env.sample',
+        'services/worker/.env.template',
+        'worker.py',
+        'app.rb',
+      ].sort(),
+    );
+    expect(tree).not.toHaveProperty('irrelevant.txt');
+  });
+
   it('skips a file whose size exceeds ANALYSIS_MAX_FILE_BYTES', async () => {
     const fetchFn: FetchFn = async (url) => {
       if (url.includes('/git/trees/')) {

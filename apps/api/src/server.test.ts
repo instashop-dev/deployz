@@ -1542,6 +1542,48 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect((response.json() as { version: string | null }).version).toBeNull();
   });
 
+  it('deployment detail includes components.redis (defaulting to UNKNOWN) only when the application requires Redis', async () => {
+    const redisApp = await insertApplication(db, org.organizationId, { redisRequired: true });
+    const redisCustomer = await insertCustomer(db, org.organizationId);
+    const redisDeployment = await insertDeployment(db, org.organizationId, redisApp.id, redisCustomer.id);
+
+    const withRedis = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${redisDeployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect((withRedis.json() as { components: Record<string, string> | null }).components).toEqual({
+      redis: 'UNKNOWN',
+    });
+
+    const noRedisApp = await insertApplication(db, org.organizationId, { redisRequired: false });
+    const noRedisCustomer = await insertCustomer(db, org.organizationId);
+    const noRedisDeployment = await insertDeployment(db, org.organizationId, noRedisApp.id, noRedisCustomer.id);
+
+    const withoutRedis = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${noRedisDeployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect((withoutRedis.json() as { components: Record<string, string> | null }).components).toBeNull();
+
+    // A component the relay HAS reported is preserved verbatim, redis just
+    // joins it — mirroring how `database` would sit alongside it.
+    await db
+      .update(schema.deployments)
+      .set({ observedState: { components: { application: 'HEALTHY', redis: 'HEALTHY' } } })
+      .where(eq(schema.deployments.id, redisDeployment.id));
+    const reported = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${redisDeployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect((reported.json() as { components: Record<string, string> | null }).components).toEqual({
+      application: 'HEALTHY',
+      redis: 'HEALTHY',
+    });
+  });
+
   it('readiness: analysis not COMPLETE returns analysisStatus instead of a fabricated score', async () => {
     const application = await insertApplication(db, org.organizationId, { analysisStatus: 'ANALYZING' });
     const response = await app.inject({
@@ -2007,6 +2049,37 @@ describe('server — organization settings, public install page, and bulk deploy
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('999999999999');
     expect(serialized).not.toContain(org.organizationId);
+  });
+
+  it('GET /api/install/:installationId lists "Redis cache" in resourcesCreated only when the application requires Redis', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      name: 'Cache App',
+      databaseRequired: false,
+      storageRequired: false,
+      redisRequired: true,
+    });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    const withRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+    expect((withRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
+      'Application runtime',
+      'Redis cache',
+      'Networking',
+      'Monitoring',
+    ]);
+
+    await db
+      .update(schema.applications)
+      .set({ redisRequired: false })
+      .where(eq(schema.applications.id, application.id));
+
+    const withoutRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+    expect((withoutRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
+      'Application runtime',
+      'Networking',
+      'Monitoring',
+    ]);
   });
 
   it('GET /api/install/:installationId stops handing out a link once the code is spent', async () => {
