@@ -267,7 +267,6 @@ const PROVISION_MANAGE_ACTIONS = [
   'ecs:DeleteCluster',
   'ecs:UpdateService',
   'ecs:DeleteService',
-  'ecs:DeregisterTaskDefinition',
   'rds:ModifyDBInstance',
   'rds:DeleteDBInstance',
   'rds:DeleteDBSubnetGroup',
@@ -286,8 +285,6 @@ const PROVISION_MANAGE_ACTIONS = [
   'secretsmanager:DeleteSecret',
   'secretsmanager:GetResourcePolicy',
   'secretsmanager:PutResourcePolicy',
-  'logs:PutRetentionPolicy',
-  'logs:DeleteLogGroup',
   'elasticache:ModifyCacheCluster',
   'elasticache:DeleteCacheCluster',
   'elasticache:DeleteCacheSubnetGroup',
@@ -372,6 +369,33 @@ const PROVISION_STORAGE_ACTIONS = [
   's3:GetBucketAcl',
   's3:GetLifecycleConfiguration',
   's3:PutLifecycleConfiguration',
+] as const;
+
+/**
+ * Actions AWS provides no usable tag condition for.
+ *
+ * Every entry here was moved out of the request-tag or resource-tag
+ * statement above because a live probe stack proved the condition never
+ * matches, not because scoping was inconvenient:
+ *
+ * - `secretsmanager:GetRandomPassword` acts on no resource at all — it
+ *   returns a random string. `GenerateSecretString` (the database master
+ *   password) calls it, so without this the application stack cannot create
+ *   its database secret.
+ * - `logs:PutRetentionPolicy` and `logs:DeleteLogGroup` take a log-group
+ *   ARN but do not honour `aws:ResourceTag`, even on a log group
+ *   CloudFormation has already tagged.
+ * - `ecs:DeregisterTaskDefinition` likewise: ECS task definitions carry
+ *   tags, but the action does not evaluate them.
+ *
+ * These are contained by the role's trust policy instead, which admits only
+ * CloudFormation acting for this account.
+ */
+const PROVISION_UNTAGGABLE_ACTIONS = [
+  'secretsmanager:GetRandomPassword',
+  'logs:PutRetentionPolicy',
+  'logs:DeleteLogGroup',
+  'ecs:DeregisterTaskDefinition',
 ] as const;
 
 /** The services the application stack needs service-linked roles for. */
@@ -826,6 +850,33 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // The same create actions again, this time against the RESOURCE tag.
+    //
+    // A create is authorized against every resource in the request, not just
+    // the one being made. `ec2:CreateSecurityGroup` is evaluated against the
+    // new security group AND the VPC it goes in; `ec2:CreateSubnet` against
+    // the VPC; `ecs:CreateService` against the cluster. The new resource
+    // carries the request tag, but the parent is an existing resource that
+    // carries a resource tag instead, and the statement above cannot match
+    // it — a live probe stack failed here with exactly that: "not authorized
+    // to perform: ec2:CreateSecurityGroup on resource: .../vpc-...".
+    //
+    // Two Allow statements are an OR, so each resource in the request is
+    // satisfied by whichever one fits. This does not widen the boundary: a
+    // brand-new, untagged resource matches neither, so an untagged security
+    // group in a tagged VPC is still denied.
+    const provisionCreateOnTagged = new PolicyStatement({
+      sid: 'ProvisionApplicationCreateOnTagged',
+      effect: Effect.ALLOW,
+      actions: [...PROVISION_CREATE_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
     const provisionManage = new PolicyStatement({
       sid: 'ProvisionApplicationManage',
       effect: Effect.ALLOW,
@@ -842,6 +893,13 @@ export class BootstrapStack extends Stack {
       sid: 'ProvisionApplicationRead',
       effect: Effect.ALLOW,
       actions: [...PROVISION_READ_ACTIONS],
+      resources: ['*'],
+    });
+
+    const provisionUntaggable = new PolicyStatement({
+      sid: 'ProvisionApplicationUntaggable',
+      effect: Effect.ALLOW,
+      actions: [...PROVISION_UNTAGGABLE_ACTIONS],
       resources: ['*'],
     });
 
@@ -888,13 +946,14 @@ export class BootstrapStack extends Stack {
     // capped at 10,240 characters, and this set comfortably exceeds that as
     // a single document.
     new Policy(this, 'ProvisionApplicationWrite', {
-      statements: [provisionCreate, provisionManage],
+      statements: [provisionCreate, provisionCreateOnTagged, provisionManage],
       roles: [this.applicationExecutionRole],
     });
     new Policy(this, 'ProvisionApplicationSupport', {
       statements: [
         provisionRead,
         provisionStorage,
+        provisionUntaggable,
         provisionPassRole,
         provisionServiceLinkedRoles,
       ],
