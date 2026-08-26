@@ -20,6 +20,8 @@ export interface HealthComponents {
   database?: HealthStatus;
   storage?: HealthStatus;
   loadBalancer?: HealthStatus;
+  /** Present only when the application requires a managed Redis cache. */
+  redis?: HealthStatus;
 }
 
 /**

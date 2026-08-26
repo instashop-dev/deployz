@@ -54,6 +54,7 @@ const HEALTH_DOT: Record<HealthStatus, string> = {
 const COMPONENT_LABELS = [
   ['application', 'Application'],
   ['database', 'Database'],
+  ['redis', 'Redis'],
   ['storage', 'Storage'],
   ['loadBalancer', 'Load Balancer'],
 ] as const;

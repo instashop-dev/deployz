@@ -12,6 +12,7 @@ export function ApplicationReadyCard({ application }: { application: Application
   const facts: { label: string; value: string }[] = [
     ...(runtime === null ? [] : [{ label: 'Runtime', value: runtime }]),
     { label: 'Database', value: application.databaseRequired ? 'PostgreSQL' : 'Not required' },
+    { label: 'Redis', value: application.redisRequired ? 'Managed automatically' : 'Not required' },
     { label: 'Cloud', value: 'AWS' },
   ];
 
