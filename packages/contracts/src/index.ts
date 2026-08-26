@@ -117,6 +117,8 @@ export const failureCodeSchema = z.enum([
   'MISSING_SECRET',
   'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
+  'REDIS_PROVISIONING_FAILED',
+  'REDIS_CONNECTION_FAILED',
 ]);
 export type FailureCode = z.infer<typeof failureCodeSchema>;
 
@@ -264,6 +266,7 @@ export const applicationSchema = z.object({
   workerCommand: z.string().nullable(),
   databaseRequired: z.boolean(),
   storageRequired: z.boolean(),
+  redisRequired: z.boolean(),
   analysisStatus: analysisStatusSchema,
   compatibilityStatus: compatibilityStatusSchema.nullable(),
   compatibilityReason: z.string().nullable(),

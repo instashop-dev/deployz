@@ -76,6 +76,13 @@ describe('failureCodeSchema (§61 stable taxonomy)', () => {
       expect(failureCodeSchema.parse(code)).toBe(code);
     }
   });
+
+  // Redis MVP task 3: the two new codes must be present in the contracts
+  // mirror explicitly, not merely covered by the generic parity loop above.
+  it('includes the two Redis failure codes', () => {
+    expect(failureCodeSchema.options).toContain('REDIS_PROVISIONING_FAILED');
+    expect(failureCodeSchema.options).toContain('REDIS_CONNECTION_FAILED');
+  });
 });
 
 // Round-trip law: a db row (Date objects) crosses the wire as JSON, so the
@@ -130,6 +137,7 @@ describe('core-object round-trip (db row -> JSON -> schema.parse -> wire)', () =
         workerCommand: null,
         databaseRequired: false,
         storageRequired: false,
+        redisRequired: false,
         analysisStatus: 'COMPLETE',
         compatibilityStatus: 'READY',
         compatibilityReason: null,
