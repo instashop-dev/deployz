@@ -2,13 +2,14 @@
  * Health monitoring (§28) — deployment health ONLY. No app observability (M14).
  *
  * This module is the control-plane's health logic for a single customer
- * deployment. It is deliberately scoped to DEPLOYMENT health: the 8 §28
+ * deployment. It is deliberately scoped to DEPLOYMENT health: the 10 §28
  * signals are about infrastructure/connectivity deployment health, NOT
  * application-level observability (no app logs, no app metrics, no custom
  * dashboards — M14). CPU/memory here means the deployment's own task
  * capacity, not application performance metrics.
  *
- * The 8 §28 signals (one pure `check*` function each, injectable-seam style):
+ * The 10 §28 signals (one pure `check*` function each, injectable-seam style;
+ * the original 8 + container-exit + cache):
  *   1. CFN stack status            — checkStackStatus
  *   2. ECS service state           — checkServiceState
  *   3. Target health (ALB)         — checkTargetHealth
@@ -17,6 +18,8 @@
  *   6. HTTP health (app /health)   — checkHttpHealth
  *   7. CPU/memory utilization      — checkUtilization
  *   8. Deployment state consistency— checkStateConsistency
+ *   9. Container exit state        — checkContainerExitState
+ *  10. Cache (Redis) status        — checkCacheStatus
  *
  * §64 backup-config health check: `checkBackupConfig` verifies RDS automated
  * backups are still configured/enabled. It is NOT a ninth signal — it IS the
@@ -75,7 +78,7 @@ export interface HealthSignal {
 export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
 
 /**
- * Aggregate the 8 signals into a single deployment health status.
+ * Aggregate the signals into a single deployment health status.
  *
  * UNHEALTHY wins over DEGRADED, DEGRADED over HEALTHY. No signals (empty
  * input) is vacuously HEALTHY — no signal, no known problem.
@@ -431,9 +434,9 @@ export function checkCacheStatus(deps: CacheStatusDeps): HealthSignal {
   return { key: 'cache', status, summary, detail: { redisRequired, cacheStatus } };
 }
 
-// ── Collect all 8 signals ──────────────────────────────────────────────────
+// ── Collect all signals ─────────────────────────────────────────────────────
 
-/** Aggregated observed data for all 8 §28 signals. */
+/** Aggregated observed data for all 10 §28 signals. */
 export interface HealthCheckDeps {
   readonly deploymentId: string;
   readonly stackStatus: string;
@@ -634,7 +637,7 @@ export interface ReconcileDeploymentHealthDeps extends DriftDeps {
 export interface ReconcileDeploymentHealthInput {
   readonly deploymentId: string;
   readonly organizationId: string;
-  /** Observed data for the 8 §28 signals (relay poll + AWS-observed state). */
+  /** Observed data for the 10 §28 signals (relay poll + AWS-observed state). */
   readonly healthCheckDeps: HealthCheckDeps;
   /** §59 desired vs observed state for drift detection. */
   readonly desiredState: Record<string, unknown>;

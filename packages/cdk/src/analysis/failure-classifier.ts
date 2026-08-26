@@ -391,6 +391,16 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
   if (isRelayDisconnected(event)) return 'RELAY_DISCONNECTED';
 
   // 8. STACK_CREATE_FAILED — CloudFormation stack creation failed.
+  //
+  // FORWARD-LOOKING RISK: this rule matches on source+signal alone, with no
+  // resourceType check. If a per-resource CFN failure event is ever emitted
+  // carrying this same blanket 'stack-create-failed' signal AND an
+  // AWS::ElastiCache resourceType, this rule (checked first) will shadow
+  // rule 14 (REDIS_PROVISIONING_FAILED) below — that event would misclassify
+  // as STACK_CREATE_FAILED instead. Not reachable today (no CFN event
+  // producer exists yet); whoever adds one must either give per-resource
+  // ElastiCache failures a resource-scoped signal (not 'stack-create-failed'),
+  // or this ordering must be revisited.
   if (
     event.source === 'cloudformation' &&
     event.signal === 'stack-create-failed'
