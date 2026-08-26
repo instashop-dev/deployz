@@ -74,6 +74,7 @@ import {
   Secret as EcsSecret,
   type ICluster,
 } from 'aws-cdk-lib/aws-ecs';
+import { CfnCacheCluster, CfnSubnetGroup } from 'aws-cdk-lib/aws-elasticache';
 import {
   ApplicationLoadBalancer,
   ApplicationProtocol,
@@ -101,6 +102,7 @@ import {
 } from 'aws-cdk-lib/aws-s3';
 import { Secret, type ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
+import { resolveRedisEnvBindings } from '@deployz/analysis';
 
 export interface ApplicationStackProps extends StackProps {
   /**
@@ -172,6 +174,31 @@ export interface ApplicationStackProps extends StackProps {
    * `certificateArn` is absent and this is not explicitly `true`.
    */
   readonly allowInsecureHttp?: boolean;
+  /**
+   * Provision a private single-node ElastiCache Valkey cache (Redis MVP,
+   * spec §13-18) alongside the application.
+   *
+   * `false` (default) provisions zero ElastiCache resources and injects no
+   * `REDIS_*` container env — existing non-Redis deployments synth
+   * byte-identical infrastructure.
+   *
+   * `true` provisions a `cache.t4g.micro`, single-node, standalone `valkey`
+   * cache over the same private subnets RDS uses, plus a dedicated security
+   * group, and injects the resolved `REDIS_*` env vars into both the app and
+   * (when present) worker containers.
+   */
+  readonly redisRequired?: boolean;
+  /**
+   * Detected Redis connection env var names (`RedisRequirement.connectionEnvVars`
+   * from `@deployz/analysis`). Resolved via `resolveRedisEnvBindings` into the
+   * concrete env vars injected into the container — a `url`-kind binding gets
+   * the full `redis://host:6379` connection string, `host`/`port`-kind
+   * bindings get just the endpoint address / literal port.
+   *
+   * When omitted or empty, the three Deployz defaults are injected:
+   * `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`.
+   */
+  readonly redisEnvVars?: string[];
 }
 
 const DEFAULT_IMAGE_REPOSITORY = 'public.ecr.aws/deployz/fixture';
@@ -182,6 +209,9 @@ const HEALTH_CHECK_PATH = '/health';
 const DB_NAME = 'deployz';
 const DB_USER = 'deployz_app';
 const DB_PORT = 5432;
+const REDIS_ENGINE = 'valkey';
+const REDIS_NODE_TYPE = 'cache.t4g.micro';
+const REDIS_PORT = 6379;
 
 export class ApplicationStack extends Stack {
   public readonly vpc: Vpc;
@@ -202,6 +232,8 @@ export class ApplicationStack extends Stack {
   public readonly workerService?: FargateService;
   /** Background worker log group (defined when `workerCommand` is provided). */
   public readonly workerLogGroup?: LogGroup;
+  /** ElastiCache Valkey cache (defined when `redisRequired` is true). */
+  public readonly cache?: CfnCacheCluster;
 
   constructor(scope: Construct, id: string, props: ApplicationStackProps = {}) {
     super(scope, id, props);
@@ -343,6 +375,73 @@ export class ApplicationStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
+    // ── ElastiCache Valkey cache (Redis MVP, spec §13-18) ─────────────────
+    // Gated entirely on redisRequired: when false/unset, zero ElastiCache
+    // resources are created and no REDIS_* env vars are injected below — the
+    // template stays byte-identical to a stack without this feature.
+    const redisRequired = props.redisRequired ?? false;
+    let redisSecurityGroup: SecurityGroup | undefined;
+    let redisSubnetGroup: CfnSubnetGroup | undefined;
+    if (redisRequired) {
+      redisSubnetGroup = new CfnSubnetGroup(this, 'RedisSubnetGroup', {
+        description: 'Deployz-managed private subnet group for the ElastiCache Valkey cache',
+        subnetIds: this.vpc
+          .selectSubnets({ subnetType: SubnetType.PRIVATE_WITH_EGRESS })
+          .subnetIds,
+      });
+
+      redisSecurityGroup = new SecurityGroup(this, 'RedisSecurityGroup', {
+        vpc: this.vpc as unknown as IVpc,
+        description: 'ElastiCache Valkey access for the customer application',
+      });
+      // Allow the application (both Fargate and Express tasks) to reach the
+      // cache. In Express mode the task security groups are ECS-managed, so
+      // the ingress is opened to the whole VPC CIDR (private + public
+      // subnets) rather than a single service security group we cannot
+      // reference — same broad-VPC pattern as dbSecurityGroup above.
+      redisSecurityGroup.addIngressRule(
+        Peer.ipv4(this.vpc.vpcCidrBlock),
+        Port.tcp(REDIS_PORT),
+        'Allow the application to reach the ElastiCache Valkey cache',
+      );
+
+      this.cache = new CfnCacheCluster(this, 'Cache', {
+        engine: REDIS_ENGINE,
+        cacheNodeType: REDIS_NODE_TYPE,
+        numCacheNodes: 1,
+        port: REDIS_PORT,
+        vpcSecurityGroupIds: [redisSecurityGroup.securityGroupId],
+        cacheSubnetGroupName: redisSubnetGroup.ref,
+        // No explicit clusterName — CFN logical-ID naming is deterministic
+        // per stack and avoids ElastiCache's cluster-name length limits
+        // (spec §14), matching the RDS instance's unnamed pattern above.
+      });
+      this.cache.addResourceDependency(redisSubnetGroup);
+    }
+
+    // Resolved REDIS_* env var name/value pairs to inject into every
+    // container (app + worker, both expressMode branches). Empty when
+    // redisRequired is false — no REDIS_* env vars anywhere in that case.
+    const cache = this.cache;
+    const redisEnvEntries: Array<[string, string]> =
+      redisRequired && cache !== undefined
+        ? resolveRedisEnvBindings(props.redisEnvVars ?? []).map(
+            (binding): [string, string] => {
+              switch (binding.kind) {
+                case 'url':
+                  return [
+                    binding.name,
+                    `redis://${cache.attrRedisEndpointAddress}:${REDIS_PORT}`,
+                  ];
+                case 'host':
+                  return [binding.name, cache.attrRedisEndpointAddress];
+                case 'port':
+                  return [binding.name, String(REDIS_PORT)];
+              }
+            },
+          )
+        : [];
+
     // ── ECS cluster (shared by both modes) ────────────────────────────────
     this.cluster = new Cluster(this, 'Cluster', {
       vpc: this.vpc as unknown as IVpc,
@@ -433,6 +532,7 @@ export class ApplicationStack extends Stack {
             { name: 'DATABASE_NAME', value: DB_NAME },
             { name: 'DATABASE_USER', value: DB_USER },
             { name: 'STORAGE_BUCKET', value: this.storageBucket.bucketName },
+            ...redisEnvEntries.map(([name, value]) => ({ name, value })),
           ],
           secrets: [
             {
@@ -483,6 +583,7 @@ export class ApplicationStack extends Stack {
           DATABASE_NAME: DB_NAME,
           DATABASE_USER: DB_USER,
           STORAGE_BUCKET: this.storageBucket.bucketName,
+          ...Object.fromEntries(redisEnvEntries),
         },
         secrets: {
           DATABASE_PASSWORD: EcsSecret.fromSecretsManager(
@@ -599,6 +700,7 @@ export class ApplicationStack extends Stack {
             DATABASE_NAME: DB_NAME,
             DATABASE_USER: DB_USER,
             STORAGE_BUCKET: this.storageBucket.bucketName,
+            ...Object.fromEntries(redisEnvEntries),
           },
           secrets: {
             DATABASE_PASSWORD: EcsSecret.fromSecretsManager(
@@ -654,6 +756,9 @@ export class ApplicationStack extends Stack {
         this.expressService,
         this.workerService,
         this.workerLogGroup,
+        redisSubnetGroup,
+        redisSecurityGroup,
+        this.cache,
       ]) {
         if (c !== undefined) {
           Tags.of(c).add('deployz:application', props.applicationId);
@@ -679,6 +784,9 @@ export class ApplicationStack extends Stack {
         this.expressService,
         this.workerService,
         this.workerLogGroup,
+        redisSubnetGroup,
+        redisSecurityGroup,
+        this.cache,
       ]) {
         if (c !== undefined) {
           Tags.of(c).add('deployz:vendor', props.vendorId);
@@ -704,6 +812,9 @@ export class ApplicationStack extends Stack {
         this.expressService,
         this.workerService,
         this.workerLogGroup,
+        redisSubnetGroup,
+        redisSecurityGroup,
+        this.cache,
       ]) {
         if (c !== undefined) {
           Tags.of(c).add('deployz:installation', props.installationId);
@@ -727,5 +838,10 @@ export class ApplicationStack extends Stack {
     this.exportValue(publicEndpoint, {
       name: `${this.stackName}-PublicEndpoint`,
     });
+    if (this.cache !== undefined) {
+      this.exportValue(this.cache.attrRedisEndpointAddress, {
+        name: `${this.stackName}-CacheEndpoint`,
+      });
+    }
   }
 }
