@@ -1,0 +1,171 @@
+/**
+ * Installation verification — does the customer's account actually contain
+ * the application the control plane believes is deployed?
+ *
+ * This exists because a relay command reporting `success: true` is, on its
+ * own, worth nothing: it is a claim made by the same process that was
+ * supposed to do the work. Verification is a second, independent question
+ * asked of CloudFormation directly.
+ *
+ * Two API calls answer it — the stack's existence and status, and its
+ * resource inventory. That is deliberately narrower than sweeping the
+ * account: the relay's IAM is scoped by the `deployz:installation` tag, and
+ * most account-wide list calls cannot carry that condition.
+ *
+ * EVERY failure mode resolves to `verified: false`. A verifier that treated
+ * an unreadable answer as a good one would reproduce the bug it exists to
+ * catch.
+ */
+
+import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
+
+// ── Observed shapes ─────────────────────────────────────────────────────────
+
+export interface StackSummary {
+  readonly stackName: string;
+  readonly status: string;
+  readonly tags: Readonly<Record<string, string>>;
+}
+
+export interface StackResource {
+  readonly logicalId: string;
+  readonly type: string;
+  readonly status: string;
+}
+
+/**
+ * A failed lookup carries the AWS error code when there was one. "The stack
+ * is missing" and "I am not allowed to look" are both `found: false` — the
+ * fail-closed rule makes them equivalent for the verdict — but an operator
+ * acts differently on each, so the reason preserves which it was.
+ */
+export type StackLookup =
+  | { readonly found: true; readonly stack: StackSummary }
+  | { readonly found: false; readonly errorCode?: string };
+
+/** The injectable seam. Implementations must never throw. */
+export interface CloudFormationReader {
+  describeStack(stackName: string): Promise<StackLookup>;
+  describeStackResources(stackName: string): Promise<StackResource[]>;
+}
+
+// ── Verification ────────────────────────────────────────────────────────────
+
+export interface VerifyOptions {
+  readonly cfn: CloudFormationReader;
+  readonly installationId: string;
+  /** Defaults to `DEFAULT_APPLICATION_STACK_NAME`. */
+  readonly stackName?: string;
+  /** Expect an ElastiCache cluster. Defaults to false. */
+  readonly redisRequired?: boolean;
+}
+
+export interface VerificationCheck {
+  readonly name: string;
+  readonly passed: boolean;
+  readonly detail: string;
+}
+
+export interface VerificationResult {
+  readonly verified: boolean;
+  readonly checks: readonly VerificationCheck[];
+  /** Present when `verified` is false — the first failing check's detail. */
+  readonly reason?: string;
+}
+
+const INSTALLATION_TAG = 'deployz:installation';
+
+/** Stack and resource statuses that mean "this finished, and it worked". */
+const COMPLETE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
+
+const REQUIRED_RESOURCES = [
+  { name: 'compute', type: 'AWS::ECS::Service', label: 'ECS service' },
+  { name: 'ingress', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', label: 'load balancer' },
+  { name: 'database', type: 'AWS::RDS::DBInstance', label: 'database' },
+  { name: 'storage', type: 'AWS::S3::Bucket', label: 'storage bucket' },
+] as const;
+
+const CACHE_RESOURCE = {
+  name: 'cache',
+  type: 'AWS::ElastiCache::CacheCluster',
+  label: 'cache',
+} as const;
+
+export async function verifyInstallation(options: VerifyOptions): Promise<VerificationResult> {
+  const stackName = options.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
+  const checks: VerificationCheck[] = [];
+
+  // 1. The stack exists.
+  const lookup = await options.cfn.describeStack(stackName);
+  if (!lookup.found) {
+    const because = lookup.errorCode ? ` (${lookup.errorCode})` : '';
+    checks.push({
+      name: 'stack-exists',
+      passed: false,
+      detail: `No CloudFormation stack named "${stackName}" in this account and region${because}`,
+    });
+    return conclude(checks);
+  }
+  checks.push({
+    name: 'stack-exists',
+    passed: true,
+    detail: `Stack "${stackName}" found`,
+  });
+
+  // 2. It finished successfully. A rolled-back stack still exists.
+  const { stack } = lookup;
+  if (!COMPLETE_STATUSES.has(stack.status)) {
+    checks.push({
+      name: 'stack-complete',
+      passed: false,
+      detail: `Stack status ${stack.status} is not a successful terminal state`,
+    });
+    return conclude(checks);
+  }
+  checks.push({ name: 'stack-complete', passed: true, detail: `Stack status ${stack.status}` });
+
+  // 3. It is THIS installation's stack — a same-named stack in the account
+  //    must not pass for another installation's.
+  const tag = stack.tags[INSTALLATION_TAG];
+  if (tag !== options.installationId) {
+    checks.push({
+      name: 'stack-tagged',
+      passed: false,
+      detail: `Stack ${INSTALLATION_TAG} is ${tag ?? 'unset'}, expected ${options.installationId}`,
+    });
+    return conclude(checks);
+  }
+  checks.push({
+    name: 'stack-tagged',
+    passed: true,
+    detail: `Stack carries ${INSTALLATION_TAG}=${options.installationId}`,
+  });
+
+  // 4. It contains the application, not just an empty shell.
+  const resources = await options.cfn.describeStackResources(stackName);
+  const expected = options.redisRequired
+    ? [...REQUIRED_RESOURCES, CACHE_RESOURCE]
+    : [...REQUIRED_RESOURCES];
+
+  for (const want of expected) {
+    const present = resources.some(
+      (resource) => resource.type === want.type && COMPLETE_STATUSES.has(resource.status),
+    );
+    checks.push({
+      name: want.name,
+      passed: present,
+      detail: present
+        ? `Found a complete ${want.label}`
+        : `No complete ${want.label} (${want.type}) in the stack`,
+    });
+  }
+
+  return conclude(checks);
+}
+
+function conclude(checks: VerificationCheck[]): VerificationResult {
+  const firstFailure = checks.find((check) => !check.passed);
+  return firstFailure
+    ? { verified: false, checks, reason: firstFailure.detail }
+    : { verified: true, checks };
+}
