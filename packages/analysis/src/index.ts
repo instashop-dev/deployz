@@ -34,6 +34,16 @@ export {
   checkOtherUnsupportedDatabases,
 } from './rejection.js';
 
+export type {
+  RedisConfidence,
+  RedisPurpose,
+  RedisCompatibility,
+  RedisRequirement,
+  RedisEnvBindingKind,
+  RedisEnvBinding,
+} from './redis.js';
+export { assessRedis, resolveRedisEnvBindings } from './redis.js';
+
 export type { AnalysisResult } from './analyser.js';
 export { analyseRepo } from './analyser.js';
 
