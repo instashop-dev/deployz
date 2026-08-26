@@ -19,6 +19,7 @@ import {
   PHASE_2_ACM_MANAGE_ACTIONS,
   PHASE_2_ACM_REQUEST_ACTIONS,
   PHASE_2_APP_RESOURCE_ACTIONS,
+  PHASE_2_CACHE_ACTIONS,
   PHASE_2_CREATE_STACK_ACTIONS,
   PHASE_2_DOMAIN_INGRESS_ACTIONS,
   PHASE_2_MANAGE_STACK_ACTIONS,
@@ -45,6 +46,22 @@ const domainIngressReadActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter((action) 
 );
 const domainIngressWriteActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter(
   (action) => !action.startsWith('elasticloadbalancing:Describe'),
+);
+
+// PHASE_2_CACHE_ACTIONS splits the same way, but three ways instead of two:
+// Create* needs the request tag (the cache doesn't exist yet), Delete/
+// Modify/tag-management needs the resource tag (the cache already carries
+// it), and Describe* carries no condition — ElastiCache, like the load
+// balancer above, does not support resource-level permissions on those
+// calls. Mirrors the three IAM statements bootstrap-stack.ts builds.
+const cacheCreateActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
+  action.startsWith('elasticache:Create'),
+);
+const cacheDescribeActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
+  action.startsWith('elasticache:Describe'),
+);
+const cacheManageActions = PHASE_2_CACHE_ACTIONS.filter(
+  (action) => !cacheCreateActions.includes(action) && !cacheDescribeActions.includes(action),
 );
 
 function ActionList({ actions }: { actions: readonly string[] }) {
@@ -279,6 +296,22 @@ export default async function SecurityDetailsPage({
             <p>Reconcile your app&apos;s running resources — same tag boundary:</p>
             <ActionList actions={PHASE_2_APP_RESOURCE_ACTIONS} />
             <p>
+              Create your app&apos;s managed cache — only when the request carries your
+              installation tag (
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
+            </p>
+            <ActionList actions={cacheCreateActions} />
+            <p>
+              Modify, remove, and tag it — only on a cache already carrying your tag (
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
+            </p>
+            <ActionList actions={cacheManageActions} />
+            <p>
+              Look up its cache clusters and subnet groups — these are read-only lookups that AWS
+              does not let us restrict by tag, so they are not limited to your installation:
+            </p>
+            <ActionList actions={cacheDescribeActions} />
+            <p>
               Request the TLS certificate for a custom domain you configure — only when the
               request carries your installation tag (
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
@@ -322,9 +355,9 @@ export default async function SecurityDetailsPage({
               the relay&apos;s permissions can never grow beyond this page. Almost every phase-2
               action is constrained by the{' '}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{TAG_BOUNDARY_KEY}</code>{' '}
-              tag boundary. The exceptions are read-only lookups on the load balancer — AWS does
-              not support scoping those — and the service-role handoff, which is limited by a
-              role path and a service condition instead.
+              tag boundary. The exceptions are read-only lookups on the load balancer and the
+              cache — AWS does not support scoping those — and the service-role handoff, which is
+              limited by a role path and a service condition instead.
             </p>
           </DetailSection>
         </div>
