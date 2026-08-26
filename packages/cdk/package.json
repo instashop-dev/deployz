@@ -18,7 +18,8 @@
     "synth:bootstrap": "node scripts/synth-bootstrap.mjs",
     "synth:app": "node scripts/synth-app.mjs",
     "cdk": "cdk",
-    "publish:bootstrap": "node scripts/publish-bootstrap.mjs"
+    "publish:bootstrap": "node scripts/publish-bootstrap.mjs",
+    "audit:deployment": "node scripts/audit-deployment.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.34",
