@@ -20,7 +20,9 @@ import {
 import { repackTemplate } from '../src/quick-create/repack.js';
 import { phaseOf, QuickCreateOrchestrator } from '../src/quick-create/orchestration.js';
 import {
+  ApplicationPublisher,
   BootstrapPublisher,
+  synthesizeApplicationStack,
   synthesizeBootstrapStack,
 } from '../src/quick-create/publish.js';
 
@@ -512,6 +514,162 @@ describe('quick-create', () => {
         }
 
         expect(synth.template.Parameters).toHaveProperty('BootstrapVersion');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  // The application template is the artifact the relay's INSTALL executor
+  // creates a stack from. Until it is published there is nothing to install:
+  // `CreateStack` needs a `TemplateURL` CloudFormation can fetch.
+  describe('application publisher (mock S3)', () => {
+    const region = 'us-east-1';
+    const bucket = 'deployz-public-assets';
+
+    function mockS3() {
+      const uploads: Array<{ key: string; body: Uint8Array | string; contentType?: string }> = [];
+      return {
+        client: {
+          async putObject(params: {
+            bucket: string;
+            key: string;
+            body: Uint8Array | string;
+            contentType?: string;
+          }): Promise<void> {
+            uploads.push(params);
+          },
+        },
+        uploads,
+      };
+    }
+
+    const syntheticTemplate = {
+      Parameters: {
+        param_AppApiKey: { Type: 'String', NoEcho: true },
+        BootstrapVersion: { Type: 'String' },
+      },
+      Rules: { CheckBootstrapVersion: { Assertions: [] } },
+      Resources: {
+        Service: { Type: 'AWS::ECS::Service', Properties: {} },
+      },
+    };
+
+    it('publishes the application template beside the bootstrap one', async () => {
+      const { client, uploads } = mockS3();
+      const publisher = new ApplicationPublisher(client, {
+        region,
+        bucket,
+        keyPrefix: 'application/v1',
+      });
+
+      const result = await publisher.publish({ template: syntheticTemplate, assets: [] });
+
+      expect(result.templateKey).toBe('application/v1/application-template-v1.json');
+      expect(result.templateUrl).toBe(
+        'https://deployz-public-assets.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      );
+      expect(uploads).toHaveLength(1);
+      expect(uploads[0]?.contentType).toBe('application/json');
+    });
+
+    it('strips the CDK bootstrap scaffolding so a fresh account can deploy it', async () => {
+      const { client, uploads } = mockS3();
+      const publisher = new ApplicationPublisher(client, {
+        region,
+        bucket,
+        keyPrefix: 'application/v1',
+      });
+
+      await publisher.publish({ template: syntheticTemplate, assets: [] });
+
+      const uploaded = JSON.parse(uploads[0]!.body as string) as Record<string, unknown>;
+      expect(uploaded['Rules']).toBeUndefined();
+      expect(uploaded['Parameters']).not.toHaveProperty('BootstrapVersion');
+      expect(uploaded['Parameters']).toHaveProperty('param_AppApiKey');
+    });
+
+    it('refuses to publish a template over the CloudFormation limits', async () => {
+      const { client } = mockS3();
+      const publisher = new ApplicationPublisher(client, {
+        region,
+        bucket,
+        keyPrefix: 'application/v1',
+      });
+
+      const tooManyParameters = {
+        Parameters: Object.fromEntries(
+          Array.from({ length: 61 }, (_, i) => [`p${i}`, { Type: 'String' }]),
+        ),
+        Resources: {},
+      };
+
+      await expect(
+        publisher.publish({ template: tooManyParameters, assets: [] }),
+      ).rejects.toThrow(/limits/);
+    });
+  });
+
+  describe('synthesizeApplicationStack (real synth, no AWS)', () => {
+    it('synthesizes an installable application template', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-'));
+      try {
+        const synth = await synthesizeApplicationStack({ outdir });
+
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+
+        // Exactly what `verifyInstallation` looks for after the install.
+        expect(types).toContain('AWS::ECS::Service');
+        expect(types).toContain('AWS::ElasticLoadBalancingV2::LoadBalancer');
+        expect(types).toContain('AWS::RDS::DBInstance');
+        expect(types).toContain('AWS::S3::Bucket');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not use express mode — the verifier requires an ECS service and an ALB', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-'));
+      try {
+        const synth = await synthesizeApplicationStack({ outdir });
+
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+
+        // An ExpressGatewayService has neither of the two resources
+        // `verifyInstallation` requires, so a correctly provisioned
+        // express-mode install could never verify.
+        expect(types).not.toContain('AWS::ECS::ExpressGatewayService');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('pins the container image the published template runs', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          imageRepository: '1.dkr.ecr.us-east-1.amazonaws.com/deployz-images',
+          imageDigest: 'sha256:abc',
+        });
+
+        expect(JSON.stringify(synth.template)).toContain(
+          '1.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:abc',
+        );
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('stays within the CloudFormation template limits', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-'));
+      try {
+        const synth = await synthesizeApplicationStack({ outdir });
+        const report = assertTemplateLimits(synth.template);
+
+        expect(report.withinLimits).toBe(true);
       } finally {
         rmSync(outdir, { recursive: true, force: true });
       }

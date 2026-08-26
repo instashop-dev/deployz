@@ -237,16 +237,18 @@ describe('BootstrapStack', () => {
     expect(actions).not.toContain('rds:ModifyDBInstance');
   });
 
-  it('does NOT attach the phase-2 provisioner policy at install time (two-phase)', () => {
+  it('attaches the provisioner policy, under the permissions boundary', () => {
     const { stack } = synth();
     const resources = allResources(Template.fromStack(stack));
     const relayRole = Object.values(resources).find(
       (r) => r.Type === 'AWS::IAM::Role' && r.Properties?.['PermissionsBoundary'],
     );
-    // The role carries phase-1 statements + a boundary, but no managed policy
-    // (the provisioner policy) is attached yet — the control plane attaches
-    // it after first contact.
-    expect(relayRole?.Properties?.['ManagedPolicyArns']).toBeUndefined();
+    // This used to assert the opposite, on the theory that the control plane
+    // would attach the policy after first contact. It cannot: §15 forbids
+    // Deployz from holding credentials in the customer's account, so there
+    // is no principal able to make that call. The boundary — which the role
+    // still carries — is what caps the grant.
+    expect(relayRole?.Properties?.['ManagedPolicyArns']).toBeDefined();
     expect(stack.provisionerPolicy).toBeDefined();
   });
 
@@ -461,14 +463,19 @@ describe('BootstrapStack', () => {
       expect(name.toLowerCase(), `parameter ${name} looks like a credential`).not.toMatch(
         /token|secret|credential|password|api.?key/,
       );
-      // Both application parameters are non-secret.
-      expect(['ControlPlaneUrl', 'EnrollmentCode']).toContain(name);
+      // Every application parameter is non-secret: two public URLs and a
+      // single-use enrollment code.
+      expect(['ControlPlaneUrl', 'EnrollmentCode', 'ApplicationTemplateUrl']).toContain(name);
     }
     // EnrollmentCode is single use: the control plane burns it when the relay
     // first binds, and refuses to bind it to a second relay afterwards. It is
     // not the relay's communication credential — CloudFormation still mints
     // that inside the customer's account, and it is still never a parameter.
-    expect(Object.keys(appParams).sort()).toEqual(['ControlPlaneUrl', 'EnrollmentCode']);
+    expect(Object.keys(appParams).sort()).toEqual([
+      'ApplicationTemplateUrl',
+      'ControlPlaneUrl',
+      'EnrollmentCode',
+    ]);
   });
 
   it('exports the control-plane handshake outputs', () => {
@@ -478,6 +485,7 @@ describe('BootstrapStack', () => {
     expect(outputs).toContain('ExportBootstrapTestCredentialSecretArn');
     expect(outputs).toContain('ExportBootstrapTestProvisionerPolicyArn');
     expect(outputs).toContain('ExportBootstrapTestInstallationId');
+    expect(outputs).toContain('ExportBootstrapTestApplicationExecutionRoleArn');
   });
 
   it('lets the relay read its own application stack', () => {
@@ -499,5 +507,213 @@ describe('BootstrapStack', () => {
   it('matches the committed snapshot', () => {
     const { template } = synth();
     expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();
+  });
+});
+
+// ── Provisioning the application stack ──────────────────────────────────────
+//
+// Everything below exists because the relay's INSTALL executor calls
+// `CreateStack`, and nothing in this stack previously let it. The
+// provisioner policy was defined and attached to no principal, and its
+// `iam:PassRole` pointed at `role/deployz/*`, where no role existed.
+
+describe('BootstrapStack — application provisioning', () => {
+  /** Statements of every inline policy attached to `role`. */
+  function inlinePolicyStatements(
+    template: Template,
+    roleLogicalId: string,
+  ): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const resource of Object.values(allResources(template))) {
+      if (resource.Type !== 'AWS::IAM::Policy') continue;
+      const roles = (resource.Properties?.['Roles'] as Array<{ Ref?: string }>) ?? [];
+      if (!roles.some((r) => r?.['Ref'] === roleLogicalId)) continue;
+      out.push(
+        ...(((resource.Properties?.['PolicyDocument'] as Record<string, unknown>)?.[
+          'Statement'
+        ] as Array<Record<string, unknown>>) ?? []),
+      );
+    }
+    return out;
+  }
+
+  function findRole(
+    template: Template,
+    predicate: (resource: TemplateResource) => boolean,
+  ): { logicalId: string; resource: TemplateResource } {
+    for (const [logicalId, resource] of Object.entries(allResources(template))) {
+      if (resource.Type === 'AWS::IAM::Role' && predicate(resource)) {
+        return { logicalId, resource };
+      }
+    }
+    throw new Error('No matching IAM role in the template');
+  }
+
+  const executionRole = (template: Template) =>
+    findRole(template, (r) => r.Properties?.['Path'] === '/deployz/');
+
+  const relayRole = (template: Template) =>
+    findRole(template, (r) => Boolean(r.Properties?.['PermissionsBoundary']));
+
+  it('attaches the provisioner policy to the relay role', () => {
+    const { template } = synth();
+    const { resource } = relayRole(template);
+
+    // Nothing can attach this later: the control plane holds no credentials
+    // in the customer's account (§15), so a policy left unattached here is
+    // one the relay never gets. Without it `cloudformation:CreateStack` is
+    // denied and every install fails.
+    expect(resource.Properties?.['ManagedPolicyArns']).toBeDefined();
+  });
+
+  it('creates a CloudFormation execution role where iam:PassRole can find it', () => {
+    const { template } = synth();
+    const { resource } = executionRole(template);
+
+    // The relay's existing PassRole is scoped to `arn:aws:iam::*:role/deployz/*`,
+    // which only matches a role created at this path.
+    expect(resource.Properties?.['Path']).toBe('/deployz/');
+  });
+
+  it('lets only CloudFormation assume the execution role, and only for this account', () => {
+    const { template } = synth();
+    const { resource } = executionRole(template);
+    const trust = JSON.stringify(resource.Properties?.['AssumeRolePolicyDocument']);
+
+    expect(trust).toContain('cloudformation.amazonaws.com');
+    expect(trust).toContain('aws:SourceAccount');
+  });
+
+  it('grants the execution role the services the application stack provisions', () => {
+    const { template } = synth();
+    const actions = inlinePolicyStatements(template, executionRole(template).logicalId).flatMap(
+      (s) => collectActions([s]),
+    );
+
+    for (const action of [
+      'ec2:CreateVpc',
+      'ec2:CreateNatGateway',
+      'ec2:CreateSecurityGroup',
+      'ecs:CreateCluster',
+      'ecs:CreateService',
+      'ecs:RegisterTaskDefinition',
+      'rds:CreateDBInstance',
+      'rds:CreateDBSubnetGroup',
+      'elasticloadbalancing:CreateLoadBalancer',
+      'elasticloadbalancing:CreateTargetGroup',
+      'elasticloadbalancing:CreateListener',
+      's3:CreateBucket',
+      'secretsmanager:CreateSecret',
+      'logs:CreateLogGroup',
+      'iam:CreateRole',
+      'elasticache:CreateCacheCluster',
+    ]) {
+      expect(actions).toContain(action);
+    }
+  });
+
+  it('never grants the execution role a service wildcard', () => {
+    const { template } = synth();
+    const actions = inlinePolicyStatements(template, executionRole(template).logicalId).flatMap(
+      (s) => collectActions([s]),
+    );
+
+    for (const action of actions) {
+      expect(action).not.toBe('*');
+      expect(action.endsWith(':*')).toBe(false);
+    }
+  });
+
+  it('scopes the execution role creates to this installation tag', () => {
+    const { template } = synth();
+    const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
+
+    const creating = statements.find((s) =>
+      collectActions([s]).includes('rds:CreateDBInstance'),
+    );
+    const condition = JSON.stringify(creating?.['Condition']);
+
+    expect(condition).toContain('aws:RequestTag/deployz:installation');
+  });
+
+  it('scopes the execution role deletes to resources already carrying the tag', () => {
+    const { template } = synth();
+    const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
+
+    const deleting = statements.find((s) =>
+      collectActions([s]).includes('rds:DeleteDBInstance'),
+    );
+    const condition = JSON.stringify(deleting?.['Condition']);
+
+    expect(condition).toContain('aws:ResourceTag/deployz:installation');
+  });
+
+  it('restricts what the execution role may pass a role to', () => {
+    const { template } = synth();
+    const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
+
+    const passRole = statements.find((s) => collectActions([s]).includes('iam:PassRole'));
+    const condition = JSON.stringify(passRole?.['Condition']);
+
+    expect(condition).toContain('iam:PassedToService');
+    expect(condition).toContain('ecs-tasks.amazonaws.com');
+  });
+
+  it('restricts which service-linked roles the execution role may create', () => {
+    const { template } = synth();
+    const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
+
+    const slr = statements.find((s) =>
+      collectActions([s]).includes('iam:CreateServiceLinkedRole'),
+    );
+    const condition = JSON.stringify(slr?.['Condition']);
+
+    expect(condition).toContain('iam:AWSServiceName');
+  });
+
+  it('tells the relay which template to install and which role to use', () => {
+    const { template } = synth();
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({
+          DEPLOYZ_APPLICATION_TEMPLATE_URL: Match.anyValue(),
+          DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN: Match.anyValue(),
+        }),
+      }),
+    });
+  });
+
+  it('lets the relay remember a command it has not finished', () => {
+    const { template } = synth();
+    const actions = relayRoleActions(template);
+
+    // The relay defers an INSTALL whose stack outlives the invocation and
+    // picks it up on the next poll. Without somewhere durable to write that
+    // down, the job sits in RUNNING forever.
+    expect(actions).toContain('ssm:PutParameter');
+    expect(actions).toContain('ssm:GetParameter');
+    expect(actions).toContain('ssm:DeleteParameter');
+  });
+
+  it('scopes the relay pending-command parameter to its own installation', () => {
+    const { template } = synth();
+    const { logicalId } = relayRole(template);
+    const statements = inlinePolicyStatements(template, logicalId);
+
+    const ssm = statements.find((s) => collectActions([s]).includes('ssm:PutParameter'));
+    expect(JSON.stringify(ssm?.['Resource'])).toContain('parameter/deployz/');
+  });
+
+  it('keeps the permissions boundary above everything the relay is granted', () => {
+    const { stack, template } = synth();
+    const boundary = collectActions(stack.permissionsBoundary.document.toJSON()['Statement']);
+
+    for (const action of relayRoleActions(template)) {
+      expect(boundary).toContain(action);
+    }
+    for (const action of collectActions(stack.provisionerPolicy.document.toJSON()['Statement'])) {
+      expect(boundary).toContain(action);
+    }
   });
 });

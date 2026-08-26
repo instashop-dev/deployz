@@ -22,6 +22,12 @@
  *                    plane stack (read via CloudFormation).
  *   API_URL          control-plane URL baked into the link.
  *   AWS_REGION       region of the bucket and the console deep-link.
+ *   APPLICATION_TEMPLATE_URL
+ *                    published application template the relay installs.
+ *                    Defaults to the `application/v1` object in the same
+ *                    bucket, which is where `publish:application` puts it.
+ *                    Publish that FIRST — a bootstrap template pointing at
+ *                    a template that is not there installs nothing.
  */
 import { CloudFormationClient, ListExportsCommand } from '@aws-sdk/client-cloudformation';
 import { mkdtempSync } from 'node:fs';
@@ -38,6 +44,7 @@ const region = process.env.AWS_REGION ?? 'us-east-1';
 const controlPlaneUrl = process.env.API_URL ?? 'https://api.deployz.dev';
 const stackName = process.env.CONTROL_PLANE_STACK ?? 'Deployz';
 const keyPrefix = process.env.TEMPLATE_KEY_PREFIX ?? 'bootstrap/v1';
+const applicationKeyPrefix = process.env.APPLICATION_KEY_PREFIX ?? 'application/v1';
 
 /** Reads the template bucket name from the control plane stack's exports. */
 async function resolveBucket() {
@@ -62,7 +69,11 @@ async function resolveBucket() {
 const bucket = await resolveBucket();
 const outdir = mkdtempSync(join(tmpdir(), 'deployz-bootstrap-'));
 
-const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl });
+const applicationTemplateUrl =
+  process.env.APPLICATION_TEMPLATE_URL ??
+  `https://${bucket}.s3.${region}.amazonaws.com/${applicationKeyPrefix}/application-template-v1.json`;
+
+const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, applicationTemplateUrl });
 const publisher = new BootstrapPublisher(createRealS3Client(), {
   region,
   bucket,
@@ -75,6 +86,7 @@ console.log(`Published ${synth.assets.length} Lambda asset(s) + the template to 
 console.log(`  template   ${result.templateUrl}`);
 console.log(`  size       ${result.templateBytes} bytes, ${result.parameterCount} parameter(s)`);
 console.log(`  quickCreate ${result.quickCreateUrl}`);
+console.log(`  application ${applicationTemplateUrl}`);
 console.log();
 console.log('Set this on the control plane so install links are handed out:');
 console.log(`  BOOTSTRAP_TEMPLATE_URL=${result.templateUrl}`);

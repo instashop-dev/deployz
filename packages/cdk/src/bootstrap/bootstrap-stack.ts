@@ -40,6 +40,7 @@ import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
 import {
   Effect,
   ManagedPolicy,
+  Policy,
   PolicyStatement,
   Role,
   ServicePrincipal,
@@ -71,9 +72,26 @@ export interface BootstrapStackProps extends StackProps {
   readonly applicationId?: string;
   /** Deployz vendor identifier — applied as `deployz:vendor` tag. */
   readonly vendorId?: string;
+  /**
+   * Public URL of the published application template the relay installs.
+   *
+   * Non-secret, and a template parameter for the same reason
+   * `controlPlaneUrl` is: the publisher bakes the current default in, and a
+   * specific installation can be pointed elsewhere without new relay code.
+   */
+  readonly applicationTemplateUrl?: string;
 }
 
 const DEFAULT_CONTROL_PLANE_URL = 'https://api.deployz.dev';
+
+/**
+ * Empty by default, and deliberately so: a URL guessed here would be one
+ * CloudFormation cannot fetch, and the install would fail inside the
+ * customer's account with nothing they can act on. The publisher fills this
+ * in (see `scripts/publish-bootstrap.mjs`), and the INSTALL executor
+ * refuses to run without it.
+ */
+const DEFAULT_APPLICATION_TEMPLATE_URL = '';
 
 /** Install-time (phase 1) + post-first-contact (phase 2) permission actions. */
 const PHASE_1_LOG_WRITE_ACTIONS = [
@@ -169,12 +187,212 @@ const PHASE_2_CACHE_ACTIONS = [
   'elasticache:ListTagsForResource',
 ] as const;
 
+/**
+ * Phase 2 — the relay's own durable note of a command it has not finished.
+ *
+ * An application stack takes longer to create than a Lambda invocation may
+ * run, and the control plane never re-offers a job once it has handed it
+ * out. The relay therefore records which command it still owes an answer to
+ * and picks it back up on a later poll. Scoped by parameter ARN — the name
+ * carries the installation id — rather than by tag, because a parameter
+ * being written for the first time has no tags to match on.
+ */
+const PHASE_2_RELAY_STATE_ACTIONS = [
+  'ssm:GetParameter',
+  'ssm:PutParameter',
+  'ssm:DeleteParameter',
+] as const;
+
+// ── Application-stack provisioning (the CloudFormation execution role) ──────
+//
+// Creates: conditioned on the installation REQUEST tag. CloudFormation
+// propagates the stack-level `Tags` the relay passes on `CreateStack` onto
+// every resource that supports tag-on-create, so these conditions are
+// satisfied by the same tag the verifier later reads back off the stack.
+const PROVISION_CREATE_ACTIONS = [
+  'ec2:CreateVpc',
+  'ec2:CreateSubnet',
+  'ec2:CreateRouteTable',
+  'ec2:CreateInternetGateway',
+  'ec2:CreateNatGateway',
+  'ec2:AllocateAddress',
+  'ec2:CreateSecurityGroup',
+  'ec2:CreateTags',
+  'ecs:CreateCluster',
+  'ecs:CreateService',
+  'ecs:RegisterTaskDefinition',
+  'ecs:TagResource',
+  'rds:CreateDBSubnetGroup',
+  'rds:CreateDBInstance',
+  'rds:AddTagsToResource',
+  'elasticloadbalancing:CreateLoadBalancer',
+  'elasticloadbalancing:CreateTargetGroup',
+  'elasticloadbalancing:CreateListener',
+  'elasticloadbalancing:AddTags',
+  'secretsmanager:CreateSecret',
+  'secretsmanager:TagResource',
+  'logs:CreateLogGroup',
+  'logs:TagResource',
+  'elasticache:CreateCacheSubnetGroup',
+  'elasticache:CreateCacheCluster',
+  'elasticache:AddTagsToResource',
+  'iam:CreateRole',
+  'iam:TagRole',
+] as const;
+
+// Modifies and deletes: conditioned on the installation RESOURCE tag. By the
+// time any of these runs, the resource already carries the tag the matching
+// create applied.
+const PROVISION_MANAGE_ACTIONS = [
+  'ec2:CreateRoute',
+  'ec2:DeleteRoute',
+  'ec2:AssociateRouteTable',
+  'ec2:DisassociateRouteTable',
+  'ec2:AttachInternetGateway',
+  'ec2:DetachInternetGateway',
+  'ec2:ModifyVpcAttribute',
+  'ec2:ModifySubnetAttribute',
+  'ec2:AuthorizeSecurityGroupIngress',
+  'ec2:AuthorizeSecurityGroupEgress',
+  'ec2:RevokeSecurityGroupIngress',
+  'ec2:RevokeSecurityGroupEgress',
+  'ec2:DeleteVpc',
+  'ec2:DeleteSubnet',
+  'ec2:DeleteRouteTable',
+  'ec2:DeleteInternetGateway',
+  'ec2:DeleteNatGateway',
+  'ec2:ReleaseAddress',
+  'ec2:DeleteSecurityGroup',
+  'ec2:DeleteTags',
+  'ecs:DeleteCluster',
+  'ecs:UpdateService',
+  'ecs:DeleteService',
+  'ecs:DeregisterTaskDefinition',
+  'rds:ModifyDBInstance',
+  'rds:DeleteDBInstance',
+  'rds:DeleteDBSubnetGroup',
+  'elasticloadbalancing:ModifyLoadBalancerAttributes',
+  'elasticloadbalancing:ModifyTargetGroup',
+  'elasticloadbalancing:ModifyTargetGroupAttributes',
+  'elasticloadbalancing:ModifyListener',
+  'elasticloadbalancing:DeleteLoadBalancer',
+  'elasticloadbalancing:DeleteTargetGroup',
+  'elasticloadbalancing:DeleteListener',
+  'elasticloadbalancing:RegisterTargets',
+  'elasticloadbalancing:DeregisterTargets',
+  'secretsmanager:GetSecretValue',
+  'secretsmanager:PutSecretValue',
+  'secretsmanager:UpdateSecret',
+  'secretsmanager:DeleteSecret',
+  'secretsmanager:GetResourcePolicy',
+  'secretsmanager:PutResourcePolicy',
+  'logs:PutRetentionPolicy',
+  'logs:DeleteLogGroup',
+  'elasticache:ModifyCacheCluster',
+  'elasticache:DeleteCacheCluster',
+  'elasticache:DeleteCacheSubnetGroup',
+  'iam:PutRolePolicy',
+  'iam:DeleteRolePolicy',
+  'iam:AttachRolePolicy',
+  'iam:DetachRolePolicy',
+  'iam:DeleteRole',
+  'iam:UntagRole',
+] as const;
+
+/**
+ * Reads. None of these support resource-level permissions, so a tag
+ * condition on them would never match and would deny the whole stack.
+ */
+const PROVISION_READ_ACTIONS = [
+  'ec2:DescribeVpcs',
+  'ec2:DescribeVpcAttribute',
+  'ec2:DescribeSubnets',
+  'ec2:DescribeRouteTables',
+  'ec2:DescribeInternetGateways',
+  'ec2:DescribeNatGateways',
+  'ec2:DescribeAddresses',
+  'ec2:DescribeSecurityGroups',
+  'ec2:DescribeSecurityGroupRules',
+  'ec2:DescribeAvailabilityZones',
+  'ec2:DescribeAccountAttributes',
+  'ec2:DescribeNetworkInterfaces',
+  'ec2:DescribeTags',
+  'ecs:DescribeClusters',
+  'ecs:DescribeServices',
+  'ecs:DescribeTaskDefinition',
+  'ecs:ListTagsForResource',
+  'rds:DescribeDBInstances',
+  'rds:DescribeDBSubnetGroups',
+  'rds:ListTagsForResource',
+  'elasticloadbalancing:DescribeLoadBalancers',
+  'elasticloadbalancing:DescribeLoadBalancerAttributes',
+  'elasticloadbalancing:DescribeTargetGroups',
+  'elasticloadbalancing:DescribeTargetGroupAttributes',
+  'elasticloadbalancing:DescribeListeners',
+  'elasticloadbalancing:DescribeTags',
+  'elasticloadbalancing:DescribeTargetHealth',
+  'secretsmanager:DescribeSecret',
+  'secretsmanager:ListSecretVersionIds',
+  'logs:DescribeLogGroups',
+  'logs:ListTagsForResource',
+  'elasticache:DescribeCacheClusters',
+  'elasticache:DescribeCacheSubnetGroups',
+  'elasticache:ListTagsForResource',
+  'iam:GetRole',
+  'iam:GetRolePolicy',
+  'iam:ListRolePolicies',
+  'iam:ListAttachedRolePolicies',
+  'iam:ListRoleTags',
+] as const;
+
+/**
+ * S3 bucket lifecycle. S3 supports neither condition: `CreateBucket` takes
+ * no request tags (CloudFormation tags the bucket afterwards, with
+ * `PutBucketTagging`), and bucket actions do not honour `aws:ResourceTag`.
+ * Granted without a tag condition rather than with one that could never
+ * match — the containment here is the role's trust policy, which admits
+ * only CloudFormation acting for this account.
+ */
+const PROVISION_STORAGE_ACTIONS = [
+  's3:CreateBucket',
+  's3:DeleteBucket',
+  's3:ListBucket',
+  's3:GetBucketLocation',
+  's3:GetBucketTagging',
+  's3:PutBucketTagging',
+  's3:GetBucketVersioning',
+  's3:PutBucketVersioning',
+  's3:GetEncryptionConfiguration',
+  's3:PutEncryptionConfiguration',
+  's3:GetBucketPublicAccessBlock',
+  's3:PutBucketPublicAccessBlock',
+  's3:GetBucketPolicy',
+  's3:PutBucketPolicy',
+  's3:DeleteBucketPolicy',
+  's3:GetBucketAcl',
+  's3:GetLifecycleConfiguration',
+  's3:PutLifecycleConfiguration',
+] as const;
+
+/** The services the application stack needs service-linked roles for. */
+const PROVISION_SERVICE_LINKED_ROLE_SERVICES = [
+  'ecs.amazonaws.com',
+  'elasticloadbalancing.amazonaws.com',
+  'rds.amazonaws.com',
+  'elasticache.amazonaws.com',
+] as const;
+
+/** The services the execution role may hand the application task roles to. */
+const PROVISION_PASS_ROLE_SERVICES = ['ecs-tasks.amazonaws.com', 'ecs.amazonaws.com'] as const;
+
 export class BootstrapStack extends Stack {
   public readonly relayFunction: NodejsFunction;
   public readonly relayRole: Role;
   public readonly credentialSecret: Secret;
   public readonly permissionsBoundary: ManagedPolicy;
   public readonly provisionerPolicy: ManagedPolicy;
+  /** CloudFormation execution role for the application stack (`role/deployz/*`). */
+  public readonly applicationExecutionRole: Role;
   /** Deploy-time token resolving to the minted installation UUID. */
   public readonly installationId: string;
 
@@ -206,6 +424,20 @@ export class BootstrapStack extends Stack {
       description:
         'Single-use code from your install link. Ties this installation to your deployment.',
       default: props.enrollmentCode ?? '',
+    });
+
+    // ── Application template URL (non-secret parameter) ─────────────────
+    //
+    // The relay's INSTALL executor calls `CreateStack` with this as
+    // `TemplateURL`. It is a parameter rather than a constant so an
+    // installation can be pinned to a specific published template version,
+    // and so a customer can be moved onto a new one by updating this stack
+    // rather than by shipping new relay code.
+    const applicationTemplateUrlParam = new CfnParameter(this, 'ApplicationTemplateUrl', {
+      type: 'String',
+      description:
+        'Public URL of the Deployz application template this installation provisions. NOT a credential.',
+      default: props.applicationTemplateUrl ?? DEFAULT_APPLICATION_TEMPLATE_URL,
     });
 
     // ── 1. Installation identifier (minted at deploy time) ──────────────
@@ -459,6 +691,22 @@ export class BootstrapStack extends Stack {
       resources: ['*'],
     });
 
+    // Phase 2 — the relay's durable note of an unfinished command. Scoped by
+    // parameter ARN: the name embeds the installation id, so one relay can
+    // never read or overwrite another installation's.
+    const phase2RelayState = new PolicyStatement({
+      sid: 'RelayPendingCommandState',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_RELAY_STATE_ACTIONS],
+      resources: [
+        Stack.of(this).formatArn({
+          service: 'ssm',
+          resource: 'parameter',
+          resourceName: `deployz/${this.installationId}/*`,
+        }),
+      ],
+    });
+
     const phase2Statements = [
       phase2CreateStacks,
       phase2ManageStacks,
@@ -483,6 +731,7 @@ export class BootstrapStack extends Stack {
       statements: [
         phase1LogWrite,
         phase1SecretAccess,
+        phase2RelayState,
         ...phase2Statements,
       ],
     });
@@ -508,6 +757,149 @@ export class BootstrapStack extends Stack {
     this.relayRole.addToPolicy(phase1LogWrite);
     this.relayRole.addToPolicy(phase1SecretAccess);
     this.relayRole.addToPolicy(phase2VerifyStack);
+    this.relayRole.addToPolicy(phase2RelayState);
+
+    // The provisioner policy used to be created and attached to nothing, on
+    // the theory that the control plane would attach it after the relay's
+    // first contact. It cannot: §15 forbids Deployz from holding
+    // credentials in the customer's account, so no principal exists that
+    // could make that call — which left the relay unable to call
+    // `cloudformation:CreateStack` at all. Attach it here. The permissions
+    // boundary above, which is the union of phase 1 and phase 2 and which
+    // the role can never exceed, is what actually caps the grant.
+    this.relayRole.addManagedPolicy(this.provisionerPolicy);
+
+    // ── 3b. CloudFormation execution role for the application stack ─────
+    //
+    // The relay asks CloudFormation to create the application stack;
+    // CloudFormation builds it. Those are two different principals, and only
+    // the first is the relay. Passing this role on `CreateStack` is what
+    // keeps it that way: the relay itself has no `ec2:CreateVpc`, no
+    // `rds:CreateDBInstance` and no `iam:CreateRole`, and should not — it may
+    // only ask CloudFormation to apply a published template that does.
+    //
+    // The path is `/deployz/` because the provisioner policy's `iam:PassRole`
+    // is scoped to `arn:aws:iam::*:role/deployz/*`. That grant has been here
+    // from the start with nothing to point at.
+    //
+    // Three things bound the role:
+    //
+    //   1. Who may assume it — only `cloudformation.amazonaws.com`, and only
+    //      on behalf of THIS account. Not the relay, not a user, and not
+    //      CloudFormation acting for anyone else.
+    //   2. The installation tag — creates require the REQUEST tag, modifies
+    //      and deletes require the RESOURCE tag. Both are satisfied by the
+    //      stack-level `Tags` the relay passes on `CreateStack`, which
+    //      CloudFormation propagates onto every resource that supports
+    //      tagging. That is the same tag `verifyInstallation` reads back, so
+    //      a stack that provisions is a stack that verifies.
+    //   3. No wildcards — every action is named. A bare `ec2:*` would make
+    //      the tag conditions decorative, since it would carry actions that
+    //      cannot be tag-conditioned at all.
+    //
+    // Reads, S3 bucket operations and `iam:CreateServiceLinkedRole` are the
+    // three groups that genuinely cannot carry a tag condition; each is
+    // granted without one, and scoped by whatever AWS does support, rather
+    // than with a condition that could never match. See the action lists.
+    this.applicationExecutionRole = new Role(this, 'ApplicationExecutionRole', {
+      path: '/deployz/',
+      assumedBy: new ServicePrincipal('cloudformation.amazonaws.com', {
+        conditions: {
+          StringEquals: { 'aws:SourceAccount': this.account },
+        },
+      }),
+      description:
+        'CloudFormation execution role for the Deployz application stack. Assumable only by ' +
+        'CloudFormation on behalf of this account; every grant is scoped to the deployz: tag ' +
+        'boundary where AWS supports it.',
+    });
+
+    const provisionCreate = new PolicyStatement({
+      sid: 'ProvisionApplicationCreate',
+      effect: Effect.ALLOW,
+      actions: [...PROVISION_CREATE_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:RequestTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
+    const provisionManage = new PolicyStatement({
+      sid: 'ProvisionApplicationManage',
+      effect: Effect.ALLOW,
+      actions: [...PROVISION_MANAGE_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
+    const provisionRead = new PolicyStatement({
+      sid: 'ProvisionApplicationRead',
+      effect: Effect.ALLOW,
+      actions: [...PROVISION_READ_ACTIONS],
+      resources: ['*'],
+    });
+
+    const provisionStorage = new PolicyStatement({
+      sid: 'ProvisionApplicationStorage',
+      effect: Effect.ALLOW,
+      actions: [...PROVISION_STORAGE_ACTIONS],
+      resources: ['*'],
+    });
+
+    // CloudFormation hands the application's task roles to ECS when it
+    // creates the service. Restricted to the two services that legitimately
+    // receive them, so the role cannot be used to escalate into an
+    // unrelated service by passing a role to it.
+    const provisionPassRole = new PolicyStatement({
+      sid: 'ProvisionApplicationPassRole',
+      effect: Effect.ALLOW,
+      actions: ['iam:PassRole'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': [...PROVISION_PASS_ROLE_SERVICES],
+        },
+      },
+    });
+
+    // A first ECS service, load balancer, RDS instance or cache cluster in
+    // an account needs that service's service-linked role to exist. Named
+    // services only — `iam:CreateServiceLinkedRole` on `*` would let the
+    // role bootstrap a principal for any AWS service at all.
+    const provisionServiceLinkedRoles = new PolicyStatement({
+      sid: 'ProvisionApplicationServiceLinkedRoles',
+      effect: Effect.ALLOW,
+      actions: ['iam:CreateServiceLinkedRole'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'iam:AWSServiceName': [...PROVISION_SERVICE_LINKED_ROLE_SERVICES],
+        },
+      },
+    });
+
+    // Separate `Policy` constructs rather than one: an inline role policy is
+    // capped at 10,240 characters, and this set comfortably exceeds that as
+    // a single document.
+    new Policy(this, 'ProvisionApplicationWrite', {
+      statements: [provisionCreate, provisionManage],
+      roles: [this.applicationExecutionRole],
+    });
+    new Policy(this, 'ProvisionApplicationSupport', {
+      statements: [
+        provisionRead,
+        provisionStorage,
+        provisionPassRole,
+        provisionServiceLinkedRoles,
+      ],
+      roles: [this.applicationExecutionRole],
+    });
 
     // ── 4. Relay Lambda + EventBridge schedule ──────────────────────────
     this.relayFunction = new NodejsFunction(this, 'RelayFunction', {
@@ -523,6 +915,8 @@ export class BootstrapStack extends Stack {
         DEPLOYZ_CREDENTIAL_SECRET_ARN: this.credentialSecret.secretArn,
         DEPLOYZ_CONTROL_PLANE_URL: controlPlaneUrlParam.valueAsString,
         DEPLOYZ_ENROLLMENT_CODE: enrollmentCodeParam.valueAsString,
+        DEPLOYZ_APPLICATION_TEMPLATE_URL: applicationTemplateUrlParam.valueAsString,
+        DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN: this.applicationExecutionRole.roleArn,
       },
       bundling: {
         format: 'esm' as OutputFormat,
@@ -604,6 +998,9 @@ export class BootstrapStack extends Stack {
     });
     this.exportValue(this.installationId, {
       name: `${this.stackName}-InstallationId`,
+    });
+    this.exportValue(this.applicationExecutionRole.roleArn, {
+      name: `${this.stackName}-ApplicationExecutionRoleArn`,
     });
   }
 }

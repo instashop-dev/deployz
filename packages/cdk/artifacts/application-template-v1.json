@@ -611,7 +611,9 @@
             "Value": "application"
           }
         ]
-      }
+      },
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain"
     },
     "DatabaseB269D8BB": {
       "Type": "AWS::RDS::DBInstance",
@@ -624,7 +626,8 @@
         "DBSubnetGroupName": {
           "Ref": "DatabaseSubnetGroup7D60F180"
         },
-        "DeletionProtection": false,
+        "DeleteAutomatedBackups": false,
+        "DeletionProtection": true,
         "Engine": "postgres",
         "EngineVersion": "16",
         "MasterUserPassword": {
@@ -641,6 +644,7 @@
         },
         "MasterUsername": "deployz_app",
         "MaxAllocatedStorage": 100,
+        "PreferredBackupWindow": "03:00-05:00",
         "PubliclyAccessible": false,
         "StorageEncrypted": true,
         "StorageType": "gp2",
@@ -659,8 +663,8 @@
           }
         ]
       },
-      "UpdateReplacePolicy": "Snapshot",
-      "DeletionPolicy": "Snapshot"
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain"
     },
     "ClusterEB0386A7": {
       "Type": "AWS::ECS::Cluster",

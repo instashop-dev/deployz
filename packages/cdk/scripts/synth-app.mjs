@@ -14,24 +14,22 @@
  * Requires `pnpm build` first (imports the compiled @deployz/cdk dist).
  * Usage: pnpm --filter @deployz/cdk run synth:app
  */
-import { App } from 'aws-cdk-lib';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ApplicationStack } from '../dist/application/application-stack.js';
+import { synthesizeApplicationStack } from '../dist/quick-create/publish.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-const app = new App();
-const stack = new ApplicationStack(app, 'DeployzApplication', {
-  // Plain Fargate is the default (safe everywhere-available fallback, C3/U3).
-  expressMode: false,
+// Same synth the publisher runs, so the committed artifact and the template
+// customers actually install cannot drift. `synthesizeApplicationStack` is
+// what fixes the two choices that matter — plain Fargate (the verifier
+// requires an ECS service and an ALB) and no certificate at synth time.
+const { template } = await synthesizeApplicationStack({
+  outdir: mkdtempSync(join(tmpdir(), 'deployz-synth-app-')),
 });
-
-const assembly = app.synth();
-const artifact = assembly.getStackArtifact(stack.artifactId);
-const template = artifact.template;
 
 const outDir = join(here, '..', 'artifacts');
 mkdirSync(outDir, { recursive: true });
