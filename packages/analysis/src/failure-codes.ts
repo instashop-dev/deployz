@@ -17,7 +17,7 @@
 // ── §61 failure taxonomy ───────────────────────────────────────────────────
 
 /**
- * The eighteen §61 stable failure codes, copied verbatim from
+ * The twenty §61 stable failure codes, copied verbatim from
  * `packages/db/src/enums.ts` `failureCodeEnum`. Do not reorder, rename, or
  * extend without updating that enum and the parity test in
  * `packages/cdk/test/failure-classifier.test.ts`.
@@ -41,9 +41,11 @@ export const FAILURE_CODES = [
   'RDS_UNAVAILABLE',
   'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
+  'REDIS_PROVISIONING_FAILED',
+  'REDIS_CONNECTION_FAILED',
 ] as const;
 
-/** A §61 failure code — exactly the eighteen values in `FAILURE_CODES`. */
+/** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
 // ── Structured event (§16) ────────────────────────────────────────────────

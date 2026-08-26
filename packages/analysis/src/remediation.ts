@@ -312,6 +312,32 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
     requiresManual: true,
     automatic: false,
   },
+
+  // 19. REDIS_PROVISIONING_FAILED
+  REDIS_PROVISIONING_FAILED: {
+    summary: "Your app's Redis cache could not be created.",
+    steps: [
+      'Verify your account has enough capacity for a new cache instance.',
+      'Check the failure reason for the new cache.',
+      'Retry the deployment.',
+    ],
+    technicalDetail: [],
+    requiresManual: true,
+    automatic: false,
+  },
+
+  // 20. REDIS_CONNECTION_FAILED
+  REDIS_CONNECTION_FAILED: {
+    summary: "The app can't reach its Redis cache.",
+    steps: [
+      'Check that the cache is running and reachable.',
+      'Verify the connection details and security group rules.',
+      'Wait a few minutes and try again — caches sometimes restart.',
+    ],
+    technicalDetail: [],
+    requiresManual: true,
+    automatic: false,
+  },
 };
 
 // ── The engine ───────────────────────────────────────────────────────────────
