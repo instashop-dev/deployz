@@ -37,6 +37,21 @@ import { assessRedis } from './redis.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+/**
+ * The resolved database state of an analysed repository.
+ *
+ * - `postgres` — PostgreSQL detected; the app is provisioned a managed RDS
+ *   instance and `DATABASE_*` env vars.
+ * - `none` — No database detected; the app deploys without DB resources, DB
+ *   env vars, or DB steps. Analysis succeeds.
+ * - `unsupported` — A database Deployz does not support (MySQL/Mongo/etc.)
+ *   was detected by the §10 rejection checks; verdict is NOT_COMPATIBLE.
+ * - `unknown` — Reserved for future detectors that detect a database they
+ *   cannot classify; not emitted by the current detectors. Non-fatal unless a
+ *   later check proves deployment cannot proceed.
+ */
+export type DatabaseState = 'none' | 'postgres' | 'unsupported' | 'unknown';
+
 /** Complete result from a repository analysis. */
 export interface AnalysisResult {
   /** All §18 detector findings. */
@@ -193,6 +208,30 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   }
 
   const metadata = buildMetadata(findings, redis);
+  metadata['databaseState'] = deriveDatabaseState(findings, rejections);
 
   return { findings, rejections, metadata };
+}
+
+/**
+ * Derive the `databaseState` metadata value from the detector findings and
+ * §10 rejections. PostgreSQL takes priority over an unsupported DB (a Postgres
+ * app that also pulled in an unsupported Redis config is `postgres` for DB
+ * purposes — the Redis rejection still drives the verdict). Redis-only
+ * rejections are about the cache, not the database, so they do not count as an
+ * unsupported DB state.
+ */
+function deriveDatabaseState(
+  findings: DetectorFinding[],
+  rejections: RejectionFinding[],
+): DatabaseState {
+  const postgres = findings.find((f) => f.detector === 'postgresql')?.detected === true;
+  if (postgres) return 'postgres';
+
+  const unsupportedDb = rejections.some(
+    (r) => r.detected && r.dependency !== 'redis-unsupported',
+  );
+  if (unsupportedDb) return 'unsupported';
+
+  return 'none';
 }

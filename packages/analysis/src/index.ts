@@ -44,7 +44,7 @@ export type {
 } from './redis.js';
 export { assessRedis, resolveRedisEnvBindings } from './redis.js';
 
-export type { AnalysisResult } from './analyser.js';
+export type { AnalysisResult, DatabaseState } from './analyser.js';
 export { analyseRepo } from './analyser.js';
 
 export type {

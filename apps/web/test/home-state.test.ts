@@ -185,15 +185,23 @@ describe('preparationChecks', () => {
     ]);
   });
 
-  it('marks undetected things missing rather than inventing them', () => {
+  it('marks undetected things missing rather than inventing them, and reports no-DB as not required', () => {
     const checks = preparationChecks(
       application({ detectedMetadata: {}, databaseRequired: false, healthPath: null }),
     );
+    // Runtime (no Dockerfile) and Health (no healthPath) are genuinely
+    // missing; a database the app does not use is a complete "Not required"
+    // state, not a missing detection.
     expect(checks.slice(1, 4).map((check) => check.state)).toEqual([
       'missing',
-      'missing',
+      'complete',
       'missing',
     ]);
+    expect(checks[2]).toEqual({
+      label: 'Database detected',
+      detail: 'Not required',
+      state: 'complete',
+    });
   });
 });
 
