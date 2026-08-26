@@ -22,6 +22,12 @@
  *     plane attaches it after the relay's first contact. Includes requesting
  *     and managing the TLS certificate for a custom domain you configure, and
  *     attaching it to the deployment's load balancer (custom-domains MVP).
+ *     Also includes creating and reconciling a managed cache for applications
+ *     that need one (Redis MVP) — cache creation requires the request tag,
+ *     deleting/modifying/tagging it requires the resource tag, and its
+ *     `Describe*` reads carry no condition for the same reason the load
+ *     balancer's `Describe*` reads don't: AWS does not support resource-level
+ *     permissions on those API calls.
  *   - A permissions boundary (union of phase 1 + phase 2) caps the relay role
  *     forever — its permissions can never grow beyond what is listed here.
  *   - Data boundary (§16): the relay writes logs but is never granted
@@ -99,6 +105,24 @@ export const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
   'elasticloadbalancing:RemoveListenerCertificates',
 ] as const;
 
+/**
+ * Phase 2 — provision and reconcile the application's managed cache (requires
+ * the request tag to create, the resource tag to manage/delete). Describe*
+ * actions carry no condition: AWS does not support resource-level permissions
+ * on ElastiCache Describe* calls, mirroring the ELB Describe* exception above.
+ */
+export const PHASE_2_CACHE_ACTIONS = [
+  'elasticache:CreateCacheCluster',
+  'elasticache:DeleteCacheCluster',
+  'elasticache:DescribeCacheClusters',
+  'elasticache:ModifyCacheCluster',
+  'elasticache:CreateCacheSubnetGroup',
+  'elasticache:DeleteCacheSubnetGroup',
+  'elasticache:DescribeCacheSubnetGroups',
+  'elasticache:AddTagsToResource',
+  'elasticache:ListTagsForResource',
+] as const;
+
 /** Phase 2 — hand the application stack's own service role to the deployment service. */
 export const PHASE_2_PASS_ROLE_ACTION = 'iam:PassRole';
 export const PASS_ROLE_RESOURCE_ARN = 'arn:aws:iam::*:role/deployz/*';
@@ -128,6 +152,7 @@ export const AWS_RESOURCES_CREATED = [
   'A load balancer with an HTTPS listener',
   'A managed container service running the application',
   'An RDS PostgreSQL database (when the application requires one)',
+  'A managed cache for sessions, queues and temporary data',
   'An S3 bucket (when the application requires file storage)',
   'A Secrets Manager secret for the relay’s own credentials, plus one per configured application secret',
   'CloudWatch log groups and alarms for the application and the relay',
@@ -160,6 +185,7 @@ export const DATA_SENT_TO_DEPLOYZ = [
 export const DATA_NOT_SENT_TO_DEPLOYZ = [
   'Your application runtime and its in-memory data',
   'Your PostgreSQL data',
+  'Your cache contents',
   'Your S3 data',
   'Your application secrets',
   'Your application CloudWatch logs',

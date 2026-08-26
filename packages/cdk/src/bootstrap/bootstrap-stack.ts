@@ -144,6 +144,19 @@ const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
   'elasticloadbalancing:RemoveListenerCertificates',
 ] as const;
 
+/** Phase 2 — provision and reconcile the application's ElastiCache Valkey cache (Redis MVP). */
+const PHASE_2_CACHE_ACTIONS = [
+  'elasticache:CreateCacheCluster',
+  'elasticache:DeleteCacheCluster',
+  'elasticache:DescribeCacheClusters',
+  'elasticache:ModifyCacheCluster',
+  'elasticache:CreateCacheSubnetGroup',
+  'elasticache:DeleteCacheSubnetGroup',
+  'elasticache:DescribeCacheSubnetGroups',
+  'elasticache:AddTagsToResource',
+  'elasticache:ListTagsForResource',
+] as const;
+
 export class BootstrapStack extends Stack {
   public readonly relayFunction: NodejsFunction;
   public readonly relayRole: Role;
@@ -350,6 +363,59 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // Phase 2 — ElastiCache Valkey cache lifecycle (Redis MVP). Split the same
+    // way as the ACM + domain-ingress precedent above:
+    //   - Create* actions provision a brand-new resource that doesn't exist
+    //     yet, so (like acm:RequestCertificate) they can only be scoped by the
+    //     REQUEST tag applied at creation time, not a resource tag.
+    //   - Delete/Modify/tag-management actions operate on a resource that
+    //     already carries the installation's tag, so they are scoped by the
+    //     RESOURCE tag (like ACM manage / stack manage).
+    //   - Describe* actions do NOT support resource-level permissions in
+    //     ElastiCache (same limitation as the ELB Describe* calls above), so
+    //     they stay condition-free rather than carrying a condition that
+    //     would never actually be evaluated.
+    const cacheCreateActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
+      action.startsWith('elasticache:Create'),
+    );
+    const cacheDescribeActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
+      action.startsWith('elasticache:Describe'),
+    );
+    const cacheManageActions = PHASE_2_CACHE_ACTIONS.filter(
+      (action) => !cacheCreateActions.includes(action) && !cacheDescribeActions.includes(action),
+    );
+
+    const phase2CacheCreate = new PolicyStatement({
+      sid: 'ProvisionerCacheCreate',
+      effect: Effect.ALLOW,
+      actions: cacheCreateActions,
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:RequestTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
+    const phase2CacheManage = new PolicyStatement({
+      sid: 'ProvisionerCacheManage',
+      effect: Effect.ALLOW,
+      actions: cacheManageActions,
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
+    const phase2CacheDescribe = new PolicyStatement({
+      sid: 'ProvisionerCacheDescribe',
+      effect: Effect.ALLOW,
+      actions: cacheDescribeActions,
+      resources: ['*'],
+    });
+
     const phase2Statements = [
       phase2CreateStacks,
       phase2ManageStacks,
@@ -359,6 +425,9 @@ export class BootstrapStack extends Stack {
       phase2AcmManage,
       phase2DomainIngressDescribe,
       phase2DomainIngressWrite,
+      phase2CacheCreate,
+      phase2CacheManage,
+      phase2CacheDescribe,
     ];
 
     // The permissions boundary is the CEILING for the relay role: the union of
