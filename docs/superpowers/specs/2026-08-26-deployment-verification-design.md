@@ -256,14 +256,34 @@ the correct outcome regardless.
 
 ## Rollout consequence
 
-Components 3, 4 and 5 reach only installations created after the bootstrap
-template is republished and `BOOTSTRAP_TEMPLATE_URL` is updated. Existing
-installations — including the Documenso one that prompted this work — keep
-reporting healthy until their customer updates the bootstrap stack.
+The relay gate protects only *future* installs. It fires only when the relay
+executes an `INSTALL` (or, after the follow-up fix, `DEPLOY_RELEASE` or
+`ROLLBACK`) command, and only for relays running code built from components
+3, 4 and 5 — which means the bootstrap template must be republished and
+`BOOTSTRAP_TEMPLATE_URL` updated first. A deployment that is already
+`HEALTHY` does not receive an `INSTALL` command again on its own: nothing
+about updating the customer's bootstrap stack causes the control plane to
+re-issue one. So existing installations — including the Documenso one that
+prompted this work — do not self-heal. They keep reporting `HEALTHY` and
+billing, unchanged, for as long as no new command happens to be sent to them.
 
-That asymmetry is the reason component 2 is a standalone tool rather than
-something folded into the relay. The CLI covers the existing fleet from day one;
-the relay gate covers everything provisioned afterwards.
+**The operator CLI (component 2) is the only remediation for the existing
+fleet.** It is a standalone tool rather than something folded into the relay
+specifically because of this gap: it can be pointed at any installation,
+today, with operator credentials, independent of what code that
+installation's relay is running.
+
+There is a second, sharper gap worth stating plainly: even after the
+republish, an upgraded relay's `observe` hook (component 4) can report
+`infraHealth: { verified: false, ... }` on every five-minute poll, forever,
+and nothing changes. **Nothing on the control plane consumes the
+`infraHealth` field.** A `HEALTHY` deployment stays `HEALTHY` — and keeps
+billing — no matter what the relay observes, until a human runs the CLI by
+hand. Making a relay's `verified: false` actually demote a `HEALTHY`
+deployment requires a control-plane consumer for `infraHealth` that reads
+what the relay already sends and acts on it. That consumer does not exist
+yet; it is tracked as a follow-up in
+`docs/superpowers/plans/2026-08-26-deployment-verification.md`.
 
 The republish must also pick up the ACM, ElastiCache and ALB-listener grants
 that the currently-published template is missing — it predates both the

@@ -1335,7 +1335,8 @@ git commit -m "test(cdk): pin the unverified-installation regression"
 
 ## After the plan
 
-Two follow-ups this plan deliberately does not do, in order:
+Three follow-ups this plan deliberately does not do, in order:
 
 1. **Republish the bootstrap template** (`pnpm --filter @deployz/cdk run publish:bootstrap`) and update the `BOOTSTRAP_TEMPLATE_URL` repository variable. Tasks 5–7 reach only installations created afterwards. The republish also picks up the ACM, ElastiCache and ALB-listener grants the currently-published template is missing.
 2. **Implement the `INSTALL` executor** and publish the application-stack template. Verification is the check; provisioning is still the missing half.
+3. **Add a control-plane consumer for `infraHealth`.** The relay's `observe` hook (Task 6) already reports `infraHealth: { verified: false, ... }` on every poll when an installation doesn't verify, but nothing on the control plane reads that field — a `HEALTHY` deployment stays `HEALTHY` and keeps billing no matter what the relay observes. Without this consumer, the only way `verified: false` ever changes a deployment's state is a human running `audit:deployment` and acting on it by hand. See "Rollout consequence" in the design doc.
