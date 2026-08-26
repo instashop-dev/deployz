@@ -33,6 +33,8 @@ import { spawnSync } from 'node:child_process';
 import { App } from 'aws-cdk-lib';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createCloudFormationReader, verifyInstallation } from '@deployz/relay/verify';
+
 import { createAwsClients, type CacheClusterInfo, type ElastiCacheClient } from '../src/integration/aws-clients.js';
 import { ApplicationStack } from '../src/application/application-stack.js';
 
@@ -456,4 +458,27 @@ liveAws('§67 Phase 4 — live AWS Redis cache provisioning (redisRequired: true
     const { clusters: afterDelete } = await elastiCache.describeCacheClusters({ region: REGION });
     expect(afterDelete.find((c) => c.cacheClusterId === cluster.cacheClusterId)).toBeUndefined();
   });
+});
+
+/**
+ * Verification against the real account.
+ *
+ * On 2026-08-26 installation c2dca2bb reported HEALTHY in the control plane
+ * with nothing provisioned behind it. This asserts the verifier calls that
+ * what it is. It SHOULD start failing once a real INSTALL provisions the
+ * stack — at which point update the expectation rather than deleting it.
+ */
+liveAws('installation verification (live)', () => {
+  const INSTALLATION = process.env.DEPLOYZ_LIVE_INSTALLATION_ID ?? 'c2dca2bb-a733-470d-8ef0-8e96bc889442';
+
+  it('reports an unprovisioned installation as not verified', async () => {
+    const result = await verifyInstallation({
+      cfn: createCloudFormationReader(REGION),
+      installationId: INSTALLATION,
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toBeDefined();
+    expect(result.checks.find((check) => check.name === 'stack-exists')?.passed).toBe(false);
+  }, 60_000);
 });
