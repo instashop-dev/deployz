@@ -19,6 +19,7 @@
  */
 import { parseArgs } from 'node:util';
 
+import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
 import { createCloudFormationReader, verifyInstallation } from '@deployz/relay/verify';
 
 const USAGE =
@@ -59,7 +60,7 @@ const field = (label, value) => `${label.padEnd(14)}${value}`;
 console.log('');
 console.log(field('Installation', values.installation));
 console.log(field('Region', region));
-console.log(field('Stack', values['stack-name'] ?? 'deployz-app'));
+console.log(field('Stack', values['stack-name'] ?? DEFAULT_APPLICATION_STACK_NAME));
 console.log(field('Claimed', values.claimed ?? 'not supplied'));
 console.log('');
 
