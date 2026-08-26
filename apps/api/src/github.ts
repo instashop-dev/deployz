@@ -462,8 +462,9 @@ interface GithubFixtureInstallation extends GithubInstallation {
   repositories: GithubRepository[];
 }
 
-// §216: a fixture GitHub org with two fixture repos — one ready (health check +
-// Postgres), one that needs attention (Redis dependency). Used ONLY when
+// §216: a fixture GitHub org with three fixture repos — one ready (health
+// check + Postgres), one that needs a managed Redis cache (also ready), and
+// one that needs attention (an unsupported Redis setup). Used ONLY when
 // GITHUB_FIXTURE_MODE is set (tests / local dev); never fabricated in prod.
 export const GITHUB_FIXTURE_INSTALLATIONS: readonly GithubFixtureInstallation[] = [
   {
@@ -484,6 +485,14 @@ export const GITHUB_FIXTURE_INSTALLATIONS: readonly GithubFixtureInstallation[] 
         name: 'legacy-redis',
         fullName: 'deployz-demo/legacy-redis',
         description: "Depends on a service Deployz doesn't support yet.",
+        private: false,
+        defaultBranch: 'main',
+      },
+      {
+        id: 'fixture-repo-3',
+        name: 'bullmq-worker',
+        fullName: 'deployz-demo/bullmq-worker',
+        description: 'Node worker app using BullMQ — Redis managed automatically.',
         private: false,
         defaultBranch: 'main',
       },
@@ -803,14 +812,13 @@ export async function buildFileTreeForAnalysis(
 // §216 fixture file trees, keyed by the fixture repo's `fullName` (the same
 // string `applications.repo_full_name` holds once a fixture repo is
 // "selected" — there is no separate repo-id column on the row). Mirrors the
-// two-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
+// three-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
 // compatible (Dockerfile + HEALTHCHECK + /health + Postgres + migration
 // script); legacy-redis has an unsupported Redis setup (Redis Stack modules)
 // so it reliably exercises the NOT_COMPATIBLE path end-to-end without real
-// GitHub credentials. bullmq-worker is NOT part of GITHUB_FIXTURE_INSTALLATIONS
-// (analysis tests select it directly by repoFullName) — it is the same
-// otherwise-READY shape as express-api plus a supported, high-confidence
-// Redis requirement, exercising the "Redis — managed automatically" ready path.
+// GitHub credentials; bullmq-worker is the same otherwise-READY shape as
+// express-api plus a supported, high-confidence Redis requirement,
+// exercising the "Redis — managed automatically" ready path end-to-end.
 export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   'deployz-demo/express-api': {
     'Dockerfile': [
