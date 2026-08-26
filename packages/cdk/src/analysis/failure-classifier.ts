@@ -1,6 +1,6 @@
 /**
  * §61 failure classifier — the deterministic pipeline that maps a STRUCTURED
- * event to one of the eighteen stable failure codes BEFORE any AI is consulted.
+ * event to one of the twenty stable failure codes BEFORE any AI is consulted.
  *
  * The §61 codes are the SINGLE failure taxonomy from day one. This classifier
  * is PURELY DETERMINISTIC (§20): synchronous, ordered rules, first match wins,
@@ -275,6 +275,70 @@ function messageIndicatesHealthCheckFailure(message: string): boolean {
   return m.includes('failed health check') || m.includes('health check failed');
 }
 
+/**
+ * Rule 14 — REDIS_PROVISIONING_FAILED (Redis MVP).
+ *
+ * A CloudFormation/provisioning-source event referencing an `AWS::ElastiCache`
+ * resource type — either in `context.resourceType` (the structured signal a
+ * per-resource CFN failure carries, mirroring how `STACK_CREATE_FAILED`
+ * reads `signal`) or, as a fallback, an error message that names the
+ * resource type directly.
+ */
+function isRedisProvisioningFailed(event: StructuredEvent): boolean {
+  if (event.source !== 'cloudformation') return false;
+
+  const resourceType = contextString(event, 'resourceType');
+  if (resourceType !== undefined && resourceType.startsWith('AWS::ElastiCache')) return true;
+
+  const message = event.error?.message;
+  return message !== undefined && message.includes('AWS::ElastiCache');
+}
+
+/** Redis connection-error codes (ioredis/node-redis + RESP protocol errors). */
+const REDIS_CONNECTION_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'NOAUTH',
+  'WRONGPASS',
+  'MOVED',
+  'CLUSTERDOWN',
+]);
+
+/**
+ * True when the event identifies the cache as its subject — distinct from,
+ * say, an RDS-sourced connection error carrying the SAME error code (an
+ * `ECONNREFUSED` against a database must NOT be swept into this rule).
+ * Structured signals only, no message sniffing (§16): `context.target`
+ * naming the cache, or a `signal` mentioning cache/redis.
+ */
+function identifiesCache(event: StructuredEvent): boolean {
+  if (event.source === 'cache' || event.source === 'redis' || event.source === 'elasticache') {
+    return true;
+  }
+
+  const target = contextString(event, 'target');
+  if (target === 'redis' || target === 'cache') return true;
+
+  const signal = event.signal;
+  return signal !== undefined && (signal.includes('cache') || signal.includes('redis'));
+}
+
+/**
+ * Rule 15 — REDIS_CONNECTION_FAILED (Redis MVP).
+ *
+ * A connection-class error code AND an event that identifies the cache as
+ * its subject. The error-code check alone is intentionally NOT sufficient —
+ * `ECONNREFUSED` is a generic network error also seen from RDS (rule 17
+ * below, RDS_UNAVAILABLE) and ECS; without `identifiesCache`, a database
+ * connection refusal would misclassify as a Redis failure.
+ */
+function isRedisConnectionFailed(event: StructuredEvent): boolean {
+  const code = event.error?.code;
+  if (code === undefined || !REDIS_CONNECTION_ERROR_CODES.has(code)) return false;
+  return identifiesCache(event);
+}
+
 // ── Classifier ────────────────────────────────────────────────────────────
 
 /**
@@ -354,12 +418,23 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
   // 13. MISSING_SECRET — ECS missing secret.
   if (isMissingSecret(event)) return 'MISSING_SECRET';
 
-  // 14. ECS_DEPLOYMENT_FAILED — any ECS-sourced error.
+  // 14. REDIS_PROVISIONING_FAILED — CloudFormation event referencing an
+  // AWS::ElastiCache resource (Redis MVP). Placed before the generic
+  // ECS/RDS fallbacks (16/17), after every more-specific existing rule.
+  if (isRedisProvisioningFailed(event)) return 'REDIS_PROVISIONING_FAILED';
+
+  // 15. REDIS_CONNECTION_FAILED — a connection-class error code targeting
+  // the cache (Redis MVP). Also placed before the generic fallbacks; see
+  // `isRedisConnectionFailed` for why an RDS-targeted ECONNREFUSED is NOT
+  // swept in here.
+  if (isRedisConnectionFailed(event)) return 'REDIS_CONNECTION_FAILED';
+
+  // 16. ECS_DEPLOYMENT_FAILED — any ECS-sourced error.
   if (event.source === 'ecs' && event.error !== undefined) {
     return 'ECS_DEPLOYMENT_FAILED';
   }
 
-  // 15. RDS_UNAVAILABLE — an RDS-sourced error or an unavailable flag.
+  // 17. RDS_UNAVAILABLE — an RDS-sourced error or an unavailable flag.
   if (
     event.source === 'rds' &&
     (event.error !== undefined || contextBoolean(event, 'available') === false)
@@ -367,7 +442,7 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
     return 'RDS_UNAVAILABLE';
   }
 
-  // 16. UNSUPPORTED_ARCHITECTURE — preflight architecture check failed.
+  // 18. UNSUPPORTED_ARCHITECTURE — preflight architecture check failed.
   if (
     event.source === 'preflight' &&
     event.signal === 'unsupported-arch'
@@ -375,6 +450,6 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
     return 'UNSUPPORTED_ARCHITECTURE';
   }
 
-  // 17. UNKNOWN — fallback when no rule matches.
+  // 19. UNKNOWN — fallback when no rule matches.
   return 'UNKNOWN';
 }

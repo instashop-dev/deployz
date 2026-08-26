@@ -270,6 +270,100 @@ describe('classifyFailure — RDS_UNAVAILABLE (rule 9)', () => {
   });
 });
 
+describe('classifyFailure — REDIS_PROVISIONING_FAILED (Redis MVP)', () => {
+  it('cloudformation event referencing AWS::ElastiCache resourceType → REDIS_PROVISIONING_FAILED', () => {
+    const event: StructuredEvent = {
+      source: 'cloudformation',
+      context: { resourceType: 'AWS::ElastiCache::CacheCluster' },
+      error: { code: 'CREATE_FAILED', message: 'Cache cluster creation failed' },
+    };
+    expect(classifyFailure(event)).toBe('REDIS_PROVISIONING_FAILED');
+  });
+
+  it('cloudformation event whose message references AWS::ElastiCache → REDIS_PROVISIONING_FAILED', () => {
+    const event: StructuredEvent = {
+      source: 'cloudformation',
+      error: { message: 'Resource of type AWS::ElastiCache::CacheCluster failed to create' },
+    };
+    expect(classifyFailure(event)).toBe('REDIS_PROVISIONING_FAILED');
+  });
+
+  it('cloudformation event for a non-ElastiCache resource is NOT redis-provisioning (falls through)', () => {
+    const event: StructuredEvent = {
+      source: 'cloudformation',
+      context: { resourceType: 'AWS::RDS::DBInstance' },
+      error: { code: 'CREATE_FAILED', message: 'DB instance creation failed' },
+    };
+    expect(classifyFailure(event)).toBe('UNKNOWN');
+  });
+
+  it('non-cloudformation source referencing ElastiCache is NOT redis-provisioning (falls through)', () => {
+    const event: StructuredEvent = {
+      source: 'ecs',
+      context: { resourceType: 'AWS::ElastiCache::CacheCluster' },
+    };
+    expect(classifyFailure(event)).toBe('UNKNOWN');
+  });
+});
+
+describe('classifyFailure — REDIS_CONNECTION_FAILED (Redis MVP)', () => {
+  it('ECONNREFUSED targeting redis → REDIS_CONNECTION_FAILED', () => {
+    const event: StructuredEvent = {
+      source: 'relay',
+      context: { target: 'redis' },
+      error: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 10.0.0.5:6379' },
+    };
+    expect(classifyFailure(event)).toBe('REDIS_CONNECTION_FAILED');
+  });
+
+  it.each(['ETIMEDOUT', 'ENOTFOUND', 'NOAUTH', 'WRONGPASS', 'MOVED', 'CLUSTERDOWN'])(
+    '%s targeting redis → REDIS_CONNECTION_FAILED',
+    (code) => {
+      const event: StructuredEvent = {
+        source: 'relay',
+        context: { target: 'redis' },
+        error: { code },
+      };
+      expect(classifyFailure(event)).toBe('REDIS_CONNECTION_FAILED');
+    },
+  );
+
+  it('cache-bearing signal (no context.target) → REDIS_CONNECTION_FAILED', () => {
+    const event: StructuredEvent = {
+      source: 'relay',
+      signal: 'cache-connectivity',
+      error: { code: 'ETIMEDOUT' },
+    };
+    expect(classifyFailure(event)).toBe('REDIS_CONNECTION_FAILED');
+  });
+
+  it('CRITICAL: ECONNREFUSED with a database target still classifies exactly as before (RDS_UNAVAILABLE), NOT redis', () => {
+    const event: StructuredEvent = {
+      source: 'rds',
+      context: { target: 'database' },
+      error: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 10.0.0.6:5432' },
+    };
+    expect(classifyFailure(event)).toBe('RDS_UNAVAILABLE');
+  });
+
+  it('ECONNREFUSED with no cache/redis identification is NOT redis-connection (falls through)', () => {
+    const event: StructuredEvent = {
+      source: 'ecs',
+      error: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED' },
+    };
+    expect(classifyFailure(event)).toBe('ECS_DEPLOYMENT_FAILED');
+  });
+
+  it('a non-connection error code targeting redis is NOT redis-connection (falls through)', () => {
+    const event: StructuredEvent = {
+      source: 'relay',
+      context: { target: 'redis' },
+      error: { code: 'SomeOtherError' },
+    };
+    expect(classifyFailure(event)).toBe('UNKNOWN');
+  });
+});
+
 describe('classifyFailure — UNKNOWN (fallback)', () => {
   it('unrecognized source → UNKNOWN', () => {
     const event: StructuredEvent = { source: 'unknown-source' };
@@ -440,6 +534,10 @@ describe('classifyFailure — purity invariant (§20)', () => {
       { source: 'rds', context: { available: false } },
       // UNSUPPORTED_ARCHITECTURE
       { source: 'preflight', signal: 'unsupported-arch' },
+      // REDIS_PROVISIONING_FAILED
+      { source: 'cloudformation', context: { resourceType: 'AWS::ElastiCache::CacheCluster' } },
+      // REDIS_CONNECTION_FAILED
+      { source: 'relay', context: { target: 'redis' }, error: { code: 'ECONNREFUSED' } },
       // UNKNOWN
       { source: 'unknown-source' },
     ];
@@ -451,7 +549,7 @@ describe('classifyFailure — purity invariant (§20)', () => {
       expect(b).toBe(a);
       codes.push(a);
     }
-    // The loop covered all eighteen codes exactly once.
+    // The loop covered all twenty codes exactly once.
     expect([...codes].sort()).toEqual([...FAILURE_CODES].sort());
   });
 });

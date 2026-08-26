@@ -45,7 +45,7 @@
 /** Per-signal health. DEGRADED = impaired but not down; UNHEALTHY = down. */
 export type SignalStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
 
-/** The 8 §28 signal keys, in canonical order. */
+/** The §28 signal keys, in canonical order (8 original + container-exit + cache). */
 export const HEALTH_SIGNAL_KEYS = [
   'stack',
   'service',
@@ -56,6 +56,7 @@ export const HEALTH_SIGNAL_KEYS = [
   'utilization',
   'consistency',
   'container-exit',
+  'cache',
 ] as const;
 
 export type HealthSignalKey = (typeof HEALTH_SIGNAL_KEYS)[number];
@@ -375,6 +376,61 @@ export function checkContainerExitState(deps: ContainerExitStateDeps): HealthSig
   return { key: 'container-exit', status, summary, detail: { runningCount, stoppedReason } };
 }
 
+// ── 10. Cache (Redis) status — Redis MVP ───────────────────────────────────
+
+/**
+ * Observed statuses that mean the cache is definitively gone, not merely
+ * still converging. Anything else non-`'available'` (e.g. an in-progress
+ * ElastiCache status like `'creating'`/`'modifying'`, or `null` when the
+ * relay hasn't reported a status yet) is treated as still-provisioning.
+ */
+const CACHE_TERMINAL_FAILURE_STATUSES = new Set(['failed', 'deleted', 'delete-complete', 'create-failed']);
+
+/**
+ * Observed data for the cache-status signal.
+ *
+ * Unlike RDS (§4/#4, always provisioned), Redis is OPTIONAL per application
+ * (`applications.redisRequired`, Redis MVP) — so this signal needs a
+ * "desired" flag the RDS check doesn't: `redisRequired` mirrors that column
+ * exactly (same minimal shape as the boolean the stack itself is gated on in
+ * `application-stack.ts`). `cacheStatus` is the relay/AWS-observed
+ * ElastiCache cluster status, or `null` when none has been reported yet.
+ */
+export interface CacheStatusDeps {
+  /** Whether the deployment's application declares a Redis requirement (desired state). */
+  readonly redisRequired: boolean;
+  /** The observed ElastiCache cluster status, or `null` if not yet reported/missing. */
+  readonly cacheStatus: string | null;
+}
+
+/**
+ * Signal 10 — is the deployment's optional managed Redis cache available?
+ *
+ * A deployment that never declared a Redis requirement produces a non-signal
+ * HEALTHY result (nothing to check, nothing wrong). When Redis IS required: a
+ * missing or non-`'available'` status is DEGRADED (still converging); a
+ * status reporting the cache failed or was deleted out-of-band is UNHEALTHY.
+ */
+export function checkCacheStatus(deps: CacheStatusDeps): HealthSignal {
+  const { redisRequired, cacheStatus } = deps;
+  let status: SignalStatus;
+  let summary: string;
+  if (!redisRequired) {
+    status = 'HEALTHY';
+    summary = 'No managed cache is required.';
+  } else if (cacheStatus !== null && CACHE_TERMINAL_FAILURE_STATUSES.has(cacheStatus)) {
+    status = 'UNHEALTHY';
+    summary = 'The cache is unavailable.';
+  } else if (cacheStatus === 'available') {
+    status = 'HEALTHY';
+    summary = 'The cache is available.';
+  } else {
+    status = 'DEGRADED';
+    summary = 'The cache is not yet available.';
+  }
+  return { key: 'cache', status, summary, detail: { redisRequired, cacheStatus } };
+}
+
 // ── Collect all 8 signals ──────────────────────────────────────────────────
 
 /** Aggregated observed data for all 8 §28 signals. */
@@ -394,12 +450,15 @@ export interface HealthCheckDeps {
   readonly desiredState: string;
   readonly observedState: string;
   readonly stoppedReason?: string | undefined;
+  readonly redisRequired: boolean;
+  readonly cacheStatus: string | null;
 }
 
 /**
- * Run all 8 §28 checks and return the signals in canonical order. This is the
- * single entry point a poller calls after collecting observed data from the
- * relay's REPORT_HEALTH (todo 12).
+ * Run all §28 checks (the 8 original signals + container-exit + cache) and
+ * return the signals in canonical order. This is the single entry point a
+ * poller calls after collecting observed data from the relay's REPORT_HEALTH
+ * (todo 12).
  */
 export function collectHealthSignals(deps: HealthCheckDeps): HealthSignal[] {
   return [
@@ -415,6 +474,7 @@ export function collectHealthSignals(deps: HealthCheckDeps): HealthSignal[] {
     checkUtilization({ cpuPercent: deps.cpuPercent, memoryPercent: deps.memoryPercent }),
     checkStateConsistency({ desiredState: deps.desiredState, observedState: deps.observedState }),
     checkContainerExitState({ runningCount: deps.runningCount, stoppedReason: deps.stoppedReason }),
+    checkCacheStatus({ redisRequired: deps.redisRequired, cacheStatus: deps.cacheStatus }),
   ];
 }
 
