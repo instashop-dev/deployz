@@ -203,6 +203,26 @@ describe('assessRedis', () => {
       expect(result.required).toBe(false);
     });
 
+    it('createCluster( in a source file → unsupported (cluster mode)', () => {
+      const tree: FileTree = {
+        'src/redis.ts': "import { createCluster } from 'redis';\nconst client = createCluster({ rootNodes: [] });\n",
+      };
+      const result = assessRedis(tree);
+      expect(result.compatibility.supported).toBe(false);
+      expect(result.compatibility.reason).toMatch(/Cluster/);
+      expect(result.required).toBe(false);
+    });
+
+    it('createCluster( mentioned only in README prose → still supported (not scanned)', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { ioredis: '^5.4.0' } }),
+        'README.md': 'We evaluated `createCluster()` but chose standalone mode for this service.\n',
+      };
+      const result = assessRedis(tree);
+      expect(result.compatibility.supported).toBe(true);
+      expect(result.compatibility.reason).toBeUndefined();
+    });
+
     it('rediss:// in .env.example → unsupported (TLS)', () => {
       const tree: FileTree = { '.env.example': 'REDIS_URL=rediss://user:pass@host:6380\n' };
       const result = assessRedis(tree);

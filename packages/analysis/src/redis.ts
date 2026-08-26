@@ -532,9 +532,12 @@ function evaluateCompatibility(tree: FileTree): RedisCompatibility {
     }
   }
 
-  // 3. Cluster usage.
-  for (const content of Object.values(tree)) {
-    if (CLUSTER_PATTERNS.some((pattern) => pattern.test(content))) {
+  // 3. Cluster usage — source files only, like every other text-pattern signal in
+  // this module. Scanning every file (README/docs included) would flip a fully
+  // compatible repo to unsupported over prose that merely mentions `createCluster()`.
+  for (const path of Object.keys(tree).filter(isSourceFile)) {
+    const content = tree[path];
+    if (content && CLUSTER_PATTERNS.some((pattern) => pattern.test(content))) {
       return { supported: false, reason: CLUSTER_REASON };
     }
   }
