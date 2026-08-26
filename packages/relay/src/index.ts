@@ -25,7 +25,32 @@ import { createAuthState, readCredential, type FetchFn, type SecretsClient } fro
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
 import { pollOnce, type PollDependencies } from './poll.js';
-import { createCloudFormationReader, verifyInstallation, type VerificationResult } from './verify.js';
+import {
+  createCloudFormationReader,
+  verifyInstallation,
+  type CloudFormationReader,
+  type VerificationResult,
+} from './verify.js';
+
+// ── Lazy SDK singleton ───────────────────────────────────────────────────────
+//
+// The CloudFormation reader wraps a real SDK client (full config +
+// credential-chain resolution). Following the same lazy-singleton idiom as
+// `getAcmSdkClient()` / `getElbSdkClient()` in `./domain.js`, it is
+// constructed on first use, not at module load — so importing this module
+// never touches AWS, and unit tests that never trigger the INSTALL executor
+// or the `observe` hook construct nothing. This matters more here than for
+// INSTALL alone: `observe` runs on every poll, once every 5 minutes, forever,
+// whereas INSTALL runs at most once or twice per container's lifetime.
+
+let cloudFormationReader: CloudFormationReader | undefined;
+
+function getCloudFormationReader(): CloudFormationReader {
+  if (!cloudFormationReader) {
+    cloudFormationReader = createCloudFormationReader();
+  }
+  return cloudFormationReader;
+}
 
 // ── Default command executors ────────────────────────────────────────────────
 
@@ -147,7 +172,7 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
   });
 
   const installExecutor = createVerifyingInstallExecutor((id) =>
-    verifyInstallation({ cfn: createCloudFormationReader(), installationId: id }),
+    verifyInstallation({ cfn: getCloudFormationReader(), installationId: id }),
   );
 
   return {
@@ -234,6 +259,8 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       enrollmentCode,
       executors,
       idempotency,
+      observe: () =>
+        verifyInstallation({ cfn: getCloudFormationReader(), installationId }),
     };
 
     const result = await pollOnce(pollDeps, authState);

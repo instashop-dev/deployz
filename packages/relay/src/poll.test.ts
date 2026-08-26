@@ -364,3 +364,62 @@ describe('pollOnce — token rotation', () => {
     expect(authState.oldToken).toBeUndefined();
   });
 });
+
+// ── Observed state (§59) ─────────────────────────────────────────────────────
+
+/**
+ * Run one poll and return the body the relay POSTed to /api/relay/health.
+ */
+async function runPollCapturingHealth(
+  extra: Partial<PollDependencies>,
+): Promise<{ observedState: Record<string, unknown> }> {
+  const { fetchFn, getRequests } = makeMockFetch();
+
+  const deps: PollDependencies = {
+    fetchFn,
+    controlPlaneUrl: 'https://api.example.test',
+    installationId: 'install-1',
+    enrollmentCode: 'code-1',
+    executors: makeExecutors(),
+    idempotency: new IdempotencyStore(),
+    ...extra,
+  };
+
+  await pollOnce(deps, createAuthState('install-1', 'token-1'));
+
+  const health = getRequests().find((request) => request.url.includes('/api/relay/health'));
+  if (!health?.body) throw new Error('no health report was sent');
+  return JSON.parse(health.body) as { observedState: Record<string, unknown> };
+}
+
+describe('observed state', () => {
+  it('sends infraHealth null when no observer is supplied', async () => {
+    const payload = await runPollCapturingHealth({});
+    expect(payload.observedState['infraHealth']).toBeNull();
+  });
+
+  it('sends the observation when one is supplied', async () => {
+    const payload = await runPollCapturingHealth({
+      observe: async () => ({
+        verified: false,
+        checks: [{ name: 'stack-exists', passed: false, detail: 'missing' }],
+        reason: 'missing',
+      }),
+    });
+
+    expect(payload.observedState['infraHealth']).toMatchObject({
+      verified: false,
+      reason: 'missing',
+    });
+  });
+
+  it('sends infraHealth null when the observer throws', async () => {
+    const payload = await runPollCapturingHealth({
+      observe: async () => {
+        throw new Error('boom');
+      },
+    });
+
+    expect(payload.observedState['infraHealth']).toBeNull();
+  });
+});

@@ -21,6 +21,7 @@ import {
   type AuthState,
   type FetchFn,
 } from './auth.js';
+import type { VerificationResult } from './verify.js';
 
 // ── Control-plane API shapes ─────────────────────────────────────────────────
 
@@ -56,6 +57,12 @@ export interface PollDependencies {
   enrollmentCode: string;
   executors: Readonly<Record<string, CommandExecutor>>;
   idempotency: IdempotencyStore;
+  /**
+   * §59 observed state. Optional so the poll loop stays usable without AWS —
+   * when it is absent, or throws, `infraHealth` stays null rather than
+   * reporting a healthy-looking absence of information.
+   */
+  observe?: () => Promise<VerificationResult>;
 }
 
 /** Result of a single poll cycle. */
@@ -88,7 +95,7 @@ export async function pollOnce(
   deps: PollDependencies,
   authState: AuthState,
 ): Promise<PollResult> {
-  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency } = deps;
+  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe } = deps;
 
   // ── 1. Enroll on first contact ────────────────────────────────────────
   if (!authState.registered) {
@@ -157,6 +164,9 @@ export async function pollOnce(
   const commands = body.commands;
 
   if (!Array.isArray(commands) || commands.length === 0) {
+    // Still report observed state (§59) on an idle poll — most polls have no
+    // commands, and that is exactly when infrastructure drift needs catching.
+    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe);
     decrementGrace(authState);
     return { fetched: 0, executed: 0, succeeded: 0, failed: 0, ok: true };
   }
@@ -179,7 +189,7 @@ export async function pollOnce(
   }
 
   // ── 5. Report observed state (§59) ────────────────────────────────────
-  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency);
+  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe);
 
   decrementGrace(authState);
 
@@ -230,13 +240,25 @@ async function reportHealth(
   authHeaders: Record<string, string>,
   installationId: string,
   idempotency: IdempotencyStore,
+  observe: PollDependencies['observe'],
 ): Promise<void> {
+  let infraHealth: VerificationResult | null = null;
+  if (observe) {
+    try {
+      infraHealth = await observe();
+    } catch {
+      // An observation we could not take is not an observation. Leaving this
+      // null is honest; substituting a default would not be.
+      infraHealth = null;
+    }
+  }
+
   const observedState: Record<string, unknown> = {
     idempotencyKeysTracked: idempotency.size,
     lastPoll: new Date().toISOString(),
     runningVersion: null,
     observedConfig: null,
-    infraHealth: null,
+    infraHealth,
   };
 
   const payload: HealthReportPayload = {
