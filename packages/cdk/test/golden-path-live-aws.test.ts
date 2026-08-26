@@ -26,11 +26,12 @@
  *
  * Also contains a second, independent gated suite (Redis MVP) proving the
  * ElastiCache cache lifecycle for a `redisRequired: true` ApplicationStack —
- * see that describe block's doc comment for scope and cost/time notes.
+ * see that describe block's doc comment for scope, cost/time, and required
+ * image env vars (DEPLOYZ_LIVE_IMAGE_REPOSITORY / DEPLOYZ_LIVE_IMAGE_DIGEST).
  */
 import { spawnSync } from 'node:child_process';
 import { App } from 'aws-cdk-lib';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createAwsClients, type CacheClusterInfo, type ElastiCacheClient } from '../src/integration/aws-clients.js';
 import { ApplicationStack } from '../src/application/application-stack.js';
@@ -80,21 +81,58 @@ function awsCli(args: string): string {
  * is required because no ACM `certificateArn` is available for a throwaway
  * live-test stack (§9 refuses a silent HTTP-only fallback otherwise).
  *
+ * `image` MUST be a real, pullable reference — see `requireLiveImage()`
+ * below for why the ApplicationStack placeholder default is unusable here.
+ *
  * The template has no bundled Lambda assets (unlike BootstrapStack's relay
  * function), so — unlike the `cdk deploy` shell-out above — it can be
  * created directly through the `aws.cloudFormation.createStack` seam: there
  * is no publisher ZIP-gap to work around here.
  */
-function synthRedisApplicationTemplate(): string {
+function synthRedisApplicationTemplate(image: { imageRepository: string; imageDigest: string }): string {
   const app = new App();
   const stack = new ApplicationStack(app, REDIS_STACK_NAME, {
     expressMode: false,
     allowInsecureHttp: true,
     redisRequired: true,
+    imageRepository: image.imageRepository,
+    imageDigest: image.imageDigest,
   });
   const assembly = app.synth();
   const artifact = assembly.getStackArtifact(stack.artifactId);
   return JSON.stringify(artifact.template);
+}
+
+/**
+ * Required when `DEPLOYZ_LIVE_AWS=1`: a real, pullable image reference for
+ * the throwaway ApplicationStack this suite deploys. Without it,
+ * ApplicationStack falls back to its own placeholder default
+ * (`public.ecr.aws/deployz/fixture@sha256:000...000`, see
+ * `application-stack.ts`'s `DEFAULT_IMAGE_REPOSITORY`/`DEFAULT_IMAGE_DIGEST`)
+ * — a digest ECS cannot actually pull. That makes the ECS service fail to
+ * start, the deployment circuit breaker fires, and CloudFormation rolls back
+ * the WHOLE stack (cache included) before it ever reaches `CREATE_COMPLETE`.
+ * That failure has nothing to do with Redis, ElastiCache, or AWS
+ * credentials — it would just look like this suite is broken. Failing fast
+ * here, naming exactly what's missing, is cheaper than debugging a rollback.
+ *
+ * Point these at a real, already-published image — e.g. a published build
+ * of `packages/fixture` — not at anything built during this test run.
+ */
+function requireLiveImage(): { imageRepository: string; imageDigest: string } {
+  const imageRepository = process.env.DEPLOYZ_LIVE_IMAGE_REPOSITORY;
+  const imageDigest = process.env.DEPLOYZ_LIVE_IMAGE_DIGEST;
+  if (!imageRepository || !imageDigest) {
+    throw new Error(
+      'DEPLOYZ_LIVE_AWS=1 requires DEPLOYZ_LIVE_IMAGE_REPOSITORY and DEPLOYZ_LIVE_IMAGE_DIGEST ' +
+        '(a real, pullable image — e.g. a published build of packages/fixture) to be set. Without ' +
+        'them, ApplicationStack falls back to its placeholder default image, which ECS cannot pull: ' +
+        'the deployment circuit breaker fires and CloudFormation rolls back the whole stack (cache ' +
+        'included) before CREATE_COMPLETE — a failure that looks unrelated to Redis or AWS creds ' +
+        'but is really just a missing image reference.',
+    );
+  }
+  return { imageRepository, imageDigest };
 }
 
 /**
@@ -219,7 +257,10 @@ describe('waitForCacheAvailable (ElastiCache seam, fake client)', () => {
 
 describe('synthRedisApplicationTemplate (fake path — no AWS)', () => {
   it('synthesizes an ApplicationStack template containing an ElastiCache cache cluster', () => {
-    const templateBody = synthRedisApplicationTemplate();
+    const templateBody = synthRedisApplicationTemplate({
+      imageRepository: 'public.ecr.aws/example/fixture',
+      imageDigest: 'sha256:' + '1'.repeat(64),
+    });
     const template = JSON.parse(templateBody) as {
       Resources: Record<string, { Type: string }>;
       Outputs?: Record<string, unknown>;
@@ -230,6 +271,43 @@ describe('synthRedisApplicationTemplate (fake path — no AWS)', () => {
 
     const outputKeys = Object.keys(template.Outputs ?? {});
     expect(outputKeys.some((k) => k.endsWith('CacheEndpoint'))).toBe(true);
+  });
+});
+
+describe('requireLiveImage (fail-fast guard, fake path — no AWS)', () => {
+  const ENV_KEYS = ['DEPLOYZ_LIVE_IMAGE_REPOSITORY', 'DEPLOYZ_LIVE_IMAGE_DIGEST'] as const;
+  let saved: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('returns the image when both env vars are set', () => {
+    process.env.DEPLOYZ_LIVE_IMAGE_REPOSITORY = 'public.ecr.aws/example/fixture';
+    process.env.DEPLOYZ_LIVE_IMAGE_DIGEST = 'sha256:' + '2'.repeat(64);
+
+    const image = requireLiveImage();
+
+    expect(image.imageRepository).toBe('public.ecr.aws/example/fixture');
+    expect(image.imageDigest).toBe('sha256:' + '2'.repeat(64));
+  });
+
+  it('throws naming both env vars when either is missing', () => {
+    delete process.env.DEPLOYZ_LIVE_IMAGE_REPOSITORY;
+    delete process.env.DEPLOYZ_LIVE_IMAGE_DIGEST;
+
+    expect(() => requireLiveImage()).toThrow(/DEPLOYZ_LIVE_IMAGE_REPOSITORY/);
+    expect(() => requireLiveImage()).toThrow(/DEPLOYZ_LIVE_IMAGE_DIGEST/);
+
+    process.env.DEPLOYZ_LIVE_IMAGE_REPOSITORY = 'public.ecr.aws/example/fixture';
+    expect(() => requireLiveImage()).toThrow(/DEPLOYZ_LIVE_IMAGE_DIGEST/);
   });
 });
 
@@ -309,9 +387,25 @@ liveAws('§67 Phase 4 — live AWS bootstrap golden path', () => {
  * manually afterward to avoid ongoing cost. The cache and its subnet group
  * carry no removal-policy override (CloudFormation's implicit "Delete"),
  * matching the "no RETAIN" claim in docs/redis-mvp-implementation.md.
+ *
+ * IMAGE REQUIREMENT: set `DEPLOYZ_LIVE_IMAGE_REPOSITORY` and
+ * `DEPLOYZ_LIVE_IMAGE_DIGEST` to a real, already-published, pullable image
+ * (e.g. a published build of packages/fixture) before running this with
+ * `DEPLOYZ_LIVE_AWS=1` — see `requireLiveImage()`. Skipping this is NOT a
+ * safe default: without it, ApplicationStack falls back to its own
+ * placeholder image, ECS can't pull it, the deployment circuit breaker
+ * fires, and CloudFormation rolls back the WHOLE stack — cache included —
+ * before CREATE_COMPLETE. That failure is a missing-image problem, not a
+ * Redis or credentials problem; `requireLiveImage()` fails fast up front
+ * instead of letting it surface as a confusing rollback 15+ minutes in.
  */
 liveAws('§67 Phase 4 — live AWS Redis cache provisioning (redisRequired: true)', () => {
   const aws = createAwsClients();
+  let image: { imageRepository: string; imageDigest: string };
+
+  beforeAll(() => {
+    image = requireLiveImage();
+  });
 
   it('cache cluster reaches available, endpoint output present, deletion removes it', async () => {
     if (aws.elastiCache === undefined) {
@@ -319,7 +413,7 @@ liveAws('§67 Phase 4 — live AWS Redis cache provisioning (redisRequired: true
     }
     const elastiCache = aws.elastiCache;
 
-    const templateBody = synthRedisApplicationTemplate();
+    const templateBody = synthRedisApplicationTemplate(image);
     await aws.cloudFormation.createStack({
       stackName: REDIS_STACK_NAME,
       templateBody,

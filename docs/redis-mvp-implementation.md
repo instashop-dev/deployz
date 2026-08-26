@@ -263,7 +263,7 @@ Redis-specific and incidental test edits.
 |---|---|---|
 | `packages/analysis` | `redis.test.ts` (new), `analysis.test.ts`, `rules.test.ts` | ~40 |
 | `packages/cdk` | `application-stack.test.ts`, `bootstrap-stack.test.ts`, `failure-classifier.test.ts`, `health-monitor.test.ts` | ~30 |
-| `packages/cdk` (Task 11, this task) | `golden-path-live-aws.test.ts` | +5 always-run (fake-path `ElastiCacheClient` + synth proof) +1 live-AWS-gated (skipped by default) |
+| `packages/cdk` (Task 11, this task) | `golden-path-live-aws.test.ts` | +7 always-run (fake-path `ElastiCacheClient` + synth proof + `requireLiveImage` fail-fast guard) +1 live-AWS-gated (skipped by default) |
 | `apps/api` | `analysis.test.ts`, `github.test.ts`, `server.test.ts` | ~6 |
 | `apps/web` | `deployment-vocabulary.test.ts`, `diagnostic-vocabulary.test.ts`, `security-details.test.ts` | ~4 |
 | `packages/copy-map` | `copy-map.test.ts` | ~7 |
@@ -317,12 +317,31 @@ pre-existing condition, not something Task 11 introduced). The extension:
   `CREATE_COMPLETE`, AWS charges for that window, and the RDS instance
   inside this stack is `RemovalPolicy.RETAIN` (pre-existing, unrelated to
   Redis) so it will need manual deletion after the test's stack-delete step.
+- **Image requirement**: `ApplicationStack`'s own placeholder default image
+  (`public.ecr.aws/deployz/fixture@sha256:000...000`) is not a real,
+  pullable digest. Left unoverridden, ECS fails to start the service, the
+  deployment circuit breaker fires, and CloudFormation rolls back the whole
+  stack — cache included — before `CREATE_COMPLETE`, which would look like a
+  Redis/cache bug and isn't. The suite now requires
+  `DEPLOYZ_LIVE_IMAGE_REPOSITORY` and `DEPLOYZ_LIVE_IMAGE_DIGEST` (a real,
+  already-published image — e.g. a published build of `packages/fixture`)
+  and fails fast with a clear error naming both if either is missing when
+  `DEPLOYZ_LIVE_AWS=1` is set, rather than letting this surface as a
+  confusing rollback 15+ minutes into the run.
 
 The exact command a maintainer runs when credentials are available:
 
 ```
-DEPLOYZ_LIVE_AWS=1 pnpm --filter @deployz/cdk exec vitest run test/golden-path-live-aws.test.ts
+DEPLOYZ_LIVE_AWS=1 \
+DEPLOYZ_LIVE_IMAGE_REPOSITORY=<a real, published image repo> \
+DEPLOYZ_LIVE_IMAGE_DIGEST=<its sha256 digest> \
+pnpm --filter @deployz/cdk exec vitest run test/golden-path-live-aws.test.ts
 ```
+
+To restate plainly: this live path has **not** been executed in this task —
+it requires both real AWS credentials and a real, pullable image reference
+(a published build of `packages/fixture`, or equivalent), neither of which
+is available in this environment.
 
 ## 13. Issues found and fixed during review
 
@@ -357,6 +376,18 @@ findings raised and fixed across Tasks 1-10:
 - **Ingress rule `CidrIp` pin** (Task 7, Important) — the security-group
   ingress test asserted the rule existed but not that its `CidrIp` was
   pinned to the VPC's own CIDR (as opposed to, say, `0.0.0.0/0`); tightened.
+- **Live-test placeholder image would have silently broken the whole stack**
+  (Task 11, Important) — the first draft of `synthRedisApplicationTemplate()`
+  didn't override `imageRepository`/`imageDigest`, so a real live run would
+  have used `ApplicationStack`'s placeholder default
+  (`public.ecr.aws/deployz/fixture@sha256:000...000`), which ECS cannot
+  pull. That would fire the deployment circuit breaker and roll back the
+  whole stack — cache included — before `CREATE_COMPLETE`, with a failure
+  that looks unrelated to Redis or credentials. Fixed by adding
+  `requireLiveImage()`, a fail-fast guard reading
+  `DEPLOYZ_LIVE_IMAGE_REPOSITORY`/`DEPLOYZ_LIVE_IMAGE_DIGEST` and refusing to
+  proceed (with a clear, both-vars-named error) rather than silently falling
+  back to the placeholder. See §12 for the updated command.
 
 ## 14. Known limitations
 
@@ -396,7 +427,12 @@ findings raised and fixed across Tasks 1-10:
   `cache` is the only optional-resource health signal that exists.
 - **Live-AWS cache-lifecycle test extended but not executed** (this task)
   — see §12 for the exact command and the cost/time note for whoever runs
-  it with real credentials.
+  it with real credentials. Running it also requires a real, already-
+  published, pullable image (`DEPLOYZ_LIVE_IMAGE_REPOSITORY`/
+  `DEPLOYZ_LIVE_IMAGE_DIGEST`) — there is no CI step in this repo that
+  publishes one automatically, so a maintainer must build and push
+  `packages/fixture` (or point at any other pullable image) before running
+  this suite live.
 
 ## 15. AWS IAM changes
 
