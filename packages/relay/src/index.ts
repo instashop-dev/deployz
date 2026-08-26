@@ -22,7 +22,7 @@ import type { ScheduledEvent } from 'aws-lambda';
 
 import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
-import { IdempotencyStore, type CommandExecutor } from './commands.js';
+import { IdempotencyStore, type CommandExecutor, type RelayCommand } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
 import { pollOnce, type PollDependencies } from './poll.js';
 import {
@@ -55,19 +55,25 @@ function getCloudFormationReader(): CloudFormationReader {
 // ── Default command executors ────────────────────────────────────────────────
 
 /**
- * The INSTALL executor: run the install, then prove it happened.
+ * A verifying executor: run the command's underlying step (still a stub for
+ * INSTALL, DEPLOY_RELEASE and ROLLBACK today), then prove the account backs
+ * it up before reporting success. Shared across all three command types
+ * rather than duplicated, so the gate cannot drift between them.
  *
- * The install step itself is still the stub described below. The
- * verification is not — and that is what matters, because it means this
- * executor cannot report success against an account where nothing was
- * created. Until the install step is real, every INSTALL fails honestly
- * rather than silently reaching Healthy and billing.
+ * What this proves, precisely: the application stack exists and its
+ * expected resources (ECS service, load balancer, database, storage, and —
+ * when required — cache) are present in a complete state. What it does NOT
+ * prove: which release is running. That needs the running task's image
+ * digest, which this branch does not fetch. A verified DEPLOY_RELEASE or
+ * ROLLBACK means the stack is intact — it does not mean the new (or prior)
+ * release is the one actually serving traffic. This is a floor under the
+ * false-Healthy hole, not a full release-correctness check.
  *
- * A throw from verification is a failure, not a pass: an install we cannot
+ * A throw from verification is a failure, not a pass: a command we cannot
  * confirm is indistinguishable from one that did not happen.
  */
-export function createVerifyingInstallExecutor(
-  verify: (installationId: string) => Promise<VerificationResult>,
+export function createVerifyingExecutor(
+  verify: (installationId: string, command: RelayCommand) => Promise<VerificationResult>,
 ): CommandExecutor {
   return async (command) => {
     console.log(
@@ -84,7 +90,7 @@ export function createVerifyingInstallExecutor(
 
     let result: VerificationResult;
     try {
-      result = await verify(installationId);
+      result = await verify(installationId, command);
     } catch (err) {
       result = {
         verified: false,
@@ -95,8 +101,9 @@ export function createVerifyingInstallExecutor(
 
     console.log(
       JSON.stringify({
-        event: 'relay:install-verified',
+        event: 'relay:command-verified',
         commandId: command.id,
+        type: command.type,
         installationId,
         verified: result.verified,
         ...(result.reason ? { reason: result.reason } : {}),
@@ -126,18 +133,22 @@ export function createVerifyingInstallExecutor(
 /**
  * Default executors for the ten command types.
  *
- * ⚠️ SEVEN OF THESE ARE STILL STUBS: REPORT_HEALTH, DEPLOY_RELEASE, ROLLBACK,
- * CONFIG_UPDATE, DESTROY, MIGRATE and REFRESH_METADATA each log and report
- * success without touching the customer's account. The real implementations
- * — CloudFormation stack operations, ECS service updates, migrations — are
- * the remaining half of the product.
+ * ⚠️ FIVE OF THESE ARE STILL STUBS: REPORT_HEALTH, CONFIG_UPDATE, DESTROY,
+ * MIGRATE and REFRESH_METADATA each log and report success without touching
+ * the customer's account. The real implementations — CloudFormation stack
+ * operations, ECS service updates, migrations — are the remaining half of
+ * the product.
  *
- * INSTALL is no longer among them, but not because it provisions anything.
- * Its provisioning step is still missing; what changed is that it now proves
- * the account contains the application before reporting success, so it fails
- * honestly instead of reaching Healthy over an empty account. The remaining
- * stubs still carry that hazard and should be gated the same way as each one
- * gains a real implementation.
+ * INSTALL, DEPLOY_RELEASE and ROLLBACK are no longer among them, but not
+ * because they provision, deploy, or roll back anything — their underlying
+ * steps are still missing. What changed is that all three now share the
+ * `createVerifyingExecutor` gate: each proves the account contains the
+ * application stack's expected resources before reporting success, so each
+ * fails honestly instead of silently reaching Healthy over an empty or
+ * stale account. That proof is necessarily partial — see the comment on
+ * `createVerifyingExecutor` for exactly what it does and does not confirm.
+ * The remaining stubs still carry the same hazard and should be gated the
+ * same way as each one gains a real implementation.
  *
  * CONFIGURE_DOMAIN and REMOVE_DOMAIN are real.
  *
@@ -171,15 +182,15 @@ function createDefaultExecutors(): Record<string, CommandExecutor> {
     installationId,
   });
 
-  const installExecutor = createVerifyingInstallExecutor((id) =>
+  const verifyingExecutor = createVerifyingExecutor((id) =>
     verifyInstallation({ cfn: getCloudFormationReader(), installationId: id }),
   );
 
   return {
-    INSTALL: installExecutor,
+    INSTALL: verifyingExecutor,
     REPORT_HEALTH: noop,
-    DEPLOY_RELEASE: noop,
-    ROLLBACK: noop,
+    DEPLOY_RELEASE: verifyingExecutor,
+    ROLLBACK: verifyingExecutor,
     CONFIG_UPDATE: noop,
     DESTROY: noop,
     MIGRATE: noop,

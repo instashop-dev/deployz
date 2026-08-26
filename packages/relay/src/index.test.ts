@@ -4,7 +4,7 @@ import type { ScheduledEvent } from 'aws-lambda';
 
 import { type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
-import { createRelayHandler, createVerifyingInstallExecutor } from './index.js';
+import { createRelayHandler, createVerifyingExecutor } from './index.js';
 import type { VerificationResult } from './verify.js';
 
 // Fast stub for the §59 observe hook — the default falls back to a real
@@ -311,7 +311,7 @@ describe('INSTALL verification gate', () => {
   };
 
   it('fails the install when the account cannot be verified', async () => {
-    const executor = createVerifyingInstallExecutor(async () => ({
+    const executor = createVerifyingExecutor(async () => ({
       verified: false,
       checks: [{ name: 'stack-exists', passed: false, detail: 'No CloudFormation stack named "deployz-app"' }],
       reason: 'No CloudFormation stack named "deployz-app"',
@@ -326,7 +326,7 @@ describe('INSTALL verification gate', () => {
   });
 
   it('succeeds when the account verifies', async () => {
-    const executor = createVerifyingInstallExecutor(async () => ({
+    const executor = createVerifyingExecutor(async () => ({
       verified: true,
       checks: [{ name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' }],
     }));
@@ -338,7 +338,7 @@ describe('INSTALL verification gate', () => {
   });
 
   it('fails the install when verification itself throws', async () => {
-    const executor = createVerifyingInstallExecutor(async () => {
+    const executor = createVerifyingExecutor(async () => {
       throw new Error('boom');
     });
 
@@ -346,5 +346,55 @@ describe('INSTALL verification gate', () => {
 
     expect(result.success).toBe(false);
     expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+  });
+});
+
+// The gate closes the same hole for DEPLOY_RELEASE and ROLLBACK: both mapped
+// to the stub `noop` executor before this fix, so a vendor clicking "Deploy
+// Update" after a correctly-gated INSTALL failure could still walk straight
+// past the gate to a billable Healthy state over an empty account.
+describe('DEPLOY_RELEASE / ROLLBACK verification gate', () => {
+  it.each(['DEPLOY_RELEASE', 'ROLLBACK'] as const)(
+    'fails %s when the account cannot be verified',
+    async (type) => {
+      const command = {
+        id: `cmd-${type}`,
+        deploymentId: 'dep-1',
+        type,
+        idempotencyKey: `dep-1:${type}`,
+        payload: {},
+      };
+
+      const executor = createVerifyingExecutor(async () => ({
+        verified: false,
+        checks: [{ name: 'stack-exists', passed: false, detail: 'No CloudFormation stack named "deployz-app"' }],
+        reason: 'No CloudFormation stack named "deployz-app"',
+      }));
+
+      const result = await executor(command);
+
+      expect(result.success).toBe(false);
+      expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    },
+  );
+
+  it.each(['DEPLOY_RELEASE', 'ROLLBACK'] as const)('succeeds %s when the account verifies', async (type) => {
+    const command = {
+      id: `cmd-${type}`,
+      deploymentId: 'dep-1',
+      type,
+      idempotencyKey: `dep-1:${type}`,
+      payload: {},
+    };
+
+    const executor = createVerifyingExecutor(async () => ({
+      verified: true,
+      checks: [{ name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' }],
+    }));
+
+    const result = await executor(command);
+
+    expect(result.success).toBe(true);
+    expect(result.failureCode).toBeUndefined();
   });
 });
