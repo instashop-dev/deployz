@@ -126,7 +126,7 @@ export class DeployzStack extends Stack {
       sourceBucket: sourceBucket as IBucket,
       // Documenso's monorepo image build exceeds the default SMALL (3 GB)
       // builder and could brush the default 30-minute timeout.
-      computeType: ComputeType.MEDIUM,
+      computeType: ComputeType.LARGE,
       timeoutMinutes: 60,
     });
 
