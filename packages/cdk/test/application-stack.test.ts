@@ -5,6 +5,8 @@ import {
   ApplicationStack,
   type ApplicationStackProps,
 } from '../src/application/application-stack.js';
+import { DOCUMENSO_APPLICATION_PROPS } from '../src/application/documenso.js';
+import { DOCUMENSO_PARAMETERS } from '@deployz/contracts';
 
 import { withStableAssetHashes } from './stable-template.js';
 
@@ -908,6 +910,65 @@ describe('ApplicationStack', () => {
         const statements = JSON.stringify(policy.Properties?.['PolicyDocument']);
         expect(statements).toContain('secretsmanager:GetSecretValue');
       }
+    });
+  });
+
+  describe('Documenso preset', () => {
+    it('produces exactly the built-in secret parameters plus every DOCUMENSO_PARAMETERS logical id, all NoEcho', () => {
+      const { template } = synth(false, { ...DOCUMENSO_APPLICATION_PROPS });
+      const params = appParameters(template);
+
+      expect(Object.keys(params).sort()).toEqual(
+        ['paramAppApiKey', 'paramAppSigningSecret', ...Object.values(DOCUMENSO_PARAMETERS)].sort(),
+      );
+
+      for (const [name, param] of Object.entries(params)) {
+        expect(param['NoEcho'], `parameter ${name} must be NoEcho`).toBe(true);
+      }
+    });
+
+    it('applies the Documenso health path to the container health check and target group (HTTP branch)', () => {
+      const { template } = synth(false, { ...DOCUMENSO_APPLICATION_PROPS });
+
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        HealthCheckPath: '/api/health',
+        Port: 3000,
+      });
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            HealthCheck: Match.objectLike({
+              Command: ['CMD-SHELL', DOCUMENSO_APPLICATION_PROPS.healthCheckShellCommand],
+            }),
+          }),
+        ]),
+      });
+    });
+
+    it('applies the Documenso health path to the target group in the HTTPS branch too', () => {
+      const { template } = synth(false, {
+        ...DOCUMENSO_APPLICATION_PROPS,
+        certificateArn: 'arn:aws:acm:us-east-1:111111111111:certificate/test',
+      });
+
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        HealthCheckPath: '/api/health',
+        Port: 3000,
+      });
+    });
+
+    it('injects NEXT_PUBLIC_BASE_PATH with an empty value into the App container', () => {
+      const { template } = synth(false, { ...DOCUMENSO_APPLICATION_PROPS });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Environment: Match.arrayWith([{ Name: 'NEXT_PUBLIC_BASE_PATH', Value: '' }]),
+          }),
+        ]),
+      });
     });
   });
 });

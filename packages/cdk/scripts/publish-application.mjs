@@ -26,6 +26,9 @@
  * Environment:
  *   APP_IMAGE_REPOSITORY  container repository (no tag) the template runs.
  *   APP_IMAGE_DIGEST      immutable `sha256:...` digest of that image.
+ *   APP_PRESET            optional vendor application preset. Only
+ *                         `documenso` is recognized; any other value refuses
+ *                         to publish rather than silently ignoring it.
  *   TEMPLATE_BUCKET       public bucket to publish into. Defaults to the
  *                         `<stack>-TemplateBucket` output of the deployed
  *                         control plane stack (read via CloudFormation).
@@ -47,6 +50,7 @@ const stackName = process.env.CONTROL_PLANE_STACK ?? 'Deployz';
 const keyPrefix = process.env.APPLICATION_KEY_PREFIX ?? 'application/v1';
 const imageRepository = process.env.APP_IMAGE_REPOSITORY;
 const imageDigest = process.env.APP_IMAGE_DIGEST;
+const preset = process.env.APP_PRESET;
 
 if (!imageRepository || !imageDigest) {
   console.error(
@@ -54,6 +58,14 @@ if (!imageRepository || !imageDigest) {
       'The application stack falls back to a placeholder digest ECS cannot pull, which fails ' +
       'the install with a CloudFormation rollback ~20 minutes in — a failure that looks ' +
       'nothing like a missing image reference.',
+  );
+  process.exit(1);
+}
+
+const VALID_PRESETS = ['documenso'];
+if (preset !== undefined && !VALID_PRESETS.includes(preset)) {
+  console.error(
+    `APP_PRESET '${preset}' is not recognized. Valid presets: ${VALID_PRESETS.join(', ')}.`,
   );
   process.exit(1);
 }
@@ -81,7 +93,12 @@ async function resolveBucket() {
 const bucket = await resolveBucket();
 const outdir = mkdtempSync(join(tmpdir(), 'deployz-application-'));
 
-const synth = await synthesizeApplicationStack({ outdir, imageRepository, imageDigest });
+const synth = await synthesizeApplicationStack({
+  outdir,
+  imageRepository,
+  imageDigest,
+  ...(preset !== undefined ? { preset } : {}),
+});
 const publisher = new ApplicationPublisher(createRealS3Client(), { region, bucket, keyPrefix });
 const result = await publisher.publish(synth);
 
@@ -89,6 +106,7 @@ const resourceCount = Object.keys(synth.template.Resources ?? {}).length;
 console.log(`Published the application template to ${bucket}`);
 console.log(`  template  ${result.templateUrl}`);
 console.log(`  image     ${imageRepository}@${imageDigest}`);
+console.log(`  preset    ${preset ?? '(none)'}`);
 console.log(
   `  size      ${result.templateBytes} bytes, ${result.parameterCount} parameter(s), ${resourceCount} resource(s)`,
 );
