@@ -5,6 +5,8 @@ import {
   ApplicationStack,
   type ApplicationStackProps,
 } from '../src/application/application-stack.js';
+import { DOCUMENSO_APPLICATION_PROPS } from '../src/application/documenso.js';
+import { DOCUMENSO_PARAMETERS } from '@deployz/contracts';
 
 import { withStableAssetHashes } from './stable-template.js';
 
@@ -110,27 +112,24 @@ describe('ApplicationStack', () => {
     }
   });
 
-  it('generates a DB password RDS will actually accept', () => {
+  it('generates a DB password that is safe both for RDS and for a postgresql:// URL', () => {
     const { template } = synth();
 
-    // RDS rejects a MasterUserPassword containing '/', '@', '"' or a space:
-    // "The parameter MasterUserPassword is not a valid password." A live
-    // install failed on exactly this — the generator is free to emit them,
-    // so roughly one create in a handful died at the database and rolled the
-    // whole stack back.
+    // RDS rejects a MasterUserPassword containing '/', '@', '"' or a space —
+    // a live install failed on exactly this and rolled the whole stack back.
+    // The password is also embedded verbatim in a postgresql:// URL (the
+    // DatabaseUrlSecret below) via a CloudFormation dynamic reference, where
+    // percent-encoding cannot happen — so it must be alphanumeric only,
+    // which is a strict superset of the four RDS-forbidden characters.
     const secrets = template.findResources('AWS::SecretsManager::Secret');
     const dbSecret = Object.values(secrets).find((resource) =>
       String(resource['Properties']?.['Description'] ?? '').includes('RDS'),
     );
-    const excluded = String(
-      dbSecret?.['Properties']?.['GenerateSecretString']?.['ExcludeCharacters'] ?? '',
-    );
 
-    for (const forbidden of ['/', '@', '"', ' ']) {
-      expect(excluded, `RDS forbids ${JSON.stringify(forbidden)} in a master password`).toContain(
-        forbidden,
-      );
-    }
+    expect(dbSecret?.['Properties']?.['GenerateSecretString']?.['ExcludePunctuation']).toBe(true);
+    expect(
+      dbSecret?.['Properties']?.['GenerateSecretString']?.['ExcludeCharacters'],
+    ).toBeUndefined();
   });
 
   it('runs tasks under the execution role that can pull the image', () => {
@@ -448,6 +447,20 @@ describe('ApplicationStack', () => {
     });
   });
 
+  describe('databaseUrlEnvNames validation', () => {
+    it('throws a clear synth-time error when databaseUrlEnvNames is non-empty with databaseRequired: false', () => {
+      const app = new App();
+      expect(
+        () =>
+          new ApplicationStack(app, 'InvalidDatabaseUrl', {
+            databaseRequired: false,
+            databaseUrlEnvNames: ['DATABASE_URL'],
+            allowInsecureHttp: true,
+          }),
+      ).toThrow(/databaseUrlEnvNames/);
+    });
+  });
+
   describe('ElastiCache Valkey cache (Redis MVP)', () => {
     it('provisions zero ElastiCache resources and no REDIS env vars when redisRequired is unset', () => {
       const { template } = synth();
@@ -639,6 +652,323 @@ describe('ApplicationStack', () => {
       const { template } = synth();
       const outputs = Object.keys(template.findOutputs('*'));
       expect(outputs).not.toContain('ExportApplicationTestCacheEndpoint');
+    });
+  });
+
+  describe('Configurable container contract', () => {
+    it('applies containerPort/healthCheckPath to the task definition and target group (HTTP branch)', () => {
+      const { template } = synth(false, { containerPort: 4000, healthCheckPath: '/api/health' });
+
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        HealthCheckPath: '/api/health',
+        Port: 4000,
+      });
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            PortMappings: Match.arrayWith([Match.objectLike({ ContainerPort: 4000 })]),
+            Environment: Match.arrayWith([{ Name: 'PORT', Value: '4000' }]),
+            HealthCheck: Match.objectLike({
+              Command: Match.arrayWith([
+                Match.stringLikeRegexp('http://localhost:4000/api/health'),
+              ]),
+            }),
+          }),
+        ]),
+      });
+    });
+
+    it('applies containerPort/healthCheckPath to the target group in the HTTPS branch too', () => {
+      const { template } = synth(false, {
+        containerPort: 4000,
+        healthCheckPath: '/api/health',
+        certificateArn: 'arn:aws:acm:us-east-1:111111111111:certificate/test',
+      });
+
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        HealthCheckPath: '/api/health',
+        Port: 4000,
+      });
+    });
+
+    it('injects containerEnvironment into the App container', () => {
+      const { template } = synth(false, { containerEnvironment: { FOO: 'bar' } });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Environment: Match.arrayWith([{ Name: 'FOO', Value: 'bar' }]),
+          }),
+        ]),
+      });
+    });
+
+    it('creates a NoEcho param_ parameter and wires an ECS secret for each secretParameters entry', () => {
+      const { template } = synth(false, {
+        secretParameters: [
+          { parameterId: 'param_TestSecret', secretKey: 'testSecret', envName: 'TEST_SECRET' },
+        ],
+      });
+
+      const params = appParameters(template);
+      expect(params['paramTestSecret']).toMatchObject({ NoEcho: true, Default: '' });
+
+      // appSecret's SecretString references the new parameter under its
+      // secretKey — same Fn::Join pattern as the two built-in secrets.
+      template.hasResourceProperties('AWS::SecretsManager::Secret', {
+        SecretString: Match.objectLike({
+          'Fn::Join': Match.arrayWith([Match.arrayWith([{ Ref: 'paramTestSecret' }])]),
+        }),
+      });
+
+      // The App container gets an ECS secret named TEST_SECRET, sourced from
+      // the ...:testSecret:: field of the app config secret.
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: 'TEST_SECRET',
+                ValueFrom: Match.objectLike({
+                  'Fn::Join': Match.arrayWith([
+                    Match.arrayWith([Match.stringLikeRegexp('.*:testSecret::')]),
+                  ]),
+                }),
+              }),
+            ]),
+          }),
+        ]),
+      });
+    });
+
+    it('replaces the default curl health check with healthCheckShellCommand', () => {
+      const { template } = synth(false, { healthCheckShellCommand: 'node -e "x"' });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            HealthCheck: Match.objectLike({
+              Command: ['CMD-SHELL', 'node -e "x"'],
+            }),
+          }),
+        ]),
+      });
+    });
+
+    it('applies taskCpu/taskMemoryMiB to the plain-Fargate task definition', () => {
+      const { template } = synth(false, { taskCpu: 512, taskMemoryMiB: 1024 });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        Cpu: '512',
+        Memory: '1024',
+      });
+    });
+
+    it('applies startupGracePeriodSeconds to the container StartPeriod and service grace period', () => {
+      const { template } = synth(false, { startupGracePeriodSeconds: 300 });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            HealthCheck: Match.objectLike({ StartPeriod: 300 }),
+          }),
+        ]),
+      });
+      template.hasResourceProperties('AWS::ECS::Service', {
+        HealthCheckGracePeriodSeconds: 300,
+      });
+    });
+
+    it('leaves the service grace period at its CDK-derived default (60s, from the attached target group) when startupGracePeriodSeconds is not set', () => {
+      // FargateService itself only ever gets an explicit `healthCheckGracePeriod`
+      // when startupGracePeriodSeconds is set — the "absent" case is proven by
+      // this matching the pre-existing committed snapshot (60s, CDK's own
+      // default once a target group is attached) rather than our own 300s.
+      const { template } = synth(false);
+      template.hasResourceProperties('AWS::ECS::Service', {
+        HealthCheckGracePeriodSeconds: 60,
+      });
+    });
+  });
+
+  describe('Secret-backed database URL', () => {
+    it('creates no second secret when databaseUrlEnvNames is unset', () => {
+      const { template } = synth();
+      // Just the DB master-credential secret and the app config secret —
+      // byte-identical to a stack without this feature.
+      template.resourceCountIs('AWS::SecretsManager::Secret', 2);
+    });
+
+    function findUrlSecret(template: Template): [string, TemplateResource] {
+      const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        TemplateResource
+      >;
+      const entry = Object.entries(secrets).find(([, resource]) =>
+        JSON.stringify(resource.Properties?.['SecretString'] ?? '').includes(
+          'postgresql://deployz_app:',
+        ),
+      );
+      if (entry === undefined) {
+        throw new Error('expected a DatabaseUrlSecret with a postgresql:// SecretString');
+      }
+      return entry;
+    }
+
+    it('assembles the complete PostgreSQL URL as a dynamic reference into the DB secret, never the password in plaintext', () => {
+      const { template } = synth(false, {
+        databaseUrlEnvNames: ['NEXT_PRIVATE_DATABASE_URL', 'NEXT_PRIVATE_DIRECT_DATABASE_URL'],
+      });
+
+      template.resourceCountIs('AWS::SecretsManager::Secret', 3);
+
+      const [dbSecretId, urlSecret] = (() => {
+        const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+          string,
+          TemplateResource
+        >;
+        const entry = Object.entries(secrets).find(([, resource]) =>
+          String(resource.Properties?.['Description'] ?? '').includes('RDS'),
+        );
+        if (entry === undefined) throw new Error('expected the DB master-credential secret');
+        return entry;
+      })();
+      const [, urlSecretResource] = findUrlSecret(template);
+
+      // The SecretString is an Fn::Join whose parts are the literal
+      // "postgresql://deployz_app:" prefix, a {{resolve:secretsmanager:...}}
+      // dynamic reference into the DB secret's `password` key (never the
+      // password itself), the DB endpoint attribute, and the literal
+      // ":5432/deployz?sslmode=require" suffix — the password is never
+      // inlined as plaintext anywhere in the template.
+      const secretStringProp = urlSecretResource.Properties?.['SecretString'] as {
+        'Fn::Join': [string, unknown[]];
+      };
+      const parts = secretStringProp['Fn::Join'][1];
+
+      expect(parts[0]).toBe('postgresql://deployz_app:{{resolve:secretsmanager:');
+      expect(parts[1]).toEqual({ Ref: dbSecretId });
+      expect(parts[2]).toBe(':SecretString:password::}}@');
+      expect(parts).toContainEqual({ 'Fn::GetAtt': [expect.any(String), 'Endpoint.Address'] });
+      expect(parts[parts.length - 1]).toBe(':5432/deployz?sslmode=require');
+
+      // No unresolved CDK token anywhere (which would indicate the password
+      // token was stringified instead of embedded as a CloudFormation
+      // dynamic reference).
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toMatch(/\$\{Token\[/);
+    });
+
+    it('injects the URL secret into the App container under each configured env name, whole-value (no JSON key suffix)', () => {
+      const { template } = synth(false, {
+        databaseUrlEnvNames: ['NEXT_PRIVATE_DATABASE_URL', 'NEXT_PRIVATE_DIRECT_DATABASE_URL'],
+      });
+      const [urlSecretId] = findUrlSecret(template);
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: 'NEXT_PRIVATE_DATABASE_URL',
+                ValueFrom: { Ref: urlSecretId },
+              }),
+              Match.objectLike({
+                Name: 'NEXT_PRIVATE_DIRECT_DATABASE_URL',
+                ValueFrom: { Ref: urlSecretId },
+              }),
+            ]),
+          }),
+        ]),
+      });
+    });
+
+    it('grants the task execution role and task role read access to the URL secret', () => {
+      const { template } = synth(false, {
+        databaseUrlEnvNames: ['NEXT_PRIVATE_DATABASE_URL'],
+      });
+      const [urlSecretId] = findUrlSecret(template);
+
+      const policies = template.findResources('AWS::IAM::Policy') as Record<
+        string,
+        TemplateResource
+      >;
+      const grantingPolicies = Object.values(policies).filter((policy) =>
+        JSON.stringify(policy.Properties?.['PolicyDocument'] ?? '').includes(urlSecretId),
+      );
+      // The task execution role and task role each carry a policy statement
+      // granting secretsmanager:GetSecretValue on the URL secret — same
+      // grantRead pattern as the DB and app config secrets.
+      expect(grantingPolicies.length).toBeGreaterThanOrEqual(2);
+      for (const policy of grantingPolicies) {
+        const statements = JSON.stringify(policy.Properties?.['PolicyDocument']);
+        expect(statements).toContain('secretsmanager:GetSecretValue');
+      }
+    });
+  });
+
+  describe('Documenso preset', () => {
+    it('produces exactly the built-in secret parameters plus every DOCUMENSO_PARAMETERS logical id, all NoEcho', () => {
+      const { template } = synth(false, { ...DOCUMENSO_APPLICATION_PROPS });
+      const params = appParameters(template);
+
+      expect(Object.keys(params).sort()).toEqual(
+        ['paramAppApiKey', 'paramAppSigningSecret', ...Object.values(DOCUMENSO_PARAMETERS)].sort(),
+      );
+
+      for (const [name, param] of Object.entries(params)) {
+        expect(param['NoEcho'], `parameter ${name} must be NoEcho`).toBe(true);
+      }
+    });
+
+    it('applies the Documenso health path to the container health check and target group (HTTP branch)', () => {
+      const { template } = synth(false, { ...DOCUMENSO_APPLICATION_PROPS });
+
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        HealthCheckPath: '/api/health',
+        Port: 3000,
+      });
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            HealthCheck: Match.objectLike({
+              Command: ['CMD-SHELL', DOCUMENSO_APPLICATION_PROPS.healthCheckShellCommand],
+            }),
+          }),
+        ]),
+      });
+    });
+
+    it('applies the Documenso health path to the target group in the HTTPS branch too', () => {
+      const { template } = synth(false, {
+        ...DOCUMENSO_APPLICATION_PROPS,
+        certificateArn: 'arn:aws:acm:us-east-1:111111111111:certificate/test',
+      });
+
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        HealthCheckPath: '/api/health',
+        Port: 3000,
+      });
+    });
+
+    it('injects NEXT_PUBLIC_BASE_PATH with an empty value into the App container', () => {
+      const { template } = synth(false, { ...DOCUMENSO_APPLICATION_PROPS });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Environment: Match.arrayWith([{ Name: 'NEXT_PUBLIC_BASE_PATH', Value: '' }]),
+          }),
+        ]),
+      });
     });
   });
 });

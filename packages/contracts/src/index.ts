@@ -509,3 +509,27 @@ export function buildBootstrapQuickCreateUrl(options: BootstrapQuickCreateOption
 
   return `${base}?${query.toString()}`;
 }
+
+// ---------------------------------------------------------------------------
+// Documenso application preset.
+// ---------------------------------------------------------------------------
+
+/**
+ * CloudFormation parameter logical ids for Documenso runtime config in the
+ * published application template. The API install-parameters builder and the
+ * CDK Documenso preset must use the same names — CloudFormation rejects a
+ * CreateStack call that names a parameter the template does not declare.
+ */
+export const DOCUMENSO_PARAMETERS = {
+  publicUrl: 'paramPublicUrl',
+  nextauthSecret: 'paramNextauthSecret',
+  encryptionKey: 'paramEncryptionKey',
+  encryptionSecondaryKey: 'paramEncryptionSecondaryKey',
+  smtpTransport: 'paramSmtpTransport',
+  smtpHost: 'paramSmtpHost',
+  smtpPort: 'paramSmtpPort',
+  smtpUsername: 'paramSmtpUsername',
+  smtpPassword: 'paramSmtpPassword',
+  smtpFromAddress: 'paramSmtpFromAddress',
+  smtpFromName: 'paramSmtpFromName',
+} as const;

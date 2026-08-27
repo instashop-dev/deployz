@@ -132,8 +132,11 @@ export class BuildPipeline extends Construct {
               // exactly as `docker build backend/` would resolve it. Passing a
               // bare `.` (repo root) made every such COPY miss and failed the
               // build. dirname of a root Dockerfile is `.`, so root apps are
-              // unaffected.
-              'export BUILD_CONTEXT=$(dirname "$DOCKERFILE_PATH")',
+              // unaffected. An explicit BUILD_CONTEXT passed via startBuild
+              // wins over the fallback: the `docker/` convention (e.g.
+              // `docker build -f docker/Dockerfile .`) builds from the repo
+              // root, not from `docker/`.
+              'export BUILD_CONTEXT=${BUILD_CONTEXT:-$(dirname "$DOCKERFILE_PATH")}',
               'echo "Building Docker image: $ECR_REPOSITORY_URI:$IMAGE_TAG from $DOCKERFILE_PATH (context: $BUILD_CONTEXT)"',
               'docker build -f "$DOCKERFILE_PATH" -t $ECR_REPOSITORY_URI:$IMAGE_TAG "$BUILD_CONTEXT"',
               // Tag with the git SHA for traceability. GIT_SHA is passed via

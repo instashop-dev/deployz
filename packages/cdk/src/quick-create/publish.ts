@@ -18,6 +18,7 @@ import {
 } from '@aws-sdk/client-s3';
 
 import { ApplicationStack } from '../application/application-stack.js';
+import { DOCUMENSO_APPLICATION_PROPS } from '../application/documenso.js';
 import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
 import { buildBootstrapQuickCreateUrl } from '@deployz/contracts';
 import { requireWithinLimits } from './limits.js';
@@ -312,6 +313,13 @@ export interface SynthesizeApplicationOptions {
   readonly imageDigest?: string;
   /** Provision an ElastiCache Valkey cache alongside the application. */
   readonly redisRequired?: boolean;
+  /**
+   * Vendor application preset. When set, the preset's `ApplicationStackProps`
+   * are spread into the stack — `'documenso'` applies
+   * `DOCUMENSO_APPLICATION_PROPS` (container contract, health check, and
+   * secret parameters for the Documenso application).
+   */
+  readonly preset?: 'documenso';
 }
 
 /**
@@ -344,6 +352,7 @@ export async function synthesizeApplicationStack(
   const stack = new ApplicationStack(app, options.stackId ?? 'DeployzApplication', {
     expressMode: false,
     allowInsecureHttp: true,
+    ...(options.preset === 'documenso' ? DOCUMENSO_APPLICATION_PROPS : {}),
     ...(options.imageRepository !== undefined
       ? { imageRepository: options.imageRepository }
       : {}),

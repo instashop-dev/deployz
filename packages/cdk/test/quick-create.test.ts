@@ -674,5 +674,18 @@ describe('quick-create', () => {
         rmSync(outdir, { recursive: true, force: true });
       }
     });
+
+    it('threads preset: "documenso" into the Documenso application props', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-'));
+      try {
+        const synth = await synthesizeApplicationStack({ outdir, preset: 'documenso' });
+        const parameters = synth.template.Parameters as Record<string, unknown>;
+
+        expect(Object.keys(parameters)).toContain('paramPublicUrl');
+        expect(JSON.stringify(synth.template)).toContain('/api/health');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
   });
 });

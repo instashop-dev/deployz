@@ -82,6 +82,18 @@ export type RepositoryFetch = (
   text(): Promise<string>;
 }>;
 
+/**
+ * `docker/` is the convention for a Dockerfile written to be built from the
+ * repo root (e.g. Documenso's `docker build -f docker/Dockerfile .`), unlike
+ * a Dockerfile in another subdirectory (e.g. `backend/Dockerfile`) whose
+ * context is that subdirectory. Only a top-level `docker/` counts — a nested
+ * `foo/docker/Dockerfile` does not imply a repo-root context.
+ */
+export function resolveBuildContext(dockerfilePath: string): string | undefined {
+  const dir = dockerfilePath.includes('/') ? dockerfilePath.slice(0, dockerfilePath.lastIndexOf('/')) : '.';
+  return dir === 'docker' ? '.' : undefined;
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -135,16 +147,22 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
     // is free to keep it out of the root.
     const dockerfilePath =
       (application.detectedMetadata?.['dockerfilePath'] as string | undefined) ?? 'Dockerfile';
+    const buildContext = resolveBuildContext(dockerfilePath);
+
+    const environmentVariables: { name: string; value: string }[] = [
+      { name: 'SOURCE_S3_URI', value: `s3://${bucket}/${archive.s3Key}` },
+      { name: 'RELEASE_VERSION', value: release.version },
+      { name: 'GIT_SHA', value: release.gitSha },
+      { name: 'RELEASE_ID', value: release.id },
+      { name: 'DOCKERFILE_PATH', value: dockerfilePath },
+    ];
+    if (buildContext !== undefined) {
+      environmentVariables.push({ name: 'BUILD_CONTEXT', value: buildContext });
+    }
 
     await deps.startBuild({
       projectName: requireEnv('BUILD_PROJECT_NAME'),
-      environmentVariables: [
-        { name: 'SOURCE_S3_URI', value: `s3://${bucket}/${archive.s3Key}` },
-        { name: 'RELEASE_VERSION', value: release.version },
-        { name: 'GIT_SHA', value: release.gitSha },
-        { name: 'RELEASE_ID', value: release.id },
-        { name: 'DOCKERFILE_PATH', value: dockerfilePath },
-      ],
+      environmentVariables,
     });
 
     await db

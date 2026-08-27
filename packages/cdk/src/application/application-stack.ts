@@ -104,6 +104,16 @@ import { Secret, type ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 import { resolveRedisEnvBindings } from '@deployz/analysis';
 
+/** One install-time NoEcho parameter surfaced to the container as an ECS secret. */
+export interface SecretParameterSpec {
+  /** CfnParameter construct id. Must use the `param_` prefix (M17 NoEcho invariant). */
+  readonly parameterId: string;
+  /** JSON key inside the app config secret that stores the parameter value. */
+  readonly secretKey: string;
+  /** Environment variable name injected into the container at task start. */
+  readonly envName: string;
+}
+
 export interface ApplicationStackProps extends StackProps {
   /**
    * Selects the ECS deployment model (C3/U3).
@@ -212,6 +222,102 @@ export interface ApplicationStackProps extends StackProps {
    * `databaseState === 'none'` (no database detected).
    */
   readonly databaseRequired?: boolean;
+  /**
+   * Container port the application listens on.
+   *
+   * Drives the ECS container port mapping, the `PORT` env var, the container
+   * health-check URL, and the `AppTargets` ALB target group port (in both the
+   * HTTP-only and HTTPS+redirect listener branches).
+   *
+   * Defaults to 3000 — the existing behavior, byte-identical synth.
+   */
+  readonly containerPort?: number;
+  /**
+   * HTTP path the container health check and the `AppTargets` ALB target
+   * group health check probe.
+   *
+   * Defaults to `/health` — the existing behavior, byte-identical synth.
+   */
+  readonly healthCheckPath?: string;
+  /**
+   * Plain (non-secret) environment variables injected into the App
+   * container, the Express `primaryContainer`, and the worker container —
+   * same parity pattern as the Redis `REDIS_*` env vars.
+   *
+   * Omitted or empty by default — no additional env vars, byte-identical
+   * synth.
+   */
+  readonly containerEnvironment?: Readonly<Record<string, string>>;
+  /**
+   * Additional install-time NoEcho parameters surfaced to the container as
+   * ECS secrets, beyond the two built-in `param_AppApiKey`/
+   * `param_AppSigningSecret` parameters.
+   *
+   * Each entry creates a `param_`-prefixed NoEcho `CfnParameter`, writes its
+   * value into `appSecret` under `secretKey`, and injects it into the App
+   * container, the Express `primaryContainer`, and the worker container as
+   * an ECS secret named `envName`.
+   *
+   * Omitted or empty by default — no additional parameters or secrets,
+   * byte-identical synth.
+   */
+  readonly secretParameters?: readonly SecretParameterSpec[];
+  /**
+   * Environment variable names that each receive the complete PostgreSQL
+   * connection URL as a whole-value ECS secret (Documenso needs the same
+   * URL under two names: `NEXT_PRIVATE_DATABASE_URL` and
+   * `NEXT_PRIVATE_DIRECT_DATABASE_URL`).
+   *
+   * Requires `databaseRequired` to be true — synth throws if this is non-empty
+   * with `databaseRequired: false`. When non-empty and valid, a second Secrets
+   * Manager secret is created holding the assembled `postgresql://` URL —
+   * built at deploy time from the generated master credentials via a
+   * CloudFormation dynamic reference, so the password never appears in the
+   * template or task definition. Injected into the App container, the
+   * Express `primaryContainer`, and the worker container — same parity
+   * pattern as `secretParameters`.
+   *
+   * Omitted or empty by default — no second secret, byte-identical synth.
+   */
+  readonly databaseUrlEnvNames?: readonly string[];
+  /**
+   * Shell command run by the plain-Fargate App container's health check, in
+   * place of the default
+   * `curl -f http://localhost:<containerPort><healthCheckPath> || exit 1`.
+   *
+   * Applies to the plain-Fargate web container only — the Express branch has
+   * no container health check.
+   */
+  readonly healthCheckShellCommand?: string;
+  /**
+   * Task-level CPU units for the plain-Fargate web task definition.
+   *
+   * Applies to the plain-Fargate web service only — Express mode and the
+   * background worker keep their own fixed values.
+   *
+   * Defaults to 256 — the existing behavior, byte-identical synth.
+   */
+  readonly taskCpu?: number;
+  /**
+   * Task-level memory (MiB) for the plain-Fargate web task definition.
+   *
+   * Applies to the plain-Fargate web service only, per `taskCpu` above.
+   *
+   * Defaults to 512 — the existing behavior, byte-identical synth.
+   */
+  readonly taskMemoryMiB?: number;
+  /**
+   * Seconds the plain-Fargate App container's health check waits before
+   * counting failures (container `HealthCheck.StartPeriod`).
+   *
+   * When explicitly set, also sets `healthCheckGracePeriod` on the
+   * plain-Fargate `FargateService` so ECS gives the service the same grace
+   * period before acting on failing health checks. Left unset, the service
+   * keeps its CDK-derived default grace period — the existing behavior.
+   *
+   * Defaults to 60 — the existing behavior, byte-identical synth.
+   */
+  readonly startupGracePeriodSeconds?: number;
 }
 
 const DEFAULT_IMAGE_REPOSITORY = 'public.ecr.aws/deployz/fixture';
@@ -225,8 +331,6 @@ const DB_PORT = 5432;
 const REDIS_ENGINE = 'valkey';
 const REDIS_NODE_TYPE = 'cache.t4g.micro';
 const REDIS_PORT = 6379;
-/** Printable ASCII characters RDS refuses in a master password. */
-const RDS_FORBIDDEN_PASSWORD_CHARACTERS = '/@" ';
 
 export class ApplicationStack extends Stack {
   public readonly vpc: Vpc;
@@ -234,6 +338,13 @@ export class ApplicationStack extends Stack {
   public readonly database?: DatabaseInstance;
   /** DB master credentials — generated at deploy time, never a parameter. */
   public readonly databaseSecret?: Secret;
+  /**
+   * Complete PostgreSQL connection URL (defined when `databaseUrlEnvNames`
+   * is non-empty). Assembled at deploy time from the generated master
+   * credentials via a CloudFormation dynamic reference — the password never
+   * appears in the template.
+   */
+  public readonly databaseUrlSecret?: Secret;
   /** App runtime secrets — supplied via NoEcho `param_` parameters (M17). */
   public readonly appSecret: Secret;
   public readonly storageBucket: Bucket;
@@ -260,6 +371,11 @@ export class ApplicationStack extends Stack {
     const desiredCount = props.desiredCount ?? 1;
     const imageReference = `${imageRepository}@${imageDigest}`;
     const databaseRequired = props.databaseRequired ?? true;
+    const containerPort = props.containerPort ?? APP_PORT;
+    const healthCheckPath = props.healthCheckPath ?? HEALTH_CHECK_PATH;
+    const containerEnvEntries: Array<[string, string]> = Object.entries(
+      props.containerEnvironment ?? {},
+    );
 
     // ── §8.1 validation: unsupported configuration combinations fail loudly ──
     // ECS Express Mode does not support a separate background worker service
@@ -282,6 +398,14 @@ export class ApplicationStack extends Stack {
         'ApplicationStack: certificateArn is required for a public HTTPS endpoint (§9). ' +
           'Pass allowInsecureHttp: true to explicitly opt in to plain HTTP ' +
           '(non-production use only) if you do not have a certificate yet.',
+      );
+    }
+
+    if ((props.databaseUrlEnvNames?.length ?? 0) > 0 && !databaseRequired) {
+      throw new Error(
+        'ApplicationStack: databaseUrlEnvNames requires databaseRequired to be true. ' +
+          'The connection URL is assembled from the managed RDS instance and its ' +
+          'generated credentials — without a database there is no URL to inject.',
       );
     }
 
@@ -324,6 +448,17 @@ export class ApplicationStack extends Stack {
       description:
         'Application signing secret (vendor/customer secret). NoEcho — never echoed.',
     });
+    // Additional vendor-supplied secrets (secretParameters), same NoEcho/
+    // empty-default convention as the two built-in parameters above.
+    const secretParams = (props.secretParameters ?? []).map((spec) => ({
+      spec,
+      param: new CfnParameter(this, spec.parameterId, {
+        type: 'String',
+        noEcho: true,
+        default: '',
+        description: `Application secret (vendor/customer config) for ${spec.envName}. NoEcho — never echoed.`,
+      }),
+    }));
 
     // ── 6. Secrets Manager ────────────────────────────────────────────────
     // DB master credentials: bootstrap-generated (generateStringKey), never a
@@ -338,16 +473,15 @@ export class ApplicationStack extends Stack {
           secretStringTemplate: JSON.stringify({ username: DB_USER }),
           generateStringKey: 'password',
           passwordLength: 32,
-          excludePunctuation: false,
-          // RDS accepts any printable ASCII except these four, and rejects
-          // the whole create with "The parameter MasterUserPassword is not a
-          // valid password" if one slips in. A live install died here: the
-          // generator is free to emit them, so a create failed at the
-          // database and rolled the entire stack back, minutes in and for no
-          // reason a customer could act on. Punctuation stays allowed
-          // otherwise — this narrows the alphabet by four characters, not by
-          // a character class.
-          excludeCharacters: RDS_FORBIDDEN_PASSWORD_CHARACTERS,
+          // Alphanumeric only. The password is embedded verbatim in a
+          // postgresql:// connection URL (DatabaseUrlSecret below) via a
+          // CloudFormation dynamic reference — percent-encoding cannot
+          // happen inside a dynamic reference, so URL-reserved punctuation
+          // would corrupt the URL. RDS separately forbids '/@" ' in a
+          // MasterUserPassword anyway (a live install died on exactly that,
+          // rolling the whole stack back minutes in); alphanumeric-only
+          // satisfies both constraints at once.
+          excludePunctuation: true,
         },
       });
     }
@@ -362,6 +496,9 @@ export class ApplicationStack extends Stack {
       secretObjectValue: {
         apiKey: SecretValue.cfnParameter(appApiKeyParam),
         signingSecret: SecretValue.cfnParameter(appSigningSecretParam),
+        ...Object.fromEntries(
+          secretParams.map(({ spec, param }) => [spec.secretKey, SecretValue.cfnParameter(param)]),
+        ),
       },
     });
 
@@ -418,6 +555,21 @@ export class ApplicationStack extends Stack {
         deletionProtection: true,
         deleteAutomatedBackups: false,
         removalPolicy: RemovalPolicy.RETAIN,
+      });
+    }
+
+    // Complete PostgreSQL connection URL, assembled at deploy time from the
+    // generated master credentials via a CloudFormation dynamic reference —
+    // the password never appears in the template or task definition.
+    if (databaseRequired && (props.databaseUrlEnvNames?.length ?? 0) > 0) {
+      this.databaseUrlSecret = new Secret(this, 'DatabaseUrlSecret', {
+        description:
+          'Complete PostgreSQL connection URL for the customer application. ' +
+          'Assembled at deploy time from the generated master credentials — ' +
+          'the password never appears in the template or task definition.',
+        secretStringValue: SecretValue.unsafePlainText(
+          `postgresql://${DB_USER}:${this.databaseSecret!.secretValueFromJson('password').unsafeUnwrap()}@${this.database!.instanceEndpoint.hostname}:${DB_PORT}/${DB_NAME}?sslmode=require`,
+        ),
       });
     }
 
@@ -488,6 +640,37 @@ export class ApplicationStack extends Stack {
           )
         : [];
 
+    // databaseUrlEnvNames ECS secrets: the whole DatabaseUrlSecret value
+    // (no JSON key suffix) injected under each configured env name into
+    // every container (app + worker, both expressMode branches). Empty
+    // when databaseUrlEnvNames is unset — no extra secrets in that case.
+    const databaseUrlEnvNames = props.databaseUrlEnvNames ?? [];
+    const databaseUrlSecrets = Object.fromEntries(
+      databaseUrlEnvNames.map((envName) => [
+        envName,
+        EcsSecret.fromSecretsManager(this.databaseUrlSecret as unknown as ISecret),
+      ]),
+    );
+    const expressDatabaseUrlSecrets = databaseUrlEnvNames.map((envName) => ({
+      name: envName,
+      valueFrom: this.databaseUrlSecret!.secretArn,
+    }));
+
+    // secretParameters ECS secrets, resolved once and injected into every
+    // container (app + worker, both expressMode branches) — same parity
+    // pattern as redisEnvEntries above. Empty when secretParameters is
+    // unset — no extra secrets anywhere in that case.
+    const extraSecrets = Object.fromEntries(
+      secretParams.map(({ spec }) => [
+        spec.envName,
+        EcsSecret.fromSecretsManager(this.appSecret as unknown as ISecret, spec.secretKey),
+      ]),
+    );
+    const expressExtraSecrets = secretParams.map(({ spec }) => ({
+      name: spec.envName,
+      valueFrom: `${this.appSecret.secretArn}:${spec.secretKey}::`,
+    }));
+
     // ── ECS cluster (shared by both modes) ────────────────────────────────
     this.cluster = new Cluster(this, 'Cluster', {
       vpc: this.vpc as unknown as IVpc,
@@ -506,6 +689,7 @@ export class ApplicationStack extends Stack {
       ),
     );
     this.databaseSecret?.grantRead(taskExecutionRole);
+    this.databaseUrlSecret?.grantRead(taskExecutionRole);
     this.appSecret.grantRead(taskExecutionRole);
 
     const taskRole = new Role(this, 'TaskRole', {
@@ -514,6 +698,7 @@ export class ApplicationStack extends Stack {
     });
     this.storageBucket.grantReadWrite(taskRole);
     this.databaseSecret?.grantRead(taskRole);
+    this.databaseUrlSecret?.grantRead(taskRole);
     this.appSecret.grantRead(taskRole);
 
     // ── 2/3. ECS + ALB (branch on expressMode) ────────────────────────────
@@ -561,7 +746,7 @@ export class ApplicationStack extends Stack {
         taskRoleArn: taskRole.roleArn,
         cpu: '256',
         memory: '512',
-        healthCheckPath: HEALTH_CHECK_PATH,
+        healthCheckPath,
         networkConfiguration: {
           subnets: this.vpc
             .selectSubnets({ subnetType: SubnetType.PRIVATE_WITH_EGRESS })
@@ -569,10 +754,10 @@ export class ApplicationStack extends Stack {
         },
         primaryContainer: {
           image: imageReference,
-          containerPort: APP_PORT,
+          containerPort,
           environment: [
             { name: 'NODE_ENV', value: 'production' },
-            { name: 'PORT', value: String(APP_PORT) },
+            { name: 'PORT', value: String(containerPort) },
             ...(databaseRequired
               ? [
                   { name: 'DATABASE_HOST', value: this.database!.instanceEndpoint.hostname },
@@ -583,6 +768,7 @@ export class ApplicationStack extends Stack {
               : []),
             { name: 'STORAGE_BUCKET', value: this.storageBucket.bucketName },
             ...redisEnvEntries.map(([name, value]) => ({ name, value })),
+            ...containerEnvEntries.map(([name, value]) => ({ name, value })),
           ],
           secrets: [
             ...(databaseRequired
@@ -601,6 +787,8 @@ export class ApplicationStack extends Stack {
               name: 'APP_SIGNING_SECRET',
               valueFrom: `${this.appSecret.secretArn}:signingSecret::`,
             },
+            ...expressExtraSecrets,
+            ...expressDatabaseUrlSecrets,
           ],
           awsLogsConfiguration: {
             logGroup: logGroup.logGroupName,
@@ -617,8 +805,8 @@ export class ApplicationStack extends Stack {
     } else {
       // Plain Fargate — explicit task definition, service and ALB.
       const taskDefinition = new FargateTaskDefinition(this, 'TaskDefinition', {
-        memoryLimitMiB: 512,
-        cpu: 256,
+        memoryLimitMiB: props.taskMemoryMiB ?? 512,
+        cpu: props.taskCpu ?? 256,
         // Without this, CDK auto-creates a second execution role and grants
         // it only what it can infer. `ContainerImage.fromRegistry` is an
         // opaque string, so CDK cannot tell the image lives in ECR and
@@ -654,14 +842,15 @@ const dbEnv =
             : {};
         taskDefinition.addContainer('App', {
           image: ContainerImage.fromRegistry(imageReference),
-          portMappings: [{ containerPort: APP_PORT, protocol: Protocol.TCP }],
+          portMappings: [{ containerPort, protocol: Protocol.TCP }],
           logging: LogDriver.awsLogs({ streamPrefix: 'deployz-app', logGroup }),
           environment: {
             NODE_ENV: 'production',
-            PORT: String(APP_PORT),
+            PORT: String(containerPort),
             ...dbEnv,
             STORAGE_BUCKET: this.storageBucket.bucketName,
             ...Object.fromEntries(redisEnvEntries),
+            ...Object.fromEntries(containerEnvEntries),
           },
           secrets: {
             ...dbSecrets,
@@ -673,16 +862,19 @@ const dbEnv =
               this.appSecret as unknown as ISecret,
               'signingSecret',
             ),
+            ...extraSecrets,
+            ...databaseUrlSecrets,
           },
         healthCheck: {
           command: [
             'CMD-SHELL',
-            `curl -f http://localhost:${APP_PORT}${HEALTH_CHECK_PATH} || exit 1`,
+            props.healthCheckShellCommand ??
+              `curl -f http://localhost:${containerPort}${healthCheckPath} || exit 1`,
           ],
           interval: Duration.seconds(30),
           timeout: Duration.seconds(5),
           retries: 3,
-          startPeriod: Duration.seconds(60),
+          startPeriod: Duration.seconds(props.startupGracePeriodSeconds ?? 60),
         },
       });
 
@@ -695,6 +887,9 @@ const dbEnv =
         minHealthyPercent: 100,
         maxHealthyPercent: 200,
         circuitBreaker: { enable: true, rollback: true },
+        ...(props.startupGracePeriodSeconds !== undefined
+          ? { healthCheckGracePeriod: Duration.seconds(props.startupGracePeriodSeconds) }
+          : {}),
       });
 
       this.loadBalancer = new ApplicationLoadBalancer(this, 'LoadBalancer', {
@@ -733,9 +928,9 @@ const dbEnv =
           certificates: [ListenerCertificate.fromArn(certificateArn)],
         });
         httpsListener.addTargets('AppTargets', {
-          port: APP_PORT,
+          port: containerPort,
           protocol: ApplicationProtocol.HTTP,
-          healthCheck: { path: HEALTH_CHECK_PATH },
+          healthCheck: { path: healthCheckPath },
           targets: [this.fargateService],
         });
       } else {
@@ -743,9 +938,9 @@ const dbEnv =
           port: 80,
         });
         listener.addTargets('AppTargets', {
-          port: APP_PORT,
+          port: containerPort,
           protocol: ApplicationProtocol.HTTP,
-          healthCheck: { path: HEALTH_CHECK_PATH },
+          healthCheck: { path: healthCheckPath },
           targets: [this.fargateService],
         });
       }
@@ -787,6 +982,7 @@ const dbEnv =
             ...dbEnv,
             STORAGE_BUCKET: this.storageBucket.bucketName,
             ...Object.fromEntries(redisEnvEntries),
+            ...Object.fromEntries(containerEnvEntries),
           },
           secrets: {
             ...dbSecrets,
@@ -798,6 +994,8 @@ const dbEnv =
               this.appSecret as unknown as ISecret,
               'signingSecret',
             ),
+            ...extraSecrets,
+            ...databaseUrlSecrets,
           },
         });
 
@@ -827,6 +1025,7 @@ const dbEnv =
         this.vpc,
         this.database,
         this.databaseSecret,
+        this.databaseUrlSecret,
         this.appSecret,
         this.storageBucket,
         this.cluster,
@@ -855,6 +1054,7 @@ const dbEnv =
         this.vpc,
         this.database,
         this.databaseSecret,
+        this.databaseUrlSecret,
         this.appSecret,
         this.storageBucket,
         this.cluster,
@@ -883,6 +1083,7 @@ const dbEnv =
         this.vpc,
         this.database,
         this.databaseSecret,
+        this.databaseUrlSecret,
         this.appSecret,
         this.storageBucket,
         this.cluster,
