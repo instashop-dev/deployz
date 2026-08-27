@@ -284,15 +284,26 @@ export class ApplicationStack extends Stack {
     // Quick Create convention for URL-suppliable params). The values are never
     // echoed back; they land in Secrets Manager and are injected into the
     // container at task start. The DB password is NOT here — it is generated.
+    //
+    // Both default to empty, because at INSTALL time there is nothing to put
+    // in them: a deployment has no release and no vendor configuration until
+    // after it is installed, and CONFIG_UPDATE is what supplies these later.
+    // Without a default, CloudFormation rejects the create outright —
+    // "Parameters: [paramAppApiKey, paramAppSigningSecret] must have values"
+    // — so an install could never happen at all. An empty secret honestly
+    // says "not configured yet"; a required parameter with no possible value
+    // says nothing and blocks everything.
     const appApiKeyParam = new CfnParameter(this, 'param_AppApiKey', {
       type: 'String',
       noEcho: true,
+      default: '',
       description:
         'Application API key (vendor/customer secret). NoEcho — never echoed.',
     });
     const appSigningSecretParam = new CfnParameter(this, 'param_AppSigningSecret', {
       type: 'String',
       noEcho: true,
+      default: '',
       description:
         'Application signing secret (vendor/customer secret). NoEcho — never echoed.',
     });

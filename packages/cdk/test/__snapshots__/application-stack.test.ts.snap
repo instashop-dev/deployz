@@ -57,11 +57,13 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       "Type": "AWS::SSM::Parameter::Value<String>",
     },
     "paramAppApiKey": {
+      "Default": "",
       "Description": "Application API key (vendor/customer secret). NoEcho — never echoed.",
       "NoEcho": true,
       "Type": "String",
     },
     "paramAppSigningSecret": {
+      "Default": "",
       "Description": "Application signing secret (vendor/customer secret). NoEcho — never echoed.",
       "NoEcho": true,
       "Type": "String",

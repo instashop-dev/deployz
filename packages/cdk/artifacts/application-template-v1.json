@@ -1352,11 +1352,13 @@
   "Parameters": {
     "paramAppApiKey": {
       "Type": "String",
+      "Default": "",
       "Description": "Application API key (vendor/customer secret). NoEcho — never echoed.",
       "NoEcho": true
     },
     "paramAppSigningSecret": {
       "Type": "String",
+      "Default": "",
       "Description": "Application signing secret (vendor/customer secret). NoEcho — never echoed.",
       "NoEcho": true
     },

@@ -9,6 +9,7 @@ import {
   createInstallResumer,
   createRelayHandler,
   createVerifyingExecutor,
+  readInstallParametersFromPayload,
   readVerifyOptionsFromPayload,
   type InstallExecutorDeps,
 } from './index.js';
@@ -750,5 +751,32 @@ describe('createInstallResumer', () => {
       success: false,
       failureCode: 'STACK_CREATE_FAILED',
     });
+  });
+});
+
+describe('readInstallParametersFromPayload', () => {
+  it('forwards string parameters the control plane supplied', () => {
+    expect(
+      readInstallParametersFromPayload({
+        parameters: { paramAppApiKey: 'k', paramAppSigningSecret: 's' },
+      }),
+    ).toEqual({ paramAppApiKey: 'k', paramAppSigningSecret: 's' });
+  });
+
+  it('is empty when the payload carries no parameters', () => {
+    expect(readInstallParametersFromPayload({})).toEqual({});
+  });
+
+  it('drops non-string values rather than sending them to CloudFormation', () => {
+    // Every CloudFormation parameter value is a string. A number or an
+    // object here is a control-plane bug, and passing it through would
+    // surface as an opaque ValidationError mid-install.
+    expect(
+      readInstallParametersFromPayload({ parameters: { a: 'ok', b: 7, c: null } }),
+    ).toEqual({ a: 'ok' });
+  });
+
+  it('ignores a parameters field that is not an object', () => {
+    expect(readInstallParametersFromPayload({ parameters: 'nope' })).toEqual({});
   });
 });

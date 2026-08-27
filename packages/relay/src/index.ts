@@ -236,6 +236,7 @@ async function settleInstall(
     installationId: deps.installationId,
     templateUrl: deps.templateUrl,
     stackName: request.stackName,
+    parameters: readInstallParametersFromPayload(request.payload),
     ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),
   });
 
@@ -467,6 +468,32 @@ function logInstall(
       ...(error ? { reason: error } : {}),
     }),
   );
+}
+
+/**
+ * Extract CloudFormation template parameter values from a command's payload.
+ *
+ * The application template's vendor secrets (`paramAppApiKey`,
+ * `paramAppSigningSecret`) are `NoEcho` parameters, so their values can only
+ * come from the caller. `payload` is shaped by the control plane, not by
+ * this module, so every value is checked to be a string before it is sent:
+ * CloudFormation parameter values are always strings, and a number or an
+ * object reaching `CreateStack` surfaces as an opaque `ValidationError`
+ * partway through an install rather than as the control-plane bug it is.
+ */
+export function readInstallParametersFromPayload(
+  payload: Record<string, unknown>,
+): Record<string, string> {
+  const parameters = payload['parameters'];
+  if (typeof parameters !== 'object' || parameters === null || Array.isArray(parameters)) {
+    return {};
+  }
+
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parameters as Record<string, unknown>)) {
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
 }
 
 /**
