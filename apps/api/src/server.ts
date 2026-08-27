@@ -59,6 +59,7 @@ import {
   type GithubWebhookEvent,
 } from './github.js';
 import { createEmailSender, type EmailSender } from './email.js';
+import { buildInstallParameters } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
 import { enqueue } from './queue.js';
 import {
@@ -2047,7 +2048,10 @@ export async function buildServer({
       deploymentId: deployment.id,
       type: 'INSTALL',
       idempotencyKey,
-      payload: { recovery: { neverInstalled: true } },
+      payload: {
+        recovery: { neverInstalled: true },
+        parameters: await buildInstallParameters(db, deployment.id),
+      },
       requestedBy: request.user?.id ?? null,
     });
 
@@ -2496,7 +2500,7 @@ export async function buildServer({
               deploymentId: deployment.id,
               type: 'INSTALL',
               idempotencyKey: `${deployment.id}:INSTALL`,
-              payload: {},
+              payload: { parameters: await buildInstallParameters(db, deployment.id) },
               requestedBy: null,
             })
           ).job

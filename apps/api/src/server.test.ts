@@ -2266,7 +2266,10 @@ describe('server — retry-install (first-install recovery)', () => {
     const retry = jobs.find((j) => j.id === jobId)!;
     expect(retry.state).toBe('REQUESTED');
     expect(retry.idempotencyKey).toBe(`${deployment.id}:INSTALL:RETRY:1`);
-    expect(retry.payload).toEqual({ recovery: { neverInstalled: true } });
+    // §31 parameters travel alongside recovery — see install-parameters.test.ts
+    // for the parameter-value coverage.
+    expect(retry.payload).toMatchObject({ recovery: { neverInstalled: true } });
+    expect(retry.payload['parameters']).toBeTypeOf('object');
 
     const events = await db
       .select()

@@ -1,0 +1,39 @@
+import { randomBytes } from 'node:crypto';
+
+import { DOCUMENSO_PARAMETERS } from '@deployz/contracts';
+import type { RuntimeDb } from '@deployz/db';
+
+import { findActiveDomain } from './domains.js';
+
+function generateSecret(): string {
+  return randomBytes(32).toString('base64url');
+}
+
+/**
+ * Builds the CloudFormation parameter values for an INSTALL job (§31).
+ * Phase 1: the runtime-v1 template is Documenso-shaped, so every install
+ * receives these; unrelated images simply ignore the injected env vars.
+ * - publicUrl comes from the deployment's custom domain and MUST exist
+ *   before INSTALL — the app cannot learn its URL later (no CONFIG_UPDATE).
+ *   When no domain exists the key is omitted and the template default ('')
+ *   applies; do not install a URL-dependent app that way.
+ * - Auth/encryption secrets are generated per install and travel only
+ *   through the job payload into NoEcho parameters and Secrets Manager.
+ * - SMTP parameters are declared in the template but not yet populated —
+ *   vendor config supplies them in a later phase.
+ */
+export async function buildInstallParameters(
+  db: RuntimeDb,
+  deploymentId: string,
+): Promise<Record<string, string>> {
+  const domain = await findActiveDomain(db, deploymentId);
+  const parameters: Record<string, string> = {
+    [DOCUMENSO_PARAMETERS.nextauthSecret]: generateSecret(),
+    [DOCUMENSO_PARAMETERS.encryptionKey]: generateSecret(),
+    [DOCUMENSO_PARAMETERS.encryptionSecondaryKey]: generateSecret(),
+  };
+  if (domain) {
+    parameters[DOCUMENSO_PARAMETERS.publicUrl] = `https://${domain.hostname}`;
+  }
+  return parameters;
+}
