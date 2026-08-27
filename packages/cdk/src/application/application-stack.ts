@@ -212,6 +212,8 @@ const DB_PORT = 5432;
 const REDIS_ENGINE = 'valkey';
 const REDIS_NODE_TYPE = 'cache.t4g.micro';
 const REDIS_PORT = 6379;
+/** Printable ASCII characters RDS refuses in a master password. */
+const RDS_FORBIDDEN_PASSWORD_CHARACTERS = '/@" ';
 
 export class ApplicationStack extends Stack {
   public readonly vpc: Vpc;
@@ -320,6 +322,14 @@ export class ApplicationStack extends Stack {
         generateStringKey: 'password',
         passwordLength: 32,
         excludePunctuation: false,
+        // RDS accepts any printable ASCII except these four, and rejects the
+        // whole create with "The parameter MasterUserPassword is not a valid
+        // password" if one slips in. A live install died here: the generator
+        // is free to emit them, so a create failed at the database and rolled
+        // the entire stack back, minutes in and for no reason a customer
+        // could act on. Punctuation stays allowed otherwise — this narrows
+        // the alphabet by four characters, not by a character class.
+        excludeCharacters: RDS_FORBIDDEN_PASSWORD_CHARACTERS,
       },
     });
 

@@ -110,6 +110,29 @@ describe('ApplicationStack', () => {
     }
   });
 
+  it('generates a DB password RDS will actually accept', () => {
+    const { template } = synth();
+
+    // RDS rejects a MasterUserPassword containing '/', '@', '"' or a space:
+    // "The parameter MasterUserPassword is not a valid password." A live
+    // install failed on exactly this — the generator is free to emit them,
+    // so roughly one create in a handful died at the database and rolled the
+    // whole stack back.
+    const secrets = template.findResources('AWS::SecretsManager::Secret');
+    const dbSecret = Object.values(secrets).find((resource) =>
+      String(resource['Properties']?.['Description'] ?? '').includes('RDS'),
+    );
+    const excluded = String(
+      dbSecret?.['Properties']?.['GenerateSecretString']?.['ExcludeCharacters'] ?? '',
+    );
+
+    for (const forbidden of ['/', '@', '"', ' ']) {
+      expect(excluded, `RDS forbids ${JSON.stringify(forbidden)} in a master password`).toContain(
+        forbidden,
+      );
+    }
+  });
+
   it('creates a versioned S3 bucket for object storage', () => {
     const { template } = synth();
     template.resourceCountIs('AWS::S3::Bucket', 1);
