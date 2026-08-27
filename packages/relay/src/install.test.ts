@@ -263,9 +263,33 @@ describe('installApplicationStack', () => {
     expect(describeStack.mock.calls.length).toBeLessThanOrEqual(4);
   });
 
+  it('rides out a single unreadable poll rather than failing a live install', async () => {
+    // `describeStack` maps every error to null, throttling included. One
+    // unreadable answer during a twenty-minute watch is not evidence the
+    // stack is gone, and treating it as such would fail an install that is
+    // going fine.
+    const installer = scriptedInstaller([
+      { status: 'CREATE_IN_PROGRESS', outputs: {} },
+      null,
+      complete(),
+    ]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+  });
+
   it('fails when the stack disappears mid-create', async () => {
     const installer = scriptedInstaller([
       { status: 'CREATE_IN_PROGRESS', outputs: {} },
+      null,
+      null,
+      null,
       null,
     ]);
 
@@ -277,7 +301,7 @@ describe('installApplicationStack', () => {
     });
 
     expect(outcome.state).toBe('failed');
-    expect(outcome.state === 'failed' && outcome.reason).toMatch(/no longer/i);
+    expect(outcome.state === 'failed' && outcome.reason).toMatch(/unreadable/i);
   });
 
   it('never lets an installer exception escape', async () => {

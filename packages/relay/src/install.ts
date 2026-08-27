@@ -154,6 +154,18 @@ const DEFAULT_BUDGET_MS = 180_000;
 const DEFAULT_POLL_INTERVAL_MS = 15_000;
 
 /**
+ * How many consecutive unreadable polls mean the stack is really gone.
+ *
+ * `describeStack` maps every failure to `null` — that is the fail-closed
+ * rule, and it is right for the question "is there a stack to adopt?". It
+ * is too blunt for the question "is the stack we are watching still there?":
+ * one throttled call during a twenty-minute watch would fail an install that
+ * is going fine, permanently, because the control plane does not re-issue a
+ * job it has already reported on. A run of them is a different matter.
+ */
+const UNREADABLE_POLLS_BEFORE_FAILING = 3;
+
+/**
  * Create the application stack if it is not already there, then watch it
  * until it settles or the time budget runs out.
  *
@@ -217,6 +229,7 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
 
   // Watch it settle.
   let last: StackState | null = existing;
+  let unreadable = 0;
   for (;;) {
     if (now() >= deadline) {
       return { state: 'in-progress', status: last?.status ?? 'CREATE_IN_PROGRESS' };
@@ -228,15 +241,23 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
 
     const state = await installer.describeStack(stackName);
     if (state === null) {
-      // It was there a moment ago. Something deleted it, or the read stopped
-      // being permitted — either way this install did not produce a stack.
-      return {
-        state: 'failed',
-        reason: `Stack "${stackName}" is no longer readable — it was deleted, or the relay lost access to it`,
-        outputs: {},
-      };
+      unreadable += 1;
+      if (unreadable >= UNREADABLE_POLLS_BEFORE_FAILING) {
+        // It was there a moment ago, and has been unreadable ever since.
+        // Something deleted it, or the read stopped being permitted —
+        // either way this install did not produce a stack.
+        return {
+          state: 'failed',
+          reason:
+            `Stack "${stackName}" has been unreadable for ${unreadable} consecutive checks — ` +
+            'it was deleted, or the relay lost access to it',
+          outputs: {},
+        };
+      }
+      continue;
     }
 
+    unreadable = 0;
     last = state;
     const settled = settle(state, stackName);
     if (settled) return settled;
