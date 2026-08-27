@@ -99,7 +99,7 @@ describe('DeployzStack', () => {
     const template = Template.fromStack(stack);
 
     template.hasResourceProperties('AWS::CodeBuild::Project', {
-      Environment: Match.objectLike({ ComputeType: 'BUILD_GENERAL1_MEDIUM' }),
+      Environment: Match.objectLike({ ComputeType: 'BUILD_GENERAL1_LARGE' }),
       TimeoutInMinutes: 60,
     });
   });
