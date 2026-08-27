@@ -268,7 +268,8 @@ export interface ApplicationStackProps extends StackProps {
    * URL under two names: `NEXT_PRIVATE_DATABASE_URL` and
    * `NEXT_PRIVATE_DIRECT_DATABASE_URL`).
    *
-   * When non-empty (and `databaseRequired` is true), a second Secrets
+   * Requires `databaseRequired` to be true — synth throws if this is non-empty
+   * with `databaseRequired: false`. When non-empty and valid, a second Secrets
    * Manager secret is created holding the assembled `postgresql://` URL —
    * built at deploy time from the generated master credentials via a
    * CloudFormation dynamic reference, so the password never appears in the
@@ -397,6 +398,14 @@ export class ApplicationStack extends Stack {
         'ApplicationStack: certificateArn is required for a public HTTPS endpoint (§9). ' +
           'Pass allowInsecureHttp: true to explicitly opt in to plain HTTP ' +
           '(non-production use only) if you do not have a certificate yet.',
+      );
+    }
+
+    if ((props.databaseUrlEnvNames?.length ?? 0) > 0 && !databaseRequired) {
+      throw new Error(
+        'ApplicationStack: databaseUrlEnvNames requires databaseRequired to be true. ' +
+          'The connection URL is assembled from the managed RDS instance and its ' +
+          'generated credentials — without a database there is no URL to inject.',
       );
     }
 

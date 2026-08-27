@@ -445,6 +445,20 @@ describe('ApplicationStack', () => {
     });
   });
 
+  describe('databaseUrlEnvNames validation', () => {
+    it('throws a clear synth-time error when databaseUrlEnvNames is non-empty with databaseRequired: false', () => {
+      const app = new App();
+      expect(
+        () =>
+          new ApplicationStack(app, 'InvalidDatabaseUrl', {
+            databaseRequired: false,
+            databaseUrlEnvNames: ['DATABASE_URL'],
+            allowInsecureHttp: true,
+          }),
+      ).toThrow(/databaseUrlEnvNames/);
+    });
+  });
+
   describe('ElastiCache Valkey cache (Redis MVP)', () => {
     it('provisions zero ElastiCache resources and no REDIS env vars when redisRequired is unset', () => {
       const { template } = synth();
