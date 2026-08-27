@@ -120,8 +120,12 @@ function collectReadyList(result: AnalysisResult): string[] {
  *
  * REJECT (any one → NOT_COMPATIBLE):
  *   1. Any §10 unsupported-dependency rejection (Redis/MySQL/Mongo/ES/other).
- *   2. No PostgreSQL detected (Deployz requires PostgreSQL).
- *   3. Persistent local filesystem usage detected.
+ *   2. Persistent local filesystem usage detected.
+ *
+ * A repository with NO database is not a reject — an app without a database
+ * deploys without DB resources (`metadata.databaseState === 'none'`). Only an
+ * explicitly UNSUPPORTED database (MySQL/Mongo/etc., surfaced by the §10
+ * rejection checks) blocks deployment.
  *
  * ATTENTION (if no reject, any one → NEEDS_ATTENTION):
  *   1. No Dockerfile.
@@ -147,17 +151,7 @@ export function evaluateCompatibility(result: AnalysisResult): CompatibilityResu
     }
   }
 
-  // 2. No PostgreSQL detected.
-  const postgresql = result.findings.find((f) => f.detector === 'postgresql');
-  if (!postgresql?.detected) {
-    rejects.push({
-      severity: 'reject',
-      code: 'MISSING_POSTGRESQL',
-      message: 'No PostgreSQL database detected. Deployz requires PostgreSQL.',
-    });
-  }
-
-  // 3. Persistent local filesystem usage.
+  // 2. Persistent local filesystem usage.
   const localFs = result.findings.find((f) => f.detector === 'local-filesystem');
   if (localFs?.detected) {
     rejects.push({

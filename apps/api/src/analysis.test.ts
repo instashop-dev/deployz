@@ -128,6 +128,27 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(checks.unsupported.some((c) => c.title === 'This Redis setup is not supported')).toBe(true);
   });
 
+  it('analyses the static-api fixture (no database) to COMPLETE/READY with databaseRequired false', async () => {
+    const application = await insertApplication(db, orgId, {
+      repoFullName: 'deployz-demo/static-api',
+    });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.compatibilityStatus).toBe('READY');
+    expect(row.compatibilityReason).toBe('Compatible with Deployz');
+    // No database → databaseRequired stays false, databaseState 'none'.
+    expect(row.databaseRequired).toBe(false);
+
+    const metadata = row.detectedMetadata as { databaseState?: string; checks: { ready: Array<{ label: string }>; unsupported: unknown[] } };
+    expect(metadata.databaseState).toBe('none');
+    // The ready list must NOT advertise a PostgreSQL database.
+    expect(metadata.checks.ready.some((c) => c.label === 'PostgreSQL database configured')).toBe(false);
+    expect(metadata.checks.unsupported).toEqual([]);
+  });
+
   it('analyses the bullmq-worker fixture repo to a supported, high-confidence Redis requirement', async () => {
     const application = await insertApplication(db, orgId, {
       repoFullName: 'deployz-demo/bullmq-worker',

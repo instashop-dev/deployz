@@ -257,7 +257,7 @@ describe('github — fixture-backed list helpers', () => {
 
   it('lists fixture repositories for a known installation', async () => {
     const repos = await listRepositories('fixture-install-1', { fixtureMode: true });
-    expect(repos.map((r) => r.name)).toEqual(['express-api', 'legacy-redis', 'bullmq-worker']);
+    expect(repos.map((r) => r.name)).toEqual(['express-api', 'legacy-redis', 'bullmq-worker', 'static-api']);
     expect(repos[0]?.fullName).toBe('deployz-demo/express-api');
   });
 
@@ -625,7 +625,7 @@ describe('github — server routes over PGlite', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = response.json() as { repositories: Array<{ name: string }> };
-    expect(body.repositories.map((r) => r.name)).toEqual(['express-api', 'legacy-redis', 'bullmq-worker']);
+    expect(body.repositories.map((r) => r.name)).toEqual(['express-api', 'legacy-redis', 'bullmq-worker', 'static-api']);
   });
 
   it('requires an installationId on the repos route', async () => {
@@ -690,13 +690,15 @@ describe('github — server routes over PGlite', () => {
   });
 });
 
-// Keep the fixture shape honest for the E2E: the fixture org has the three
-// §216 repos (one ready, one needs attention, one ready with Redis).
-it('fixture installation exposes the §216 three-repo shape', () => {
+// Keep the fixture shape honest for the E2E: the fixture org has the four
+// §216 repos (ready with Postgres, needs attention, ready with Redis,
+// ready with no database).
+it('fixture installation exposes the §216 four-repo shape', () => {
   expect(GITHUB_FIXTURE_INSTALLATIONS).toHaveLength(1);
   expect(GITHUB_FIXTURE_INSTALLATIONS[0]?.repositories.map((r) => r.name)).toEqual([
     'express-api',
     'legacy-redis',
     'bullmq-worker',
+    'static-api',
   ]);
 });
