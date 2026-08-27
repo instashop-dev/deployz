@@ -543,6 +543,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
                 "elasticloadbalancing:DescribeTargetHealth",
+                "elasticloadbalancing:DescribeAccountLimits",
               ],
               "Condition": {
                 "StringEquals": {
@@ -612,6 +613,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "elasticloadbalancing:CreateListener",
                 "elasticloadbalancing:ModifyListener",
+                "elasticloadbalancing:SetSecurityGroups",
+                "elasticloadbalancing:SetSubnets",
                 "elasticloadbalancing:DeleteListener",
                 "elasticloadbalancing:AddListenerCertificates",
                 "elasticloadbalancing:RemoveListenerCertificates",
@@ -701,6 +704,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "ec2:DescribeAddresses",
                 "ec2:DescribeSecurityGroups",
                 "ec2:DescribeSecurityGroupRules",
+                "ec2:GetSecurityGroupsForVpc",
                 "ec2:DescribeAvailabilityZones",
                 "ec2:DescribeAccountAttributes",
                 "ec2:DescribeNetworkInterfaces",
@@ -1058,6 +1062,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
                 "elasticloadbalancing:DescribeTargetHealth",
+                "elasticloadbalancing:DescribeAccountLimits",
               ],
               "Condition": {
                 "StringEquals": {
@@ -1127,6 +1132,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "elasticloadbalancing:CreateListener",
                 "elasticloadbalancing:ModifyListener",
+                "elasticloadbalancing:SetSecurityGroups",
+                "elasticloadbalancing:SetSubnets",
                 "elasticloadbalancing:DeleteListener",
                 "elasticloadbalancing:AddListenerCertificates",
                 "elasticloadbalancing:RemoveListenerCertificates",
