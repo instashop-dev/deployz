@@ -122,8 +122,10 @@ describe('BuildPipeline', () => {
     );
     expect(project).toBeDefined();
     const sourceJson = JSON.stringify(project!.Properties!['Source']);
-    // Context is derived from the Dockerfile's directory.
-    expect(sourceJson).toContain('BUILD_CONTEXT=$(dirname');
+    // Context is derived from the Dockerfile's directory, but an explicit
+    // BUILD_CONTEXT passed by startBuild (e.g. for `docker/`-convention
+    // repos) overrides the dirname fallback.
+    expect(sourceJson).toContain('BUILD_CONTEXT=${BUILD_CONTEXT:-$(dirname');
     // The build passes that context to docker, never a bare `.`.
     expect(sourceJson).toContain('-t $ECR_REPOSITORY_URI:$IMAGE_TAG');
     expect(sourceJson).toContain('$BUILD_CONTEXT');

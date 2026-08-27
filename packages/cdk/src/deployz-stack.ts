@@ -12,6 +12,7 @@ import {
 } from 'aws-cdk-lib/aws-ec2';
 import { Rule } from 'aws-cdk-lib/aws-events';
 import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
+import { ComputeType } from 'aws-cdk-lib/aws-codebuild';
 import {
   Credentials,
   DatabaseInstance,
@@ -123,6 +124,10 @@ export class DeployzStack extends Stack {
       // exactOptionalPropertyTypes: the concrete Bucket's optional members are
       // narrower than IBucket's, so the interface type has to be asserted.
       sourceBucket: sourceBucket as IBucket,
+      // Documenso's monorepo image build exceeds the default SMALL (3 GB)
+      // builder and could brush the default 30-minute timeout.
+      computeType: ComputeType.MEDIUM,
+      timeoutMinutes: 60,
     });
 
     // ── Public template bucket ───────────────────────────────────────────

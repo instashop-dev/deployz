@@ -91,6 +91,19 @@ describe('DeployzStack', () => {
     template.resourceCountIs('AWS::ECR::Repository', 1);
   });
 
+  // Documenso's monorepo image build exceeds the default SMALL (3 GB)
+  // builder and could brush the default 30-minute timeout.
+  it('sizes the build pipeline for larger monorepo images', () => {
+    const app = new App();
+    const stack = new DeployzStack(app, 'DeployzTest');
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties('AWS::CodeBuild::Project', {
+      Environment: Match.objectLike({ ComputeType: 'BUILD_GENERAL1_MEDIUM' }),
+      TimeoutInMinutes: 60,
+    });
+  });
+
   // CloudFormation in the CUSTOMER's account fetches the bootstrap template
   // with none of our credentials, so this bucket has to allow public reads —
   // while the build-source bucket must not.

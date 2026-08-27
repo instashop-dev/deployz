@@ -9,6 +9,7 @@ import * as schema from '@deployz/db/schema';
 import {
   handleMessage,
   recordBuildResult,
+  resolveBuildContext,
   type CodeBuildStateChangeEvent,
   type WorkerDeps,
 } from '../src/lambda/worker.js';
@@ -130,9 +131,40 @@ describe('worker handler', () => {
       name: 'DOCKERFILE_PATH',
       value: 'docker/Dockerfile',
     });
+    // `docker/Dockerfile` is the repo-root-context convention: the build
+    // must be told to build from `.`, not the Dockerfile's own directory.
+    expect(build?.environmentVariables).toContainEqual({ name: 'BUILD_CONTEXT', value: '.' });
 
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.buildStatus).toBe('BUILDING');
+  });
+
+  it('does not pass BUILD_CONTEXT for a non-`docker/` Dockerfile path', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Backend App',
+        githubInstallationId: '4242',
+        repoFullName: 'acme/backend',
+        repoUrl: 'https://github.com/acme/backend',
+        defaultBranch: 'main',
+        detectedMetadata: { dockerfilePath: 'backend/Dockerfile' },
+      })
+      .returning();
+    const [release] = await db
+      .insert(schema.releases)
+      .values({ applicationId: application!.id, version: 'v1.1.0', gitSha: 'abc124' })
+      .returning();
+
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release!.id }, 'msg-2b');
+
+    const build = started[started.length - 1];
+    expect(build?.environmentVariables).toContainEqual({
+      name: 'DOCKERFILE_PATH',
+      value: 'backend/Dockerfile',
+    });
+    expect(build?.environmentVariables.some((v) => v.name === 'BUILD_CONTEXT')).toBe(false);
   });
 
   it('fails the release when the application has no GitHub installation', async () => {
@@ -156,6 +188,20 @@ describe('worker handler', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release!.id));
     expect(row?.buildStatus).toBe('FAILED');
     expect(row?.releaseStatus).toBe('FAILED');
+  });
+
+  describe('resolveBuildContext', () => {
+    it('returns "." for a top-level docker/ Dockerfile', () => {
+      expect(resolveBuildContext('docker/Dockerfile')).toBe('.');
+    });
+
+    it('returns undefined for a root Dockerfile', () => {
+      expect(resolveBuildContext('Dockerfile')).toBeUndefined();
+    });
+
+    it('returns undefined for a Dockerfile in another subdirectory', () => {
+      expect(resolveBuildContext('backend/Dockerfile')).toBeUndefined();
+    });
   });
 
   it('creates a relay job per deployment for CONFIG_UPDATE', async () => {
