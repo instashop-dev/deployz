@@ -991,7 +991,9 @@ export class BootstrapStack extends Stack {
       bundling: {
         format: 'esm' as OutputFormat,
         target: 'node22',
-        sourceMap: true,
+        // No source map: the map's `sources` embed the checkout path, which
+        // would make the asset hash (and the committed template) differ per machine.
+        sourceMap: false,
       },
     });
 
