@@ -133,6 +133,29 @@ function findFileContent(tree: FileTree, pathRegex: RegExp): string | null {
 // not the exception.
 const DOCKERFILE_REGEX = /(?:^|\/)dockerfile(?:\.[\w.-]+)?$/i;
 
+// Exact `Dockerfile`/`dockerfile` basename, no suffix — used to rank an
+// unsuffixed Dockerfile above a suffixed variant at the same depth.
+const EXACT_DOCKERFILE_NAME_REGEX = /(?:^|\/)dockerfile$/i;
+
+/**
+ * Rank two candidate Dockerfile paths so the more likely "real" build
+ * Dockerfile sorts first: shallower paths win, then an exact `Dockerfile`
+ * name over a suffixed variant (`Dockerfile.gotenberg`), then lexicographic
+ * order for remaining ties. A repository can ship several Dockerfiles for
+ * auxiliary services (e.g. a dev-only PDF service); picking the first one
+ * `Object.keys` happens to return risks building the wrong image.
+ */
+function compareDockerfileCandidates(a: string, b: string): number {
+  const depthDiff = a.split('/').length - b.split('/').length;
+  if (depthDiff !== 0) return depthDiff;
+
+  const aExact = EXACT_DOCKERFILE_NAME_REGEX.test(a);
+  const bExact = EXACT_DOCKERFILE_NAME_REGEX.test(b);
+  if (aExact !== bExact) return aExact ? -1 : 1;
+
+  return a.localeCompare(b);
+}
+
 /**
  * Detect a Dockerfile (case-insensitive: `Dockerfile`, `dockerfile`, `Dockerfile.prod`, etc.).
  */
@@ -141,10 +164,11 @@ export function detectDockerfile(tree: FileTree): DetectorFinding {
   if (match.length === 0) {
     return { detector: 'dockerfile', detected: false };
   }
+  const ranked = [...match].sort(compareDockerfileCandidates);
   return {
     detector: 'dockerfile',
     detected: true,
-    value: match[0],
+    value: ranked[0],
     details: `Found ${match.length} Dockerfile(s): ${match.join(', ')}`,
   };
 }

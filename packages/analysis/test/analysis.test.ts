@@ -362,6 +362,43 @@ describe('§18 detectors', () => {
       const result = detectDockerfile(emptyRepoFixture);
       expect(result.detected).toBe(false);
     });
+
+    it('prefers the shallower root Dockerfile over a nested dev-service Dockerfile', () => {
+      const tree: FileTree = {
+        'docker/development/Dockerfile.gotenberg': 'FROM alpine\n',
+        'docker/Dockerfile': 'FROM node:20\n',
+      };
+      const result = detectDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('docker/Dockerfile');
+    });
+
+    it('detects a single Dockerfile outside the root unchanged', () => {
+      const tree: FileTree = { 'backend/Dockerfile': 'FROM node:20\n' };
+      const result = detectDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('backend/Dockerfile');
+    });
+
+    it('prefers the repository root Dockerfile over a nested one', () => {
+      const tree: FileTree = {
+        'docker/Dockerfile': 'FROM node:20\n',
+        'Dockerfile': 'FROM node:20\n',
+      };
+      const result = detectDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('Dockerfile');
+    });
+
+    it('prefers an exact Dockerfile name over a suffixed variant at the same depth', () => {
+      const tree: FileTree = {
+        'a/Dockerfile.prod': 'FROM node:20\n',
+        'a/Dockerfile': 'FROM node:20\n',
+      };
+      const result = detectDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('a/Dockerfile');
+    });
   });
 
   // ------------------------------------------------------------------
