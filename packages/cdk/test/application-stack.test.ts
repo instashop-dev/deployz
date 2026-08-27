@@ -641,4 +641,145 @@ describe('ApplicationStack', () => {
       expect(outputs).not.toContain('ExportApplicationTestCacheEndpoint');
     });
   });
+
+  describe('Configurable container contract', () => {
+    it('applies containerPort/healthCheckPath to the task definition and target group (HTTP branch)', () => {
+      const { template } = synth(false, { containerPort: 4000, healthCheckPath: '/api/health' });
+
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        HealthCheckPath: '/api/health',
+        Port: 4000,
+      });
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            PortMappings: Match.arrayWith([Match.objectLike({ ContainerPort: 4000 })]),
+            Environment: Match.arrayWith([{ Name: 'PORT', Value: '4000' }]),
+            HealthCheck: Match.objectLike({
+              Command: Match.arrayWith([
+                Match.stringLikeRegexp('http://localhost:4000/api/health'),
+              ]),
+            }),
+          }),
+        ]),
+      });
+    });
+
+    it('applies containerPort/healthCheckPath to the target group in the HTTPS branch too', () => {
+      const { template } = synth(false, {
+        containerPort: 4000,
+        healthCheckPath: '/api/health',
+        certificateArn: 'arn:aws:acm:us-east-1:111111111111:certificate/test',
+      });
+
+      template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+        HealthCheckPath: '/api/health',
+        Port: 4000,
+      });
+    });
+
+    it('injects containerEnvironment into the App container', () => {
+      const { template } = synth(false, { containerEnvironment: { FOO: 'bar' } });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Environment: Match.arrayWith([{ Name: 'FOO', Value: 'bar' }]),
+          }),
+        ]),
+      });
+    });
+
+    it('creates a NoEcho param_ parameter and wires an ECS secret for each secretParameters entry', () => {
+      const { template } = synth(false, {
+        secretParameters: [
+          { parameterId: 'param_TestSecret', secretKey: 'testSecret', envName: 'TEST_SECRET' },
+        ],
+      });
+
+      const params = appParameters(template);
+      expect(params['paramTestSecret']).toMatchObject({ NoEcho: true, Default: '' });
+
+      // appSecret's SecretString references the new parameter under its
+      // secretKey — same Fn::Join pattern as the two built-in secrets.
+      template.hasResourceProperties('AWS::SecretsManager::Secret', {
+        SecretString: Match.objectLike({
+          'Fn::Join': Match.arrayWith([Match.arrayWith([{ Ref: 'paramTestSecret' }])]),
+        }),
+      });
+
+      // The App container gets an ECS secret named TEST_SECRET, sourced from
+      // the ...:testSecret:: field of the app config secret.
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: 'TEST_SECRET',
+                ValueFrom: Match.objectLike({
+                  'Fn::Join': Match.arrayWith([
+                    Match.arrayWith([Match.stringLikeRegexp('.*:testSecret::')]),
+                  ]),
+                }),
+              }),
+            ]),
+          }),
+        ]),
+      });
+    });
+
+    it('replaces the default curl health check with healthCheckShellCommand', () => {
+      const { template } = synth(false, { healthCheckShellCommand: 'node -e "x"' });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            HealthCheck: Match.objectLike({
+              Command: ['CMD-SHELL', 'node -e "x"'],
+            }),
+          }),
+        ]),
+      });
+    });
+
+    it('applies taskCpu/taskMemoryMiB to the plain-Fargate task definition', () => {
+      const { template } = synth(false, { taskCpu: 512, taskMemoryMiB: 1024 });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        Cpu: '512',
+        Memory: '1024',
+      });
+    });
+
+    it('applies startupGracePeriodSeconds to the container StartPeriod and service grace period', () => {
+      const { template } = synth(false, { startupGracePeriodSeconds: 300 });
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            HealthCheck: Match.objectLike({ StartPeriod: 300 }),
+          }),
+        ]),
+      });
+      template.hasResourceProperties('AWS::ECS::Service', {
+        HealthCheckGracePeriodSeconds: 300,
+      });
+    });
+
+    it('leaves the service grace period at its CDK-derived default (60s, from the attached target group) when startupGracePeriodSeconds is not set', () => {
+      // FargateService itself only ever gets an explicit `healthCheckGracePeriod`
+      // when startupGracePeriodSeconds is set — the "absent" case is proven by
+      // this matching the pre-existing committed snapshot (60s, CDK's own
+      // default once a target group is attached) rather than our own 300s.
+      const { template } = synth(false);
+      template.hasResourceProperties('AWS::ECS::Service', {
+        HealthCheckGracePeriodSeconds: 60,
+      });
+    });
+  });
 });
