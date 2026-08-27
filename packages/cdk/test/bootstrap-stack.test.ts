@@ -332,6 +332,34 @@ describe('BootstrapStack', () => {
     ).toBeDefined();
   });
 
+  it('grants the ELB lookups the domain executor makes unconditionally', () => {
+    const { stack } = synth();
+    const statements = stack.provisionerPolicy.document.toJSON()[
+      'Statement'
+    ] as Array<Record<string, unknown>>;
+
+    const findBySid = (sid: string) => statements.find((s) => s['Sid'] === sid);
+    const actionsOf = (sid: string) => collectActions([findBySid(sid)]);
+
+    // `findTaggedLoadBalancer` calls DescribeLoadBalancers with no ARN filter
+    // and `describeTargetGroups` filters by load balancer, so neither request
+    // carries a resource whose tags IAM can read. A resource-tag condition can
+    // therefore never match, and the grant has to be condition-free — the same
+    // exception the other ELB Describe* actions already take.
+    expect(actionsOf('ProvisionerDomainIngressDescribe')).toContain(
+      'elasticloadbalancing:DescribeLoadBalancers',
+    );
+    expect(actionsOf('ProvisionerDomainIngressDescribe')).toContain(
+      'elasticloadbalancing:DescribeTargetGroups',
+    );
+    expect(actionsOf('ProvisionerAppResourceManage')).not.toContain(
+      'elasticloadbalancing:DescribeLoadBalancers',
+    );
+    expect(actionsOf('ProvisionerAppResourceManage')).not.toContain(
+      'elasticloadbalancing:DescribeTargetGroups',
+    );
+  });
+
   it('grants the relay least-privilege ElastiCache permissions (Redis MVP)', () => {
     const { stack } = synth();
     const actions = collectActions(stack.provisionerPolicy.document.toJSON()['Statement']);

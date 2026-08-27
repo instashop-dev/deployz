@@ -281,6 +281,7 @@ function DomainStatusBody({
             Add these DNS records at your DNS provider. Deployz will automatically continue once
             they&apos;re detected.
           </p>
+          <DomainProgressNotice code={domain.error} />
           <DnsRecordsList records={domain.records} />
           <p className="text-xs text-muted-foreground">DNS changes can take some time to appear.</p>
           <CheckAndRemoveRow
@@ -301,6 +302,7 @@ function DomainStatusBody({
             Your domain is verified. Deployz is configuring HTTPS and connecting it to this
             deployment.
           </p>
+          <DomainProgressNotice code={domain.error} />
           <div className="flex flex-col gap-2">
             <Button type="button" size="sm" variant="ghost" className="self-start" onClick={onToggleRecords}>
               View DNS records
@@ -434,6 +436,23 @@ function CheckAndRemoveRow({
           {checkError}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** The latest check's diagnosis while a domain is still progressing.
+ *  `waiting_for_dns` and `configuring` both record a `lastError` without
+ *  leaving their status, so without this the specific reason — which record
+ *  is missing or wrong — never reaches the customer. Neutral styling, not
+ *  the `error` state's destructive box: a record that has not propagated yet
+ *  is expected, not a failure. */
+function DomainProgressNotice({ code }: { code: string | null }) {
+  const copy = domainErrorCopy(code);
+  if (!copy) return null;
+  return (
+    <div className="rounded-lg border bg-muted/40 px-3 py-2.5">
+      <p className="text-sm font-medium">{copy.title}</p>
+      <p className="mt-0.5 text-sm text-muted-foreground">{copy.body}</p>
     </div>
   );
 }

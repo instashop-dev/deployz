@@ -440,6 +440,13 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
         "SecurityGroupIngress": [
           {
             "CidrIp": "0.0.0.0/0",
+            "Description": "HTTPS for a custom domain attached after install",
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443,
+          },
+          {
+            "CidrIp": "0.0.0.0/0",
             "Description": "Allow from anyone on port 80",
             "FromPort": 80,
             "IpProtocol": "tcp",

@@ -702,6 +702,18 @@ const dbEnv =
         internetFacing: true,
       });
 
+      // Open 443 up front, whether or not a certificate exists at synth time.
+      // A custom domain is attached AFTER install: the relay's CONFIGURE_DOMAIN
+      // adds the HTTPS listener over the ELBv2 API, and that API cannot open
+      // this security group. Without this rule the new listener is unreachable,
+      // the HTTPS probe never succeeds, and the domain never leaves
+      // CONFIGURING. An open port with no listener refuses connections, so
+      // this grants no reachability the listener itself does not.
+      this.loadBalancer.connections.allowFromAnyIpv4(
+        Port.tcp(443),
+        'HTTPS for a custom domain attached after install',
+      );
+
       const certificateArn = props.certificateArn;
       if (certificateArn !== undefined) {
         const httpListener = this.loadBalancer.addListener('HttpListener', {

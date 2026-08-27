@@ -263,6 +263,20 @@ describe('ApplicationStack', () => {
     expect(outputs).toContain('ExportApplicationTestPublicEndpoint');
   });
 
+  it('opens the load balancer on 443 even with no certificate at synth time', () => {
+    // A custom domain is attached AFTER install: the relay adds the HTTPS
+    // listener over the ELBv2 API, which cannot open the load balancer's
+    // security group. Unless 443 is already open, that listener is
+    // unreachable and the domain never leaves CONFIGURING.
+    const { template } = synth();
+
+    template.hasResourceProperties('AWS::EC2::SecurityGroup', {
+      SecurityGroupIngress: Match.arrayWith([
+        Match.objectLike({ CidrIp: '0.0.0.0/0', FromPort: 443, ToPort: 443, IpProtocol: 'tcp' }),
+      ]),
+    });
+  });
+
   it('matches the committed snapshot (plain Fargate)', () => {
     const { template } = synth(false);
     expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();
