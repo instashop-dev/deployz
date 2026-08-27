@@ -152,7 +152,6 @@ const PHASE_2_APP_RESOURCE_ACTIONS = [
   'elasticloadbalancing:DescribeLoadBalancers',
   'elasticloadbalancing:DescribeTargetGroups',
   'elasticloadbalancing:DescribeTargetHealth',
-  'elasticloadbalancing:DescribeAccountLimits',
 ] as const;
 
 /** Phase 2 — custom-domain certificate lifecycle (custom-domains MVP). */
@@ -170,8 +169,6 @@ const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
   'elasticloadbalancing:DescribeRules',
   'elasticloadbalancing:CreateListener',
   'elasticloadbalancing:ModifyListener',
-  'elasticloadbalancing:SetSecurityGroups',
-  'elasticloadbalancing:SetSubnets',
   'elasticloadbalancing:DeleteListener',
   'elasticloadbalancing:AddListenerCertificates',
   'elasticloadbalancing:RemoveListenerCertificates',
@@ -313,9 +310,9 @@ const PROVISION_READ_ACTIONS = [
   'ec2:DescribeAddresses',
   'ec2:DescribeSecurityGroups',
   'ec2:DescribeSecurityGroupRules',
-  // Not a Describe*, and easy to miss for that reason: ELBv2 calls it on
-  // the caller's behalf while creating a load balancer, and a live install
-  // failed with "not authorized to perform: ec2:GetSecurityGroupsForVpc".
+  // Not a Describe*, and easy to miss for that reason: ELBv2 calls it for
+  // the caller while creating a load balancer, and a live install failed
+  // with "not authorized to perform: ec2:GetSecurityGroupsForVpc".
   'ec2:GetSecurityGroupsForVpc',
   'ec2:DescribeAvailabilityZones',
   'ec2:DescribeAccountAttributes',
