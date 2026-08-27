@@ -522,6 +522,12 @@ const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
   'DELETED',
 ]);
 
+// An in-flight INSTALL older than this is dead: the relay polls every 5
+// minutes and a single executor pass fits well inside it, so six missed
+// cycles mean the invocation is never coming back (crashed Lambda, expired
+// container). Only then may retry-install supersede the job.
+const INSTALL_JOB_STALE_AFTER_MS = 30 * 60 * 1000;
+
 /** 409s a deploy/rollback aimed at a deployment that has nothing to deploy
  *  into — the single-deployment mirror of the skip reason deploy-bulk gives. */
 function requireDeployableState(deployment: DeploymentRow): void {
@@ -1956,6 +1962,127 @@ export async function buildServer({
     });
 
     return { installLinkId: deployment.installLinkId };
+  });
+
+  // POST /api/deployments/:id/retry-install — recovery for a failed FIRST
+  // install.
+  //
+  // A terminal-failed application stack (ROLLBACK_COMPLETE, DELETE_FAILED…)
+  // cannot be updated, and its retained RDS/S3 resources block manual
+  // deletion — without this route a failed first install bricks the
+  // deployment until someone cleans the AWS account by hand. The retry
+  // queues a fresh INSTALL job whose payload tells the relay this
+  // deployment never installed successfully, authorizing it to delete the
+  // failed stack and its orphaned blockers before recreating (recovery runs
+  // inside the command; one vendor action, no separate cleanup step).
+  app.post('/api/deployments/:id/retry-install', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+
+    const installJobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'INSTALL'),
+        ),
+      );
+    if (installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS')) {
+      // A deployment that was ever healthy must never receive destructive
+      // recovery — its retained database may hold customer data. A later
+      // failure belongs to deploy/rollback, not to first-install retry.
+      throw new ApiError(
+        409,
+        'INSTALL_ALREADY_SUCCEEDED',
+        'This deployment installed successfully before; use Deploy or Rollback instead.',
+      );
+    }
+
+    const inFlight = installJobs.find((j) =>
+      ['REQUESTED', 'QUEUED', 'RUNNING', 'WAITING'].includes(j.state),
+    );
+    const retryKeyPrefix = `${deployment.id}:INSTALL:RETRY`;
+    const inFlightIsFresh =
+      inFlight !== undefined &&
+      (inFlight.startedAt ?? inFlight.createdAt).getTime() > Date.now() - INSTALL_JOB_STALE_AFTER_MS;
+
+    if (inFlight !== undefined && inFlightIsFresh) {
+      // A double-click on a live retry is an idempotent replay, not a new
+      // attempt — return the queued job rather than a 409.
+      if (inFlight.idempotencyKey.startsWith(retryKeyPrefix)) {
+        return reply.code(200).send({ jobId: inFlight.id, state: inFlight.state });
+      }
+      throw new ApiError(
+        409,
+        'INSTALL_NOT_RETRYABLE',
+        'The current install attempt is still in progress.',
+      );
+    }
+
+    const retryable = deployment.state === 'FAILED' || inFlight !== undefined;
+    if (!retryable) {
+      throw new ApiError(
+        409,
+        'INSTALL_NOT_RETRYABLE',
+        `Deployment is ${deployment.state}, not retryable.`,
+      );
+    }
+
+    if (!deployment.installationId) {
+      throw new ApiError(
+        409,
+        'RELAY_NOT_CONNECTED',
+        'No relay is connected to this deployment. Reconnect it before retrying the install.',
+      );
+    }
+
+    // Attempt-scoped key: the original `${deployment.id}:INSTALL` row is
+    // FAILED and createOrReuseJob would keep returning it. Counting prior
+    // attempts keeps the key deterministic, so a double-click reuses the
+    // same retry job instead of queuing a second one.
+    const idempotencyKey = `${deployment.id}:INSTALL:RETRY:${installJobs.length}`;
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      idempotencyKey,
+      payload: { recovery: { neverInstalled: true } },
+      requestedBy: request.user?.id ?? null,
+    });
+
+    if (created) {
+      await db.transaction(async (tx) => {
+        if (inFlight) {
+          // Superseded (stale RUNNING from a dead relay invocation, or a
+          // queued job the FAILED state outran) — close it so the job list
+          // does not show two live installs.
+          await tx
+            .update(schema.deploymentJobs)
+            .set({ state: 'CANCELLED', finishedAt: new Date() })
+            .where(eq(schema.deploymentJobs.id, inFlight.id));
+        }
+        await tx
+          .update(schema.deployments)
+          .set({ state: 'INSTALLING', updatedBy: request.user?.id ?? null })
+          .where(eq(schema.deployments.id, deployment.id));
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'install.retry.requested',
+          actorType: 'user',
+          actorId: request.user?.id ?? 'system',
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          jobId: job.id,
+          previousState: deployment.state,
+          requestedState: 'INSTALLING',
+          result: 'pending',
+          payload: { supersededJobId: inFlight?.id ?? null },
+        });
+      });
+    }
+
+    return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
   // ── Custom domain (custom-domains MVP) ────────────────────────────────

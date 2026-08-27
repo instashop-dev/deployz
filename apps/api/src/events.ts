@@ -21,6 +21,7 @@ export type DeploymentEventType =
   | 'install.requested'
   | 'install.completed'
   | 'install.failed'
+  | 'install.retry.requested'
   | 'install.enrollment.rejected'
   | 'deploy.requested'
   | 'deploy.completed'

@@ -14,7 +14,13 @@ import {
   type InstallExecutorDeps,
 } from './index.js';
 import { memoryPendingStore } from './pending.js';
-import type { VerificationResult } from './verify.js';
+import {
+  recoverFailedInstallStack,
+  type PhysicalStackResource,
+  type RecoveryCloudFormation,
+  type RdsCleanupClient,
+} from './recover.js';
+import type { StackLookup, VerificationResult } from './verify.js';
 
 // Fast stub for the §59 observe hook — the default falls back to a real
 // CloudFormationReader, which would otherwise reach out to AWS on every
@@ -778,5 +784,218 @@ describe('readInstallParametersFromPayload', () => {
 
   it('ignores a parameters field that is not an object', () => {
     expect(readInstallParametersFromPayload({ parameters: 'nope' })).toEqual({});
+  });
+});
+
+// ── Retried INSTALL: failure → cleanup → retry → successful install ─────────
+
+/**
+ * State-machine actor for the recovery arc: starts at `initial`; the first
+ * delete leaves DELETE_FAILED (the retained DB blocks it); the second delete
+ * lands on `secondDelete` (DELETE_COMPLETE means the stack is GONE — lookups
+ * stop finding it).
+ */
+function arcActor(
+  initial: string,
+  secondDelete: 'DELETE_COMPLETE' | 'DELETE_FAILED' = 'DELETE_COMPLETE',
+): RecoveryCloudFormation & { deleteCalls: string[] } {
+  const deleteCalls: string[] = [];
+  let status = initial;
+
+  return {
+    deleteCalls,
+    async describeStack(): Promise<StackLookup> {
+      if (status === 'DELETE_COMPLETE') {
+        return { found: false, errorCode: 'ValidationError' };
+      }
+      return {
+        found: true,
+        stack: { stackName: 'deployz-app', status, tags: { 'deployz:installation': 'inst-1' } },
+      };
+    },
+    async describeStackResources(): Promise<PhysicalStackResource[]> {
+      return [
+        {
+          logicalId: 'Database',
+          type: 'AWS::RDS::DBInstance',
+          status: 'CREATE_COMPLETE',
+          physicalId: 'arc-db',
+        },
+      ];
+    },
+    async deleteStack(stackName) {
+      deleteCalls.push(stackName);
+      status = deleteCalls.length === 1 ? 'DELETE_FAILED' : secondDelete;
+    },
+  };
+}
+
+function makeRdsFake(): RdsCleanupClient & { unprotected: string[]; deleted: string[] } {
+  const unprotected: string[] = [];
+  const deleted: string[] = [];
+  return {
+    unprotected,
+    deleted,
+    async disableDeletionProtection(id) {
+      unprotected.push(id);
+    },
+    async deleteInstance(id) {
+      deleted.push(id);
+    },
+  };
+}
+
+const ARC_NO_SLEEP = { pollIntervalMs: 0, maxAttempts: 3, sleep: async () => {} };
+
+function makeRecoveryDeps(
+  installDeps: Partial<InstallExecutorDeps>,
+  recoverDeps: { actor: RecoveryCloudFormation; rds?: RdsCleanupClient },
+): InstallExecutorDeps {
+  return {
+    installationId: 'inst-1',
+    templateUrl: 'https://example.com/application-template-v1.json',
+    install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+    verify: async () => ({ verified: true, checks: [] }),
+    pending: memoryPendingStore(),
+    ...(recoverDeps.rds
+      ? {
+          recover: (stackName: string) =>
+            recoverFailedInstallStack(
+              {
+                cfn: recoverDeps.actor,
+                rds: recoverDeps.rds,
+                wait: ARC_NO_SLEEP,
+              },
+              { stackName },
+            ),
+        }
+      : {}),
+    ...installDeps,
+  };
+}
+
+describe('createInstallExecutor — recovery arc', () => {
+  const retryCommand = {
+    id: 'job-retry-1',
+    deploymentId: 'dep-retry',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-retry:INSTALL:RETRY:1',
+    payload: { recovery: { neverInstalled: true } },
+  };
+
+  it('recovers a bricked stack, recreates it, and verifies: failure → cleanup → retry → healthy', async () => {
+    const actor = arcActor('ROLLBACK_COMPLETE');
+    const rds = makeRdsFake();
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    const result = await createInstallExecutor(
+      makeRecoveryDeps({ install }, { actor, rds }),
+    )(retryCommand);
+
+    expect(result.success).toBe(true);
+    expect(actor.deleteCalls).toEqual(['deployz-app', 'deployz-app']);
+    expect(rds.unprotected).toEqual(['arc-db']);
+    expect(rds.deleted).toEqual(['arc-db']);
+    expect(install).toHaveBeenCalledOnce();
+    expect(result.output).toMatchObject({
+      recovery: { phase: 'BLOCKERS_CLEARED_STACK_GONE', orphansDeleted: ['arc-db'] },
+    });
+  });
+
+  it('reports an honest failure and deletes nothing when no recovery is requested', async () => {
+    const actor = arcActor('ROLLBACK_COMPLETE');
+    const rds = makeRdsFake();
+
+    const result = await createInstallExecutor(
+      makeRecoveryDeps(
+        {
+          install: async () => ({
+            state: 'failed' as const,
+            status: 'ROLLBACK_COMPLETE',
+            reason: 'Stack "deployz-app" finished in ROLLBACK_COMPLETE',
+            outputs: {},
+          }),
+        },
+        { actor, rds },
+      ),
+    )({ ...retryCommand, payload: {} });
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toContain('ROLLBACK_COMPLETE');
+    expect(actor.deleteCalls).toHaveLength(0);
+    expect(rds.deleted).toHaveLength(0);
+    expect(result.output).not.toHaveProperty('recovery');
+  });
+
+  it('falls through honestly when recovery refuses a live stack', async () => {
+    const actor = arcActor('CREATE_COMPLETE');
+    const rds = makeRdsFake();
+
+    const result = await createInstallExecutor(
+      makeRecoveryDeps(
+        {
+          install: async () => ({
+            state: 'succeeded' as const,
+            status: 'CREATE_COMPLETE',
+            outputs: {},
+          }),
+        },
+        { actor, rds },
+      ),
+    )(retryCommand);
+
+    expect(result.success).toBe(true);
+    expect(actor.deleteCalls).toHaveLength(0);
+    expect(rds.deleted).toHaveLength(0);
+    expect(result.output).toMatchObject({ recovery: { phase: 'REFUSED_LIVE_STACK' } });
+  });
+
+  it('returns the recovery report when the stack stays stuck after cleanup', async () => {
+    const actor = arcActor('DELETE_FAILED', 'DELETE_FAILED');
+    const rds = makeRdsFake();
+
+    const result = await createInstallExecutor(
+      makeRecoveryDeps(
+        {
+          install: async () => ({
+            state: 'failed' as const,
+            status: 'DELETE_FAILED',
+            reason: 'Stack "deployz-app" finished in DELETE_FAILED',
+            outputs: {},
+          }),
+        },
+        { actor, rds },
+      ),
+    )(retryCommand);
+
+    expect(result.success).toBe(false);
+    expect(result.output).toMatchObject({ recovery: { phase: 'DELETE_STUCK' } });
+  });
+
+  it('skips recovery entirely when no recover seam is wired', async () => {
+    const actor = arcActor('ROLLBACK_COMPLETE');
+
+    const result = await createInstallExecutor(
+      makeRecoveryDeps(
+        {
+          install: async () => ({
+            state: 'failed' as const,
+            status: 'ROLLBACK_COMPLETE',
+            reason: 'Stack "deployz-app" finished in ROLLBACK_COMPLETE',
+            outputs: {},
+          }),
+        },
+        { actor },
+      ),
+    )(retryCommand);
+
+    expect(result.success).toBe(false);
+    expect(actor.deleteCalls).toHaveLength(0);
+    expect(result.output).not.toHaveProperty('recovery');
   });
 });
