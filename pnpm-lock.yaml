@@ -320,6 +320,12 @@ importers:
       '@aws-sdk/client-elastic-load-balancing-v2':
         specifier: ^3.1115.0
         version: 3.1115.0
+      '@aws-sdk/client-elasticache':
+        specifier: ^3.1115.0
+        version: 3.1118.0
+      '@aws-sdk/client-rds':
+        specifier: ^3.1115.0
+        version: 3.1116.0
       '@aws-sdk/client-secrets-manager':
         specifier: ^3.1115.0
         version: 3.1115.0
