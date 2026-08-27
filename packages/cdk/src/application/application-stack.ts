@@ -586,6 +586,15 @@ export class ApplicationStack extends Stack {
       const taskDefinition = new FargateTaskDefinition(this, 'TaskDefinition', {
         memoryLimitMiB: 512,
         cpu: 256,
+        // Without this, CDK auto-creates a second execution role and grants
+        // it only what it can infer. `ContainerImage.fromRegistry` is an
+        // opaque string, so CDK cannot tell the image lives in ECR and
+        // grants no pull permissions at all — which is fine for a public
+        // image and fatal for a vendor's own build. `taskExecutionRole`
+        // carries AmazonECSTaskExecutionRolePolicy, and until now was
+        // created and used only by the Express branch.
+        executionRole: taskExecutionRole,
+        taskRole,
         runtimePlatform: {
           operatingSystemFamily: OperatingSystemFamily.LINUX,
           cpuArchitecture: CpuArchitecture.X86_64,
@@ -700,6 +709,8 @@ export class ApplicationStack extends Stack {
           {
             memoryLimitMiB: 512,
             cpu: 256,
+            executionRole: taskExecutionRole,
+            taskRole,
             runtimePlatform: {
               operatingSystemFamily: OperatingSystemFamily.LINUX,
               cpuArchitecture: CpuArchitecture.X86_64,

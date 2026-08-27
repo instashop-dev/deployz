@@ -740,6 +740,19 @@
               "Resource": {
                 "Ref": "AppConfigSecret251CAC1E"
               }
+            },
+            {
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "AppLogGroup7D8CD952",
+                  "Arn"
+                ]
+              }
             }
           ],
           "Version": "2012-10-17"
@@ -845,29 +858,6 @@
         "Roles": [
           {
             "Ref": "TaskRole30FC0FBB"
-          }
-        ]
-      }
-    },
-    "TaskDefinitionTaskRoleFD40A61D": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Statement": [
-            {
-              "Action": "sts:AssumeRole",
-              "Effect": "Allow",
-              "Principal": {
-                "Service": "ecs-tasks.amazonaws.com"
-              }
-            }
-          ],
-          "Version": "2012-10-17"
-        },
-        "Tags": [
-          {
-            "Key": "deployz:component",
-            "Value": "application"
           }
         ]
       }
@@ -994,7 +984,7 @@
         "Cpu": "256",
         "ExecutionRoleArn": {
           "Fn::GetAtt": [
-            "TaskDefinitionExecutionRole8D61C2FB",
+            "TaskExecutionRole250D2532",
             "Arn"
           ]
         },
@@ -1016,82 +1006,10 @@
         ],
         "TaskRoleArn": {
           "Fn::GetAtt": [
-            "TaskDefinitionTaskRoleFD40A61D",
+            "TaskRole30FC0FBB",
             "Arn"
           ]
         }
-      }
-    },
-    "TaskDefinitionExecutionRole8D61C2FB": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Statement": [
-            {
-              "Action": "sts:AssumeRole",
-              "Effect": "Allow",
-              "Principal": {
-                "Service": "ecs-tasks.amazonaws.com"
-              }
-            }
-          ],
-          "Version": "2012-10-17"
-        },
-        "Tags": [
-          {
-            "Key": "deployz:component",
-            "Value": "application"
-          }
-        ]
-      }
-    },
-    "TaskDefinitionExecutionRoleDefaultPolicy1F3406F5": {
-      "Type": "AWS::IAM::Policy",
-      "Properties": {
-        "PolicyDocument": {
-          "Statement": [
-            {
-              "Action": [
-                "logs:CreateLogStream",
-                "logs:PutLogEvents"
-              ],
-              "Effect": "Allow",
-              "Resource": {
-                "Fn::GetAtt": [
-                  "AppLogGroup7D8CD952",
-                  "Arn"
-                ]
-              }
-            },
-            {
-              "Action": [
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:DescribeSecret"
-              ],
-              "Effect": "Allow",
-              "Resource": {
-                "Ref": "DatabaseSecret86DBB7B3"
-              }
-            },
-            {
-              "Action": [
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:DescribeSecret"
-              ],
-              "Effect": "Allow",
-              "Resource": {
-                "Ref": "AppConfigSecret251CAC1E"
-              }
-            }
-          ],
-          "Version": "2012-10-17"
-        },
-        "PolicyName": "TaskDefinitionExecutionRoleDefaultPolicy1F3406F5",
-        "Roles": [
-          {
-            "Ref": "TaskDefinitionExecutionRole8D61C2FB"
-          }
-        ]
       }
     },
     "ServiceD69D759B": {
@@ -1163,7 +1081,8 @@
       "DependsOn": [
         "LoadBalancerHttpListenerAppTargetsGroup7AAD0468",
         "LoadBalancerHttpListener22970844",
-        "TaskDefinitionTaskRoleFD40A61D"
+        "TaskRoleDefaultPolicy07FC53DE",
+        "TaskRole30FC0FBB"
       ]
     },
     "ServiceSecurityGroupC96ED6A7": {
@@ -1188,7 +1107,8 @@
         }
       },
       "DependsOn": [
-        "TaskDefinitionTaskRoleFD40A61D"
+        "TaskRoleDefaultPolicy07FC53DE",
+        "TaskRole30FC0FBB"
       ]
     },
     "ServiceSecurityGroupfromDeployzApplicationLoadBalancerSecurityGroup2327DB2A3000AB5BC619": {
@@ -1212,7 +1132,8 @@
         "ToPort": 3000
       },
       "DependsOn": [
-        "TaskDefinitionTaskRoleFD40A61D"
+        "TaskRoleDefaultPolicy07FC53DE",
+        "TaskRole30FC0FBB"
       ]
     },
     "LoadBalancerBE9EEC3A": {

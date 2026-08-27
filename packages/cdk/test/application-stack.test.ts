@@ -133,6 +133,36 @@ describe('ApplicationStack', () => {
     }
   });
 
+  it('runs tasks under the execution role that can pull the image', () => {
+    const { template } = synth();
+
+    // The stack builds a TaskExecutionRole carrying
+    // AmazonECSTaskExecutionRolePolicy — the grant that includes
+    // ecr:GetAuthorizationToken. In plain-Fargate mode that role used to be
+    // created and then never wired up: CDK auto-generated a second
+    // execution role for the task definition, and because the image is a
+    // plain registry string CDK could not tell it was ECR and granted no
+    // pull permissions. A live install got all the way to the ECS service
+    // and stalled there, unable to pull its own image.
+    const roles = template.findResources('AWS::IAM::Role');
+    const withEcsExecutionPolicy = Object.entries(roles).filter(([, role]) =>
+      JSON.stringify(role['Properties']?.['ManagedPolicyArns'] ?? '').includes(
+        'AmazonECSTaskExecutionRolePolicy',
+      ),
+    );
+    expect(withEcsExecutionPolicy).toHaveLength(1);
+    const [executionRoleId] = withEcsExecutionPolicy[0]!;
+
+    const taskDefinitions = template.findResources('AWS::ECS::TaskDefinition');
+    expect(Object.keys(taskDefinitions).length).toBeGreaterThan(0);
+    for (const [id, definition] of Object.entries(taskDefinitions)) {
+      expect(
+        JSON.stringify(definition['Properties']?.['ExecutionRoleArn'] ?? ''),
+        `${id} must run under the execution role that can pull the image`,
+      ).toContain(executionRoleId);
+    }
+  });
+
   it('creates a versioned S3 bucket for object storage', () => {
     const { template } = synth();
     template.resourceCountIs('AWS::S3::Bucket', 1);
