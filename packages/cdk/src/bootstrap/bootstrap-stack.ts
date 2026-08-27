@@ -149,8 +149,6 @@ const PHASE_2_APP_RESOURCE_ACTIONS = [
   'rds:ModifyDBInstance',
   'rds:DeleteDBInstance',
   'rds:DescribeDBInstances',
-  'elasticloadbalancing:DescribeLoadBalancers',
-  'elasticloadbalancing:DescribeTargetGroups',
   'elasticloadbalancing:DescribeTargetHealth',
 ] as const;
 
@@ -161,8 +159,17 @@ const PHASE_2_ACM_MANAGE_ACTIONS = [
   'acm:DeleteCertificate',
   'acm:ListTagsForCertificate',
 ] as const;
-/** Phase 2 — custom-domain HTTPS listener management on the deployment's ALB. */
+/**
+ * Phase 2 — find the deployment's ALB and manage its HTTPS listener
+ * (custom-domains MVP). The two lookups the domain executor starts from —
+ * DescribeLoadBalancers (unfiltered) and DescribeTargetGroups (filtered by
+ * load balancer) — belong here, not in PHASE_2_APP_RESOURCE_ACTIONS: neither
+ * request names a resource, so IAM has no tags to read and the resource-tag
+ * condition that statement carries could never match.
+ */
 const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
+  'elasticloadbalancing:DescribeLoadBalancers',
+  'elasticloadbalancing:DescribeTargetGroups',
   'elasticloadbalancing:DescribeListeners',
   'elasticloadbalancing:DescribeListenerCertificates',
   'elasticloadbalancing:DescribeTags',

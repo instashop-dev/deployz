@@ -77,8 +77,6 @@ export const PHASE_2_APP_RESOURCE_ACTIONS = [
   'rds:ModifyDBInstance',
   'rds:DeleteDBInstance',
   'rds:DescribeDBInstances',
-  'elasticloadbalancing:DescribeLoadBalancers',
-  'elasticloadbalancing:DescribeTargetGroups',
   'elasticloadbalancing:DescribeTargetHealth',
 ] as const;
 
@@ -97,6 +95,8 @@ export const PHASE_2_ACM_MANAGE_ACTIONS = [
 
 /** Phase 2 — attach the certificate to the deployment's load balancer (custom-domains MVP). */
 export const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
+  'elasticloadbalancing:DescribeLoadBalancers',
+  'elasticloadbalancing:DescribeTargetGroups',
   'elasticloadbalancing:DescribeListeners',
   'elasticloadbalancing:DescribeListenerCertificates',
   'elasticloadbalancing:DescribeTags',
