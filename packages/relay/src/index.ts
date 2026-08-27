@@ -44,6 +44,16 @@ import {
 } from './pending.js';
 import { pollOnce, type PollDependencies } from './poll.js';
 import {
+  createRealCacheCleanupClient,
+  createRealRdsCleanupClient,
+  createRecoveryCloudFormation,
+  recoverFailedInstallStack,
+  type CacheCleanupClient,
+  type RecoveryCloudFormation,
+  type RecoveryReport,
+  type RdsCleanupClient,
+} from './recover.js';
+import {
   createCloudFormationReader,
   verifyInstallation,
   type CloudFormationReader,
@@ -98,6 +108,33 @@ function getPendingStore(installationId: string): PendingStore {
       : memoryPendingStore();
   }
   return pendingStore;
+}
+
+// Recovery clients follow the same lazy idiom: constructed on the first
+// retried INSTALL, never at module load.
+let recoveryCloudFormation: RecoveryCloudFormation | undefined;
+let rdsCleanupClient: RdsCleanupClient | undefined;
+let cacheCleanupClient: CacheCleanupClient | undefined;
+
+function getRecoveryCloudFormation(): RecoveryCloudFormation {
+  if (!recoveryCloudFormation) {
+    recoveryCloudFormation = createRecoveryCloudFormation();
+  }
+  return recoveryCloudFormation;
+}
+
+function getRdsCleanupClient(): RdsCleanupClient {
+  if (!rdsCleanupClient) {
+    rdsCleanupClient = createRealRdsCleanupClient();
+  }
+  return rdsCleanupClient;
+}
+
+function getCacheCleanupClient(): CacheCleanupClient {
+  if (!cacheCleanupClient) {
+    cacheCleanupClient = createRealCacheCleanupClient();
+  }
+  return cacheCleanupClient;
 }
 
 // ── Default command executors ────────────────────────────────────────────────
@@ -193,6 +230,12 @@ export interface InstallExecutorDeps {
   readonly install: (options: InstallRequest) => Promise<InstallOutcome>;
   readonly verify: (options: VerifyRequest) => Promise<VerificationResult>;
   readonly pending: PendingStore;
+  /**
+   * First-install recovery. Runs before `install`, and only when the command
+   * payload carries `recovery.neverInstalled` — the control plane sets that
+   * on its retry-install route, after proving no INSTALL ever succeeded.
+   */
+  readonly recover?: (stackName: string) => Promise<RecoveryReport>;
   /** CloudFormation execution role ARN (`role/deployz/*`), when configured. */
   readonly executionRoleArn?: string;
   /** Clock for the pending marker's `startedAt`. */
@@ -287,6 +330,41 @@ async function settleInstall(
 }
 
 /**
+ * Run the requested first-install recovery, if the command asked for one.
+ *
+ * The payload flag is control-plane-shaped (`Record<string, unknown>`), so
+ * it is checked defensively — anything other than an explicit `true` means
+ * no recovery, and a command with no `recover` seam (e.g. a test double)
+ * skips it rather than crashing.
+ *
+ * A refusal phase (live or in-progress stack) is not an error: recovery
+ * falls through and `settleInstall` reports the stack's real state honestly.
+ */
+async function runRequestedRecovery(
+  deps: InstallExecutorDeps,
+  command: RelayCommand,
+  stackName: string,
+): Promise<RecoveryReport | undefined> {
+  const recovery = command.payload['recovery'] as { neverInstalled?: unknown } | undefined;
+  if (recovery?.neverInstalled !== true || !deps.recover) {
+    return undefined;
+  }
+
+  const report = await deps.recover(stackName);
+  console.log(
+    JSON.stringify({
+      event: 'relay:install-recovery',
+      commandId: command.id,
+      installationId: deps.installationId,
+      phase: report.phase,
+      lastStackStatus: report.lastStackStatus,
+      orphansDeleted: report.orphansDeleted,
+    }),
+  );
+  return report;
+}
+
+/**
  * The INSTALL executor: provision the application stack, then prove it.
  *
  * Unlike `createVerifyingExecutor`, which only ever looked, this one
@@ -315,16 +393,21 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
     }
 
     const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? DEFAULT_STACK_NAME;
+    const recoveryReport = await runRequestedRecovery(deps, command, stackName);
     const settled = await settleInstall(deps, { stackName, payload: command.payload });
 
     if (!settled.deferred) {
       logInstall(command, stackName, settled.success, settled.error);
+      const output = {
+        ...settled.output,
+        ...(recoveryReport ? { recovery: recoveryReport } : {}),
+      };
       return settled.success
         ? {
             commandId: command.id,
             idempotencyKey: command.idempotencyKey,
             success: true,
-            output: { executed: true, type: command.type, ...settled.output },
+            output: { executed: true, type: command.type, ...output },
           }
         : {
             commandId: command.id,
@@ -332,7 +415,7 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
             success: false,
             error: settled.error ?? 'Installation could not be verified',
             failureCode: 'STACK_CREATE_FAILED',
-            output: settled.output,
+            output,
           };
     }
 
@@ -554,6 +637,15 @@ function createDefaultInstallDeps(installationId: string): InstallExecutorDeps {
       }),
     verify: (options) => verifyInstallation({ ...options, cfn: getCloudFormationReader() }),
     pending: getPendingStore(installationId),
+    recover: (stackName) =>
+      recoverFailedInstallStack(
+        {
+          cfn: getRecoveryCloudFormation(),
+          rds: getRdsCleanupClient(),
+          cache: getCacheCleanupClient(),
+        },
+        { stackName },
+      ),
   };
 }
 
