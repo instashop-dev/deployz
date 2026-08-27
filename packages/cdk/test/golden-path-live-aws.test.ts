@@ -464,17 +464,39 @@ liveAws('§67 Phase 4 — live AWS Redis cache provisioning (redisRequired: true
  * Verification against the real account.
  *
  * On 2026-08-26 installation c2dca2bb reported HEALTHY in the control plane
- * with nothing provisioned behind it. This asserts the verifier calls that
- * what it is. It SHOULD start failing once a real INSTALL provisions the
- * stack — at which point update the expectation rather than deleting it.
+ * with nothing provisioned behind it, and this suite asserted the verifier
+ * called that what it was. On 2026-08-27 a real INSTALL provisioned the
+ * stack, so the expectation is updated rather than deleted — as the design
+ * note said it should be.
+ *
+ * What it proves now is the harder half. "Not verified" is easy to be right
+ * about when an account is empty; a verifier that always said no would have
+ * passed the old test. These two cases pin it down from both sides: the
+ * installation that IS provisioned verifies, and an installation that is
+ * not still does not.
  */
 liveAws('installation verification (live)', () => {
   const INSTALLATION = process.env.DEPLOYZ_LIVE_INSTALLATION_ID ?? 'c2dca2bb-a733-470d-8ef0-8e96bc889442';
 
-  it('reports an unprovisioned installation as not verified', async () => {
+  it('verifies a provisioned installation', async () => {
     const result = await verifyInstallation({
       cfn: createCloudFormationReader(REGION),
       installationId: INSTALLATION,
+    });
+
+    expect(result.reason).toBeUndefined();
+    expect(result.verified).toBe(true);
+    // Every check that makes an installation real, not just the stack.
+    for (const name of ['stack-exists', 'stack-complete', 'stack-tagged', 'compute', 'ingress', 'database', 'storage']) {
+      expect(result.checks.find((check) => check.name === name)?.passed, name).toBe(true);
+    }
+  }, 60_000);
+
+  it('does not verify an installation that was never provisioned', async () => {
+    const result = await verifyInstallation({
+      cfn: createCloudFormationReader(REGION),
+      installationId: INSTALLATION,
+      stackName: 'deployz-app-does-not-exist',
     });
 
     expect(result.verified).toBe(false);

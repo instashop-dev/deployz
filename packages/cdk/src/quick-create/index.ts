@@ -24,17 +24,23 @@ export type { ZipEntry } from './zip.js';
 export type { RepackOptions, RepackResult } from './repack.js';
 
 export {
+  APPLICATION_TEMPLATE_KEY,
+  ApplicationPublisher,
   BootstrapPublisher,
   createRealS3Client,
+  synthesizeApplicationStack,
   synthesizeBootstrapStack,
   readBundledIndexMjs,
 } from './publish.js';
 export type {
+  ApplicationPublishResult,
   S3Client,
   TemplateAsset,
   SynthOutput,
   SynthesizeOptions,
+  SynthesizeApplicationOptions,
   AssetReader,
+  PublishApplicationOptions,
   PublishBootstrapOptions,
   PublishResult,
 } from './publish.js';

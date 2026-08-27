@@ -4,7 +4,16 @@ import type { ScheduledEvent } from 'aws-lambda';
 
 import { type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
-import { createRelayHandler, createVerifyingExecutor, readVerifyOptionsFromPayload } from './index.js';
+import {
+  createInstallExecutor,
+  createInstallResumer,
+  createRelayHandler,
+  createVerifyingExecutor,
+  readInstallParametersFromPayload,
+  readVerifyOptionsFromPayload,
+  type InstallExecutorDeps,
+} from './index.js';
+import { memoryPendingStore } from './pending.js';
 import type { VerificationResult } from './verify.js';
 
 // Fast stub for the §59 observe hook — the default falls back to a real
@@ -450,5 +459,324 @@ describe('readVerifyOptionsFromPayload', () => {
 
   it('reads redisRequired: false explicitly, not just truthy values', () => {
     expect(readVerifyOptionsFromPayload({ redisRequired: false })).toEqual({ redisRequired: false });
+  });
+});
+
+// ── The real INSTALL executor: provision, then prove it ──────────────────────
+
+describe('createInstallExecutor', () => {
+  const command = {
+    id: 'cmd-1',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {},
+  };
+
+  const verified: VerificationResult = {
+    verified: true,
+    checks: [{ name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' }],
+  };
+
+  function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/application-template-v1.json',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => verified,
+      pending: memoryPendingStore(),
+      now: () => '2026-08-26T12:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('creates the stack and reports success once verification agrees', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: { 'deployz-app-PublicEndpoint': 'app.example.com' },
+    }));
+
+    const result = await createInstallExecutor(makeInstallDeps({ install }))(command);
+
+    expect(install).toHaveBeenCalledOnce();
+    expect(result.success).toBe(true);
+    expect(result.output).toMatchObject({
+      stackStatus: 'CREATE_COMPLETE',
+      outputs: { 'deployz-app-PublicEndpoint': 'app.example.com' },
+      checks: expect.any(Array),
+    });
+  });
+
+  it('passes the template URL, execution role and installation to the installer', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(
+      makeInstallDeps({ install, executionRoleArn: 'arn:aws:iam::1:role/deployz/exec' }),
+    )(command);
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/application-template-v1.json',
+      executionRoleArn: 'arn:aws:iam::1:role/deployz/exec',
+      stackName: 'deployz-app',
+    });
+  });
+
+  it('reports the CloudFormation failure, and does not verify a stack that rolled back', async () => {
+    const verify = vi.fn(async () => verified);
+    const result = await createInstallExecutor(
+      makeInstallDeps({
+        verify,
+        install: async () => ({
+          state: 'failed',
+          status: 'ROLLBACK_COMPLETE',
+          reason: 'Stack "deployz-app" finished in ROLLBACK_COMPLETE - image pull failed',
+          outputs: {},
+        }),
+      }),
+    )(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toContain('image pull failed');
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it('fails when CloudFormation says complete but verification disagrees', async () => {
+    const result = await createInstallExecutor(
+      makeInstallDeps({
+        verify: async () => ({
+          verified: false,
+          checks: [{ name: 'compute', passed: false, detail: 'No complete ECS service' }],
+          reason: 'No complete ECS service',
+        }),
+      }),
+    )(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toContain('ECS service');
+  });
+
+  it('defers - reporting nothing - while the stack is still creating', async () => {
+    const result = await createInstallExecutor(
+      makeInstallDeps({
+        install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }),
+      }),
+    )(command);
+
+    expect(result.deferred).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBeUndefined();
+  });
+
+  it('records what it owes an answer to before deferring', async () => {
+    const pending = memoryPendingStore();
+
+    await createInstallExecutor(
+      makeInstallDeps({
+        pending,
+        install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }),
+      }),
+    )({ ...command, payload: { redisRequired: true } });
+
+    expect(await pending.read()).toEqual({
+      commandId: 'cmd-1',
+      idempotencyKey: 'dep-1:INSTALL',
+      type: 'INSTALL',
+      stackName: 'deployz-app',
+      startedAt: '2026-08-26T12:00:00.000Z',
+      payload: { redisRequired: true },
+    });
+  });
+
+  it('fails rather than defers when the marker cannot be persisted', async () => {
+    const pending = memoryPendingStore();
+    pending.write = async () => false;
+
+    const result = await createInstallExecutor(
+      makeInstallDeps({
+        pending,
+        install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }),
+      }),
+    )(command);
+
+    // Deferring without a durable marker would strand the job in RUNNING
+    // forever - nothing would ever come back to report on it.
+    expect(result.deferred).toBeUndefined();
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+  });
+
+  it('honours a stack name override from the payload', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: { stackName: 'deployz-app-staging' },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({ stackName: 'deployz-app-staging' });
+  });
+
+  it('refuses to install without a published template URL', async () => {
+    const install = vi.fn();
+
+    const result = await createInstallExecutor(
+      makeInstallDeps({ install, templateUrl: '' }),
+    )(command);
+
+    expect(install).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toMatch(/template/i);
+  });
+});
+
+describe('createInstallResumer', () => {
+  const pendingRecord = {
+    commandId: 'cmd-1',
+    idempotencyKey: 'dep-1:INSTALL',
+    type: 'INSTALL',
+    stackName: 'deployz-app',
+    startedAt: '2026-08-26T12:00:00.000Z',
+    payload: {},
+  };
+
+  function makeResumeDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: memoryPendingStore(),
+      now: () => '2026-08-26T12:05:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('reports nothing when no command is owed', async () => {
+    await expect(createInstallResumer(makeResumeDeps())()).resolves.toEqual([]);
+  });
+
+  it('reports the finished result against the original command id', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+
+    const results = await createInstallResumer(makeResumeDeps({ pending }))();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      commandId: 'cmd-1',
+      idempotencyKey: 'dep-1:INSTALL',
+      success: true,
+    });
+  });
+
+  it('clears the marker once the result has been produced', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+
+    await createInstallResumer(makeResumeDeps({ pending }))();
+
+    expect(await pending.read()).toBeNull();
+  });
+
+  it('keeps waiting, and keeps the marker, while the stack is still creating', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+
+    const results = await createInstallResumer(
+      makeResumeDeps({
+        pending,
+        install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }),
+      }),
+    )();
+
+    expect(results).toEqual([]);
+    expect(await pending.read()).toEqual(pendingRecord);
+  });
+
+  it('resumes against the stack the original command targeted', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({ ...pendingRecord, stackName: 'deployz-app-staging' });
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallResumer(makeResumeDeps({ pending, install }))();
+
+    expect(install.mock.calls[0]![0]).toMatchObject({ stackName: 'deployz-app-staging' });
+  });
+
+  it('carries the original payload into the resumed verification', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({ ...pendingRecord, payload: { redisRequired: true } });
+    const verify = vi.fn(async () => ({ verified: true, checks: [] }));
+
+    await createInstallResumer(makeResumeDeps({ pending, verify }))();
+
+    expect(verify.mock.calls[0]![0]).toMatchObject({ redisRequired: true });
+  });
+
+  it('reports a failed stack against the original command id', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+
+    const results = await createInstallResumer(
+      makeResumeDeps({
+        pending,
+        install: async () => ({
+          state: 'failed',
+          status: 'ROLLBACK_COMPLETE',
+          reason: 'rolled back',
+          outputs: {},
+        }),
+      }),
+    )();
+
+    expect(results[0]).toMatchObject({
+      commandId: 'cmd-1',
+      success: false,
+      failureCode: 'STACK_CREATE_FAILED',
+    });
+  });
+});
+
+describe('readInstallParametersFromPayload', () => {
+  it('forwards string parameters the control plane supplied', () => {
+    expect(
+      readInstallParametersFromPayload({
+        parameters: { paramAppApiKey: 'k', paramAppSigningSecret: 's' },
+      }),
+    ).toEqual({ paramAppApiKey: 'k', paramAppSigningSecret: 's' });
+  });
+
+  it('is empty when the payload carries no parameters', () => {
+    expect(readInstallParametersFromPayload({})).toEqual({});
+  });
+
+  it('drops non-string values rather than sending them to CloudFormation', () => {
+    // Every CloudFormation parameter value is a string. A number or an
+    // object here is a control-plane bug, and passing it through would
+    // surface as an opaque ValidationError mid-install.
+    expect(
+      readInstallParametersFromPayload({ parameters: { a: 'ok', b: 7, c: null } }),
+    ).toEqual({ a: 'ok' });
+  });
+
+  it('ignores a parameters field that is not an object', () => {
+    expect(readInstallParametersFromPayload({ parameters: 'nope' })).toEqual({});
   });
 });

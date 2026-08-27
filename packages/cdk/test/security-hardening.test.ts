@@ -220,7 +220,7 @@ describe('Security: permissions boundary', () => {
     expect(boundaryActions).toContain('iam:PassRole');
   });
 
-  it('the provisioner policy is DEFINED but NOT attached at install time', () => {
+  it('the provisioner policy is attached, and capped by the boundary', () => {
     const { stack } = synth();
     const resources = allResources(Template.fromStack(stack));
     const relayRole = Object.values(resources).find(
@@ -230,8 +230,16 @@ describe('Security: permissions boundary', () => {
     // The provisioner policy exists as a standalone ManagedPolicy.
     expect(stack.provisionerPolicy).toBeDefined();
 
-    // But it is NOT attached to the relay role at install time.
-    expect(relayRole?.Properties?.['ManagedPolicyArns']).toBeUndefined();
+    // And it is attached to the relay role. This test used to assert the
+    // opposite, on the two-phase theory that the control plane would attach
+    // it after the relay's first contact. Nothing can: §15 forbids Deployz
+    // from holding credentials in the customer's account, so no principal
+    // exists that could make the call — which left the relay permanently
+    // unable to call cloudformation:CreateStack. The security property that
+    // matters is not the delay, it is the ceiling: the role still carries
+    // the permissions boundary, asserted below and in the next test.
+    expect(relayRole?.Properties?.['ManagedPolicyArns']).toBeDefined();
+    expect(relayRole?.Properties?.['PermissionsBoundary']).toBeDefined();
   });
 
   it('the boundary caps the relay role forever (phase 2 cannot exceed it)', () => {

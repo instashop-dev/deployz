@@ -4,24 +4,30 @@
 # /health endpoint and a PostgreSQL connection, deployed by the integration
 # suite to prove the INSTALL flow reaches HEALTHY.
 #
-# Build from the repository root:
-#   docker build -f packages/fixture/Dockerfile -t deployz-fixture .
+# The build context is THIS directory, not the repository root. The build
+# pipeline derives the context from the Dockerfile's own location
+# (`dirname "$DOCKERFILE_PATH"`, see packages/cdk/src/pipeline/build-pipeline.ts),
+# so a Dockerfile that reached up into the repo for tsconfig.base.json could
+# not be built by the pipeline that has to build it.
+#
+#   docker build -t deployz-fixture packages/fixture
 
 # ── Stage 1: compile TypeScript ──────────────────────────────────────────
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY tsconfig.base.json ./
-COPY packages/fixture/package.json ./packages/fixture/package.json
-COPY packages/fixture/tsconfig.json ./packages/fixture/tsconfig.json
-COPY packages/fixture/src ./packages/fixture/src
-WORKDIR /app/packages/fixture
-RUN npm install && npm run build
+COPY package.json tsconfig.build.json ./
+COPY src ./src
+RUN npm install && npx tsc -p tsconfig.build.json
 
 # ── Stage 2: production runtime ──────────────────────────────────────────
 FROM node:22-alpine AS runtime
 WORKDIR /app
-COPY --from=build /app/packages/fixture/dist ./dist
-COPY --from=build /app/packages/fixture/package.json ./package.json
+# The ECS task definition's health check shells out to curl, which the base
+# image does not carry. Without it every task is marked unhealthy, the
+# deployment circuit breaker fires, and CloudFormation rolls the stack back.
+RUN apk add --no-cache curl
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/package.json ./package.json
 RUN npm install --omit=dev && npm cache clean --force
 ENV NODE_ENV=production
 ENV PORT=3000

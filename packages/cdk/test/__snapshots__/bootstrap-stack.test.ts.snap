@@ -3,6 +3,17 @@
 exports[`BootstrapStack > matches the committed snapshot 1`] = `
 {
   "Outputs": {
+    "ExportBootstrapTestApplicationExecutionRoleArn": {
+      "Export": {
+        "Name": "BootstrapTest-ApplicationExecutionRoleArn",
+      },
+      "Value": {
+        "Fn::GetAtt": [
+          "ApplicationExecutionRoleB4697B7D",
+          "Arn",
+        ],
+      },
+    },
     "ExportBootstrapTestCredentialSecretArn": {
       "Export": {
         "Name": "BootstrapTest-CredentialSecretArn",
@@ -43,6 +54,11 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
     },
   },
   "Parameters": {
+    "ApplicationTemplateUrl": {
+      "Default": "",
+      "Description": "Public URL of the Deployz application template this installation provisions. NOT a credential.",
+      "Type": "String",
+    },
     "BootstrapVersion": {
       "Default": "/cdk-bootstrap/hnb659fds/version",
       "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
@@ -60,6 +76,38 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
     },
   },
   "Resources": {
+    "ApplicationExecutionRoleB4697B7D": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId",
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "cloudformation.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "Description": "CloudFormation execution role for the Deployz application stack. Assumable only by CloudFormation on behalf of this account; every grant is scoped to the deployz: tag boundary where AWS supports it.",
+        "Path": "/deployz/",
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
     "InstallIdFunctionE00E99D3": {
       "DependsOn": [
         "InstallIdFunctionServiceRole9CEC2041",
@@ -396,6 +444,42 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             {
               "Action": [
+                "ssm:GetParameter",
+                "ssm:PutParameter",
+                "ssm:DeleteParameter",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":ssm:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":parameter/deployz/",
+                    {
+                      "Fn::GetAtt": [
+                        "InstallationId",
+                        "InstallationId",
+                      ],
+                    },
+                    "/*",
+                  ],
+                ],
+              },
+              "Sid": "RelayPendingCommandState",
+            },
+            {
+              "Action": [
                 "cloudformation:CreateStack",
                 "cloudformation:UpdateStack",
                 "cloudformation:CreateChangeSet",
@@ -601,6 +685,308 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
         },
       },
       "Type": "AWS::IAM::ManagedPolicy",
+    },
+    "ProvisionApplicationSupportE006584E": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ec2:DescribeVpcs",
+                "ec2:DescribeVpcAttribute",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeRouteTables",
+                "ec2:DescribeInternetGateways",
+                "ec2:DescribeNatGateways",
+                "ec2:DescribeAddresses",
+                "ec2:DescribeSecurityGroups",
+                "ec2:DescribeSecurityGroupRules",
+                "ec2:GetSecurityGroupsForVpc",
+                "ec2:DescribeAvailabilityZones",
+                "ec2:DescribeAccountAttributes",
+                "ec2:DescribeNetworkInterfaces",
+                "ec2:DescribeTags",
+                "ecs:DescribeClusters",
+                "ecs:DescribeServices",
+                "ecs:DescribeTaskDefinition",
+                "ecs:ListTagsForResource",
+                "rds:DescribeDBInstances",
+                "rds:DescribeDBSubnetGroups",
+                "rds:ListTagsForResource",
+                "elasticloadbalancing:DescribeLoadBalancers",
+                "elasticloadbalancing:DescribeLoadBalancerAttributes",
+                "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetGroupAttributes",
+                "elasticloadbalancing:DescribeListeners",
+                "elasticloadbalancing:DescribeTags",
+                "elasticloadbalancing:DescribeTargetHealth",
+                "secretsmanager:DescribeSecret",
+                "secretsmanager:ListSecretVersionIds",
+                "logs:DescribeLogGroups",
+                "logs:ListTagsForResource",
+                "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeCacheSubnetGroups",
+                "elasticache:ListTagsForResource",
+                "iam:GetRole",
+                "iam:GetRolePolicy",
+                "iam:ListRolePolicies",
+                "iam:ListAttachedRolePolicies",
+                "iam:ListRoleTags",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionApplicationRead",
+            },
+            {
+              "Action": [
+                "s3:CreateBucket",
+                "s3:DeleteBucket",
+                "s3:ListBucket",
+                "s3:GetBucketLocation",
+                "s3:GetBucketTagging",
+                "s3:PutBucketTagging",
+                "s3:GetBucketVersioning",
+                "s3:PutBucketVersioning",
+                "s3:GetEncryptionConfiguration",
+                "s3:PutEncryptionConfiguration",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:PutBucketPublicAccessBlock",
+                "s3:GetBucketPolicy",
+                "s3:PutBucketPolicy",
+                "s3:DeleteBucketPolicy",
+                "s3:GetBucketAcl",
+                "s3:GetLifecycleConfiguration",
+                "s3:PutLifecycleConfiguration",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionApplicationStorage",
+            },
+            {
+              "Action": [
+                "secretsmanager:GetRandomPassword",
+                "logs:PutRetentionPolicy",
+                "logs:DeleteLogGroup",
+                "ecs:DeregisterTaskDefinition",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionApplicationUntaggable",
+            },
+            {
+              "Action": "iam:PassRole",
+              "Condition": {
+                "StringEquals": {
+                  "iam:PassedToService": [
+                    "ecs-tasks.amazonaws.com",
+                    "ecs.amazonaws.com",
+                  ],
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionApplicationPassRole",
+            },
+            {
+              "Action": "iam:CreateServiceLinkedRole",
+              "Condition": {
+                "StringEquals": {
+                  "iam:AWSServiceName": [
+                    "ecs.amazonaws.com",
+                    "elasticloadbalancing.amazonaws.com",
+                    "rds.amazonaws.com",
+                    "elasticache.amazonaws.com",
+                  ],
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionApplicationServiceLinkedRoles",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "ProvisionApplicationSupportE006584E",
+        "Roles": [
+          {
+            "Ref": "ApplicationExecutionRoleB4697B7D",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "ProvisionApplicationWrite874ED9A4": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ec2:CreateVpc",
+                "ec2:CreateSubnet",
+                "ec2:CreateRouteTable",
+                "ec2:CreateInternetGateway",
+                "ec2:CreateNatGateway",
+                "ec2:AllocateAddress",
+                "ec2:CreateSecurityGroup",
+                "ec2:CreateTags",
+                "ecs:CreateCluster",
+                "ecs:CreateService",
+                "ecs:RegisterTaskDefinition",
+                "ecs:TagResource",
+                "rds:CreateDBSubnetGroup",
+                "rds:CreateDBInstance",
+                "rds:AddTagsToResource",
+                "elasticloadbalancing:CreateLoadBalancer",
+                "elasticloadbalancing:CreateTargetGroup",
+                "elasticloadbalancing:CreateListener",
+                "elasticloadbalancing:AddTags",
+                "secretsmanager:CreateSecret",
+                "secretsmanager:TagResource",
+                "logs:CreateLogGroup",
+                "logs:TagResource",
+                "elasticache:CreateCacheSubnetGroup",
+                "elasticache:CreateCacheCluster",
+                "elasticache:AddTagsToResource",
+                "iam:CreateRole",
+                "iam:TagRole",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionApplicationCreate",
+            },
+            {
+              "Action": [
+                "ec2:CreateVpc",
+                "ec2:CreateSubnet",
+                "ec2:CreateRouteTable",
+                "ec2:CreateInternetGateway",
+                "ec2:CreateNatGateway",
+                "ec2:AllocateAddress",
+                "ec2:CreateSecurityGroup",
+                "ec2:CreateTags",
+                "ecs:CreateCluster",
+                "ecs:CreateService",
+                "ecs:RegisterTaskDefinition",
+                "ecs:TagResource",
+                "rds:CreateDBSubnetGroup",
+                "rds:CreateDBInstance",
+                "rds:AddTagsToResource",
+                "elasticloadbalancing:CreateLoadBalancer",
+                "elasticloadbalancing:CreateTargetGroup",
+                "elasticloadbalancing:CreateListener",
+                "elasticloadbalancing:AddTags",
+                "secretsmanager:CreateSecret",
+                "secretsmanager:TagResource",
+                "logs:CreateLogGroup",
+                "logs:TagResource",
+                "elasticache:CreateCacheSubnetGroup",
+                "elasticache:CreateCacheCluster",
+                "elasticache:AddTagsToResource",
+                "iam:CreateRole",
+                "iam:TagRole",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionApplicationCreateOnTagged",
+            },
+            {
+              "Action": [
+                "ec2:CreateRoute",
+                "ec2:DeleteRoute",
+                "ec2:AssociateRouteTable",
+                "ec2:DisassociateRouteTable",
+                "ec2:AttachInternetGateway",
+                "ec2:DetachInternetGateway",
+                "ec2:ModifyVpcAttribute",
+                "ec2:ModifySubnetAttribute",
+                "ec2:AuthorizeSecurityGroupIngress",
+                "ec2:AuthorizeSecurityGroupEgress",
+                "ec2:RevokeSecurityGroupIngress",
+                "ec2:RevokeSecurityGroupEgress",
+                "ec2:DeleteVpc",
+                "ec2:DeleteSubnet",
+                "ec2:DeleteRouteTable",
+                "ec2:DeleteInternetGateway",
+                "ec2:DeleteNatGateway",
+                "ec2:ReleaseAddress",
+                "ec2:DeleteSecurityGroup",
+                "ec2:DeleteTags",
+                "ecs:DeleteCluster",
+                "ecs:UpdateService",
+                "ecs:DeleteService",
+                "rds:ModifyDBInstance",
+                "rds:DeleteDBInstance",
+                "rds:DeleteDBSubnetGroup",
+                "elasticloadbalancing:ModifyLoadBalancerAttributes",
+                "elasticloadbalancing:ModifyTargetGroup",
+                "elasticloadbalancing:ModifyTargetGroupAttributes",
+                "elasticloadbalancing:ModifyListener",
+                "elasticloadbalancing:DeleteLoadBalancer",
+                "elasticloadbalancing:DeleteTargetGroup",
+                "elasticloadbalancing:DeleteListener",
+                "elasticloadbalancing:RegisterTargets",
+                "elasticloadbalancing:DeregisterTargets",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+                "secretsmanager:UpdateSecret",
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetResourcePolicy",
+                "secretsmanager:PutResourcePolicy",
+                "elasticache:ModifyCacheCluster",
+                "elasticache:DeleteCacheCluster",
+                "elasticache:DeleteCacheSubnetGroup",
+                "iam:PutRolePolicy",
+                "iam:DeleteRolePolicy",
+                "iam:AttachRolePolicy",
+                "iam:DetachRolePolicy",
+                "iam:DeleteRole",
+                "iam:UntagRole",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionApplicationManage",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "ProvisionApplicationWrite874ED9A4",
+        "Roles": [
+          {
+            "Ref": "ApplicationExecutionRoleB4697B7D",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
     },
     "ProvisionerPolicyCCE83F9D": {
       "Properties": {
@@ -859,6 +1245,15 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
         },
         "Environment": {
           "Variables": {
+            "DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN": {
+              "Fn::GetAtt": [
+                "ApplicationExecutionRoleB4697B7D",
+                "Arn",
+              ],
+            },
+            "DEPLOYZ_APPLICATION_TEMPLATE_URL": {
+              "Ref": "ApplicationTemplateUrl",
+            },
             "DEPLOYZ_CONTROL_PLANE_URL": {
               "Ref": "ControlPlaneUrl",
             },
@@ -973,6 +1368,42 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Resource": "*",
               "Sid": "RelayVerifyInstallation",
             },
+            {
+              "Action": [
+                "ssm:GetParameter",
+                "ssm:PutParameter",
+                "ssm:DeleteParameter",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:",
+                    {
+                      "Ref": "AWS::Partition",
+                    },
+                    ":ssm:",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId",
+                    },
+                    ":parameter/deployz/",
+                    {
+                      "Fn::GetAtt": [
+                        "InstallationId",
+                        "InstallationId",
+                      ],
+                    },
+                    "/*",
+                  ],
+                ],
+              },
+              "Sid": "RelayPendingCommandState",
+            },
           ],
           "Version": "2012-10-17",
         },
@@ -1000,6 +1431,11 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           "Version": "2012-10-17",
         },
         "Description": "Execution role for the Deployz relay Lambda. Least privilege (phase 1) with a permissions boundary; phase 2 provisioner policy is attached by the control plane after first contact.",
+        "ManagedPolicyArns": [
+          {
+            "Ref": "ProvisionerPolicyCCE83F9D",
+          },
+        ],
         "PermissionsBoundary": {
           "Ref": "PermissionsBoundary2D0B48CC",
         },

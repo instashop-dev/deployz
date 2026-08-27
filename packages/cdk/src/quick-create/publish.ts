@@ -17,6 +17,7 @@ import {
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 
+import { ApplicationStack } from '../application/application-stack.js';
 import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
 import { buildBootstrapQuickCreateUrl } from '@deployz/contracts';
 import { requireWithinLimits } from './limits.js';
@@ -80,6 +81,15 @@ export interface SynthesizeOptions {
   readonly outdir: string;
   /** Control-plane URL baked into the template default (non-secret). */
   readonly controlPlaneUrl?: string;
+  /**
+   * Published application-template URL baked into the template default.
+   *
+   * This is what the relay's INSTALL executor hands CloudFormation as
+   * `TemplateURL`. Publish the application template first; without this the
+   * bootstrap template ships with an empty default and every install fails
+   * with "no application template URL is configured".
+   */
+  readonly applicationTemplateUrl?: string;
   /** CDK stack id. Defaults to `DeployzBootstrap`. */
   readonly stackId?: string;
 }
@@ -145,29 +155,42 @@ export async function synthesizeBootstrapStack(
     ...(options.controlPlaneUrl !== undefined
       ? { controlPlaneUrl: options.controlPlaneUrl }
       : {}),
+    ...(options.applicationTemplateUrl !== undefined
+      ? { applicationTemplateUrl: options.applicationTemplateUrl }
+      : {}),
   });
 
   const assembly = app.synth();
   const artifact = assembly.getStackArtifact(stack.artifactId);
-  const template = artifact.template as JsonObject;
 
-  const manifestPath = join(assembly.directory, `${stack.artifactId}.assets.json`);
-  const manifestRaw = await readFile(manifestPath, 'utf8');
-  const manifest = JSON.parse(manifestRaw) as AssetManifest;
+  return {
+    template: artifact.template as JsonObject,
+    assets: await readZipAssets(assembly.directory, stack.artifactId),
+  };
+}
+
+/**
+ * The bundled Lambda code assets a synthesized stack refers to, read from
+ * the cloud assembly's asset manifest.
+ *
+ * Only the `zip` entries — the `file` entry is the template itself, which
+ * the publisher uploads in its repacked form. A stack with no Lambdas (the
+ * application stack, today) simply yields none.
+ */
+async function readZipAssets(directory: string, artifactId: string): Promise<TemplateAsset[]> {
+  const manifestPath = join(directory, `${artifactId}.assets.json`);
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as AssetManifest;
 
   const assets: TemplateAsset[] = [];
   for (const [hash, entry] of Object.entries(manifest.files ?? {})) {
-    // Only the Lambda code assets (packaging "zip"); skip the template-file
-    // entry (packaging "file") — the publisher uploads the repacked template.
     if (entry.source?.packaging !== 'zip') continue;
     assets.push({
       sourceHash: hash,
       objectKey: `${hash}.zip`,
-      sourcePath: join(assembly.directory, entry.source.path ?? ''),
+      sourcePath: join(directory, entry.source.path ?? ''),
     });
   }
-
-  return { template, assets };
+  return assets;
 }
 
 export interface PublishBootstrapOptions {
@@ -270,5 +293,155 @@ await this.s3.putObject({
 
   private publicUrl(key: string): string {
     return `https://${this.options.bucket}.s3.${this.options.region}.amazonaws.com/${key}`;
+  }
+}
+
+// ── Application template ────────────────────────────────────────────────────
+
+/** Object key of the published application template, under the key prefix. */
+export const APPLICATION_TEMPLATE_KEY = 'application-template-v1.json';
+
+export interface SynthesizeApplicationOptions {
+  /** Output directory for the cloud assembly (temp dir is fine). */
+  readonly outdir: string;
+  /** CDK stack id. Defaults to `DeployzApplication`. */
+  readonly stackId?: string;
+  /** Container image repository the published template runs. */
+  readonly imageRepository?: string;
+  /** Container image digest (immutable `sha256:` reference). */
+  readonly imageDigest?: string;
+  /** Provision an ElastiCache Valkey cache alongside the application. */
+  readonly redisRequired?: boolean;
+}
+
+/**
+ * Synthesizes the application stack — the template the relay's INSTALL
+ * executor creates a stack from.
+ *
+ * Two choices are fixed here rather than left to the caller, because a
+ * published template that gets either wrong is one no install can ever
+ * verify:
+ *
+ * - **`expressMode: false`.** `verifyInstallation` requires an
+ *   `AWS::ECS::Service` and an `AWS::ElasticLoadBalancingV2::LoadBalancer`.
+ *   An express-mode stack has neither — it uses
+ *   `AWS::ECS::ExpressGatewayService` and lets ECS manage the load balancer
+ *   — so a correctly provisioned express install would fail verification
+ *   and be reported as a failed install.
+ *
+ * - **`allowInsecureHttp: true`.** The certificate for a deployment's
+ *   custom domain does not exist at publish time; it is requested later,
+ *   per installation, by the CONFIGURE_DOMAIN executor, which then adds the
+ *   HTTPS listener to this stack's ALB. The published template therefore
+ *   ships with an HTTP listener and no silent pretence of TLS.
+ *
+ * No AWS calls.
+ */
+export async function synthesizeApplicationStack(
+  options: SynthesizeApplicationOptions,
+): Promise<SynthOutput> {
+  const app = new App({ outdir: options.outdir });
+  const stack = new ApplicationStack(app, options.stackId ?? 'DeployzApplication', {
+    expressMode: false,
+    allowInsecureHttp: true,
+    ...(options.imageRepository !== undefined
+      ? { imageRepository: options.imageRepository }
+      : {}),
+    ...(options.imageDigest !== undefined ? { imageDigest: options.imageDigest } : {}),
+    ...(options.redisRequired !== undefined ? { redisRequired: options.redisRequired } : {}),
+  });
+
+  const assembly = app.synth();
+  const artifact = assembly.getStackArtifact(stack.artifactId);
+
+  return {
+    template: artifact.template as JsonObject,
+    assets: await readZipAssets(assembly.directory, stack.artifactId),
+  };
+}
+
+export interface PublishApplicationOptions {
+  /** AWS region of the public bucket. */
+  readonly region: string;
+  /** Public S3 bucket name. */
+  readonly bucket: string;
+  /** Key prefix under the bucket (e.g. `application/v1`). */
+  readonly keyPrefix: string;
+}
+
+export interface ApplicationPublishResult {
+  /** S3 key of the published template. */
+  readonly templateKey: string;
+  /**
+   * Public HTTPS URL of the published template.
+   *
+   * This is the value the bootstrap stack carries into the relay as
+   * `DEPLOYZ_APPLICATION_TEMPLATE_URL` — `CreateStack`'s `TemplateURL`.
+   */
+  readonly templateUrl: string;
+  /** S3 keys of any published Lambda assets (public). */
+  readonly assetKeys: string[];
+  /** Byte size of the repacked template. */
+  readonly templateBytes: number;
+  /** Parameter count of the repacked template. */
+  readonly parameterCount: number;
+}
+
+/**
+ * Publishes the application template to the same public bucket the
+ * bootstrap template lives in, under its own key prefix.
+ *
+ * Separate from `BootstrapPublisher` rather than a mode of it: the two
+ * produce different artifacts for different readers. The bootstrap template
+ * is handed to a human through a Quick Create link and needs one built;
+ * this one is fetched by CloudFormation on the relay's behalf and needs no
+ * link at all.
+ */
+export class ApplicationPublisher {
+  constructor(
+    private readonly s3: S3Client,
+    private readonly options: PublishApplicationOptions,
+  ) {}
+
+  async publish(
+    synth: SynthOutput,
+    readAsset: AssetReader = readBundledIndexMjs,
+  ): Promise<ApplicationPublishResult> {
+    const { template: repacked } = repackTemplate(synth.template, {
+      bucket: this.options.bucket,
+      keyPrefix: this.options.keyPrefix,
+    });
+
+    // Fail fast: an over-limit template is rejected at CreateStack time, in
+    // the customer's account, as a failed install.
+    const limits = requireWithinLimits(repacked);
+
+    const assetKeys: string[] = [];
+    for (const asset of synth.assets) {
+      const key = `${this.options.keyPrefix}/${asset.objectKey}`;
+      await this.s3.putObject({
+        bucket: this.options.bucket,
+        key,
+        body: await readAsset(asset),
+        contentType: 'application/zip',
+      });
+      assetKeys.push(key);
+    }
+
+    const templateKey = `${this.options.keyPrefix}/${APPLICATION_TEMPLATE_KEY}`;
+    await this.s3.putObject({
+      bucket: this.options.bucket,
+      key: templateKey,
+      body: JSON.stringify(repacked, null, 2),
+      contentType: 'application/json',
+    });
+
+    return {
+      templateKey,
+      templateUrl: `https://${this.options.bucket}.s3.${this.options.region}.amazonaws.com/${templateKey}`,
+      assetKeys,
+      templateBytes: limits.bytes,
+      parameterCount: limits.parameterCount,
+    };
   }
 }

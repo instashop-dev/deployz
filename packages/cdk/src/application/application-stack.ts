@@ -225,6 +225,8 @@ const DB_PORT = 5432;
 const REDIS_ENGINE = 'valkey';
 const REDIS_NODE_TYPE = 'cache.t4g.micro';
 const REDIS_PORT = 6379;
+/** Printable ASCII characters RDS refuses in a master password. */
+const RDS_FORBIDDEN_PASSWORD_CHARACTERS = '/@" ';
 
 export class ApplicationStack extends Stack {
   public readonly vpc: Vpc;
@@ -299,15 +301,26 @@ export class ApplicationStack extends Stack {
     // Quick Create convention for URL-suppliable params). The values are never
     // echoed back; they land in Secrets Manager and are injected into the
     // container at task start. The DB password is NOT here — it is generated.
+    //
+    // Both default to empty, because at INSTALL time there is nothing to put
+    // in them: a deployment has no release and no vendor configuration until
+    // after it is installed, and CONFIG_UPDATE is what supplies these later.
+    // Without a default, CloudFormation rejects the create outright —
+    // "Parameters: [paramAppApiKey, paramAppSigningSecret] must have values"
+    // — so an install could never happen at all. An empty secret honestly
+    // says "not configured yet"; a required parameter with no possible value
+    // says nothing and blocks everything.
     const appApiKeyParam = new CfnParameter(this, 'param_AppApiKey', {
       type: 'String',
       noEcho: true,
+      default: '',
       description:
         'Application API key (vendor/customer secret). NoEcho — never echoed.',
     });
     const appSigningSecretParam = new CfnParameter(this, 'param_AppSigningSecret', {
       type: 'String',
       noEcho: true,
+      default: '',
       description:
         'Application signing secret (vendor/customer secret). NoEcho — never echoed.',
     });
@@ -326,6 +339,15 @@ export class ApplicationStack extends Stack {
           generateStringKey: 'password',
           passwordLength: 32,
           excludePunctuation: false,
+          // RDS accepts any printable ASCII except these four, and rejects
+          // the whole create with "The parameter MasterUserPassword is not a
+          // valid password" if one slips in. A live install died here: the
+          // generator is free to emit them, so a create failed at the
+          // database and rolled the entire stack back, minutes in and for no
+          // reason a customer could act on. Punctuation stays allowed
+          // otherwise — this narrows the alphabet by four characters, not by
+          // a character class.
+          excludeCharacters: RDS_FORBIDDEN_PASSWORD_CHARACTERS,
         },
       });
     }
@@ -597,6 +619,15 @@ export class ApplicationStack extends Stack {
       const taskDefinition = new FargateTaskDefinition(this, 'TaskDefinition', {
         memoryLimitMiB: 512,
         cpu: 256,
+        // Without this, CDK auto-creates a second execution role and grants
+        // it only what it can infer. `ContainerImage.fromRegistry` is an
+        // opaque string, so CDK cannot tell the image lives in ECR and
+        // grants no pull permissions at all — which is fine for a public
+        // image and fatal for a vendor's own build. `taskExecutionRole`
+        // carries AmazonECSTaskExecutionRolePolicy, and until now was
+        // created and used only by the Express branch.
+        executionRole: taskExecutionRole,
+        taskRole,
         runtimePlatform: {
           operatingSystemFamily: OperatingSystemFamily.LINUX,
           cpuArchitecture: CpuArchitecture.X86_64,
@@ -723,6 +754,8 @@ const dbEnv =
           {
             memoryLimitMiB: 512,
             cpu: 256,
+            executionRole: taskExecutionRole,
+            taskRole,
             runtimePlatform: {
               operatingSystemFamily: OperatingSystemFamily.LINUX,
               cpuArchitecture: CpuArchitecture.X86_64,
