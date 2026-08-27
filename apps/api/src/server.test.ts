@@ -2202,3 +2202,155 @@ describe('server — organization settings, public install page, and bulk deploy
     expect(response.statusCode).toBe(404);
   });
 });
+
+// ── POST /api/deployments/:id/retry-install — first-install recovery ────────
+describe('server — retry-install (first-install recovery)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  async function seedFailedInstall(
+    overrides: Partial<typeof schema.deployments.$inferInsert> = {},
+    jobOverrides: Partial<typeof schema.deploymentJobs.$inferInsert> = {},
+  ): Promise<typeof schema.deployments.$inferSelect> {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      installationId: `inst-recovery-${crypto.randomUUID()}`,
+      ...overrides,
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'FAILED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+      ...jobOverrides,
+    });
+    return deployment;
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'retry-install@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('202s from FAILED: queues a fresh INSTALL job carrying recovery, moves to INSTALLING, logs the event', async () => {
+    const deployment = await seedFailedInstall();
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(202);
+    const { jobId } = response.json() as { jobId: string };
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('INSTALLING');
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect(jobs).toHaveLength(2);
+    const retry = jobs.find((j) => j.id === jobId)!;
+    expect(retry.state).toBe('REQUESTED');
+    expect(retry.idempotencyKey).toBe(`${deployment.id}:INSTALL:RETRY:1`);
+    expect(retry.payload).toEqual({ recovery: { neverInstalled: true } });
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.deploymentId, deployment.id), eq(schema.eventLogs.eventType, 'install.retry.requested')));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.result).toBe('pending');
+  });
+
+  it('a double-click reuses the same retry job (200, no second job)', async () => {
+    const deployment = await seedFailedInstall();
+
+    const first = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(first.statusCode).toBe(202);
+    const second = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(second.statusCode).toBe(200);
+    expect((second.json() as { jobId: string }).jobId).toBe((first.json() as { jobId: string }).jobId);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect(jobs).toHaveLength(2);
+  });
+
+  it('409s when any earlier INSTALL ever succeeded — recovery must stay destructive-only-for-never-installed', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      installationId: 'inst-once-healthy',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'INSTALL_ALREADY_SUCCEEDED' } });
+  });
+
+  it('409s when the deployment is not in a retryable state', async () => {
+    const deployment = await seedFailedInstall({ state: 'NOT_INSTALLED', installationId: null });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'INSTALL_NOT_RETRYABLE' } });
+  });
+
+  it('409s (RELAY_NOT_CONNECTED) when no relay is bound to a FAILED deployment', async () => {
+    const deployment = await seedFailedInstall({ installationId: null });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'RELAY_NOT_CONNECTED' } });
+  });
+
+  it('409s while a fresh INSTALL attempt is still in flight', async () => {
+    const deployment = await seedFailedInstall({ state: 'INSTALLING' }, { state: 'RUNNING', startedAt: new Date() });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'INSTALL_NOT_RETRYABLE' } });
+  });
+
+  it('supersedes a stale RUNNING install (dead relay invocation) and cancels the old job', async () => {
+    const deployment = await seedFailedInstall(
+      { state: 'INSTALLING' },
+      { state: 'RUNNING', startedAt: new Date(Date.now() - 31 * 60 * 1000) },
+    );
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(202);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect(jobs.find((j) => j.idempotencyKey === `${deployment.id}:INSTALL`)!.state).toBe('CANCELLED');
+    expect(jobs.find((j) => j.idempotencyKey === `${deployment.id}:INSTALL:RETRY:1`)!.state).toBe('REQUESTED');
+  });
+});
