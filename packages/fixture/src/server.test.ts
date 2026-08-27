@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createApp } from './server.js';
+import { createApp, poolConfigFromEnv } from './server.js';
 
 /** Start the app on an ephemeral port and hand back a base URL. */
 async function serve(app: ReturnType<typeof createApp>) {
@@ -57,5 +57,39 @@ describe('fixture server', () => {
     } finally {
       await close();
     }
+  });
+});
+
+describe('database connection settings', () => {
+  it('is not configured without a host', () => {
+    expect(poolConfigFromEnv({})).toBeNull();
+  });
+
+  it('connects over TLS — the stack RDS forces it', () => {
+    // The application stack's RDS runs on the default postgres16 parameter
+    // group, where rds.force_ssl is 1. A plain connection is refused, which
+    // showed up as a permanently "unavailable" database behind a healthy
+    // container.
+    const config = poolConfigFromEnv({ DATABASE_HOST: 'db.example.com' });
+
+    expect(config?.ssl).toBeTruthy();
+  });
+
+  it('reads host, port, database and user from the stack env', () => {
+    const config = poolConfigFromEnv({
+      DATABASE_HOST: 'db.example.com',
+      DATABASE_PORT: '6000',
+      DATABASE_NAME: 'app',
+      DATABASE_USER: 'appuser',
+      DATABASE_PASSWORD: 'pw',
+    });
+
+    expect(config).toMatchObject({
+      host: 'db.example.com',
+      port: 6000,
+      database: 'app',
+      user: 'appuser',
+      password: 'pw',
+    });
   });
 });

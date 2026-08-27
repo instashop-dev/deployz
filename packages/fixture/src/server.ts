@@ -21,7 +21,7 @@
  */
 
 import express, { type Express } from 'express';
-import { Pool } from 'pg';
+import { Pool, type PoolConfig } from 'pg';
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -29,27 +29,43 @@ type DatabaseState = 'connected' | 'unavailable' | 'not-configured';
 
 /**
  * The stack injects DATABASE_HOST and friends; a bare `docker run` does
- * not. Absent configuration is `not-configured`, which is a different
- * answer from "configured and not reachable" and worth keeping distinct.
+ * not. Absent configuration is `null`, which is a different answer from
+ * "configured and not reachable" and worth keeping distinct.
+ *
+ * Exported and taking its environment as an argument so the connection
+ * settings can be asserted without opening a socket.
  */
-function createPool(): Pool | null {
-  const host = process.env['DATABASE_HOST'];
+export function poolConfigFromEnv(env: NodeJS.ProcessEnv): PoolConfig | null {
+  const host = env['DATABASE_HOST'];
   if (!host) return null;
 
-  return new Pool({
+  return {
     host,
-    port: Number(process.env['DATABASE_PORT'] ?? 5432),
-    database: process.env['DATABASE_NAME'] ?? 'deployz',
-    user: process.env['DATABASE_USER'] ?? 'deployz_app',
-    password: process.env['DATABASE_PASSWORD'] ?? '',
+    port: Number(env['DATABASE_PORT'] ?? 5432),
+    database: env['DATABASE_NAME'] ?? 'deployz',
+    user: env['DATABASE_USER'] ?? 'deployz_app',
+    password: env['DATABASE_PASSWORD'] ?? '',
+    // The stack's RDS runs on the default postgres16 parameter group, where
+    // `rds.force_ssl` is 1 — an unencrypted connection is refused outright.
+    // Without this the container comes up healthy and reports its database
+    // permanently unavailable, which reads like a networking fault and is
+    // not one.
+    //
+    // `rejectUnauthorized: false` encrypts without verifying the server
+    // certificate. That is the wrong trade for a real application, which
+    // should pin the RDS CA bundle; it is the right one here, where the
+    // point is to prove the wiring reaches the database and shipping a CA
+    // bundle in a fixture would obscure that.
+    ssl: { rejectUnauthorized: false },
     // Short, because this only ever backs a status field. A slow database
     // must not make the health endpoint slow enough to look like a timeout.
     connectionTimeoutMillis: 2_000,
     max: 2,
-  });
+  };
 }
 
-const pool = createPool();
+const poolConfig = poolConfigFromEnv(process.env);
+const pool = poolConfig === null ? null : new Pool(poolConfig);
 
 async function probeDatabase(): Promise<DatabaseState> {
   if (!pool) return 'not-configured';
