@@ -263,6 +263,23 @@ export interface ApplicationStackProps extends StackProps {
    */
   readonly secretParameters?: readonly SecretParameterSpec[];
   /**
+   * Environment variable names that each receive the complete PostgreSQL
+   * connection URL as a whole-value ECS secret (Documenso needs the same
+   * URL under two names: `NEXT_PRIVATE_DATABASE_URL` and
+   * `NEXT_PRIVATE_DIRECT_DATABASE_URL`).
+   *
+   * When non-empty (and `databaseRequired` is true), a second Secrets
+   * Manager secret is created holding the assembled `postgresql://` URL —
+   * built at deploy time from the generated master credentials via a
+   * CloudFormation dynamic reference, so the password never appears in the
+   * template or task definition. Injected into the App container, the
+   * Express `primaryContainer`, and the worker container — same parity
+   * pattern as `secretParameters`.
+   *
+   * Omitted or empty by default — no second secret, byte-identical synth.
+   */
+  readonly databaseUrlEnvNames?: readonly string[];
+  /**
    * Shell command run by the plain-Fargate App container's health check, in
    * place of the default
    * `curl -f http://localhost:<containerPort><healthCheckPath> || exit 1`.
@@ -313,8 +330,6 @@ const DB_PORT = 5432;
 const REDIS_ENGINE = 'valkey';
 const REDIS_NODE_TYPE = 'cache.t4g.micro';
 const REDIS_PORT = 6379;
-/** Printable ASCII characters RDS refuses in a master password. */
-const RDS_FORBIDDEN_PASSWORD_CHARACTERS = '/@" ';
 
 export class ApplicationStack extends Stack {
   public readonly vpc: Vpc;
@@ -322,6 +337,13 @@ export class ApplicationStack extends Stack {
   public readonly database?: DatabaseInstance;
   /** DB master credentials — generated at deploy time, never a parameter. */
   public readonly databaseSecret?: Secret;
+  /**
+   * Complete PostgreSQL connection URL (defined when `databaseUrlEnvNames`
+   * is non-empty). Assembled at deploy time from the generated master
+   * credentials via a CloudFormation dynamic reference — the password never
+   * appears in the template.
+   */
+  public readonly databaseUrlSecret?: Secret;
   /** App runtime secrets — supplied via NoEcho `param_` parameters (M17). */
   public readonly appSecret: Secret;
   public readonly storageBucket: Bucket;
@@ -442,16 +464,15 @@ export class ApplicationStack extends Stack {
           secretStringTemplate: JSON.stringify({ username: DB_USER }),
           generateStringKey: 'password',
           passwordLength: 32,
-          excludePunctuation: false,
-          // RDS accepts any printable ASCII except these four, and rejects
-          // the whole create with "The parameter MasterUserPassword is not a
-          // valid password" if one slips in. A live install died here: the
-          // generator is free to emit them, so a create failed at the
-          // database and rolled the entire stack back, minutes in and for no
-          // reason a customer could act on. Punctuation stays allowed
-          // otherwise — this narrows the alphabet by four characters, not by
-          // a character class.
-          excludeCharacters: RDS_FORBIDDEN_PASSWORD_CHARACTERS,
+          // Alphanumeric only. The password is embedded verbatim in a
+          // postgresql:// connection URL (DatabaseUrlSecret below) via a
+          // CloudFormation dynamic reference — percent-encoding cannot
+          // happen inside a dynamic reference, so URL-reserved punctuation
+          // would corrupt the URL. RDS separately forbids '/@" ' in a
+          // MasterUserPassword anyway (a live install died on exactly that,
+          // rolling the whole stack back minutes in); alphanumeric-only
+          // satisfies both constraints at once.
+          excludePunctuation: true,
         },
       });
     }
@@ -528,6 +549,21 @@ export class ApplicationStack extends Stack {
       });
     }
 
+    // Complete PostgreSQL connection URL, assembled at deploy time from the
+    // generated master credentials via a CloudFormation dynamic reference —
+    // the password never appears in the template or task definition.
+    if (databaseRequired && (props.databaseUrlEnvNames?.length ?? 0) > 0) {
+      this.databaseUrlSecret = new Secret(this, 'DatabaseUrlSecret', {
+        description:
+          'Complete PostgreSQL connection URL for the customer application. ' +
+          'Assembled at deploy time from the generated master credentials — ' +
+          'the password never appears in the template or task definition.',
+        secretStringValue: SecretValue.unsafePlainText(
+          `postgresql://${DB_USER}:${this.databaseSecret!.secretValueFromJson('password').unsafeUnwrap()}@${this.database!.instanceEndpoint.hostname}:${DB_PORT}/${DB_NAME}?sslmode=require`,
+        ),
+      });
+    }
+
     // ── ElastiCache Valkey cache (Redis MVP, spec §13-18) ─────────────────
     // Gated entirely on redisRequired: when false/unset, zero ElastiCache
     // resources are created and no REDIS_* env vars are injected below — the
@@ -595,6 +631,22 @@ export class ApplicationStack extends Stack {
           )
         : [];
 
+    // databaseUrlEnvNames ECS secrets: the whole DatabaseUrlSecret value
+    // (no JSON key suffix) injected under each configured env name into
+    // every container (app + worker, both expressMode branches). Empty
+    // when databaseUrlEnvNames is unset — no extra secrets in that case.
+    const databaseUrlEnvNames = props.databaseUrlEnvNames ?? [];
+    const databaseUrlSecrets = Object.fromEntries(
+      databaseUrlEnvNames.map((envName) => [
+        envName,
+        EcsSecret.fromSecretsManager(this.databaseUrlSecret as unknown as ISecret),
+      ]),
+    );
+    const expressDatabaseUrlSecrets = databaseUrlEnvNames.map((envName) => ({
+      name: envName,
+      valueFrom: this.databaseUrlSecret!.secretArn,
+    }));
+
     // secretParameters ECS secrets, resolved once and injected into every
     // container (app + worker, both expressMode branches) — same parity
     // pattern as redisEnvEntries above. Empty when secretParameters is
@@ -628,6 +680,7 @@ export class ApplicationStack extends Stack {
       ),
     );
     this.databaseSecret?.grantRead(taskExecutionRole);
+    this.databaseUrlSecret?.grantRead(taskExecutionRole);
     this.appSecret.grantRead(taskExecutionRole);
 
     const taskRole = new Role(this, 'TaskRole', {
@@ -636,6 +689,7 @@ export class ApplicationStack extends Stack {
     });
     this.storageBucket.grantReadWrite(taskRole);
     this.databaseSecret?.grantRead(taskRole);
+    this.databaseUrlSecret?.grantRead(taskRole);
     this.appSecret.grantRead(taskRole);
 
     // ── 2/3. ECS + ALB (branch on expressMode) ────────────────────────────
@@ -725,6 +779,7 @@ export class ApplicationStack extends Stack {
               valueFrom: `${this.appSecret.secretArn}:signingSecret::`,
             },
             ...expressExtraSecrets,
+            ...expressDatabaseUrlSecrets,
           ],
           awsLogsConfiguration: {
             logGroup: logGroup.logGroupName,
@@ -799,6 +854,7 @@ const dbEnv =
               'signingSecret',
             ),
             ...extraSecrets,
+            ...databaseUrlSecrets,
           },
         healthCheck: {
           command: [
@@ -930,6 +986,7 @@ const dbEnv =
               'signingSecret',
             ),
             ...extraSecrets,
+            ...databaseUrlSecrets,
           },
         });
 
@@ -959,6 +1016,7 @@ const dbEnv =
         this.vpc,
         this.database,
         this.databaseSecret,
+        this.databaseUrlSecret,
         this.appSecret,
         this.storageBucket,
         this.cluster,
@@ -987,6 +1045,7 @@ const dbEnv =
         this.vpc,
         this.database,
         this.databaseSecret,
+        this.databaseUrlSecret,
         this.appSecret,
         this.storageBucket,
         this.cluster,
@@ -1015,6 +1074,7 @@ const dbEnv =
         this.vpc,
         this.database,
         this.databaseSecret,
+        this.databaseUrlSecret,
         this.appSecret,
         this.storageBucket,
         this.cluster,

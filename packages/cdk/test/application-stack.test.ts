@@ -110,27 +110,24 @@ describe('ApplicationStack', () => {
     }
   });
 
-  it('generates a DB password RDS will actually accept', () => {
+  it('generates a DB password that is safe both for RDS and for a postgresql:// URL', () => {
     const { template } = synth();
 
-    // RDS rejects a MasterUserPassword containing '/', '@', '"' or a space:
-    // "The parameter MasterUserPassword is not a valid password." A live
-    // install failed on exactly this — the generator is free to emit them,
-    // so roughly one create in a handful died at the database and rolled the
-    // whole stack back.
+    // RDS rejects a MasterUserPassword containing '/', '@', '"' or a space —
+    // a live install failed on exactly this and rolled the whole stack back.
+    // The password is also embedded verbatim in a postgresql:// URL (the
+    // DatabaseUrlSecret below) via a CloudFormation dynamic reference, where
+    // percent-encoding cannot happen — so it must be alphanumeric only,
+    // which is a strict superset of the four RDS-forbidden characters.
     const secrets = template.findResources('AWS::SecretsManager::Secret');
     const dbSecret = Object.values(secrets).find((resource) =>
       String(resource['Properties']?.['Description'] ?? '').includes('RDS'),
     );
-    const excluded = String(
-      dbSecret?.['Properties']?.['GenerateSecretString']?.['ExcludeCharacters'] ?? '',
-    );
 
-    for (const forbidden of ['/', '@', '"', ' ']) {
-      expect(excluded, `RDS forbids ${JSON.stringify(forbidden)} in a master password`).toContain(
-        forbidden,
-      );
-    }
+    expect(dbSecret?.['Properties']?.['GenerateSecretString']?.['ExcludePunctuation']).toBe(true);
+    expect(
+      dbSecret?.['Properties']?.['GenerateSecretString']?.['ExcludeCharacters'],
+    ).toBeUndefined();
   });
 
   it('runs tasks under the execution role that can pull the image', () => {
@@ -780,6 +777,123 @@ describe('ApplicationStack', () => {
       template.hasResourceProperties('AWS::ECS::Service', {
         HealthCheckGracePeriodSeconds: 60,
       });
+    });
+  });
+
+  describe('Secret-backed database URL', () => {
+    it('creates no second secret when databaseUrlEnvNames is unset', () => {
+      const { template } = synth();
+      // Just the DB master-credential secret and the app config secret —
+      // byte-identical to a stack without this feature.
+      template.resourceCountIs('AWS::SecretsManager::Secret', 2);
+    });
+
+    function findUrlSecret(template: Template): [string, TemplateResource] {
+      const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        TemplateResource
+      >;
+      const entry = Object.entries(secrets).find(([, resource]) =>
+        JSON.stringify(resource.Properties?.['SecretString'] ?? '').includes(
+          'postgresql://deployz_app:',
+        ),
+      );
+      if (entry === undefined) {
+        throw new Error('expected a DatabaseUrlSecret with a postgresql:// SecretString');
+      }
+      return entry;
+    }
+
+    it('assembles the complete PostgreSQL URL as a dynamic reference into the DB secret, never the password in plaintext', () => {
+      const { template } = synth(false, {
+        databaseUrlEnvNames: ['NEXT_PRIVATE_DATABASE_URL', 'NEXT_PRIVATE_DIRECT_DATABASE_URL'],
+      });
+
+      template.resourceCountIs('AWS::SecretsManager::Secret', 3);
+
+      const [dbSecretId, urlSecret] = (() => {
+        const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+          string,
+          TemplateResource
+        >;
+        const entry = Object.entries(secrets).find(([, resource]) =>
+          String(resource.Properties?.['Description'] ?? '').includes('RDS'),
+        );
+        if (entry === undefined) throw new Error('expected the DB master-credential secret');
+        return entry;
+      })();
+      const [, urlSecretResource] = findUrlSecret(template);
+
+      // The SecretString is an Fn::Join whose parts are the literal
+      // "postgresql://deployz_app:" prefix, a {{resolve:secretsmanager:...}}
+      // dynamic reference into the DB secret's `password` key (never the
+      // password itself), the DB endpoint attribute, and the literal
+      // ":5432/deployz?sslmode=require" suffix — the password is never
+      // inlined as plaintext anywhere in the template.
+      const secretStringProp = urlSecretResource.Properties?.['SecretString'] as {
+        'Fn::Join': [string, unknown[]];
+      };
+      const parts = secretStringProp['Fn::Join'][1];
+
+      expect(parts[0]).toBe('postgresql://deployz_app:{{resolve:secretsmanager:');
+      expect(parts[1]).toEqual({ Ref: dbSecretId });
+      expect(parts[2]).toBe(':SecretString:password::}}@');
+      expect(parts).toContainEqual({ 'Fn::GetAtt': [expect.any(String), 'Endpoint.Address'] });
+      expect(parts[parts.length - 1]).toBe(':5432/deployz?sslmode=require');
+
+      // No unresolved CDK token anywhere (which would indicate the password
+      // token was stringified instead of embedded as a CloudFormation
+      // dynamic reference).
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toMatch(/\$\{Token\[/);
+    });
+
+    it('injects the URL secret into the App container under each configured env name, whole-value (no JSON key suffix)', () => {
+      const { template } = synth(false, {
+        databaseUrlEnvNames: ['NEXT_PRIVATE_DATABASE_URL', 'NEXT_PRIVATE_DIRECT_DATABASE_URL'],
+      });
+      const [urlSecretId] = findUrlSecret(template);
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: 'NEXT_PRIVATE_DATABASE_URL',
+                ValueFrom: { Ref: urlSecretId },
+              }),
+              Match.objectLike({
+                Name: 'NEXT_PRIVATE_DIRECT_DATABASE_URL',
+                ValueFrom: { Ref: urlSecretId },
+              }),
+            ]),
+          }),
+        ]),
+      });
+    });
+
+    it('grants the task execution role and task role read access to the URL secret', () => {
+      const { template } = synth(false, {
+        databaseUrlEnvNames: ['NEXT_PRIVATE_DATABASE_URL'],
+      });
+      const [urlSecretId] = findUrlSecret(template);
+
+      const policies = template.findResources('AWS::IAM::Policy') as Record<
+        string,
+        TemplateResource
+      >;
+      const grantingPolicies = Object.values(policies).filter((policy) =>
+        JSON.stringify(policy.Properties?.['PolicyDocument'] ?? '').includes(urlSecretId),
+      );
+      // The task execution role and task role each carry a policy statement
+      // granting secretsmanager:GetSecretValue on the URL secret — same
+      // grantRead pattern as the DB and app config secrets.
+      expect(grantingPolicies.length).toBeGreaterThanOrEqual(2);
+      for (const policy of grantingPolicies) {
+        const statements = JSON.stringify(policy.Properties?.['PolicyDocument']);
+        expect(statements).toContain('secretsmanager:GetSecretValue');
+      }
     });
   });
 });
