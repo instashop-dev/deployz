@@ -30,6 +30,10 @@ export const deploymentJobs = pgTable('deployment_jobs', {
   // user deletion.
   requestedBy: text('requested_by'),
   startedAt: timestamp('started_at', { withTimezone: true }),
+  // The last signal that the job is genuinely moving — relay acknowledgement,
+  // heartbeat, or reported progress. The watchdog times out from THIS, not
+  // updatedAt: a deployment row update says nothing about the job.
+  lastProgressAt: timestamp('last_progress_at', { withTimezone: true }),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
   // §16/§29 cached AI explanation of this attempt's failure. Generated lazily
   // on the first diagnostics request and served from here afterwards, so a

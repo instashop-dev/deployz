@@ -1,0 +1,1 @@
+ALTER TABLE "deployment_jobs" ADD COLUMN "last_progress_at" timestamp with time zone;
