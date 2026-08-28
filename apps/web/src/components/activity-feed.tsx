@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronDown } from 'lucide-react';
+import { useId, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import type { ActivityEvent } from '@/lib/deployments';
@@ -11,8 +12,8 @@ import {
 
 // Reusable activity feed — renders a deployment's §40 event timeline. The
 // top level is §65 jargon-free (human event label + Succeeded/Failed/Skipped);
-// the raw event type, result code, and payload live behind a collapsible
-// <details> (the same expandable-detail pattern as the security page).
+// the raw event type, result code, and payload live behind an accessible
+// button-driven disclosure.
 export function ActivityFeed({ events }: { events: ActivityEvent[] }) {
   if (events.length === 0) {
     return (
@@ -30,13 +31,21 @@ export function ActivityFeed({ events }: { events: ActivityEvent[] }) {
 }
 
 function ActivityFeedItem({ event }: { event: ActivityEvent }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
   const result = eventResultLabel(event.result);
 
   return (
     <li className="relative flex gap-3 pb-4 last:pb-0">
       <TimelineRail event={event} />
-      <details className="group min-w-0 flex-1 rounded-lg border">
-        <summary className="flex cursor-pointer list-none items-start justify-between gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+      <div className="min-w-0 flex-1 rounded-lg border">
+        <button
+          type="button"
+          className="flex w-full cursor-pointer items-start justify-between gap-2 rounded-lg px-3 py-2.5 text-left"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen(!open)}
+        >
           <div className="min-w-0">
             <p className="text-sm font-medium">{eventTypeLabel(event.eventType)}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -47,19 +56,24 @@ function ActivityFeedItem({ event }: { event: ActivityEvent }) {
             {result ? <ResultBadge result={result} /> : null}
             <ChevronDown
               aria-hidden
-              className="size-4 text-muted-foreground transition-transform group-open:rotate-180"
+              className={`size-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
             />
           </div>
-        </summary>
-        <div className="flex flex-col gap-2 border-t px-3 py-2.5 text-xs text-muted-foreground">
-          <DetailRow label="Event" value={event.eventType} />
-          {event.result !== null ? <DetailRow label="Result" value={event.result} /> : null}
-          {event.previousState && event.requestedState ? (
-            <DetailRow label="State" value={`${event.previousState} → ${event.requestedState}`} />
-          ) : null}
-          <DetailRow label="Payload" value={JSON.stringify(event.payload)} />
-        </div>
-      </details>
+        </button>
+        {open ? (
+          <div
+            id={panelId}
+            className="flex flex-col gap-2 border-t px-3 py-2.5 text-xs text-muted-foreground"
+          >
+            <DetailRow label="Event" value={event.eventType} />
+            {event.result !== null ? <DetailRow label="Result" value={event.result} /> : null}
+            {event.previousState && event.requestedState ? (
+              <DetailRow label="State" value={`${event.previousState} → ${event.requestedState}`} />
+            ) : null}
+            <DetailRow label="Payload" value={JSON.stringify(event.payload)} />
+          </div>
+        ) : null}
+      </div>
     </li>
   );
 }
