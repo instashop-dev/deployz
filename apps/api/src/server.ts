@@ -3118,5 +3118,34 @@ export async function buildServer({
     return reply.code(200).send({ received: true });
   });
 
+  // §31 relay config fetch — the CONFIG_UPDATE executor calls this over its
+  // authenticated channel to learn the effective desired configuration
+  // before applying it. Plain values travel; secret values do NOT (they are
+  // write-only in the control plane and already live in the customer's
+  // Secrets Manager — the relay only needs their key names).
+  app.get('/api/relay/config', async (request) => {
+    const token = requireBearerToken(request);
+    const { installationId } = request.query as { installationId?: string };
+    const deployment = await requireRelayDeployment(
+      installationId,
+      token,
+      oldRelayToken(request),
+    );
+
+    const view = await getConfig(
+      deployment.applicationId,
+      deployment.customerId,
+      configStore,
+    );
+    return {
+      entries: view.effective.map((entry) => ({
+        key: entry.key,
+        isSecret: entry.isSecret,
+        ...(entry.isSecret ? {} : { value: entry.value }),
+        source: entry.source,
+      })),
+    };
+  });
+
   return app;
 }
