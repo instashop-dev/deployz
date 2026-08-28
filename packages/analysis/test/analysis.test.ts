@@ -7,10 +7,13 @@ import {
   detectHealthEndpoint,
   detectEnvVars,
   detectPostgresql,
+  assessPostgres,
   detectLocalFilesystem,
   detectWorker,
   detectS3,
   detectMigrationCommand,
+  detectPackageManager,
+  detectBuildCommand,
   type FileTree,
   type DetectorFinding,
 } from '../src/detectors.js';
@@ -636,6 +639,57 @@ describe('§18 detectors', () => {
   });
 
   // ------------------------------------------------------------------
+  // 6b. PostgreSQL required-vs-present evidence
+  // ------------------------------------------------------------------
+  describe('assessPostgres', () => {
+    it('requires postgres when a driver dependency AND a DATABASE_URL reference are both present', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { pg: '^8.12.0' } }),
+        '.env.example': 'DATABASE_URL=postgresql://localhost:5432/mydb\n',
+      };
+      const result = assessPostgres(tree);
+      expect(result.required).toBe(true);
+      expect(result.evidence).toHaveLength(2);
+      expect(result.evidence.some((e) => e.includes('pg dependency'))).toBe(true);
+      expect(result.evidence.some((e) => e.includes('DATABASE_URL'))).toBe(true);
+    });
+
+    it('does NOT require postgres from a bare driver dependency alone', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { pg: '^8.12.0' } }),
+      };
+      const result = assessPostgres(tree);
+      expect(result.required).toBe(false);
+      expect(result.evidence).toHaveLength(1);
+    });
+
+    it('requires postgres when Prisma declares a postgresql provider', () => {
+      const result = assessPostgres(compatiblePrismaFixture);
+      expect(result.required).toBe(true);
+    });
+
+    it('does not require postgres, with no evidence, when there is no PostgreSQL usage — and the repo stays a valid, READY-capable analysis', () => {
+      const noDatabaseFixture: FileTree = {
+        'Dockerfile': compatibleFixture['Dockerfile']!,
+        'package.json': JSON.stringify({
+          name: 'no-db-app',
+          scripts: { start: 'node dist/index.js' },
+          dependencies: { express: '^4.18.0' },
+        }),
+        'src/index.ts': compatibleFixture['src/index.ts']!,
+      };
+
+      const result = assessPostgres(noDatabaseFixture);
+      expect(result.required).toBe(false);
+      expect(result.evidence).toEqual([]);
+
+      const analysis = analyseRepo(noDatabaseFixture);
+      expect(analysis.metadata.postgres).toEqual({ required: false, evidence: [] });
+      expect(analysis.rejections.filter((r) => r.detected)).toHaveLength(0);
+    });
+  });
+
+  // ------------------------------------------------------------------
   // 7. Local filesystem detector
   // ------------------------------------------------------------------
   describe('detectLocalFilesystem', () => {
@@ -786,6 +840,97 @@ describe('§18 detectors', () => {
         'package.json': JSON.stringify({ scripts: { start: 'node index.js' } }),
       };
       const result = detectMigrationCommand(tree);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 11. Package manager detector
+  // ------------------------------------------------------------------
+  describe('detectPackageManager', () => {
+    it('detects pnpm from a root pnpm-lock.yaml', () => {
+      const tree: FileTree = { 'pnpm-lock.yaml': 'lockfileVersion: 9.0\n' };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('pnpm');
+    });
+
+    it('detects yarn from a root yarn.lock', () => {
+      const tree: FileTree = { 'yarn.lock': '# yarn lockfile v1\n' };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('yarn');
+    });
+
+    it('detects bun from a root bun.lockb', () => {
+      const tree: FileTree = { 'bun.lockb': '' };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('bun');
+    });
+
+    it('detects npm from a root package-lock.json', () => {
+      const tree: FileTree = { 'package-lock.json': '{}' };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('npm');
+    });
+
+    it('returns false when no lockfile or packageManager field is present', () => {
+      const result = detectPackageManager(emptyRepoFixture);
+      expect(result.detected).toBe(false);
+      expect(result.value).toBeUndefined();
+    });
+
+    it('prefers the root package.json "packageManager" field over a present lockfile', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ packageManager: 'pnpm@9.0.0' }),
+        'package-lock.json': '{}',
+      };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('pnpm');
+    });
+
+    it('detects a lockfile nested inside a workspace package', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ name: 'monorepo-root', workspaces: ['apps/*'] }),
+        'apps/api/pnpm-lock.yaml': 'lockfileVersion: 9.0\n',
+      };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('pnpm');
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 12. Build command detector
+  // ------------------------------------------------------------------
+  describe('detectBuildCommand', () => {
+    it('detects a root "build" script', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ scripts: { build: 'next build' } }),
+      };
+      const result = detectBuildCommand(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('next build');
+    });
+
+    it('detects a "build" script in a workspace package manifest', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ name: 'monorepo-root', scripts: {} }),
+        'apps/web/package.json': JSON.stringify({ name: '@app/web', scripts: { build: 'vite build' } }),
+      };
+      const result = detectBuildCommand(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('vite build');
+    });
+
+    it('returns false when no "build" script is found', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ scripts: { start: 'node index.js' } }),
+      };
+      const result = detectBuildCommand(tree);
       expect(result.detected).toBe(false);
     });
   });
@@ -1131,5 +1276,34 @@ describe('analyseRepo (orchestrator)', () => {
     expect(result.metadata.framework).toBe('express');
     expect(result.metadata.hasDockerfile).toBe(true);
     expect(result.metadata.hasHealthEndpoint).toBe(true);
+  });
+
+  it('computes metadata.postgres required-vs-present evidence', () => {
+    const result = analyseRepo(compatibleFixture);
+    expect(result.metadata.postgres).toEqual({
+      required: true,
+      evidence: expect.arrayContaining([
+        expect.stringContaining('pg dependency'),
+        expect.stringContaining('DATABASE_URL'),
+      ]),
+    });
+  });
+
+  it('reports packageManager: null and hasBuildCommand: false when neither is present', () => {
+    const result = analyseRepo(emptyRepoFixture);
+    expect(result.metadata.packageManager).toBeNull();
+    expect(result.metadata.hasBuildCommand).toBe(false);
+    expect(result.metadata.buildCommands).toBeUndefined();
+  });
+
+  it('detects the package manager and build command in metadata', () => {
+    const tree: FileTree = {
+      'package.json': JSON.stringify({ scripts: { build: 'next build' } }),
+      'pnpm-lock.yaml': 'lockfileVersion: 9.0\n',
+    };
+    const result = analyseRepo(tree);
+    expect(result.metadata.packageManager).toBe('pnpm');
+    expect(result.metadata.hasBuildCommand).toBe(true);
+    expect(result.metadata.buildCommands).toContain('next build');
   });
 });

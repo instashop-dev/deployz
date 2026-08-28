@@ -17,6 +17,7 @@
  */
 import { eq } from 'drizzle-orm';
 
+import { normalizeErrorText } from '@deployz/analysis';
 import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob } from '@deployz/api/jobs';
 import type { QueueMessage } from '@deployz/api/queue';
@@ -41,6 +42,11 @@ export interface CodeBuildStateChangeEvent {
           readonly value: string;
         }[];
       };
+      readonly phases?: readonly {
+        readonly 'phase-type'?: string;
+        readonly 'phase-status'?: string;
+        readonly 'phase-context'?: readonly string[];
+      }[];
     };
     readonly 'exported-environment-variables'?: readonly {
       readonly name: string;
@@ -62,7 +68,7 @@ export interface WorkerDeps {
     projectName: string;
     environmentVariables: { name: string; value: string }[];
   }) => Promise<void>;
-  readonly runAnalysis: (applicationId: string) => Promise<void>;
+  readonly runAnalysis: (applicationId: string, options?: { force?: boolean }) => Promise<void>;
 }
 
 // ── Seams ────────────────────────────────────────────────────────────────
@@ -228,6 +234,31 @@ function readVariable(
   return variables?.find((variable) => variable.name === name)?.value;
 }
 
+const FAILED_PHASE_STATUSES = new Set(['FAULT', 'FAILED', 'CLIENT_ERROR', 'TIMED_OUT']);
+
+/**
+ * Turns a CodeBuild state-change event into a human-readable failure reason:
+ * which phase broke and why, instead of just the bare build status. Falls
+ * back to the bare status when the event carries no phase information.
+ *
+ * Deterministic string assembly only — no AI involvement. (The AI-backed
+ * diagnostics endpoint covers deployment jobs, not release builds.)
+ */
+export function summarizeBuildFailure(event: CodeBuildStateChangeEvent): string {
+  const status = event.detail['build-status'];
+  const phases = event.detail['additional-information']?.phases;
+  const failedPhases = (phases ?? []).filter(
+    (phase) => phase['phase-status'] !== undefined && FAILED_PHASE_STATUSES.has(phase['phase-status']),
+  );
+  if (failedPhases.length === 0) {
+    return `CodeBuild reported ${status}`;
+  }
+
+  const phaseType = failedPhases[0]!['phase-type'] ?? 'UNKNOWN';
+  const contexts = failedPhases.flatMap((phase) => phase['phase-context'] ?? []).join('; ');
+  return normalizeErrorText(`Build failed in ${phaseType}: ${contexts}`, { maxLength: 500 });
+}
+
 export async function recordBuildResult(
   db: RuntimeDb,
   event: CodeBuildStateChangeEvent,
@@ -239,7 +270,7 @@ export async function recordBuildResult(
 
   const status = event.detail['build-status'];
   if (status !== 'SUCCEEDED') {
-    await failRelease(db, releaseId, `CodeBuild reported ${status}`);
+    await failRelease(db, releaseId, summarizeBuildFailure(event));
     return;
   }
 
@@ -264,7 +295,7 @@ export async function handleMessage(
 ): Promise<void> {
   switch (message.type) {
     case 'ANALYSE_APPLICATION':
-      await deps.runAnalysis(message.applicationId);
+      await deps.runAnalysis(message.applicationId, { force: message.force });
       return;
     case 'BUILD_RELEASE':
       await buildRelease(deps, message.releaseId);

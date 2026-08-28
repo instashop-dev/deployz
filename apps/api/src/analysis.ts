@@ -1,12 +1,26 @@
 import { eq } from 'drizzle-orm';
 
-import type { AnalysisResult, CompatibilityResult, FileTree } from '@deployz/analysis';
-import { analyseRepo, evaluateCompatibility } from '@deployz/analysis';
+import type { AiGateway, AnalysisResult, CompatibilityResult, FileTree, RepositoryAiInput } from '@deployz/analysis';
+import {
+  REPO_AI_TIMEOUT_MS,
+  analyseRepo,
+  analyseRepositoryWithAi,
+  collectUnresolvedQuestions,
+  evaluateCompatibility,
+  mergeAiAnalysis,
+  selectAiContextFiles,
+} from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { ApiError } from './errors.js';
-import { getFileTreeForAnalysis, mintInstallationToken, type FetchFn } from './github.js';
+import {
+  fetchHeadSha,
+  getFileTreeForAnalysis,
+  mintInstallationToken,
+  parseRepoFullName,
+  type FetchFn,
+} from './github.js';
 
 // §18/§19/§20 analysis orchestrator — the ONLY caller of `analyseRepo` /
 // `evaluateCompatibility` outside their own package tests. Wires:
@@ -26,21 +40,34 @@ import { getFileTreeForAnalysis, mintInstallationToken, type FetchFn } from './g
 
 type ApplicationRow = typeof schema.applications.$inferSelect;
 
+// Task 6 commit-SHA analysis cache: bumped whenever the detector/AI schema
+// changes materially, so a repository whose head commit hasn't moved but
+// whose analysis LOGIC has still gets a fresh run instead of a stale cache
+// hit. Version 1 is the pre-AI implicit version (no `analysisVersion` field
+// on the row at all).
+export const ANALYSIS_VERSION = 2;
+
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
   fetchFn: FetchFn;
   githubAppId: string | undefined;
   githubAppPrivateKey: string | undefined;
   githubFixtureMode: boolean;
+  /** §15 AI repository-analysis fallback — only invoked when a real question is left unresolved. */
+  aiGateway: AiGateway;
   /** Injectable clock for JWT iat/exp — defaults to Date.now. */
   now?: (() => number) | undefined;
 }
 
 /** The shape `buildServer` wires into the `/analyse` route. */
-export type AnalysisRunner = (applicationId: string) => Promise<void>;
+export type AnalysisRunner = (
+  applicationId: string,
+  options?: { force?: boolean },
+) => Promise<void>;
 
 export function createAnalysisRunner(deps: AnalysisRunnerDeps): AnalysisRunner {
-  return (applicationId: string) => runApplicationAnalysis(deps, applicationId);
+  return (applicationId: string, options?: { force?: boolean }) =>
+    runApplicationAnalysis(deps, applicationId, options);
 }
 
 /**
@@ -52,6 +79,7 @@ export function createAnalysisRunner(deps: AnalysisRunnerDeps): AnalysisRunner {
 export async function runApplicationAnalysis(
   deps: AnalysisRunnerDeps,
   applicationId: string,
+  options?: { force?: boolean },
 ): Promise<void> {
   try {
     const rows = await deps.db
@@ -66,7 +94,36 @@ export async function runApplicationAnalysis(
       return;
     }
 
-    const tree = await fetchTreeForApplication(deps, application);
+    // Task 6 commit-SHA analysis cache (real GitHub mode only — fixture mode
+    // has no head commit to compare and always runs fully). The single
+    // installation token a real-mode run needs is minted HERE, once, and
+    // reused for both the head-sha lookup and — on a full run — the tree/
+    // blob fetch below, so a full run never mints a second token.
+    // `mintRealModeToken` throws the same errors a full run always threw
+    // (missing installation / unconfigured App / a minting failure), which
+    // is correct: if minting fails, the run was always going to fail. Once
+    // minted, `fetchHeadSha` itself never throws — it degrades to
+    // `undefined` on any non-200 — so the cache lookup stays best-effort.
+    let headSha: string | undefined;
+    let realModeToken: string | undefined;
+    if (!deps.githubFixtureMode) {
+      realModeToken = await mintRealModeToken(deps, application);
+      headSha = await fetchHeadSha(
+        { ...parseRepoFullName(application.repoFullName), branch: application.defaultBranch },
+        realModeToken,
+        deps.fetchFn,
+      );
+    }
+
+    if (!options?.force && headSha !== undefined && isCommitShaCacheHit(application.detectedMetadata, headSha)) {
+      await deps.db
+        .update(schema.applications)
+        .set({ analysisStatus: 'COMPLETE' })
+        .where(eq(schema.applications.id, applicationId));
+      return;
+    }
+
+    const tree = await fetchTreeForApplication(deps, application, realModeToken);
     const analysis = analyseRepo(tree);
     const compatibility = evaluateCompatibility(analysis);
     const checks = buildChecks(analysis, compatibility);
@@ -74,7 +131,13 @@ export async function runApplicationAnalysis(
     // write replaces wholesale — carry it across or every re-analysis would
     // forget which fields the vendor edited.
     const vendorOverrides = readVendorOverrides(application.detectedMetadata);
-    const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, analysis);
+
+    // §15 AI fallback: only runs when the deterministic scanner left a real
+    // question unresolved, and can never fail the analysis — any AI error
+    // degrades to the deterministic metadata plus a warning.
+    const { metadata, aiResolved } = await applyAiFallback(deps.aiGateway, tree, analysis);
+    const mergedAnalysis: AnalysisResult = { ...analysis, metadata };
+    const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, mergedAnalysis, aiResolved);
 
     await deps.db
       .update(schema.applications)
@@ -82,7 +145,13 @@ export async function runApplicationAnalysis(
         analysisStatus: 'COMPLETE',
         compatibilityStatus: compatibility.verdict,
         compatibilityReason: compatibility.reason,
-        detectedMetadata: { ...analysis.metadata, checks, vendorOverrides },
+        detectedMetadata: {
+          ...metadata,
+          checks,
+          vendorOverrides,
+          analysisVersion: ANALYSIS_VERSION,
+          ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
+        },
         ...contractFieldUpdates,
       })
       .where(eq(schema.applications.id, applicationId));
@@ -112,16 +181,18 @@ async function markFailed(db: RuntimeDb, applicationId: string, error: unknown):
   }
 }
 
-// ── Repo/branch resolution + tree fetch ─────────────────────────────────────
+// ── Task 6 commit-SHA analysis cache ────────────────────────────────────────
 
-async function fetchTreeForApplication(
-  deps: AnalysisRunnerDeps,
-  application: ApplicationRow,
-): Promise<FileTree> {
-  if (deps.githubFixtureMode) {
-    return getFileTreeForAnalysis(application.repoFullName, { fixtureMode: true });
-  }
-
+/**
+ * Guards + mints the ONE installation token a real-mode run needs — shared
+ * by the Task 6 head-sha cache lookup and (on a full run) the tree/blob
+ * fetch, so a full run never mints more than once. Never called in fixture
+ * mode. Throws the same structured errors a full run always threw on a
+ * missing installation / unconfigured App / minting failure — a real-mode
+ * run that can't get a token was always going to fail regardless of the
+ * cache.
+ */
+async function mintRealModeToken(deps: AnalysisRunnerDeps, application: ApplicationRow): Promise<string> {
   if (!application.githubInstallationId) {
     throw new ApiError(
       422,
@@ -132,7 +203,6 @@ async function fetchTreeForApplication(
   if (!deps.githubAppId || !deps.githubAppPrivateKey) {
     throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
   }
-
   const { token } = await mintInstallationToken(
     application.githubInstallationId,
     deps.githubAppId,
@@ -140,12 +210,115 @@ async function fetchTreeForApplication(
     deps.now ? deps.now() : Date.now(),
     deps.fetchFn,
   );
+  return token;
+}
+
+/** A cache hit: the stored analysis was for this exact commit and analyser version. */
+function isCommitShaCacheHit(metadata: Record<string, unknown> | null, headSha: string): boolean {
+  if (!metadata) return false;
+  return metadata['analysisCommitSha'] === headSha && metadata['analysisVersion'] === ANALYSIS_VERSION;
+}
+
+// ── Repo/branch resolution + tree fetch ─────────────────────────────────────
+
+// `realModeToken` is minted once by `mintRealModeToken` in
+// `runApplicationAnalysis` (real mode only) and reused here — this function
+// never mints its own token, so a full run mints exactly one.
+async function fetchTreeForApplication(
+  deps: AnalysisRunnerDeps,
+  application: ApplicationRow,
+  realModeToken: string | undefined,
+): Promise<FileTree> {
+  if (deps.githubFixtureMode) {
+    return getFileTreeForAnalysis(application.repoFullName, { fixtureMode: true });
+  }
   return getFileTreeForAnalysis(application.repoFullName, {
     fixtureMode: false,
     branch: application.defaultBranch,
-    installationToken: token,
+    installationToken: realModeToken,
     fetchFn: deps.fetchFn,
   });
+}
+
+// ── §15 AI repository-analysis fallback ─────────────────────────────────────
+
+/** The deterministic facts `RepositoryAiInput.detected` needs, read off `analysis.metadata`. */
+function buildRepositoryAiInput(
+  tree: FileTree,
+  analysis: AnalysisResult,
+  unresolved: string[],
+): RepositoryAiInput {
+  const metadata = analysis.metadata;
+  const buildCommands = metadata['buildCommands'];
+  const startupCommands = metadata['startupCommands'];
+  const postgres = metadata['postgres'] as { required?: unknown } | undefined;
+  const redis = metadata['redis'] as { required?: unknown } | undefined;
+
+  return {
+    detected: {
+      packageManager: typeof metadata['packageManager'] === 'string' ? metadata['packageManager'] : null,
+      framework: typeof metadata['framework'] === 'string' ? metadata['framework'] : null,
+      buildCommand: Array.isArray(buildCommands) && typeof buildCommands[0] === 'string' ? buildCommands[0] : null,
+      startCommand:
+        Array.isArray(startupCommands) && typeof startupCommands[0] === 'string' ? startupCommands[0] : null,
+      port: typeof metadata['port'] === 'string' ? metadata['port'] : null,
+      dockerfilePath: typeof metadata['dockerfilePath'] === 'string' ? metadata['dockerfilePath'] : null,
+      postgresRequired: postgres?.required === true,
+      redisRequired: redis?.required === true,
+      migrationCommandDetected: metadata['hasMigrationCommand'] === true,
+    },
+    files: selectAiContextFiles(tree),
+    unresolved,
+  };
+}
+
+/**
+ * Runs the §15 AI fallback when (and only when) `collectUnresolvedQuestions`
+ * finds something the deterministic scanner could not resolve, then merges
+ * the answer with `mergeAiAnalysis` (deterministic always wins). Any AI
+ * failure — unconfigured gateway, network error, timeout, schema violation —
+ * is caught here and degrades to the deterministic metadata plus a warning;
+ * it must never fail an analysis the deterministic scanner completed.
+ */
+async function applyAiFallback(
+  aiGateway: AiGateway,
+  tree: FileTree,
+  analysis: AnalysisResult,
+): Promise<{ metadata: Record<string, unknown>; aiResolved: string[] }> {
+  const unresolved = collectUnresolvedQuestions(tree, analysis);
+  if (unresolved.length === 0) {
+    return { metadata: analysis.metadata, aiResolved: [] };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REPO_AI_TIMEOUT_MS);
+  try {
+    const input = buildRepositoryAiInput(tree, analysis, unresolved);
+    const ai = await analyseRepositoryWithAi(input, aiGateway, { abortSignal: controller.signal });
+    const outcome = mergeAiAnalysis(analysis.metadata, ai);
+    return {
+      metadata: {
+        ...outcome.metadata,
+        aiAnalysis: {
+          unresolved,
+          aiResolved: outcome.aiResolved,
+          warnings: outcome.warnings,
+          generatedAt: new Date().toISOString(),
+        },
+      },
+      aiResolved: outcome.aiResolved,
+    };
+  } catch {
+    return {
+      metadata: {
+        ...analysis.metadata,
+        aiAnalysis: { unresolved, warnings: ['AI analysis unavailable'] },
+      },
+      aiResolved: [],
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── §19 checks shape (must match computeReadiness in server.ts EXACTLY) ────
@@ -180,6 +353,8 @@ const READY_LABELS: Partial<Record<string, string>> = {
   'migration-command': 'Database migration command found',
   'startup-command': 'Startup command found',
   'external-services': 'External service integrations detected',
+  'package-manager': 'Package manager detected',
+  'build-command': 'Build command found',
 };
 
 // Detectors whose `detected: true` is a NEGATIVE signal (they only ever fire
@@ -329,11 +504,20 @@ export function readVendorOverrides(metadata: Record<string, unknown> | null): s
  *     tree (fetchBlobContent returns null on error), so "not detected" is
  *     not reliable enough to wipe a vendor's deployment contract. Booleans
  *     move false -> true on evidence, never back.
+ *
+ * `analysis` carries the MERGED (post-§15 AI fallback) metadata, and
+ * `aiResolved` names which keys the AI filled — `databaseRequired`/
+ * `redisRequired` pick up an AI-resolved flip for free via `analysis.metadata`
+ * (the same gate `mergeAiAnalysis` already applied), while `containerPort`/
+ * `migrationCommand` only fall back to the AI value when `aiResolved` says
+ * so, since neither is derivable from `analysis.findings` the way the
+ * deterministic path is.
  */
 function deriveContractFieldUpdates(
   vendorOverrides: string[],
   tree: FileTree,
   analysis: AnalysisResult,
+  aiResolved: string[],
 ): ContractFieldUpdates {
   const updates: ContractFieldUpdates = {};
   const vendorOwned = new Set(vendorOverrides);
@@ -343,6 +527,11 @@ function deriveContractFieldUpdates(
     const port = finding('port');
     if (port?.detected && typeof port.value === 'string') {
       const parsed = Number.parseInt(port.value, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        updates.containerPort = parsed;
+      }
+    } else if (aiResolved.includes('port') && typeof analysis.metadata['port'] === 'string') {
+      const parsed = Number.parseInt(analysis.metadata['port'] as string, 10);
       if (Number.isFinite(parsed) && parsed > 0) {
         updates.containerPort = parsed;
       }
@@ -363,7 +552,14 @@ function deriveContractFieldUpdates(
 
   if (!vendorOwned.has('migrationCommand')) {
     const command = findScriptCommand(scripts, MIGRATION_SCRIPT_KEY_REGEX);
-    if (command) updates.migrationCommand = command;
+    if (command) {
+      updates.migrationCommand = command;
+    } else if (aiResolved.includes('migrationCommands')) {
+      const migrationCommands = analysis.metadata['migrationCommands'];
+      if (Array.isArray(migrationCommands) && typeof migrationCommands[0] === 'string') {
+        updates.migrationCommand = migrationCommands[0];
+      }
+    }
   }
 
   if (!vendorOwned.has('workerCommand')) {
@@ -372,8 +568,13 @@ function deriveContractFieldUpdates(
   }
 
   if (!vendorOwned.has('databaseRequired')) {
-    const postgresql = finding('postgresql');
-    if (postgresql?.detected) updates.databaseRequired = true;
+    // Unlike a mere detector `detected` flag (library presence), RDS
+    // provisioning is gated on the required-vs-present evidence rule — a
+    // driver/ORM dependency alone never provisions a database.
+    // `metadata.postgres.required` is that gate, computed once by
+    // `assessPostgres` and carried through `analysis.metadata`.
+    const postgres = analysis.metadata['postgres'] as { required?: unknown } | undefined;
+    if (postgres?.required === true) updates.databaseRequired = true;
   }
 
   if (!vendorOwned.has('storageRequired')) {

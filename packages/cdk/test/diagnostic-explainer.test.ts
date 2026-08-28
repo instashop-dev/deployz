@@ -271,6 +271,26 @@ describe('explainDiagnostic — §16 guard (no raw logs in AI payloads)', () => 
 });
 
 // ==========================================================================
+// Secret redaction — error.message and context values are redacted before
+// they reach the prompt
+// ==========================================================================
+
+describe('buildDiagnosticPrompt — secret redaction', () => {
+  it('redacts a connection string embedded in error.message', () => {
+    const event = parseDiagnosticEvent({
+      source: 'ecs',
+      error: {
+        code: 'ECONNREFUSED',
+        message: 'connection failed: postgresql://u:p@h/db',
+      },
+    });
+    const prompt = buildDiagnosticPrompt('ECS_DEPLOYMENT_FAILED', event);
+    expect(prompt).toContain('[REDACTED]');
+    expect(prompt).not.toContain('u:p');
+  });
+});
+
+// ==========================================================================
 // Pipeline — classify then explain (the full §16 → §20 flow)
 // ==========================================================================
 

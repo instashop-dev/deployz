@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -10,6 +10,7 @@ import {
   handleMessage,
   recordBuildResult,
   resolveBuildContext,
+  summarizeBuildFailure,
   type CodeBuildStateChangeEvent,
   type WorkerDeps,
 } from '../src/lambda/worker.js';
@@ -29,6 +30,7 @@ describe('worker handler', () => {
     [];
   const uploaded: { bucket: string; key: string }[] = [];
   const analysed: string[] = [];
+  const analysedForce: (boolean | undefined)[] = [];
 
   function deps(): WorkerDeps {
     return {
@@ -48,8 +50,9 @@ describe('worker handler', () => {
       async startBuild(input) {
         started.push(input);
       },
-      async runAnalysis(id) {
+      async runAnalysis(id, options) {
         analysed.push(id);
+        analysedForce.push(options?.force);
       },
     };
   }
@@ -112,6 +115,15 @@ describe('worker handler', () => {
   it('runs the analysis for an ANALYSE_APPLICATION message', async () => {
     await handleMessage(deps(), { type: 'ANALYSE_APPLICATION', applicationId }, 'msg-1');
     expect(analysed).toEqual([applicationId]);
+    expect(analysedForce.at(-1)).toBeUndefined();
+  });
+
+  // Task 6 commit-SHA analysis cache: the queue message's `force` flag must
+  // reach `runAnalysis` so a vendor-triggered re-analyse can bypass the
+  // cache, not just an auto-triggered one.
+  it('threads the ANALYSE_APPLICATION message force flag through to runAnalysis', async () => {
+    await handleMessage(deps(), { type: 'ANALYSE_APPLICATION', applicationId, force: true }, 'msg-1-force');
+    expect(analysedForce.at(-1)).toBe(true);
   });
 
   it('uploads the source and starts a build for BUILD_RELEASE', async () => {
@@ -237,13 +249,19 @@ describe('worker handler', () => {
     expect(jobs[0]?.type).toBe('CONFIG_UPDATE');
   });
 
-  function buildEvent(releaseId: string, status: string, digest?: string): CodeBuildStateChangeEvent {
+  function buildEvent(
+    releaseId: string,
+    status: string,
+    digest?: string,
+    phases?: NonNullable<CodeBuildStateChangeEvent['detail']['additional-information']>['phases'],
+  ): CodeBuildStateChangeEvent {
     return {
       'detail-type': 'CodeBuild Build State Change',
       detail: {
         'build-status': status,
         'additional-information': {
           environment: { 'environment-variables': [{ name: 'RELEASE_ID', value: releaseId }] },
+          ...(phases ? { phases } : {}),
         },
         ...(digest
           ? { 'exported-environment-variables': [{ name: 'IMAGE_DIGEST', value: digest }] }
@@ -276,6 +294,69 @@ describe('worker handler', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.buildStatus).toBe('FAILED');
     expect(row?.imageDigest).toBeNull();
+  });
+
+  // Task 8: the release failure reason (currently only logged — §36's
+  // `releases` table has no failure-reason column) should carry the failed
+  // phase's own context instead of the bare CodeBuild status, so an operator
+  // reading the log knows which phase broke and why.
+  describe('summarizeBuildFailure', () => {
+    it('surfaces the failed phase context', () => {
+      const event = buildEvent('release-x', 'FAILED', undefined, [
+        {
+          'phase-type': 'BUILD',
+          'phase-status': 'FAILED',
+          'phase-context': ['COMMAND_EXECUTION_ERROR: exit status 1: npm install failed'],
+        },
+      ]);
+
+      const reason = summarizeBuildFailure(event);
+
+      expect(reason).toContain('Build failed in BUILD');
+      expect(reason).toContain('npm install failed');
+    });
+
+    it('redacts credentials embedded in the phase context', () => {
+      const event = buildEvent('release-x', 'FAILED', undefined, [
+        {
+          'phase-type': 'DOWNLOAD_SOURCE',
+          'phase-status': 'FAILED',
+          'phase-context': ['fatal: could not read from https://user:token@github.com/x'],
+        },
+      ]);
+
+      const reason = summarizeBuildFailure(event);
+
+      expect(reason).not.toContain('user:token');
+      expect(reason).toContain('https://[REDACTED]@github.com/x');
+    });
+
+    it('falls back to the bare status when the event has no phase info', () => {
+      const event = buildEvent('release-x', 'FAILED');
+
+      expect(summarizeBuildFailure(event)).toBe('CodeBuild reported FAILED');
+    });
+  });
+
+  it('logs the failed phase context as the release failure reason', async () => {
+    const release = await insertRelease('v2.1.1');
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await recordBuildResult(
+      db,
+      buildEvent(release.id, 'FAILED', undefined, [
+        {
+          'phase-type': 'BUILD',
+          'phase-status': 'FAILED',
+          'phase-context': ['COMMAND_EXECUTION_ERROR: exit status 1: npm install failed'],
+        },
+      ]),
+    );
+
+    expect(consoleSpy.mock.calls.some((call) => String(call[0]).includes('npm install failed'))).toBe(
+      true,
+    );
+    consoleSpy.mockRestore();
   });
 
   // A success with no digest is not a usable release: §21 pins deployments to

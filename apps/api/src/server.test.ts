@@ -1186,21 +1186,72 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect((diagnostics.json() as { failureCode: string }).failureCode).toBe('IMAGE_HEALTH_CHECK_FAILED');
   });
 
-  // §29: the what/why/fix a failed deployment reports must come from the
-  // deterministic remediation engine or the AI explainer — never a hardcoded
-  // placeholder that says the same thing for every failure code.
-  it('explains a failure with AI text when a gateway is configured', async () => {
-    const aiApp = await buildServer({
+  // §22/§23/§42: known failure codes bypass AI entirely — the deterministic
+  // §65 copy map is authoritative and the gateway must never be invoked.
+  it('a known failure code returns remediation copy directly, without calling the AI gateway', async () => {
+    let calls = 0;
+    const countingApp = await buildServer({
       auth,
       db,
       aiGateway: {
         async generate() {
+          calls += 1;
+          throw new Error('AI gateway must not be called for a known failure code');
+        },
+      },
+    });
+    // Set the failure state directly so the test does not depend on which
+    // other tests in this file have already run.
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'DEPLOY_RELEASE',
+      state: 'FAILED',
+      failureCode: 'PORT_MISMATCH',
+      finishedAt: new Date(),
+      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:known-code`,
+      payload: {},
+    });
+    await db
+      .update(schema.deployments)
+      .set({ state: 'FAILED' })
+      .where(eq(schema.deployments.id, deployment.id));
+
+    const response = await countingApp.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/diagnostics`,
+      headers: { cookie: org.cookie },
+    });
+
+    const body = response.json() as { failureCode: string; what: string; fix: string };
+    expect(body.failureCode).toBe('PORT_MISMATCH');
+    // Code-specific guidance, not the old one-size-fits-all placeholder.
+    expect(body.what).toContain('port');
+    expect(body.what).not.toBe('Deployment failed');
+    expect(body.fix.length).toBeGreaterThan(0);
+    expect(calls).toBe(0);
+    await countingApp.close();
+  });
+
+  // §16/§23: an UNKNOWN failure code is the one path that calls AI, and the
+  // only evidence it may see is the redacted, normalized job error — never
+  // the raw text (ANSI codes, secrets) the relay reported.
+  it('explains an UNKNOWN failure with AI text, sending only redacted evidence in the prompt', async () => {
+    // Built from a char code rather than an embedded literal control byte, so
+    // the source has no raw control character (matches redact.ts's own style).
+    const ansiEsc = String.fromCharCode(27);
+    let capturedPrompt = '';
+    const aiApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate(prompt) {
+          capturedPrompt = prompt;
           return {
             object: {
-              failureCode: 'IMAGE_HEALTH_CHECK_FAILED',
-              what: 'The app started but never reported itself healthy.',
-              why: 'The health check never passed.',
-              fix: 'Check the health endpoint returns success.',
+              failureCode: 'UNKNOWN',
+              what: 'The app failed for a reason the classifier could not identify.',
+              why: 'The deploy reported an error that did not match a known failure pattern.',
+              fix: 'Check the logs and contact support if this keeps happening.',
             },
             usage: { promptTokens: 20, completionTokens: 10 },
           };
@@ -1213,7 +1264,8 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       deploymentId: deployment.id,
       type: 'DEPLOY_RELEASE',
       state: 'FAILED',
-      failureCode: 'IMAGE_HEALTH_CHECK_FAILED',
+      failureCode: null,
+      result: { error: `boom ${ansiEsc}[31mERR${ansiEsc}[0m postgresql://u:p@h/db` },
       finishedAt: new Date(),
       idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:ai-explained`,
       payload: {},
@@ -1229,39 +1281,13 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       headers: { cookie: org.cookie },
     });
 
-    const body = response.json() as { what: string; why: string; fix: string };
-    expect(body.what).toBe('The app started but never reported itself healthy.');
-    expect(body.fix).toBe('Check the health endpoint returns success.');
+    const body = response.json() as { failureCode: string; what: string; why: string; fix: string };
+    expect(body.failureCode).toBe('UNKNOWN');
+    expect(body.what).toBe('The app failed for a reason the classifier could not identify.');
+    expect(body.fix).toBe('Check the logs and contact support if this keeps happening.');
+    expect(capturedPrompt).toContain('[REDACTED]');
+    expect(capturedPrompt).not.toContain('u:p');
     await aiApp.close();
-  });
-
-  it('explains a failure with deterministic remediation when no gateway is configured', async () => {
-    await db.insert(schema.deploymentJobs).values({
-      deploymentId: deployment.id,
-      type: 'DEPLOY_RELEASE',
-      state: 'FAILED',
-      failureCode: 'PORT_MISMATCH',
-      finishedAt: new Date(),
-      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:no-gateway`,
-      payload: {},
-    });
-    await db
-      .update(schema.deployments)
-      .set({ state: 'FAILED' })
-      .where(eq(schema.deployments.id, deployment.id));
-
-    const response = await app.inject({
-      method: 'GET',
-      url: `/api/deployments/${deployment.id}/diagnostics`,
-      headers: { cookie: org.cookie },
-    });
-
-    const body = response.json() as { failureCode: string; what: string; fix: string };
-    expect(body.failureCode).toBe('PORT_MISMATCH');
-    // Code-specific guidance, not the old one-size-fits-all placeholder.
-    expect(body.what).toContain('port');
-    expect(body.what).not.toBe('Deployment failed');
-    expect(body.fix.length).toBeGreaterThan(0);
   });
 
   // §31 config writes are non-disruptive — they must not disturb the lifecycle.
@@ -1746,6 +1772,60 @@ describe('server — POST /api/applications/:id/analyse wires ServerDeps.analysi
       // With no job queue configured the runner is awaited inline, so it has
       // already run by the time the 202 comes back.
       expect(calls).toEqual([application.id]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // Task 6 commit-SHA analysis cache: the explicit "Re-analyse" action sends
+  // `{ force: true }` in the body, which must reach the injected runner so it
+  // bypasses the cache; an auto-trigger sends no body at all.
+  it('threads an explicit { force: true } body through to the injected runner', async () => {
+    const calls: Array<{ applicationId: string; force: boolean | undefined }> = [];
+    const app = await buildServer({
+      auth,
+      db,
+      analysisRunner: async (applicationId, options) => {
+        calls.push({ applicationId, force: options?.force });
+      },
+    });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/applications/${application.id}/analyse`,
+        headers: { cookie: org.cookie },
+        payload: { force: true },
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(calls).toEqual([{ applicationId: application.id, force: true }]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('does not force a re-analysis when no body is sent', async () => {
+    const calls: Array<boolean | undefined> = [];
+    const app = await buildServer({
+      auth,
+      db,
+      analysisRunner: async (_applicationId, options) => {
+        calls.push(options?.force);
+      },
+    });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/applications/${application.id}/analyse`,
+        headers: { cookie: org.cookie },
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(calls).toEqual([false]);
     } finally {
       await app.close();
     }
