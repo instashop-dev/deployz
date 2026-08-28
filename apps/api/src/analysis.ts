@@ -1,7 +1,15 @@
 import { eq } from 'drizzle-orm';
 
-import type { AnalysisResult, CompatibilityResult, FileTree } from '@deployz/analysis';
-import { analyseRepo, evaluateCompatibility } from '@deployz/analysis';
+import type { AiGateway, AnalysisResult, CompatibilityResult, FileTree, RepositoryAiInput } from '@deployz/analysis';
+import {
+  REPO_AI_TIMEOUT_MS,
+  analyseRepo,
+  analyseRepositoryWithAi,
+  collectUnresolvedQuestions,
+  evaluateCompatibility,
+  mergeAiAnalysis,
+  selectAiContextFiles,
+} from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -32,6 +40,8 @@ export interface AnalysisRunnerDeps {
   githubAppId: string | undefined;
   githubAppPrivateKey: string | undefined;
   githubFixtureMode: boolean;
+  /** §15 AI repository-analysis fallback — only invoked when a real question is left unresolved. */
+  aiGateway: AiGateway;
   /** Injectable clock for JWT iat/exp — defaults to Date.now. */
   now?: (() => number) | undefined;
 }
@@ -74,7 +84,13 @@ export async function runApplicationAnalysis(
     // write replaces wholesale — carry it across or every re-analysis would
     // forget which fields the vendor edited.
     const vendorOverrides = readVendorOverrides(application.detectedMetadata);
-    const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, analysis);
+
+    // §15 AI fallback: only runs when the deterministic scanner left a real
+    // question unresolved, and can never fail the analysis — any AI error
+    // degrades to the deterministic metadata plus a warning.
+    const { metadata, aiResolved } = await applyAiFallback(deps.aiGateway, tree, analysis);
+    const mergedAnalysis: AnalysisResult = { ...analysis, metadata };
+    const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, mergedAnalysis, aiResolved);
 
     await deps.db
       .update(schema.applications)
@@ -82,7 +98,7 @@ export async function runApplicationAnalysis(
         analysisStatus: 'COMPLETE',
         compatibilityStatus: compatibility.verdict,
         compatibilityReason: compatibility.reason,
-        detectedMetadata: { ...analysis.metadata, checks, vendorOverrides },
+        detectedMetadata: { ...metadata, checks, vendorOverrides },
         ...contractFieldUpdates,
       })
       .where(eq(schema.applications.id, applicationId));
@@ -146,6 +162,87 @@ async function fetchTreeForApplication(
     installationToken: token,
     fetchFn: deps.fetchFn,
   });
+}
+
+// ── §15 AI repository-analysis fallback ─────────────────────────────────────
+
+/** The deterministic facts `RepositoryAiInput.detected` needs, read off `analysis.metadata`. */
+function buildRepositoryAiInput(
+  tree: FileTree,
+  analysis: AnalysisResult,
+  unresolved: string[],
+): RepositoryAiInput {
+  const metadata = analysis.metadata;
+  const buildCommands = metadata['buildCommands'];
+  const startupCommands = metadata['startupCommands'];
+  const postgres = metadata['postgres'] as { required?: unknown } | undefined;
+  const redis = metadata['redis'] as { required?: unknown } | undefined;
+
+  return {
+    detected: {
+      packageManager: typeof metadata['packageManager'] === 'string' ? metadata['packageManager'] : null,
+      framework: typeof metadata['framework'] === 'string' ? metadata['framework'] : null,
+      buildCommand: Array.isArray(buildCommands) && typeof buildCommands[0] === 'string' ? buildCommands[0] : null,
+      startCommand:
+        Array.isArray(startupCommands) && typeof startupCommands[0] === 'string' ? startupCommands[0] : null,
+      port: typeof metadata['port'] === 'string' ? metadata['port'] : null,
+      dockerfilePath: typeof metadata['dockerfilePath'] === 'string' ? metadata['dockerfilePath'] : null,
+      postgresRequired: postgres?.required === true,
+      redisRequired: redis?.required === true,
+      migrationCommandDetected: metadata['hasMigrationCommand'] === true,
+    },
+    files: selectAiContextFiles(tree, analysis),
+    unresolved,
+  };
+}
+
+/**
+ * Runs the §15 AI fallback when (and only when) `collectUnresolvedQuestions`
+ * finds something the deterministic scanner could not resolve, then merges
+ * the answer with `mergeAiAnalysis` (deterministic always wins). Any AI
+ * failure — unconfigured gateway, network error, timeout, schema violation —
+ * is caught here and degrades to the deterministic metadata plus a warning;
+ * it must never fail an analysis the deterministic scanner completed.
+ */
+async function applyAiFallback(
+  aiGateway: AiGateway,
+  tree: FileTree,
+  analysis: AnalysisResult,
+): Promise<{ metadata: Record<string, unknown>; aiResolved: string[] }> {
+  const unresolved = collectUnresolvedQuestions(tree, analysis);
+  if (unresolved.length === 0) {
+    return { metadata: analysis.metadata, aiResolved: [] };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REPO_AI_TIMEOUT_MS);
+  try {
+    const input = buildRepositoryAiInput(tree, analysis, unresolved);
+    const ai = await analyseRepositoryWithAi(input, aiGateway, { abortSignal: controller.signal });
+    const outcome = mergeAiAnalysis(analysis.metadata, ai);
+    return {
+      metadata: {
+        ...outcome.metadata,
+        aiAnalysis: {
+          unresolved,
+          aiResolved: outcome.aiResolved,
+          warnings: outcome.warnings,
+          generatedAt: new Date().toISOString(),
+        },
+      },
+      aiResolved: outcome.aiResolved,
+    };
+  } catch {
+    return {
+      metadata: {
+        ...analysis.metadata,
+        aiAnalysis: { unresolved, warnings: ['AI analysis unavailable'] },
+      },
+      aiResolved: [],
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── §19 checks shape (must match computeReadiness in server.ts EXACTLY) ────
@@ -331,11 +428,20 @@ export function readVendorOverrides(metadata: Record<string, unknown> | null): s
  *     tree (fetchBlobContent returns null on error), so "not detected" is
  *     not reliable enough to wipe a vendor's deployment contract. Booleans
  *     move false -> true on evidence, never back.
+ *
+ * `analysis` carries the MERGED (post-§15 AI fallback) metadata, and
+ * `aiResolved` names which keys the AI filled — `databaseRequired`/
+ * `redisRequired` pick up an AI-resolved flip for free via `analysis.metadata`
+ * (the same gate `mergeAiAnalysis` already applied), while `containerPort`/
+ * `migrationCommand` only fall back to the AI value when `aiResolved` says
+ * so, since neither is derivable from `analysis.findings` the way the
+ * deterministic path is.
  */
 function deriveContractFieldUpdates(
   vendorOverrides: string[],
   tree: FileTree,
   analysis: AnalysisResult,
+  aiResolved: string[],
 ): ContractFieldUpdates {
   const updates: ContractFieldUpdates = {};
   const vendorOwned = new Set(vendorOverrides);
@@ -345,6 +451,11 @@ function deriveContractFieldUpdates(
     const port = finding('port');
     if (port?.detected && typeof port.value === 'string') {
       const parsed = Number.parseInt(port.value, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        updates.containerPort = parsed;
+      }
+    } else if (aiResolved.includes('port') && typeof analysis.metadata['port'] === 'string') {
+      const parsed = Number.parseInt(analysis.metadata['port'] as string, 10);
       if (Number.isFinite(parsed) && parsed > 0) {
         updates.containerPort = parsed;
       }
@@ -365,7 +476,14 @@ function deriveContractFieldUpdates(
 
   if (!vendorOwned.has('migrationCommand')) {
     const command = findScriptCommand(scripts, MIGRATION_SCRIPT_KEY_REGEX);
-    if (command) updates.migrationCommand = command;
+    if (command) {
+      updates.migrationCommand = command;
+    } else if (aiResolved.includes('migrationCommands')) {
+      const migrationCommands = analysis.metadata['migrationCommands'];
+      if (Array.isArray(migrationCommands) && typeof migrationCommands[0] === 'string') {
+        updates.migrationCommand = migrationCommands[0];
+      }
+    }
   }
 
   if (!vendorOwned.has('workerCommand')) {

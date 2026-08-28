@@ -686,6 +686,7 @@ export async function buildServer({
       githubAppId,
       githubAppPrivateKey,
       githubFixtureMode: githubFixtureMode ?? env.githubFixtureMode,
+      aiGateway,
     });
   app.post('/api/github/webhook', async (request, reply) => {
     const webhookSecret = githubWebhookSecret ?? env.githubWebhookSecret;

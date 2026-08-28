@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { createAiGateway, type AiGateway } from '@deployz/analysis';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -78,6 +79,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
       githubAppId: undefined,
       githubAppPrivateKey: undefined,
       githubFixtureMode: true,
+      aiGateway: createAiGateway(undefined),
     };
   }, 60_000);
 
@@ -273,6 +275,7 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
       githubAppId: 'app-id',
       githubAppPrivateKey: 'private-key',
       githubFixtureMode: false,
+      aiGateway: createAiGateway(undefined),
     };
 
     await runApplicationAnalysis(deps, application.id);
@@ -292,6 +295,7 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
       githubAppId: undefined,
       githubAppPrivateKey: undefined,
       githubFixtureMode: false,
+      aiGateway: createAiGateway(undefined),
     };
 
     await runApplicationAnalysis(deps, application.id);
@@ -315,6 +319,7 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
       githubAppPrivateKey:
         '-----BEGIN RSA PRIVATE KEY-----\nnot-a-real-key\n-----END RSA PRIVATE KEY-----',
       githubFixtureMode: false,
+      aiGateway: createAiGateway(undefined),
     };
 
     await expect(runApplicationAnalysis(deps, application.id)).resolves.toBeUndefined();
@@ -376,6 +381,7 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
       githubAppId: 'app-id',
       githubAppPrivateKey: privateKey,
       githubFixtureMode: false,
+      aiGateway: createAiGateway(undefined),
     };
 
     await runApplicationAnalysis(deps, application.id);
@@ -435,6 +441,7 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
       githubAppId: 'app-id',
       githubAppPrivateKey: privateKey,
       githubFixtureMode: false,
+      aiGateway: createAiGateway(undefined),
     };
 
     await runApplicationAnalysis(deps, application.id);
@@ -493,6 +500,7 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
       githubAppId: 'app-id',
       githubAppPrivateKey: privateKey,
       githubFixtureMode: false,
+      aiGateway: createAiGateway(undefined),
     };
 
     await runApplicationAnalysis(deps, application.id);
@@ -500,6 +508,171 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
     expect(row.databaseRequired).toBe(true);
+  });
+});
+
+// §15 AI repository-analysis fallback: only called when the deterministic
+// analyser leaves a real question unresolved, merged so it can fill a gap but
+// never overwrite a deterministic value, and failing soft (analysis still
+// persists COMPLETE) on any AI error.
+describe('analysis — runApplicationAnalysis (AI fallback)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let orgId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    orgId = 'org-analysis-ai';
+    await insertOrganization(db, orgId);
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  // A Dockerfile with no CMD/ENTRYPOINT and a package.json with no "start"
+  // script — hasStartupCommand stays false and nothing else is ambiguous, so
+  // the only unresolved question is 'start-command-unknown'.
+  async function buildDepsForAmbiguousStartCommand(
+    aiGateway: AiGateway,
+  ): Promise<{ deps: AnalysisRunnerDeps; repoFullName: string }> {
+    const { generateKeyPairSync } = await import('node:crypto');
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const repoFullName = `acme/no-start-${crypto.randomUUID().slice(0, 8)}`;
+
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/access_tokens')) {
+        return {
+          status: 201,
+          headers: { get: () => null },
+          json: async () => ({ token: 'ghs_test', expires_at: '2099-01-01T00:00:00Z' }),
+        };
+      }
+      if (url.includes('/git/trees/')) {
+        return {
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({
+            tree: [
+              { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 100 },
+              { path: 'Dockerfile', type: 'blob', sha: 'sha-docker', size: 60 },
+            ],
+          }),
+        };
+      }
+      const sha = url.split('/').pop();
+      const content =
+        sha === 'sha-pkg'
+          ? JSON.stringify({ name: 'no-start', dependencies: { express: '^4.18.0' } })
+          : 'FROM node:20-alpine\nEXPOSE 3000\n';
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ content: Buffer.from(content).toString('base64'), encoding: 'base64' }),
+      };
+    };
+
+    return {
+      repoFullName,
+      deps: {
+        db,
+        fetchFn,
+        githubAppId: 'app-id',
+        githubAppPrivateKey: privateKey,
+        githubFixtureMode: false,
+        aiGateway,
+      },
+    };
+  }
+
+  it('fills a missing start command from a valid AI answer and records aiResolved', async () => {
+    const aiGateway: AiGateway = {
+      async generate() {
+        return {
+          object: {
+            workingDirectory: '.',
+            buildCommand: null,
+            startCommand: 'node index.js',
+            port: null,
+            postgres: { required: false, evidence: [] },
+            redis: { required: false, evidence: [] },
+            migrationCommand: null,
+            warnings: [],
+          },
+          usage: { promptTokens: 500, completionTokens: 50 },
+        };
+      },
+    };
+    const { deps, repoFullName } = await buildDepsForAmbiguousStartCommand(aiGateway);
+    const application = await insertApplication(db, orgId, { githubInstallationId: 'install-1', repoFullName });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    const metadata = row.detectedMetadata as {
+      startupCommands?: string[];
+      hasStartupCommand?: boolean;
+      aiAnalysis?: { unresolved: string[]; aiResolved: string[]; warnings: string[] };
+    };
+    expect(metadata.hasStartupCommand).toBe(true);
+    expect(metadata.startupCommands).toEqual(['node index.js']);
+    expect(metadata.aiAnalysis?.unresolved).toContain('start-command-unknown');
+    expect(metadata.aiAnalysis?.aiResolved.length).toBeGreaterThan(0);
+    expect(metadata.aiAnalysis?.aiResolved).toContain('startupCommands');
+  });
+
+  it('degrades to deterministic metadata and stays COMPLETE when the gateway throws', async () => {
+    const aiGateway: AiGateway = {
+      async generate() {
+        throw new Error('gateway unreachable');
+      },
+    };
+    const { deps, repoFullName } = await buildDepsForAmbiguousStartCommand(aiGateway);
+    const application = await insertApplication(db, orgId, { githubInstallationId: 'install-1', repoFullName });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    const metadata = row.detectedMetadata as {
+      hasStartupCommand?: boolean;
+      aiAnalysis?: { unresolved: string[]; warnings: string[] };
+    };
+    // Deterministic metadata is untouched — still unresolved.
+    expect(metadata.hasStartupCommand).toBe(false);
+    expect(metadata.aiAnalysis?.warnings).toContain('AI analysis unavailable');
+  });
+
+  it('never invokes the gateway for a fully-resolved fixture repo', async () => {
+    let callCount = 0;
+    const aiGateway: AiGateway = {
+      async generate() {
+        callCount += 1;
+        throw new Error('should never be called for a fully-resolved analysis');
+      },
+    };
+    const deps: AnalysisRunnerDeps = {
+      db,
+      fetchFn: (() => {
+        throw new Error('fixture mode must never call fetchFn');
+      }) as unknown as FetchFn,
+      githubAppId: undefined,
+      githubAppPrivateKey: undefined,
+      githubFixtureMode: true,
+      aiGateway,
+    };
+    const application = await insertApplication(db, orgId, { repoFullName: 'deployz-demo/express-api' });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(callCount).toBe(0);
+    const metadata = row.detectedMetadata as { aiAnalysis?: unknown };
+    expect(metadata.aiAnalysis).toBeUndefined();
   });
 });
 
@@ -523,6 +696,7 @@ describe('analysis — createAnalysisRunner', () => {
         githubAppId: undefined,
         githubAppPrivateKey: undefined,
         githubFixtureMode: true,
+        aiGateway: createAiGateway(undefined),
       });
 
       await runner(application.id);

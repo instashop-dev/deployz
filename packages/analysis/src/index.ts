@@ -12,6 +12,7 @@
 export type { FileTree, DetectorFinding, PostgresRequirement } from './detectors.js';
 export {
   detectDockerfile,
+  listDockerfileCandidates,
   detectFramework,
   detectPort,
   detectHealthEndpoint,
@@ -95,3 +96,22 @@ export {
 
 export type { NormalizeErrorTextOptions } from './redact.js';
 export { normalizeErrorText, redactSecrets } from './redact.js';
+
+export type {
+  RepositoryAiInput,
+  RepositoryAiAnalysis,
+  AiMergeOutcome,
+} from './repository-ai.js';
+export {
+  REPO_AI_MAX_PROMPT_TOKENS,
+  REPO_AI_MAX_TOTAL_TOKENS,
+  REPO_AI_TIMEOUT_MS,
+  MAX_AI_CONTEXT_FILES,
+  MAX_AI_FILE_CHARS,
+  repositoryAiSchema,
+  collectUnresolvedQuestions,
+  selectAiContextFiles,
+  buildRepositoryAiPrompt,
+  analyseRepositoryWithAi,
+  mergeAiAnalysis,
+} from './repository-ai.js';

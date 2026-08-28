@@ -173,6 +173,17 @@ export function detectDockerfile(tree: FileTree): DetectorFinding {
   };
 }
 
+/**
+ * All Dockerfile candidates in the tree, ranked the same way `detectDockerfile`
+ * picks its single best guess. Used by the AI repository-analysis fallback to
+ * detect a genuinely ambiguous multi-Dockerfile repository (the
+ * `multiple-dockerfiles` unresolved question), distinct from
+ * `detectDockerfile`'s "pick the most likely one" behavior.
+ */
+export function listDockerfileCandidates(tree: FileTree): string[] {
+  return findFiles(tree, DOCKERFILE_REGEX).sort(compareDockerfileCandidates);
+}
+
 // 2. Framework
 // ---------------------------------------------------------------------------
 
