@@ -23,7 +23,7 @@ export const RELAY_CAPABILITIES: RelayCapabilities = {
   rollback: true,
   restart: true,
   configUpdate: false,
-  destroy: false,
+  destroy: true,
   domainManagement: true,
 };
 

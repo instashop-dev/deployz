@@ -63,6 +63,6 @@ describe('RELAY_CAPABILITIES', () => {
     expect(RELAY_CAPABILITIES.rollback).toBe(true);
     expect(RELAY_CAPABILITIES.restart).toBe(true);
     expect(RELAY_CAPABILITIES.configUpdate).toBe(false);
-    expect(RELAY_CAPABILITIES.destroy).toBe(false);
+    expect(RELAY_CAPABILITIES.destroy).toBe(true);
   });
 });

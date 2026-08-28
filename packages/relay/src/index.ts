@@ -35,6 +35,7 @@ import {
   ElasticLoadBalancingV2Client,
 } from '@aws-sdk/client-elastic-load-balancing-v2';
 import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { DeleteStackCommand, CloudFormationClient as AwsCloudFormationClient } from '@aws-sdk/client-cloudformation';
 import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
 import {
   IdempotencyStore,
@@ -53,6 +54,11 @@ import {
 import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
 import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
 import { readRelayIdentity } from './identity.js';
+import {
+  createDestroyExecutor,
+  createDestroyResumer,
+  type StackDeleter,
+} from './destroy.js';
 import {
   createStackInstaller,
   installApplicationStack,
@@ -139,6 +145,26 @@ function getEcsTaskReader(): EcsTaskReader {
 }
 
 let stackInstaller: StackInstaller | undefined;
+
+// Lazy CloudFormation deleter for the DESTROY executor — same
+// construct-on-first-use rule as everything else AWS-touching here.
+let stackDeleter: StackDeleter | undefined;
+
+function createStackDeleter(): StackDeleter {
+  const client = new AwsCloudFormationClient({});
+  return {
+    async deleteStack(stackName) {
+      await client.send(new DeleteStackCommand({ StackName: stackName }));
+    },
+  };
+}
+
+function getStackDeleter(): StackDeleter {
+  if (!stackDeleter) {
+    stackDeleter = createStackDeleter();
+  }
+  return stackDeleter;
+}
 
 // Lazy readers behind runtime health observation — same construct-on-first-use
 // rule as the reader above.
@@ -923,6 +949,14 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     installationId: installDeps.installationId,
   };
 
+  const destroyDeps = {
+    cfn: getCloudFormationReader(),
+    deleter: getStackDeleter(),
+    pending: getPendingStore(installDeps.installationId),
+    installationId: installDeps.installationId,
+    stackName: DEFAULT_STACK_NAME,
+  };
+
   return {
     INSTALL: createInstallExecutor(installDeps),
     REPORT_HEALTH: noop,
@@ -930,7 +964,7 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     ROLLBACK: createEcsDeployExecutor(deployDeps),
     RESTART: createRestartExecutor(deployDeps),
     CONFIG_UPDATE: noop,
-    DESTROY: noop,
+    DESTROY: createDestroyExecutor(destroyDeps),
     MIGRATE: noop,
     REFRESH_METADATA: noop,
     CONFIGURE_DOMAIN: domainExecutors.CONFIGURE_DOMAIN,
@@ -1056,7 +1090,17 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
         (async () => {
           const installResults = await createInstallResumer(installDeps)();
           if (installResults.length > 0) return installResults;
-          return createEcsDeployResumer(deployResumerDeps(installDeps.installationId))();
+          const deployResults = await createEcsDeployResumer(
+            deployResumerDeps(installDeps.installationId),
+          )();
+          if (deployResults.length > 0) return deployResults;
+          return createDestroyResumer({
+            cfn: getCloudFormationReader(),
+            deleter: getStackDeleter(),
+            pending: getPendingStore(installationId),
+            installationId,
+            stackName: DEFAULT_STACK_NAME,
+          })();
         }),
       identity: deps.identity ?? readRelayIdentity(context),
       observeImage:
