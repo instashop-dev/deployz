@@ -14,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   createApplication,
@@ -213,37 +214,47 @@ export default function ApplicationsPage() {
 
 function ApplicationList({ applications }: { applications: Application[] }) {
   return (
-    <div className="flex flex-col gap-3">
-      {applications.map((app) => (
-        <ApplicationCard key={app.id} application={app} />
-      ))}
-    </div>
+    <Card>
+      <CardContent className="overflow-x-auto p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Repository</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {applications.map((app) => (
+              <ApplicationRow key={app.id} application={app} />
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 
-function ApplicationCard({ application }: { application: Application }) {
+function ApplicationRow({ application }: { application: Application }) {
   const label = applicationBadgeLabel(application);
   return (
-    <Card data-testid={`app-card-${application.id}`}>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <CardTitle>
-              <Link
-                href={`/dashboard/applications/${application.id}`}
-                data-testid={`app-card-name-${application.id}`}
-              >
-                {application.name}
-              </Link>
-            </CardTitle>
-            <CardDescription>{application.repoFullName}</CardDescription>
-          </div>
-          <Badge variant="secondary" data-testid={`app-card-badge-${application.id}`}>
-            {label}
-          </Badge>
-        </div>
-      </CardHeader>
-    </Card>
+    <TableRow data-testid={`app-card-${application.id}`}>
+      <TableCell className="font-medium">
+        <Link
+          href={`/dashboard/applications/${application.id}`}
+          data-testid={`app-card-name-${application.id}`}
+          className="hover:underline"
+        >
+          {application.name}
+        </Link>
+      </TableCell>
+      <TableCell className="text-muted-foreground">{application.repoFullName}</TableCell>
+      <TableCell>
+        <Badge variant="secondary" data-testid={`app-card-badge-${application.id}`}>
+          {label}
+        </Badge>
+      </TableCell>
+    </TableRow>
   );
 }
 
