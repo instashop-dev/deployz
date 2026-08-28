@@ -718,3 +718,85 @@ export function detectExternalServices(tree: FileTree): DetectorFinding {
     details: `External services detected: ${detected.join(', ')}`,
   };
 }
+
+// 13. Package manager
+// ---------------------------------------------------------------------------
+
+// Checked in priority order: a lockfile can only belong to one of these, but
+// a repository is only ever expected to carry one at a time.
+const LOCKFILE_MANAGERS: { pattern: RegExp; name: string }[] = [
+  { pattern: /(?:^|\/)pnpm-lock\.yaml$/, name: 'pnpm' },
+  { pattern: /(?:^|\/)yarn\.lock$/, name: 'yarn' },
+  { pattern: /(?:^|\/)bun\.lockb?$/, name: 'bun' },
+  { pattern: /(?:^|\/)package-lock\.json$/, name: 'npm' },
+];
+
+/**
+ * Detect the package manager from the root package.json "packageManager"
+ * field (a Corepack pin, e.g. "pnpm@9.0.0") or, failing that, a lockfile
+ * present anywhere in the tree. The packageManager field wins when both are
+ * present — it is an explicit pin, a lockfile is only circumstantial evidence.
+ */
+export function detectPackageManager(tree: FileTree): DetectorFinding {
+  const rootRaw = tree['package.json'];
+  if (rootRaw) {
+    try {
+      const rootPkg = JSON.parse(rootRaw) as Record<string, unknown>;
+      const pin = rootPkg['packageManager'];
+      if (typeof pin === 'string' && pin.trim()) {
+        const name = pin.split('@')[0];
+        if (name) {
+          return {
+            detector: 'package-manager',
+            detected: true,
+            value: name,
+            details: `Package manager pinned via package.json "packageManager": ${pin}`,
+          };
+        }
+      }
+    } catch {
+      // A malformed root manifest is "no pin" — fall through to lockfile detection.
+    }
+  }
+
+  for (const { pattern, name } of LOCKFILE_MANAGERS) {
+    if (Object.keys(tree).some((path) => pattern.test(path))) {
+      return {
+        detector: 'package-manager',
+        detected: true,
+        value: name,
+        details: `Package manager detected via lockfile (${name})`,
+      };
+    }
+  }
+
+  return { detector: 'package-manager', detected: false };
+}
+
+// 14. Build command
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the application build command from package.json "build" scripts,
+ * repository root first, same ordering as `parsePackageJsons`.
+ */
+export function detectBuildCommand(tree: FileTree): DetectorFinding {
+  const commands: string[] = [];
+
+  for (const [name, command] of collectScripts(tree)) {
+    if (name === 'build') {
+      commands.push(command);
+    }
+  }
+
+  if (commands.length === 0) {
+    return { detector: 'build-command', detected: false };
+  }
+
+  return {
+    detector: 'build-command',
+    detected: true,
+    value: commands,
+    details: `Build commands detected: ${commands.join('; ')}`,
+  };
+}

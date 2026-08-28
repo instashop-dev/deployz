@@ -626,6 +626,13 @@ const ENV_SAMPLE_REGEX = /(?:^|\/)\.env\.(?:example|template|sample)$/i;
 // the path rather than on the file's contents.
 const HEALTH_ROUTE_FILE_REGEX =
   /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
+// Lockfiles the §18 package-manager detector needs — matched by BASENAME
+// only (not `isRelevantPath`'s path-prefix shapes): their presence is the
+// signal, never their content, so they are never blob-fetched and never
+// count against ANALYSIS_MAX_FILES (see the lockfile loop in
+// buildFileTreeForAnalysis below).
+const LOCKFILE_BASENAME_REGEX =
+  /^(?:pnpm-lock\.yaml|yarn\.lock|package-lock\.json|bun\.lockb?|bun\.lock)$/;
 
 function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
@@ -648,6 +655,13 @@ function isRelevantPath(path: string): boolean {
   }
   if (SOURCE_EXTENSION_REGEX.test(path)) return true;
   return false;
+}
+
+/** A lockfile at any depth, matched by basename — see LOCKFILE_BASENAME_REGEX. */
+function isLockfilePath(path: string): boolean {
+  if (isIgnoredPath(path)) return false;
+  const basename = path.split('/').pop() ?? path;
+  return LOCKFILE_BASENAME_REGEX.test(basename);
 }
 
 // Priority order for trimming to ANALYSIS_MAX_FILES when a repo has more
@@ -825,6 +839,18 @@ export async function buildFileTreeForAnalysis(
     },
   );
   await Promise.all(workers);
+
+  // Lockfiles can exceed ANALYSIS_MAX_FILE_BYTES and their content is never
+  // read — only their presence is the §18 package-manager detection signal.
+  // Added as empty-content entries, independent of isRelevantPath's size cap
+  // and ANALYSIS_MAX_FILES (a repo's lockfile must never lose a slot to an
+  // unrelated source file).
+  for (const entry of entries) {
+    if (entry.type === 'blob' && isLockfilePath(entry.path)) {
+      tree[entry.path] = '';
+    }
+  }
+
   return tree;
 }
 

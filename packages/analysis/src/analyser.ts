@@ -21,6 +21,8 @@ import {
   detectMigrationCommand,
   detectStartupCommand,
   detectExternalServices,
+  detectPackageManager,
+  detectBuildCommand,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -78,6 +80,8 @@ const DETECTORS = [
   detectMigrationCommand,
   detectStartupCommand,
   detectExternalServices,
+  detectPackageManager,
+  detectBuildCommand,
 ] as const;
 
 /** All §10 rejection check functions, in order (redis is handled separately — see `analyseRepo`). */
@@ -169,6 +173,13 @@ function buildMetadata(findings: DetectorFinding[], redis: RedisRequirement): Re
       case 'external-services':
         meta['hasExternalServices'] = f.detected;
         if (f.detected && f.value) meta['externalServices'] = f.value;
+        break;
+      case 'package-manager':
+        meta['packageManager'] = f.detected ? f.value : null;
+        break;
+      case 'build-command':
+        meta['hasBuildCommand'] = f.detected;
+        if (f.detected && f.value) meta['buildCommands'] = f.value;
         break;
       default:
         meta[key] = f.detected ? f.value ?? true : false;

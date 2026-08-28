@@ -11,6 +11,8 @@ import {
   detectWorker,
   detectS3,
   detectMigrationCommand,
+  detectPackageManager,
+  detectBuildCommand,
   type FileTree,
   type DetectorFinding,
 } from '../src/detectors.js';
@@ -789,6 +791,97 @@ describe('§18 detectors', () => {
       expect(result.detected).toBe(false);
     });
   });
+
+  // ------------------------------------------------------------------
+  // 11. Package manager detector
+  // ------------------------------------------------------------------
+  describe('detectPackageManager', () => {
+    it('detects pnpm from a root pnpm-lock.yaml', () => {
+      const tree: FileTree = { 'pnpm-lock.yaml': 'lockfileVersion: 9.0\n' };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('pnpm');
+    });
+
+    it('detects yarn from a root yarn.lock', () => {
+      const tree: FileTree = { 'yarn.lock': '# yarn lockfile v1\n' };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('yarn');
+    });
+
+    it('detects bun from a root bun.lockb', () => {
+      const tree: FileTree = { 'bun.lockb': '' };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('bun');
+    });
+
+    it('detects npm from a root package-lock.json', () => {
+      const tree: FileTree = { 'package-lock.json': '{}' };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('npm');
+    });
+
+    it('returns false when no lockfile or packageManager field is present', () => {
+      const result = detectPackageManager(emptyRepoFixture);
+      expect(result.detected).toBe(false);
+      expect(result.value).toBeUndefined();
+    });
+
+    it('prefers the root package.json "packageManager" field over a present lockfile', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ packageManager: 'pnpm@9.0.0' }),
+        'package-lock.json': '{}',
+      };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('pnpm');
+    });
+
+    it('detects a lockfile nested inside a workspace package', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ name: 'monorepo-root', workspaces: ['apps/*'] }),
+        'apps/api/pnpm-lock.yaml': 'lockfileVersion: 9.0\n',
+      };
+      const result = detectPackageManager(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('pnpm');
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 12. Build command detector
+  // ------------------------------------------------------------------
+  describe('detectBuildCommand', () => {
+    it('detects a root "build" script', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ scripts: { build: 'next build' } }),
+      };
+      const result = detectBuildCommand(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('next build');
+    });
+
+    it('detects a "build" script in a workspace package manifest', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ name: 'monorepo-root', scripts: {} }),
+        'apps/web/package.json': JSON.stringify({ name: '@app/web', scripts: { build: 'vite build' } }),
+      };
+      const result = detectBuildCommand(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('vite build');
+    });
+
+    it('returns false when no "build" script is found', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ scripts: { start: 'node index.js' } }),
+      };
+      const result = detectBuildCommand(tree);
+      expect(result.detected).toBe(false);
+    });
+  });
 });
 
 // ==========================================================================
@@ -1131,5 +1224,23 @@ describe('analyseRepo (orchestrator)', () => {
     expect(result.metadata.framework).toBe('express');
     expect(result.metadata.hasDockerfile).toBe(true);
     expect(result.metadata.hasHealthEndpoint).toBe(true);
+  });
+
+  it('reports packageManager: null and hasBuildCommand: false when neither is present', () => {
+    const result = analyseRepo(emptyRepoFixture);
+    expect(result.metadata.packageManager).toBeNull();
+    expect(result.metadata.hasBuildCommand).toBe(false);
+    expect(result.metadata.buildCommands).toBeUndefined();
+  });
+
+  it('detects the package manager and build command in metadata', () => {
+    const tree: FileTree = {
+      'package.json': JSON.stringify({ scripts: { build: 'next build' } }),
+      'pnpm-lock.yaml': 'lockfileVersion: 9.0\n',
+    };
+    const result = analyseRepo(tree);
+    expect(result.metadata.packageManager).toBe('pnpm');
+    expect(result.metadata.hasBuildCommand).toBe(true);
+    expect(result.metadata.buildCommands).toContain('next build');
   });
 });

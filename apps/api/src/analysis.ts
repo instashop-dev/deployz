@@ -180,6 +180,8 @@ const READY_LABELS: Partial<Record<string, string>> = {
   'migration-command': 'Database migration command found',
   'startup-command': 'Startup command found',
   'external-services': 'External service integrations detected',
+  'package-manager': 'Package manager detected',
+  'build-command': 'Build command found',
 };
 
 // Detectors whose `detected: true` is a NEGATIVE signal (they only ever fire

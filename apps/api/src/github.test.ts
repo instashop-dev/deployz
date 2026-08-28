@@ -492,6 +492,35 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('nested/.env.example');
   });
 
+  it('includes a lockfile as an empty-content entry without fetching its blob (§18 package-manager detection)', async () => {
+    const calls: string[] = [];
+    const fetchFn: FetchFn = async (url) => {
+      calls.push(url);
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 20 },
+            // Deliberately over ANALYSIS_MAX_FILE_BYTES — the point of the
+            // empty-content entry is that this content is NEVER fetched.
+            { path: 'pnpm-lock.yaml', type: 'blob', sha: 'sha-lock', size: 500_000 },
+          ],
+        });
+      }
+      return makeFetchResponse(200, {
+        content: Buffer.from('{}').toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(tree).toEqual({ 'package.json': '{}', 'pnpm-lock.yaml': '' });
+    // One tree call + one blob call for package.json only — the lockfile's
+    // sha is never requested.
+    expect(calls).toHaveLength(2);
+    expect(calls.some((u) => u.includes('sha-lock'))).toBe(false);
+  });
+
   it('skips a file whose size exceeds ANALYSIS_MAX_FILE_BYTES', async () => {
     const fetchFn: FetchFn = async (url) => {
       if (url.includes('/git/trees/')) {
