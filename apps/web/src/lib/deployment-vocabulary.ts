@@ -57,6 +57,45 @@ export function deploymentStateLabel(state: string): string {
   return DEPLOYMENT_STATE_LABELS[state as DeploymentState] ?? state;
 }
 
+// ── Relay connectivity + capability gating ─────────────────────────────────
+
+import type { RelayCapabilities, RelayStatus as WireRelayStatus } from './deployments';
+
+export type RelayStatus = WireRelayStatus;
+
+/** Relay connectivity labels, shared by the fleet list and detail page. */
+export const RELAY_STATUS_LABEL: Record<RelayStatus, string> = {
+  CONNECTED: 'Relay online',
+  DISCONNECTED: 'Relay offline',
+  UNKNOWN: 'Relay not connected yet',
+};
+
+/** Day-2 actions gated on the installed relay advertising the capability. */
+export type DeploymentAction = 'deploy' | 'rollback' | 'restart' | 'configUpdate' | 'disconnect';
+
+const ACTION_CAPABILITY: Record<DeploymentAction, keyof RelayCapabilities> = {
+  deploy: 'deployRelease',
+  rollback: 'rollback',
+  restart: 'restart',
+  configUpdate: 'configUpdate',
+  disconnect: 'destroy',
+};
+
+/**
+ * Whether the installed relay advertised the capability an action needs.
+ * Null capabilities (pre-capability relay) supports nothing — an enabled
+ * button over a stub executor is worse than a disabled one.
+ */
+export function actionSupported(
+  capabilities: RelayCapabilities | null,
+  action: DeploymentAction,
+): boolean {
+  return capabilities !== null && capabilities[ACTION_CAPABILITY[action]] === true;
+}
+
+export const UNSUPPORTED_ACTION_COPY =
+  'This action is not supported by the currently installed Deployz connector.';
+
 // ── §65 event-type labels (§40 families) ──────────────────────────────────
 
 /** The §40 event families (§65). Mirrors @deployz/copy-map verbatim. */

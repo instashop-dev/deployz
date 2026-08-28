@@ -14,6 +14,18 @@ import { apiUrl } from '@/lib/api-url';
 export type RelayStatus = 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
 export type HealthStatus = 'UNKNOWN' | 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
 
+/** What the installed relay can execute. Null = relay never reported
+ *  capabilities (pre-capability build) — the UI treats that as nothing
+ *  supported. */
+export interface RelayCapabilities {
+  deployRelease: boolean;
+  rollback: boolean;
+  restart: boolean;
+  configUpdate: boolean;
+  destroy: boolean;
+  domainManagement: boolean;
+}
+
 /** §24 the components a relay reports on. Absent = not reported, not healthy. */
 export interface HealthComponents {
   application?: HealthStatus;
@@ -61,6 +73,12 @@ export interface FleetDeployment {
   applicationName: string;
   /** Current release version, or null if no release has been deployed yet. */
   version: string | null;
+  /** Version of the installed relay, once it has reported it. */
+  relayVersion: string | null;
+  /** Version of the customer's bootstrap stack, once the relay reported it. */
+  bootstrapVersion: string | null;
+  /** Capabilities advertised by the installed relay; null = unknown. */
+  relayCapabilities: RelayCapabilities | null;
 }
 
 /** A §39 deployment job, as returned in the deployment-detail `jobs` array. */
@@ -99,13 +117,30 @@ export interface ActivityEvent {
 
 // ── Fetch helpers ──────────────────────────────────────────────────────────
 
+/** A failed deployment fetch that knows WHICH HTTP status failed. */
+export class DeploymentRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'DeploymentRequestError';
+  }
+}
+
+/** True when the error is a 404 — the deployment doesn't exist or is hidden
+ *  from this caller, which is a different screen from a transient failure. */
+export function isDeploymentNotFound(error: unknown): boolean {
+  return error instanceof DeploymentRequestError && error.status === 404;
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     credentials: 'include',
     cache: 'no-store',
   });
   if (!response.ok) {
-    throw new Error(`Deployments request failed (${response.status})`);
+    throw new DeploymentRequestError(`Deployments request failed (${response.status})`, response.status);
   }
   return (await response.json()) as T;
 }
@@ -182,28 +217,6 @@ export function destroyDeployment(
     finalSnapshot: finalSnapshot ?? false,
   });
 }
-
-export interface BulkDeployResultRow {
-  deploymentId: string;
-  status: 'REQUESTED' | 'ALREADY_REQUESTED' | 'SKIPPED';
-  jobId?: string;
-  reason?: string;
-}
-
-/** §25 bulk deploy — POST /api/applications/:id/deploy-bulk. */
-export function deployBulk(
-  applicationId: string,
-  releaseId: string,
-  deploymentIds?: string[],
-): Promise<{ results: BulkDeployResultRow[] }> {
-  return postJson<{ results: BulkDeployResultRow[] }>(
-    `/api/applications/${encodeURIComponent(applicationId)}/deploy-bulk`,
-    { releaseId, deploymentIds: deploymentIds ?? null },
-  );
-}
-
-/** §25 deployable states — the fleet-view states a release can be rolled out to. */
-export const BULK_DEPLOYABLE_STATES: readonly DeploymentState[] = ['HEALTHY', 'UPDATE_AVAILABLE'];
 
 /**
  * §14 clear the relay binding and mint a fresh enrollment code.

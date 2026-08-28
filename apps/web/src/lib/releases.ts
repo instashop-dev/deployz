@@ -83,3 +83,21 @@ export function releaseStatusLabel(status: string): string {
   return RELEASE_STATUS_LABEL[status as ReleaseStatus] ?? status;
 }
 
+/** Copy for the deploy picker when no release qualifies. */
+export const NO_DEPLOYABLE_RELEASES_COPY =
+  'No deployable releases yet. A release must build successfully first.';
+
+/**
+ * Releases the Deploy Update picker may offer: READY only (BUILDING may still
+ * fail, FAILED cannot run), excluding the release already running, newest
+ * first.
+ */
+export function deployableReleases(
+  releases: readonly Release[],
+  currentReleaseId: string | null,
+): Release[] {
+  return releases
+    .filter((r) => r.status === 'READY' && r.id !== currentReleaseId)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+

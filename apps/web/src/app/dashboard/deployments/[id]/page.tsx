@@ -16,19 +16,31 @@ import {
   destroyDeployment,
   fetchDeployment,
   fetchDeploymentEvents,
+  isDeploymentNotFound,
   resetRelay,
   rollbackDeployment,
   type ActivityEvent,
   type FleetDeploymentDetail,
   type HealthStatus,
-  type RelayStatus,
+  type RelayCapabilities,
 } from '@/lib/deployments';
+import {
+  RELAY_STATUS_LABEL,
+  UNSUPPORTED_ACTION_COPY,
+  actionSupported,
+  type RelayStatus,
+} from '@/lib/deployment-vocabulary';
 import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
-import { fetchReleases, releaseStatusLabel, type Release } from '@/lib/releases';
+import {
+  NO_DEPLOYABLE_RELEASES_COPY,
+  deployableReleases,
+  fetchReleases,
+  type Release,
+} from '@/lib/releases';
 
 type DetailState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; notFound: boolean }
   | {
       status: 'loaded';
       detail: FleetDeploymentDetail;
@@ -59,17 +71,13 @@ const COMPONENT_LABELS = [
   ['loadBalancer', 'Load Balancer'],
 ] as const;
 
-const RELAY_LABEL: Record<RelayStatus, string> = {
-  CONNECTED: 'Connected',
-  DISCONNECTED: 'Disconnected',
-  UNKNOWN: 'Unknown',
-};
-
 const RELAY_DOT: Record<RelayStatus, string> = {
   CONNECTED: 'bg-primary',
   DISCONNECTED: 'bg-destructive',
   UNKNOWN: 'bg-muted-foreground',
 };
+
+const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to.';
 
 // §24 deployment detail — all five required actions (Deploy Update, Rollback,
 // View Diagnostics, Configuration, Disconnect Deployment), the masked AWS
@@ -89,11 +97,21 @@ export default function DeploymentDetailPage() {
         fetchReleases(detail.applicationId),
       ]);
       setState({ status: 'loaded', detail, events, releases });
-    } catch {
-      setState({
-        status: 'error',
-        message: "We couldn't load this deployment. Try again in a moment.",
-      });
+    } catch (caught) {
+      // A 404 is permanent for this URL — no retry-oriented copy for it.
+      setState(
+        isDeploymentNotFound(caught)
+          ? {
+              status: 'error',
+              notFound: true,
+              message: "This deployment doesn't exist or you don't have access to it.",
+            }
+          : {
+              status: 'error',
+              notFound: false,
+              message: "We couldn't load this deployment. Try again in a moment.",
+            },
+      );
     }
   }, [id]);
 
@@ -119,7 +137,7 @@ export default function DeploymentDetailPage() {
           className="rounded-xl border border-dashed px-6 py-16 text-center"
         >
           <h2 id="detail-error" className="text-lg font-semibold">
-            Something went wrong
+            {state.notFound ? 'Deployment not found' : 'Something went wrong'}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
         </section>
@@ -270,12 +288,14 @@ function RelayRow({ status }: { status: RelayStatus }) {
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
       <span className={`size-2 shrink-0 rounded-full ${RELAY_DOT[status]}`} aria-hidden />
       <span className="text-sm font-medium">Deployz Relay</span>
-      <span className="ml-auto text-sm text-muted-foreground">{RELAY_LABEL[status]}</span>
+      <span className="ml-auto text-sm text-muted-foreground">{RELAY_STATUS_LABEL[status]}</span>
     </li>
   );
 }
 
-// §24 the five required actions.
+// §24 the five required actions. Day-2 actions are gated on the installed
+// relay advertising the matching capability — an enabled button over a stub
+// executor would report success having done nothing.
 function DeploymentActions({
   detail,
   releases,
@@ -288,17 +308,28 @@ function DeploymentActions({
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState<'deploy' | 'rollback' | 'disconnect' | null>(null);
+  const capabilities: RelayCapabilities | null = detail.relayCapabilities;
+  const canDeploy = actionSupported(capabilities, 'deploy');
+  const canRollback = actionSupported(capabilities, 'rollback');
+  const canConfig = actionSupported(capabilities, 'configUpdate');
+  const canDisconnect = actionSupported(capabilities, 'disconnect');
+  const anyGatedOff = !canDeploy || !canRollback || !canConfig || !canDisconnect;
+  const hasPreviousRelease = detail.previousReleaseId !== null;
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => setOpen(open === 'deploy' ? null : 'deploy')}>
+        <Button
+          size="sm"
+          disabled={!canDeploy}
+          onClick={() => setOpen(open === 'deploy' ? null : 'deploy')}
+        >
           Deploy Update
         </Button>
         <Button
           size="sm"
           variant="outline"
-          disabled={!detail.previousReleaseId}
+          disabled={!canRollback || !hasPreviousRelease}
           onClick={() => setOpen(open === 'rollback' ? null : 'rollback')}
         >
           Rollback
@@ -306,19 +337,35 @@ function DeploymentActions({
         <Button asChild size="sm" variant="outline">
           <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>View Diagnostics</Link>
         </Button>
-        <Button asChild size="sm" variant="outline">
-          <Link href={`/dashboard/applications/${detail.applicationId}/config?customer=${detail.customerId}`}>
+        {canConfig ? (
+          <Button asChild size="sm" variant="outline">
+            <Link
+              href={`/dashboard/applications/${detail.applicationId}/config?customer=${detail.customerId}`}
+            >
+              Configuration
+            </Link>
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" disabled>
             Configuration
-          </Link>
-        </Button>
+          </Button>
+        )}
         <Button
           size="sm"
           variant="destructive"
+          disabled={!canDisconnect}
           onClick={() => setOpen(open === 'disconnect' ? null : 'disconnect')}
         >
           Disconnect Deployment
         </Button>
       </div>
+
+      {anyGatedOff ? (
+        <p className="text-sm text-muted-foreground">{UNSUPPORTED_ACTION_COPY}</p>
+      ) : null}
+      {!hasPreviousRelease ? (
+        <p className="text-sm text-muted-foreground">{NO_PREVIOUS_RELEASE_COPY}</p>
+      ) : null}
 
       {open === 'deploy' ? (
         <DeployUpdatePanel
@@ -374,7 +421,7 @@ function DeployUpdatePanel({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const candidates = releases.filter((r) => r.id !== currentReleaseId);
+  const candidates = deployableReleases(releases, currentReleaseId);
   const [releaseId, setReleaseId] = useState(candidates[0]?.id ?? '');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -397,9 +444,7 @@ function DeployUpdatePanel({
       <CardContent className="flex flex-col gap-3 py-4">
         <p className="text-sm font-medium">Deploy an update</p>
         {candidates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No other releases are available yet. Create a release first.
-          </p>
+          <p className="text-sm text-muted-foreground">{NO_DEPLOYABLE_RELEASES_COPY}</p>
         ) : (
           <>
             <select
@@ -410,12 +455,12 @@ function DeployUpdatePanel({
             >
               {candidates.map((release) => (
                 <option key={release.id} value={release.id}>
-                  {release.version} ({releaseStatusLabel(release.status)})
+                  {release.version}
                 </option>
               ))}
             </select>
             <div className="flex items-center gap-3">
-              <Button size="sm" disabled={pending} onClick={onSubmit}>
+              <Button size="sm" disabled={pending || !releaseId} onClick={onSubmit}>
                 {pending ? 'Starting…' : 'Deploy'}
               </Button>
               <Button size="sm" variant="ghost" onClick={onCancel}>
