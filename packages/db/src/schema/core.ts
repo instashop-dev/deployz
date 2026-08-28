@@ -59,6 +59,9 @@ export const releases = pgTable('releases', {
   version: text('version').notNull(),
   gitSha: text('git_sha').notNull(),
   imageDigest: text('image_digest'),
+  // The CodeBuild build currently building this release. Terminal events for
+  // any other build id are stale and must not move the release's status.
+  currentBuildId: text('current_build_id'),
   migrationCommand: text('migration_command'),
   buildStatus: buildStatusEnum('build_status').notNull().default('PENDING'),
   // §36 a release is an immutable version record, and now a built one: the
@@ -66,6 +69,8 @@ export const releases = pgTable('releases', {
   // (or FAILED) when CodeBuild reports the digest. It starts BUILDING again
   // because READY before an image exists is a claim nothing has checked.
   releaseStatus: releaseStatusEnum('release_status').notNull().default('BUILDING'),
+  // Why a build failed, in a vendor-presentable sentence. Null unless FAILED.
+  failureReason: text('failure_reason'),
   ...auditFields(),
 }, (t) => [
   // §36 one release per version per application — "deploy 1.0.0" must name
