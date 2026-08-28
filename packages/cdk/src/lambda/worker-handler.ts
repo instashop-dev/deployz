@@ -74,7 +74,7 @@ function createDeps(db: LambdaDb): WorkerDeps {
     s3: s3Client,
     async startBuild(input) {
       codeBuild ??= new CodeBuildClient({});
-      await codeBuild.send(
+      const response = await codeBuild.send(
         new StartBuildCommand({
           projectName: input.projectName,
           environmentVariablesOverride: input.environmentVariables.map((variable) => ({
@@ -83,6 +83,7 @@ function createDeps(db: LambdaDb): WorkerDeps {
           })),
         }),
       );
+      return response.build?.id ?? null;
     },
     runAnalysis: createAnalysisRunner({
       db,

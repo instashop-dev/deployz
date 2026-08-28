@@ -34,6 +34,8 @@ export interface CodeBuildStateChangeEvent {
   readonly 'detail-type': string;
   readonly detail: {
     readonly 'build-status': string;
+    /** The build's ARN — correlates the event to the release's current build. */
+    readonly 'build-id'?: string;
     readonly 'additional-information'?: {
       readonly environment?: {
         readonly 'environment-variables'?: readonly {
@@ -58,10 +60,11 @@ export interface WorkerDeps {
   readonly db: RuntimeDb;
   readonly fetchFn: RepositoryFetch;
   readonly s3: S3Client;
+  /** Starts a CodeBuild build and resolves its build id (ARN), or null. */
   readonly startBuild: (input: {
     projectName: string;
     environmentVariables: { name: string; value: string }[];
-  }) => Promise<void>;
+  }) => Promise<string | null>;
   readonly runAnalysis: (applicationId: string) => Promise<void>;
 }
 
@@ -160,14 +163,21 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
       environmentVariables.push({ name: 'BUILD_CONTEXT', value: buildContext });
     }
 
-    await deps.startBuild({
+    const buildId = await deps.startBuild({
       projectName: requireEnv('BUILD_PROJECT_NAME'),
       environmentVariables,
     });
 
+    // Pin the release to this build attempt so a terminal event from any
+    // earlier attempt (redelivered, or racing a retried build) reads as
+    // stale instead of corrupting the result.
     await db
       .update(schema.releases)
-      .set({ buildStatus: 'BUILDING' })
+      .set({
+        buildStatus: 'BUILDING',
+        releaseStatus: 'BUILDING',
+        ...(buildId ? { currentBuildId: buildId } : {}),
+      })
       .where(eq(schema.releases.id, releaseId));
   } catch (error) {
     await failRelease(db, releaseId, error instanceof Error ? error.message : String(error));
@@ -179,7 +189,11 @@ async function failRelease(db: RuntimeDb, releaseId: string, reason: string): Pr
   console.error(`release ${releaseId} build failed: ${reason}`);
   await db
     .update(schema.releases)
-    .set({ buildStatus: 'FAILED', releaseStatus: 'FAILED' })
+    .set({
+      buildStatus: 'FAILED',
+      releaseStatus: 'FAILED',
+      failureReason: reason.slice(0, 500),
+    })
     .where(eq(schema.releases.id, releaseId));
 }
 
@@ -236,6 +250,41 @@ export async function recordBuildResult(
   const supplied = event.detail['additional-information']?.environment?.['environment-variables'];
   const releaseId = readVariable(exported, 'RELEASE_ID') ?? readVariable(supplied, 'RELEASE_ID');
   if (!releaseId) return; // A build the control plane did not start.
+
+  const releaseRows = await db
+    .select()
+    .from(schema.releases)
+    .where(eq(schema.releases.id, releaseId))
+    .limit(1);
+  const release = releaseRows[0];
+  if (!release) return;
+
+  // Build-attempt correlation: an event for any build other than the one
+  // currently pinning the release is stale — a redelivery of an earlier
+  // attempt, or a terminal report racing a retry. Moving the release on it
+  // could flip a fresh success back to FAILED or resurrect an old digest.
+  // Releases with no pinned build (started before correlation existed)
+  // still accept any event while in flight.
+  const eventBuildId = event.detail['build-id'];
+  if (
+    release.currentBuildId !== null &&
+    eventBuildId !== undefined &&
+    eventBuildId !== release.currentBuildId
+  ) {
+    console.warn(
+      `ignoring stale CodeBuild event for release ${releaseId}: event build ${eventBuildId}, current build ${release.currentBuildId}`,
+    );
+    return;
+  }
+
+  // Duplicate terminal delivery for the same build: the release is already
+  // settled, re-writing the same outcome is at best a wasted write.
+  if (release.releaseStatus !== 'BUILDING') {
+    console.warn(
+      `ignoring duplicate CodeBuild event for release ${releaseId}: already ${release.releaseStatus}`,
+    );
+    return;
+  }
 
   const status = event.detail['build-status'];
   if (status !== 'SUCCEEDED') {

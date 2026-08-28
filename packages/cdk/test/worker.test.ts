@@ -47,6 +47,7 @@ describe('worker handler', () => {
       },
       async startBuild(input) {
         started.push(input);
+        return `arn:aws:codebuild:us-east-1:151955775369:build/deployz-build:started-${started.length}`;
       },
       async runAnalysis(id) {
         analysed.push(id);
@@ -237,11 +238,17 @@ describe('worker handler', () => {
     expect(jobs[0]?.type).toBe('CONFIG_UPDATE');
   });
 
-  function buildEvent(releaseId: string, status: string, digest?: string): CodeBuildStateChangeEvent {
+  function buildEvent(
+    releaseId: string,
+    status: string,
+    digest?: string,
+    buildId?: string,
+  ): CodeBuildStateChangeEvent {
     return {
       'detail-type': 'CodeBuild Build State Change',
       detail: {
         'build-status': status,
+        ...(buildId ? { 'build-id': buildId } : {}),
         'additional-information': {
           environment: { 'environment-variables': [{ name: 'RELEASE_ID', value: releaseId }] },
         },
@@ -250,6 +257,16 @@ describe('worker handler', () => {
           : {}),
       },
     };
+  }
+
+  const DIGEST_A = 'acme/docs@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const DIGEST_B = 'acme/docs@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+  async function pinBuild(releaseId: string, buildId: string): Promise<void> {
+    await db
+      .update(schema.releases)
+      .set({ currentBuildId: buildId, buildStatus: 'BUILDING', releaseStatus: 'BUILDING' })
+      .where(eq(schema.releases.id, releaseId));
   }
 
   it('records the image digest when a build succeeds', async () => {
@@ -276,6 +293,7 @@ describe('worker handler', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.buildStatus).toBe('FAILED');
     expect(row?.imageDigest).toBeNull();
+    expect(row?.failureReason).toBe('CodeBuild reported FAILED');
   });
 
   // A success with no digest is not a usable release: §21 pins deployments to
@@ -287,5 +305,75 @@ describe('worker handler', () => {
 
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.buildStatus).toBe('FAILED');
+  });
+
+  // ── Build-attempt correlation ────────────────────────────────────────────
+
+  it('ignores a stale failure arriving after the current build succeeded', async () => {
+    const release = await insertRelease('v3.0.0');
+    await pinBuild(release.id, 'build-new');
+    await recordBuildResult(db, buildEvent(release.id, 'SUCCEEDED', DIGEST_A, 'build-new'));
+
+    await recordBuildResult(db, buildEvent(release.id, 'FAILED', undefined, 'build-old'));
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('READY');
+    expect(row?.imageDigest).toBe(DIGEST_A);
+  });
+
+  it('ignores a stale success arriving after the current build failed', async () => {
+    const release = await insertRelease('v3.1.0');
+    await pinBuild(release.id, 'build-new');
+    await recordBuildResult(db, buildEvent(release.id, 'FAILED', undefined, 'build-new'));
+
+    await recordBuildResult(db, buildEvent(release.id, 'SUCCEEDED', DIGEST_A, 'build-old'));
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('FAILED');
+    expect(row?.imageDigest).toBeNull();
+  });
+
+  it('is idempotent on a duplicate success for the same build', async () => {
+    const release = await insertRelease('v3.2.0');
+    await pinBuild(release.id, 'build-1');
+    await recordBuildResult(db, buildEvent(release.id, 'SUCCEEDED', DIGEST_A, 'build-1'));
+
+    await recordBuildResult(db, buildEvent(release.id, 'SUCCEEDED', DIGEST_B, 'build-1'));
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('READY');
+    expect(row?.imageDigest).toBe(DIGEST_A);
+  });
+
+  it('is idempotent on a duplicate failure for the same build', async () => {
+    const release = await insertRelease('v3.3.0');
+    await pinBuild(release.id, 'build-1');
+    await recordBuildResult(db, buildEvent(release.id, 'FAILED', undefined, 'build-1'));
+    await recordBuildResult(db, buildEvent(release.id, 'FAILED', undefined, 'build-1'));
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('FAILED');
+  });
+
+  it('applies the current successful build', async () => {
+    const release = await insertRelease('v3.4.0');
+    await pinBuild(release.id, 'build-current');
+
+    await recordBuildResult(db, buildEvent(release.id, 'SUCCEEDED', DIGEST_B, 'build-current'));
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('READY');
+    expect(row?.imageDigest).toBe(DIGEST_B);
+  });
+
+  it('applies the current failed build', async () => {
+    const release = await insertRelease('v3.5.0');
+    await pinBuild(release.id, 'build-current');
+
+    await recordBuildResult(db, buildEvent(release.id, 'FAILED', undefined, 'build-current'));
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('FAILED');
+    expect(row?.failureReason).toBe('CodeBuild reported FAILED');
   });
 });
