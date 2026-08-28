@@ -51,6 +51,9 @@ interface CommandReportPayload {
 interface HealthReportPayload {
   installationId: string;
   observedState: Record<string, unknown>;
+  /** Relay identity, re-reported every heartbeat so the control plane can
+   *  self-repair missing account ids and refresh version/capabilities. */
+  identity?: Record<string, unknown>;
 }
 
 // ── Poll context ─────────────────────────────────────────────────────────────
@@ -81,6 +84,8 @@ export interface PollDependencies {
    * array means "nothing owed, or still not finished".
    */
   resume?: () => Promise<RelayCommandResult[]>;
+  /** Reported at enrollment and on every heartbeat (see identity.ts). */
+  identity?: Record<string, unknown>;
 }
 
 /** Result of a single poll cycle. */
@@ -117,7 +122,7 @@ export async function pollOnce(
   deps: PollDependencies,
   authState: AuthState,
 ): Promise<PollResult> {
-  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume } =
+  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity } =
     deps;
 
   // ── 1. Enroll on first contact ────────────────────────────────────────
@@ -128,6 +133,7 @@ export async function pollOnce(
       installationId,
       authState.token,
       enrollmentCode,
+      identity,
     );
     if (result !== 'registered') {
       return {
@@ -217,7 +223,7 @@ export async function pollOnce(
   if (!Array.isArray(commands) || commands.length === 0) {
     // Still report observed state (§59) on an idle poll — most polls have no
     // commands, and that is exactly when infrastructure drift needs catching.
-    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe);
+    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity);
     decrementGrace(authState);
     return { fetched: 0, executed: 0, succeeded: 0, failed: 0, deferred: 0, resumed, ok: true };
   }
@@ -250,7 +256,7 @@ export async function pollOnce(
   }
 
   // ── 6. Report observed state (§59) ────────────────────────────────────
-  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe);
+  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity);
 
   decrementGrace(authState);
 
@@ -304,6 +310,7 @@ async function reportHealth(
   installationId: string,
   idempotency: IdempotencyStore,
   observe: PollDependencies['observe'],
+  identity?: Record<string, unknown>,
 ): Promise<void> {
   let infraHealth: VerificationResult | null = null;
   if (observe) {
@@ -327,6 +334,7 @@ async function reportHealth(
   const payload: HealthReportPayload = {
     installationId,
     observedState,
+    ...(identity ? { identity } : {}),
   };
 
   try {

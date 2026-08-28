@@ -29,6 +29,7 @@ import {
   type RelayCommandResult,
 } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
+import { readRelayIdentity } from './identity.js';
 import {
   createStackInstaller,
   installApplicationStack,
@@ -747,14 +748,21 @@ export interface RelayHandlerDeps {
    * real one reads SSM on every poll.
    */
   resume?: PollDependencies['resume'];
+  /**
+   * Overrides the relay identity (account/version/capabilities) reported at
+   * enrollment and on every heartbeat. When omitted, derived from the
+   * Lambda invocation context and environment (see identity.ts). Tests
+   * inject a stub instead of fabricating a context.
+   */
+  identity?: PollDependencies['identity'];
 }
 
 /**
  * Create a relay handler function with injectable dependencies.
  *
  * The returned function matches the Lambda handler signature
- * `(event: ScheduledEvent) => Promise<void>` so it can be wired directly
- * as the CDK NodejsFunction handler.
+ * `(event: ScheduledEvent, context?) => Promise<void>` so it can be wired
+ * directly as the CDK NodejsFunction handler.
  */
 export function createRelayHandler(deps: RelayHandlerDeps) {
   const installDeps = createDefaultInstallDeps(process.env['DEPLOYZ_INSTALLATION_ID'] ?? '');
@@ -765,7 +773,10 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   // container. On cold start it's re-created from Secrets Manager.
   let authState: ReturnType<typeof createAuthState> | undefined;
 
-  return async function relayHandler(event: ScheduledEvent): Promise<void> {
+  return async function relayHandler(
+    event: ScheduledEvent,
+    context?: { invokedFunctionArn?: string },
+  ): Promise<void> {
     const installationId = process.env['DEPLOYZ_INSTALLATION_ID'];
     const secretArn = process.env['DEPLOYZ_CREDENTIAL_SECRET_ARN'];
     const controlPlaneUrl = process.env['DEPLOYZ_CONTROL_PLANE_URL'];
@@ -815,6 +826,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
         deps.observe ??
         (() => verifyInstallation({ cfn: getCloudFormationReader(), installationId })),
       resume: deps.resume ?? createInstallResumer(installDeps),
+      identity: deps.identity ?? readRelayIdentity(context),
     };
 
     const result = await pollOnce(pollDeps, authState);

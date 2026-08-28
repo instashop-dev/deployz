@@ -94,6 +94,7 @@ export async function registerInstallation(
   installationId: string,
   token: string,
   enrollmentCode: string,
+  identity?: Record<string, unknown>,
 ): Promise<RegistrationResult> {
   const url = `${controlPlaneUrl}/api/relay/register`;
   const response = await fetchFn(url, {
@@ -102,7 +103,7 @@ export async function registerInstallation(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ installationId, enrollmentCode }),
+    body: JSON.stringify({ installationId, enrollmentCode, ...identity }),
   });
   if (response.status === 200 || response.status === 201) return 'registered';
   if (response.status === 404 || response.status === 409) return 'rejected';
