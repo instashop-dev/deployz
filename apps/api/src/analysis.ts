@@ -374,8 +374,13 @@ function deriveContractFieldUpdates(
   }
 
   if (!vendorOwned.has('databaseRequired')) {
-    const postgresql = finding('postgresql');
-    if (postgresql?.detected) updates.databaseRequired = true;
+    // Unlike a mere detector `detected` flag (library presence), RDS
+    // provisioning is gated on the required-vs-present evidence rule — a
+    // driver/ORM dependency alone never provisions a database.
+    // `metadata.postgres.required` is that gate, computed once by
+    // `assessPostgres` and carried through `analysis.metadata`.
+    const postgres = analysis.metadata['postgres'] as { required?: unknown } | undefined;
+    if (postgres?.required === true) updates.databaseRequired = true;
   }
 
   if (!vendorOwned.has('storageRequired')) {

@@ -387,6 +387,118 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
     // endpoint), not READY. This exercises the real-mode fetch path, not a
     // specific verdict.
     expect(['READY', 'NEEDS_ATTENTION']).toContain(row.compatibilityStatus);
+    // A bare `pg` dependency with no connection-string evidence (env var,
+    // Prisma provider, compose image) is not enough to provision RDS — see
+    // the dedicated evidence-gating tests below.
+    expect(row.databaseRequired).toBe(false);
+  });
+
+  it('does NOT set databaseRequired from a bare pg dependency with no other evidence', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/pg-only',
+      defaultBranch: 'main',
+    });
+
+    const { generateKeyPairSync } = await import('node:crypto');
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/access_tokens')) {
+        return {
+          status: 201,
+          headers: { get: () => null },
+          json: async () => ({ token: 'ghs_test', expires_at: '2099-01-01T00:00:00Z' }),
+        };
+      }
+      if (url.includes('/git/trees/')) {
+        return {
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({
+            tree: [{ path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 100 }],
+          }),
+        };
+      }
+      // git blobs endpoint — the only file is package.json.
+      const content = JSON.stringify({ name: 'pg-only', dependencies: { pg: '^8.12.0' } });
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ content: Buffer.from(content).toString('base64'), encoding: 'base64' }),
+      };
+    };
+
+    const deps: AnalysisRunnerDeps = {
+      db,
+      fetchFn,
+      githubAppId: 'app-id',
+      githubAppPrivateKey: privateKey,
+      githubFixtureMode: false,
+    };
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.databaseRequired).toBe(false);
+  });
+
+  it('sets databaseRequired when a pg dependency AND a DATABASE_URL reference are both present', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/pg-with-url',
+      defaultBranch: 'main',
+    });
+
+    const { generateKeyPairSync } = await import('node:crypto');
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/access_tokens')) {
+        return {
+          status: 201,
+          headers: { get: () => null },
+          json: async () => ({ token: 'ghs_test', expires_at: '2099-01-01T00:00:00Z' }),
+        };
+      }
+      if (url.includes('/git/trees/')) {
+        return {
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({
+            tree: [
+              { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 100 },
+              { path: '.env.example', type: 'blob', sha: 'sha-env', size: 20 },
+            ],
+          }),
+        };
+      }
+      // git blobs endpoint
+      const sha = url.split('/').pop();
+      const content =
+        sha === 'sha-pkg'
+          ? JSON.stringify({ name: 'pg-with-url', dependencies: { pg: '^8.12.0' } })
+          : 'DATABASE_URL=\n';
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ content: Buffer.from(content).toString('base64'), encoding: 'base64' }),
+      };
+    };
+
+    const deps: AnalysisRunnerDeps = {
+      db,
+      fetchFn,
+      githubAppId: 'app-id',
+      githubAppPrivateKey: privateKey,
+      githubFixtureMode: false,
+    };
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
     expect(row.databaseRequired).toBe(true);
   });
 });

@@ -888,6 +888,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       'app.listen(process.env.PORT || 3000);',
       '',
     ].join('\n'),
+    '.env.example': 'DATABASE_URL=\n',
   },
   'deployz-demo/legacy-redis': {
     'package.json': JSON.stringify({

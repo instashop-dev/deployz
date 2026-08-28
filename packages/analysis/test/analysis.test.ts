@@ -7,6 +7,7 @@ import {
   detectHealthEndpoint,
   detectEnvVars,
   detectPostgresql,
+  assessPostgres,
   detectLocalFilesystem,
   detectWorker,
   detectS3,
@@ -638,6 +639,57 @@ describe('§18 detectors', () => {
   });
 
   // ------------------------------------------------------------------
+  // 6b. PostgreSQL required-vs-present evidence
+  // ------------------------------------------------------------------
+  describe('assessPostgres', () => {
+    it('requires postgres when a driver dependency AND a DATABASE_URL reference are both present', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { pg: '^8.12.0' } }),
+        '.env.example': 'DATABASE_URL=postgresql://localhost:5432/mydb\n',
+      };
+      const result = assessPostgres(tree);
+      expect(result.required).toBe(true);
+      expect(result.evidence).toHaveLength(2);
+      expect(result.evidence.some((e) => e.includes('pg dependency'))).toBe(true);
+      expect(result.evidence.some((e) => e.includes('DATABASE_URL'))).toBe(true);
+    });
+
+    it('does NOT require postgres from a bare driver dependency alone', () => {
+      const tree: FileTree = {
+        'package.json': JSON.stringify({ dependencies: { pg: '^8.12.0' } }),
+      };
+      const result = assessPostgres(tree);
+      expect(result.required).toBe(false);
+      expect(result.evidence).toHaveLength(1);
+    });
+
+    it('requires postgres when Prisma declares a postgresql provider', () => {
+      const result = assessPostgres(compatiblePrismaFixture);
+      expect(result.required).toBe(true);
+    });
+
+    it('does not require postgres, with no evidence, when there is no PostgreSQL usage — and the repo stays a valid, READY-capable analysis', () => {
+      const noDatabaseFixture: FileTree = {
+        'Dockerfile': compatibleFixture['Dockerfile']!,
+        'package.json': JSON.stringify({
+          name: 'no-db-app',
+          scripts: { start: 'node dist/index.js' },
+          dependencies: { express: '^4.18.0' },
+        }),
+        'src/index.ts': compatibleFixture['src/index.ts']!,
+      };
+
+      const result = assessPostgres(noDatabaseFixture);
+      expect(result.required).toBe(false);
+      expect(result.evidence).toEqual([]);
+
+      const analysis = analyseRepo(noDatabaseFixture);
+      expect(analysis.metadata.postgres).toEqual({ required: false, evidence: [] });
+      expect(analysis.rejections.filter((r) => r.detected)).toHaveLength(0);
+    });
+  });
+
+  // ------------------------------------------------------------------
   // 7. Local filesystem detector
   // ------------------------------------------------------------------
   describe('detectLocalFilesystem', () => {
@@ -1224,6 +1276,17 @@ describe('analyseRepo (orchestrator)', () => {
     expect(result.metadata.framework).toBe('express');
     expect(result.metadata.hasDockerfile).toBe(true);
     expect(result.metadata.hasHealthEndpoint).toBe(true);
+  });
+
+  it('computes metadata.postgres required-vs-present evidence', () => {
+    const result = analyseRepo(compatibleFixture);
+    expect(result.metadata.postgres).toEqual({
+      required: true,
+      evidence: expect.arrayContaining([
+        expect.stringContaining('pg dependency'),
+        expect.stringContaining('DATABASE_URL'),
+      ]),
+    });
   });
 
   it('reports packageManager: null and hasBuildCommand: false when neither is present', () => {

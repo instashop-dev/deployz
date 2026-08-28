@@ -7,7 +7,7 @@
  */
 
 import type { FileTree } from './detectors.js';
-import type { DetectorFinding } from './detectors.js';
+import type { DetectorFinding, PostgresRequirement } from './detectors.js';
 import {
   detectDockerfile,
   detectFramework,
@@ -15,6 +15,7 @@ import {
   detectHealthEndpoint,
   detectEnvVars,
   detectPostgresql,
+  assessPostgres,
   detectLocalFilesystem,
   detectWorker,
   detectS3,
@@ -116,7 +117,11 @@ function buildRedisFinding(redis: RedisRequirement): DetectorFinding {
  * Build a flat metadata record from findings.
  * Maps detector names to their detected values for easy JSONB storage and querying.
  */
-function buildMetadata(findings: DetectorFinding[], redis: RedisRequirement): Record<string, unknown> {
+function buildMetadata(
+  findings: DetectorFinding[],
+  redis: RedisRequirement,
+  postgres: PostgresRequirement,
+): Record<string, unknown> {
   const meta: Record<string, unknown> = {};
 
   for (const f of findings) {
@@ -145,6 +150,7 @@ function buildMetadata(findings: DetectorFinding[], redis: RedisRequirement): Re
       case 'postgresql':
         meta['usesPostgresql'] = f.detected;
         if (f.detected && f.value) meta['postgresqlDrivers'] = f.value;
+        meta['postgres'] = postgres;
         break;
       case 'redis':
         meta['usesRedis'] = f.detected;
@@ -213,12 +219,17 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   const redis = assessRedis(tree);
   findings.push(buildRedisFinding(redis));
 
+  // Postgres is computed once here for the same reason as `redis` above —
+  // `metadata.postgres` needs the full required-vs-present assessment, not
+  // just the `postgresql` finding's `detected` (library presence) flag.
+  const postgres = assessPostgres(tree);
+
   rejections.push(checkRedisUnsupported(tree, redis));
   for (const check of REJECTION_CHECKS) {
     rejections.push(check(tree));
   }
 
-  const metadata = buildMetadata(findings, redis);
+  const metadata = buildMetadata(findings, redis, postgres);
   metadata['databaseState'] = deriveDatabaseState(findings, rejections);
 
   return { findings, rejections, metadata };

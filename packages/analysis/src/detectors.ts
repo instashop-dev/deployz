@@ -435,6 +435,102 @@ export function detectPostgresql(tree: FileTree): DetectorFinding {
   };
 }
 
+/** Required-vs-present evidence for PostgreSQL: mirrors `RedisRequirement`, minus the confidence enum. */
+export interface PostgresRequirement {
+  required: boolean;
+  evidence: string[];
+}
+
+const PG_CONNECTION_ENV_VARS = [
+  'DATABASE_URL',
+  'POSTGRES_URL',
+  'POSTGRESQL_URL',
+  'POSTGRES_HOST',
+  'POSTGRES_DB',
+] as const;
+
+const COMPOSE_IMAGE_REGEX = /^\s*image:\s*['"]?([^\s'"]+)['"]?/gim;
+
+/**
+ * Assess whether a repository's PostgreSQL usage is backed by more than a
+ * bare dependency. A driver/ORM library sitting unused in package.json is
+ * not enough evidence to provision a managed database — `required` is only
+ * true when a driver/ORM dependency AND at least one independent signal
+ * (a Prisma postgresql provider, a known connection env var, or a
+ * postgres/postgis docker-compose image) are both present.
+ *
+ * `detectPostgresql`'s `detected` (library presence) is unaffected by this
+ * function and keeps driving verdicts/§20 checks — only RDS provisioning
+ * (`metadata.postgres.required`) is gated here.
+ */
+export function assessPostgres(tree: FileTree): PostgresRequirement {
+  const evidence: string[] = [];
+  const deps = collectDependencyNames(tree);
+
+  let hasDependency = false;
+  for (const driver of PG_DRIVERS) {
+    if (deps.includes(driver)) {
+      hasDependency = true;
+      evidence.push(`${driver} dependency in package.json`);
+    }
+  }
+
+  let hasIndependentEvidence = false;
+
+  // Prisma schema declaring a postgresql provider.
+  if (deps.includes('@prisma/client')) {
+    for (const path of findFiles(tree, /schema\.prisma$/i)) {
+      const content = tree[path];
+      if (content && /provider\s*=\s*"postgresql"/i.test(content)) {
+        hasDependency = true;
+        hasIndependentEvidence = true;
+        evidence.push('@prisma/client dependency in package.json');
+        evidence.push(`provider = "postgresql" in ${path}`);
+      }
+    }
+  }
+
+  // A known connection env var referenced in an env file, docker-compose, or source.
+  for (const name of PG_CONNECTION_ENV_VARS) {
+    const envFileRegex = new RegExp(`^${name}\\s*[=:]`, 'm');
+    const composeRegex = new RegExp(`\\b${name}\\s*[=:]`);
+    const processEnvRegex = new RegExp(`process\\.env\\.${name}\\b`);
+
+    for (const [path, content] of Object.entries(tree)) {
+      if (!content) continue;
+      if (/^\.env(\.\w+)?$/i.test(path) && envFileRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`${name} referenced in ${path}`);
+      } else if (/^docker-compose\.ya?ml$/i.test(path) && composeRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`${name} referenced in ${path}`);
+      } else if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) && processEnvRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`process.env.${name} referenced in ${path}`);
+      }
+    }
+  }
+
+  // A postgres/postgis image in docker-compose.
+  const dcContent = findFileContent(tree, /^docker-compose\.ya?ml$/i);
+  if (dcContent) {
+    const regex = new RegExp(COMPOSE_IMAGE_REGEX.source, COMPOSE_IMAGE_REGEX.flags);
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(dcContent)) !== null) {
+      const image = match[1];
+      if (image && /postgres|postgis/i.test(image)) {
+        hasIndependentEvidence = true;
+        evidence.push(`docker-compose service using a PostgreSQL/PostGIS image (${image})`);
+      }
+    }
+  }
+
+  return {
+    required: hasDependency && hasIndependentEvidence,
+    evidence: [...new Set(evidence)],
+  };
+}
+
 // 7. Local filesystem usage
 // ---------------------------------------------------------------------------
 
