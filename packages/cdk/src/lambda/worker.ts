@@ -15,7 +15,7 @@
  * The Lambda entry point (worker-handler.ts) wires the real seams; this
  * module holds no AWS clients of its own, so the logic stays testable.
  */
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob } from '@deployz/api/jobs';
@@ -323,4 +323,80 @@ export async function handleMessage(
       await configUpdate(deps.db, message, messageId);
       return;
   }
+}
+
+// ── Stuck-job watchdog (Phase 7) ─────────────────────────────────────────
+
+/** Suggested MVP timeouts per mutating job type. */
+const JOB_TIMEOUTS_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect)['type'], number>> = {
+  INSTALL: 60 * 60 * 1000,
+  DEPLOY_RELEASE: 20 * 60 * 1000,
+  ROLLBACK: 20 * 60 * 1000,
+  RESTART: 20 * 60 * 1000,
+  CONFIG_UPDATE: 20 * 60 * 1000,
+  DESTROY: 60 * 60 * 1000,
+};
+
+const ACTIVE_MUTATING_STATES = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'] as const;
+
+/**
+ * Fails mutating jobs whose last genuine progress signal is older than the
+ * job type's timeout. The signal is lastProgressAt — updated on relay
+ * acknowledgement, heartbeat and result — falling back to startedAt, then
+ * createdAt. A deployment row update says nothing about a job, so updatedAt
+ * is deliberately not consulted.
+ */
+export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Promise<number> {
+  const rows = await db
+    .select({ job: schema.deploymentJobs, deployment: schema.deployments })
+    .from(schema.deploymentJobs)
+    .innerJoin(schema.deployments, eq(schema.deploymentJobs.deploymentId, schema.deployments.id))
+    .where(
+      inArray(schema.deploymentJobs.state, [...ACTIVE_MUTATING_STATES]),
+    );
+
+  let failed = 0;
+  for (const { job, deployment } of rows) {
+    const timeout = JOB_TIMEOUTS_MS[job.type];
+    if (timeout === undefined) continue;
+    const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
+    if (now.getTime() - lastSignal.getTime() <= timeout) continue;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deploymentJobs)
+        .set({
+          state: 'FAILED',
+          finishedAt: now,
+          result: { timeout: true },
+        })
+        .where(eq(schema.deploymentJobs.id, job.id));
+
+      await tx
+        .update(schema.deployments)
+        .set({ state: 'FAILED' })
+        .where(eq(schema.deployments.id, deployment.id));
+
+      await tx.insert(schema.eventLogs).values({
+        actorType: 'system',
+        actorId: 'watchdog',
+        organizationId: deployment.organizationId,
+        customerId: deployment.customerId,
+        deploymentId: deployment.id,
+        jobId: job.id,
+        eventType: 'operation.timeout',
+        previousState: deployment.state,
+        requestedState: 'FAILED',
+        result: 'failure',
+        payload: {
+          jobType: job.type,
+          startedAt: job.startedAt?.toISOString() ?? null,
+          lastProgressAt: job.lastProgressAt?.toISOString() ?? null,
+          relayStatus: deployment.relayStatus,
+        },
+      });
+    });
+    failed += 1;
+  }
+  return failed;
 }

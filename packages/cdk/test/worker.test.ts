@@ -10,6 +10,7 @@ import {
   handleMessage,
   recordBuildResult,
   resolveBuildContext,
+  sweepStuckJobs,
   type CodeBuildStateChangeEvent,
   type WorkerDeps,
 } from '../src/lambda/worker.js';
@@ -378,5 +379,154 @@ describe('worker handler', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.releaseStatus).toBe('FAILED');
     expect(row?.failureReason).toBe('CodeBuild reported FAILED');
+  });
+});
+
+// ── Stuck-job watchdog (Phase 7) ──────────────────────────────────────────
+
+describe('sweepStuckJobs', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let organizationId: string;
+  let applicationId: string;
+  let customerId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+
+    const [org] = await db
+      .insert(schema.organization)
+      .values({ id: 'org-watchdog', name: 'Watchdog Org', slug: 'watchdog-org' })
+      .returning();
+    organizationId = org!.id;
+
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'App',
+        repoFullName: 'acme/watchdog-app',
+        repoUrl: 'https://github.com/acme/watchdog-app',
+        defaultBranch: 'main',
+      })
+      .returning();
+    applicationId = application!.id;
+
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId, name: 'Cust', email: 'watchdog@example.test' })
+      .returning();
+    customerId = customer!.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  async function seedJobAndDeployment(
+    type: 'INSTALL' | 'DEPLOY_RELEASE' | 'ROLLBACK' | 'RESTART' | 'CONFIG_UPDATE' | 'DESTROY',
+    state: 'REQUESTED' | 'QUEUED' | 'WAITING' | 'RUNNING' | 'SUCCEEDED',
+    startedMinutesAgo: number,
+    lastProgressMinutesAgo: number | null,
+  ): Promise<{ jobId: string; deploymentId: string }> {
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'UPDATING',
+        installationId: `inst-${randomUUID()}`,
+        enrollmentCode: randomUUID(),
+      })
+      .returning();
+
+    const started = new Date(Date.now() - startedMinutesAgo * 60 * 1000);
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment!.id,
+        type,
+        state,
+        idempotencyKey: `watchdog:${randomUUID()}`,
+        payload: {},
+        startedAt: started,
+        ...(lastProgressMinutesAgo !== null
+          ? { lastProgressAt: new Date(Date.now() - lastProgressMinutesAgo * 60 * 1000) }
+          : {}),
+      })
+      .returning();
+
+    return { jobId: job!.id, deploymentId: deployment!.id };
+  }
+
+  it('fails a DEPLOY_RELEASE with no progress for 25 minutes', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25);
+    const failed = await sweepStuckJobs(db);
+    expect(failed).toBeGreaterThanOrEqual(1);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('FAILED');
+    expect(job?.result).toMatchObject({ timeout: true });
+
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    expect(deployment?.state).toBe('FAILED');
+  });
+
+  it('records an operation.timeout event with the job evidence', async () => {
+    const { jobId } = await seedJobAndDeployment('ROLLBACK', 'RUNNING', 30, 25);
+    await sweepStuckJobs(db);
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.jobId, jobId));
+    const timeout = events.find((e) => e.eventType === 'operation.timeout');
+    expect(timeout).toBeDefined();
+    expect(timeout?.payload).toMatchObject({
+      jobType: 'ROLLBACK',
+      relayStatus: expect.any(String),
+    });
+  });
+
+  it('does not sweep a job whose progress is recent', async () => {
+    const { jobId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 10, 5);
+    const before = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.id, jobId));
+    await sweepStuckJobs(db);
+    const after = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.id, jobId));
+    expect(after[0]?.state).toBe(before[0]?.state);
+  });
+
+  it('does not sweep an INSTALL inside its 60-minute budget', async () => {
+    const { jobId } = await seedJobAndDeployment('INSTALL', 'RUNNING', 45, 40);
+    await sweepStuckJobs(db);
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('RUNNING');
+  });
+
+  it('sweeps an INSTALL past its 60-minute budget', async () => {
+    const { jobId } = await seedJobAndDeployment('INSTALL', 'RUNNING', 75, 70);
+    await sweepStuckJobs(db);
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('FAILED');
+  });
+
+  it('never sweeps a finished job', async () => {
+    const { jobId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'SUCCEEDED', 120, 120);
+    await sweepStuckJobs(db);
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('SUCCEEDED');
   });
 });
