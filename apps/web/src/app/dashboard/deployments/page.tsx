@@ -7,6 +7,7 @@ import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   BULK_DEPLOYABLE_STATES,
   deployBulk,
@@ -203,10 +204,10 @@ function FleetTable({
 
       <Card>
         <CardContent className="overflow-x-auto p-0">
-          <table className="w-full text-sm" data-testid="deployment-list">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="w-10 px-4 py-2.5">
+          <Table data-testid="deployment-list">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10">
                   <input
                     type="checkbox"
                     aria-label="Select all deployable customers"
@@ -214,17 +215,17 @@ function FleetTable({
                     disabled={deployableIds.size === 0}
                     onChange={toggleAll}
                   />
-                </th>
-                <th className="px-2 py-2.5 font-medium">Customer</th>
-                <th className="px-2 py-2.5 font-medium">Version</th>
-                <th className="px-2 py-2.5 font-medium">Region</th>
-                <th className="px-2 py-2.5 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
+                </TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Version</TableHead>
+                <TableHead>Region</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {deployments.map((deployment) => (
-                <tr key={deployment.id} className="border-b last:border-0 hover:bg-accent/50">
-                  <td className="px-4 py-3">
+                <TableRow key={deployment.id}>
+                  <TableCell>
                     <input
                       type="checkbox"
                       aria-label={`Select ${deployment.customerName}`}
@@ -232,8 +233,8 @@ function FleetTable({
                       disabled={!deployableIds.has(deployment.id)}
                       onChange={() => toggleOne(deployment.id)}
                     />
-                  </td>
-                  <td className="px-2 py-3">
+                  </TableCell>
+                  <TableCell>
                     <Link
                       href={`/dashboard/deployments/${deployment.id}`}
                       className="font-medium hover:underline"
@@ -241,18 +242,18 @@ function FleetTable({
                       {deployment.customerName}
                     </Link>
                     <p className="text-xs text-muted-foreground">{deployment.applicationName}</p>
-                  </td>
-                  <td className="px-2 py-3 text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
                     {deployment.version ?? '—'}
-                  </td>
-                  <td className="px-2 py-3 text-muted-foreground">{deployment.region}</td>
-                  <td className="px-2 py-3">
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{deployment.region}</TableCell>
+                  <TableCell>
                     <DeploymentStatusBadge state={deployment.state} />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
