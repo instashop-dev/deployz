@@ -20,9 +20,10 @@ export type QueueMessage =
   | {
       readonly type: 'CONFIG_UPDATE';
       readonly customerId: string;
-      readonly entries?: readonly { key: string; value: string; isSecret: boolean }[] | undefined;
+      /** Keys whose values changed — NEVER the values themselves. */
+      readonly changedKeys?: readonly string[] | undefined;
       /** Keys to delete from the customer's secret store. */
-      readonly removeKeys?: readonly string[] | undefined;
+      readonly removedKeys?: readonly string[] | undefined;
     };
 
 let client: SQSClient | undefined;

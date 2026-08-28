@@ -224,7 +224,7 @@ describe('worker handler', () => {
     const message = {
       type: 'CONFIG_UPDATE' as const,
       customerId,
-      entries: [{ key: 'API_KEY', value: 'secret', isSecret: true }],
+      changedKeys: ['API_KEY'],
     };
     await handleMessage(deps(), message, 'msg-4');
     // A redelivery of the same message must not create a second job.
@@ -236,6 +236,9 @@ describe('worker handler', () => {
       .where(eq(schema.deploymentJobs.deploymentId, deployment!.id));
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.type).toBe('CONFIG_UPDATE');
+    // The durable payload carries keys only — a plaintext secret value must
+    // never persist in the control plane.
+    expect(jobs[0]?.payload).toEqual({ changedKeys: ['API_KEY'] });
   });
 
   function buildEvent(

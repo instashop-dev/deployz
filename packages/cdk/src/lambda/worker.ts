@@ -203,8 +203,9 @@ type ConfigUpdateMessage = Extract<QueueMessage, { type: 'CONFIG_UPDATE' }>;
 
 /**
  * Turns a config write-through into per-deployment CONFIG_UPDATE jobs. The
- * relay in each customer account picks them up on its next poll and writes
- * the values into that account's Secrets Manager.
+ * durable payload carries KEYS ONLY — plaintext secret values never persist
+ * in the control plane; the relay fetches the effective configuration over
+ * its authenticated channel when it executes.
  */
 async function configUpdate(
   db: RuntimeDb,
@@ -222,11 +223,11 @@ async function configUpdate(
       type: 'CONFIG_UPDATE',
       // Keyed on the SQS message, so a redelivery of the same write reuses
       // the job it already created while a genuinely new write makes a new
-      // one — writing the same key twice is a legitimate second job.
+      // one - writing the same key twice is a legitimate second job.
       idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${messageId}`,
       payload: {
-        ...(message.entries ? { entries: message.entries } : {}),
-        ...(message.removeKeys ? { removeKeys: message.removeKeys } : {}),
+        ...(message.changedKeys ? { changedKeys: [...message.changedKeys] } : {}),
+        ...(message.removedKeys ? { removedKeys: [...message.removedKeys] } : {}),
       },
       requestedBy: null,
     });
