@@ -59,6 +59,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@aws-sdk/client-ecr": "^3.1115.0",
     "@electric-sql/pglite": "^0.5.5",
     "tsx": "^4.19.0"
   }
