@@ -14,7 +14,13 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { ApiError } from './errors.js';
-import { getFileTreeForAnalysis, mintInstallationToken, type FetchFn } from './github.js';
+import {
+  fetchHeadSha,
+  getFileTreeForAnalysis,
+  mintInstallationToken,
+  parseRepoFullName,
+  type FetchFn,
+} from './github.js';
 
 // §18/§19/§20 analysis orchestrator — the ONLY caller of `analyseRepo` /
 // `evaluateCompatibility` outside their own package tests. Wires:
@@ -34,6 +40,13 @@ import { getFileTreeForAnalysis, mintInstallationToken, type FetchFn } from './g
 
 type ApplicationRow = typeof schema.applications.$inferSelect;
 
+// Task 6 commit-SHA analysis cache: bumped whenever the detector/AI schema
+// changes materially, so a repository whose head commit hasn't moved but
+// whose analysis LOGIC has still gets a fresh run instead of a stale cache
+// hit. Version 1 is the pre-AI implicit version (no `analysisVersion` field
+// on the row at all).
+export const ANALYSIS_VERSION = 2;
+
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
   fetchFn: FetchFn;
@@ -47,10 +60,14 @@ export interface AnalysisRunnerDeps {
 }
 
 /** The shape `buildServer` wires into the `/analyse` route. */
-export type AnalysisRunner = (applicationId: string) => Promise<void>;
+export type AnalysisRunner = (
+  applicationId: string,
+  options?: { force?: boolean },
+) => Promise<void>;
 
 export function createAnalysisRunner(deps: AnalysisRunnerDeps): AnalysisRunner {
-  return (applicationId: string) => runApplicationAnalysis(deps, applicationId);
+  return (applicationId: string, options?: { force?: boolean }) =>
+    runApplicationAnalysis(deps, applicationId, options);
 }
 
 /**
@@ -62,6 +79,7 @@ export function createAnalysisRunner(deps: AnalysisRunnerDeps): AnalysisRunner {
 export async function runApplicationAnalysis(
   deps: AnalysisRunnerDeps,
   applicationId: string,
+  options?: { force?: boolean },
 ): Promise<void> {
   try {
     const rows = await deps.db
@@ -73,6 +91,20 @@ export async function runApplicationAnalysis(
     if (!application) {
       // The row vanished between the route accepting the request and this
       // background run starting — nothing left to persist to.
+      return;
+    }
+
+    // Task 6 commit-SHA analysis cache (real GitHub mode only — fixture mode
+    // has no head commit to compare and always runs fully). Best-effort: any
+    // failure resolving the head sha (missing installation, unconfigured
+    // App, a minting or network error) degrades to `undefined`, which simply
+    // skips the cache rather than failing the analysis.
+    const headSha = await resolveHeadShaForCache(deps, application);
+    if (!options?.force && headSha !== undefined && isCommitShaCacheHit(application.detectedMetadata, headSha)) {
+      await deps.db
+        .update(schema.applications)
+        .set({ analysisStatus: 'COMPLETE' })
+        .where(eq(schema.applications.id, applicationId));
       return;
     }
 
@@ -98,7 +130,13 @@ export async function runApplicationAnalysis(
         analysisStatus: 'COMPLETE',
         compatibilityStatus: compatibility.verdict,
         compatibilityReason: compatibility.reason,
-        detectedMetadata: { ...metadata, checks, vendorOverrides },
+        detectedMetadata: {
+          ...metadata,
+          checks,
+          vendorOverrides,
+          analysisVersion: ANALYSIS_VERSION,
+          ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
+        },
         ...contractFieldUpdates,
       })
       .where(eq(schema.applications.id, applicationId));
@@ -126,6 +164,45 @@ async function markFailed(db: RuntimeDb, applicationId: string, error: unknown):
     // is nothing more we can do here. The row is left in ANALYZING; a retry
     // (re-POSTing /analyse) is the recovery path. Never rethrow.
   }
+}
+
+// ── Task 6 commit-SHA analysis cache ────────────────────────────────────────
+
+/**
+ * Resolves the repository's current branch head sha for the cache check,
+ * or `undefined` when it cannot be determined — fixture mode (no real
+ * branch), no linked installation, an unconfigured App, or any minting/
+ * network failure. The cache is best-effort and must never fail the
+ * analysis, so every failure path here degrades silently rather than
+ * throwing.
+ */
+async function resolveHeadShaForCache(
+  deps: AnalysisRunnerDeps,
+  application: ApplicationRow,
+): Promise<string | undefined> {
+  if (deps.githubFixtureMode) return undefined;
+  if (!application.githubInstallationId || !deps.githubAppId || !deps.githubAppPrivateKey) {
+    return undefined;
+  }
+  try {
+    const { token } = await mintInstallationToken(
+      application.githubInstallationId,
+      deps.githubAppId,
+      deps.githubAppPrivateKey,
+      deps.now ? deps.now() : Date.now(),
+      deps.fetchFn,
+    );
+    const { owner, repo } = parseRepoFullName(application.repoFullName);
+    return await fetchHeadSha({ owner, repo, branch: application.defaultBranch }, token, deps.fetchFn);
+  } catch {
+    return undefined;
+  }
+}
+
+/** A cache hit: the stored analysis was for this exact commit and analyser version. */
+function isCommitShaCacheHit(metadata: Record<string, unknown> | null, headSha: string): boolean {
+  if (!metadata) return false;
+  return metadata['analysisCommitSha'] === headSha && metadata['analysisVersion'] === ANALYSIS_VERSION;
 }
 
 // ── Repo/branch resolution + tree fetch ─────────────────────────────────────

@@ -766,6 +766,33 @@ export async function fetchRepositoryTreeEntries(
   return data.tree ?? [];
 }
 
+// Resolves a branch's current head commit sha — the Task 6 commit-SHA
+// analysis cache uses this to decide whether a re-analysis would produce the
+// same result as the one already stored. Best-effort: any non-200 (branch
+// not found, rate limited, transient error) degrades to `undefined` rather
+// than throwing, since a broken cache lookup must never become a failure
+// reason for the analysis itself.
+export async function fetchHeadSha(
+  ref: RepositoryRef,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<string | undefined> {
+  const url = `${GITHUB_API_BASE}/repos/${ref.owner}/${ref.repo}/commits/${encodeURIComponent(ref.branch)}`;
+  const response = await fetchFn(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${installationToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (response.status < 200 || response.status >= 300) {
+    return undefined;
+  }
+  const data = (await response.json()) as { sha?: string };
+  return data.sha;
+}
+
 // Fetches a single blob's content (base64-decoded to a UTF-8 string) by its
 // git object sha — one call per relevant file, capped by ANALYSIS_MAX_FILES /
 // ANALYSIS_MAX_FILE_BYTES in `buildFileTreeForAnalysis` below.

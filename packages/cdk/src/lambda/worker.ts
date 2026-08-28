@@ -62,7 +62,7 @@ export interface WorkerDeps {
     projectName: string;
     environmentVariables: { name: string; value: string }[];
   }) => Promise<void>;
-  readonly runAnalysis: (applicationId: string) => Promise<void>;
+  readonly runAnalysis: (applicationId: string, options?: { force?: boolean }) => Promise<void>;
 }
 
 // ── Seams ────────────────────────────────────────────────────────────────
@@ -264,7 +264,7 @@ export async function handleMessage(
 ): Promise<void> {
   switch (message.type) {
     case 'ANALYSE_APPLICATION':
-      await deps.runAnalysis(message.applicationId);
+      await deps.runAnalysis(message.applicationId, { force: message.force });
       return;
     case 'BUILD_RELEASE':
       await buildRelease(deps, message.releaseId);

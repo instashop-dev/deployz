@@ -1438,6 +1438,11 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
+    // Task 6 commit-SHA analysis cache: `force` bypasses it (the vendor's
+    // explicit "Re-analyse" action) — an auto-trigger sends no body and
+    // lets the cache decide.
+    const body = request.body as { force?: boolean } | undefined;
+    const force = body?.force === true;
     await db
       .update(schema.applications)
       .set({ analysisStatus: 'ANALYZING', updatedBy: request.user?.id ?? null })
@@ -1448,12 +1453,12 @@ export async function buildServer({
     // execution environment as soon as the reply is sent — the application
     // would sit at ANALYZING for ever. Without a queue (local dev) the
     // long-lived server can and does run it inline.
-    const queued = await enqueue({ type: 'ANALYSE_APPLICATION', applicationId: id });
+    const queued = await enqueue({ type: 'ANALYSE_APPLICATION', applicationId: id, force });
     if (!queued) {
       // runAnalysis catches every internal failure and persists FAILED
       // rather than throwing; the `.catch` is a second net so a rejected
       // promise can never surface as an unhandled rejection.
-      await runAnalysis(id).catch(() => {});
+      await runAnalysis(id, { force }).catch(() => {});
     }
     return reply.code(202).send({ status: 'ANALYZING' });
   });

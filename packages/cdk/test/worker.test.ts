@@ -29,6 +29,7 @@ describe('worker handler', () => {
     [];
   const uploaded: { bucket: string; key: string }[] = [];
   const analysed: string[] = [];
+  const analysedForce: (boolean | undefined)[] = [];
 
   function deps(): WorkerDeps {
     return {
@@ -48,8 +49,9 @@ describe('worker handler', () => {
       async startBuild(input) {
         started.push(input);
       },
-      async runAnalysis(id) {
+      async runAnalysis(id, options) {
         analysed.push(id);
+        analysedForce.push(options?.force);
       },
     };
   }
@@ -112,6 +114,15 @@ describe('worker handler', () => {
   it('runs the analysis for an ANALYSE_APPLICATION message', async () => {
     await handleMessage(deps(), { type: 'ANALYSE_APPLICATION', applicationId }, 'msg-1');
     expect(analysed).toEqual([applicationId]);
+    expect(analysedForce.at(-1)).toBeUndefined();
+  });
+
+  // Task 6 commit-SHA analysis cache: the queue message's `force` flag must
+  // reach `runAnalysis` so a vendor-triggered re-analyse can bypass the
+  // cache, not just an auto-triggered one.
+  it('threads the ANALYSE_APPLICATION message force flag through to runAnalysis', async () => {
+    await handleMessage(deps(), { type: 'ANALYSE_APPLICATION', applicationId, force: true }, 'msg-1-force');
+    expect(analysedForce.at(-1)).toBe(true);
   });
 
   it('uploads the source and starts a build for BUILD_RELEASE', async () => {

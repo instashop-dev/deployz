@@ -7,7 +7,12 @@ import { createAiGateway, type AiGateway } from '@deployz/analysis';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { createAnalysisRunner, runApplicationAnalysis, type AnalysisRunnerDeps } from './analysis.js';
+import {
+  ANALYSIS_VERSION,
+  createAnalysisRunner,
+  runApplicationAnalysis,
+  type AnalysisRunnerDeps,
+} from './analysis.js';
 import type { FetchFn } from './github.js';
 
 // §18/§19/§20 analysis orchestrator. Real GitHub is BLOCKED in this
@@ -710,4 +715,219 @@ describe('analysis — createAnalysisRunner', () => {
     },
     60_000,
   );
+});
+
+// Task 6: commit-SHA analysis cache — a re-analysis whose repository head
+// commit hasn't moved (and whose stored ANALYSIS_VERSION still matches)
+// short-circuits to COMPLETE without re-fetching the tree, re-running the
+// detectors, or invoking AI. Real-GitHub mode only; fixture mode has no head
+// sha to compare and always runs fully.
+describe('analysis — commit-SHA cache (Task 6)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let orgId: string;
+  let privateKey: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    orgId = 'org-analysis-cache';
+    await insertOrganization(db, orgId);
+    const { generateKeyPairSync } = await import('node:crypto');
+    privateKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey as unknown as string;
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  /** A minimal real-GitHub fetchFn: access_tokens + commits/{branch} (head sha) + tree + one blob. */
+  function buildFetch(headSha: string, calls: string[]): FetchFn {
+    return async (url) => {
+      calls.push(url);
+      if (url.includes('/access_tokens')) {
+        return {
+          status: 201,
+          headers: { get: () => null },
+          json: async () => ({ token: 'ghs_test', expires_at: '2099-01-01T00:00:00Z' }),
+        };
+      }
+      if (url.includes('/commits/')) {
+        return { status: 200, headers: { get: () => null }, json: async () => ({ sha: headSha }) };
+      }
+      if (url.includes('/git/trees/')) {
+        return {
+          status: 200,
+          headers: { get: () => null },
+          json: async () => ({
+            tree: [{ path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 100 }],
+          }),
+        };
+      }
+      const content = JSON.stringify({
+        name: 'widgets',
+        scripts: { start: 'node index.js' },
+        dependencies: { express: '^4.18.0' },
+      });
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ content: Buffer.from(content).toString('base64'), encoding: 'base64' }),
+      };
+    };
+  }
+
+  function makeDeps(fetchFn: FetchFn): AnalysisRunnerDeps {
+    return {
+      db,
+      fetchFn,
+      githubAppId: 'app-id',
+      githubAppPrivateKey: privateKey,
+      githubFixtureMode: false,
+      aiGateway: createAiGateway(undefined),
+    };
+  }
+
+  it('(a) a second run against the same head sha short-circuits: no tree fetch, ends COMPLETE, other columns untouched', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/cache-a',
+      defaultBranch: 'main',
+    });
+    const calls: string[] = [];
+    const deps = makeDeps(buildFetch('sha-same', calls));
+
+    await runApplicationAnalysis(deps, application.id);
+    expect(calls.filter((u) => u.includes('/git/trees/'))).toHaveLength(1);
+    const afterFirst = await loadApplication(db, application.id);
+    expect(afterFirst.analysisStatus).toBe('COMPLETE');
+    const metadata = afterFirst.detectedMetadata as { analysisCommitSha?: string; analysisVersion?: number };
+    expect(metadata.analysisCommitSha).toBe('sha-same');
+    expect(metadata.analysisVersion).toBe(ANALYSIS_VERSION);
+
+    // Corrupt a column a cache-hit must never touch, to prove it truly no-ops.
+    await db
+      .update(schema.applications)
+      .set({ compatibilityReason: 'stale-sentinel', analysisStatus: 'ANALYZING' })
+      .where(eq(schema.applications.id, application.id));
+
+    await runApplicationAnalysis(deps, application.id);
+
+    expect(calls.filter((u) => u.includes('/git/trees/'))).toHaveLength(1); // still 1 — no second tree fetch
+    const afterSecond = await loadApplication(db, application.id);
+    expect(afterSecond.analysisStatus).toBe('COMPLETE');
+    expect(afterSecond.compatibilityReason).toBe('stale-sentinel'); // untouched
+  });
+
+  it('(b) force: true re-runs even when the head sha is unchanged', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/cache-b',
+      defaultBranch: 'main',
+    });
+    const calls: string[] = [];
+    const deps = makeDeps(buildFetch('sha-same', calls));
+
+    await runApplicationAnalysis(deps, application.id);
+    await runApplicationAnalysis(deps, application.id, { force: true });
+
+    expect(calls.filter((u) => u.includes('/git/trees/'))).toHaveLength(2);
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+  });
+
+  it('(c) a changed head sha re-runs', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/cache-c',
+      defaultBranch: 'main',
+    });
+    const calls: string[] = [];
+    let headSha = 'sha-1';
+    const deps = makeDeps(((url, init) => buildFetch(headSha, calls)(url, init)) as FetchFn);
+
+    await runApplicationAnalysis(deps, application.id);
+    headSha = 'sha-2';
+    await runApplicationAnalysis(deps, application.id);
+
+    expect(calls.filter((u) => u.includes('/git/trees/'))).toHaveLength(2);
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    const metadata = row.detectedMetadata as { analysisCommitSha?: string };
+    expect(metadata.analysisCommitSha).toBe('sha-2');
+  });
+
+  it('(d) a FAILED run does not persist analysisCommitSha', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/cache-d',
+      defaultBranch: 'main',
+    });
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/access_tokens')) {
+        return {
+          status: 201,
+          headers: { get: () => null },
+          json: async () => ({ token: 'ghs_test', expires_at: '2099-01-01T00:00:00Z' }),
+        };
+      }
+      if (url.includes('/commits/')) {
+        return { status: 200, headers: { get: () => null }, json: async () => ({ sha: 'sha-x' }) };
+      }
+      // Tree fetch fails -> the run fails.
+      return { status: 404, headers: { get: () => null }, json: async () => ({ message: 'Not Found' }) };
+    };
+    const deps = makeDeps(fetchFn);
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('FAILED');
+    const metadata = row.detectedMetadata as { analysisCommitSha?: string } | null;
+    expect(metadata?.analysisCommitSha).toBeUndefined();
+  });
+
+  it('(e) fixture mode never short-circuits, even once analysisCommitSha/analysisVersion are already stored', async () => {
+    const application = await insertApplication(db, orgId, {
+      repoFullName: 'deployz-demo/express-api',
+    });
+    const fixtureDeps: AnalysisRunnerDeps = {
+      db,
+      fetchFn: (() => {
+        throw new Error('fixture mode must never call fetchFn');
+      }) as unknown as FetchFn,
+      githubAppId: undefined,
+      githubAppPrivateKey: undefined,
+      githubFixtureMode: true,
+      aiGateway: createAiGateway(undefined),
+    };
+
+    await runApplicationAnalysis(fixtureDeps, application.id);
+    const first = await loadApplication(db, application.id);
+    expect(first.analysisStatus).toBe('COMPLETE');
+
+    // Stamp a matching cache entry plus a stale-sentinel column a cache-hit
+    // would leave untouched — a full re-run must overwrite it regardless.
+    await db
+      .update(schema.applications)
+      .set({
+        compatibilityStatus: 'NOT_COMPATIBLE',
+        compatibilityReason: 'stale-sentinel',
+        detectedMetadata: {
+          ...(first.detectedMetadata ?? {}),
+          analysisCommitSha: 'whatever',
+          analysisVersion: ANALYSIS_VERSION,
+        },
+        analysisStatus: 'ANALYZING',
+      })
+      .where(eq(schema.applications.id, application.id));
+
+    await runApplicationAnalysis(fixtureDeps, application.id);
+
+    const second = await loadApplication(db, application.id);
+    expect(second.analysisStatus).toBe('COMPLETE');
+    expect(second.compatibilityStatus).toBe('READY');
+    expect(second.compatibilityReason).toBe('Compatible with Deployz');
+  });
 });

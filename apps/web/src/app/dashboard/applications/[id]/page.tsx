@@ -263,7 +263,7 @@ function ApplicationDetailsSection({
   async function handleReanalyse(): Promise<void> {
     setTriggering(true);
     try {
-      await triggerAnalysis(application.id);
+      await triggerAnalysis(application.id, { force: true });
       await onReanalyseTriggered();
     } catch {
       /* The button re-enables below, so the vendor can just try again. */

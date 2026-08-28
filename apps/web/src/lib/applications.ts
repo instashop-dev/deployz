@@ -83,11 +83,23 @@ export async function createApplication(input: CreateApplicationInput): Promise<
   return (await response.json()) as Application;
 }
 
-/** §42 step 3 "Deployz analyses application" — kicks off analysis. */
-export async function triggerAnalysis(applicationId: string): Promise<void> {
+/**
+ * §42 step 3 "Deployz analyses application" — kicks off analysis.
+ *
+ * `force` bypasses the Task 6 commit-SHA analysis cache — pass it for an
+ * explicit vendor-triggered "Re-analyse"; leave it unset for the auto-trigger
+ * after application creation, which should benefit from the cache.
+ */
+export async function triggerAnalysis(applicationId: string, options?: { force?: boolean }): Promise<void> {
   const response = await fetch(
     `${apiUrl}/api/applications/${encodeURIComponent(applicationId)}/analyse`,
-    { method: 'POST', credentials: 'include' },
+    {
+      method: 'POST',
+      credentials: 'include',
+      ...(options?.force
+        ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify({ force: true }) }
+        : {}),
+    },
   );
   if (!response.ok) {
     throw new Error(`Trigger analysis failed (${response.status})`);

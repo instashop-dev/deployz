@@ -16,6 +16,7 @@ import {
   createAppJwt,
   InMemoryGithubInstallationStore,
   createInstallationToken,
+  fetchHeadSha,
   fetchRepositoryTreeEntries,
   getFileTreeForAnalysis,
   GITHUB_FIXTURE_FILE_TREES,
@@ -545,6 +546,31 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     };
     const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
     expect(tree).toEqual({});
+  });
+});
+
+// Task 6: commit-SHA analysis cache — resolves the branch head sha so
+// runApplicationAnalysis can decide whether a re-analysis is redundant.
+// Best-effort by design: any non-200 degrades to `undefined` rather than
+// throwing, since a broken cache lookup must never become a failure reason.
+describe('github — fetchHeadSha (commit-SHA analysis cache)', () => {
+  const REF = { owner: 'acme', repo: 'widgets', branch: 'main' };
+
+  it('returns the sha from a recorded 200', async () => {
+    let capturedUrl = '';
+    const fetchFn: FetchFn = async (url) => {
+      capturedUrl = url;
+      return makeFetchResponse(200, { sha: 'abc123' });
+    };
+    const sha = await fetchHeadSha(REF, 'tok', fetchFn);
+    expect(capturedUrl).toBe('https://api.github.com/repos/acme/widgets/commits/main');
+    expect(sha).toBe('abc123');
+  });
+
+  it('returns undefined on a 404', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(404, { message: 'Not Found' });
+    const sha = await fetchHeadSha(REF, 'tok', fetchFn);
+    expect(sha).toBeUndefined();
   });
 });
 

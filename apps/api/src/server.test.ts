@@ -1751,6 +1751,60 @@ describe('server — POST /api/applications/:id/analyse wires ServerDeps.analysi
     }
   });
 
+  // Task 6 commit-SHA analysis cache: the explicit "Re-analyse" action sends
+  // `{ force: true }` in the body, which must reach the injected runner so it
+  // bypasses the cache; an auto-trigger sends no body at all.
+  it('threads an explicit { force: true } body through to the injected runner', async () => {
+    const calls: Array<{ applicationId: string; force: boolean | undefined }> = [];
+    const app = await buildServer({
+      auth,
+      db,
+      analysisRunner: async (applicationId, options) => {
+        calls.push({ applicationId, force: options?.force });
+      },
+    });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/applications/${application.id}/analyse`,
+        headers: { cookie: org.cookie },
+        payload: { force: true },
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(calls).toEqual([{ applicationId: application.id, force: true }]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('does not force a re-analysis when no body is sent', async () => {
+    const calls: Array<boolean | undefined> = [];
+    const app = await buildServer({
+      auth,
+      db,
+      analysisRunner: async (_applicationId, options) => {
+        calls.push(options?.force);
+      },
+    });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/applications/${application.id}/analyse`,
+        headers: { cookie: org.cookie },
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(calls).toEqual([false]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('still 202s even when the injected runner rejects (defense-in-depth catch)', async () => {
     const app = await buildServer({
       auth,
