@@ -195,7 +195,7 @@ const PHASE_2_CACHE_ACTIONS = [
 ] as const;
 
 /**
- * Phase 2 — the relay's own durable note of a command it has not finished.
+ * Phase 2 — the relay's durable note of a command it has not finished.
  *
  * An application stack takes longer to create than a Lambda invocation may
  * run, and the control plane never re-offers a job once it has handed it
@@ -209,6 +209,24 @@ const PHASE_2_RELAY_STATE_ACTIONS = [
   'ssm:PutParameter',
   'ssm:DeleteParameter',
 ] as const;
+
+/**
+ * Phase 4 — task-level reads behind runtime observation and deploy
+ * idempotence. Task and task-definition ARNs carry no usable tag condition,
+ * so these stay condition-free like the Describe* precedents above.
+ */
+const PHASE_4_DEPLOY_OBSERVE_ACTIONS = [
+  'ecs:ListTasks',
+  'ecs:DescribeTasks',
+  'ecs:DescribeTaskDefinition',
+] as const;
+
+/**
+ * Phase 4 — registering a task-definition copy names a resource that does
+ * not exist yet, so (like stack create / cache create) it is scoped by the
+ * REQUEST tag the relay stamps on every register.
+ */
+const PHASE_4_DEPLOY_CREATE_ACTIONS = ['ecs:RegisterTaskDefinition'] as const;
 
 // ── Application-stack provisioning (the CloudFormation execution role) ──────
 //
@@ -742,6 +760,44 @@ export class BootstrapStack extends Stack {
       ],
     });
 
+    // Phase 4 — deploy/rollback/restart. ListTasks/DescribeTasks/
+    // DescribeTaskDefinition carry no usable tag condition (see the const);
+    // RegisterTaskDefinition is bounded by the installation request tag the
+    // executor stamps on every copy it registers.
+    const phase4DeployObserve = new PolicyStatement({
+      sid: 'RelayDeployObserve',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_4_DEPLOY_OBSERVE_ACTIONS],
+      resources: ['*'],
+    });
+
+    const phase4DeployCreate = new PolicyStatement({
+      sid: 'RelayDeployRegister',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_4_DEPLOY_CREATE_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:RequestTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
+    // Phase 4 — PassRole strictly to the application's own task/execution
+    // roles (role/deployz/*), only when handed to ECS. Deliberately NOT the
+    // wildcard-resource form the plan calls out.
+    const phase4DeployPassRole = new PolicyStatement({
+      sid: 'RelayDeployPassRole',
+      effect: Effect.ALLOW,
+      actions: ['iam:PassRole'],
+      resources: ['arn:aws:iam::*:role/deployz/*'],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': 'ecs.amazonaws.com',
+        },
+      },
+    });
+
     const phase2Statements = [
       phase2CreateStacks,
       phase2ManageStacks,
@@ -752,6 +808,9 @@ export class BootstrapStack extends Stack {
       phase2DomainIngressDescribe,
       phase2DomainIngressWrite,
       phase2CacheCreate,
+      phase4DeployObserve,
+      phase4DeployCreate,
+      phase4DeployPassRole,
       phase2CacheManage,
       phase2CacheDescribe,
     ];

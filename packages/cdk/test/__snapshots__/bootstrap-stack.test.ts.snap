@@ -652,6 +652,43 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             {
               "Action": [
+                "ecs:ListTasks",
+                "ecs:DescribeTasks",
+                "ecs:DescribeTaskDefinition",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayDeployObserve",
+            },
+            {
+              "Action": "ecs:RegisterTaskDefinition",
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayDeployRegister",
+            },
+            {
+              "Action": "iam:PassRole",
+              "Condition": {
+                "StringEquals": {
+                  "iam:PassedToService": "ecs.amazonaws.com",
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Sid": "RelayDeployPassRole",
+            },
+            {
+              "Action": [
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
                 "elasticache:DeleteCacheSubnetGroup",
@@ -1165,6 +1202,43 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerCacheCreate",
+            },
+            {
+              "Action": [
+                "ecs:ListTasks",
+                "ecs:DescribeTasks",
+                "ecs:DescribeTaskDefinition",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayDeployObserve",
+            },
+            {
+              "Action": "ecs:RegisterTaskDefinition",
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayDeployRegister",
+            },
+            {
+              "Action": "iam:PassRole",
+              "Condition": {
+                "StringEquals": {
+                  "iam:PassedToService": "ecs.amazonaws.com",
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Sid": "RelayDeployPassRole",
             },
             {
               "Action": [
