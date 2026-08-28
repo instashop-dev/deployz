@@ -19,9 +19,9 @@ export const RELAY_VERSION = '0.2.0';
  * real executors land; until then the dashboard must not offer the action.
  */
 export const RELAY_CAPABILITIES: RelayCapabilities = {
-  deployRelease: false,
-  rollback: false,
-  restart: false,
+  deployRelease: true,
+  rollback: true,
+  restart: true,
   configUpdate: false,
   destroy: false,
   domainManagement: true,

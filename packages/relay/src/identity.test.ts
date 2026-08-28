@@ -59,9 +59,9 @@ describe('readRelayIdentity', () => {
 describe('RELAY_CAPABILITIES', () => {
   it('advertises only what this build can actually execute', () => {
     expect(RELAY_CAPABILITIES.domainManagement).toBe(true);
-    expect(RELAY_CAPABILITIES.deployRelease).toBe(false);
-    expect(RELAY_CAPABILITIES.rollback).toBe(false);
-    expect(RELAY_CAPABILITIES.restart).toBe(false);
+    expect(RELAY_CAPABILITIES.deployRelease).toBe(true);
+    expect(RELAY_CAPABILITIES.rollback).toBe(true);
+    expect(RELAY_CAPABILITIES.restart).toBe(true);
     expect(RELAY_CAPABILITIES.configUpdate).toBe(false);
     expect(RELAY_CAPABILITIES.destroy).toBe(false);
   });

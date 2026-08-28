@@ -20,7 +20,16 @@
 
 import type { ScheduledEvent } from 'aws-lambda';
 
-import { DescribeServicesCommand, DescribeTasksCommand, ECSClient, ListTasksCommand } from '@aws-sdk/client-ecs';
+import {
+  DescribeServicesCommand,
+  DescribeTaskDefinitionCommand,
+  DescribeTasksCommand,
+  ECSClient,
+  ListTasksCommand,
+  RegisterTaskDefinitionCommand,
+  UpdateServiceCommand,
+  type RegisterTaskDefinitionCommandInput,
+} from '@aws-sdk/client-ecs';
 import {
   DescribeTargetHealthCommand,
   ElasticLoadBalancingV2Client,
@@ -34,6 +43,13 @@ import {
   type RelayCommandResult,
 } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
+import {
+  createEcsDeployExecutor,
+  createEcsDeployResumer,
+  createRestartExecutor,
+  type EcsDeployClient,
+  type EcsDeployDeps,
+} from './deploy.js';
 import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
 import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
 import { readRelayIdentity } from './identity.js';
@@ -170,6 +186,102 @@ function getTargetHealthReader(): TargetHealthReader {
     };
   }
   return targetHealthReader;
+}
+
+// The ECS write client behind deploy/rollback/restart. Field-by-field
+// adaptation between the seam's copy-shape and the SDK's register input —
+// AWS owns revision/status/registration fields and rejects them on register.
+let ecsDeployClient: EcsDeployClient | undefined;
+
+function getEcsDeployClient(): EcsDeployClient {
+  if (!ecsDeployClient) {
+    const client = new ECSClient({});
+    ecsDeployClient = {
+      async describeServices(input) {
+        const response = await client.send(
+          new DescribeServicesCommand({ cluster: input.cluster, services: input.services }),
+        );
+        return {
+          services: (response.services ?? []).map((service) => ({
+            desiredCount: service.desiredCount ?? undefined,
+            runningCount: service.runningCount ?? undefined,
+            taskDefinition: service.taskDefinition ?? undefined,
+            deployments: (service.deployments ?? []).map((deployment) => ({
+              status: deployment.status ?? undefined,
+              rolloutState: deployment.rolloutState ?? undefined,
+            })),
+          })),
+        };
+      },
+      async describeTaskDefinition(input) {
+        const response = await client.send(
+          new DescribeTaskDefinitionCommand({ taskDefinition: input.taskDefinition }),
+        );
+        const taskDefinition = response.taskDefinition;
+        return {
+          taskDefinition: {
+            family: taskDefinition?.family ?? undefined,
+            cpu: taskDefinition?.cpu ?? undefined,
+            memory: taskDefinition?.memory ?? undefined,
+            networkMode: taskDefinition?.networkMode ?? undefined,
+            requiresCompatibilities: taskDefinition?.requiresCompatibilities ?? undefined,
+            executionRoleArn: taskDefinition?.executionRoleArn ?? undefined,
+            taskRoleArn: taskDefinition?.taskRoleArn ?? undefined,
+            containerDefinitions: (taskDefinition?.containerDefinitions ?? []).map(
+              (container) => ({ ...container }),
+            ),
+            ...(taskDefinition?.volumes ? { volumes: taskDefinition.volumes } : {}),
+          },
+        };
+      },
+      async registerTaskDefinition(input) {
+        if (!input.family) throw new Error('Cannot register a task definition without a family');
+        // The seam copies fields as plain strings; the SDK narrows them to
+        // its enum types. The values came from DescribeTaskDefinition, so
+        // they are already valid members — the cast is the seam boundary.
+        const response = await client.send(
+          new RegisterTaskDefinitionCommand({
+            ...input,
+            family: input.family,
+          } as RegisterTaskDefinitionCommandInput),
+        );
+        const arn = response.taskDefinition?.taskDefinitionArn;
+        if (!arn) throw new Error('RegisterTaskDefinition returned no task definition ARN');
+        return { taskDefinitionArn: arn };
+      },
+      async updateService(input) {
+        await client.send(
+          new UpdateServiceCommand({
+            cluster: input.cluster,
+            service: input.service,
+            ...(input.taskDefinition !== undefined ? { taskDefinition: input.taskDefinition } : {}),
+            ...(input.forceNewDeployment !== undefined
+              ? { forceNewDeployment: input.forceNewDeployment }
+              : {}),
+          }),
+        );
+      },
+      async listTasks(input) {
+        const response = await client.send(
+          new ListTasksCommand({ cluster: input.cluster, serviceName: input.serviceName }),
+        );
+        return { taskArns: response.taskArns ?? [] };
+      },
+      async describeTasks(input) {
+        const response = await client.send(
+          new DescribeTasksCommand({ cluster: input.cluster, tasks: input.tasks }),
+        );
+        return {
+          tasks: (response.tasks ?? []).map((task) => ({
+            containers: (task.containers ?? []).map((container) => ({
+              imageDigest: container.imageDigest ?? undefined,
+            })),
+          })),
+        };
+      },
+    };
+  }
+  return ecsDeployClient;
 }
 
 function getStackInstaller(): StackInstaller {
@@ -559,6 +671,9 @@ export function createInstallResumer(
   return async () => {
     const pending = await deps.pending.read();
     if (pending === null) return [];
+    // The pending store holds ONE command of any type; each resumer only
+    // settles its own, so a deferred deploy is never answered as an install.
+    if (pending.type !== 'INSTALL') return [];
 
     const settled = await settleInstall(deps, {
       stackName: pending.stackName,
@@ -737,13 +852,24 @@ function createDefaultInstallDeps(installationId: string): InstallExecutorDeps {
   };
 }
 
+/** The deploy-side twin of `createDefaultInstallDeps`. */
+function deployResumerDeps(installationId: string): EcsDeployDeps {
+  return {
+    cfn: getCloudFormationReader(),
+    ecs: getEcsDeployClient(),
+    pending: getPendingStore(installationId),
+    stackName: DEFAULT_STACK_NAME,
+    installationId,
+  };
+}
+
 /**
- * Default executors for the ten command types.
+ * Default executors for the command vocabulary.
  *
- * ⚠️ FIVE OF THESE ARE STILL STUBS: REPORT_HEALTH, CONFIG_UPDATE, DESTROY,
+ * ⚠️ FOUR OF THESE ARE STILL STUBS: REPORT_HEALTH, CONFIG_UPDATE, DESTROY,
  * MIGRATE and REFRESH_METADATA each log and report success without touching
- * the customer's account. The real implementations — ECS service updates,
- * migrations, stack deletion — are the remaining half of the product.
+ * the customer's account. The real implementations — config propagation,
+ * stack deletion, migrations — are the remaining half of the product.
  *
  * INSTALL is now real: it creates the published application template as a
  * CloudFormation stack, watches it to a terminal state, and reports what
@@ -751,13 +877,10 @@ function createDefaultInstallDeps(installationId: string): InstallExecutorDeps {
  * CloudFormation calls complete but that does not contain the application
  * is a failure.
  *
- * DEPLOY_RELEASE and ROLLBACK remain gated-but-unimplemented: they share
- * `createVerifyingExecutor`, which proves the application stack's expected
- * resources are present but does not deploy or roll back anything. That
- * proof is necessarily partial — see the comment on
- * `createVerifyingExecutor` for exactly what it does and does not confirm.
- * The remaining stubs still carry the same hazard and should be gated the
- * same way as each one gains a real implementation.
+ * DEPLOY_RELEASE, ROLLBACK and RESTART are real: they drive the ECS service
+ * discovered through the application stack — immutable digest pinning for
+ * deploy/rollback (see ./deploy.ts), a forced rolling redeployment for
+ * restart.
  *
  * CONFIGURE_DOMAIN and REMOVE_DOMAIN are real.
  *
@@ -790,19 +913,22 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     installationId: installDeps.installationId,
   });
 
-  const verifyingExecutor = createVerifyingExecutor((id, command) =>
-    verifyInstallation({
-      cfn: getCloudFormationReader(),
-      installationId: id,
-      ...readVerifyOptionsFromPayload(command.payload),
-    }),
-  );
+  // The deploy executors share the ECS write seam behind a lazy SDK client
+  // (same construct-on-first-use rule as the readers above).
+  const deployDeps: EcsDeployDeps = {
+    cfn: getCloudFormationReader(),
+    ecs: getEcsDeployClient(),
+    pending: getPendingStore(installDeps.installationId),
+    stackName: DEFAULT_STACK_NAME,
+    installationId: installDeps.installationId,
+  };
 
   return {
     INSTALL: createInstallExecutor(installDeps),
     REPORT_HEALTH: noop,
-    DEPLOY_RELEASE: verifyingExecutor,
-    ROLLBACK: verifyingExecutor,
+    DEPLOY_RELEASE: createEcsDeployExecutor(deployDeps),
+    ROLLBACK: createEcsDeployExecutor(deployDeps),
+    RESTART: createRestartExecutor(deployDeps),
     CONFIG_UPDATE: noop,
     DESTROY: noop,
     MIGRATE: noop,
@@ -923,7 +1049,15 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       observe:
         deps.observe ??
         (() => verifyInstallation({ cfn: getCloudFormationReader(), installationId })),
-      resume: deps.resume ?? createInstallResumer(installDeps),
+      // One pending store, several resumers: each settles only its own
+      // command type, so composing them is safe.
+      resume:
+        deps.resume ??
+        (async () => {
+          const installResults = await createInstallResumer(installDeps)();
+          if (installResults.length > 0) return installResults;
+          return createEcsDeployResumer(deployResumerDeps(installDeps.installationId))();
+        }),
       identity: deps.identity ?? readRelayIdentity(context),
       observeImage:
         deps.observeImage ??
