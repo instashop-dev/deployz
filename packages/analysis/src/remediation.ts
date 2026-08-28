@@ -235,6 +235,21 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
     automatic: false,
   },
 
+  // STACK_DELETE_FAILED
+  STACK_DELETE_FAILED: {
+    summary: 'The disconnect could not complete. Your data is safe.',
+    steps: [
+      'Check which resource could not be removed.',
+      'The database and stored files are retained by design.',
+      'Retry the disconnect.',
+    ],
+    technicalDetail: [
+      'Check the CloudFormation console for the specific resource that failed to delete.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
   // 13. DATABASE_CREATE_FAILED
   DATABASE_CREATE_FAILED: {
     summary: 'The database could not be created.',

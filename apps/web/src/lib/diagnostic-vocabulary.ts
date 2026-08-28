@@ -27,6 +27,7 @@ export const FAILURE_CODES = [
   'RDS_UNAVAILABLE',
   'AWS_PERMISSION_DENIED',
   'STACK_CREATE_FAILED',
+  'STACK_DELETE_FAILED',
   'DATABASE_CREATE_FAILED',
   'DATABASE_CONNECTION_FAILED',
   'IMAGE_PULL_FAILED',
@@ -116,6 +117,11 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   STACK_CREATE_FAILED: {
     label: 'Setup failed',
     description: "The initial setup couldn't complete.",
+    severity: 'critical',
+  },
+  STACK_DELETE_FAILED: {
+    label: 'Disconnect failed',
+    description: "The removal couldn't complete. Your data is safe.",
     severity: 'critical',
   },
   DATABASE_CREATE_FAILED: {

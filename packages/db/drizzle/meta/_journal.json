@@ -113,6 +113,13 @@
       "when": 1787939990739,
       "tag": "0015_tan_blue_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1787942242164,
+      "tag": "0016_married_wolf_cub",
+      "breakpoints": true
     }
   ]
 }
