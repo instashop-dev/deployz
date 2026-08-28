@@ -349,24 +349,96 @@ async function resolveConfigScope(
 }
 
 /**
- * A release is owned through its application. Deploy/rollback take a
- * uuid-shaped releaseId from the client; without this check a release that
- * does not exist (or belongs to another application) is accepted and queued
- * as a job the relay can never carry out.
+ * The deploy/rollback payload contract — everything the relay needs to roll
+ * an immutable image out, derived SERVER-side from the READY release. The
+ * browser only ever names a releaseId; repository and digest are never
+ * client-supplied.
  */
-async function requireApplicationRelease(
+interface DeployPayload {
+  releaseId: string;
+  version: string;
+  imageRepository: string;
+  imageDigest: string;
+  [key: string]: unknown;
+}
+
+async function requireDeployableRelease(
   db: RuntimeDb,
   releaseId: string,
   applicationId: string,
-): Promise<void> {
+): Promise<DeployPayload> {
   requireUuidId(releaseId);
   const rows = await db
-    .select({ id: schema.releases.id })
+    .select()
     .from(schema.releases)
     .where(and(eq(schema.releases.id, releaseId), eq(schema.releases.applicationId, applicationId)))
     .limit(1);
-  if (rows.length === 0) {
+  const release = rows[0];
+  if (!release) {
     throw new NotFoundError('Release not found');
+  }
+  // The image digest arrives from CodeBuild in RepoDigests form
+  // (`repository@sha256:…`); the wire contract wants the two parts apart,
+  // with the digest matching the strict immutable form.
+  const at = release.imageDigest?.lastIndexOf('@') ?? -1;
+  const imageRepository = at > 0 ? release.imageDigest!.slice(0, at) : null;
+  const imageDigest = at > 0 ? release.imageDigest!.slice(at + 1) : null;
+  if (
+    release.releaseStatus !== 'READY' ||
+    imageRepository === null ||
+    imageDigest === null ||
+    !/^sha256:[0-9a-f]{64}$/.test(imageDigest)
+  ) {
+    throw new ApiError(
+      409,
+      'RELEASE_NOT_READY',
+      `Version ${release.version} has no deployable image yet. Wait for the build to finish or pick another release.`,
+    );
+  }
+  return { releaseId: release.id, version: release.version, imageRepository, imageDigest };
+}
+
+/**
+ * One mutating operation per deployment: before creating any mutating job,
+ * refuse if another is still active. Concurrency here means two executors
+ * racing the same ECS service/stack, with no honest way to report either
+ * outcome. A retry of the SAME command (same idempotency key) is not
+ * concurrency — it reuses its existing job.
+ */
+async function requireDeploymentIdle(
+  db: RuntimeDb,
+  deploymentId: string,
+  sameKeyIdempotencyKey?: string,
+): Promise<void> {
+  const active = await db
+    .select({ id: schema.deploymentJobs.id })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+        inArray(schema.deploymentJobs.type, [
+          'INSTALL',
+          'DEPLOY_RELEASE',
+          'ROLLBACK',
+          'RESTART',
+          'CONFIG_UPDATE',
+          'DESTROY',
+          'MIGRATION',
+          'INFRA_UPGRADE',
+        ]),
+        ...(sameKeyIdempotencyKey
+          ? [ne(schema.deploymentJobs.idempotencyKey, sameKeyIdempotencyKey)]
+          : []),
+      ),
+    )
+    .limit(1);
+  if (active.length > 0) {
+    throw new ApiError(
+      409,
+      'DEPLOYMENT_BUSY',
+      'Another deployment operation is already in progress.',
+    );
   }
 }
 
@@ -565,6 +637,7 @@ const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
   INSTALL: 'HEALTHY',
   DEPLOY_RELEASE: 'HEALTHY',
   ROLLBACK: 'HEALTHY',
+  RESTART: 'HEALTHY',
   DESTROY: 'DELETED',
 };
 
@@ -578,6 +651,7 @@ const JOB_RESULT_EVENT: Partial<
   INSTALL: { completed: 'install.completed', failed: 'install.failed' },
   DEPLOY_RELEASE: { completed: 'deploy.completed', failed: 'deploy.failed' },
   ROLLBACK: { completed: 'rollback.completed', failed: 'rollback.failed' },
+  RESTART: { completed: 'restart.completed', failed: 'restart.failed' },
   DESTROY: { completed: 'destroy.completed', failed: 'destroy.failed' },
 };
 
@@ -1748,7 +1822,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
-    await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
+    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
     // The same rule deploy-bulk applies. Without it this route accepted a
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
@@ -1756,11 +1830,12 @@ export async function buildServer({
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DEPLOY_RELEASE',
       idempotencyKey,
-      payload: { releaseId: body.releaseId },
+      payload,
       requestedBy: request.user?.id ?? null,
     });
     if (created) {
@@ -1785,7 +1860,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
     const body = deployBulkBodySchema.parse(request.body);
-    await requireApplicationRelease(db, body.releaseId, id);
+    const payload = await requireDeployableRelease(db, body.releaseId, id);
 
     const conditions = [
       eq(schema.deployments.applicationId, id),
@@ -1816,11 +1891,42 @@ export async function buildServer({
         continue;
       }
       const idempotencyKey = `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+      const busy = await db
+        .select({ id: schema.deploymentJobs.id })
+        .from(schema.deploymentJobs)
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+            inArray(schema.deploymentJobs.type, [
+              'INSTALL',
+              'DEPLOY_RELEASE',
+              'ROLLBACK',
+              'RESTART',
+              'CONFIG_UPDATE',
+              'DESTROY',
+              'MIGRATION',
+              'INFRA_UPGRADE',
+            ]),
+            // A retry of this same release deploy reuses its job; only a
+            // DIFFERENT active operation skips this deployment.
+            ne(schema.deploymentJobs.idempotencyKey, idempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (busy.length > 0) {
+        results.push({
+          deploymentId: deployment.id,
+          status: 'SKIPPED',
+          reason: 'Another deployment operation is already in progress.',
+        });
+        continue;
+      }
       const { job, created } = await createOrReuseJob(db, {
         deploymentId: deployment.id,
         type: 'DEPLOY_RELEASE',
         idempotencyKey,
-        payload: { releaseId: body.releaseId },
+        payload,
         requestedBy: request.user?.id ?? null,
       });
       results.push({
@@ -1839,16 +1945,17 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = rollbackBodySchema.parse(request.body);
-    await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
     requireDeployableState(deployment);
+    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:ROLLBACK:${body.releaseId}`;
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'ROLLBACK',
       idempotencyKey,
-      payload: { releaseId: body.releaseId },
+      payload,
       requestedBy: request.user?.id ?? null,
     });
     if (created) {
@@ -1859,6 +1966,36 @@ export async function buildServer({
         eventType: 'rollback.requested',
         actorId: request.user?.id ?? null,
         releaseId: body.releaseId,
+      });
+    }
+    return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
+  });
+
+  // POST /api/deployments/:id/restart — Restart the running application.
+  // Same image, no release pointer change: a fresh ECS deployment of the
+  // current task definition.
+  app.post('/api/deployments/:id/restart', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    requireDeployableState(deployment);
+    const idempotencyKey =
+      firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:RESTART`;
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'RESTART',
+      idempotencyKey,
+      payload: {},
+      requestedBy: request.user?.id ?? null,
+    });
+    if (created) {
+      await markJobRequested({
+        deployment,
+        jobId: job.id,
+        inFlightState: BULK_DEPLOYABLE_STATES.has(deployment.state) ? 'UPDATING' : null,
+        eventType: 'restart.requested',
+        actorId: request.user?.id ?? null,
       });
     }
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
@@ -1904,8 +2041,12 @@ export async function buildServer({
       return reply.code(200).send({ jobId: null, state: 'DELETED' });
     }
 
+    // A pending DESTROY blocks every other mutating command: accepting a
+    // deploy against a stack that is about to be deleted can only produce a
+    // job whose subject disappears underneath it.
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:DESTROY`;
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DESTROY',
@@ -2457,6 +2598,7 @@ export async function buildServer({
     'INSTALL',
     'DEPLOY_RELEASE',
     'ROLLBACK',
+    'RESTART',
     'CONFIG_UPDATE',
     'DESTROY',
     'MIGRATION',

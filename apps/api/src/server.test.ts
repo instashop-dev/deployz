@@ -1347,8 +1347,8 @@ describe('server — idempotent job creation (§5)', () => {
   let auth: Auth;
   let app: FastifyInstance;
   let org: { userId: string; organizationId: string; cookie: string };
-  let deployment: typeof schema.deployments.$inferSelect;
   let applicationId: string;
+  let customerId: string;
 
   beforeAll(async () => {
     client = new PGlite();
@@ -1361,7 +1361,7 @@ describe('server — idempotent job creation (§5)', () => {
     const application = await insertApplication(db, org.organizationId);
     applicationId = application.id;
     const customer = await insertCustomer(db, org.organizationId);
-    deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'HEALTHY' });
+    customerId = customer.id;
   }, 60_000);
 
   afterAll(async () => {
@@ -1369,10 +1369,30 @@ describe('server — idempotent job creation (§5)', () => {
     await client?.close();
   });
 
+  // One mutating operation per deployment: each job-creating test gets a
+  // FRESH deployment so the busy gate cannot see a previous test's job, and
+  // every deploy target is a READY release with a digest (the deploy
+  // contract refuses anything less).
+  async function freshDeployment(): Promise<typeof schema.deployments.$inferSelect> {
+    return insertDeployment(db, org.organizationId, applicationId, customerId, { state: 'HEALTHY' });
+  }
+
+  async function deployableRelease(): Promise<string> {
+    const release = await insertRelease(db, applicationId, {
+      releaseStatus: 'READY',
+      buildStatus: 'SUCCEEDED',
+      imageDigest:
+        '151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' +
+        crypto.randomUUID().replace(/-/g, '').padEnd(64, '0').slice(0, 64),
+    });
+    return release.id;
+  }
+
   it('POST .../deploy twice with the same releaseId returns the SAME job (202 then 200), never a duplicate row', async () => {
-    const releaseId = (await insertRelease(db, applicationId)).id;
+    const deployment = await freshDeployment();
+    const releaseId = await deployableRelease();
     const first = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId }, { cookie: org.cookie });
-    expect(first.statusCode).toBe(202);
+    expect(first.statusCode, first.body).toBe(202);
     const second = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId }, { cookie: org.cookie });
     expect(second.statusCode).toBe(200);
     expect((second.json() as { jobId: string }).jobId).toBe((first.json() as { jobId: string }).jobId);
@@ -1384,29 +1404,40 @@ describe('server — idempotent job creation (§5)', () => {
     expect(jobs).toHaveLength(1);
   });
 
-  it('a different releaseId produces a different job', async () => {
-    const r1 = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: (await insertRelease(db, applicationId)).id }, { cookie: org.cookie });
-    const r2 = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: (await insertRelease(db, applicationId)).id }, { cookie: org.cookie });
+  it('a different releaseId produces a different job once the first settles', async () => {
+    const deployment = await freshDeployment();
+    const r1 = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: await deployableRelease() }, { cookie: org.cookie });
+    expect(r1.statusCode, r1.body).toBe(202);
+    // The busy gate refuses a SECOND mutating operation while the first is
+    // active - settle it, as the relay reporting success would.
+    await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'SUCCEEDED', finishedAt: new Date() })
+      .where(eq(schema.deploymentJobs.id, (r1.json() as { jobId: string }).jobId));
+
+    const r2 = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: await deployableRelease() }, { cookie: org.cookie });
+    expect(r2.statusCode, r2.body).toBe(202);
     expect((r1.json() as { jobId: string }).jobId).not.toBe((r2.json() as { jobId: string }).jobId);
   });
 
   it('an Idempotency-Key header overrides the derived key', async () => {
+    const deployment = await freshDeployment();
     const first = await postJson(
       app,
       `/api/deployments/${deployment.id}/deploy`,
-      { releaseId: (await insertRelease(db, applicationId)).id },
+      { releaseId: await deployableRelease() },
       { cookie: org.cookie, 'idempotency-key': 'client-supplied-key-1' },
     );
-    expect(first.statusCode).toBe(202);
+    expect(first.statusCode, first.body).toBe(202);
 
     const jobs = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.idempotencyKey, 'client-supplied-key-1'));
     expect(jobs).toHaveLength(1);
 
-    // Same header, different releaseId — still the same idempotent operation.
+    // Same header, different releaseId - still the same idempotent operation.
     const second = await postJson(
       app,
       `/api/deployments/${deployment.id}/deploy`,
-      { releaseId: (await insertRelease(db, applicationId)).id },
+      { releaseId: await deployableRelease() },
       { cookie: org.cookie, 'idempotency-key': 'client-supplied-key-1' },
     );
     expect(second.statusCode).toBe(200);
@@ -1414,7 +1445,8 @@ describe('server — idempotent job creation (§5)', () => {
   });
 
   it('POST .../rollback twice with the same target releaseId returns the SAME job', async () => {
-    const releaseId = (await insertRelease(db, applicationId)).id;
+    const deployment = await freshDeployment();
+    const releaseId = await deployableRelease();
     const first = await postJson(app, `/api/deployments/${deployment.id}/rollback`, { releaseId }, { cookie: org.cookie });
     const second = await postJson(app, `/api/deployments/${deployment.id}/rollback`, { releaseId }, { cookie: org.cookie });
     expect(first.statusCode).toBe(202);
@@ -1423,6 +1455,7 @@ describe('server — idempotent job creation (§5)', () => {
   });
 
   it('POST .../deploy and .../rollback 404 for a releaseId the application does not own', async () => {
+    const deployment = await freshDeployment();
     const otherApplication = await insertApplication(db, org.organizationId, { name: 'Foreign Release App' });
     const foreignRelease = await insertRelease(db, otherApplication.id);
 
@@ -1446,6 +1479,7 @@ describe('server — idempotent job creation (§5)', () => {
   });
 
   it('POST .../destroy twice returns the SAME job (a double-click must not create two DESTROY jobs)', async () => {
+    const deployment = await freshDeployment();
     const first = await postJson(app, `/api/deployments/${deployment.id}/destroy`, {}, { cookie: org.cookie });
     const second = await postJson(app, `/api/deployments/${deployment.id}/destroy`, {}, { cookie: org.cookie });
     expect(first.statusCode).toBe(202);
@@ -2125,7 +2159,15 @@ describe('server — organization settings, public install page, and bulk deploy
     const healthy1 = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'HEALTHY' });
     const healthy2 = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'UPDATE_AVAILABLE' });
     const installing = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'INSTALLING' });
-    const releaseId = (await insertRelease(db, application.id)).id;
+    const releaseId = (
+      await insertRelease(db, application.id, {
+        releaseStatus: 'READY',
+        buildStatus: 'SUCCEEDED',
+        imageDigest:
+          '151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' +
+          crypto.randomUUID().replace(/-/g, '').padEnd(64, '0').slice(0, 64),
+      })
+    ).id;
 
     const response = await postJson(app, `/api/applications/${application.id}/deploy-bulk`, { releaseId }, { cookie: org.cookie });
     expect(response.statusCode).toBe(200);
@@ -2153,7 +2195,13 @@ describe('server — organization settings, public install page, and bulk deploy
     const customer = await insertCustomer(db, org.organizationId);
     const dep1 = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'HEALTHY' });
     await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'HEALTHY' });
-    const release = await insertRelease(db, application.id);
+    const release = await insertRelease(db, application.id, {
+      releaseStatus: 'READY',
+      buildStatus: 'SUCCEEDED',
+      imageDigest:
+        '151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' +
+        crypto.randomUUID().replace(/-/g, '').padEnd(64, '0').slice(0, 64),
+    });
 
     const response = await postJson(
       app,
