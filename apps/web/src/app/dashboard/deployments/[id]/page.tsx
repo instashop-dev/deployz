@@ -706,10 +706,16 @@ function DisconnectPanel({
       <CardContent className="flex flex-col gap-3 py-4">
         <p className="text-sm font-medium text-destructive">Disconnect {customerName}?</p>
         <p className="text-sm text-muted-foreground">
-          This removes the application, database, storage, and networking Deployz created for{' '}
-          {customerName}. Their AWS bootstrap stack and any retained database backups are not
-          removed by this action — the customer controls those. This cannot be undone from
-          Deployz, and stops the $19/month charge for this deployment.
+          Disconnecting removes the running application and its networking.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Your database, stored files, and backups will be retained.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          The Deployz connector remains installed.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          This stops the $19/month charge for this deployment.
         </p>
         <label className="flex flex-col gap-1.5 text-sm">
           Type <span className="font-medium">{customerName}</span> to confirm.
