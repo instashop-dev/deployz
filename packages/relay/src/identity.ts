@@ -22,7 +22,7 @@ export const RELAY_CAPABILITIES: RelayCapabilities = {
   deployRelease: true,
   rollback: true,
   restart: true,
-  configUpdate: false,
+  configUpdate: true,
   destroy: true,
   domainManagement: true,
 };

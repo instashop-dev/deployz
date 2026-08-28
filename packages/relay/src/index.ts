@@ -36,7 +36,7 @@ import {
 } from '@aws-sdk/client-elastic-load-balancing-v2';
 import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { DeleteStackCommand, CloudFormationClient as AwsCloudFormationClient } from '@aws-sdk/client-cloudformation';
-import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
+import { buildAuthHeaders, createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
 import {
   IdempotencyStore,
   type CommandExecutor,
@@ -59,6 +59,10 @@ import {
   createDestroyResumer,
   type StackDeleter,
 } from './destroy.js';
+import {
+  createConfigUpdateExecutor,
+  type EffectiveConfigEntry,
+} from './config-update.js';
 import {
   createStackInstaller,
   installApplicationStack,
@@ -1073,12 +1077,36 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       }
     }
 
+    // CONFIG_UPDATE is wired here rather than in createDefaultExecutors
+    // because its config fetch needs the CURRENT auth token — the one this
+    // invocation authenticated with — and authState is only available inside
+    // the handler closure.
+    const state = authState;
+    const configExecutor = createConfigUpdateExecutor({
+      cfn: getCloudFormationReader(),
+      ecs: getEcsDeployClient(),
+      fetchEffectiveConfig: async () => {
+        const headers = buildAuthHeaders(state);
+        const response = await deps.fetchFn(
+          `${controlPlaneUrl}/api/relay/config?installationId=${encodeURIComponent(installationId)}`,
+          { headers },
+        );
+        if (response.status !== 200) {
+          throw new Error(`Config fetch returned HTTP ${response.status}`);
+        }
+        const body = (await response.json()) as { entries: EffectiveConfigEntry[] };
+        return body.entries;
+      },
+      stackName: DEFAULT_STACK_NAME,
+      installationId,
+    });
+
     const pollDeps: PollDependencies = {
       fetchFn: deps.fetchFn,
       controlPlaneUrl,
       installationId,
       enrollmentCode,
-      executors,
+      executors: { ...executors, CONFIG_UPDATE: configExecutor },
       idempotency,
       observe:
         deps.observe ??
