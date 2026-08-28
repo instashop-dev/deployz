@@ -112,6 +112,9 @@ function ConfigBody({
   data: ApplicationConfig;
   onSaved: (next: ApplicationConfig) => void;
 }) {
+  const effectiveCount = data.effective.length;
+  const secretCount = data.effective.filter((entry) => entry.isSecret).length;
+
   return (
     <>
       <div>
@@ -122,6 +125,40 @@ function ConfigBody({
           replace a secret, but you can never see its current value.
         </p>
       </div>
+
+      <Card data-testid="config-runtime-summary">
+        <CardContent className="flex flex-col gap-2 py-4">
+          {effectiveCount > 0 ? (
+            <>
+              <p className="text-sm font-medium">
+                {effectiveCount} {effectiveCount === 1 ? 'variable' : 'variables'} managed by Deployz
+                {secretCount > 0 ? ` (${secretCount} ${secretCount === 1 ? 'secret' : 'secrets'})` : ''}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {data.effective.map((entry) => (
+                  <code
+                    key={entry.key}
+                    className="flex items-center gap-1.5 rounded bg-muted px-2 py-0.5 font-mono text-xs"
+                  >
+                    {entry.key}
+                    <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                      {entry.isSecret ? 'Secret' : 'Plain'}
+                    </Badge>
+                  </code>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No Deployz-managed variables yet. Values set at installation (like database
+              connections) are managed by the installation template and are not listed here.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Saved changes are applied to running deployments within a few minutes.
+          </p>
+        </CardContent>
+      </Card>
 
       <ConfigSection
         title="Defaults"
