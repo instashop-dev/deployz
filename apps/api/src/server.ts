@@ -1767,6 +1767,7 @@ export async function buildServer({
         id: row.id,
         version: row.version,
         status: row.releaseStatus,
+        failureReason: row.failureReason,
         createdAt: row.createdAt,
       })),
     };
