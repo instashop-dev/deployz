@@ -125,6 +125,35 @@ export type FailureCode = z.infer<typeof failureCodeSchema>;
 export const relayStatusSchema = z.enum(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']);
 export type RelayStatus = z.infer<typeof relayStatusSchema>;
 
+/**
+ * What a relay can actually execute. Reported at enrollment and on every
+ * heartbeat; absent (null) for relays built before capabilities existed,
+ * which the UI must treat as "nothing supported".
+ */
+export const relayCapabilitiesSchema = z
+  .object({
+    deployRelease: z.boolean(),
+    rollback: z.boolean(),
+    restart: z.boolean(),
+    configUpdate: z.boolean(),
+    destroy: z.boolean(),
+    domainManagement: z.boolean(),
+  })
+  .strict();
+export type RelayCapabilities = z.infer<typeof relayCapabilitiesSchema>;
+
+/** Relay identity block sent with registration and heartbeats. */
+export const relayIdentitySchema = z
+  .object({
+    awsAccountId: z.string().regex(/^\d{12}$/),
+    region: z.string(),
+    relayVersion: z.string(),
+    bootstrapVersion: z.string().nullable(),
+    capabilities: relayCapabilitiesSchema,
+  })
+  .strict();
+export type RelayIdentity = z.infer<typeof relayIdentitySchema>;
+
 // UNKNOWN first: a deployment that has never checked in has no observed
 // health, and the column defaults to it. Reporting UNKNOWN is a relay saying
 // "I cannot tell", which is different from saying nothing at all.
