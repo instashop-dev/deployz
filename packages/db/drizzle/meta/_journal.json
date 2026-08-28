@@ -99,6 +99,13 @@
       "when": 1787903565611,
       "tag": "0013_natural_marvex",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787921123887,
+      "tag": "0014_lethal_bastion",
+      "breakpoints": true
     }
   ]
 }

@@ -125,7 +125,7 @@ describe('constraints and enums', () => {
       await expect(
         client!.query(
           `INSERT INTO deployment_jobs (deployment_id, type, idempotency_key)
-           VALUES ($1, 'RESTART', 'idem-bad-type')`,
+           VALUES ($1, 'REBOOT', 'idem-bad-type')`,
           [deploymentId],
         ),
       ).rejects.toThrow(/invalid input value for enum job_type/);

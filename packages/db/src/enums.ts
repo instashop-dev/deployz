@@ -67,6 +67,7 @@ export const jobTypeEnum = pgEnum('job_type', [
   'INSTALL',
   'DEPLOY_RELEASE',
   'ROLLBACK',
+  'RESTART',
   'CONFIG_UPDATE',
   'DESTROY',
   'MIGRATION',
