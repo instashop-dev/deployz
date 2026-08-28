@@ -38,8 +38,16 @@ import { redactSecrets } from './redact.js';
 
 /** Max tokens the PROMPT may occupy — the repository-analysis prompt carries file excerpts, so it gets a much larger budget than the diagnostic explainer's. */
 export const REPO_AI_MAX_PROMPT_TOKENS = 6000;
+/**
+ * Max tokens the COMPLETION may occupy. The gateway default (800) was sized
+ * for the three-field diagnostic explanation; this schema is far larger, and
+ * a reasoning model spends `reasoning_content` from the same budget. Verified
+ * live 2026-08-28: at 800 the completion capped at exactly `800 out` on both
+ * attempts and the JSON truncated, so the AI fallback could never succeed.
+ */
+export const REPO_AI_MAX_OUTPUT_TOKENS = 2500;
 /** Total per-request budget: prompt + completion. */
-export const REPO_AI_MAX_TOTAL_TOKENS = 6800;
+export const REPO_AI_MAX_TOTAL_TOKENS = REPO_AI_MAX_PROMPT_TOKENS + REPO_AI_MAX_OUTPUT_TOKENS;
 /** How long the AI fallback may run before the caller abandons it and falls back to deterministic metadata. */
 export const REPO_AI_TIMEOUT_MS = 30_000;
 /** Hard cap on the number of files handed to the model as context. */
@@ -317,6 +325,7 @@ export async function analyseRepositoryWithAi(
   const response = await gateway.generate(prompt, repositoryAiSchema, {
     abortSignal: options.abortSignal,
     label: 'repository-analysis',
+    maxOutputTokens: REPO_AI_MAX_OUTPUT_TOKENS,
   });
 
   const usedTokens = response.usage.promptTokens + response.usage.completionTokens;

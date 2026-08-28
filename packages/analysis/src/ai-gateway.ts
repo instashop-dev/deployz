@@ -102,6 +102,14 @@ export interface AiGenerateOptions {
    * `"explainDiagnostic"`). Cosmetic only — never sent to the gateway.
    */
   readonly label?: string | undefined;
+  /**
+   * Per-call completion cap, for callers whose output is larger than the
+   * default `MAX_OUTPUT_TOKENS` allows. Reasoning models charge their
+   * `reasoning_content` to this same budget, so a big structured output needs
+   * headroom on top of the JSON itself — measured live: repository analysis
+   * hit the 800 default exactly (`800 out`) on every attempt and truncated.
+   */
+  readonly maxOutputTokens?: number | undefined;
 }
 
 /**
@@ -328,7 +336,7 @@ export function createAiGateway(
             model: provider(config.model),
             schema,
             prompt,
-            maxOutputTokens: MAX_OUTPUT_TOKENS,
+            maxOutputTokens: options.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
             // Retries are owned by the loop below (its own bound and
             // backoff), not the SDK's default — letting both retry would
             // multiply attempts past `maxAttempts`.

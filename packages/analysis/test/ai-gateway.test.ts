@@ -221,6 +221,15 @@ describe('createAiGateway — spend limit', () => {
     expect(recorded[0]?.body.max_tokens).toBe(MAX_OUTPUT_TOKENS);
   });
 
+  it('honours a per-call maxOutputTokens override', async () => {
+    const recorded: RecordedRequest[] = [];
+    const gateway = createAiGateway(config, recordingFetch(recorded));
+
+    await gateway.generate('prompt', schema, { maxOutputTokens: 2500 });
+
+    expect(recorded[0]?.body.max_tokens).toBe(2500);
+  });
+
   it('reports the usage the gateway returned', async () => {
     const gateway = createAiGateway(config, recordingFetch([]));
 

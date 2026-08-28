@@ -4,10 +4,16 @@ import { z } from 'zod';
 import type { AnalysisResult } from '../src/analyser.js';
 import { analyseRepo } from '../src/analyser.js';
 import type { FileTree } from '../src/detectors.js';
-import { SpendLimitExceededError, type AiGateway, type AiGatewayResponse } from '../src/ai-gateway.js';
+import {
+  SpendLimitExceededError,
+  type AiGateway,
+  type AiGatewayResponse,
+  type AiGenerateOptions,
+} from '../src/ai-gateway.js';
 import {
   MAX_AI_CONTEXT_FILES,
   MAX_AI_FILE_CHARS,
+  REPO_AI_MAX_OUTPUT_TOKENS,
   REPO_AI_MAX_TOTAL_TOKENS,
   analyseRepositoryWithAi,
   buildRepositoryAiPrompt,
@@ -330,6 +336,23 @@ describe('analyseRepositoryWithAi', () => {
         }),
       ),
     ).rejects.toBeInstanceOf(SpendLimitExceededError);
+  });
+
+  it('asks the gateway for the repository-analysis output budget, not the default', async () => {
+    // Verified live: at the 800-token default the completion capped at exactly
+    // "800 out" on every attempt and the JSON truncated, so the fallback could
+    // never succeed. The larger schema needs its own completion budget.
+    let seenOptions: AiGenerateOptions | undefined;
+    const capturingGateway: AiGateway = {
+      async generate(_prompt, _schema, options) {
+        seenOptions = options;
+        return { object: validAiObject, usage: { promptTokens: 500, completionTokens: 100 } };
+      },
+    };
+
+    await analyseRepositoryWithAi(baseAiInput, capturingGateway);
+
+    expect(seenOptions?.maxOutputTokens).toBe(REPO_AI_MAX_OUTPUT_TOKENS);
   });
 });
 
