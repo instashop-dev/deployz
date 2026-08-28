@@ -253,6 +253,10 @@ function titleCase(value: string): string {
  */
 export function eventResultLabel(result: string | null): string | null {
   if (result === null) return null;
+  // A historical request is a fact, not ongoing state — the event-type
+  // label already says what happened, so no badge at all beats a "Pending"
+  // that reads as in-progress forever.
+  if (result === 'pending') return null;
   if (result === 'ok' || result === 'passed') return 'Succeeded';
   if (result === 'skipped') return 'Skipped';
   if (result.startsWith('failed')) return 'Failed';

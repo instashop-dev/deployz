@@ -122,4 +122,8 @@ describe('§62 event result labels', () => {
     expect(eventResultLabel('failed:MIGRATION_FAILED')).toBe('Failed');
     expect(eventResultLabel(null)).toBeNull();
   });
+
+  it('renders no badge for a pending result — a historical request is a fact, not ongoing state', () => {
+    expect(eventResultLabel('pending')).toBeNull();
+  });
 });
