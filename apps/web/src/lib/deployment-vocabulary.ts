@@ -177,6 +177,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'destroy.requested': 'Removal started',
   'destroy.completed': 'Deployment removed',
   'destroy.failed': 'Removal failed',
+  'deployment.reconciled': 'Running version corrected from AWS',
   'config.updated': 'Configuration updated',
   'health.reported': 'Health reported',
   'health.degraded': 'Health degraded',

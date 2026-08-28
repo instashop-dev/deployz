@@ -79,6 +79,8 @@ export interface FleetDeployment {
   bootstrapVersion: string | null;
   /** Capabilities advertised by the installed relay; null = unknown. */
   relayCapabilities: RelayCapabilities | null;
+  /** Digest the relay last observed running in ECS; null = not observed. */
+  runningImageDigest: string | null;
 }
 
 /** A §39 deployment job, as returned in the deployment-detail `jobs` array. */
