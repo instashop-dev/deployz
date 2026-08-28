@@ -20,6 +20,7 @@ import {
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
+  relayCapabilitiesSchema,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
 import type { RuntimeDb } from '@deployz/db';
@@ -409,8 +410,11 @@ function toFleetRow(row: {
   const components = row.redisRequired
     ? { ...(observedComponents ?? {}), redis: (observedComponents?.['redis'] as string | undefined) ?? 'UNKNOWN' }
     : (observedComponents ?? null);
+  // Relay enrollment material never crosses into a dashboard response: the
+  // enrollment code re-opens enrollment and the token hash is a credential.
+  const { enrollmentCode: _enrollmentCode, relayTokenHash: _relayTokenHash, ...deployment } = row.deployment;
   return {
-    ...row.deployment,
+    ...deployment,
     awsAccountId: maskAwsAccountId(row.deployment.awsAccountId),
     relayStatus,
     healthStatus: deriveHealthStatus(row.deployment.healthStatus, relayStatus),
@@ -2431,6 +2435,9 @@ export async function buildServer({
       enrollmentCode?: string;
       installationId?: string;
       awsAccountId?: string;
+      relayVersion?: string;
+      bootstrapVersion?: string;
+      capabilities?: unknown;
     };
     if (!body?.enrollmentCode || !body?.installationId) {
       throw new ApiError(
@@ -2439,6 +2446,7 @@ export async function buildServer({
         'enrollmentCode and installationId are required',
       );
     }
+    const capabilitiesParsed = relayCapabilitiesSchema.safeParse(body.capabilities);
 
     // The enrollment code — not the installation id — is what identifies the
     // deployment. The id is minted by the customer's own bootstrap stack and
@@ -2518,6 +2526,9 @@ export async function buildServer({
           // §24 the customer's account id is knowable only from inside their
           // account; the relay is the only thing that can tell us.
           ...(body.awsAccountId ? { awsAccountId: body.awsAccountId } : {}),
+          ...(typeof body.relayVersion === 'string' ? { relayVersion: body.relayVersion } : {}),
+          ...(typeof body.bootstrapVersion === 'string' ? { bootstrapVersion: body.bootstrapVersion } : {}),
+          ...(capabilitiesParsed.success ? { relayCapabilities: capabilitiesParsed.data } : {}),
           ...(deployment.state === 'NOT_INSTALLED' ? { state: 'INSTALLING' as const } : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
@@ -2714,6 +2725,12 @@ export async function buildServer({
       observedState?: Record<string, unknown>;
       healthStatus?: string;
       components?: Record<string, unknown>;
+      identity?: {
+        awsAccountId?: string;
+        relayVersion?: string;
+        bootstrapVersion?: string;
+        capabilities?: unknown;
+      };
     };
     const deployment = await requireRelayDeployment(
       body?.installationId,
@@ -2722,6 +2739,13 @@ export async function buildServer({
     );
 
     const healthStatusParsed = healthStatusSchema.safeParse(body.healthStatus);
+    // Identity rides every heartbeat (token-authenticated), so a deployment
+    // enrolled before these columns existed self-repairs its account id,
+    // relay version and capabilities without re-enrollment.
+    const identity = body?.identity;
+    const capabilitiesParsed = identity?.capabilities
+      ? relayCapabilitiesSchema.safeParse(identity.capabilities)
+      : undefined;
     // §24 per-component health rides in observed_state — the column already
     // exists for exactly this and needs no migration. The relay reports only
     // the components a deployment actually has, which is what lets the detail
@@ -2745,6 +2769,12 @@ export async function buildServer({
           relayStatus: 'CONNECTED',
           lastHealthAt: new Date(),
           ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
+          ...(identity?.awsAccountId ? { awsAccountId: identity.awsAccountId } : {}),
+          ...(typeof identity?.relayVersion === 'string' ? { relayVersion: identity.relayVersion } : {}),
+          ...(typeof identity?.bootstrapVersion === 'string'
+            ? { bootstrapVersion: identity.bootstrapVersion }
+            : {}),
+          ...(capabilitiesParsed?.success ? { relayCapabilities: capabilitiesParsed.data } : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
 
