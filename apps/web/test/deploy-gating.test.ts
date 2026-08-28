@@ -7,7 +7,7 @@ import {
   UNSUPPORTED_ACTION_COPY,
   actionSupported,
 } from '../src/lib/deployment-vocabulary';
-import { deployableReleases, type Release } from '../src/lib/releases';
+import { deployableReleases, runningReleaseIds, type Release } from '../src/lib/releases';
 
 // Phase 1 honesty rules: management actions derive their enabled state purely
 // from relay-reported capabilities and release data — never from lifecycle
@@ -54,8 +54,13 @@ describe('actionSupported', () => {
 });
 
 describe('deployableReleases', () => {
-  function release(id: string, status: Release['status'], createdAt: string): Release {
-    return { id, version: `v-${id}`, status, createdAt };
+  function release(
+    id: string,
+    status: Release['status'],
+    createdAt: string,
+    failureReason: string | null = null,
+  ): Release {
+    return { id, version: `v-${id}`, status, failureReason, createdAt };
   }
 
   const releases = [
@@ -85,6 +90,25 @@ describe('deployableReleases', () => {
 
   it('returns nothing when no release exists', () => {
     expect(deployableReleases([], null)).toEqual([]);
+  });
+});
+
+describe('runningReleaseIds', () => {
+  it('collects current releases of live deployments only', () => {
+    const ids = runningReleaseIds([
+      { currentReleaseId: 'r1', state: 'HEALTHY' },
+      { currentReleaseId: 'r2', state: 'UPDATE_AVAILABLE' },
+      { currentReleaseId: 'r3', state: 'DELETED' },
+      { currentReleaseId: null, state: 'HEALTHY' },
+    ]);
+    expect(ids.has('r1')).toBe(true);
+    expect(ids.has('r2')).toBe(true);
+    expect(ids.has('r3')).toBe(false);
+    expect(ids.size).toBe(2);
+  });
+
+  it('returns an empty set when no deployment exists', () => {
+    expect(runningReleaseIds([]).size).toBe(0);
   });
 });
 
