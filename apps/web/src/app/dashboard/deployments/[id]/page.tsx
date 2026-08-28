@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { ActivityFeed } from '@/components/activity-feed';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -21,13 +22,16 @@ import {
   rollbackDeployment,
   type ActivityEvent,
   type FleetDeploymentDetail,
-  type HealthStatus,
   type RelayCapabilities,
 } from '@/lib/deployments';
 import {
+  HEALTH_STATUS_BADGE,
+  HEALTH_STATUS_LABEL,
   RELAY_STATUS_LABEL,
   UNSUPPORTED_ACTION_COPY,
   actionSupported,
+  showHealthBadge,
+  type HealthStatus,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
 import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
@@ -47,13 +51,6 @@ type DetailState =
       events: ActivityEvent[];
       releases: Release[];
     };
-
-const HEALTH_LABEL: Record<HealthStatus, string> = {
-  UNKNOWN: 'Not reported',
-  HEALTHY: 'Healthy',
-  DEGRADED: 'Degraded',
-  UNHEALTHY: 'Unhealthy',
-};
 
 const HEALTH_DOT: Record<HealthStatus, string> = {
   UNKNOWN: 'bg-muted-foreground',
@@ -173,6 +170,11 @@ function DetailBody({
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{detail.applicationName}</h1>
           <DeploymentStatusBadge state={detail.state} />
+          {showHealthBadge(detail.state) ? (
+            <Badge variant={HEALTH_STATUS_BADGE[detail.healthStatus]}>
+              {HEALTH_STATUS_LABEL[detail.healthStatus]}
+            </Badge>
+          ) : null}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{detail.customerName}</p>
       </div>
@@ -278,7 +280,7 @@ function InfraRow({ label, status }: { label: string; status: HealthStatus }) {
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
       <span className={`size-2 shrink-0 rounded-full ${HEALTH_DOT[status]}`} aria-hidden />
       <span className="text-sm font-medium">{label}</span>
-      <span className="ml-auto text-sm text-muted-foreground">{HEALTH_LABEL[status]}</span>
+      <span className="ml-auto text-sm text-muted-foreground">{HEALTH_STATUS_LABEL[status]}</span>
     </li>
   );
 }

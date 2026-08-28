@@ -57,6 +57,35 @@ export function deploymentStateLabel(state: string): string {
   return DEPLOYMENT_STATE_LABELS[state as DeploymentState] ?? state;
 }
 
+// ── Measured runtime health ─────────────────────────────────────────────────
+
+import type { HealthStatus as WireHealthStatus } from './deployments';
+
+export type HealthStatus = WireHealthStatus;
+
+/** Measured-health labels — the only user-facing wording for health. */
+export const HEALTH_STATUS_LABEL: Record<HealthStatus, string> = {
+  HEALTHY: 'Healthy',
+  DEGRADED: 'Degraded',
+  UNHEALTHY: 'Unhealthy',
+  UNKNOWN: 'Running — health unknown',
+};
+
+export const HEALTH_STATUS_BADGE: Record<HealthStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  HEALTHY: 'default',
+  DEGRADED: 'outline',
+  UNHEALTHY: 'destructive',
+  UNKNOWN: 'secondary',
+};
+
+/**
+ * Whether a lifecycle state carries a running application whose health is
+ * worth reporting. Not-installed/deleted deployments have nothing to measure.
+ */
+export function showHealthBadge(state: DeploymentState): boolean {
+  return state !== 'NOT_INSTALLED' && state !== 'DELETED';
+}
+
 // ── Relay connectivity + capability gating ─────────────────────────────────
 
 import type { RelayCapabilities, RelayStatus as WireRelayStatus } from './deployments';
@@ -181,7 +210,9 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'config.updated': 'Configuration updated',
   'health.reported': 'Health reported',
   'health.degraded': 'Health degraded',
+  'health.unhealthy': 'Health critical',
   'health.recovered': 'Back to healthy',
+  'ecs.rollout_failed': 'Deployment rollout failed',
   'relay.reenrollment.requested': 'Reconnect requested',
 
   'config.validate': 'Configuration checked',
