@@ -218,13 +218,11 @@ function candidatePaths(tree: FileTree): string[] {
  * Bounded, high-signal, secret-safe context files for the AI prompt: at most
  * `MAX_AI_CONTEXT_FILES`, each capped at `MAX_AI_FILE_CHARS`, and the whole
  * selection stops growing once it crosses `MAX_AI_CONTEXT_TOTAL_CHARS`. Every
- * excerpt is redacted (env-sample files by stripping values outright,
- * everything else via `redactSecrets`) before it is returned.
+ * excerpt passes through `redactSecrets` before it is returned — env-sample
+ * files first have their values stripped outright by `stripEnvValues`, then
+ * still go through `redactSecrets` as a second line of defense.
  */
-export function selectAiContextFiles(
-  tree: FileTree,
-  _analysis: AnalysisResult,
-): Array<{ path: string; content: string }> {
+export function selectAiContextFiles(tree: FileTree): Array<{ path: string; content: string }> {
   const files: Array<{ path: string; content: string }> = [];
   let totalChars = 0;
 
@@ -239,7 +237,7 @@ export function selectAiContextFiles(
     const isEnvSample = ENV_SAMPLE_BASENAMES.includes(basename);
     const isRootReadme = !path.includes('/') && ROOT_README_REGEX.test(basename);
 
-    let content = isEnvSample ? stripEnvValues(raw) : redactSecrets(raw);
+    let content = redactSecrets(isEnvSample ? stripEnvValues(raw) : raw);
     if (isRootReadme) content = content.slice(0, README_EXCERPT_CHARS);
     content = content.slice(0, MAX_AI_FILE_CHARS);
 

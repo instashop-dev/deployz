@@ -160,12 +160,12 @@ describe('selectAiContextFiles', () => {
       ...compatibleFixture,
       '.env': 'SECRET=x\nDATABASE_URL=postgresql://user:pass@host/db\n',
     };
-    const files = selectAiContextFiles(tree, analyse(tree));
+    const files = selectAiContextFiles(tree);
     expect(files.some((f) => f.path === '.env')).toBe(false);
   });
 
   it('rewrites .env.example values to KEY= (names only)', () => {
-    const files = selectAiContextFiles(compatibleFixture, analyse(compatibleFixture));
+    const files = selectAiContextFiles(compatibleFixture);
     const envFile = files.find((f) => f.path === '.env.example');
     expect(envFile).toBeDefined();
     expect(envFile!.content).toContain('PORT=');
@@ -181,7 +181,7 @@ describe('selectAiContextFiles', () => {
       'id_rsa': '-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----',
       'config/credentials.json': '{"key": "abc"}',
     };
-    const files = selectAiContextFiles(tree, analyse(tree));
+    const files = selectAiContextFiles(tree);
     expect(files.some((f) => f.path === 'certs/server.pem')).toBe(false);
     expect(files.some((f) => f.path === 'id_rsa')).toBe(false);
     expect(files.some((f) => f.path === 'config/credentials.json')).toBe(false);
@@ -197,7 +197,7 @@ describe('selectAiContextFiles', () => {
     }
     tree['README.md'] = 'x'.repeat(10_000);
 
-    const files = selectAiContextFiles(tree, analyse(tree));
+    const files = selectAiContextFiles(tree);
     expect(files.length).toBeLessThanOrEqual(MAX_AI_CONTEXT_FILES);
     for (const file of files) {
       expect(file.content.length).toBeLessThanOrEqual(MAX_AI_FILE_CHARS);
@@ -209,7 +209,7 @@ describe('selectAiContextFiles', () => {
       ...compatibleFixture,
       'README.md': 'Connect with postgresql://admin:hunter2@db.example.com:5432/prod\n',
     };
-    const files = selectAiContextFiles(tree, analyse(tree));
+    const files = selectAiContextFiles(tree);
     const readme = files.find((f) => f.path === 'README.md');
     expect(readme).toBeDefined();
     expect(readme!.content).not.toContain('hunter2');

@@ -191,7 +191,7 @@ function buildRepositoryAiInput(
       redisRequired: redis?.required === true,
       migrationCommandDetected: metadata['hasMigrationCommand'] === true,
     },
-    files: selectAiContextFiles(tree, analysis),
+    files: selectAiContextFiles(tree),
     unresolved,
   };
 }
