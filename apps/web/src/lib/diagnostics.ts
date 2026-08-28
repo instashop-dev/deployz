@@ -152,3 +152,37 @@ export function relativeTime(iso: string | null, now: Date = new Date()): string
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? '' : 's'} ago`;
 }
+
+// ── Redis provisioning truth ─────────────────────────────────────────────────
+
+/**
+ * Provisioning states for a Redis-requiring deployment. "Required and
+ * detected" is not "provisioned": only the relay's cache check observing an
+ * actual ElastiCache resource in AWS says the cache exists.
+ */
+export type RedisProvisioningStatus = 'HEALTHY' | 'UNHEALTHY' | 'NOT_PROVISIONED' | 'NOT_REPORTING';
+
+export const REDIS_STATUS_LABEL: Record<RedisProvisioningStatus, string> = {
+  HEALTHY: 'Healthy',
+  UNHEALTHY: 'Unhealthy',
+  NOT_PROVISIONED: 'Not provisioned',
+  NOT_REPORTING: 'Not reporting',
+};
+
+/**
+ * Derives Redis provisioning from observed AWS resources, never from
+ * application analysis. Null when the application does not require Redis
+ * (no row at all).
+ */
+export function redisProvisioningStatus(
+  componentStatus: string | undefined,
+  infraChecks: readonly InfraCheck[],
+): RedisProvisioningStatus | null {
+  if (componentStatus === undefined) return null;
+  const cacheCheck = infraChecks.find((check) => check.name === 'cache');
+  if (!cacheCheck) return 'NOT_REPORTING';
+  if (!cacheCheck.passed) return 'NOT_PROVISIONED';
+  if (componentStatus === 'UNHEALTHY' || componentStatus === 'DEGRADED') return 'UNHEALTHY';
+  if (componentStatus === 'UNKNOWN') return 'NOT_REPORTING';
+  return 'HEALTHY';
+}

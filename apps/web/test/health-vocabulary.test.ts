@@ -8,6 +8,7 @@ import {
 import {
   infraCheckLabel,
   readInfraChecks,
+  redisProvisioningStatus,
   relativeTime,
 } from '../src/lib/diagnostics';
 
@@ -79,5 +80,30 @@ describe('relativeTime', () => {
   it('returns null for missing or invalid timestamps', () => {
     expect(relativeTime(null, now)).toBeNull();
     expect(relativeTime('not-a-date', now)).toBeNull();
+  });
+});
+
+describe('redisProvisioningStatus', () => {
+  const passed = [{ name: 'cache', passed: true, detail: 'Found a complete cache' }];
+  const failed = [{ name: 'cache', passed: false, detail: 'No complete cache in the stack' }];
+
+  it('returns null when the application does not require Redis', () => {
+    expect(redisProvisioningStatus(undefined, passed)).toBeNull();
+  });
+
+  it('reports Not provisioned when the observed cache check fails', () => {
+    expect(redisProvisioningStatus('UNKNOWN', failed)).toBe('NOT_PROVISIONED');
+  });
+
+  it('reports Not reporting when no cache observation exists', () => {
+    expect(redisProvisioningStatus('UNKNOWN', [])).toBe('NOT_REPORTING');
+  });
+
+  it('reports Healthy when the cache check passes and the component is healthy', () => {
+    expect(redisProvisioningStatus('HEALTHY', passed)).toBe('HEALTHY');
+  });
+
+  it('collapses degraded components to Unhealthy once provisioned', () => {
+    expect(redisProvisioningStatus('DEGRADED', passed)).toBe('UNHEALTHY');
   });
 });

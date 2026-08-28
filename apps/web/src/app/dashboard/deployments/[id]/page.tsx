@@ -37,6 +37,12 @@ import {
 } from '@/lib/deployment-vocabulary';
 import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
 import {
+  REDIS_STATUS_LABEL,
+  readInfraChecks,
+  redisProvisioningStatus,
+  type RedisProvisioningStatus,
+} from '@/lib/diagnostics';
+import {
   NO_DEPLOYABLE_RELEASES_COPY,
   deployableReleases,
   fetchReleases,
@@ -164,6 +170,12 @@ function DetailBody({
   onChanged: () => void;
 }) {
   const previousVersion = releases.find((r) => r.id === detail.previousReleaseId)?.version ?? null;
+  // Redis provisioning comes from the relay's observed infrastructure checks,
+  // never from the application's "requires Redis" analysis flag.
+  const redisStatus = redisProvisioningStatus(
+    detail.components?.['redis'],
+    readInfraChecks(detail.observedState),
+  );
 
   return (
     <>
@@ -250,13 +262,16 @@ function DetailBody({
           value the database defaulted to HEALTHY at row creation — so a
           deployment with nothing provisioned showed four green ticks, and a
           Database row appeared for applications that have no database.
+          Redis is deliberately excluded here: its row comes from observed
+          provisioning, not the component map (see RedisRow below).
         */}
         <ul className="flex flex-col gap-2">
-          {COMPONENT_LABELS.filter(([key]) => detail.components?.[key] !== undefined).map(
+          {COMPONENT_LABELS.filter(([key]) => key !== 'redis' && detail.components?.[key] !== undefined).map(
             ([key, label]) => (
               <InfraRow key={key} label={label} status={detail.components![key]!} />
             ),
           )}
+          <RedisRow status={redisStatus} />
           <RelayRow status={detail.relayStatus} />
         </ul>
         {detail.components === null ? (
@@ -292,6 +307,24 @@ function RelayRow({ status }: { status: RelayStatus }) {
       <span className={`size-2 shrink-0 rounded-full ${RELAY_DOT[status]}`} aria-hidden />
       <span className="text-sm font-medium">Deployz Relay</span>
       <span className="ml-auto text-sm text-muted-foreground">{RELAY_STATUS_LABEL[status]}</span>
+    </li>
+  );
+}
+
+const REDIS_DOT: Record<RedisProvisioningStatus, string> = {
+  HEALTHY: 'bg-primary',
+  UNHEALTHY: 'bg-destructive',
+  NOT_PROVISIONED: 'bg-muted-foreground',
+  NOT_REPORTING: 'bg-muted-foreground',
+};
+
+function RedisRow({ status }: { status: RedisProvisioningStatus | null }) {
+  if (status === null) return null;
+  return (
+    <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+      <span className={`size-2 shrink-0 rounded-full ${REDIS_DOT[status]}`} aria-hidden />
+      <span className="text-sm font-medium">Redis</span>
+      <span className="ml-auto text-sm text-muted-foreground">{REDIS_STATUS_LABEL[status]}</span>
     </li>
   );
 }
