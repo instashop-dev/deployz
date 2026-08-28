@@ -42,6 +42,8 @@ export interface StackResource {
   readonly logicalId: string;
   readonly type: string;
   readonly status: string;
+  /** Physical id (e.g. an ECS service ARN); absent for some resource states. */
+  readonly physicalId?: string;
 }
 
 /**
@@ -243,7 +245,7 @@ export function toReader(client: SendsCommands): CloudFormationReader {
       try {
         const response = (await client.send(
           new DescribeStackResourcesCommand({ StackName: stackName }),
-        )) as { StackResources?: { LogicalResourceId?: string; ResourceType?: string; ResourceStatus?: string }[] };
+        )) as { StackResources?: { LogicalResourceId?: string; ResourceType?: string; ResourceStatus?: string; PhysicalResourceId?: string }[] };
 
         return (response.StackResources ?? []).flatMap((resource) =>
           resource.LogicalResourceId && resource.ResourceType && resource.ResourceStatus
@@ -251,6 +253,7 @@ export function toReader(client: SendsCommands): CloudFormationReader {
                 logicalId: resource.LogicalResourceId,
                 type: resource.ResourceType,
                 status: resource.ResourceStatus,
+                ...(resource.PhysicalResourceId ? { physicalId: resource.PhysicalResourceId } : {}),
               }]
             : [],
         );

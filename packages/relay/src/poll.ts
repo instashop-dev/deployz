@@ -51,6 +51,8 @@ interface CommandReportPayload {
 interface HealthReportPayload {
   installationId: string;
   observedState: Record<string, unknown>;
+  /** What is actually running in ECS, when it could be observed. */
+  runningImageDigest?: string | null;
   /** Relay identity, re-reported every heartbeat so the control plane can
    *  self-repair missing account ids and refresh version/capabilities. */
   identity?: Record<string, unknown>;
@@ -86,6 +88,8 @@ export interface PollDependencies {
   resume?: () => Promise<RelayCommandResult[]>;
   /** Reported at enrollment and on every heartbeat (see identity.ts). */
   identity?: Record<string, unknown>;
+  /** Observes the image digest actually running in ECS; null = unknown. */
+  observeImage?: () => Promise<string | null>;
 }
 
 /** Result of a single poll cycle. */
@@ -122,7 +126,7 @@ export async function pollOnce(
   deps: PollDependencies,
   authState: AuthState,
 ): Promise<PollResult> {
-  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity } =
+  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity, observeImage } =
     deps;
 
   // ── 1. Enroll on first contact ────────────────────────────────────────
@@ -223,7 +227,7 @@ export async function pollOnce(
   if (!Array.isArray(commands) || commands.length === 0) {
     // Still report observed state (§59) on an idle poll — most polls have no
     // commands, and that is exactly when infrastructure drift needs catching.
-    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity);
+    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage);
     decrementGrace(authState);
     return { fetched: 0, executed: 0, succeeded: 0, failed: 0, deferred: 0, resumed, ok: true };
   }
@@ -256,7 +260,7 @@ export async function pollOnce(
   }
 
   // ── 6. Report observed state (§59) ────────────────────────────────────
-  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity);
+  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage);
 
   decrementGrace(authState);
 
@@ -311,6 +315,7 @@ async function reportHealth(
   idempotency: IdempotencyStore,
   observe: PollDependencies['observe'],
   identity?: Record<string, unknown>,
+  observeImage?: PollDependencies['observeImage'],
 ): Promise<void> {
   let infraHealth: VerificationResult | null = null;
   if (observe) {
@@ -323,10 +328,21 @@ async function reportHealth(
     }
   }
 
+  // A digest observation failing must not fail the health report — the rest
+  // of the payload is still true. null means "not observed", never a guess.
+  let runningImageDigest: string | null = null;
+  if (observeImage) {
+    try {
+      runningImageDigest = await observeImage();
+    } catch {
+      runningImageDigest = null;
+    }
+  }
+
   const observedState: Record<string, unknown> = {
     idempotencyKeysTracked: idempotency.size,
     lastPoll: new Date().toISOString(),
-    runningVersion: null,
+    runningImageDigest,
     observedConfig: null,
     infraHealth,
   };
@@ -334,6 +350,7 @@ async function reportHealth(
   const payload: HealthReportPayload = {
     installationId,
     observedState,
+    runningImageDigest,
     ...(identity ? { identity } : {}),
   };
 

@@ -84,6 +84,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@aws-sdk/client-ecr':
+        specifier: ^3.1115.0
+        version: 3.1115.0
       '@electric-sql/pglite':
         specifier: ^0.5.5
         version: 0.5.5
@@ -315,6 +318,9 @@ importers:
         specifier: ^3.1115.0
         version: 3.1117.0
       '@aws-sdk/client-cloudformation':
+        specifier: ^3.1115.0
+        version: 3.1115.0
+      '@aws-sdk/client-ecs':
         specifier: ^3.1115.0
         version: 3.1115.0
       '@aws-sdk/client-elastic-load-balancing-v2':
@@ -5076,9 +5082,9 @@ snapshots:
 
   '@aws-sdk/client-ecr@3.1115.0':
     dependencies:
-      '@aws-sdk/core': 3.977.8
-      '@aws-sdk/credential-provider-node': 3.972.80
-      '@aws-sdk/types': 3.974.4
+      '@aws-sdk/core': 3.977.9
+      '@aws-sdk/credential-provider-node': 3.972.81
+      '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.33.3
       '@smithy/fetch-http-handler': 5.7.2
       '@smithy/node-http-handler': 4.11.3
@@ -5087,9 +5093,9 @@ snapshots:
 
   '@aws-sdk/client-ecs@3.1115.0':
     dependencies:
-      '@aws-sdk/core': 3.977.8
-      '@aws-sdk/credential-provider-node': 3.972.80
-      '@aws-sdk/types': 3.974.4
+      '@aws-sdk/core': 3.977.9
+      '@aws-sdk/credential-provider-node': 3.972.81
+      '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.33.3
       '@smithy/fetch-http-handler': 5.7.2
       '@smithy/node-http-handler': 4.11.3

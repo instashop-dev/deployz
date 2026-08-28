@@ -320,7 +320,7 @@ describe('pollOnce — command execution', () => {
     const healthBody = JSON.parse(healthReqs[0]?.body ?? '{}');
     expect(healthBody.installationId).toBe('inst-test');
     expect(healthBody.observedState).toBeDefined();
-    expect(healthBody.observedState.runningVersion).toBeNull();
+    expect(healthBody.observedState.runningImageDigest).toBeNull();
     expect(healthBody.observedState.observedConfig).toBeNull();
     expect(healthBody.observedState.infraHealth).toBeNull();
     expect(healthBody.observedState.idempotencyKeysTracked).toBeTypeOf('number');
@@ -560,5 +560,38 @@ describe('pollOnce — identity reporting', () => {
 
     const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
     expect(JSON.parse(healthReq?.body ?? '{}')).not.toHaveProperty('identity');
+  });
+
+  it('reports the observed running image digest with the health report', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      observeImage: async () => 'sha256:' + 'a'.repeat(64),
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as {
+      runningImageDigest?: string;
+      observedState?: { runningImageDigest?: string };
+    };
+    expect(body.runningImageDigest).toBe('sha256:' + 'a'.repeat(64));
+    expect(body.observedState?.runningImageDigest).toBe('sha256:' + 'a'.repeat(64));
+  });
+
+  it('reports null when digest observation is not wired', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({ fetchFn });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as { runningImageDigest?: string };
+    expect(body.runningImageDigest).toBeNull();
   });
 });

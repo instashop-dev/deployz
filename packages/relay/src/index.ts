@@ -20,6 +20,7 @@
 
 import type { ScheduledEvent } from 'aws-lambda';
 
+import { DescribeTasksCommand, ECSClient, ListTasksCommand } from '@aws-sdk/client-ecs';
 import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
 import {
@@ -29,6 +30,7 @@ import {
   type RelayCommandResult,
 } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
+import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
 import { readRelayIdentity } from './identity.js';
 import {
   createStackInstaller,
@@ -81,6 +83,38 @@ function getCloudFormationReader(): CloudFormationReader {
     cloudFormationReader = createCloudFormationReader();
   }
   return cloudFormationReader;
+}
+
+// Same lazy-singleton idiom for the ECS task reader behind runtime digest
+// observation: constructing the client must not happen at module load.
+let ecsTaskReader: EcsTaskReader | undefined;
+
+function getEcsTaskReader(): EcsTaskReader {
+  if (!ecsTaskReader) {
+    const client = new ECSClient({});
+    ecsTaskReader = {
+      async listTasks(input) {
+        const response = await client.send(
+          new ListTasksCommand({ cluster: input.cluster, serviceName: input.serviceName }),
+        );
+        return { taskArns: response.taskArns ?? [] };
+      },
+      async describeTasks(input) {
+        const response = await client.send(
+          new DescribeTasksCommand({ cluster: input.cluster, tasks: input.tasks }),
+        );
+        return {
+          tasks: (response.tasks ?? []).map((task) => ({
+            lastStatus: task.lastStatus,
+            containers: (task.containers ?? []).map((container) => ({
+              imageDigest: container.imageDigest,
+            })),
+          })),
+        };
+      },
+    };
+  }
+  return ecsTaskReader;
 }
 
 let stackInstaller: StackInstaller | undefined;
@@ -755,6 +789,12 @@ export interface RelayHandlerDeps {
    * inject a stub instead of fabricating a context.
    */
   identity?: PollDependencies['identity'];
+  /**
+   * Overrides the running-image-digest observation wired into every health
+   * report. When omitted, discovers the ECS service through the application
+   * stack and reads the digest off the running tasks.
+   */
+  observeImage?: PollDependencies['observeImage'];
 }
 
 /**
@@ -827,6 +867,17 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
         (() => verifyInstallation({ cfn: getCloudFormationReader(), installationId })),
       resume: deps.resume ?? createInstallResumer(installDeps),
       identity: deps.identity ?? readRelayIdentity(context),
+      observeImage:
+        deps.observeImage ??
+        (() =>
+          observeRunningImageDigest(
+            {
+              cfn: getCloudFormationReader(),
+              ecs: getEcsTaskReader(),
+              installationId,
+            },
+            DEFAULT_STACK_NAME,
+          )),
     };
 
     const result = await pollOnce(pollDeps, authState);
