@@ -1,0 +1,176 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  deriveComponents,
+  deriveHealthStatus,
+  observeRuntimeHealth,
+  type EcsServiceReader,
+  type TargetHealthReader,
+} from './ecs-health.js';
+import type { CloudFormationReader, StackResource } from './verify.js';
+
+function observation(overrides: Partial<Parameters<typeof deriveHealthStatus>[0]> = {}) {
+  return {
+    desiredCount: 1,
+    runningCount: 1,
+    targetCount: 1,
+    unhealthyTargetCount: 0,
+    rolloutFailed: false,
+    ...overrides,
+  };
+}
+
+describe('deriveHealthStatus', () => {
+  it('HEALTHY when fully running with all targets healthy', () => {
+    expect(deriveHealthStatus(observation())).toBe('HEALTHY');
+  });
+
+  it('DEGRADED when serving with unhealthy targets', () => {
+    expect(deriveHealthStatus(observation({ targetCount: 2, unhealthyTargetCount: 1 }))).toBe(
+      'DEGRADED',
+    );
+  });
+
+  it('DEGRADED when still scaling up', () => {
+    expect(deriveHealthStatus(observation({ desiredCount: 2, runningCount: 1 }))).toBe('DEGRADED');
+  });
+
+  it('UNHEALTHY when nothing is running', () => {
+    expect(deriveHealthStatus(observation({ runningCount: 0 }))).toBe('UNHEALTHY');
+  });
+
+  it('UNHEALTHY when all targets are unhealthy', () => {
+    expect(
+      deriveHealthStatus(observation({ targetCount: 2, unhealthyTargetCount: 2 })),
+    ).toBe('UNHEALTHY');
+  });
+
+  it('UNHEALTHY when the ECS rollout failed', () => {
+    expect(deriveHealthStatus(observation({ rolloutFailed: true }))).toBe('UNHEALTHY');
+  });
+
+  it('UNKNOWN when the counts could not be observed', () => {
+    expect(deriveHealthStatus(observation({ runningCount: null, desiredCount: null }))).toBe(
+      'UNKNOWN',
+    );
+  });
+});
+
+describe('deriveComponents', () => {
+  it('derives application and load balancer independently', () => {
+    expect(deriveComponents(observation())).toEqual({
+      application: 'HEALTHY',
+      loadBalancer: 'HEALTHY',
+    });
+    expect(deriveComponents(observation({ targetCount: 2, unhealthyTargetCount: 1 }))).toEqual({
+      application: 'HEALTHY',
+      loadBalancer: 'DEGRADED',
+    });
+    expect(deriveComponents(observation({ targetCount: 0 }))).toEqual({
+      application: 'HEALTHY',
+      loadBalancer: 'UNKNOWN',
+    });
+  });
+});
+
+// ── Orchestration ────────────────────────────────────────────────────────────
+
+const SERVICE_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/app-service';
+
+function cfnWith(resources: StackResource[]): CloudFormationReader {
+  return {
+    async describeStack() {
+      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {} } };
+    },
+    async describeStackResources() {
+      return resources;
+    },
+  };
+}
+
+const STACK = [
+  { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
+  { logicalId: 'Targets', type: 'AWS::ElasticLoadBalancingV2::TargetGroup', status: 'CREATE_COMPLETE', physicalId: 'arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/app/abc' },
+] as const;
+
+function ecsWith(service?: {
+  desiredCount?: number | undefined;
+  runningCount?: number | undefined;
+  deployments?: { status?: string | undefined; rolloutState?: string | undefined }[];
+}): EcsServiceReader {
+  return {
+    async describeServices() {
+      return { services: service ? [service] : [] };
+    },
+  };
+}
+
+function elbWith(states: string[]): TargetHealthReader {
+  return {
+    async describeTargetHealth() {
+      return { targets: states.map((state) => ({ state })) };
+    },
+  };
+}
+
+describe('observeRuntimeHealth', () => {
+  it('observes healthy counts and healthy targets', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([...STACK]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['healthy']),
+      },
+      'deployz-app',
+    );
+    expect(health.healthStatus).toBe('HEALTHY');
+    expect(health.desiredCount).toBe(1);
+    expect(health.unhealthyTargetCount).toBe(0);
+    expect(health.deploymentRolloutState).toBe('COMPLETED');
+  });
+
+  it('reports UNHEALTHY with a failed rollout', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([...STACK]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'FAILED' }] }),
+        elb: elbWith(['healthy']),
+      },
+      'deployz-app',
+    );
+    expect(health.healthStatus).toBe('UNHEALTHY');
+    expect(health.deploymentRolloutState).toBe('FAILED');
+  });
+
+  it('returns UNKNOWN when the stack has no ECS service', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([{ logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' }]),
+        ecs: ecsWith(),
+        elb: elbWith([]),
+      },
+      'deployz-app',
+    );
+    expect(health.healthStatus).toBe('UNKNOWN');
+    expect(health.desiredCount).toBeNull();
+  });
+
+  it('keeps ECS-derived health when target health is unreadable', async () => {
+    const elbFails: TargetHealthReader = {
+      async describeTargetHealth() {
+        throw new Error('AccessDenied');
+      },
+    };
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([...STACK]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1 }),
+        elb: elbFails,
+      },
+      'deployz-app',
+    );
+    expect(health.healthStatus).toBe('HEALTHY');
+    expect(health.unhealthyTargetCount).toBe(0);
+    expect(health.components.loadBalancer).toBe('UNKNOWN');
+  });
+});

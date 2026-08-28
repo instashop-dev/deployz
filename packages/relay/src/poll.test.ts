@@ -594,4 +594,35 @@ describe('pollOnce — identity reporting', () => {
     const body = JSON.parse(healthReq?.body ?? '{}') as { runningImageDigest?: string };
     expect(body.runningImageDigest).toBeNull();
   });
+
+  it('reports measured health status, components and counts when wired', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      observeHealth: async () => ({
+        healthStatus: 'DEGRADED' as const,
+        components: { application: 'HEALTHY' as const, loadBalancer: 'DEGRADED' as const },
+        desiredCount: 2,
+        runningCount: 2,
+        unhealthyTargetCount: 1,
+        deploymentRolloutState: 'COMPLETED',
+      }),
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as {
+      healthStatus?: string;
+      components?: Record<string, string>;
+      observedState?: Record<string, unknown>;
+    };
+    expect(body.healthStatus).toBe('DEGRADED');
+    expect(body.components).toEqual({ application: 'HEALTHY', loadBalancer: 'DEGRADED' });
+    expect(body.observedState?.['desiredCount']).toBe(2);
+    expect(body.observedState?.['unhealthyTargetCount']).toBe(1);
+    expect(body.observedState?.['deploymentRolloutState']).toBe('COMPLETED');
+  });
 });

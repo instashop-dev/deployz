@@ -20,7 +20,11 @@
 
 import type { ScheduledEvent } from 'aws-lambda';
 
-import { DescribeTasksCommand, ECSClient, ListTasksCommand } from '@aws-sdk/client-ecs';
+import { DescribeServicesCommand, DescribeTasksCommand, ECSClient, ListTasksCommand } from '@aws-sdk/client-ecs';
+import {
+  DescribeTargetHealthCommand,
+  ElasticLoadBalancingV2Client,
+} from '@aws-sdk/client-elastic-load-balancing-v2';
 import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
 import {
@@ -31,6 +35,7 @@ import {
 } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
 import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
+import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
 import { readRelayIdentity } from './identity.js';
 import {
   createStackInstaller,
@@ -118,6 +123,54 @@ function getEcsTaskReader(): EcsTaskReader {
 }
 
 let stackInstaller: StackInstaller | undefined;
+
+// Lazy readers behind runtime health observation — same construct-on-first-use
+// rule as the reader above.
+let ecsServiceReader: EcsServiceReader | undefined;
+let targetHealthReader: TargetHealthReader | undefined;
+
+function getEcsServiceReader(): EcsServiceReader {
+  if (!ecsServiceReader) {
+    const client = new ECSClient({});
+    ecsServiceReader = {
+      async describeServices(input) {
+        const response = await client.send(
+          new DescribeServicesCommand({ cluster: input.cluster, services: input.services }),
+        );
+        return {
+          services: (response.services ?? []).map((service) => ({
+            desiredCount: service.desiredCount ?? undefined,
+            runningCount: service.runningCount ?? undefined,
+            deployments: (service.deployments ?? []).map((deployment) => ({
+              status: deployment.status ?? undefined,
+              rolloutState: deployment.rolloutState ?? undefined,
+            })),
+          })),
+        };
+      },
+    };
+  }
+  return ecsServiceReader;
+}
+
+function getTargetHealthReader(): TargetHealthReader {
+  if (!targetHealthReader) {
+    const client = new ElasticLoadBalancingV2Client({});
+    targetHealthReader = {
+      async describeTargetHealth(input) {
+        const response = await client.send(
+          new DescribeTargetHealthCommand({ TargetGroupArn: input.targetGroupArn }),
+        );
+        return {
+          targets: (response.TargetHealthDescriptions ?? []).map((description) => ({
+            state: description.TargetHealth?.State ?? undefined,
+          })),
+        };
+      },
+    };
+  }
+  return targetHealthReader;
+}
 
 function getStackInstaller(): StackInstaller {
   if (!stackInstaller) {
@@ -795,6 +848,11 @@ export interface RelayHandlerDeps {
    * stack and reads the digest off the running tasks.
    */
   observeImage?: PollDependencies['observeImage'];
+  /**
+   * Overrides the runtime health observation (ECS counts, target health,
+   * rollout state) wired into every health report.
+   */
+  observeHealth?: PollDependencies['observeHealth'];
 }
 
 /**
@@ -875,6 +933,17 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               cfn: getCloudFormationReader(),
               ecs: getEcsTaskReader(),
               installationId,
+            },
+            DEFAULT_STACK_NAME,
+          )),
+      observeHealth:
+        deps.observeHealth ??
+        (() =>
+          observeRuntimeHealth(
+            {
+              cfn: getCloudFormationReader(),
+              ecs: getEcsServiceReader(),
+              elb: getTargetHealthReader(),
             },
             DEFAULT_STACK_NAME,
           )),

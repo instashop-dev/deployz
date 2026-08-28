@@ -28,6 +28,7 @@ import {
   type AuthState,
   type FetchFn,
 } from './auth.js';
+import type { RuntimeHealth } from './ecs-health.js';
 import type { VerificationResult } from './verify.js';
 
 // ── Control-plane API shapes ─────────────────────────────────────────────────
@@ -53,6 +54,9 @@ interface HealthReportPayload {
   observedState: Record<string, unknown>;
   /** What is actually running in ECS, when it could be observed. */
   runningImageDigest?: string | null;
+  /** Measured runtime health, when the observation ran. */
+  healthStatus?: string;
+  components?: Record<string, unknown>;
   /** Relay identity, re-reported every heartbeat so the control plane can
    *  self-repair missing account ids and refresh version/capabilities. */
   identity?: Record<string, unknown>;
@@ -90,6 +94,8 @@ export interface PollDependencies {
   identity?: Record<string, unknown>;
   /** Observes the image digest actually running in ECS; null = unknown. */
   observeImage?: () => Promise<string | null>;
+  /** Measures runtime health (ECS counts, target health, rollout state). */
+  observeHealth?: () => Promise<RuntimeHealth>;
 }
 
 /** Result of a single poll cycle. */
@@ -126,7 +132,7 @@ export async function pollOnce(
   deps: PollDependencies,
   authState: AuthState,
 ): Promise<PollResult> {
-  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity, observeImage } =
+  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity, observeImage, observeHealth } =
     deps;
 
   // ── 1. Enroll on first contact ────────────────────────────────────────
@@ -227,7 +233,7 @@ export async function pollOnce(
   if (!Array.isArray(commands) || commands.length === 0) {
     // Still report observed state (§59) on an idle poll — most polls have no
     // commands, and that is exactly when infrastructure drift needs catching.
-    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage);
+    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth);
     decrementGrace(authState);
     return { fetched: 0, executed: 0, succeeded: 0, failed: 0, deferred: 0, resumed, ok: true };
   }
@@ -260,7 +266,7 @@ export async function pollOnce(
   }
 
   // ── 6. Report observed state (§59) ────────────────────────────────────
-  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage);
+  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth);
 
   decrementGrace(authState);
 
@@ -316,6 +322,7 @@ async function reportHealth(
   observe: PollDependencies['observe'],
   identity?: Record<string, unknown>,
   observeImage?: PollDependencies['observeImage'],
+  observeHealth?: PollDependencies['observeHealth'],
 ): Promise<void> {
   let infraHealth: VerificationResult | null = null;
   if (observe) {
@@ -339,18 +346,40 @@ async function reportHealth(
     }
   }
 
+  // Same rule for the health observation: a failure reports UNKNOWN rather
+  // than sinking the heartbeat.
+  let runtimeHealth: RuntimeHealth | null = null;
+  if (observeHealth) {
+    try {
+      runtimeHealth = await observeHealth();
+    } catch {
+      runtimeHealth = null;
+    }
+  }
+
   const observedState: Record<string, unknown> = {
     idempotencyKeysTracked: idempotency.size,
     lastPoll: new Date().toISOString(),
     runningImageDigest,
     observedConfig: null,
     infraHealth,
+    ...(runtimeHealth
+      ? {
+          desiredCount: runtimeHealth.desiredCount,
+          runningCount: runtimeHealth.runningCount,
+          unhealthyTargetCount: runtimeHealth.unhealthyTargetCount,
+          deploymentRolloutState: runtimeHealth.deploymentRolloutState,
+        }
+      : {}),
   };
 
   const payload: HealthReportPayload = {
     installationId,
     observedState,
     runningImageDigest,
+    ...(runtimeHealth
+      ? { healthStatus: runtimeHealth.healthStatus, components: runtimeHealth.components }
+      : {}),
     ...(identity ? { identity } : {}),
   };
 

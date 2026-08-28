@@ -31,6 +31,18 @@ const stubObserve = async (): Promise<VerificationResult> => ({
   checks: [],
 });
 
+// Same rule for the digest and health observation hooks: their defaults
+// reach out to real AWS too, and no test here exercises them either.
+const stubObserveImage = async (): Promise<string | null> => null;
+const stubObserveHealth = async () => ({
+  healthStatus: 'UNKNOWN' as const,
+  components: { application: 'UNKNOWN' as const, loadBalancer: 'UNKNOWN' as const },
+  desiredCount: null,
+  runningCount: null,
+  unhealthyTargetCount: null,
+  deploymentRolloutState: null,
+});
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeScheduledEvent(time?: string): ScheduledEvent {
@@ -143,7 +155,7 @@ describe('relay handler (integration)', () => {
         }),
       };
 
-      const handler = createRelayHandler({ secretsClient, fetchFn, executors, observe: stubObserve });
+      const handler = createRelayHandler({ secretsClient, fetchFn, executors, observe: stubObserve, observeImage: stubObserveImage, observeHealth: stubObserveHealth });
       const event = makeScheduledEvent();
 
       // Should not throw.
@@ -166,7 +178,7 @@ describe('relay handler (integration)', () => {
       const secretsClient = makeSecretsClient('tok');
       const fetchFn = makeFetchFn(200);
 
-      const handler = createRelayHandler({ secretsClient, fetchFn });
+      const handler = createRelayHandler({ secretsClient, fetchFn, observe: stubObserve, observeImage: stubObserveImage, observeHealth: stubObserveHealth });
       await handler(makeScheduledEvent());
 
       expect(consoleSpy).toHaveBeenCalled();
@@ -196,7 +208,7 @@ describe('relay handler (integration)', () => {
       };
       const fetchFn = makeFetchFn(200);
 
-      const handler = createRelayHandler({ secretsClient, fetchFn });
+      const handler = createRelayHandler({ secretsClient, fetchFn, observe: stubObserve, observeImage: stubObserveImage, observeHealth: stubObserveHealth });
       await handler(makeScheduledEvent());
 
       expect(consoleSpy).toHaveBeenCalled();
@@ -228,7 +240,7 @@ describe('relay handler (integration)', () => {
 
       const fetchFn = makeFetchFn(200, { commands: [] });
 
-      const handler = createRelayHandler({ secretsClient, fetchFn, observe: stubObserve });
+      const handler = createRelayHandler({ secretsClient, fetchFn, observe: stubObserve, observeImage: stubObserveImage, observeHealth: stubObserveHealth });
 
       // First invocation — should read the secret.
       await handler(makeScheduledEvent());
@@ -301,7 +313,7 @@ describe('relay handler (integration)', () => {
 
       const fetchFn = makeFetchFn(200, { commands: [command] });
 
-      const handler = createRelayHandler({ secretsClient, fetchFn, executors, idempotency, observe: stubObserve });
+      const handler = createRelayHandler({ secretsClient, fetchFn, executors, idempotency, observe: stubObserve, observeImage: stubObserveImage, observeHealth: stubObserveHealth });
 
       // First invocation — executes the command.
       await handler(makeScheduledEvent());
