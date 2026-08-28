@@ -63,9 +63,14 @@ export interface NormalizeErrorTextOptions {
 
 /**
  * Normalize raw error text before it reaches an AI prompt: strip ANSI escape
- * codes, collapse runs of identical lines to one, trim, truncate to
- * `maxLength` (default 2000) with a `…[truncated]` suffix, then redact
- * secrets. Idempotent.
+ * codes, collapse runs of identical lines to one, trim, redact secrets, then
+ * truncate to `maxLength` (default 2000) with a `…[truncated]` suffix.
+ * Idempotent.
+ *
+ * Redaction runs BEFORE truncation (not after) so a secret straddling the
+ * `maxLength` cutoff can never leave a partial fragment of its value in the
+ * output — the whole secret is replaced first, and only the already-redacted
+ * text is cut.
  */
 export function normalizeErrorText(
   text: string,
@@ -82,8 +87,7 @@ export function normalizeErrorText(
 
   const trimmed = collapsed.trim();
 
-  const truncated =
-    trimmed.length > maxLength ? trimmed.slice(0, maxLength) + TRUNCATED_SUFFIX : trimmed;
+  const redacted = redactSecrets(trimmed);
 
-  return redactSecrets(truncated);
+  return redacted.length > maxLength ? redacted.slice(0, maxLength) + TRUNCATED_SUFFIX : redacted;
 }

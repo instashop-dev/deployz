@@ -105,6 +105,21 @@ describe('normalizeErrorText', () => {
     expect(result).not.toContain('user:password');
   });
 
+  it('redacts a secret that straddles the truncation boundary (no fragment leaks)', () => {
+    // A DATABASE_PASSWORD=... pair sits well before the maxLength cutoff, so a
+    // truncate-then-redact implementation would slice through the middle of
+    // the secret value and leak a fragment of it. Redact-then-truncate must
+    // replace the whole value first, so no part of it can ever survive.
+    const secretValue = 'hunter2345678901234567890';
+    const text =
+      'A'.repeat(40) + ' DATABASE_PASSWORD=' + secretValue + ' ' + 'B'.repeat(40);
+    const result = normalizeErrorText(text, { maxLength: 80 });
+    expect(result).toContain('[REDACTED]');
+    expect(result).not.toContain(secretValue);
+    expect(result).not.toContain('hunter');
+    expect(result.endsWith('…[truncated]')).toBe(true);
+  });
+
   it('is idempotent — normalizing twice equals normalizing once', () => {
     const text = `${ESC}[31mERROR${ESC}[0m connecting to postgresql://user:password@host/db`;
     const once = normalizeErrorText(text);
