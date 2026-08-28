@@ -37,7 +37,9 @@ export type DeploymentEventType =
   | 'config.updated'
   | 'health.reported'
   | 'health.degraded'
+  | 'health.unhealthy'
   | 'health.recovered'
+  | 'ecs.rollout_failed'
   | 'relay.reenrollment.requested'
   // domain family — custom-domains MVP.
   | 'domain.added'

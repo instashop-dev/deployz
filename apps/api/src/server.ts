@@ -2873,6 +2873,16 @@ export async function buildServer({
 
     const previousHealth = deployment.healthStatus;
     const nextHealth = healthStatusParsed.success ? healthStatusParsed.data : previousHealth;
+    // Edge-triggered: the rollout failure is recorded once per observed
+    // failure, not on every heartbeat while it stays failed.
+    const previousRolloutState = (
+      deployment.observedState as { deploymentRolloutState?: string } | null
+    )?.deploymentRolloutState;
+    const nextRolloutState = (observedState as Record<string, unknown> | null)?.[
+      'deploymentRolloutState'
+    ];
+    const rolloutNewlyFailed =
+      nextRolloutState === 'FAILED' && previousRolloutState !== 'FAILED';
 
     await db.transaction(async (tx) => {
       await tx
@@ -2896,7 +2906,8 @@ export async function buildServer({
       if (nextHealth !== previousHealth) {
         await recordEvent(tx, {
           organizationId: deployment.organizationId,
-          eventType: nextHealth === 'HEALTHY' ? 'health.recovered' : 'health.degraded',
+          eventType:
+            nextHealth === 'HEALTHY' ? 'health.recovered' : nextHealth === 'UNHEALTHY' ? 'health.unhealthy' : 'health.degraded',
           actorType: 'relay',
           actorId: deployment.installationId ?? deployment.id,
           deploymentId: deployment.id,
@@ -2905,6 +2916,19 @@ export async function buildServer({
           requestedState: nextHealth,
           result: nextHealth === 'HEALTHY' ? 'success' : 'failure',
           payload: componentsParsed?.success ? { components: componentsParsed.data } : {},
+        });
+      }
+
+      if (rolloutNewlyFailed) {
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'ecs.rollout_failed',
+          actorType: 'relay',
+          actorId: deployment.installationId ?? deployment.id,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          result: 'failure',
+          payload: { deploymentRolloutState: 'FAILED' },
         });
       }
     });
