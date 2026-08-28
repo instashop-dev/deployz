@@ -95,11 +95,26 @@ export async function runApplicationAnalysis(
     }
 
     // Task 6 commit-SHA analysis cache (real GitHub mode only — fixture mode
-    // has no head commit to compare and always runs fully). Best-effort: any
-    // failure resolving the head sha (missing installation, unconfigured
-    // App, a minting or network error) degrades to `undefined`, which simply
-    // skips the cache rather than failing the analysis.
-    const headSha = await resolveHeadShaForCache(deps, application);
+    // has no head commit to compare and always runs fully). The single
+    // installation token a real-mode run needs is minted HERE, once, and
+    // reused for both the head-sha lookup and — on a full run — the tree/
+    // blob fetch below, so a full run never mints a second token.
+    // `mintRealModeToken` throws the same errors a full run always threw
+    // (missing installation / unconfigured App / a minting failure), which
+    // is correct: if minting fails, the run was always going to fail. Once
+    // minted, `fetchHeadSha` itself never throws — it degrades to
+    // `undefined` on any non-200 — so the cache lookup stays best-effort.
+    let headSha: string | undefined;
+    let realModeToken: string | undefined;
+    if (!deps.githubFixtureMode) {
+      realModeToken = await mintRealModeToken(deps, application);
+      headSha = await fetchHeadSha(
+        { ...parseRepoFullName(application.repoFullName), branch: application.defaultBranch },
+        realModeToken,
+        deps.fetchFn,
+      );
+    }
+
     if (!options?.force && headSha !== undefined && isCommitShaCacheHit(application.detectedMetadata, headSha)) {
       await deps.db
         .update(schema.applications)
@@ -108,7 +123,7 @@ export async function runApplicationAnalysis(
       return;
     }
 
-    const tree = await fetchTreeForApplication(deps, application);
+    const tree = await fetchTreeForApplication(deps, application, realModeToken);
     const analysis = analyseRepo(tree);
     const compatibility = evaluateCompatibility(analysis);
     const checks = buildChecks(analysis, compatibility);
@@ -169,52 +184,15 @@ async function markFailed(db: RuntimeDb, applicationId: string, error: unknown):
 // ── Task 6 commit-SHA analysis cache ────────────────────────────────────────
 
 /**
- * Resolves the repository's current branch head sha for the cache check,
- * or `undefined` when it cannot be determined — fixture mode (no real
- * branch), no linked installation, an unconfigured App, or any minting/
- * network failure. The cache is best-effort and must never fail the
- * analysis, so every failure path here degrades silently rather than
- * throwing.
+ * Guards + mints the ONE installation token a real-mode run needs — shared
+ * by the Task 6 head-sha cache lookup and (on a full run) the tree/blob
+ * fetch, so a full run never mints more than once. Never called in fixture
+ * mode. Throws the same structured errors a full run always threw on a
+ * missing installation / unconfigured App / minting failure — a real-mode
+ * run that can't get a token was always going to fail regardless of the
+ * cache.
  */
-async function resolveHeadShaForCache(
-  deps: AnalysisRunnerDeps,
-  application: ApplicationRow,
-): Promise<string | undefined> {
-  if (deps.githubFixtureMode) return undefined;
-  if (!application.githubInstallationId || !deps.githubAppId || !deps.githubAppPrivateKey) {
-    return undefined;
-  }
-  try {
-    const { token } = await mintInstallationToken(
-      application.githubInstallationId,
-      deps.githubAppId,
-      deps.githubAppPrivateKey,
-      deps.now ? deps.now() : Date.now(),
-      deps.fetchFn,
-    );
-    const { owner, repo } = parseRepoFullName(application.repoFullName);
-    return await fetchHeadSha({ owner, repo, branch: application.defaultBranch }, token, deps.fetchFn);
-  } catch {
-    return undefined;
-  }
-}
-
-/** A cache hit: the stored analysis was for this exact commit and analyser version. */
-function isCommitShaCacheHit(metadata: Record<string, unknown> | null, headSha: string): boolean {
-  if (!metadata) return false;
-  return metadata['analysisCommitSha'] === headSha && metadata['analysisVersion'] === ANALYSIS_VERSION;
-}
-
-// ── Repo/branch resolution + tree fetch ─────────────────────────────────────
-
-async function fetchTreeForApplication(
-  deps: AnalysisRunnerDeps,
-  application: ApplicationRow,
-): Promise<FileTree> {
-  if (deps.githubFixtureMode) {
-    return getFileTreeForAnalysis(application.repoFullName, { fixtureMode: true });
-  }
-
+async function mintRealModeToken(deps: AnalysisRunnerDeps, application: ApplicationRow): Promise<string> {
   if (!application.githubInstallationId) {
     throw new ApiError(
       422,
@@ -225,7 +203,6 @@ async function fetchTreeForApplication(
   if (!deps.githubAppId || !deps.githubAppPrivateKey) {
     throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
   }
-
   const { token } = await mintInstallationToken(
     application.githubInstallationId,
     deps.githubAppId,
@@ -233,10 +210,32 @@ async function fetchTreeForApplication(
     deps.now ? deps.now() : Date.now(),
     deps.fetchFn,
   );
+  return token;
+}
+
+/** A cache hit: the stored analysis was for this exact commit and analyser version. */
+function isCommitShaCacheHit(metadata: Record<string, unknown> | null, headSha: string): boolean {
+  if (!metadata) return false;
+  return metadata['analysisCommitSha'] === headSha && metadata['analysisVersion'] === ANALYSIS_VERSION;
+}
+
+// ── Repo/branch resolution + tree fetch ─────────────────────────────────────
+
+// `realModeToken` is minted once by `mintRealModeToken` in
+// `runApplicationAnalysis` (real mode only) and reused here — this function
+// never mints its own token, so a full run mints exactly one.
+async function fetchTreeForApplication(
+  deps: AnalysisRunnerDeps,
+  application: ApplicationRow,
+  realModeToken: string | undefined,
+): Promise<FileTree> {
+  if (deps.githubFixtureMode) {
+    return getFileTreeForAnalysis(application.repoFullName, { fixtureMode: true });
+  }
   return getFileTreeForAnalysis(application.repoFullName, {
     fixtureMode: false,
     branch: application.defaultBranch,
-    installationToken: token,
+    installationToken: realModeToken,
     fetchFn: deps.fetchFn,
   });
 }

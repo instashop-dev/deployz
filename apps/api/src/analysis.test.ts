@@ -930,4 +930,44 @@ describe('analysis — commit-SHA cache (Task 6)', () => {
     expect(second.compatibilityStatus).toBe('READY');
     expect(second.compatibilityReason).toBe('Compatible with Deployz');
   });
+
+  // The head-sha lookup and the tree/blob fetch used to mint their OWN
+  // installation token each, so every full real-mode run — including a
+  // brand-new application's very first analysis, the most common path —
+  // minted two. `mintRealModeToken` is now the single mint site, reused by
+  // both, so this must never regress back to two.
+  it('(f) a full real-mode run mints exactly one installation token', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/cache-f',
+      defaultBranch: 'main',
+    });
+    const calls: string[] = [];
+    const deps = makeDeps(buildFetch('sha-f', calls));
+
+    await runApplicationAnalysis(deps, application.id);
+
+    expect(calls.filter((u) => u.includes('/access_tokens'))).toHaveLength(1);
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+  });
+
+  it('(g) a cache-hit run also mints exactly one installation token', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/cache-g',
+      defaultBranch: 'main',
+    });
+    const calls: string[] = [];
+    const deps = makeDeps(buildFetch('sha-g', calls));
+
+    await runApplicationAnalysis(deps, application.id); // full run: primes the cache
+    expect(calls.filter((u) => u.includes('/access_tokens'))).toHaveLength(1);
+
+    await runApplicationAnalysis(deps, application.id); // cache hit
+
+    expect(calls.filter((u) => u.includes('/access_tokens'))).toHaveLength(2); // +1 for the cache-hit run's own lookup, not +2
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+  });
 });
