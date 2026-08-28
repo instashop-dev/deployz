@@ -504,6 +504,22 @@ export const GITHUB_FIXTURE_INSTALLATIONS: readonly GithubFixtureInstallation[] 
         private: false,
         defaultBranch: 'main',
       },
+      {
+        id: 'fixture-repo-5',
+        name: 'nextjs-prisma',
+        fullName: 'deployz-demo/nextjs-prisma',
+        description: 'Next.js app with Prisma and a required PostgreSQL database.',
+        private: false,
+        defaultBranch: 'main',
+      },
+      {
+        id: 'fixture-repo-6',
+        name: 'monorepo',
+        fullName: 'deployz-demo/monorepo',
+        description: 'pnpm workspace monorepo — the API app is nested under apps/api.',
+        private: false,
+        defaultBranch: 'main',
+      },
     ],
   },
 ];
@@ -884,13 +900,20 @@ export async function buildFileTreeForAnalysis(
 // §216 fixture file trees, keyed by the fixture repo's `fullName` (the same
 // string `applications.repo_full_name` holds once a fixture repo is
 // "selected" — there is no separate repo-id column on the row). Mirrors the
-// three-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
+// six-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
 // compatible (Dockerfile + HEALTHCHECK + /health + Postgres + migration
 // script); legacy-redis has an unsupported Redis setup (Redis Stack modules)
 // so it reliably exercises the NOT_COMPATIBLE path end-to-end without real
 // GitHub credentials; bullmq-worker is the same otherwise-READY shape as
 // express-api plus a supported, high-confidence Redis requirement,
-// exercising the "Redis — managed automatically" ready path end-to-end.
+// exercising the "Redis — managed automatically" ready path end-to-end;
+// nextjs-prisma (spec Fixture 1) is a Next.js + Prisma app whose PostgreSQL
+// requirement is backed by both a Prisma `postgresql` provider and a
+// DATABASE_URL reference — the required-vs-present evidence gating from the
+// postgres provisioning task; monorepo (spec Fixture 4) is a pnpm workspace
+// whose only application (and only Dockerfile) lives under apps/api, with no
+// root start script — it exercises Dockerfile-candidate ranking across
+// nested paths and the §15 'monorepo-target' unresolved question.
 export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   'deployz-demo/express-api': {
     'Dockerfile': [
@@ -989,6 +1012,87 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       "import express from 'express';",
       'const app = express();',
       "app.get('/health', (_req, res) => res.json({ ok: true }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+  },
+  // Next.js + Prisma, spec Fixture 1: a Prisma `postgresql` provider AND a
+  // DATABASE_URL reference — the two independent signals `assessPostgres`
+  // requires alongside the `@prisma/client` dependency for
+  // `postgres.required: true` (RDS provisioning). Otherwise READY-shaped
+  // (Dockerfile + HEALTHCHECK + a file-routed /health endpoint + a migration
+  // script), and package-manager/build-command detection via the root
+  // `packageManager` pin and `scripts.build`.
+  'deployz-demo/nextjs-prisma': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'RUN npm run build',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["npm", "start"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'nextjs-prisma',
+      packageManager: 'pnpm@9.0.0',
+      scripts: { build: 'next build', start: 'next start', 'db:migrate': 'prisma migrate deploy' },
+      dependencies: { next: '^14.2.0', '@prisma/client': '^5.14.0' },
+      devDependencies: { prisma: '^5.14.0' },
+    }),
+    'prisma/schema.prisma': [
+      'datasource db {',
+      '  provider = "postgresql"',
+      '  url      = env("DATABASE_URL")',
+      '}',
+      '',
+    ].join('\n'),
+    '.env.example': ['DATABASE_URL=', 'NEXTAUTH_SECRET=', ''].join('\n'),
+    'app/api/health/route.ts': [
+      "export async function GET() {",
+      '  return Response.json({ ok: true });',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  // Monorepo, spec Fixture 4: a pnpm workspace whose only application (and
+  // only Dockerfile) lives under apps/api — exercises `detectDockerfile`'s
+  // shallower-wins ranking across nested paths (there is only one candidate
+  // here, but it is two levels deep, not at the root) and the §15
+  // 'monorepo-target' unresolved question (>=3 package.json files, no root
+  // start script, no root Dockerfile).
+  'deployz-demo/monorepo': {
+    'pnpm-workspace.yaml': ['packages:', '  - apps/*', ''].join('\n'),
+    'pnpm-lock.yaml': '',
+    'package.json': JSON.stringify({
+      name: 'monorepo',
+      private: true,
+      packageManager: 'pnpm@9',
+    }),
+    'apps/web/package.json': JSON.stringify({
+      name: 'web',
+      scripts: { build: 'next build', dev: 'next dev' },
+      dependencies: { next: '^14.2.0' },
+    }),
+    'apps/api/package.json': JSON.stringify({
+      name: 'api',
+      scripts: { start: 'node src/index.js' },
+      dependencies: { express: '^4.18.0' },
+    }),
+    'apps/api/Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY apps/api/package.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY apps/api/src ./src',
+      'EXPOSE 3000',
+      'CMD ["node", "src/index.js"]',
+    ].join('\n'),
+    'apps/api/src/index.js': [
+      "const express = require('express');",
+      'const app = express();',
       'app.listen(process.env.PORT || 3000);',
       '',
     ].join('\n'),

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { createAiGateway, type AiGateway } from '@deployz/analysis';
+import { analyseRepo, collectUnresolvedQuestions, createAiGateway, type AiGateway } from '@deployz/analysis';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -13,7 +13,7 @@ import {
   runApplicationAnalysis,
   type AnalysisRunnerDeps,
 } from './analysis.js';
-import type { FetchFn } from './github.js';
+import { GITHUB_FIXTURE_FILE_TREES, type FetchFn } from './github.js';
 
 // §18/§19/§20 analysis orchestrator. Real GitHub is BLOCKED in this
 // environment, so the "real mode" cases drive a mocked FetchFn (same seam
@@ -171,6 +171,58 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
 
     const checks = (row.detectedMetadata as { checks: { ready: Array<{ label: string }> } }).checks;
     expect(checks.ready).toContainEqual({ label: 'Redis — managed automatically' });
+  });
+
+  it('analyses the nextjs-prisma fixture repo to COMPLETE/READY with a required Postgres database', async () => {
+    const application = await insertApplication(db, orgId, {
+      repoFullName: 'deployz-demo/nextjs-prisma',
+    });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.compatibilityStatus).toBe('READY');
+    expect(row.compatibilityReason).toBe('Compatible with Deployz');
+    expect(row.databaseRequired).toBe(true);
+    expect(row.migrationCommand).toBe('prisma migrate deploy');
+
+    const metadata = row.detectedMetadata as {
+      framework?: string | null;
+      packageManager?: string | null;
+      buildCommands?: string[];
+      envVars?: string[];
+      postgres?: { required: boolean };
+    };
+    expect(metadata.framework).toBe('next');
+    expect(metadata.packageManager).toBe('pnpm');
+    expect(metadata.buildCommands).toContain('next build');
+    expect(metadata.envVars).toContain('DATABASE_URL');
+    expect(metadata.postgres?.required).toBe(true);
+  });
+
+  it('analyses the monorepo fixture repo, picking the nested apps/api/Dockerfile and flagging monorepo-target as unresolved', async () => {
+    const tree = GITHUB_FIXTURE_FILE_TREES['deployz-demo/monorepo']!;
+    const analysis = analyseRepo(tree);
+    expect(collectUnresolvedQuestions(tree, analysis)).toContain('monorepo-target');
+
+    const application = await insertApplication(db, orgId, {
+      repoFullName: 'deployz-demo/monorepo',
+    });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.compatibilityStatus).not.toBe('NOT_COMPATIBLE');
+
+    const metadata = row.detectedMetadata as {
+      dockerfilePath?: string;
+      aiAnalysis?: { unresolved: string[]; warnings: string[] };
+    };
+    expect(metadata.dockerfilePath).toBe('apps/api/Dockerfile');
+    expect(metadata.aiAnalysis?.unresolved).toContain('monorepo-target');
+    expect(metadata.aiAnalysis?.warnings).toContain('AI analysis unavailable');
   });
 
   it('refreshes a previously auto-detected contract field when the repo has changed', async () => {
