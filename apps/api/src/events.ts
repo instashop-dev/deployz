@@ -32,6 +32,8 @@ export type DeploymentEventType =
   | 'destroy.requested'
   | 'destroy.completed'
   | 'destroy.failed'
+  // Runtime observation corrected the release pointer (never a deploy claim).
+  | 'deployment.reconciled'
   | 'config.updated'
   | 'health.reported'
   | 'health.degraded'

@@ -419,6 +419,11 @@ function toFleetRow(row: {
     relayStatus,
     healthStatus: deriveHealthStatus(row.deployment.healthStatus, relayStatus),
     components,
+    // The digest the relay last observed running in ECS, raw. Null when the
+    // relay could not observe it — never a guess from the release pointer.
+    runningImageDigest:
+      (row.deployment.observedState as { runningImageDigest?: string | null } | null)
+        ?.runningImageDigest ?? null,
     customerName: row.customerName,
     applicationName: row.applicationName,
     version: row.version,
@@ -2421,12 +2426,114 @@ export async function buildServer({
     return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
 
+  /** The bearer token the relay presents. */
   function requireBearerToken(request: { headers: Record<string, unknown> }): string {
     const authHeader = request.headers.authorization as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Missing bearer token');
     }
     return authHeader.slice(7);
+  }
+
+  // ── Runtime digest reconciliation ──────────────────────────────────────
+  //
+  // The relay reports the sha256 digest actually running in ECS. Reconcile
+  // it against releases so a deployment whose pointer drifted (manual AWS
+  // change, repaired build, lost update) tells the truth again — but never
+  // while a mutating job is in flight, which would make the pointer
+  // ambiguous.
+
+  /** Normalizes `repository@sha256:…` and bare `sha256:…` to `sha256:…`. */
+  function digestSuffix(imageDigest: string | null): string | null {
+    if (!imageDigest) return null;
+    const at = imageDigest.lastIndexOf('@');
+    return (at >= 0 ? imageDigest.slice(at + 1) : imageDigest).toLowerCase();
+  }
+
+  type JobTypeValue = NonNullable<(typeof schema.deploymentJobs.$inferSelect)['type']>;
+  type JobStateValue = NonNullable<(typeof schema.deploymentJobs.$inferSelect)['state']>;
+
+  const MUTATING_JOB_TYPES: readonly JobTypeValue[] = [
+    'INSTALL',
+    'DEPLOY_RELEASE',
+    'ROLLBACK',
+    'CONFIG_UPDATE',
+    'DESTROY',
+    'MIGRATION',
+    'INFRA_UPGRADE',
+  ];
+  const ACTIVE_JOB_STATES: readonly JobStateValue[] = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'];
+
+  async function reconcileRunningDigest(
+    deployment: DeploymentRow,
+    runningImageDigest: string | null,
+  ): Promise<void> {
+    const digest = digestSuffix(runningImageDigest);
+    if (!digest) return;
+
+    if (deployment.currentReleaseId) {
+      const currentRows = await db
+        .select({ imageDigest: schema.releases.imageDigest })
+        .from(schema.releases)
+        .where(eq(schema.releases.id, deployment.currentReleaseId))
+        .limit(1);
+      if (digestSuffix(currentRows[0]?.imageDigest ?? null) === digest) return; // Already truthful.
+    }
+
+    const activeJobs = await db
+      .select({ id: schema.deploymentJobs.id })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.state, ACTIVE_JOB_STATES),
+          inArray(schema.deploymentJobs.type, MUTATING_JOB_TYPES),
+        ),
+      )
+      .limit(1);
+    if (activeJobs.length > 0) return; // A job owns the pointer right now.
+
+    const releases = await db
+      .select()
+      .from(schema.releases)
+      .where(eq(schema.releases.applicationId, deployment.applicationId));
+    const matches = releases.filter(
+      (release) => release.releaseStatus === 'READY' && digestSuffix(release.imageDigest) === digest,
+    );
+    // Zero matches: the raw digest stays in observedState and the runtime
+    // version renders as unknown. More than one: the same image built under
+    // two versions — reconciling would be a guess, so it stays as-is.
+    if (matches.length !== 1) return;
+    const reconciled = matches[0]!;
+    if (reconciled.id === deployment.currentReleaseId) return;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deployments)
+        .set({
+          currentReleaseId: reconciled.id,
+          previousReleaseId: deployment.currentReleaseId,
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'deployment.reconciled',
+        actorType: 'relay',
+        actorId: deployment.installationId ?? deployment.id,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        releaseId: reconciled.id,
+        previousState: deployment.currentReleaseId,
+        requestedState: reconciled.id,
+        result: 'success',
+        payload: {
+          source: 'runtime-observation',
+          previousReleaseId: deployment.currentReleaseId,
+          reconciledReleaseId: reconciled.id,
+          imageDigest: digest,
+        },
+      });
+    });
   }
 
   app.post('/api/relay/register', async (request, reply) => {
@@ -2725,6 +2832,7 @@ export async function buildServer({
       observedState?: Record<string, unknown>;
       healthStatus?: string;
       components?: Record<string, unknown>;
+      runningImageDigest?: string | null;
       identity?: {
         awsAccountId?: string;
         relayVersion?: string;
@@ -2757,6 +2865,11 @@ export async function buildServer({
       componentsParsed?.success === true
         ? { ...(body.observedState ?? deployment.observedState ?? {}), components: componentsParsed.data }
         : (body.observedState ?? deployment.observedState);
+    // The runtime digest rides observedState too, so the raw truth survives
+    // even when it cannot be reconciled to a release.
+    if (body?.runningImageDigest !== undefined) {
+      (observedState as Record<string, unknown>)['runningImageDigest'] = body.runningImageDigest;
+    }
 
     const previousHealth = deployment.healthStatus;
     const nextHealth = healthStatusParsed.success ? healthStatusParsed.data : previousHealth;
@@ -2795,6 +2908,15 @@ export async function buildServer({
         });
       }
     });
+
+    // Runtime truth wins: reconcile the deployment's release pointer to
+    // whatever the relay observed actually running. Failures here must not
+    // fail the heartbeat itself.
+    try {
+      await reconcileRunningDigest(deployment, body?.runningImageDigest ?? null);
+    } catch (error) {
+      request.log.warn({ err: error }, 'runtime digest reconciliation failed');
+    }
 
     // Custom-domain auto-check piggybacks on the ~5-minute relay heartbeat —
     // the existing background cadence, no new scheduler. Best-effort: a DNS
