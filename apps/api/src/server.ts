@@ -2825,7 +2825,7 @@ export async function buildServer({
     if (jobs.length > 0) {
       await db
         .update(schema.deploymentJobs)
-        .set({ state: 'RUNNING', startedAt: new Date() })
+        .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
         .where(
           inArray(
             schema.deploymentJobs.id,
@@ -2906,6 +2906,7 @@ export async function buildServer({
           state,
           result: body as Record<string, unknown>,
           finishedAt: new Date(),
+          lastProgressAt: new Date(),
           ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
         })
         .where(eq(schema.deploymentJobs.id, id));
@@ -3084,6 +3085,19 @@ export async function buildServer({
     } catch (error) {
       request.log.warn({ err: error }, 'runtime digest reconciliation failed');
     }
+
+    // A heartbeat is a progress signal for the deployment's active mutating
+    // jobs: the relay is alive and still owes their answers, so the watchdog
+    // must not time them out on this tick's evidence.
+    await db
+      .update(schema.deploymentJobs)
+      .set({ lastProgressAt: new Date() })
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+        ),
+      );
 
     // Custom-domain auto-check piggybacks on the ~5-minute relay heartbeat —
     // the existing background cadence, no new scheduler. Best-effort: a DNS

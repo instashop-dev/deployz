@@ -32,6 +32,10 @@
       "types": "./dist/jobs.d.ts",
       "import": "./dist/jobs.js"
     },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js"
+    },
     "./queue": {
       "types": "./dist/queue.d.ts",
       "import": "./dist/queue.js"

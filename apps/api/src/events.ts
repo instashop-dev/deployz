@@ -37,6 +37,8 @@ export type DeploymentEventType =
   | 'destroy.failed'
   // Runtime observation corrected the release pointer (never a deploy claim).
   | 'deployment.reconciled'
+  // The watchdog failed a stuck mutating job (Phase 7).
+  | 'operation.timeout'
   | 'config.updated'
   | 'health.reported'
   | 'health.degraded'
