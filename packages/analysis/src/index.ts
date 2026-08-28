@@ -91,3 +91,6 @@ export {
   diagnosticExplanationSchema,
   explainDiagnostic,
 } from './diagnostic-explainer.js';
+
+export type { NormalizeErrorTextOptions } from './redact.js';
+export { normalizeErrorText, redactSecrets } from './redact.js';
