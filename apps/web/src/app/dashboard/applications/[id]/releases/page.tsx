@@ -169,10 +169,14 @@ function CreateReleaseForm({
               <Input id="gitSha" name="gitSha" placeholder="a1b2c3d" required />
             </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="migrationCommand">Migration command (optional)</Label>
-            <Input id="migrationCommand" name="migrationCommand" placeholder="npm run migrate" />
-          </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="migrationCommand">Migration command (optional)</Label>
+              <Input id="migrationCommand" name="migrationCommand" placeholder="npm run migrate" />
+              <p className="text-xs text-muted-foreground">
+                Recorded with the release for reference. Deployz does not run database
+                migrations — your application handles them on startup.
+              </p>
+            </div>
           <div className="flex items-center gap-3">
             <Button type="submit" disabled={pending}>
               {pending ? 'Creating…' : 'Create Release'}
