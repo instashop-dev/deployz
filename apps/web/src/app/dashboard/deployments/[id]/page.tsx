@@ -19,6 +19,7 @@ import {
   fetchDeploymentEvents,
   isDeploymentNotFound,
   resetRelay,
+  restartDeployment,
   rollbackDeployment,
   type ActivityEvent,
   type FleetDeploymentDetail,
@@ -309,13 +310,14 @@ function DeploymentActions({
   previousVersion: string | null;
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState<'deploy' | 'rollback' | 'disconnect' | null>(null);
+  const [open, setOpen] = useState<'deploy' | 'rollback' | 'restart' | 'disconnect' | null>(null);
   const capabilities: RelayCapabilities | null = detail.relayCapabilities;
   const canDeploy = actionSupported(capabilities, 'deploy');
   const canRollback = actionSupported(capabilities, 'rollback');
+  const canRestart = actionSupported(capabilities, 'restart');
   const canConfig = actionSupported(capabilities, 'configUpdate');
   const canDisconnect = actionSupported(capabilities, 'disconnect');
-  const anyGatedOff = !canDeploy || !canRollback || !canConfig || !canDisconnect;
+  const anyGatedOff = !canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect;
   const hasPreviousRelease = detail.previousReleaseId !== null;
 
   return (
@@ -335,6 +337,14 @@ function DeploymentActions({
           onClick={() => setOpen(open === 'rollback' ? null : 'rollback')}
         >
           Rollback
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!canRestart}
+          onClick={() => setOpen(open === 'restart' ? null : 'restart')}
+        >
+          Restart
         </Button>
         <Button asChild size="sm" variant="outline">
           <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>View Diagnostics</Link>
@@ -372,6 +382,7 @@ function DeploymentActions({
       {open === 'deploy' ? (
         <DeployUpdatePanel
           deploymentId={detail.id}
+          applicationName={detail.applicationName}
           releases={releases}
           currentReleaseId={detail.currentReleaseId}
           onDone={() => {
@@ -387,6 +398,18 @@ function DeploymentActions({
           deploymentId={detail.id}
           previousReleaseId={detail.previousReleaseId}
           previousVersion={previousVersion}
+          onDone={() => {
+            setOpen(null);
+            onChanged();
+          }}
+          onCancel={() => setOpen(null)}
+        />
+      ) : null}
+
+      {open === 'restart' ? (
+        <RestartPanel
+          deploymentId={detail.id}
+          applicationName={detail.applicationName}
           onDone={() => {
             setOpen(null);
             onChanged();
@@ -412,12 +435,14 @@ function DeploymentActions({
 
 function DeployUpdatePanel({
   deploymentId,
+  applicationName,
   releases,
   currentReleaseId,
   onDone,
   onCancel,
 }: {
   deploymentId: string;
+  applicationName: string;
   releases: Release[];
   currentReleaseId: string | null;
   onDone: () => void;
@@ -425,10 +450,12 @@ function DeployUpdatePanel({
 }) {
   const candidates = deployableReleases(releases, currentReleaseId);
   const [releaseId, setReleaseId] = useState(candidates[0]?.id ?? '');
+  const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selected = candidates.find((release) => release.id === releaseId);
 
-  async function onSubmit(): Promise<void> {
+  async function onConfirm(): Promise<void> {
     if (!releaseId) return;
     setPending(true);
     setError(null);
@@ -447,6 +474,31 @@ function DeployUpdatePanel({
         <p className="text-sm font-medium">Deploy an update</p>
         {candidates.length === 0 ? (
           <p className="text-sm text-muted-foreground">{NO_DEPLOYABLE_RELEASES_COPY}</p>
+        ) : confirming && selected ? (
+          <>
+            {/* Contractual deploy confirmation — same inline-card pattern as
+                the rollback warning, no modal. */}
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+              <p>
+                Deploy {selected.version} to {applicationName}? The application will restart
+                behind the load balancer.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button size="sm" disabled={pending} onClick={onConfirm}>
+                {pending ? 'Starting…' : 'Confirm Deploy'}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={pending} onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+              {error ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          </>
         ) : (
           <>
             <select
@@ -462,20 +514,69 @@ function DeployUpdatePanel({
               ))}
             </select>
             <div className="flex items-center gap-3">
-              <Button size="sm" disabled={pending || !releaseId} onClick={onSubmit}>
-                {pending ? 'Starting…' : 'Deploy'}
+              <Button size="sm" disabled={!releaseId} onClick={() => setConfirming(true)}>
+                Deploy
               </Button>
               <Button size="sm" variant="ghost" onClick={onCancel}>
                 Cancel
               </Button>
-              {error ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              ) : null}
             </div>
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RestartPanel({
+  deploymentId,
+  applicationName,
+  onDone,
+  onCancel,
+}: {
+  deploymentId: string;
+  applicationName: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onConfirm(): Promise<void> {
+    setPending(true);
+    setError(null);
+    try {
+      await restartDeployment(deploymentId);
+      onDone();
+    } catch {
+      setError("We couldn't restart this application. Try again in a moment.");
+      setPending(false);
+    }
+  }
+
+  return (
+    <Card data-testid="restart-panel">
+      <CardContent className="flex flex-col gap-3 py-4">
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+          <p>
+            Restart {applicationName}? The application will restart behind the load balancer. The
+            running version does not change.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button size="sm" variant="outline" disabled={pending} onClick={onConfirm}>
+            {pending ? 'Restarting…' : 'Confirm Restart'}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={pending} onClick={onCancel}>
+            Cancel
+          </Button>
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

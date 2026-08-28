@@ -210,6 +210,11 @@ export function rollbackDeployment(deploymentId: string, releaseId: string): Pro
   });
 }
 
+/** §24 "Restart application" — POST /api/deployments/:id/restart. */
+export function restartDeployment(deploymentId: string): Promise<JobResult> {
+  return postJson<JobResult>(`/api/deployments/${encodeURIComponent(deploymentId)}/restart`, {});
+}
+
 /** §24/§63 "Disconnect Deployment" — POST /api/deployments/:id/destroy. */
 export function destroyDeployment(
   deploymentId: string,
