@@ -35,7 +35,15 @@ import {
   type HealthStatus,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
-import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
+import {
+  addDomain,
+  checkDomain,
+  domainErrorCopy,
+  fetchDomainAccess,
+  removeDomain,
+  DOMAIN_STATUS_LABEL,
+  type CustomDomainView,
+} from '@/lib/domains';
 import {
   REDIS_STATUS_LABEL,
   readInfraChecks,
@@ -229,26 +237,7 @@ function DetailBody({
         </Card>
       </section>
 
-      {detail.customDomain ? (
-        <section aria-labelledby="custom-domain" className="flex flex-col gap-3">
-          <h2 id="custom-domain" className="text-base font-semibold">
-            Custom domain
-          </h2>
-          <Card>
-            <CardContent className="flex flex-wrap items-center gap-3 py-4">
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">
-                {detail.customDomain.hostname}
-              </code>
-              <span className="text-sm text-muted-foreground">
-                {DOMAIN_STATUS_LABEL[detail.customDomain.status]}
-              </span>
-              <Button asChild size="sm" variant="ghost" className="ml-auto">
-                <Link href={`/install/${detail.installLinkId}`}>Manage →</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </section>
-      ) : null}
+      <DomainCard deploymentId={detail.id} />
 
       {detail.state === 'NOT_INSTALLED' ? <InstallLinkCard detail={detail} /> : null}
 
@@ -831,6 +820,190 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
             Reconnecting issues a new link and stops the old one working. Use it if the customer
             needs to install again.
           </p>
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+// §8.1 — domain management lives IN the dashboard, not on the public install
+// page. The vendor adds, checks and removes the domain here; the customer
+// only sees DNS instructions on their install page.
+function DomainCard({ deploymentId }: { deploymentId: string }) {
+  const [domain, setDomain] = useState<CustomDomainView | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [hostname, setHostname] = useState('');
+  const [pending, setPending] = useState<'add' | 'check' | 'remove' | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load(): Promise<void> {
+      try {
+        const { domain: fetched } = await fetchDomainAccess(deploymentId);
+        if (!cancelled) {
+          setDomain(fetched);
+          setLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setLoaded(true);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [deploymentId]);
+
+  async function onAdd(): Promise<void> {
+    if (!hostname.trim()) return;
+    setPending('add');
+    setError(null);
+    try {
+      const added = await addDomain(deploymentId, hostname.trim());
+      setDomain(added);
+      setHostname('');
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function onCheck(): Promise<void> {
+    setPending('check');
+    setError(null);
+    try {
+      setDomain(await checkDomain(deploymentId));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function onRemove(): Promise<void> {
+    setPending('remove');
+    setError(null);
+    try {
+      const result = await removeDomain(deploymentId);
+      setDomain(result);
+      setConfirmRemove(false);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  if (!loaded) return null;
+
+  const errorCopy = domain !== null ? domainErrorCopy(domain.error) : null;
+
+  return (
+    <section aria-labelledby="custom-domain" className="flex flex-col gap-3">
+      <h2 id="custom-domain" className="text-base font-semibold">
+        Custom domain
+      </h2>
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-4">
+          {domain === null ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Give this deployment its own domain name.
+              </p>
+              <div className="flex items-center gap-3">
+                <input
+                  className="h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none"
+                  placeholder="app.customer.com"
+                  value={hostname}
+                  onChange={(event) => setHostname(event.target.value)}
+                  aria-label="Domain name"
+                />
+                <Button size="sm" disabled={pending === 'add' || !hostname.trim()} onClick={onAdd}>
+                  {pending === 'add' ? 'Adding…' : 'Add domain'}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">
+                  {domain.hostname}
+                </code>
+                <span className="text-sm text-muted-foreground">
+                  {DOMAIN_STATUS_LABEL[domain.status]}
+                </span>
+                {domain.url ? (
+                  <a
+                    href={domain.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary hover:underline"
+                  >
+                    Open →
+                  </a>
+                ) : null}
+              </div>
+
+              {domain.status === 'waiting_for_dns' && domain.records.length > 0 ? (
+                <div className="flex flex-col gap-2 rounded-lg border px-3 py-2.5">
+                  <p className="text-sm font-medium">
+                    Add these DNS records at the domain&apos;s provider:
+                  </p>
+                  {domain.records.map((record) => (
+                    <div key={`${record.purpose}-${record.name}`} className="flex flex-col gap-0.5">
+                      <span className="text-xs text-muted-foreground">
+                        {record.purpose === 'verification' ? 'Verification' : 'Routing'} CNAME
+                      </span>
+                      <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                        {record.name} → {record.value}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {errorCopy ? (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm">
+                  <p className="font-medium text-destructive">{errorCopy.title}</p>
+                  <p className="mt-0.5 text-muted-foreground">{errorCopy.body}</p>
+                </div>
+              ) : null}
+
+              <div className="flex items-center gap-3">
+                {domain.status !== 'removing' ? (
+                  <Button size="sm" variant="outline" disabled={pending !== null} onClick={onCheck}>
+                    {pending === 'check' ? 'Checking…' : 'Check again'}
+                  </Button>
+                ) : null}
+                {domain.status !== 'removing' ? (
+                  confirmRemove ? (
+                    <>
+                      <Button size="sm" variant="destructive" disabled={pending !== null} onClick={onRemove}>
+                        {pending === 'remove' ? 'Removing…' : 'Confirm remove'}
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => setConfirmRemove(false)}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => setConfirmRemove(true)}>
+                      Remove domain
+                    </Button>
+                  )
+                ) : (
+                  <p className="text-sm text-muted-foreground">Removing…</p>
+                )}
+              </div>
+            </>
+          )}
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
