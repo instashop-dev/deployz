@@ -136,7 +136,7 @@ test('E — several deployments switch the homepage to the fleet view', async ({
   await expect(summary).toContainText('Waiting to install');
 
   const list = page.getByTestId('home-deployment-list');
-  await expect(list.getByRole('listitem')).toHaveCount(2);
+  await expect(list.locator('tbody tr')).toHaveCount(2);
   await expect(list).toContainText(first.customerName);
   await expect(list).toContainText(second.customerName);
 
