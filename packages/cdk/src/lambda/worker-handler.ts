@@ -20,6 +20,7 @@ import { connectDb, type LambdaDb } from './db-connection.js';
 import {
   handleMessage,
   recordBuildResult,
+  sweepStuckJobs,
   type CodeBuildStateChangeEvent,
   type RepositoryFetch,
   type S3Client,
@@ -30,7 +31,12 @@ interface SqsEvent {
   readonly Records: readonly { readonly messageId: string; readonly body: string }[];
 }
 
-type WorkerEvent = SqsEvent | CodeBuildStateChangeEvent;
+/** The 15-minute EventBridge schedule that drives the stuck-job watchdog. */
+interface ScheduledEvent {
+  readonly 'detail-type': 'Scheduled Event';
+}
+
+type WorkerEvent = SqsEvent | CodeBuildStateChangeEvent | ScheduledEvent;
 
 interface BatchResponse {
   readonly batchItemFailures: { readonly itemIdentifier: string }[];
@@ -76,7 +82,7 @@ function createDeps(db: LambdaDb): WorkerDeps {
     s3: s3Client,
     async startBuild(input) {
       codeBuild ??= new CodeBuildClient({});
-      await codeBuild.send(
+      const response = await codeBuild.send(
         new StartBuildCommand({
           projectName: input.projectName,
           environmentVariablesOverride: input.environmentVariables.map((variable) => ({
@@ -85,6 +91,7 @@ function createDeps(db: LambdaDb): WorkerDeps {
           })),
         }),
       );
+      return response.build?.id ?? null;
     },
     runAnalysis: createAnalysisRunner({
       db,
@@ -107,6 +114,10 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
   if (!isSqsEvent(event)) {
     if (event['detail-type'] === 'CodeBuild Build State Change') {
       await recordBuildResult(db, event);
+    }
+    if (event['detail-type'] === 'Scheduled Event') {
+      const failed = await sweepStuckJobs(db);
+      console.log(JSON.stringify({ event: 'watchdog:sweep-complete', failedJobs: failed }));
     }
     return;
   }

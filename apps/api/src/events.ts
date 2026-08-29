@@ -29,13 +29,22 @@ export type DeploymentEventType =
   | 'rollback.requested'
   | 'rollback.completed'
   | 'rollback.failed'
+  | 'restart.requested'
+  | 'restart.completed'
+  | 'restart.failed'
   | 'destroy.requested'
   | 'destroy.completed'
   | 'destroy.failed'
+  // Runtime observation corrected the release pointer (never a deploy claim).
+  | 'deployment.reconciled'
+  // The watchdog failed a stuck mutating job (Phase 7).
+  | 'operation.timeout'
   | 'config.updated'
   | 'health.reported'
   | 'health.degraded'
+  | 'health.unhealthy'
   | 'health.recovered'
+  | 'ecs.rollout_failed'
   | 'relay.reenrollment.requested'
   // domain family — custom-domains MVP.
   | 'domain.added'

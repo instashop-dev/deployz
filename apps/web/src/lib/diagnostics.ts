@@ -88,3 +88,101 @@ export async function fetchDiagnostics(id: string): Promise<Diagnostic[]> {
     },
   ];
 }
+
+// ── Relay-observed infrastructure checks ─────────────────────────────────────
+
+/** One check as the relay observed it (verify.js emits {name, passed, detail}). */
+export interface InfraCheck {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+/** Friendly names for the raw check names the relay reports. */
+const INFRA_CHECK_LABELS: Record<string, string> = {
+  'stack-exists': 'Stack',
+  'stack-complete': 'Stack',
+  'stack-tagged': 'Stack',
+  compute: 'Compute',
+  ingress: 'Ingress',
+  database: 'Database',
+  storage: 'Storage',
+  cache: 'Redis',
+};
+
+export function infraCheckLabel(name: string): string {
+  return INFRA_CHECK_LABELS[name] ?? name;
+}
+
+/** Reads the relay's infrastructure checks out of observedState, if any. */
+export function readInfraChecks(
+  observedState: Record<string, unknown> | null,
+): InfraCheck[] {
+  const checks = (observedState as { infraHealth?: { checks?: unknown } } | null)?.infraHealth
+    ?.checks;
+  if (!Array.isArray(checks)) return [];
+  return checks.flatMap((check) => {
+    if (
+      typeof check === 'object' &&
+      check !== null &&
+      'name' in check &&
+      typeof (check as { name: unknown }).name === 'string' &&
+      'passed' in check &&
+      typeof (check as { passed: unknown }).passed === 'boolean' &&
+      'detail' in check &&
+      typeof (check as { detail: unknown }).detail === 'string'
+    ) {
+      return [check as InfraCheck];
+    }
+    return [];
+  });
+}
+
+/** "3 minutes ago" style relative time for the last relay report. */
+export function relativeTime(iso: string | null, now: Date = new Date()): string | null {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const seconds = Math.max(0, Math.round((now.getTime() - then) / 1000));
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'} ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+// ── Redis provisioning truth ─────────────────────────────────────────────────
+
+/**
+ * Provisioning states for a Redis-requiring deployment. "Required and
+ * detected" is not "provisioned": only the relay's cache check observing an
+ * actual ElastiCache resource in AWS says the cache exists.
+ */
+export type RedisProvisioningStatus = 'HEALTHY' | 'UNHEALTHY' | 'NOT_PROVISIONED' | 'NOT_REPORTING';
+
+export const REDIS_STATUS_LABEL: Record<RedisProvisioningStatus, string> = {
+  HEALTHY: 'Healthy',
+  UNHEALTHY: 'Unhealthy',
+  NOT_PROVISIONED: 'Not provisioned',
+  NOT_REPORTING: 'Not reporting',
+};
+
+/**
+ * Derives Redis provisioning from observed AWS resources, never from
+ * application analysis. Null when the application does not require Redis
+ * (no row at all).
+ */
+export function redisProvisioningStatus(
+  componentStatus: string | undefined,
+  infraChecks: readonly InfraCheck[],
+): RedisProvisioningStatus | null {
+  if (componentStatus === undefined) return null;
+  const cacheCheck = infraChecks.find((check) => check.name === 'cache');
+  if (!cacheCheck) return 'NOT_REPORTING';
+  if (!cacheCheck.passed) return 'NOT_PROVISIONED';
+  if (componentStatus === 'UNHEALTHY' || componentStatus === 'DEGRADED') return 'UNHEALTHY';
+  if (componentStatus === 'UNKNOWN') return 'NOT_REPORTING';
+  return 'HEALTHY';
+}

@@ -242,6 +242,7 @@ export const FAILURE_CODES = [
   'RDS_UNAVAILABLE',
   'AWS_PERMISSION_DENIED',
   'STACK_CREATE_FAILED',
+  'STACK_DELETE_FAILED',
   'DATABASE_CREATE_FAILED',
   'DATABASE_CONNECTION_FAILED',
   'IMAGE_PULL_FAILED',
@@ -328,6 +329,11 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   STACK_CREATE_FAILED: {
     label: 'Setup failed',
     description: "The initial setup couldn't complete.",
+    severity: 'critical',
+  },
+  STACK_DELETE_FAILED: {
+    label: 'Disconnect failed',
+    description: "The removal couldn't complete. Your data is safe.",
     severity: 'critical',
   },
   DATABASE_CREATE_FAILED: {
@@ -456,6 +462,11 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
     what: 'The initial setup in your customer’s account did not complete.',
     why: 'One of the resources being created failed, so the whole setup was rolled back.',
     fix: 'Open Technical detail for the failing resource, then ask your customer to run the install link again.',
+  },
+  STACK_DELETE_FAILED: {
+    what: 'Disconnecting this deployment did not complete.',
+    why: 'One of the resources being removed failed, so the removal stopped part-way.',
+    fix: 'Open Technical detail for the failing resource, then retry the disconnect. Your data is safe — the database and files are kept.',
   },
   DATABASE_CREATE_FAILED: {
     what: 'The database could not be created.',

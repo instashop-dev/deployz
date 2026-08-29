@@ -518,6 +518,8 @@ describe('classifyFailure — purity invariant (§20)', () => {
       { source: 'relay', signal: 'connectivity', context: { connected: false } },
       // STACK_CREATE_FAILED
       { source: 'cloudformation', signal: 'stack-create-failed' },
+      // STACK_DELETE_FAILED
+      { source: 'cloudformation', signal: 'stack-delete-failed' },
       // DATABASE_CREATE_FAILED
       { source: 'rds', signal: 'db-create-failed' },
       // DATABASE_CONNECTION_FAILED

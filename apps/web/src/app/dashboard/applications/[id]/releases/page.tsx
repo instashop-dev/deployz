@@ -11,11 +11,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { fetchDeploymentsForApplication } from '@/lib/deployments';
 import {
   RELEASE_STATUS_BADGE,
   releaseStatusLabel,
   fetchReleases,
   createRelease,
+  runningReleaseIds,
   type Release,
 } from '@/lib/releases';
 
@@ -23,7 +25,7 @@ type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'empty' }
-  | { status: 'loaded'; releases: Release[] };
+  | { status: 'loaded'; releases: Release[]; running: Set<string> };
 
 export default function ReleasesPage() {
   const params = useParams();
@@ -35,12 +37,15 @@ export default function ReleasesPage() {
     let cancelled = false;
     async function load(): Promise<void> {
       try {
-        const releases = await fetchReleases(id);
+        const [releases, deployments] = await Promise.all([
+          fetchReleases(id),
+          fetchDeploymentsForApplication(id),
+        ]);
         if (cancelled) return;
         setState(
           releases.length === 0
             ? { status: 'empty' }
-            : { status: 'loaded', releases },
+            : { status: 'loaded', releases, running: runningReleaseIds(deployments) },
         );
       } catch {
         if (!cancelled) {
@@ -61,7 +66,8 @@ export default function ReleasesPage() {
     setFormOpen(false);
     setState((current) => {
       const existing = current.status === 'loaded' ? current.releases : [];
-      return { status: 'loaded', releases: [release, ...existing] };
+      const running = current.status === 'loaded' ? current.running : new Set<string>();
+      return { status: 'loaded', releases: [release, ...existing], running };
     });
   }
 
@@ -103,7 +109,9 @@ export default function ReleasesPage() {
         </section>
       ) : null}
       {state.status === 'empty' ? <EmptyState /> : null}
-      {state.status === 'loaded' ? <ReleaseTable releases={state.releases} /> : null}
+      {state.status === 'loaded' ? (
+        <ReleaseTable releases={state.releases} running={state.running} />
+      ) : null}
     </div>
   );
 }
@@ -161,10 +169,14 @@ function CreateReleaseForm({
               <Input id="gitSha" name="gitSha" placeholder="a1b2c3d" required />
             </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="migrationCommand">Migration command (optional)</Label>
-            <Input id="migrationCommand" name="migrationCommand" placeholder="npm run migrate" />
-          </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="migrationCommand">Migration command (optional)</Label>
+              <Input id="migrationCommand" name="migrationCommand" placeholder="npm run migrate" />
+              <p className="text-xs text-muted-foreground">
+                Recorded with the release for reference. Deployz does not run database
+                migrations — your application handles them on startup.
+              </p>
+            </div>
           <div className="flex items-center gap-3">
             <Button type="submit" disabled={pending}>
               {pending ? 'Creating…' : 'Create Release'}
@@ -207,7 +219,7 @@ function EmptyState() {
   );
 }
 
-function ReleaseTable({ releases }: { releases: Release[] }) {
+function ReleaseTable({ releases, running }: { releases: Release[]; running: Set<string> }) {
   return (
     <Card>
       <CardHeader>
@@ -220,6 +232,7 @@ function ReleaseTable({ releases }: { releases: Release[] }) {
             <tr className="border-b text-left">
               <th className="pb-2 font-medium">Version</th>
               <th className="pb-2 font-medium">Status</th>
+              <th className="pb-2 font-medium">Runtime</th>
               <th className="pb-2 font-medium">Created</th>
             </tr>
           </thead>
@@ -231,6 +244,14 @@ function ReleaseTable({ releases }: { releases: Release[] }) {
                   <Badge variant={RELEASE_STATUS_BADGE[release.status]}>
                     {releaseStatusLabel(release.status)}
                   </Badge>
+                  {release.status === 'FAILED' && release.failureReason ? (
+                    <p className="mt-1 max-w-xs truncate text-xs text-muted-foreground" title={release.failureReason}>
+                      {release.failureReason}
+                    </p>
+                  ) : null}
+                </td>
+                <td className="py-2.5">
+                  {running.has(release.id) ? <Badge variant="outline">Running</Badge> : null}
                 </td>
                 <td className="py-2.5 text-muted-foreground">
                   {new Date(release.createdAt).toLocaleDateString('en-US', {

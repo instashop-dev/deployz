@@ -73,7 +73,7 @@ describe('DeployzStack', () => {
     const stack = new DeployzStack(app, 'DeployzTest');
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs('AWS::Events::Rule', 1);
+    template.resourceCountIs('AWS::Events::Rule', 2);
     template.hasResourceProperties('AWS::Events::Rule', {
       EventPattern: Match.objectLike({
         source: ['aws.codebuild'],

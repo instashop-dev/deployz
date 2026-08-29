@@ -10,6 +10,8 @@ export interface Release {
   id: string;
   version: string;
   status: ReleaseStatus;
+  /** Why the build failed; null unless status is FAILED. */
+  failureReason: string | null;
   createdAt: string;
 }
 
@@ -62,9 +64,16 @@ export async function createRelease(
     id: string;
     version: string;
     releaseStatus: ReleaseStatus;
+    failureReason: string | null;
     createdAt: string;
   };
-  return { id: row.id, version: row.version, status: row.releaseStatus, createdAt: row.createdAt };
+  return {
+    id: row.id,
+    version: row.version,
+    status: row.releaseStatus,
+    failureReason: row.failureReason ?? null,
+    createdAt: row.createdAt,
+  };
 }
 
 export const RELEASE_STATUS_BADGE: Record<ReleaseStatus, 'default' | 'secondary' | 'destructive'> = {
@@ -81,5 +90,37 @@ export const RELEASE_STATUS_LABEL: Record<ReleaseStatus, string> = {
 
 export function releaseStatusLabel(status: string): string {
   return RELEASE_STATUS_LABEL[status as ReleaseStatus] ?? status;
+}
+
+/** Copy for the deploy picker when no release qualifies. */
+export const NO_DEPLOYABLE_RELEASES_COPY =
+  'No deployable releases yet. A release must build successfully first.';
+
+/**
+ * Releases the deploy picker may offer: READY only (BUILDING may still
+ * fail, FAILED cannot run), excluding the release already running, newest
+ * first.
+ */
+export function deployableReleases(
+  releases: readonly Release[],
+  currentReleaseId: string | null,
+): Release[] {
+  return releases
+    .filter((r) => r.status === 'READY' && r.id !== currentReleaseId)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+/**
+ * The release ids currently deployed by any live deployment of the
+ * application — the releases the Runtime column marks as Running.
+ */
+export function runningReleaseIds(
+  deployments: readonly { currentReleaseId: string | null; state: string }[],
+): Set<string> {
+  return new Set(
+    deployments
+      .filter((d) => d.state !== 'DELETED' && d.currentReleaseId !== null)
+      .map((d) => d.currentReleaseId!),
+  );
 }
 

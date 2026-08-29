@@ -17,7 +17,7 @@ import {
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)\b/i;
 
 describe('§61 failure codes', () => {
-  it('defines exactly the twenty §61 taxonomy codes', () => {
+  it('defines exactly the twenty-one §61 taxonomy codes', () => {
     expect(FAILURE_CODES).toEqual([
       'AWS_SCP_BLOCKED',
       'PORT_MISMATCH',
@@ -30,6 +30,7 @@ describe('§61 failure codes', () => {
       'RDS_UNAVAILABLE',
       'AWS_PERMISSION_DENIED',
       'STACK_CREATE_FAILED',
+      'STACK_DELETE_FAILED',
       'DATABASE_CREATE_FAILED',
       'DATABASE_CONNECTION_FAILED',
       'IMAGE_PULL_FAILED',

@@ -57,6 +57,74 @@ export function deploymentStateLabel(state: string): string {
   return DEPLOYMENT_STATE_LABELS[state as DeploymentState] ?? state;
 }
 
+// ── Measured runtime health ─────────────────────────────────────────────────
+
+import type { HealthStatus as WireHealthStatus } from './deployments';
+
+export type HealthStatus = WireHealthStatus;
+
+/** Measured-health labels — the only user-facing wording for health. */
+export const HEALTH_STATUS_LABEL: Record<HealthStatus, string> = {
+  HEALTHY: 'Healthy',
+  DEGRADED: 'Degraded',
+  UNHEALTHY: 'Unhealthy',
+  UNKNOWN: 'Running — health unknown',
+};
+
+export const HEALTH_STATUS_BADGE: Record<HealthStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  HEALTHY: 'default',
+  DEGRADED: 'outline',
+  UNHEALTHY: 'destructive',
+  UNKNOWN: 'secondary',
+};
+
+/**
+ * Whether a lifecycle state carries a running application whose health is
+ * worth reporting. Not-installed/deleted deployments have nothing to measure.
+ */
+export function showHealthBadge(state: DeploymentState): boolean {
+  return state !== 'NOT_INSTALLED' && state !== 'DELETED';
+}
+
+// ── Relay connectivity + capability gating ─────────────────────────────────
+
+import type { RelayCapabilities, RelayStatus as WireRelayStatus } from './deployments';
+
+export type RelayStatus = WireRelayStatus;
+
+/** Relay connectivity labels, shared by the fleet list and detail page. */
+export const RELAY_STATUS_LABEL: Record<RelayStatus, string> = {
+  CONNECTED: 'Relay online',
+  DISCONNECTED: 'Relay offline',
+  UNKNOWN: 'Relay not connected yet',
+};
+
+/** Day-2 actions gated on the installed relay advertising the capability. */
+export type DeploymentAction = 'deploy' | 'rollback' | 'restart' | 'configUpdate' | 'disconnect';
+
+const ACTION_CAPABILITY: Record<DeploymentAction, keyof RelayCapabilities> = {
+  deploy: 'deployRelease',
+  rollback: 'rollback',
+  restart: 'restart',
+  configUpdate: 'configUpdate',
+  disconnect: 'destroy',
+};
+
+/**
+ * Whether the installed relay advertised the capability an action needs.
+ * Null capabilities (pre-capability relay) supports nothing — an enabled
+ * button over a stub executor is worse than a disabled one.
+ */
+export function actionSupported(
+  capabilities: RelayCapabilities | null,
+  action: DeploymentAction,
+): boolean {
+  return capabilities !== null && capabilities[ACTION_CAPABILITY[action]] === true;
+}
+
+export const UNSUPPORTED_ACTION_COPY =
+  'This action is not supported by the currently installed Deployz connector.';
+
 // ── §65 event-type labels (§40 families) ──────────────────────────────────
 
 /** The §40 event families (§65). Mirrors @deployz/copy-map verbatim. */
@@ -135,13 +203,19 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'rollback.requested': 'Rollback started',
   'rollback.completed': 'Rolled back',
   'rollback.failed': 'Rollback failed',
+  'restart.requested': 'Restart started',
+  'restart.completed': 'Restarted',
+  'restart.failed': 'Restart failed',
   'destroy.requested': 'Removal started',
   'destroy.completed': 'Deployment removed',
   'destroy.failed': 'Removal failed',
+  'deployment.reconciled': 'Running version corrected from AWS',
   'config.updated': 'Configuration updated',
   'health.reported': 'Health reported',
   'health.degraded': 'Health degraded',
+  'health.unhealthy': 'Health critical',
   'health.recovered': 'Back to healthy',
+  'ecs.rollout_failed': 'Deployment rollout failed',
   'relay.reenrollment.requested': 'Reconnect requested',
 
   'config.validate': 'Configuration checked',
@@ -179,6 +253,10 @@ function titleCase(value: string): string {
  */
 export function eventResultLabel(result: string | null): string | null {
   if (result === null) return null;
+  // A historical request is a fact, not ongoing state — the event-type
+  // label already says what happened, so no badge at all beats a "Pending"
+  // that reads as in-progress forever.
+  if (result === 'pending') return null;
   if (result === 'ok' || result === 'passed') return 'Succeeded';
   if (result === 'skipped') return 'Skipped';
   if (result.startsWith('failed')) return 'Failed';

@@ -46,6 +46,12 @@ export const deployments = pgTable('deployments', {
   // Postgres (not in memory) so a restart cannot reopen the enrollment.
   relayTokenHash: text('relay_token_hash'),
   relayBoundAt: timestamp('relay_bound_at', { withTimezone: true }),
+  // Relay identity, reported at enrollment and on every heartbeat. Older
+  // relays never report these — they stay null, which the UI reads as
+  // "capabilities unknown" and gates unsupported actions on.
+  relayVersion: text('relay_version'),
+  bootstrapVersion: text('bootstrap_version'),
+  relayCapabilities: jsonb('relay_capabilities').$type<Record<string, boolean>>(),
   isTestDeployment: boolean('is_test_deployment').notNull().default(false),
   lastHealthAt: timestamp('last_health_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

@@ -50,6 +50,7 @@ import {
   Tags,
   type StackProps,
 } from 'aws-cdk-lib';
+import { TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
 import {
   InstanceClass,
   InstanceSize,
@@ -80,6 +81,7 @@ import {
   ApplicationProtocol,
   ListenerAction,
   ListenerCertificate,
+  type ApplicationTargetGroup,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import {
   Effect,
@@ -910,6 +912,7 @@ const dbEnv =
       );
 
       const certificateArn = props.certificateArn;
+      let appTargets: ApplicationTargetGroup | undefined;
       if (certificateArn !== undefined) {
         const httpListener = this.loadBalancer.addListener('HttpListener', {
           port: 80,
@@ -927,7 +930,7 @@ const dbEnv =
           protocol: ApplicationProtocol.HTTPS,
           certificates: [ListenerCertificate.fromArn(certificateArn)],
         });
-        httpsListener.addTargets('AppTargets', {
+        appTargets = httpsListener.addTargets('AppTargets', {
           port: containerPort,
           protocol: ApplicationProtocol.HTTP,
           healthCheck: { path: healthCheckPath },
@@ -937,13 +940,27 @@ const dbEnv =
         const listener = this.loadBalancer.addListener('HttpListener', {
           port: 80,
         });
-        listener.addTargets('AppTargets', {
+        appTargets = listener.addTargets('AppTargets', {
           port: containerPort,
           protocol: ApplicationProtocol.HTTP,
           healthCheck: { path: healthCheckPath },
           targets: [this.fargateService],
         });
       }
+
+      // Baseline AWS-side alarm state for unhealthy targets. No notification
+      // wiring — the MVP purpose is the alarm's own state in CloudWatch, not
+      // end-user alerts.
+      appTargets.metricUnhealthyHostCount({ period: Duration.seconds(60) }).createAlarm(
+        this,
+        'UnhealthyTargetAlarm',
+        {
+          threshold: 1,
+          evaluationPeriods: 3,
+          datapointsToAlarm: 3,
+          treatMissingData: TreatMissingData.NOT_BREACHING,
+        },
+      );
 
       publicEndpoint = this.loadBalancer.loadBalancerDnsName;
 

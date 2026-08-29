@@ -381,8 +381,11 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
 /**
  * Relay write-through backed by SQS. Enqueues a CONFIG_UPDATE relay command
  * to the job queue so the worker can dispatch it to the relay Lambda in the
- * customer account. Without a queue (local dev / tests) `enqueue` reports
- * false and this degrades to a no-op stub.
+ * customer account. The message — and the durable job payload it becomes —
+ * carries KEYS ONLY: plaintext secret values never persist anywhere in the
+ * control plane. The relay fetches the effective configuration over its
+ * authenticated channel when it executes. Without a queue (local dev /
+ * tests) `enqueue` reports false and this degrades to a no-op stub.
  */
 export function createRelaySecretWriter(): ConfigSecretWriter {
   return {
@@ -390,12 +393,12 @@ export function createRelaySecretWriter(): ConfigSecretWriter {
       await enqueue({
         type: 'CONFIG_UPDATE',
         customerId,
-        entries: entries.map((e) => ({ key: e.key, value: e.value, isSecret: e.isSecret })),
+        changedKeys: entries.map((entry) => entry.key),
       });
     },
 
     async removeSecrets(customerId, keys) {
-      await enqueue({ type: 'CONFIG_UPDATE', customerId, removeKeys: [...keys] });
+      await enqueue({ type: 'CONFIG_UPDATE', customerId, removedKeys: [...keys] });
     },
   };
 }

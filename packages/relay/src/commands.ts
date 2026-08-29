@@ -2,7 +2,7 @@
  * Relay command vocabulary — the fixed set of commands the relay can execute.
  *
  * The relay is a fixed-vocabulary actor, not a general-purpose agent. It
- * understands exactly ten command types (§39). Every command carries an
+ * understands exactly eleven command types (§39). Every command carries an
  * idempotency key; re-delivery of the same key produces the same result with
  * no side effects.
  *
@@ -11,12 +11,13 @@
 
 // ── Command vocabulary (§39) ────────────────────────────────────────────────
 
-/** The ten command types the relay understands. */
+/** The command types the relay understands. */
 export const RELAY_COMMAND_TYPES = [
   'INSTALL',
   'REPORT_HEALTH',
   'DEPLOY_RELEASE',
   'ROLLBACK',
+  'RESTART',
   'CONFIG_UPDATE',
   'DESTROY',
   'MIGRATE',
@@ -155,7 +156,7 @@ export async function dispatchCommand(
   return result;
 }
 
-/** Type guard: is this string one of the ten known command types? */
+/** Type guard: is this string one of the known command types? */
 export function isKnownCommandType(value: string): value is RelayCommandType {
   return (RELAY_COMMAND_TYPES as readonly string[]).includes(value);
 }

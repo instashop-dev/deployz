@@ -20,8 +20,23 @@
 
 import type { ScheduledEvent } from 'aws-lambda';
 
+import {
+  DescribeServicesCommand,
+  DescribeTaskDefinitionCommand,
+  DescribeTasksCommand,
+  ECSClient,
+  ListTasksCommand,
+  RegisterTaskDefinitionCommand,
+  UpdateServiceCommand,
+  type RegisterTaskDefinitionCommandInput,
+} from '@aws-sdk/client-ecs';
+import {
+  DescribeTargetHealthCommand,
+  ElasticLoadBalancingV2Client,
+} from '@aws-sdk/client-elastic-load-balancing-v2';
 import { GetSecretValueCommand, SecretsManagerClient as AwsSecretsManagerClient } from '@aws-sdk/client-secrets-manager';
-import { createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
+import { DeleteStackCommand, CloudFormationClient as AwsCloudFormationClient } from '@aws-sdk/client-cloudformation';
+import { buildAuthHeaders, createAuthState, readCredential, type FetchFn, type SecretsClient } from './auth.js';
 import {
   IdempotencyStore,
   type CommandExecutor,
@@ -29,6 +44,25 @@ import {
   type RelayCommandResult,
 } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
+import {
+  createEcsDeployExecutor,
+  createEcsDeployResumer,
+  createRestartExecutor,
+  type EcsDeployClient,
+  type EcsDeployDeps,
+} from './deploy.js';
+import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
+import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
+import { readRelayIdentity } from './identity.js';
+import {
+  createDestroyExecutor,
+  createDestroyResumer,
+  type StackDeleter,
+} from './destroy.js';
+import {
+  createConfigUpdateExecutor,
+  type EffectiveConfigEntry,
+} from './config-update.js';
 import {
   createStackInstaller,
   installApplicationStack,
@@ -82,7 +116,203 @@ function getCloudFormationReader(): CloudFormationReader {
   return cloudFormationReader;
 }
 
+// Same lazy-singleton idiom for the ECS task reader behind runtime digest
+// observation: constructing the client must not happen at module load.
+let ecsTaskReader: EcsTaskReader | undefined;
+
+function getEcsTaskReader(): EcsTaskReader {
+  if (!ecsTaskReader) {
+    const client = new ECSClient({});
+    ecsTaskReader = {
+      async listTasks(input) {
+        const response = await client.send(
+          new ListTasksCommand({ cluster: input.cluster, serviceName: input.serviceName }),
+        );
+        return { taskArns: response.taskArns ?? [] };
+      },
+      async describeTasks(input) {
+        const response = await client.send(
+          new DescribeTasksCommand({ cluster: input.cluster, tasks: input.tasks }),
+        );
+        return {
+          tasks: (response.tasks ?? []).map((task) => ({
+            lastStatus: task.lastStatus,
+            containers: (task.containers ?? []).map((container) => ({
+              imageDigest: container.imageDigest,
+            })),
+          })),
+        };
+      },
+    };
+  }
+  return ecsTaskReader;
+}
+
 let stackInstaller: StackInstaller | undefined;
+
+// Lazy CloudFormation deleter for the DESTROY executor — same
+// construct-on-first-use rule as everything else AWS-touching here.
+let stackDeleter: StackDeleter | undefined;
+
+function createStackDeleter(): StackDeleter {
+  const client = new AwsCloudFormationClient({});
+  return {
+    async deleteStack(stackName) {
+      await client.send(new DeleteStackCommand({ StackName: stackName }));
+    },
+  };
+}
+
+function getStackDeleter(): StackDeleter {
+  if (!stackDeleter) {
+    stackDeleter = createStackDeleter();
+  }
+  return stackDeleter;
+}
+
+// Lazy readers behind runtime health observation — same construct-on-first-use
+// rule as the reader above.
+let ecsServiceReader: EcsServiceReader | undefined;
+let targetHealthReader: TargetHealthReader | undefined;
+
+function getEcsServiceReader(): EcsServiceReader {
+  if (!ecsServiceReader) {
+    const client = new ECSClient({});
+    ecsServiceReader = {
+      async describeServices(input) {
+        const response = await client.send(
+          new DescribeServicesCommand({ cluster: input.cluster, services: input.services }),
+        );
+        return {
+          services: (response.services ?? []).map((service) => ({
+            desiredCount: service.desiredCount ?? undefined,
+            runningCount: service.runningCount ?? undefined,
+            deployments: (service.deployments ?? []).map((deployment) => ({
+              status: deployment.status ?? undefined,
+              rolloutState: deployment.rolloutState ?? undefined,
+            })),
+          })),
+        };
+      },
+    };
+  }
+  return ecsServiceReader;
+}
+
+function getTargetHealthReader(): TargetHealthReader {
+  if (!targetHealthReader) {
+    const client = new ElasticLoadBalancingV2Client({});
+    targetHealthReader = {
+      async describeTargetHealth(input) {
+        const response = await client.send(
+          new DescribeTargetHealthCommand({ TargetGroupArn: input.targetGroupArn }),
+        );
+        return {
+          targets: (response.TargetHealthDescriptions ?? []).map((description) => ({
+            state: description.TargetHealth?.State ?? undefined,
+          })),
+        };
+      },
+    };
+  }
+  return targetHealthReader;
+}
+
+// The ECS write client behind deploy/rollback/restart. Field-by-field
+// adaptation between the seam's copy-shape and the SDK's register input —
+// AWS owns revision/status/registration fields and rejects them on register.
+let ecsDeployClient: EcsDeployClient | undefined;
+
+function getEcsDeployClient(): EcsDeployClient {
+  if (!ecsDeployClient) {
+    const client = new ECSClient({});
+    ecsDeployClient = {
+      async describeServices(input) {
+        const response = await client.send(
+          new DescribeServicesCommand({ cluster: input.cluster, services: input.services }),
+        );
+        return {
+          services: (response.services ?? []).map((service) => ({
+            desiredCount: service.desiredCount ?? undefined,
+            runningCount: service.runningCount ?? undefined,
+            taskDefinition: service.taskDefinition ?? undefined,
+            deployments: (service.deployments ?? []).map((deployment) => ({
+              status: deployment.status ?? undefined,
+              rolloutState: deployment.rolloutState ?? undefined,
+            })),
+          })),
+        };
+      },
+      async describeTaskDefinition(input) {
+        const response = await client.send(
+          new DescribeTaskDefinitionCommand({ taskDefinition: input.taskDefinition }),
+        );
+        const taskDefinition = response.taskDefinition;
+        return {
+          taskDefinition: {
+            family: taskDefinition?.family ?? undefined,
+            cpu: taskDefinition?.cpu ?? undefined,
+            memory: taskDefinition?.memory ?? undefined,
+            networkMode: taskDefinition?.networkMode ?? undefined,
+            requiresCompatibilities: taskDefinition?.requiresCompatibilities ?? undefined,
+            executionRoleArn: taskDefinition?.executionRoleArn ?? undefined,
+            taskRoleArn: taskDefinition?.taskRoleArn ?? undefined,
+            containerDefinitions: (taskDefinition?.containerDefinitions ?? []).map(
+              (container) => ({ ...container }),
+            ),
+            ...(taskDefinition?.volumes ? { volumes: taskDefinition.volumes } : {}),
+          },
+        };
+      },
+      async registerTaskDefinition(input) {
+        if (!input.family) throw new Error('Cannot register a task definition without a family');
+        // The seam copies fields as plain strings; the SDK narrows them to
+        // its enum types. The values came from DescribeTaskDefinition, so
+        // they are already valid members — the cast is the seam boundary.
+        const response = await client.send(
+          new RegisterTaskDefinitionCommand({
+            ...input,
+            family: input.family,
+          } as RegisterTaskDefinitionCommandInput),
+        );
+        const arn = response.taskDefinition?.taskDefinitionArn;
+        if (!arn) throw new Error('RegisterTaskDefinition returned no task definition ARN');
+        return { taskDefinitionArn: arn };
+      },
+      async updateService(input) {
+        await client.send(
+          new UpdateServiceCommand({
+            cluster: input.cluster,
+            service: input.service,
+            ...(input.taskDefinition !== undefined ? { taskDefinition: input.taskDefinition } : {}),
+            ...(input.forceNewDeployment !== undefined
+              ? { forceNewDeployment: input.forceNewDeployment }
+              : {}),
+          }),
+        );
+      },
+      async listTasks(input) {
+        const response = await client.send(
+          new ListTasksCommand({ cluster: input.cluster, serviceName: input.serviceName }),
+        );
+        return { taskArns: response.taskArns ?? [] };
+      },
+      async describeTasks(input) {
+        const response = await client.send(
+          new DescribeTasksCommand({ cluster: input.cluster, tasks: input.tasks }),
+        );
+        return {
+          tasks: (response.tasks ?? []).map((task) => ({
+            containers: (task.containers ?? []).map((container) => ({
+              imageDigest: container.imageDigest ?? undefined,
+            })),
+          })),
+        };
+      },
+    };
+  }
+  return ecsDeployClient;
+}
 
 function getStackInstaller(): StackInstaller {
   if (!stackInstaller) {
@@ -471,6 +701,9 @@ export function createInstallResumer(
   return async () => {
     const pending = await deps.pending.read();
     if (pending === null) return [];
+    // The pending store holds ONE command of any type; each resumer only
+    // settles its own, so a deferred deploy is never answered as an install.
+    if (pending.type !== 'INSTALL') return [];
 
     const settled = await settleInstall(deps, {
       stackName: pending.stackName,
@@ -649,13 +882,24 @@ function createDefaultInstallDeps(installationId: string): InstallExecutorDeps {
   };
 }
 
+/** The deploy-side twin of `createDefaultInstallDeps`. */
+function deployResumerDeps(installationId: string): EcsDeployDeps {
+  return {
+    cfn: getCloudFormationReader(),
+    ecs: getEcsDeployClient(),
+    pending: getPendingStore(installationId),
+    stackName: DEFAULT_STACK_NAME,
+    installationId,
+  };
+}
+
 /**
- * Default executors for the ten command types.
+ * Default executors for the command vocabulary.
  *
- * ⚠️ FIVE OF THESE ARE STILL STUBS: REPORT_HEALTH, CONFIG_UPDATE, DESTROY,
+ * ⚠️ FOUR OF THESE ARE STILL STUBS: REPORT_HEALTH, CONFIG_UPDATE, DESTROY,
  * MIGRATE and REFRESH_METADATA each log and report success without touching
- * the customer's account. The real implementations — ECS service updates,
- * migrations, stack deletion — are the remaining half of the product.
+ * the customer's account. The real implementations — config propagation,
+ * stack deletion, migrations — are the remaining half of the product.
  *
  * INSTALL is now real: it creates the published application template as a
  * CloudFormation stack, watches it to a terminal state, and reports what
@@ -663,13 +907,10 @@ function createDefaultInstallDeps(installationId: string): InstallExecutorDeps {
  * CloudFormation calls complete but that does not contain the application
  * is a failure.
  *
- * DEPLOY_RELEASE and ROLLBACK remain gated-but-unimplemented: they share
- * `createVerifyingExecutor`, which proves the application stack's expected
- * resources are present but does not deploy or roll back anything. That
- * proof is necessarily partial — see the comment on
- * `createVerifyingExecutor` for exactly what it does and does not confirm.
- * The remaining stubs still carry the same hazard and should be gated the
- * same way as each one gains a real implementation.
+ * DEPLOY_RELEASE, ROLLBACK and RESTART are real: they drive the ECS service
+ * discovered through the application stack — immutable digest pinning for
+ * deploy/rollback (see ./deploy.ts), a forced rolling redeployment for
+ * restart.
  *
  * CONFIGURE_DOMAIN and REMOVE_DOMAIN are real.
  *
@@ -702,21 +943,32 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     installationId: installDeps.installationId,
   });
 
-  const verifyingExecutor = createVerifyingExecutor((id, command) =>
-    verifyInstallation({
-      cfn: getCloudFormationReader(),
-      installationId: id,
-      ...readVerifyOptionsFromPayload(command.payload),
-    }),
-  );
+  // The deploy executors share the ECS write seam behind a lazy SDK client
+  // (same construct-on-first-use rule as the readers above).
+  const deployDeps: EcsDeployDeps = {
+    cfn: getCloudFormationReader(),
+    ecs: getEcsDeployClient(),
+    pending: getPendingStore(installDeps.installationId),
+    stackName: DEFAULT_STACK_NAME,
+    installationId: installDeps.installationId,
+  };
+
+  const destroyDeps = {
+    cfn: getCloudFormationReader(),
+    deleter: getStackDeleter(),
+    pending: getPendingStore(installDeps.installationId),
+    installationId: installDeps.installationId,
+    stackName: DEFAULT_STACK_NAME,
+  };
 
   return {
     INSTALL: createInstallExecutor(installDeps),
     REPORT_HEALTH: noop,
-    DEPLOY_RELEASE: verifyingExecutor,
-    ROLLBACK: verifyingExecutor,
+    DEPLOY_RELEASE: createEcsDeployExecutor(deployDeps),
+    ROLLBACK: createEcsDeployExecutor(deployDeps),
+    RESTART: createRestartExecutor(deployDeps),
     CONFIG_UPDATE: noop,
-    DESTROY: noop,
+    DESTROY: createDestroyExecutor(destroyDeps),
     MIGRATE: noop,
     REFRESH_METADATA: noop,
     CONFIGURE_DOMAIN: domainExecutors.CONFIGURE_DOMAIN,
@@ -747,14 +999,32 @@ export interface RelayHandlerDeps {
    * real one reads SSM on every poll.
    */
   resume?: PollDependencies['resume'];
+  /**
+   * Overrides the relay identity (account/version/capabilities) reported at
+   * enrollment and on every heartbeat. When omitted, derived from the
+   * Lambda invocation context and environment (see identity.ts). Tests
+   * inject a stub instead of fabricating a context.
+   */
+  identity?: PollDependencies['identity'];
+  /**
+   * Overrides the running-image-digest observation wired into every health
+   * report. When omitted, discovers the ECS service through the application
+   * stack and reads the digest off the running tasks.
+   */
+  observeImage?: PollDependencies['observeImage'];
+  /**
+   * Overrides the runtime health observation (ECS counts, target health,
+   * rollout state) wired into every health report.
+   */
+  observeHealth?: PollDependencies['observeHealth'];
 }
 
 /**
  * Create a relay handler function with injectable dependencies.
  *
  * The returned function matches the Lambda handler signature
- * `(event: ScheduledEvent) => Promise<void>` so it can be wired directly
- * as the CDK NodejsFunction handler.
+ * `(event: ScheduledEvent, context?) => Promise<void>` so it can be wired
+ * directly as the CDK NodejsFunction handler.
  */
 export function createRelayHandler(deps: RelayHandlerDeps) {
   const installDeps = createDefaultInstallDeps(process.env['DEPLOYZ_INSTALLATION_ID'] ?? '');
@@ -765,7 +1035,10 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   // container. On cold start it's re-created from Secrets Manager.
   let authState: ReturnType<typeof createAuthState> | undefined;
 
-  return async function relayHandler(event: ScheduledEvent): Promise<void> {
+  return async function relayHandler(
+    event: ScheduledEvent,
+    context?: { invokedFunctionArn?: string },
+  ): Promise<void> {
     const installationId = process.env['DEPLOYZ_INSTALLATION_ID'];
     const secretArn = process.env['DEPLOYZ_CREDENTIAL_SECRET_ARN'];
     const controlPlaneUrl = process.env['DEPLOYZ_CONTROL_PLANE_URL'];
@@ -804,17 +1077,82 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       }
     }
 
+    // CONFIG_UPDATE is wired here rather than in createDefaultExecutors
+    // because its config fetch needs the CURRENT auth token — the one this
+    // invocation authenticated with — and authState is only available inside
+    // the handler closure.
+    const state = authState;
+    const configExecutor = createConfigUpdateExecutor({
+      cfn: getCloudFormationReader(),
+      ecs: getEcsDeployClient(),
+      fetchEffectiveConfig: async () => {
+        const headers = buildAuthHeaders(state);
+        const response = await deps.fetchFn(
+          `${controlPlaneUrl}/api/relay/config?installationId=${encodeURIComponent(installationId)}`,
+          { headers },
+        );
+        if (response.status !== 200) {
+          throw new Error(`Config fetch returned HTTP ${response.status}`);
+        }
+        const body = (await response.json()) as { entries: EffectiveConfigEntry[] };
+        return body.entries;
+      },
+      stackName: DEFAULT_STACK_NAME,
+      installationId,
+    });
+
     const pollDeps: PollDependencies = {
       fetchFn: deps.fetchFn,
       controlPlaneUrl,
       installationId,
       enrollmentCode,
-      executors,
+      executors: { ...executors, CONFIG_UPDATE: configExecutor },
       idempotency,
       observe:
         deps.observe ??
         (() => verifyInstallation({ cfn: getCloudFormationReader(), installationId })),
-      resume: deps.resume ?? createInstallResumer(installDeps),
+      // One pending store, several resumers: each settles only its own
+      // command type, so composing them is safe.
+      resume:
+        deps.resume ??
+        (async () => {
+          const installResults = await createInstallResumer(installDeps)();
+          if (installResults.length > 0) return installResults;
+          const deployResults = await createEcsDeployResumer(
+            deployResumerDeps(installDeps.installationId),
+          )();
+          if (deployResults.length > 0) return deployResults;
+          return createDestroyResumer({
+            cfn: getCloudFormationReader(),
+            deleter: getStackDeleter(),
+            pending: getPendingStore(installationId),
+            installationId,
+            stackName: DEFAULT_STACK_NAME,
+          })();
+        }),
+      identity: deps.identity ?? readRelayIdentity(context),
+      observeImage:
+        deps.observeImage ??
+        (() =>
+          observeRunningImageDigest(
+            {
+              cfn: getCloudFormationReader(),
+              ecs: getEcsTaskReader(),
+              installationId,
+            },
+            DEFAULT_STACK_NAME,
+          )),
+      observeHealth:
+        deps.observeHealth ??
+        (() =>
+          observeRuntimeHealth(
+            {
+              cfn: getCloudFormationReader(),
+              ecs: getEcsServiceReader(),
+              elb: getTargetHealthReader(),
+            },
+            DEFAULT_STACK_NAME,
+          )),
     };
 
     const result = await pollOnce(pollDeps, authState);

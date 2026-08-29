@@ -15,9 +15,8 @@
  * The Lambda entry point (worker-handler.ts) wires the real seams; this
  * module holds no AWS clients of its own, so the logic stays testable.
  */
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
-import { normalizeErrorText } from '@deployz/analysis';
 import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob } from '@deployz/api/jobs';
 import type { QueueMessage } from '@deployz/api/queue';
@@ -35,6 +34,8 @@ export interface CodeBuildStateChangeEvent {
   readonly 'detail-type': string;
   readonly detail: {
     readonly 'build-status': string;
+    /** The build's ARN — correlates the event to the release's current build. */
+    readonly 'build-id'?: string;
     readonly 'additional-information'?: {
       readonly environment?: {
         readonly 'environment-variables'?: readonly {
@@ -42,11 +43,6 @@ export interface CodeBuildStateChangeEvent {
           readonly value: string;
         }[];
       };
-      readonly phases?: readonly {
-        readonly 'phase-type'?: string;
-        readonly 'phase-status'?: string;
-        readonly 'phase-context'?: readonly string[];
-      }[];
     };
     readonly 'exported-environment-variables'?: readonly {
       readonly name: string;
@@ -64,11 +60,12 @@ export interface WorkerDeps {
   readonly db: RuntimeDb;
   readonly fetchFn: RepositoryFetch;
   readonly s3: S3Client;
+  /** Starts a CodeBuild build and resolves its build id (ARN), or null. */
   readonly startBuild: (input: {
     projectName: string;
     environmentVariables: { name: string; value: string }[];
-  }) => Promise<void>;
-  readonly runAnalysis: (applicationId: string, options?: { force?: boolean }) => Promise<void>;
+  }) => Promise<string | null>;
+  readonly runAnalysis: (applicationId: string) => Promise<void>;
 }
 
 // ── Seams ────────────────────────────────────────────────────────────────
@@ -166,14 +163,21 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
       environmentVariables.push({ name: 'BUILD_CONTEXT', value: buildContext });
     }
 
-    await deps.startBuild({
+    const buildId = await deps.startBuild({
       projectName: requireEnv('BUILD_PROJECT_NAME'),
       environmentVariables,
     });
 
+    // Pin the release to this build attempt so a terminal event from any
+    // earlier attempt (redelivered, or racing a retried build) reads as
+    // stale instead of corrupting the result.
     await db
       .update(schema.releases)
-      .set({ buildStatus: 'BUILDING' })
+      .set({
+        buildStatus: 'BUILDING',
+        releaseStatus: 'BUILDING',
+        ...(buildId ? { currentBuildId: buildId } : {}),
+      })
       .where(eq(schema.releases.id, releaseId));
   } catch (error) {
     await failRelease(db, releaseId, error instanceof Error ? error.message : String(error));
@@ -185,7 +189,11 @@ async function failRelease(db: RuntimeDb, releaseId: string, reason: string): Pr
   console.error(`release ${releaseId} build failed: ${reason}`);
   await db
     .update(schema.releases)
-    .set({ buildStatus: 'FAILED', releaseStatus: 'FAILED' })
+    .set({
+      buildStatus: 'FAILED',
+      releaseStatus: 'FAILED',
+      failureReason: reason.slice(0, 500),
+    })
     .where(eq(schema.releases.id, releaseId));
 }
 
@@ -195,8 +203,9 @@ type ConfigUpdateMessage = Extract<QueueMessage, { type: 'CONFIG_UPDATE' }>;
 
 /**
  * Turns a config write-through into per-deployment CONFIG_UPDATE jobs. The
- * relay in each customer account picks them up on its next poll and writes
- * the values into that account's Secrets Manager.
+ * durable payload carries KEYS ONLY — plaintext secret values never persist
+ * in the control plane; the relay fetches the effective configuration over
+ * its authenticated channel when it executes.
  */
 async function configUpdate(
   db: RuntimeDb,
@@ -214,11 +223,11 @@ async function configUpdate(
       type: 'CONFIG_UPDATE',
       // Keyed on the SQS message, so a redelivery of the same write reuses
       // the job it already created while a genuinely new write makes a new
-      // one — writing the same key twice is a legitimate second job.
+      // one - writing the same key twice is a legitimate second job.
       idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${messageId}`,
       payload: {
-        ...(message.entries ? { entries: message.entries } : {}),
-        ...(message.removeKeys ? { removeKeys: message.removeKeys } : {}),
+        ...(message.changedKeys ? { changedKeys: [...message.changedKeys] } : {}),
+        ...(message.removedKeys ? { removedKeys: [...message.removedKeys] } : {}),
       },
       requestedBy: null,
     });
@@ -234,31 +243,6 @@ function readVariable(
   return variables?.find((variable) => variable.name === name)?.value;
 }
 
-const FAILED_PHASE_STATUSES = new Set(['FAULT', 'FAILED', 'CLIENT_ERROR', 'TIMED_OUT']);
-
-/**
- * Turns a CodeBuild state-change event into a human-readable failure reason:
- * which phase broke and why, instead of just the bare build status. Falls
- * back to the bare status when the event carries no phase information.
- *
- * Deterministic string assembly only — no AI involvement. (The AI-backed
- * diagnostics endpoint covers deployment jobs, not release builds.)
- */
-export function summarizeBuildFailure(event: CodeBuildStateChangeEvent): string {
-  const status = event.detail['build-status'];
-  const phases = event.detail['additional-information']?.phases;
-  const failedPhases = (phases ?? []).filter(
-    (phase) => phase['phase-status'] !== undefined && FAILED_PHASE_STATUSES.has(phase['phase-status']),
-  );
-  if (failedPhases.length === 0) {
-    return `CodeBuild reported ${status}`;
-  }
-
-  const phaseType = failedPhases[0]!['phase-type'] ?? 'UNKNOWN';
-  const contexts = failedPhases.flatMap((phase) => phase['phase-context'] ?? []).join('; ');
-  return normalizeErrorText(`Build failed in ${phaseType}: ${contexts}`, { maxLength: 500 });
-}
-
 export async function recordBuildResult(
   db: RuntimeDb,
   event: CodeBuildStateChangeEvent,
@@ -268,9 +252,44 @@ export async function recordBuildResult(
   const releaseId = readVariable(exported, 'RELEASE_ID') ?? readVariable(supplied, 'RELEASE_ID');
   if (!releaseId) return; // A build the control plane did not start.
 
+  const releaseRows = await db
+    .select()
+    .from(schema.releases)
+    .where(eq(schema.releases.id, releaseId))
+    .limit(1);
+  const release = releaseRows[0];
+  if (!release) return;
+
+  // Build-attempt correlation: an event for any build other than the one
+  // currently pinning the release is stale — a redelivery of an earlier
+  // attempt, or a terminal report racing a retry. Moving the release on it
+  // could flip a fresh success back to FAILED or resurrect an old digest.
+  // Releases with no pinned build (started before correlation existed)
+  // still accept any event while in flight.
+  const eventBuildId = event.detail['build-id'];
+  if (
+    release.currentBuildId !== null &&
+    eventBuildId !== undefined &&
+    eventBuildId !== release.currentBuildId
+  ) {
+    console.warn(
+      `ignoring stale CodeBuild event for release ${releaseId}: event build ${eventBuildId}, current build ${release.currentBuildId}`,
+    );
+    return;
+  }
+
+  // Duplicate terminal delivery for the same build: the release is already
+  // settled, re-writing the same outcome is at best a wasted write.
+  if (release.releaseStatus !== 'BUILDING') {
+    console.warn(
+      `ignoring duplicate CodeBuild event for release ${releaseId}: already ${release.releaseStatus}`,
+    );
+    return;
+  }
+
   const status = event.detail['build-status'];
   if (status !== 'SUCCEEDED') {
-    await failRelease(db, releaseId, summarizeBuildFailure(event));
+    await failRelease(db, releaseId, `CodeBuild reported ${status}`);
     return;
   }
 
@@ -295,7 +314,7 @@ export async function handleMessage(
 ): Promise<void> {
   switch (message.type) {
     case 'ANALYSE_APPLICATION':
-      await deps.runAnalysis(message.applicationId, { force: message.force });
+      await deps.runAnalysis(message.applicationId);
       return;
     case 'BUILD_RELEASE':
       await buildRelease(deps, message.releaseId);
@@ -304,4 +323,80 @@ export async function handleMessage(
       await configUpdate(deps.db, message, messageId);
       return;
   }
+}
+
+// ── Stuck-job watchdog (Phase 7) ─────────────────────────────────────────
+
+/** Suggested MVP timeouts per mutating job type. */
+const JOB_TIMEOUTS_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect)['type'], number>> = {
+  INSTALL: 60 * 60 * 1000,
+  DEPLOY_RELEASE: 20 * 60 * 1000,
+  ROLLBACK: 20 * 60 * 1000,
+  RESTART: 20 * 60 * 1000,
+  CONFIG_UPDATE: 20 * 60 * 1000,
+  DESTROY: 60 * 60 * 1000,
+};
+
+const ACTIVE_MUTATING_STATES = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'] as const;
+
+/**
+ * Fails mutating jobs whose last genuine progress signal is older than the
+ * job type's timeout. The signal is lastProgressAt — updated on relay
+ * acknowledgement, heartbeat and result — falling back to startedAt, then
+ * createdAt. A deployment row update says nothing about a job, so updatedAt
+ * is deliberately not consulted.
+ */
+export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Promise<number> {
+  const rows = await db
+    .select({ job: schema.deploymentJobs, deployment: schema.deployments })
+    .from(schema.deploymentJobs)
+    .innerJoin(schema.deployments, eq(schema.deploymentJobs.deploymentId, schema.deployments.id))
+    .where(
+      inArray(schema.deploymentJobs.state, [...ACTIVE_MUTATING_STATES]),
+    );
+
+  let failed = 0;
+  for (const { job, deployment } of rows) {
+    const timeout = JOB_TIMEOUTS_MS[job.type];
+    if (timeout === undefined) continue;
+    const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
+    if (now.getTime() - lastSignal.getTime() <= timeout) continue;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deploymentJobs)
+        .set({
+          state: 'FAILED',
+          finishedAt: now,
+          result: { timeout: true },
+        })
+        .where(eq(schema.deploymentJobs.id, job.id));
+
+      await tx
+        .update(schema.deployments)
+        .set({ state: 'FAILED' })
+        .where(eq(schema.deployments.id, deployment.id));
+
+      await tx.insert(schema.eventLogs).values({
+        actorType: 'system',
+        actorId: 'watchdog',
+        organizationId: deployment.organizationId,
+        customerId: deployment.customerId,
+        deploymentId: deployment.id,
+        jobId: job.id,
+        eventType: 'operation.timeout',
+        previousState: deployment.state,
+        requestedState: 'FAILED',
+        result: 'failure',
+        payload: {
+          jobType: job.type,
+          startedAt: job.startedAt?.toISOString() ?? null,
+          lastProgressAt: job.lastProgressAt?.toISOString() ?? null,
+          relayStatus: deployment.relayStatus,
+        },
+      });
+    });
+    failed += 1;
+  }
+  return failed;
 }

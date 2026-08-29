@@ -71,6 +71,20 @@ describe('ApplicationStack', () => {
     expect(template).toBeDefined();
   });
 
+  it('creates a baseline unhealthy-target CloudWatch alarm on the app target group', () => {
+    const { template } = synth();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      Namespace: 'AWS/ApplicationELB',
+      MetricName: 'UnHealthyHostCount',
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      Threshold: 1,
+      Period: 60,
+      EvaluationPeriods: 3,
+      DatapointsToAlarm: 3,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
   it('synthesizes without errors (Express mode)', () => {
     const { template } = synth(true);
     expect(template).toBeDefined();

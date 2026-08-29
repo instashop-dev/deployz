@@ -320,7 +320,7 @@ describe('pollOnce — command execution', () => {
     const healthBody = JSON.parse(healthReqs[0]?.body ?? '{}');
     expect(healthBody.installationId).toBe('inst-test');
     expect(healthBody.observedState).toBeDefined();
-    expect(healthBody.observedState.runningVersion).toBeNull();
+    expect(healthBody.observedState.runningImageDigest).toBeNull();
     expect(healthBody.observedState.observedConfig).toBeNull();
     expect(healthBody.observedState.infraHealth).toBeNull();
     expect(healthBody.observedState.idempotencyKeysTracked).toBeTypeOf('number');
@@ -505,5 +505,124 @@ describe('pollOnce — deferred commands', () => {
 
     expect(result.ok).toBe(true);
     expect(result.resumed).toBe(0);
+  });
+});
+
+// ── Identity reporting ───────────────────────────────────────────────────────
+
+describe('pollOnce — identity reporting', () => {
+  const identity = {
+    awsAccountId: '151955775369',
+    region: 'us-east-1',
+    relayVersion: '0.2.0',
+    bootstrapVersion: null,
+    capabilities: {
+      deployRelease: false,
+      rollback: false,
+      restart: false,
+      configUpdate: false,
+      destroy: false,
+      domainManagement: true,
+    },
+  };
+
+  it('includes identity with the registration', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({ fetchFn, identity });
+
+    await pollOnce(deps, createAuthState('inst-test', 'tok'));
+
+    // Registration flattens the identity fields into the body; the health
+    // report carries them as an identity object.
+    const registerReq = getRequests().find((r) => r.url.includes('/api/relay/register'));
+    expect(JSON.parse(registerReq?.body ?? '{}')).toMatchObject(identity);
+  });
+
+  it('includes identity with every health report', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({ fetchFn, identity });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    expect(JSON.parse(healthReq?.body ?? '{}')).toMatchObject({ identity });
+  });
+
+  it('omits the identity field entirely when none is configured', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({ fetchFn });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    expect(JSON.parse(healthReq?.body ?? '{}')).not.toHaveProperty('identity');
+  });
+
+  it('reports the observed running image digest with the health report', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      observeImage: async () => 'sha256:' + 'a'.repeat(64),
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as {
+      runningImageDigest?: string;
+      observedState?: { runningImageDigest?: string };
+    };
+    expect(body.runningImageDigest).toBe('sha256:' + 'a'.repeat(64));
+    expect(body.observedState?.runningImageDigest).toBe('sha256:' + 'a'.repeat(64));
+  });
+
+  it('reports null when digest observation is not wired', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({ fetchFn });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as { runningImageDigest?: string };
+    expect(body.runningImageDigest).toBeNull();
+  });
+
+  it('reports measured health status, components and counts when wired', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      observeHealth: async () => ({
+        healthStatus: 'DEGRADED' as const,
+        components: { application: 'HEALTHY' as const, loadBalancer: 'DEGRADED' as const },
+        desiredCount: 2,
+        runningCount: 2,
+        unhealthyTargetCount: 1,
+        deploymentRolloutState: 'COMPLETED',
+      }),
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as {
+      healthStatus?: string;
+      components?: Record<string, string>;
+      observedState?: Record<string, unknown>;
+    };
+    expect(body.healthStatus).toBe('DEGRADED');
+    expect(body.components).toEqual({ application: 'HEALTHY', loadBalancer: 'DEGRADED' });
+    expect(body.observedState?.['desiredCount']).toBe(2);
+    expect(body.observedState?.['unhealthyTargetCount']).toBe(1);
+    expect(body.observedState?.['deploymentRolloutState']).toBe('COMPLETED');
   });
 });

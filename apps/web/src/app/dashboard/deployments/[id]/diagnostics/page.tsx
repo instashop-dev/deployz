@@ -7,8 +7,15 @@ import { useEffect, useState } from 'react';
 
 import { DiagnosticCard } from '@/components/diagnostic-card';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { fetchDiagnostics, type Diagnostic } from '@/lib/diagnostics';
+import {
+  fetchDiagnostics,
+  infraCheckLabel,
+  readInfraChecks,
+  relativeTime,
+  type Diagnostic,
+} from '@/lib/diagnostics';
 import { fetchDeployment, type FleetDeploymentDetail } from '@/lib/deployments';
 
 type DiagnosticsState =
@@ -88,6 +95,9 @@ function DiagnosticsBody({
   detail: FleetDeploymentDetail;
   diagnostics: Diagnostic[];
 }) {
+  const checks = readInfraChecks(detail.observedState);
+  const lastChecked = relativeTime(detail.lastHealthAt);
+
   return (
     <>
       <div>
@@ -96,6 +106,40 @@ function DiagnosticsBody({
           {detail.applicationName} · {detail.customerName}
         </p>
       </div>
+
+      {checks.length > 0 ? (
+        <section aria-labelledby="relay-report" className="flex flex-col gap-3">
+          <h2 id="relay-report" className="text-base font-semibold">
+            Last relay report
+          </h2>
+          {lastChecked ? (
+            <p className="text-sm text-muted-foreground" data-testid="relay-last-checked">
+              Last checked {lastChecked}
+            </p>
+          ) : null}
+          <Card>
+            <CardContent className="flex flex-col gap-2 py-4">
+              <ul className="flex flex-col gap-1.5">
+                {checks.map((check) => (
+                  <li key={`${check.name}-${check.detail}`} className="flex items-baseline gap-3">
+                    <span
+                      aria-hidden
+                      className={`mt-1.5 size-2 shrink-0 rounded-full ${check.passed ? 'bg-primary' : 'bg-destructive'}`}
+                    />
+                    <span className="text-sm font-medium">{infraCheckLabel(check.name)}</span>
+                    <span className="ml-auto text-right text-xs text-muted-foreground">
+                      {check.detail}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {checks.every((check) => check.passed) ? (
+                <p className="text-sm text-muted-foreground">No active issues.</p>
+              ) : null}
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
       {diagnostics.length === 0 ? (
         <section

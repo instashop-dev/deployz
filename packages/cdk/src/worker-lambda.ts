@@ -1,6 +1,8 @@
 import { Duration } from 'aws-cdk-lib';
 import type { ISecurityGroup, IVpc } from 'aws-cdk-lib/aws-ec2';
 import { SubnetType } from 'aws-cdk-lib/aws-ec2';
+import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
+import { LambdaFunction as LambdaTarget } from 'aws-cdk-lib/aws-events-targets';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -71,6 +73,16 @@ export class WorkerLambda extends Construct {
         reportBatchItemFailures: true,
       }),
     );
+
+    // Phase 7 — the stuck-job watchdog. A 15-minute schedule invoking the
+    // same worker (its handler routes Scheduled Event to the sweep) fails
+    // mutating jobs whose last genuine progress signal exceeded the type's
+    // timeout, so no deployment stays INSTALLING/UPDATING/DELETING forever.
+    new Rule(this, 'WatchdogSchedule', {
+      description: 'Fails stuck deployment jobs whose progress timed out.',
+      schedule: Schedule.rate(Duration.minutes(15)),
+      targets: [new LambdaTarget(this.function)],
+    });
 
     const dbSecret = Secret.fromSecretCompleteArn(this, 'DbSecret', props.dbSecretArn);
     dbSecret.grantRead(this.function);

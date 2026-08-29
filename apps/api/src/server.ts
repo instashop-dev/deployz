@@ -21,6 +21,7 @@ import {
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
+  relayCapabilitiesSchema,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
 import type { RuntimeDb } from '@deployz/db';
@@ -349,24 +350,96 @@ async function resolveConfigScope(
 }
 
 /**
- * A release is owned through its application. Deploy/rollback take a
- * uuid-shaped releaseId from the client; without this check a release that
- * does not exist (or belongs to another application) is accepted and queued
- * as a job the relay can never carry out.
+ * The deploy/rollback payload contract — everything the relay needs to roll
+ * an immutable image out, derived SERVER-side from the READY release. The
+ * browser only ever names a releaseId; repository and digest are never
+ * client-supplied.
  */
-async function requireApplicationRelease(
+interface DeployPayload {
+  releaseId: string;
+  version: string;
+  imageRepository: string;
+  imageDigest: string;
+  [key: string]: unknown;
+}
+
+async function requireDeployableRelease(
   db: RuntimeDb,
   releaseId: string,
   applicationId: string,
-): Promise<void> {
+): Promise<DeployPayload> {
   requireUuidId(releaseId);
   const rows = await db
-    .select({ id: schema.releases.id })
+    .select()
     .from(schema.releases)
     .where(and(eq(schema.releases.id, releaseId), eq(schema.releases.applicationId, applicationId)))
     .limit(1);
-  if (rows.length === 0) {
+  const release = rows[0];
+  if (!release) {
     throw new NotFoundError('Release not found');
+  }
+  // The image digest arrives from CodeBuild in RepoDigests form
+  // (`repository@sha256:…`); the wire contract wants the two parts apart,
+  // with the digest matching the strict immutable form.
+  const at = release.imageDigest?.lastIndexOf('@') ?? -1;
+  const imageRepository = at > 0 ? release.imageDigest!.slice(0, at) : null;
+  const imageDigest = at > 0 ? release.imageDigest!.slice(at + 1) : null;
+  if (
+    release.releaseStatus !== 'READY' ||
+    imageRepository === null ||
+    imageDigest === null ||
+    !/^sha256:[0-9a-f]{64}$/.test(imageDigest)
+  ) {
+    throw new ApiError(
+      409,
+      'RELEASE_NOT_READY',
+      `Version ${release.version} has no deployable image yet. Wait for the build to finish or pick another release.`,
+    );
+  }
+  return { releaseId: release.id, version: release.version, imageRepository, imageDigest };
+}
+
+/**
+ * One mutating operation per deployment: before creating any mutating job,
+ * refuse if another is still active. Concurrency here means two executors
+ * racing the same ECS service/stack, with no honest way to report either
+ * outcome. A retry of the SAME command (same idempotency key) is not
+ * concurrency — it reuses its existing job.
+ */
+async function requireDeploymentIdle(
+  db: RuntimeDb,
+  deploymentId: string,
+  sameKeyIdempotencyKey?: string,
+): Promise<void> {
+  const active = await db
+    .select({ id: schema.deploymentJobs.id })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+        inArray(schema.deploymentJobs.type, [
+          'INSTALL',
+          'DEPLOY_RELEASE',
+          'ROLLBACK',
+          'RESTART',
+          'CONFIG_UPDATE',
+          'DESTROY',
+          'MIGRATION',
+          'INFRA_UPGRADE',
+        ]),
+        ...(sameKeyIdempotencyKey
+          ? [ne(schema.deploymentJobs.idempotencyKey, sameKeyIdempotencyKey)]
+          : []),
+      ),
+    )
+    .limit(1);
+  if (active.length > 0) {
+    throw new ApiError(
+      409,
+      'DEPLOYMENT_BUSY',
+      'Another deployment operation is already in progress.',
+    );
   }
 }
 
@@ -410,12 +483,20 @@ function toFleetRow(row: {
   const components = row.redisRequired
     ? { ...(observedComponents ?? {}), redis: (observedComponents?.['redis'] as string | undefined) ?? 'UNKNOWN' }
     : (observedComponents ?? null);
+  // Relay enrollment material never crosses into a dashboard response: the
+  // enrollment code re-opens enrollment and the token hash is a credential.
+  const { enrollmentCode: _enrollmentCode, relayTokenHash: _relayTokenHash, ...deployment } = row.deployment;
   return {
-    ...row.deployment,
+    ...deployment,
     awsAccountId: maskAwsAccountId(row.deployment.awsAccountId),
     relayStatus,
     healthStatus: deriveHealthStatus(row.deployment.healthStatus, relayStatus),
     components,
+    // The digest the relay last observed running in ECS, raw. Null when the
+    // relay could not observe it — never a guess from the release pointer.
+    runningImageDigest:
+      (row.deployment.observedState as { runningImageDigest?: string | null } | null)
+        ?.runningImageDigest ?? null,
     customerName: row.customerName,
     applicationName: row.applicationName,
     version: row.version,
@@ -557,6 +638,7 @@ const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
   INSTALL: 'HEALTHY',
   DEPLOY_RELEASE: 'HEALTHY',
   ROLLBACK: 'HEALTHY',
+  RESTART: 'HEALTHY',
   DESTROY: 'DELETED',
 };
 
@@ -570,6 +652,7 @@ const JOB_RESULT_EVENT: Partial<
   INSTALL: { completed: 'install.completed', failed: 'install.failed' },
   DEPLOY_RELEASE: { completed: 'deploy.completed', failed: 'deploy.failed' },
   ROLLBACK: { completed: 'rollback.completed', failed: 'rollback.failed' },
+  RESTART: { completed: 'restart.completed', failed: 'restart.failed' },
   DESTROY: { completed: 'destroy.completed', failed: 'destroy.failed' },
 };
 
@@ -1691,6 +1774,7 @@ export async function buildServer({
         id: row.id,
         version: row.version,
         status: row.releaseStatus,
+        failureReason: row.failureReason,
         createdAt: row.createdAt,
       })),
     };
@@ -1746,7 +1830,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
-    await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
+    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
     // The same rule deploy-bulk applies. Without it this route accepted a
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
@@ -1754,11 +1838,12 @@ export async function buildServer({
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DEPLOY_RELEASE',
       idempotencyKey,
-      payload: { releaseId: body.releaseId },
+      payload,
       requestedBy: request.user?.id ?? null,
     });
     if (created) {
@@ -1783,7 +1868,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
     const body = deployBulkBodySchema.parse(request.body);
-    await requireApplicationRelease(db, body.releaseId, id);
+    const payload = await requireDeployableRelease(db, body.releaseId, id);
 
     const conditions = [
       eq(schema.deployments.applicationId, id),
@@ -1814,11 +1899,42 @@ export async function buildServer({
         continue;
       }
       const idempotencyKey = `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+      const busy = await db
+        .select({ id: schema.deploymentJobs.id })
+        .from(schema.deploymentJobs)
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+            inArray(schema.deploymentJobs.type, [
+              'INSTALL',
+              'DEPLOY_RELEASE',
+              'ROLLBACK',
+              'RESTART',
+              'CONFIG_UPDATE',
+              'DESTROY',
+              'MIGRATION',
+              'INFRA_UPGRADE',
+            ]),
+            // A retry of this same release deploy reuses its job; only a
+            // DIFFERENT active operation skips this deployment.
+            ne(schema.deploymentJobs.idempotencyKey, idempotencyKey),
+          ),
+        )
+        .limit(1);
+      if (busy.length > 0) {
+        results.push({
+          deploymentId: deployment.id,
+          status: 'SKIPPED',
+          reason: 'Another deployment operation is already in progress.',
+        });
+        continue;
+      }
       const { job, created } = await createOrReuseJob(db, {
         deploymentId: deployment.id,
         type: 'DEPLOY_RELEASE',
         idempotencyKey,
-        payload: { releaseId: body.releaseId },
+        payload,
         requestedBy: request.user?.id ?? null,
       });
       results.push({
@@ -1837,16 +1953,17 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = rollbackBodySchema.parse(request.body);
-    await requireApplicationRelease(db, body.releaseId, deployment.applicationId);
     requireDeployableState(deployment);
+    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:ROLLBACK:${body.releaseId}`;
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'ROLLBACK',
       idempotencyKey,
-      payload: { releaseId: body.releaseId },
+      payload,
       requestedBy: request.user?.id ?? null,
     });
     if (created) {
@@ -1857,6 +1974,36 @@ export async function buildServer({
         eventType: 'rollback.requested',
         actorId: request.user?.id ?? null,
         releaseId: body.releaseId,
+      });
+    }
+    return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
+  });
+
+  // POST /api/deployments/:id/restart — Restart the running application.
+  // Same image, no release pointer change: a fresh ECS deployment of the
+  // current task definition.
+  app.post('/api/deployments/:id/restart', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    requireDeployableState(deployment);
+    const idempotencyKey =
+      firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:RESTART`;
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'RESTART',
+      idempotencyKey,
+      payload: {},
+      requestedBy: request.user?.id ?? null,
+    });
+    if (created) {
+      await markJobRequested({
+        deployment,
+        jobId: job.id,
+        inFlightState: BULK_DEPLOYABLE_STATES.has(deployment.state) ? 'UPDATING' : null,
+        eventType: 'restart.requested',
+        actorId: request.user?.id ?? null,
       });
     }
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
@@ -1902,8 +2049,12 @@ export async function buildServer({
       return reply.code(200).send({ jobId: null, state: 'DELETED' });
     }
 
+    // A pending DESTROY blocks every other mutating command: accepting a
+    // deploy against a stack that is about to be deleted can only produce a
+    // job whose subject disappears underneath it.
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:DESTROY`;
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DESTROY',
@@ -2437,6 +2588,7 @@ export async function buildServer({
     return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
 
+  /** The bearer token the relay presents. */
   function requireBearerToken(request: { headers: Record<string, unknown> }): string {
     const authHeader = request.headers.authorization as string | undefined;
     if (!authHeader?.startsWith('Bearer ')) {
@@ -2445,12 +2597,117 @@ export async function buildServer({
     return authHeader.slice(7);
   }
 
+  // ── Runtime digest reconciliation ──────────────────────────────────────
+  //
+  // The relay reports the sha256 digest actually running in ECS. Reconcile
+  // it against releases so a deployment whose pointer drifted (manual AWS
+  // change, repaired build, lost update) tells the truth again — but never
+  // while a mutating job is in flight, which would make the pointer
+  // ambiguous.
+
+  /** Normalizes `repository@sha256:…` and bare `sha256:…` to `sha256:…`. */
+  function digestSuffix(imageDigest: string | null): string | null {
+    if (!imageDigest) return null;
+    const at = imageDigest.lastIndexOf('@');
+    return (at >= 0 ? imageDigest.slice(at + 1) : imageDigest).toLowerCase();
+  }
+
+  type JobTypeValue = NonNullable<(typeof schema.deploymentJobs.$inferSelect)['type']>;
+  type JobStateValue = NonNullable<(typeof schema.deploymentJobs.$inferSelect)['state']>;
+
+  const MUTATING_JOB_TYPES: readonly JobTypeValue[] = [
+    'INSTALL',
+    'DEPLOY_RELEASE',
+    'ROLLBACK',
+    'RESTART',
+    'CONFIG_UPDATE',
+    'DESTROY',
+    'MIGRATION',
+    'INFRA_UPGRADE',
+  ];
+  const ACTIVE_JOB_STATES: readonly JobStateValue[] = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'];
+
+  async function reconcileRunningDigest(
+    deployment: DeploymentRow,
+    runningImageDigest: string | null,
+  ): Promise<void> {
+    const digest = digestSuffix(runningImageDigest);
+    if (!digest) return;
+
+    if (deployment.currentReleaseId) {
+      const currentRows = await db
+        .select({ imageDigest: schema.releases.imageDigest })
+        .from(schema.releases)
+        .where(eq(schema.releases.id, deployment.currentReleaseId))
+        .limit(1);
+      if (digestSuffix(currentRows[0]?.imageDigest ?? null) === digest) return; // Already truthful.
+    }
+
+    const activeJobs = await db
+      .select({ id: schema.deploymentJobs.id })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.state, ACTIVE_JOB_STATES),
+          inArray(schema.deploymentJobs.type, MUTATING_JOB_TYPES),
+        ),
+      )
+      .limit(1);
+    if (activeJobs.length > 0) return; // A job owns the pointer right now.
+
+    const releases = await db
+      .select()
+      .from(schema.releases)
+      .where(eq(schema.releases.applicationId, deployment.applicationId));
+    const matches = releases.filter(
+      (release) => release.releaseStatus === 'READY' && digestSuffix(release.imageDigest) === digest,
+    );
+    // Zero matches: the raw digest stays in observedState and the runtime
+    // version renders as unknown. More than one: the same image built under
+    // two versions — reconciling would be a guess, so it stays as-is.
+    if (matches.length !== 1) return;
+    const reconciled = matches[0]!;
+    if (reconciled.id === deployment.currentReleaseId) return;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deployments)
+        .set({
+          currentReleaseId: reconciled.id,
+          previousReleaseId: deployment.currentReleaseId,
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'deployment.reconciled',
+        actorType: 'relay',
+        actorId: deployment.installationId ?? deployment.id,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        releaseId: reconciled.id,
+        previousState: deployment.currentReleaseId,
+        requestedState: reconciled.id,
+        result: 'success',
+        payload: {
+          source: 'runtime-observation',
+          previousReleaseId: deployment.currentReleaseId,
+          reconciledReleaseId: reconciled.id,
+          imageDigest: digest,
+        },
+      });
+    });
+  }
+
   app.post('/api/relay/register', async (request, reply) => {
     const token = requireBearerToken(request);
     const body = request.body as {
       enrollmentCode?: string;
       installationId?: string;
       awsAccountId?: string;
+      relayVersion?: string;
+      bootstrapVersion?: string;
+      capabilities?: unknown;
     };
     if (!body?.enrollmentCode || !body?.installationId) {
       throw new ApiError(
@@ -2459,6 +2716,7 @@ export async function buildServer({
         'enrollmentCode and installationId are required',
       );
     }
+    const capabilitiesParsed = relayCapabilitiesSchema.safeParse(body.capabilities);
 
     // The enrollment code — not the installation id — is what identifies the
     // deployment. The id is minted by the customer's own bootstrap stack and
@@ -2538,6 +2796,9 @@ export async function buildServer({
           // §24 the customer's account id is knowable only from inside their
           // account; the relay is the only thing that can tell us.
           ...(body.awsAccountId ? { awsAccountId: body.awsAccountId } : {}),
+          ...(typeof body.relayVersion === 'string' ? { relayVersion: body.relayVersion } : {}),
+          ...(typeof body.bootstrapVersion === 'string' ? { bootstrapVersion: body.bootstrapVersion } : {}),
+          ...(capabilitiesParsed.success ? { relayCapabilities: capabilitiesParsed.data } : {}),
           ...(deployment.state === 'NOT_INSTALLED' ? { state: 'INSTALLING' as const } : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
@@ -2584,7 +2845,7 @@ export async function buildServer({
     if (jobs.length > 0) {
       await db
         .update(schema.deploymentJobs)
-        .set({ state: 'RUNNING', startedAt: new Date() })
+        .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
         .where(
           inArray(
             schema.deploymentJobs.id,
@@ -2665,6 +2926,7 @@ export async function buildServer({
           state,
           result: body as Record<string, unknown>,
           finishedAt: new Date(),
+          lastProgressAt: new Date(),
           ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
         })
         .where(eq(schema.deploymentJobs.id, id));
@@ -2734,6 +2996,13 @@ export async function buildServer({
       observedState?: Record<string, unknown>;
       healthStatus?: string;
       components?: Record<string, unknown>;
+      runningImageDigest?: string | null;
+      identity?: {
+        awsAccountId?: string;
+        relayVersion?: string;
+        bootstrapVersion?: string;
+        capabilities?: unknown;
+      };
     };
     const deployment = await requireRelayDeployment(
       body?.installationId,
@@ -2742,6 +3011,13 @@ export async function buildServer({
     );
 
     const healthStatusParsed = healthStatusSchema.safeParse(body.healthStatus);
+    // Identity rides every heartbeat (token-authenticated), so a deployment
+    // enrolled before these columns existed self-repairs its account id,
+    // relay version and capabilities without re-enrollment.
+    const identity = body?.identity;
+    const capabilitiesParsed = identity?.capabilities
+      ? relayCapabilitiesSchema.safeParse(identity.capabilities)
+      : undefined;
     // §24 per-component health rides in observed_state — the column already
     // exists for exactly this and needs no migration. The relay reports only
     // the components a deployment actually has, which is what lets the detail
@@ -2753,9 +3029,24 @@ export async function buildServer({
       componentsParsed?.success === true
         ? { ...(body.observedState ?? deployment.observedState ?? {}), components: componentsParsed.data }
         : (body.observedState ?? deployment.observedState);
+    // The runtime digest rides observedState too, so the raw truth survives
+    // even when it cannot be reconciled to a release.
+    if (body?.runningImageDigest !== undefined) {
+      (observedState as Record<string, unknown>)['runningImageDigest'] = body.runningImageDigest;
+    }
 
     const previousHealth = deployment.healthStatus;
     const nextHealth = healthStatusParsed.success ? healthStatusParsed.data : previousHealth;
+    // Edge-triggered: the rollout failure is recorded once per observed
+    // failure, not on every heartbeat while it stays failed.
+    const previousRolloutState = (
+      deployment.observedState as { deploymentRolloutState?: string } | null
+    )?.deploymentRolloutState;
+    const nextRolloutState = (observedState as Record<string, unknown> | null)?.[
+      'deploymentRolloutState'
+    ];
+    const rolloutNewlyFailed =
+      nextRolloutState === 'FAILED' && previousRolloutState !== 'FAILED';
 
     await db.transaction(async (tx) => {
       await tx
@@ -2765,6 +3056,12 @@ export async function buildServer({
           relayStatus: 'CONNECTED',
           lastHealthAt: new Date(),
           ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
+          ...(identity?.awsAccountId ? { awsAccountId: identity.awsAccountId } : {}),
+          ...(typeof identity?.relayVersion === 'string' ? { relayVersion: identity.relayVersion } : {}),
+          ...(typeof identity?.bootstrapVersion === 'string'
+            ? { bootstrapVersion: identity.bootstrapVersion }
+            : {}),
+          ...(capabilitiesParsed?.success ? { relayCapabilities: capabilitiesParsed.data } : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
 
@@ -2773,7 +3070,8 @@ export async function buildServer({
       if (nextHealth !== previousHealth) {
         await recordEvent(tx, {
           organizationId: deployment.organizationId,
-          eventType: nextHealth === 'HEALTHY' ? 'health.recovered' : 'health.degraded',
+          eventType:
+            nextHealth === 'HEALTHY' ? 'health.recovered' : nextHealth === 'UNHEALTHY' ? 'health.unhealthy' : 'health.degraded',
           actorType: 'relay',
           actorId: deployment.installationId ?? deployment.id,
           deploymentId: deployment.id,
@@ -2784,7 +3082,42 @@ export async function buildServer({
           payload: componentsParsed?.success ? { components: componentsParsed.data } : {},
         });
       }
+
+      if (rolloutNewlyFailed) {
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'ecs.rollout_failed',
+          actorType: 'relay',
+          actorId: deployment.installationId ?? deployment.id,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          result: 'failure',
+          payload: { deploymentRolloutState: 'FAILED' },
+        });
+      }
     });
+
+    // Runtime truth wins: reconcile the deployment's release pointer to
+    // whatever the relay observed actually running. Failures here must not
+    // fail the heartbeat itself.
+    try {
+      await reconcileRunningDigest(deployment, body?.runningImageDigest ?? null);
+    } catch (error) {
+      request.log.warn({ err: error }, 'runtime digest reconciliation failed');
+    }
+
+    // A heartbeat is a progress signal for the deployment's active mutating
+    // jobs: the relay is alive and still owes their answers, so the watchdog
+    // must not time them out on this tick's evidence.
+    await db
+      .update(schema.deploymentJobs)
+      .set({ lastProgressAt: new Date() })
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+        ),
+      );
 
     // Custom-domain auto-check piggybacks on the ~5-minute relay heartbeat —
     // the existing background cadence, no new scheduler. Best-effort: a DNS
@@ -2803,6 +3136,35 @@ export async function buildServer({
     }
 
     return reply.code(200).send({ received: true });
+  });
+
+  // §31 relay config fetch — the CONFIG_UPDATE executor calls this over its
+  // authenticated channel to learn the effective desired configuration
+  // before applying it. Plain values travel; secret values do NOT (they are
+  // write-only in the control plane and already live in the customer's
+  // Secrets Manager — the relay only needs their key names).
+  app.get('/api/relay/config', async (request) => {
+    const token = requireBearerToken(request);
+    const { installationId } = request.query as { installationId?: string };
+    const deployment = await requireRelayDeployment(
+      installationId,
+      token,
+      oldRelayToken(request),
+    );
+
+    const view = await getConfig(
+      deployment.applicationId,
+      deployment.customerId,
+      configStore,
+    );
+    return {
+      entries: view.effective.map((entry) => ({
+        key: entry.key,
+        isSecret: entry.isSecret,
+        ...(entry.isSecret ? {} : { value: entry.value }),
+        source: entry.source,
+      })),
+    };
   });
 
   return app;
