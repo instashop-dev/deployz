@@ -34,7 +34,7 @@ export type GithubState =
       unreachable: string[];
     };
 
-export interface GithubStateSources {
+interface GithubStateSources {
   fetchInstallations: () => Promise<GithubInstallationsResult>;
   fetchRepositories: (installationId: string) => Promise<GithubRepositoriesResult>;
 }

@@ -38,7 +38,7 @@ const PACKAGE_JSON_REGEX = /(?:^|\/)package\.json$/;
  * workspace repository look dependency-free, so every detector that asks
  * about dependencies or scripts asks about ALL of them.
  */
-function parsePackageJsons(tree: FileTree): Record<string, unknown>[] {
+export function parsePackageJsons(tree: FileTree): Record<string, unknown>[] {
   const paths = Object.keys(tree)
     .filter((path) => PACKAGE_JSON_REGEX.test(path))
     .sort((a, b) => a.split('/').length - b.split('/').length);

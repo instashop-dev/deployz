@@ -9,7 +9,7 @@
  */
 
 import type { FileTree } from './detectors.js';
-import { collectDependencyNames } from './detectors.js';
+import { collectDependencyNames, parsePackageJsons } from './detectors.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -104,30 +104,6 @@ const README_REGEX = /(?:^|\/)README(?:\.[\w.-]+)?$/i;
 const REDISS_SCHEME_REGEX = /rediss:\/\//i;
 
 // ── package.json helpers (workspace-aware; dependencies vs devDependencies) ──
-
-const PACKAGE_JSON_REGEX = /(?:^|\/)package\.json$/;
-
-/** Parse every package.json in the tree, repository root first (see detectors.ts). */
-function parsePackageJsons(tree: FileTree): Record<string, unknown>[] {
-  const paths = Object.keys(tree)
-    .filter((path) => PACKAGE_JSON_REGEX.test(path))
-    .sort((a, b) => a.split('/').length - b.split('/').length);
-
-  const parsed: Record<string, unknown>[] = [];
-  for (const path of paths) {
-    const raw = tree[path];
-    if (!raw) continue;
-    try {
-      const value = JSON.parse(raw);
-      if (typeof value === 'object' && value !== null) {
-        parsed.push(value as Record<string, unknown>);
-      }
-    } catch {
-      // A malformed manifest is "no manifest" — never a failed analysis.
-    }
-  }
-  return parsed;
-}
 
 function fieldNames(pkg: Record<string, unknown>, field: string): string[] {
   const value = pkg[field];

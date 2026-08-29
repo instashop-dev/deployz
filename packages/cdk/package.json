@@ -23,7 +23,6 @@
     "audit:deployment": "node scripts/audit-deployment.mjs"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.34",
     "@aws-sdk/client-cloudformation": "^3.1115.0",
     "@aws-sdk/client-codebuild": "^3.1115.0",
     "@aws-sdk/client-ecr": "^3.1115.0",
@@ -41,7 +40,6 @@
     "@deployz/api": "workspace:*",
     "@deployz/contracts": "workspace:*",
     "@deployz/relay": "workspace:*",
-    "ai": "^7.0.73",
     "aws-cdk-lib": "^2.180.0",
     "constructs": "^10.4.0",
     "drizzle-orm": "^0.45.2",

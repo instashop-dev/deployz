@@ -9,8 +9,6 @@ import { z } from 'zod';
 // Enum values cite the plan sections (`.omo/plans/deployz-mvp.md`) whose
 // vocabulary they implement. Copy values verbatim from packages/db/src/enums.ts.
 
-export const PACKAGE_NAME = '@deployz/contracts';
-
 // ---------------------------------------------------------------------------
 // Enums (parity-tested against @deployz/db pgEnums)
 // ---------------------------------------------------------------------------

@@ -16,7 +16,6 @@ import {
 import {
   DEFAULT_APPLICATION_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME,
-  PACKAGE_NAME,
   analysisStatusSchema,
   applicationSchema,
   compatibilityStatusSchema,
@@ -38,12 +37,6 @@ import {
   usageRecordSchema,
   userSchema,
 } from './index.js';
-
-describe('@deployz/contracts scaffold', () => {
-  it('exports the package name placeholder', () => {
-    expect(PACKAGE_NAME).toBe('@deployz/contracts');
-  });
-});
 
 // Parity law: every contracts enum is EXACTLY the live db pgEnum vocabulary —
 // sorted comparison so ordering drift in either source is visible but never

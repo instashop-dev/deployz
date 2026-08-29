@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
 
 import { serverApiUrl } from '@/lib/api-url';
 
-export interface OnboardingState {
+interface OnboardingState {
   steps: { step: string; completed: boolean }[];
   currentStep: number;
 }

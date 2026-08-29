@@ -167,9 +167,6 @@ importers:
 
   packages/cdk:
     dependencies:
-      '@ai-sdk/openai-compatible':
-        specifier: ^3.0.34
-        version: 3.0.34(zod@4.4.3)
       '@aws-sdk/client-cloudformation':
         specifier: ^3.1115.0
         version: 3.1115.0
@@ -221,9 +218,6 @@ importers:
       '@deployz/relay':
         specifier: workspace:*
         version: link:../relay
-      ai:
-        specifier: ^7.0.73
-        version: 7.0.73(zod@4.4.3)
       aws-cdk-lib:
         specifier: ^2.180.0
         version: 2.266.0(constructs@10.8.1)

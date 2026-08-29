@@ -9,7 +9,7 @@
 import { serverApiUrl } from '@/lib/api-url';
 import type { CustomDomainView } from '@/lib/domains';
 
-export interface InstallData {
+interface InstallData {
   applicationName: string;
   publisherName: string;
   customerName: string;

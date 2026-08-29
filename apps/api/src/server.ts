@@ -29,7 +29,14 @@ import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
 import { resolveExplanation } from './ai-explanation.js';
-import { createAnalysisRunner, readVendorOverrides, type AnalysisRunner } from './analysis.js';
+import {
+  createAnalysisRunner,
+  readVendorOverrides,
+  type AnalysisRunner,
+  type AttentionCheck,
+  type ReadyCheck,
+  type UnsupportedCheck,
+} from './analysis.js';
 import {
   createCheckoutSession,
   createStripe,
@@ -510,19 +517,6 @@ function toFleetRow(row: {
 // Score is the ratio of satisfied checks (ready / total), never a hardcoded
 // constant. Older/partial rows (compatibilityStatus set, no detectedMetadata
 // checks yet) degrade gracefully into a single derived check bucket.
-interface ReadyCheck {
-  label: string;
-}
-interface AttentionCheck {
-  title: string;
-  detail: string;
-  suggestedFix: string | null;
-}
-interface UnsupportedCheck {
-  title: string;
-  reason: string;
-}
-
 function computeReadiness(app: {
   analysisStatus: string;
   compatibilityStatus: string | null;

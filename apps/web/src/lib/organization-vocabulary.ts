@@ -61,13 +61,6 @@ export const ROLE_LABELS: Record<OrgRole, string> = {
   member: 'Member',
 };
 
-/** §65 plain-language description of what each role may do. */
-export const ROLE_DESCRIPTIONS: Record<OrgRole, string> = {
-  owner: 'Full control, including billing, team and deleting the organization.',
-  admin: 'Can manage applications, deployments and the team.',
-  member: 'Can view and work with applications and deployments.',
-};
-
 /** Roles that can be granted to someone else. Ownership moves by transfer. */
 export const ASSIGNABLE_ROLES: readonly ('admin' | 'member')[] = ['admin', 'member'];
 

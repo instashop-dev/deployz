@@ -11,7 +11,7 @@
 // forwarded to `GET /api/github/setup`, which does the work and redirects on
 // to the dashboard.
 
-export interface GithubSetupInput {
+interface GithubSetupInput {
   /** `installation_id` from the query string, absent if GitHub omitted it. */
   readonly installationId: string | undefined;
   readonly signedIn: boolean;
@@ -19,7 +19,7 @@ export interface GithubSetupInput {
   readonly apiUrl: string;
 }
 
-export type GithubSetupRoute =
+type GithubSetupRoute =
   | { readonly kind: 'missing' }
   | { readonly kind: 'sign-in'; readonly href: string }
   | { readonly kind: 'bind'; readonly href: string };

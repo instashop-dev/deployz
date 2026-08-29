@@ -369,6 +369,18 @@ function getCacheCleanupClient(): CacheCleanupClient {
 
 // ── Default command executors ────────────────────────────────────────────────
 
+function logCommandExecuted(command: RelayCommand): void {
+  console.log(
+    JSON.stringify({
+      event: 'relay:command-executed',
+      commandId: command.id,
+      type: command.type,
+      deploymentId: command.deploymentId,
+      idempotencyKey: command.idempotencyKey,
+    }),
+  );
+}
+
 /**
  * A verifying executor: run the command's underlying step (still a stub for
  * INSTALL, DEPLOY_RELEASE and ROLLBACK today), then prove the account backs
@@ -391,15 +403,7 @@ export function createVerifyingExecutor(
   verify: (installationId: string, command: RelayCommand) => Promise<VerificationResult>,
 ): CommandExecutor {
   return async (command) => {
-    console.log(
-      JSON.stringify({
-        event: 'relay:command-executed',
-        commandId: command.id,
-        type: command.type,
-        deploymentId: command.deploymentId,
-        idempotencyKey: command.idempotencyKey,
-      }),
-    );
+    logCommandExecuted(command);
 
     const installationId = process.env['DEPLOYZ_INSTALLATION_ID'] ?? '';
 
@@ -605,15 +609,7 @@ async function runRequestedRecovery(
  */
 export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecutor {
   return async (command) => {
-    console.log(
-      JSON.stringify({
-        event: 'relay:command-executed',
-        commandId: command.id,
-        type: command.type,
-        deploymentId: command.deploymentId,
-        idempotencyKey: command.idempotencyKey,
-      }),
-    );
+    logCommandExecuted(command);
 
     if (!deps.templateUrl) {
       return failure(
@@ -918,15 +914,7 @@ function deployResumerDeps(installationId: string): EcsDeployDeps {
  */
 function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string, CommandExecutor> {
   const noop: CommandExecutor = async (command) => {
-    console.log(
-      JSON.stringify({
-        event: 'relay:command-executed',
-        commandId: command.id,
-        type: command.type,
-        deploymentId: command.deploymentId,
-        idempotencyKey: command.idempotencyKey,
-      }),
-    );
+    logCommandExecuted(command);
     return {
       commandId: command.id,
       idempotencyKey: command.idempotencyKey,

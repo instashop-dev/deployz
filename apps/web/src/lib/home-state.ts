@@ -51,7 +51,7 @@ export interface FleetSummary {
 }
 
 /** Deployments the vendor still has: deleted ones leave the homepage. */
-export function activeDeployments(deployments: FleetDeployment[]): FleetDeployment[] {
+function activeDeployments(deployments: FleetDeployment[]): FleetDeployment[] {
   return deployments.filter(
     (deployment) => deployment.state !== 'DELETED' && deployment.deletedAt === null,
   );
