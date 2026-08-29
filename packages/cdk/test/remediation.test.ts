@@ -381,7 +381,7 @@ describe('getRemediation — complete coverage', () => {
     for (const code of FAILURE_CODES) {
       codes.add(code);
     }
-    expect(codes.size).toBe(20);
+    expect(codes.size).toBe(21);
     for (const code of FAILURE_CODES) {
       const result = getRemediation(code);
       expect(result.code).toBe(code);
