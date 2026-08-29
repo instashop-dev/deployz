@@ -38,6 +38,11 @@ import migration0008 from '../../../db/drizzle/0008_github_installations.sql';
 import migration0009 from '../../../db/drizzle/0009_ai_explanation_cache.sql';
 import migration0010 from '../../../db/drizzle/0010_needy_nuke.sql';
 import migration0011 from '../../../db/drizzle/0011_material_captain_cross.sql';
+import migration0012 from '../../../db/drizzle/0012_tense_ultragirl.sql';
+import migration0013 from '../../../db/drizzle/0013_natural_marvex.sql';
+import migration0014 from '../../../db/drizzle/0014_lethal_bastion.sql';
+import migration0015 from '../../../db/drizzle/0015_tan_blue_blade.sql';
+import migration0016 from '../../../db/drizzle/0016_married_wolf_cub.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -63,6 +68,11 @@ const MIGRATION_SQL: Record<string, string> = {
   '0009_ai_explanation_cache': migration0009,
   '0010_needy_nuke': migration0010,
   '0011_material_captain_cross': migration0011,
+  '0012_tense_ultragirl': migration0012,
+  '0013_natural_marvex': migration0013,
+  '0014_lethal_bastion': migration0014,
+  '0015_tan_blue_blade': migration0015,
+  '0016_married_wolf_cub': migration0016,
 };
 
 interface RdsSecret {

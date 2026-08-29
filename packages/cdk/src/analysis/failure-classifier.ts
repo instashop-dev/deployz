@@ -408,6 +408,14 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
     return 'STACK_CREATE_FAILED';
   }
 
+  // 8b. STACK_DELETE_FAILED — CloudFormation stack deletion failed.
+  if (
+    event.source === 'cloudformation' &&
+    event.signal === 'stack-delete-failed'
+  ) {
+    return 'STACK_DELETE_FAILED';
+  }
+
   // 9. DATABASE_CREATE_FAILED — RDS database creation failed.
   if (
     event.source === 'rds' &&
