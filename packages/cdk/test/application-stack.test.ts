@@ -758,6 +758,50 @@ describe('ApplicationStack', () => {
       });
     });
 
+    it('falls back to the load balancer URL when a fallbackToLoadBalancerUrl parameter is empty', () => {
+      const { template } = synth(false, {
+        secretParameters: [
+          {
+            parameterId: 'param_PublicUrl',
+            secretKey: 'publicUrl',
+            envName: 'NEXT_PUBLIC_WEBAPP_URL',
+            fallbackToLoadBalancerUrl: true,
+          },
+        ],
+      });
+
+      // A condition on the parameter being provided...
+      const conditions = template.toJSON().Conditions ?? {};
+      expect(Object.keys(conditions)).toContain('paramPublicUrlProvided');
+
+      // ...and the secret's publicUrl value resolves through Fn::If:
+      // parameter when provided, http://<ALB DNS> otherwise.
+      const secretString = JSON.stringify(
+        Object.values(template.findResources('AWS::SecretsManager::Secret')).map(
+          (resource) => resource['Properties']['SecretString'],
+        ),
+      );
+      expect(secretString).toContain('paramPublicUrlProvided');
+      expect(secretString).toContain('http://');
+      expect(secretString).toContain('DNSName');
+    });
+
+    it('keeps the raw parameter for fallbackToLoadBalancerUrl specs in express mode', () => {
+      const { template } = synth(true, {
+        secretParameters: [
+          {
+            parameterId: 'param_PublicUrl',
+            secretKey: 'publicUrl',
+            envName: 'NEXT_PUBLIC_WEBAPP_URL',
+            fallbackToLoadBalancerUrl: true,
+          },
+        ],
+      });
+
+      const conditions = template.toJSON().Conditions ?? {};
+      expect(Object.keys(conditions)).not.toContain('paramPublicUrlProvided');
+    });
+
     it('replaces the default curl health check with healthCheckShellCommand', () => {
       const { template } = synth(false, { healthCheckShellCommand: 'node -e "x"' });
 

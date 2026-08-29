@@ -13,10 +13,11 @@ function generateSecret(): string {
  * Builds the CloudFormation parameter values for an INSTALL job (§31).
  * Phase 1: the runtime-v1 template is Documenso-shaped, so every install
  * receives these; unrelated images simply ignore the injected env vars.
- * - publicUrl comes from the deployment's custom domain and MUST exist
- *   before INSTALL — the app cannot learn its URL later (no CONFIG_UPDATE).
- *   When no domain exists the key is omitted and the template default ('')
- *   applies; do not install a URL-dependent app that way.
+ * - publicUrl comes from the deployment's custom domain when one exists
+ *   before INSTALL. When no domain exists the key is omitted and the
+ *   template falls back to the load balancer's own URL (see
+ *   SecretParameterSpec.fallbackToLoadBalancerUrl), so a domain-less
+ *   install still boots with a usable URL.
  * - Auth/encryption secrets are generated per install and travel only
  *   through the job payload into NoEcho parameters and Secrets Manager.
  * - SMTP parameters are declared in the template but not yet populated —

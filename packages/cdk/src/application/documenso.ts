@@ -27,7 +27,15 @@ export const DOCUMENSO_APPLICATION_PROPS = {
     NEXT_PRIVATE_INTERNAL_WEBAPP_URL: 'http://localhost:3000',
   },
   secretParameters: [
-    { parameterId: 'param_PublicUrl', secretKey: 'publicUrl', envName: 'NEXT_PUBLIC_WEBAPP_URL' },
+    {
+      parameterId: 'param_PublicUrl',
+      secretKey: 'publicUrl',
+      envName: 'NEXT_PUBLIC_WEBAPP_URL',
+      // Documenso derives its cookie domain from this URL at boot and
+      // crashes on an empty string — a domain-less install must still get a
+      // usable URL (the ALB's own), verified live 2026-08-30.
+      fallbackToLoadBalancerUrl: true,
+    },
     { parameterId: 'param_NextauthSecret', secretKey: 'nextauthSecret', envName: 'NEXTAUTH_SECRET' },
     { parameterId: 'param_EncryptionKey', secretKey: 'encryptionKey', envName: 'NEXT_PRIVATE_ENCRYPTION_KEY' },
     { parameterId: 'param_EncryptionSecondaryKey', secretKey: 'encryptionSecondaryKey', envName: 'NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY' },

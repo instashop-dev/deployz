@@ -215,6 +215,18 @@ export function restartDeployment(deploymentId: string): Promise<JobResult> {
   return postJson<JobResult>(`/api/deployments/${encodeURIComponent(deploymentId)}/restart`, {});
 }
 
+/**
+ * Recovery for a failed FIRST install — POST /api/deployments/:id/retry-install.
+ * The relay is authorized to clean up the failed stack and its orphaned
+ * blockers before recreating; refused once any install has succeeded.
+ */
+export function retryInstall(deploymentId: string): Promise<JobResult> {
+  return postJson<JobResult>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/retry-install`,
+    {},
+  );
+}
+
 /** §24/§63 "Disconnect Deployment" — POST /api/deployments/:id/destroy. */
 export function destroyDeployment(
   deploymentId: string,
