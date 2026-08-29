@@ -14,7 +14,7 @@
  * configured.
  */
 
-import { generateObject } from 'ai';
+import { APICallError, NoObjectGeneratedError, generateObject } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { z } from 'zod';
 
@@ -97,6 +97,19 @@ export interface AiGatewayResponse {
 export interface AiGenerateOptions {
   /** Abort the request when this signal fires (the caller's hard timeout). */
   readonly abortSignal?: AbortSignal | undefined;
+  /**
+   * Tag identifying the caller in the observability log line (e.g.
+   * `"explainDiagnostic"`). Cosmetic only — never sent to the gateway.
+   */
+  readonly label?: string | undefined;
+  /**
+   * Per-call completion cap, for callers whose output is larger than the
+   * default `MAX_OUTPUT_TOKENS` allows. Reasoning models charge their
+   * `reasoning_content` to this same budget, so a big structured output needs
+   * headroom on top of the JSON itself — measured live: repository analysis
+   * hit the 800 default exactly (`800 out`) on every attempt and truncated.
+   */
+  readonly maxOutputTokens?: number | undefined;
 }
 
 /**
@@ -139,6 +152,66 @@ export class AiGatewayNotAvailableError extends Error {
     );
     this.name = 'AiGatewayNotAvailableError';
   }
+}
+
+// ── Retry ───────────────────────────────────────────────────────────────────
+
+/**
+ * Bounds how hard `generate` retries a failed request. Every field is
+ * optional and defaults to a single retry with a 500ms backoff, so existing
+ * `createAiGateway(config, fetchFn)` call sites need no change.
+ */
+export interface AiRetryOptions {
+  /**
+   * Total attempts, including the first. Hard-capped at 3 regardless of what
+   * is passed — this is a spend guard, not a tunable. Default 2.
+   */
+  readonly maxAttempts?: number;
+  /** Delay before a retry, in ms. Default 500. */
+  readonly backoffMs?: number;
+  /** Injectable so tests can retry without waiting out the real delay. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+const DEFAULT_MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS_CAP = 3;
+const DEFAULT_BACKOFF_MS = 500;
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** The `name` an error carries, if it has one — without assuming it extends `Error`. */
+function errorName(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('name' in error)) return undefined;
+  return String((error as { name: unknown }).name);
+}
+
+/**
+ * Classifies which failures are worth a retry.
+ *
+ * Retryable: a network/fetch failure (`TypeError`, an `APICallError` with no
+ * HTTP status, or the SDK's own `AI_RetryError`), a 429 or 5xx, and a
+ * malformed structured-output response (`NoObjectGeneratedError`) — the
+ * spec's "repair retry", since asking the model again is often enough to get
+ * valid JSON the second time.
+ *
+ * Never retryable: an aborted request (retrying would ignore the caller's
+ * own cancellation), or a 4xx other than 429 (the request itself is
+ * malformed, so retrying repeats the same failure and burns spend for
+ * nothing). `AiGatewayNotAvailableError` never reaches this function at all —
+ * the unconfigured stub throws it before any retry loop exists.
+ */
+function isRetryableError(error: unknown, abortSignal: AbortSignal | undefined): boolean {
+  if (abortSignal?.aborted || errorName(error) === 'AbortError') return false;
+
+  if (NoObjectGeneratedError.isInstance(error)) return true;
+
+  if (APICallError.isInstance(error)) {
+    return error.statusCode === undefined || error.statusCode === 429 || error.statusCode >= 500;
+  }
+
+  return error instanceof TypeError || errorName(error) === 'AI_RetryError';
 }
 
 // ── Configuration ───────────────────────────────────────────────────────────
@@ -188,11 +261,13 @@ export interface AiGatewayConfig {
  * is omitted entirely for an unauthenticated gateway.
  *
  * `fetchFn` is injectable so tests can assert the request the SDK actually
- * builds without any network access.
+ * builds without any network access. `retryOptions` bounds the retry loop
+ * described on `AiRetryOptions`; omitted, it defaults to one retry.
  */
 export function createAiGateway(
   config: AiGatewayConfig | undefined,
   fetchFn?: typeof fetch,
+  retryOptions?: AiRetryOptions,
 ): AiGateway {
   if (!config) {
     return {
@@ -219,23 +294,71 @@ export function createAiGateway(
     ...(fetchFn ? { fetch: fetchFn } : {}),
   });
 
+  const maxAttempts = Math.min(
+    Math.max(1, retryOptions?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS),
+    MAX_ATTEMPTS_CAP,
+  );
+  const backoffMs = retryOptions?.backoffMs ?? DEFAULT_BACKOFF_MS;
+  const sleep = retryOptions?.sleep ?? defaultSleep;
+
   return {
     async generate(prompt, schema, options = {}) {
-      const { object, usage } = await generateObject({
-        model: provider(config.model),
-        schema,
-        prompt,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
-      });
+      const label = options.label ?? 'generate';
+      const start = Date.now();
 
-      return {
-        object,
-        usage: {
-          promptTokens: usage.inputTokens ?? 0,
-          completionTokens: usage.outputTokens ?? 0,
-        },
+      // Emits the ONE observability line the spec requires, after the final
+      // attempt (success or failure). Never logs prompt/response content.
+      const emit = (ok: boolean, attempts: number, usage?: TokenUsage): void => {
+        console.log(
+          JSON.stringify({
+            ai: label,
+            model: config.model,
+            latencyMs: Date.now() - start,
+            attempts,
+            ok,
+            ...(usage ? { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens } : {}),
+          }),
+        );
       };
+
+      for (let attempt = 1; ; attempt += 1) {
+        // Checked up front too, not just in the catch below: a signal that
+        // is already aborted before the first attempt must still short
+        // circuit rather than let one more request through.
+        if (options.abortSignal?.aborted) {
+          const error = new DOMException('The operation was aborted.', 'AbortError');
+          emit(false, attempt);
+          throw error;
+        }
+
+        try {
+          const { object, usage } = await generateObject({
+            model: provider(config.model),
+            schema,
+            prompt,
+            maxOutputTokens: options.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
+            // Retries are owned by the loop below (its own bound and
+            // backoff), not the SDK's default — letting both retry would
+            // multiply attempts past `maxAttempts`.
+            maxRetries: 0,
+            ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+          });
+
+          const tokenUsage: TokenUsage = {
+            promptTokens: usage.inputTokens ?? 0,
+            completionTokens: usage.outputTokens ?? 0,
+          };
+          emit(true, attempt, tokenUsage);
+          return { object, usage: tokenUsage };
+        } catch (error) {
+          const canRetry = attempt < maxAttempts && isRetryableError(error, options.abortSignal);
+          if (!canRetry) {
+            emit(false, attempt);
+            throw error;
+          }
+          await sleep(backoffMs);
+        }
+      }
     },
   };
 }

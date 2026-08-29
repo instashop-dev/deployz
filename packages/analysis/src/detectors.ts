@@ -173,6 +173,17 @@ export function detectDockerfile(tree: FileTree): DetectorFinding {
   };
 }
 
+/**
+ * All Dockerfile candidates in the tree, ranked the same way `detectDockerfile`
+ * picks its single best guess. Used by the AI repository-analysis fallback to
+ * detect a genuinely ambiguous multi-Dockerfile repository (the
+ * `multiple-dockerfiles` unresolved question), distinct from
+ * `detectDockerfile`'s "pick the most likely one" behavior.
+ */
+export function listDockerfileCandidates(tree: FileTree): string[] {
+  return findFiles(tree, DOCKERFILE_REGEX).sort(compareDockerfileCandidates);
+}
+
 // 2. Framework
 // ---------------------------------------------------------------------------
 
@@ -432,6 +443,102 @@ export function detectPostgresql(tree: FileTree): DetectorFinding {
     detected: true,
     value: detected,
     details: `PostgreSQL drivers detected: ${detected.join(', ')}`,
+  };
+}
+
+/** Required-vs-present evidence for PostgreSQL: mirrors `RedisRequirement`, minus the confidence enum. */
+export interface PostgresRequirement {
+  required: boolean;
+  evidence: string[];
+}
+
+const PG_CONNECTION_ENV_VARS = [
+  'DATABASE_URL',
+  'POSTGRES_URL',
+  'POSTGRESQL_URL',
+  'POSTGRES_HOST',
+  'POSTGRES_DB',
+] as const;
+
+const COMPOSE_IMAGE_REGEX = /^\s*image:\s*['"]?([^\s'"]+)['"]?/gim;
+
+/**
+ * Assess whether a repository's PostgreSQL usage is backed by more than a
+ * bare dependency. A driver/ORM library sitting unused in package.json is
+ * not enough evidence to provision a managed database — `required` is only
+ * true when a driver/ORM dependency AND at least one independent signal
+ * (a Prisma postgresql provider, a known connection env var, or a
+ * postgres/postgis docker-compose image) are both present.
+ *
+ * `detectPostgresql`'s `detected` (library presence) is unaffected by this
+ * function and keeps driving verdicts/§20 checks — only RDS provisioning
+ * (`metadata.postgres.required`) is gated here.
+ */
+export function assessPostgres(tree: FileTree): PostgresRequirement {
+  const evidence: string[] = [];
+  const deps = collectDependencyNames(tree);
+
+  let hasDependency = false;
+  for (const driver of PG_DRIVERS) {
+    if (deps.includes(driver)) {
+      hasDependency = true;
+      evidence.push(`${driver} dependency in package.json`);
+    }
+  }
+
+  let hasIndependentEvidence = false;
+
+  // Prisma schema declaring a postgresql provider.
+  if (deps.includes('@prisma/client')) {
+    for (const path of findFiles(tree, /schema\.prisma$/i)) {
+      const content = tree[path];
+      if (content && /provider\s*=\s*"postgresql"/i.test(content)) {
+        hasDependency = true;
+        hasIndependentEvidence = true;
+        evidence.push('@prisma/client dependency in package.json');
+        evidence.push(`provider = "postgresql" in ${path}`);
+      }
+    }
+  }
+
+  // A known connection env var referenced in an env file, docker-compose, or source.
+  for (const name of PG_CONNECTION_ENV_VARS) {
+    const envFileRegex = new RegExp(`^${name}\\s*[=:]`, 'm');
+    const composeRegex = new RegExp(`\\b${name}\\s*[=:]`);
+    const processEnvRegex = new RegExp(`process\\.env\\.${name}\\b`);
+
+    for (const [path, content] of Object.entries(tree)) {
+      if (!content) continue;
+      if (/^\.env(\.\w+)?$/i.test(path) && envFileRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`${name} referenced in ${path}`);
+      } else if (/^docker-compose\.ya?ml$/i.test(path) && composeRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`${name} referenced in ${path}`);
+      } else if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) && processEnvRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`process.env.${name} referenced in ${path}`);
+      }
+    }
+  }
+
+  // A postgres/postgis image in docker-compose.
+  const dcContent = findFileContent(tree, /^docker-compose\.ya?ml$/i);
+  if (dcContent) {
+    const regex = new RegExp(COMPOSE_IMAGE_REGEX.source, COMPOSE_IMAGE_REGEX.flags);
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(dcContent)) !== null) {
+      const image = match[1];
+      if (image && /postgres|postgis/i.test(image)) {
+        hasIndependentEvidence = true;
+        evidence.push(`docker-compose service using a PostgreSQL/PostGIS image (${image})`);
+      }
+    }
+  }
+
+  return {
+    required: hasDependency && hasIndependentEvidence,
+    evidence: [...new Set(evidence)],
   };
 }
 
@@ -716,5 +823,87 @@ export function detectExternalServices(tree: FileTree): DetectorFinding {
     detected: true,
     value: detected,
     details: `External services detected: ${detected.join(', ')}`,
+  };
+}
+
+// 13. Package manager
+// ---------------------------------------------------------------------------
+
+// Checked in priority order: a lockfile can only belong to one of these, but
+// a repository is only ever expected to carry one at a time.
+const LOCKFILE_MANAGERS: { pattern: RegExp; name: string }[] = [
+  { pattern: /(?:^|\/)pnpm-lock\.yaml$/, name: 'pnpm' },
+  { pattern: /(?:^|\/)yarn\.lock$/, name: 'yarn' },
+  { pattern: /(?:^|\/)bun\.lockb?$/, name: 'bun' },
+  { pattern: /(?:^|\/)package-lock\.json$/, name: 'npm' },
+];
+
+/**
+ * Detect the package manager from the root package.json "packageManager"
+ * field (a Corepack pin, e.g. "pnpm@9.0.0") or, failing that, a lockfile
+ * present anywhere in the tree. The packageManager field wins when both are
+ * present — it is an explicit pin, a lockfile is only circumstantial evidence.
+ */
+export function detectPackageManager(tree: FileTree): DetectorFinding {
+  const rootRaw = tree['package.json'];
+  if (rootRaw) {
+    try {
+      const rootPkg = JSON.parse(rootRaw) as Record<string, unknown>;
+      const pin = rootPkg['packageManager'];
+      if (typeof pin === 'string' && pin.trim()) {
+        const name = pin.split('@')[0];
+        if (name) {
+          return {
+            detector: 'package-manager',
+            detected: true,
+            value: name,
+            details: `Package manager pinned via package.json "packageManager": ${pin}`,
+          };
+        }
+      }
+    } catch {
+      // A malformed root manifest is "no pin" — fall through to lockfile detection.
+    }
+  }
+
+  for (const { pattern, name } of LOCKFILE_MANAGERS) {
+    if (Object.keys(tree).some((path) => pattern.test(path))) {
+      return {
+        detector: 'package-manager',
+        detected: true,
+        value: name,
+        details: `Package manager detected via lockfile (${name})`,
+      };
+    }
+  }
+
+  return { detector: 'package-manager', detected: false };
+}
+
+// 14. Build command
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the application build command from package.json "build" scripts,
+ * repository root first, same ordering as `parsePackageJsons`.
+ */
+export function detectBuildCommand(tree: FileTree): DetectorFinding {
+  const commands: string[] = [];
+
+  for (const [name, command] of collectScripts(tree)) {
+    if (name === 'build') {
+      commands.push(command);
+    }
+  }
+
+  if (commands.length === 0) {
+    return { detector: 'build-command', detected: false };
+  }
+
+  return {
+    detector: 'build-command',
+    detected: true,
+    value: commands,
+    details: `Build commands detected: ${commands.join('; ')}`,
   };
 }

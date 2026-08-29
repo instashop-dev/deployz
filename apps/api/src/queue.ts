@@ -15,7 +15,12 @@ import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 
 /** Every message shape the worker understands. */
 export type QueueMessage =
-  | { readonly type: 'ANALYSE_APPLICATION'; readonly applicationId: string }
+  | {
+      readonly type: 'ANALYSE_APPLICATION';
+      readonly applicationId: string;
+      /** Re-analyse even when the Task 6 commit-SHA cache would otherwise short-circuit. */
+      readonly force?: boolean | undefined;
+    }
   | { readonly type: 'BUILD_RELEASE'; readonly releaseId: string }
   | {
       readonly type: 'CONFIG_UPDATE';

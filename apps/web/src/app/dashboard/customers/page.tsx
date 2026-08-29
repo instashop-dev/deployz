@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fetchCustomers, formatDate } from '@/lib/customers';
 
 export default async function CustomersPage() {
@@ -45,28 +46,28 @@ export default async function CustomersPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left">
-                  <th className="pb-2 font-medium">Name</th>
-                  <th className="pb-2 font-medium">Email</th>
-                  <th className="pb-2 font-medium">Company</th>
-                  <th className="pb-2 font-medium">Created</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Created</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {customers.map((customer) => (
-                  <tr key={customer.id} className="border-b last:border-0">
-                    <td className="py-2.5 font-medium">{customer.name}</td>
-                    <td className="py-2.5 text-muted-foreground">{customer.email}</td>
-                    <td className="py-2.5 text-muted-foreground">{customer.company}</td>
-                    <td className="py-2.5 text-muted-foreground">
+                  <TableRow key={customer.id}>
+                    <TableCell className="font-medium">{customer.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{customer.email}</TableCell>
+                    <TableCell className="text-muted-foreground">{customer.company}</TableCell>
+                    <TableCell className="text-muted-foreground">
                       {formatDate(customer.createdAt)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}

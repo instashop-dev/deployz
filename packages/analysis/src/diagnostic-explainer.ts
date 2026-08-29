@@ -38,6 +38,7 @@ import {
   type FailureCode,
   type StructuredEvent,
 } from './failure-codes.js';
+import { redactSecrets } from './redact.js';
 
 // ── Structured-output schema (S10: what/why/fix ONLY) ───────────────────────
 
@@ -112,13 +113,13 @@ export function buildDiagnosticPrompt(
       lines.push(`    statusCode: ${event.error.statusCode}`);
     }
     if (event.error.message !== undefined) {
-      lines.push(`    message: ${event.error.message}`);
+      lines.push(`    message: ${redactSecrets(event.error.message)}`);
     }
   }
   if (event.context !== undefined) {
     lines.push('  context:');
     for (const [key, value] of Object.entries(event.context)) {
-      lines.push(`    ${key}: ${JSON.stringify(value)}`);
+      lines.push(`    ${key}: ${redactSecrets(JSON.stringify(value))}`);
     }
   }
   lines.push(

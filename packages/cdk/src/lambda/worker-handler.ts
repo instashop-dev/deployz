@@ -11,6 +11,8 @@
 import { CodeBuildClient, StartBuildCommand } from '@aws-sdk/client-codebuild';
 import { PutObjectCommand, S3Client as SdkS3Client } from '@aws-sdk/client-s3';
 
+import { createAiGateway } from '@deployz/analysis';
+import { resolveAiGatewayConfig } from '@deployz/api/ai-config';
 import { createAnalysisRunner } from '@deployz/api/analysis';
 import type { QueueMessage } from '@deployz/api/queue';
 
@@ -97,6 +99,7 @@ function createDeps(db: LambdaDb): WorkerDeps {
       githubAppId: process.env.GITHUB_APP_ID,
       githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
       githubFixtureMode: process.env.GITHUB_FIXTURE_MODE === 'true',
+      aiGateway: createAiGateway(resolveAiGatewayConfig(process.env)),
     }),
   };
 }

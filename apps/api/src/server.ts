@@ -12,6 +12,7 @@ import { z } from 'zod';
 
 import {
   createAiGateway,
+  normalizeErrorText,
   type AiGateway,
   type StructuredEvent,
 } from '@deployz/analysis';
@@ -769,6 +770,7 @@ export async function buildServer({
       githubAppId,
       githubAppPrivateKey,
       githubFixtureMode: githubFixtureMode ?? env.githubFixtureMode,
+      aiGateway,
     });
   app.post('/api/github/webhook', async (request, reply) => {
     const webhookSecret = githubWebhookSecret ?? env.githubWebhookSecret;
@@ -1520,6 +1522,11 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
+    // Task 6 commit-SHA analysis cache: `force` bypasses it (the vendor's
+    // explicit "Re-analyse" action) — an auto-trigger sends no body and
+    // lets the cache decide.
+    const body = request.body as { force?: boolean } | undefined;
+    const force = body?.force === true;
     await db
       .update(schema.applications)
       .set({ analysisStatus: 'ANALYZING', updatedBy: request.user?.id ?? null })
@@ -1530,12 +1537,12 @@ export async function buildServer({
     // execution environment as soon as the reply is sent — the application
     // would sit at ANALYZING for ever. Without a queue (local dev) the
     // long-lived server can and does run it inline.
-    const queued = await enqueue({ type: 'ANALYSE_APPLICATION', applicationId: id });
+    const queued = await enqueue({ type: 'ANALYSE_APPLICATION', applicationId: id, force });
     if (!queued) {
       // runAnalysis catches every internal failure and persists FAILED
       // rather than throwing; the `.catch` is a second net so a rejected
       // promise can never surface as an unhandled rejection.
-      await runAnalysis(id).catch(() => {});
+      await runAnalysis(id, { force }).catch(() => {});
     }
     return reply.code(202).send({ status: 'ANALYZING' });
   });
@@ -2359,26 +2366,39 @@ export async function buildServer({
     // surfaced, which left "Technical detail" empty on every failure.
     const jobResult = failedJob?.result as { error?: string } | null;
 
-    // §16: the AI explanation is built from the deterministic code plus
-    // STRUCTURED fields only. There is no raw-log field here, and none may be
-    // added — the data boundary is what keeps customer log content out of the
-    // AI payload. (jobResult.error above is shown to the vendor, never sent.)
-    const event: StructuredEvent = {
-      source: 'deployment',
-      ...(failedJob?.type ? { action: failedJob.type } : {}),
-      context: { deploymentState: deployment.state },
-    };
+    // §22/§23/§42: a KNOWN failure code is unambiguous — the deterministic
+    // §65 copy map is the whole answer and AI is never consulted. Only
+    // UNKNOWN, where the deterministic classifier had nothing to go on, is
+    // worth spending a model call on.
+    let explanation = remediation;
+    if (failedJob && failureCode === 'UNKNOWN') {
+      // §16: the AI explanation is built from the deterministic code plus
+      // STRUCTURED fields only. There is no raw-log field here except this
+      // one — `error.message` is the single free-text slot the boundary
+      // permits, and it carries only the normalized, redacted, truncated
+      // form of the job's error (never the raw text shown to the vendor
+      // below).
+      const errorMessage =
+        typeof jobResult?.error === 'string' && jobResult.error.length > 0
+          ? normalizeErrorText(jobResult.error, { maxLength: 500 })
+          : undefined;
+      const event: StructuredEvent = {
+        source: 'deployment',
+        ...(failedJob.type ? { action: failedJob.type } : {}),
+        ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
+        context: { deploymentState: deployment.state },
+      };
 
-    // Generated once per attempt and cached; `remediation` is the fallback for
-    // every path where AI is unavailable, so the copy map stays the single
-    // source of this copy (§65). Never throws, never touches deployment state.
-    const explanation = failedJob
-      ? await resolveExplanation(
-          { db, gateway: aiGateway },
-          { jobId: failedJob.id, failureCode, event },
-          remediation,
-        )
-      : remediation;
+      // Generated once per attempt and cached; `remediation` is the fallback
+      // for every path where AI is unavailable, so the copy map stays the
+      // single source of this copy (§65). Never throws, never touches
+      // deployment state.
+      explanation = await resolveExplanation(
+        { db, gateway: aiGateway },
+        { jobId: failedJob.id, failureCode, event },
+        remediation,
+      );
+    }
 
     return {
       failureCode,

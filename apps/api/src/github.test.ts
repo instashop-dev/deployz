@@ -16,6 +16,7 @@ import {
   createAppJwt,
   InMemoryGithubInstallationStore,
   createInstallationToken,
+  fetchHeadSha,
   fetchRepositoryTreeEntries,
   getFileTreeForAnalysis,
   GITHUB_FIXTURE_FILE_TREES,
@@ -257,7 +258,14 @@ describe('github — fixture-backed list helpers', () => {
 
   it('lists fixture repositories for a known installation', async () => {
     const repos = await listRepositories('fixture-install-1', { fixtureMode: true });
-    expect(repos.map((r) => r.name)).toEqual(['express-api', 'legacy-redis', 'bullmq-worker', 'static-api']);
+    expect(repos.map((r) => r.name)).toEqual([
+      'express-api',
+      'legacy-redis',
+      'bullmq-worker',
+      'static-api',
+      'nextjs-prisma',
+      'monorepo',
+    ]);
     expect(repos[0]?.fullName).toBe('deployz-demo/express-api');
   });
 
@@ -492,6 +500,35 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('nested/.env.example');
   });
 
+  it('includes a lockfile as an empty-content entry without fetching its blob (§18 package-manager detection)', async () => {
+    const calls: string[] = [];
+    const fetchFn: FetchFn = async (url) => {
+      calls.push(url);
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 20 },
+            // Deliberately over ANALYSIS_MAX_FILE_BYTES — the point of the
+            // empty-content entry is that this content is NEVER fetched.
+            { path: 'pnpm-lock.yaml', type: 'blob', sha: 'sha-lock', size: 500_000 },
+          ],
+        });
+      }
+      return makeFetchResponse(200, {
+        content: Buffer.from('{}').toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(tree).toEqual({ 'package.json': '{}', 'pnpm-lock.yaml': '' });
+    // One tree call + one blob call for package.json only — the lockfile's
+    // sha is never requested.
+    expect(calls).toHaveLength(2);
+    expect(calls.some((u) => u.includes('sha-lock'))).toBe(false);
+  });
+
   it('skips a file whose size exceeds ANALYSIS_MAX_FILE_BYTES', async () => {
     const fetchFn: FetchFn = async (url) => {
       if (url.includes('/git/trees/')) {
@@ -516,6 +553,31 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     };
     const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
     expect(tree).toEqual({});
+  });
+});
+
+// Task 6: commit-SHA analysis cache — resolves the branch head sha so
+// runApplicationAnalysis can decide whether a re-analysis is redundant.
+// Best-effort by design: any non-200 degrades to `undefined` rather than
+// throwing, since a broken cache lookup must never become a failure reason.
+describe('github — fetchHeadSha (commit-SHA analysis cache)', () => {
+  const REF = { owner: 'acme', repo: 'widgets', branch: 'main' };
+
+  it('returns the sha from a recorded 200', async () => {
+    let capturedUrl = '';
+    const fetchFn: FetchFn = async (url) => {
+      capturedUrl = url;
+      return makeFetchResponse(200, { sha: 'abc123' });
+    };
+    const sha = await fetchHeadSha(REF, 'tok', fetchFn);
+    expect(capturedUrl).toBe('https://api.github.com/repos/acme/widgets/commits/main');
+    expect(sha).toBe('abc123');
+  });
+
+  it('returns undefined on a 404', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(404, { message: 'Not Found' });
+    const sha = await fetchHeadSha(REF, 'tok', fetchFn);
+    expect(sha).toBeUndefined();
   });
 });
 
@@ -625,7 +687,14 @@ describe('github — server routes over PGlite', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = response.json() as { repositories: Array<{ name: string }> };
-    expect(body.repositories.map((r) => r.name)).toEqual(['express-api', 'legacy-redis', 'bullmq-worker', 'static-api']);
+    expect(body.repositories.map((r) => r.name)).toEqual([
+      'express-api',
+      'legacy-redis',
+      'bullmq-worker',
+      'static-api',
+      'nextjs-prisma',
+      'monorepo',
+    ]);
   });
 
   it('requires an installationId on the repos route', async () => {
@@ -690,15 +759,17 @@ describe('github — server routes over PGlite', () => {
   });
 });
 
-// Keep the fixture shape honest for the E2E: the fixture org has the four
+// Keep the fixture shape honest for the E2E: the fixture org has the six
 // §216 repos (ready with Postgres, needs attention, ready with Redis,
-// ready with no database).
-it('fixture installation exposes the §216 four-repo shape', () => {
+// ready with no database, ready with Next.js + Prisma, and a monorepo).
+it('fixture installation exposes the §216 six-repo shape', () => {
   expect(GITHUB_FIXTURE_INSTALLATIONS).toHaveLength(1);
   expect(GITHUB_FIXTURE_INSTALLATIONS[0]?.repositories.map((r) => r.name)).toEqual([
     'express-api',
     'legacy-redis',
     'bullmq-worker',
     'static-api',
+    'nextjs-prisma',
+    'monorepo',
   ]);
 });

@@ -221,6 +221,15 @@ describe('createAiGateway — spend limit', () => {
     expect(recorded[0]?.body.max_tokens).toBe(MAX_OUTPUT_TOKENS);
   });
 
+  it('honours a per-call maxOutputTokens override', async () => {
+    const recorded: RecordedRequest[] = [];
+    const gateway = createAiGateway(config, recordingFetch(recorded));
+
+    await gateway.generate('prompt', schema, { maxOutputTokens: 2500 });
+
+    expect(recorded[0]?.body.max_tokens).toBe(2500);
+  });
+
   it('reports the usage the gateway returned', async () => {
     const gateway = createAiGateway(config, recordingFetch([]));
 
@@ -286,5 +295,134 @@ describe('createAiGateway — cancellation', () => {
 
     await expect(pending).rejects.toThrow();
     expect(sawSignal).toBe(true);
+  });
+});
+
+// ==========================================================================
+// Retry — bounded retries on transient failures, one repair retry on a
+// malformed structured-output response
+// ==========================================================================
+
+describe('createAiGateway — retry', () => {
+  /** A fetch stub whose responses are scripted call-by-call. */
+  function scriptedFetch(responses: Array<() => Response>): {
+    fetchFn: typeof fetch;
+    callCount: () => number;
+  } {
+    let calls = 0;
+    const fetchFn = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      const index = calls;
+      calls += 1;
+      const make = responses[index] ?? responses[responses.length - 1];
+      if (!make) throw new Error('scriptedFetch: no response scripted');
+      return make();
+    }) as typeof fetch;
+    return { fetchFn, callCount: () => calls };
+  }
+
+  function jsonResponse(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  const successBody = {
+    id: 'chatcmpl-test',
+    object: 'chat.completion',
+    created: 0,
+    model: 'test-model',
+    choices: [
+      {
+        index: 0,
+        message: { role: 'assistant', content: JSON.stringify(modelOutput) },
+        finish_reason: 'stop',
+      },
+    ],
+    usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+  };
+
+  const malformedBody = {
+    id: 'chatcmpl-test',
+    object: 'chat.completion',
+    created: 0,
+    model: 'test-model',
+    choices: [
+      {
+        index: 0,
+        message: { role: 'assistant', content: 'not json' },
+        finish_reason: 'stop',
+      },
+    ],
+    usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+  };
+
+  it('retries once on a 500 and succeeds', async () => {
+    const { fetchFn, callCount } = scriptedFetch([
+      () => jsonResponse(500, { error: 'server error' }),
+      () => jsonResponse(200, successBody),
+    ]);
+    const gateway = createAiGateway(config, fetchFn, { sleep: async () => {} });
+
+    const response = await gateway.generate('prompt', schema);
+
+    expect(response.object).toEqual(modelOutput);
+    expect(callCount()).toBe(2);
+  });
+
+  it('retries once on a 429', async () => {
+    const { fetchFn, callCount } = scriptedFetch([
+      () => jsonResponse(429, { error: 'rate limited' }),
+      () => jsonResponse(200, successBody),
+    ]);
+    const gateway = createAiGateway(config, fetchFn, { sleep: async () => {} });
+
+    const response = await gateway.generate('prompt', schema);
+
+    expect(response.object).toEqual(modelOutput);
+    expect(callCount()).toBe(2);
+  });
+
+  it('does not retry a 400', async () => {
+    const { fetchFn, callCount } = scriptedFetch([
+      () => jsonResponse(400, { error: 'bad request' }),
+    ]);
+    const gateway = createAiGateway(config, fetchFn, { sleep: async () => {} });
+
+    await expect(gateway.generate('prompt', schema)).rejects.toThrow();
+    expect(callCount()).toBe(1);
+  });
+
+  it('does not retry after abort', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { fetchFn, callCount } = scriptedFetch([() => jsonResponse(200, successBody)]);
+    const gateway = createAiGateway(config, fetchFn, { sleep: async () => {} });
+
+    await expect(
+      gateway.generate('prompt', schema, { abortSignal: controller.signal }),
+    ).rejects.toThrow();
+    expect(callCount()).toBeLessThanOrEqual(1);
+  });
+
+  it('gives up after maxAttempts', async () => {
+    const { fetchFn, callCount } = scriptedFetch([() => jsonResponse(500, { error: 'server error' })]);
+    const gateway = createAiGateway(config, fetchFn, { maxAttempts: 2, sleep: async () => {} });
+
+    await expect(gateway.generate('prompt', schema)).rejects.toThrow();
+    expect(callCount()).toBe(2);
+  });
+
+  it('retries once on malformed structured output', async () => {
+    const { fetchFn, callCount } = scriptedFetch([
+      () => jsonResponse(200, malformedBody),
+      () => jsonResponse(200, successBody),
+    ]);
+    const gateway = createAiGateway(config, fetchFn, { sleep: async () => {} });
+
+    const response = await gateway.generate('prompt', schema);
+
+    expect(response.object).toEqual(modelOutput);
+    expect(callCount()).toBe(2);
   });
 });

@@ -504,6 +504,22 @@ export const GITHUB_FIXTURE_INSTALLATIONS: readonly GithubFixtureInstallation[] 
         private: false,
         defaultBranch: 'main',
       },
+      {
+        id: 'fixture-repo-5',
+        name: 'nextjs-prisma',
+        fullName: 'deployz-demo/nextjs-prisma',
+        description: 'Next.js app with Prisma and a required PostgreSQL database.',
+        private: false,
+        defaultBranch: 'main',
+      },
+      {
+        id: 'fixture-repo-6',
+        name: 'monorepo',
+        fullName: 'deployz-demo/monorepo',
+        description: 'pnpm workspace monorepo — the API app is nested under apps/api.',
+        private: false,
+        defaultBranch: 'main',
+      },
     ],
   },
 ];
@@ -626,6 +642,13 @@ const ENV_SAMPLE_REGEX = /(?:^|\/)\.env\.(?:example|template|sample)$/i;
 // the path rather than on the file's contents.
 const HEALTH_ROUTE_FILE_REGEX =
   /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
+// Lockfiles the §18 package-manager detector needs — matched by BASENAME
+// only (not `isRelevantPath`'s path-prefix shapes): their presence is the
+// signal, never their content, so they are never blob-fetched and never
+// count against ANALYSIS_MAX_FILES (see the lockfile loop in
+// buildFileTreeForAnalysis below).
+const LOCKFILE_BASENAME_REGEX =
+  /^(?:pnpm-lock\.yaml|yarn\.lock|package-lock\.json|bun\.lockb?|bun\.lock)$/;
 
 function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
@@ -648,6 +671,13 @@ function isRelevantPath(path: string): boolean {
   }
   if (SOURCE_EXTENSION_REGEX.test(path)) return true;
   return false;
+}
+
+/** A lockfile at any depth, matched by basename — see LOCKFILE_BASENAME_REGEX. */
+function isLockfilePath(path: string): boolean {
+  if (isIgnoredPath(path)) return false;
+  const basename = path.split('/').pop() ?? path;
+  return LOCKFILE_BASENAME_REGEX.test(basename);
 }
 
 // Priority order for trimming to ANALYSIS_MAX_FILES when a repo has more
@@ -752,6 +782,33 @@ export async function fetchRepositoryTreeEntries(
   return data.tree ?? [];
 }
 
+// Resolves a branch's current head commit sha — the Task 6 commit-SHA
+// analysis cache uses this to decide whether a re-analysis would produce the
+// same result as the one already stored. Best-effort: any non-200 (branch
+// not found, rate limited, transient error) degrades to `undefined` rather
+// than throwing, since a broken cache lookup must never become a failure
+// reason for the analysis itself.
+export async function fetchHeadSha(
+  ref: RepositoryRef,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<string | undefined> {
+  const url = `${GITHUB_API_BASE}/repos/${ref.owner}/${ref.repo}/commits/${encodeURIComponent(ref.branch)}`;
+  const response = await fetchFn(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${installationToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (response.status < 200 || response.status >= 300) {
+    return undefined;
+  }
+  const data = (await response.json()) as { sha?: string };
+  return data.sha;
+}
+
 // Fetches a single blob's content (base64-decoded to a UTF-8 string) by its
 // git object sha — one call per relevant file, capped by ANALYSIS_MAX_FILES /
 // ANALYSIS_MAX_FILE_BYTES in `buildFileTreeForAnalysis` below.
@@ -825,19 +882,38 @@ export async function buildFileTreeForAnalysis(
     },
   );
   await Promise.all(workers);
+
+  // Lockfiles can exceed ANALYSIS_MAX_FILE_BYTES and their content is never
+  // read — only their presence is the §18 package-manager detection signal.
+  // Added as empty-content entries, independent of isRelevantPath's size cap
+  // and ANALYSIS_MAX_FILES (a repo's lockfile must never lose a slot to an
+  // unrelated source file).
+  for (const entry of entries) {
+    if (entry.type === 'blob' && isLockfilePath(entry.path)) {
+      tree[entry.path] = '';
+    }
+  }
+
   return tree;
 }
 
 // §216 fixture file trees, keyed by the fixture repo's `fullName` (the same
 // string `applications.repo_full_name` holds once a fixture repo is
 // "selected" — there is no separate repo-id column on the row). Mirrors the
-// three-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
+// six-repo shape in GITHUB_FIXTURE_INSTALLATIONS: express-api is fully
 // compatible (Dockerfile + HEALTHCHECK + /health + Postgres + migration
 // script); legacy-redis has an unsupported Redis setup (Redis Stack modules)
 // so it reliably exercises the NOT_COMPATIBLE path end-to-end without real
 // GitHub credentials; bullmq-worker is the same otherwise-READY shape as
 // express-api plus a supported, high-confidence Redis requirement,
-// exercising the "Redis — managed automatically" ready path end-to-end.
+// exercising the "Redis — managed automatically" ready path end-to-end;
+// nextjs-prisma (spec Fixture 1) is a Next.js + Prisma app whose PostgreSQL
+// requirement is backed by both a Prisma `postgresql` provider and a
+// DATABASE_URL reference — the required-vs-present evidence gating from the
+// postgres provisioning task; monorepo (spec Fixture 4) is a pnpm workspace
+// whose only application (and only Dockerfile) lives under apps/api, with no
+// root start script — it exercises Dockerfile-candidate ranking across
+// nested paths and the §15 'monorepo-target' unresolved question.
 export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   'deployz-demo/express-api': {
     'Dockerfile': [
@@ -862,6 +938,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       'app.listen(process.env.PORT || 3000);',
       '',
     ].join('\n'),
+    '.env.example': 'DATABASE_URL=\n',
   },
   'deployz-demo/legacy-redis': {
     'package.json': JSON.stringify({
@@ -935,6 +1012,87 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       "import express from 'express';",
       'const app = express();',
       "app.get('/health', (_req, res) => res.json({ ok: true }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+  },
+  // Next.js + Prisma, spec Fixture 1: a Prisma `postgresql` provider AND a
+  // DATABASE_URL reference — the two independent signals `assessPostgres`
+  // requires alongside the `@prisma/client` dependency for
+  // `postgres.required: true` (RDS provisioning). Otherwise READY-shaped
+  // (Dockerfile + HEALTHCHECK + a file-routed /health endpoint + a migration
+  // script), and package-manager/build-command detection via the root
+  // `packageManager` pin and `scripts.build`.
+  'deployz-demo/nextjs-prisma': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'RUN npm run build',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["npm", "start"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'nextjs-prisma',
+      packageManager: 'pnpm@9.0.0',
+      scripts: { build: 'next build', start: 'next start', 'db:migrate': 'prisma migrate deploy' },
+      dependencies: { next: '^14.2.0', '@prisma/client': '^5.14.0' },
+      devDependencies: { prisma: '^5.14.0' },
+    }),
+    'prisma/schema.prisma': [
+      'datasource db {',
+      '  provider = "postgresql"',
+      '  url      = env("DATABASE_URL")',
+      '}',
+      '',
+    ].join('\n'),
+    '.env.example': ['DATABASE_URL=', 'NEXTAUTH_SECRET=', ''].join('\n'),
+    'app/api/health/route.ts': [
+      "export async function GET() {",
+      '  return Response.json({ ok: true });',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  // Monorepo, spec Fixture 4: a pnpm workspace whose only application (and
+  // only Dockerfile) lives under apps/api — exercises `detectDockerfile`'s
+  // shallower-wins ranking across nested paths (there is only one candidate
+  // here, but it is two levels deep, not at the root) and the §15
+  // 'monorepo-target' unresolved question (>=3 package.json files, no root
+  // start script, no root Dockerfile).
+  'deployz-demo/monorepo': {
+    'pnpm-workspace.yaml': ['packages:', '  - apps/*', ''].join('\n'),
+    'pnpm-lock.yaml': '',
+    'package.json': JSON.stringify({
+      name: 'monorepo',
+      private: true,
+      packageManager: 'pnpm@9',
+    }),
+    'apps/web/package.json': JSON.stringify({
+      name: 'web',
+      scripts: { build: 'next build', dev: 'next dev' },
+      dependencies: { next: '^14.2.0' },
+    }),
+    'apps/api/package.json': JSON.stringify({
+      name: 'api',
+      scripts: { start: 'node src/index.js' },
+      dependencies: { express: '^4.18.0' },
+    }),
+    'apps/api/Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY apps/api/package.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY apps/api/src ./src',
+      'EXPOSE 3000',
+      'CMD ["node", "src/index.js"]',
+    ].join('\n'),
+    'apps/api/src/index.js': [
+      "const express = require('express');",
+      'const app = express();',
       'app.listen(process.env.PORT || 3000);',
       '',
     ].join('\n'),

@@ -7,7 +7,7 @@
  */
 
 import type { FileTree } from './detectors.js';
-import type { DetectorFinding } from './detectors.js';
+import type { DetectorFinding, PostgresRequirement } from './detectors.js';
 import {
   detectDockerfile,
   detectFramework,
@@ -15,12 +15,15 @@ import {
   detectHealthEndpoint,
   detectEnvVars,
   detectPostgresql,
+  assessPostgres,
   detectLocalFilesystem,
   detectWorker,
   detectS3,
   detectMigrationCommand,
   detectStartupCommand,
   detectExternalServices,
+  detectPackageManager,
+  detectBuildCommand,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -78,6 +81,8 @@ const DETECTORS = [
   detectMigrationCommand,
   detectStartupCommand,
   detectExternalServices,
+  detectPackageManager,
+  detectBuildCommand,
 ] as const;
 
 /** All §10 rejection check functions, in order (redis is handled separately — see `analyseRepo`). */
@@ -112,7 +117,11 @@ function buildRedisFinding(redis: RedisRequirement): DetectorFinding {
  * Build a flat metadata record from findings.
  * Maps detector names to their detected values for easy JSONB storage and querying.
  */
-function buildMetadata(findings: DetectorFinding[], redis: RedisRequirement): Record<string, unknown> {
+function buildMetadata(
+  findings: DetectorFinding[],
+  redis: RedisRequirement,
+  postgres: PostgresRequirement,
+): Record<string, unknown> {
   const meta: Record<string, unknown> = {};
 
   for (const f of findings) {
@@ -141,6 +150,7 @@ function buildMetadata(findings: DetectorFinding[], redis: RedisRequirement): Re
       case 'postgresql':
         meta['usesPostgresql'] = f.detected;
         if (f.detected && f.value) meta['postgresqlDrivers'] = f.value;
+        meta['postgres'] = postgres;
         break;
       case 'redis':
         meta['usesRedis'] = f.detected;
@@ -169,6 +179,13 @@ function buildMetadata(findings: DetectorFinding[], redis: RedisRequirement): Re
       case 'external-services':
         meta['hasExternalServices'] = f.detected;
         if (f.detected && f.value) meta['externalServices'] = f.value;
+        break;
+      case 'package-manager':
+        meta['packageManager'] = f.detected ? f.value : null;
+        break;
+      case 'build-command':
+        meta['hasBuildCommand'] = f.detected;
+        if (f.detected && f.value) meta['buildCommands'] = f.value;
         break;
       default:
         meta[key] = f.detected ? f.value ?? true : false;
@@ -202,12 +219,17 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   const redis = assessRedis(tree);
   findings.push(buildRedisFinding(redis));
 
+  // Postgres is computed once here for the same reason as `redis` above —
+  // `metadata.postgres` needs the full required-vs-present assessment, not
+  // just the `postgresql` finding's `detected` (library presence) flag.
+  const postgres = assessPostgres(tree);
+
   rejections.push(checkRedisUnsupported(tree, redis));
   for (const check of REJECTION_CHECKS) {
     rejections.push(check(tree));
   }
 
-  const metadata = buildMetadata(findings, redis);
+  const metadata = buildMetadata(findings, redis, postgres);
   metadata['databaseState'] = deriveDatabaseState(findings, rejections);
 
   return { findings, rejections, metadata };

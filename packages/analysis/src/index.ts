@@ -9,14 +9,16 @@
  * creating a workspace dependency cycle (cdk already depends on api).
  */
 
-export type { FileTree, DetectorFinding } from './detectors.js';
+export type { FileTree, DetectorFinding, PostgresRequirement } from './detectors.js';
 export {
   detectDockerfile,
+  listDockerfileCandidates,
   detectFramework,
   detectPort,
   detectHealthEndpoint,
   detectEnvVars,
   detectPostgresql,
+  assessPostgres,
   detectLocalFilesystem,
   detectWorker,
   detectS3,
@@ -91,3 +93,25 @@ export {
   diagnosticExplanationSchema,
   explainDiagnostic,
 } from './diagnostic-explainer.js';
+
+export type { NormalizeErrorTextOptions } from './redact.js';
+export { normalizeErrorText, redactSecrets } from './redact.js';
+
+export type {
+  RepositoryAiInput,
+  RepositoryAiAnalysis,
+  AiMergeOutcome,
+} from './repository-ai.js';
+export {
+  REPO_AI_MAX_PROMPT_TOKENS,
+  REPO_AI_MAX_TOTAL_TOKENS,
+  REPO_AI_TIMEOUT_MS,
+  MAX_AI_CONTEXT_FILES,
+  MAX_AI_FILE_CHARS,
+  repositoryAiSchema,
+  collectUnresolvedQuestions,
+  selectAiContextFiles,
+  buildRepositoryAiPrompt,
+  analyseRepositoryWithAi,
+  mergeAiAnalysis,
+} from './repository-ai.js';
