@@ -293,10 +293,16 @@ export function eventResultLabel(result: string | null): string | null {
   // label already says what happened, so no badge at all beats a "Pending"
   // that reads as in-progress forever.
   if (result === 'pending') return null;
-  if (result === 'ok' || result === 'passed') return 'Succeeded';
+  if (result === 'ok' || result === 'passed' || result === 'success') return 'Succeeded';
   if (result === 'skipped') return 'Skipped';
-  if (result.startsWith('failed')) return 'Failed';
+  if (isFailureResult(result)) return 'Failed';
   return result;
+}
+
+/** The API writes event results as 'success'/'failure'; older writers used
+ *  'failed…'-prefixed codes. Both families mean the event failed. */
+function isFailureResult(result: string): boolean {
+  return result === 'failure' || result.startsWith('failed');
 }
 
 /**
@@ -311,7 +317,7 @@ export function eventFailureReason(
   result: string | null,
   payload: Record<string, unknown>,
 ): string | null {
-  if (result === null || !result.startsWith('failed')) return null;
+  if (result === null || !isFailureResult(result)) return null;
   const error = payload['error'];
   return typeof error === 'string' && error.trim().length > 0 ? error : null;
 }

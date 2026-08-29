@@ -119,8 +119,10 @@ describe('§62 event result labels', () => {
   it('maps results to jargon-free labels', () => {
     expect(eventResultLabel('ok')).toBe('Succeeded');
     expect(eventResultLabel('passed')).toBe('Succeeded');
+    expect(eventResultLabel('success')).toBe('Succeeded');
     expect(eventResultLabel('skipped')).toBe('Skipped');
     expect(eventResultLabel('failed:MIGRATION_FAILED')).toBe('Failed');
+    expect(eventResultLabel('failure')).toBe('Failed');
     expect(eventResultLabel(null)).toBeNull();
   });
 
@@ -133,6 +135,11 @@ describe('eventFailureReason', () => {
   it('surfaces payload.error for a failed result', () => {
     expect(eventFailureReason('failed:MIGRATION_FAILED', { error: 'Column already exists' })).toBe(
       'Column already exists',
+    );
+    // The API writes job-result events with the bare 'failure' result — the
+    // form every relay-reported failure actually reaches the feed as.
+    expect(eventFailureReason('failure', { error: 'No ECS service found in stack "deployz-app"' })).toBe(
+      'No ECS service found in stack "deployz-app"',
     );
   });
 
