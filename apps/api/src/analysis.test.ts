@@ -21,6 +21,46 @@ import { GITHUB_FIXTURE_FILE_TREES, type FetchFn } from './github.js';
 // end-to-end (fixture tree -> analyseRepo -> evaluateCompatibility ->
 // persisted checks) with zero network at all.
 
+/**
+ * A minimal real-mode FetchFn serving an arbitrary file tree: access_tokens
+ * + one git/trees listing + one blob fetch per file, no head-sha lookup
+ * (the commit-SHA cache has its own dedicated tests below). Lets a test
+ * build an exact package.json shape without adding a new fixture repo to
+ * GITHUB_FIXTURE_FILE_TREES for a one-off assertion.
+ */
+function buildTreeFetch(files: Record<string, string>): FetchFn {
+  const paths = Object.keys(files);
+  return async (url) => {
+    if (url.includes('/access_tokens')) {
+      return {
+        status: 201,
+        headers: { get: () => null },
+        json: async () => ({ token: 'ghs_test', expires_at: '2099-01-01T00:00:00Z' }),
+      };
+    }
+    if (url.includes('/commits/')) {
+      return { status: 200, headers: { get: () => null }, json: async () => ({ sha: 'head-sha' }) };
+    }
+    if (url.includes('/git/trees/')) {
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({
+          tree: paths.map((path, i) => ({ path, type: 'blob', sha: `sha-${i}`, size: files[path]!.length })),
+        }),
+      };
+    }
+    const sha = url.split('/').pop() ?? '';
+    const path = paths[Number(sha.replace('sha-', ''))]!;
+    const content = files[path]!;
+    return {
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ content: Buffer.from(content).toString('base64'), encoding: 'base64' }),
+    };
+  };
+}
+
 async function insertOrganization(db: Db, id: string): Promise<void> {
   await db.insert(schema.organization).values({ id, name: 'Acme', slug: id });
 }
@@ -169,8 +209,25 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(row.databaseRequired).toBe(true);
     expect(row.redisRequired).toBe(true);
 
-    const checks = (row.detectedMetadata as { checks: { ready: Array<{ label: string }> } }).checks;
-    expect(checks.ready).toContainEqual({ label: 'Redis — managed automatically' });
+    const checks = (
+      row.detectedMetadata as {
+        checks: { ready: Array<{ label: string }>; needsAttention: Array<{ title: string; detail: string }> };
+      }
+    ).checks;
+    expect(checks.ready).toContainEqual({ label: 'Redis detected — provisioned automatically on install' });
+
+    // This fixture has a `bullmq` dependency (worker-like code) but no
+    // "worker"/"worker:start" script — no worker command resolves, so
+    // application-stack provisions no worker service. "Background worker
+    // detected" must NOT appear as a green ready-check for that; it must
+    // surface as a needsAttention item instead.
+    expect(checks.ready).not.toContainEqual({ label: 'Background worker detected' });
+    expect(checks.needsAttention).toContainEqual(
+      expect.objectContaining({
+        detail: 'Worker-like code detected but no start command found — background jobs will not run.',
+      }),
+    );
+    expect(row.workerCommand).toBeNull();
   });
 
   it('analyses the nextjs-prisma fixture repo to COMPLETE/READY with a required Postgres database', async () => {
@@ -186,6 +243,11 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(row.compatibilityReason).toBe('Compatible with Deployz');
     expect(row.databaseRequired).toBe(true);
     expect(row.migrationCommand).toBe('prisma migrate deploy');
+    // The only health-check evidence in this fixture is the app-router
+    // route file app/api/health/route.ts — the Dockerfile's HEALTHCHECK
+    // curls /health (a stale/generic default), but the route the app
+    // actually serves is /api/health, and that must win.
+    expect(row.healthPath).toBe('/api/health');
 
     const metadata = row.detectedMetadata as {
       framework?: string | null;
@@ -302,6 +364,134 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(message).toContain(application.id);
     expect(message).toContain('Repository not found');
     logged.mockRestore();
+  });
+});
+
+// §35 audit fix (N7): migration/worker command resolution reuses the
+// workspace-aware script collection from @deployz/analysis (not just the
+// root package.json) and prefers a deploy-shaped migration command over a
+// dev-shaped one — a dev-mode command must NEVER reach `migrationCommand`,
+// since deploy-release-workflow.ts runs it unattended against production.
+describe('analysis — migration/worker command resolution (deploy-safe, workspace-aware)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let orgId: string;
+  let privateKey: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    orgId = 'org-analysis-migration';
+    await insertOrganization(db, orgId);
+    const { generateKeyPairSync } = await import('node:crypto');
+    privateKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey as unknown as string;
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  function makeDeps(fetchFn: FetchFn): AnalysisRunnerDeps {
+    return {
+      db,
+      fetchFn,
+      githubAppId: 'app-id',
+      githubAppPrivateKey: privateKey,
+      githubFixtureMode: false,
+      aiGateway: createAiGateway(undefined),
+    };
+  }
+
+  it('prefers a deploy-shaped migration script over a dev-shaped one when both exist', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/migrate-deploy-wins',
+      defaultBranch: 'main',
+    });
+    const files = {
+      'package.json': JSON.stringify({
+        name: 'migrate-deploy-wins',
+        scripts: {
+          start: 'node index.js',
+          'db:migrate:dev': 'prisma migrate dev',
+          'db:migrate': 'prisma migrate deploy',
+        },
+        dependencies: { express: '^4.18.0' },
+      }),
+    };
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.migrationCommand).toBe('prisma migrate deploy');
+  });
+
+  it('leaves migrationCommand unset (never a dev-mode command) when only a dev-shaped migration script exists', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/migrate-dev-only',
+      defaultBranch: 'main',
+    });
+    const files = {
+      'package.json': JSON.stringify({
+        name: 'migrate-dev-only',
+        scripts: { start: 'node index.js', 'db:migrate': 'prisma migrate dev' },
+        dependencies: { express: '^4.18.0' },
+      }),
+    };
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.migrationCommand).toBeNull();
+  });
+
+  it('resolves a migration command from a workspace package script, not just the root manifest', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/migrate-workspace-package',
+      defaultBranch: 'main',
+    });
+    const files = {
+      'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*'] }),
+      'apps/api/package.json': JSON.stringify({
+        name: 'api',
+        scripts: { start: 'node index.js', 'db:migrate': 'drizzle-kit push' },
+        dependencies: { express: '^4.18.0' },
+      }),
+    };
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.migrationCommand).toBe('drizzle-kit push');
+  });
+
+  it('surfaces the worker ready-check once a worker start command actually resolves', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/worker-with-command',
+      defaultBranch: 'main',
+    });
+    const files = {
+      'package.json': JSON.stringify({
+        name: 'worker-with-command',
+        scripts: { start: 'node index.js', 'worker:start': 'node worker.js' },
+        dependencies: { express: '^4.18.0', bullmq: '^5.7.0' },
+      }),
+    };
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect(row.workerCommand).toBe('node worker.js');
+    const checks = (row.detectedMetadata as { checks: { ready: Array<{ label: string }> } }).checks;
+    expect(checks.ready).toContainEqual({ label: 'Background worker detected' });
   });
 });
 

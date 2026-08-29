@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   deriveComponents,
@@ -153,6 +153,55 @@ describe('observeRuntimeHealth', () => {
     );
     expect(health.healthStatus).toBe('UNKNOWN');
     expect(health.desiredCount).toBeNull();
+    expect(health.components).toEqual({});
+  });
+
+  it('omits components — never UNKNOWN — for a rolled-back stack instead of using phantom physicalIds', async () => {
+    const ecs = vi.fn();
+    const elb = vi.fn();
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_FAILED', physicalId: SERVICE_ARN },
+          {
+            logicalId: 'Targets',
+            type: 'AWS::ElasticLoadBalancingV2::TargetGroup',
+            status: 'DELETE_COMPLETE',
+          },
+        ]),
+        ecs: { describeServices: ecs },
+        elb: { describeTargetHealth: elb },
+      },
+      'deployz-app',
+    );
+
+    expect(health.components).toEqual({});
+    expect(health.healthStatus).toBe('UNKNOWN');
+    // Phantom physicalIds from failed/rolled-back resources must never be
+    // used to ask ECS/ELB about infrastructure that no longer backs the stack.
+    expect(ecs).not.toHaveBeenCalled();
+    expect(elb).not.toHaveBeenCalled();
+  });
+
+  it('still observes the load balancer when only the ECS service failed to create', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_FAILED', physicalId: SERVICE_ARN },
+          {
+            logicalId: 'Targets',
+            type: 'AWS::ElasticLoadBalancingV2::TargetGroup',
+            status: 'CREATE_COMPLETE',
+            physicalId: 'arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/app/abc',
+          },
+        ]),
+        ecs: ecsWith(),
+        elb: elbWith(['healthy']),
+      },
+      'deployz-app',
+    );
+
+    expect(health.components).toEqual({ loadBalancer: 'HEALTHY' });
   });
 
   it('keeps ECS-derived health when target health is unreadable', async () => {

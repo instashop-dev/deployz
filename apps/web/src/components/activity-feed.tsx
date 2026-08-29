@@ -6,6 +6,7 @@ import { useId, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import type { ActivityEvent } from '@/lib/deployments';
 import {
+  eventFailureReason,
   eventResultLabel,
   eventTypeLabel,
 } from '@/lib/deployment-vocabulary';
@@ -34,6 +35,7 @@ function ActivityFeedItem({ event }: { event: ActivityEvent }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const result = eventResultLabel(event.result);
+  const failureReason = eventFailureReason(event.result, event.payload);
 
   return (
     <li className="relative flex gap-3 pb-4 last:pb-0">
@@ -48,6 +50,9 @@ function ActivityFeedItem({ event }: { event: ActivityEvent }) {
         >
           <div className="min-w-0">
             <p className="text-sm font-medium">{eventTypeLabel(event.eventType)}</p>
+            {failureReason ? (
+              <p className="mt-0.5 text-xs text-muted-foreground">{failureReason}</p>
+            ) : null}
             <p className="mt-0.5 text-xs text-muted-foreground">
               {formatTimestamp(event.occurredAt)}
             </p>

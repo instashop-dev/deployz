@@ -505,6 +505,43 @@
             },
             {
               "Action": [
+                "ecs:ListTasks",
+                "ecs:DescribeTasks",
+                "ecs:DescribeTaskDefinition"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayDeployObserve"
+            },
+            {
+              "Action": "ecs:RegisterTaskDefinition",
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayDeployRegister"
+            },
+            {
+              "Action": "iam:PassRole",
+              "Condition": {
+                "StringEquals": {
+                  "iam:PassedToService": "ecs.amazonaws.com"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Sid": "RelayDeployPassRole"
+            },
+            {
+              "Action": [
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
                 "elasticache:DeleteCacheSubnetGroup",
@@ -716,6 +753,43 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerCacheCreate"
+            },
+            {
+              "Action": [
+                "ecs:ListTasks",
+                "ecs:DescribeTasks",
+                "ecs:DescribeTaskDefinition"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayDeployObserve"
+            },
+            {
+              "Action": "ecs:RegisterTaskDefinition",
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayDeployRegister"
+            },
+            {
+              "Action": "iam:PassRole",
+              "Condition": {
+                "StringEquals": {
+                  "iam:PassedToService": "ecs.amazonaws.com"
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Sid": "RelayDeployPassRole"
             },
             {
               "Action": [
@@ -953,7 +1027,9 @@
                 "elasticache:CreateCacheCluster",
                 "elasticache:AddTagsToResource",
                 "iam:CreateRole",
-                "iam:TagRole"
+                "iam:TagRole",
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:TagResource"
               ],
               "Condition": {
                 "StringEquals": {
@@ -998,7 +1074,9 @@
                 "elasticache:CreateCacheCluster",
                 "elasticache:AddTagsToResource",
                 "iam:CreateRole",
-                "iam:TagRole"
+                "iam:TagRole",
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:TagResource"
               ],
               "Condition": {
                 "StringEquals": {
@@ -1065,7 +1143,8 @@
                 "iam:AttachRolePolicy",
                 "iam:DetachRolePolicy",
                 "iam:DeleteRole",
-                "iam:UntagRole"
+                "iam:UntagRole",
+                "cloudwatch:DeleteAlarms"
               ],
               "Condition": {
                 "StringEquals": {
@@ -1138,7 +1217,8 @@
                 "iam:GetRolePolicy",
                 "iam:ListRolePolicies",
                 "iam:ListAttachedRolePolicies",
-                "iam:ListRoleTags"
+                "iam:ListRoleTags",
+                "cloudwatch:DescribeAlarms"
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -1228,7 +1308,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "bc303f061d546c646b76bbdacc50dc4449bfdf5cc6acdcf51ebfa45217a20c2d.zip"
+          "S3Key": "6fd00458a386e765962714702581a83bd0499cabd46803735502b17fc8757b5c.zip"
         },
         "Environment": {
           "Variables": {

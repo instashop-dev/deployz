@@ -52,7 +52,7 @@ describe('domainErrorCopy', () => {
     });
   });
 
-  it.each(['CONFIGURE_FAILED', 'HTTPS_NOT_REACHABLE', 'REMOVE_FAILED', 'SOME_UNKNOWN_CODE'])(
+  it.each(['CONFIGURE_FAILED', 'REMOVE_FAILED', 'SOME_UNKNOWN_CODE'])(
     'maps %s to the generic connect-failure copy',
     (code) => {
       expect(domainErrorCopy(code)).toEqual({
@@ -61,6 +61,20 @@ describe('domainErrorCopy', () => {
       });
     },
   );
+
+  it('maps HTTPS_NOT_REACHABLE to its own copy, not the generic DNS advice', () => {
+    expect(domainErrorCopy('HTTPS_NOT_REACHABLE')).toEqual({
+      title: "HTTPS isn't reachable yet",
+      body: 'The load balancer may still be provisioning, or the deployment may not be running.',
+    });
+  });
+
+  it('maps DEPLOYMENT_NOT_RUNNING', () => {
+    expect(domainErrorCopy('DEPLOYMENT_NOT_RUNNING')).toEqual({
+      title: "This deployment isn't running",
+      body: 'Domain setup resumes once the deployment is running again.',
+    });
+  });
 });
 
 // CustomDomainCard uses this to switch its "Check again"/"Retry" button
@@ -70,14 +84,17 @@ describe('isGenericDomainError', () => {
     expect(isGenericDomainError(null)).toBe(false);
   });
 
-  it.each(['DNS_VALIDATION_NOT_FOUND', 'DNS_ROUTING_MISMATCH', 'AWS_PERMISSION_DENIED'])(
-    'returns false for the specifically-copied code %s',
-    (code) => {
-      expect(isGenericDomainError(code)).toBe(false);
-    },
-  );
+  it.each([
+    'DNS_VALIDATION_NOT_FOUND',
+    'DNS_ROUTING_MISMATCH',
+    'AWS_PERMISSION_DENIED',
+    'HTTPS_NOT_REACHABLE',
+    'DEPLOYMENT_NOT_RUNNING',
+  ])('returns false for the specifically-copied code %s', (code) => {
+    expect(isGenericDomainError(code)).toBe(false);
+  });
 
-  it.each(['CONFIGURE_FAILED', 'HTTPS_NOT_REACHABLE', 'REMOVE_FAILED', 'SOME_UNKNOWN_CODE'])(
+  it.each(['CONFIGURE_FAILED', 'REMOVE_FAILED', 'SOME_UNKNOWN_CODE'])(
     'returns true for %s (generic connect-failure copy)',
     (code) => {
       expect(isGenericDomainError(code)).toBe(true);

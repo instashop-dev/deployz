@@ -35,6 +35,7 @@
 import {
   CloudFormationClient,
   CreateStackCommand,
+  DescribeStackEventsCommand,
   DescribeStacksCommand,
   type Capability,
 } from '@aws-sdk/client-cloudformation';
@@ -108,11 +109,26 @@ export type CreateStackOutcome =
       readonly message: string;
     };
 
+/** A resource-level `CREATE_FAILED` event, the actual cause behind a rollback. */
+export interface StackFailureEvent {
+  readonly logicalResourceId: string;
+  readonly resourceType: string;
+  readonly resourceStatusReason: string;
+  /** ISO 8601 — used only to order candidates, never displayed. */
+  readonly timestamp: string;
+}
+
 /** The injectable seam. Implementations must never throw. */
 export interface StackInstaller {
   createStack(input: CreateStackInput): Promise<CreateStackOutcome>;
   /** `null` when there is no such stack — including when it cannot be read. */
   describeStack(stackName: string): Promise<StackState | null>;
+  /**
+   * Every `CREATE_FAILED` resource event for a stack, already stripped of
+   * events with no reason. Empty when there are none or the events could not
+   * be read — the failure reason then falls back to the stack-level one.
+   */
+  describeStackEvents(stackName: string): Promise<StackFailureEvent[]>;
 }
 
 // ── Options and outcome ─────────────────────────────────────────────────────
@@ -204,7 +220,7 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
   // INSTALL safe: an existing stack is adopted, never duplicated.
   const existing = await installer.describeStack(stackName);
   if (existing !== null) {
-    const settled = settle(existing, stackName);
+    const settled = await settle(existing, stackName, installer);
     if (settled) return settled;
   } else {
     const created = await installer.createStack({
@@ -259,22 +275,87 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
 
     unreadable = 0;
     last = state;
-    const settled = settle(state, stackName);
+    const settled = await settle(state, stackName, installer);
     if (settled) return settled;
   }
 }
 
+/** Boilerplate reasons CloudFormation gives the resources it cancelled in
+ * response to the one that actually failed — never the cause itself. */
+const CANCELLED_REASONS: ReadonlySet<string> = new Set([
+  'Resource creation cancelled',
+  'Resource update cancelled',
+]);
+
+/**
+ * The earliest genuine `CREATE_FAILED` resource event — the one that
+ * actually caused the rollback, as opposed to the siblings CloudFormation
+ * cancelled in response to it. `DescribeStackEvents` ordering is not relied
+ * on; every candidate is compared by timestamp instead.
+ */
+export function firstFailureEvent(events: readonly StackFailureEvent[]): StackFailureEvent | null {
+  let earliest: StackFailureEvent | null = null;
+  for (const event of events) {
+    if (CANCELLED_REASONS.has(event.resourceStatusReason.trim())) continue;
+    if (!earliest || event.timestamp < earliest.timestamp) {
+      earliest = event;
+    }
+  }
+  return earliest;
+}
+
+/** Keeps the reason short — it flows into job.result.error → event payload → UI. */
+const MAX_REASON_LENGTH = 500;
+
+function bounded(reason: string): string {
+  return reason.length > MAX_REASON_LENGTH ? `${reason.slice(0, MAX_REASON_LENGTH - 1)}…` : reason;
+}
+
+/**
+ * Appends the first genuine resource-level failure cause to a stack-level
+ * reason, when one can be found. The stack-level `StackStatusReason` is
+ * usually just "The following resource(s) failed to create..." — the actual
+ * cause (an AccessDenied, a quota, a bad parameter) only exists on the
+ * failing resource's own event.
+ */
+async function withResourceFailureDetail(
+  reason: string,
+  stackName: string,
+  installer: StackInstaller,
+): Promise<string> {
+  let events: StackFailureEvent[];
+  try {
+    events = await installer.describeStackEvents(stackName);
+  } catch {
+    return bounded(reason);
+  }
+  const failure = firstFailureEvent(events);
+  if (!failure) return bounded(reason);
+  return bounded(
+    `${reason} — ${failure.logicalResourceId} (${failure.resourceType}): ${failure.resourceStatusReason}`,
+  );
+}
+
 /** A verdict, or `undefined` while the stack is still moving. */
-function settle(state: StackState, stackName: string): InstallOutcome | undefined {
+async function settle(
+  state: StackState,
+  stackName: string,
+  installer: StackInstaller,
+): Promise<InstallOutcome | undefined> {
   if (SUCCESS_STATUSES.has(state.status)) {
     return { state: 'succeeded', status: state.status, outputs: state.outputs };
   }
   if (FAILURE_STATUSES.has(state.status)) {
     const because = state.statusReason ? ` — ${state.statusReason}` : '';
+    const reason = await withResourceFailureDetail(
+      `Stack "${stackName}" finished in ${state.status}${because}`,
+      stackName,
+      installer,
+    );
     return {
       state: 'failed',
       status: state.status,
-      reason: `Stack "${stackName}" finished in ${state.status}${because}`,
+      reason,
       outputs: state.outputs,
     };
   }
@@ -380,8 +461,59 @@ export function toInstaller(client: SendsCommands): StackInstaller {
         return null;
       }
     },
+
+    async describeStackEvents(stackName: string): Promise<StackFailureEvent[]> {
+      const events: StackFailureEvent[] = [];
+      let nextToken: string | undefined;
+      let pages = 0;
+      try {
+        do {
+          const response = (await client.send(
+            new DescribeStackEventsCommand({
+              StackName: stackName,
+              ...(nextToken !== undefined ? { NextToken: nextToken } : {}),
+            }),
+          )) as {
+            StackEvents?: {
+              LogicalResourceId?: string;
+              ResourceType?: string;
+              ResourceStatus?: string;
+              ResourceStatusReason?: string;
+              Timestamp?: Date;
+            }[];
+            NextToken?: string;
+          };
+
+          for (const event of response.StackEvents ?? []) {
+            if (
+              event.ResourceStatus === 'CREATE_FAILED' &&
+              event.LogicalResourceId !== undefined &&
+              event.ResourceType !== undefined &&
+              event.ResourceStatusReason !== undefined
+            ) {
+              events.push({
+                logicalResourceId: event.LogicalResourceId,
+                resourceType: event.ResourceType,
+                resourceStatusReason: event.ResourceStatusReason,
+                timestamp: (event.Timestamp ?? new Date(0)).toISOString(),
+              });
+            }
+          }
+          nextToken = response.NextToken;
+          pages += 1;
+        } while (nextToken !== undefined && pages < MAX_EVENT_PAGES);
+      } catch {
+        // Events are enrichment, not the source of truth — an unreadable
+        // page falls back to whatever was collected so far (possibly none).
+        return events;
+      }
+      return events;
+    },
   };
 }
+
+/** Cap on `DescribeStackEvents` pages — enrichment, not exhaustive audit. */
+const MAX_EVENT_PAGES = 5;
 
 /** Production installer — credentials come from the standard SDK chain. */
 export function createStackInstaller(region?: string): StackInstaller {

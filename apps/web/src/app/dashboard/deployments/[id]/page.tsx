@@ -28,10 +28,13 @@ import {
 import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
+  NOT_YET_RUNNING_ACTION_COPY,
   RELAY_STATUS_LABEL,
   UNSUPPORTED_ACTION_COPY,
   actionSupported,
+  everInstalled,
   showHealthBadge,
+  showInfrastructureRows,
   type HealthStatus,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
@@ -254,20 +257,32 @@ function DetailBody({
           Redis is deliberately excluded here: its row comes from observed
           provisioning, not the component map (see RedisRow below).
         */}
-        <ul className="flex flex-col gap-2">
-          {COMPONENT_LABELS.filter(([key]) => key !== 'redis' && detail.components?.[key] !== undefined).map(
-            ([key, label]) => (
-              <InfraRow key={key} label={label} status={detail.components![key]!} />
-            ),
-          )}
-          <RedisRow status={redisStatus} />
-          <RelayRow status={detail.relayStatus} />
-        </ul>
-        {detail.components === null ? (
+        {showInfrastructureRows(detail.state) ? (
+          <>
+            <ul className="flex flex-col gap-2">
+              {COMPONENT_LABELS.filter(
+                ([key]) => key !== 'redis' && detail.components?.[key] !== undefined,
+              ).map(([key, label]) => (
+                <InfraRow key={key} label={label} status={detail.components![key]!} />
+              ))}
+              <RedisRow status={redisStatus} />
+              <RelayRow status={detail.relayStatus} />
+            </ul>
+            {detail.components === null ? (
+              <p className="text-sm text-muted-foreground">
+                No health reports yet — this deployment has not checked in.
+              </p>
+            ) : null}
+          </>
+        ) : (
           <p className="text-sm text-muted-foreground">
-            No health reports yet — this deployment has not checked in.
+            {detail.state === 'NOT_INSTALLED'
+              ? 'This deployment has not been installed yet.'
+              : detail.state === 'FAILED'
+                ? "This deployment isn't running, so there's nothing to report."
+                : 'This deployment has been removed.'}
           </p>
-        ) : null}
+        )}
       </section>
 
       <section aria-labelledby="activity" className="flex flex-col gap-3">
@@ -334,12 +349,20 @@ function DeploymentActions({
 }) {
   const [open, setOpen] = useState<'deploy' | 'rollback' | 'restart' | 'disconnect' | null>(null);
   const capabilities: RelayCapabilities | null = detail.relayCapabilities;
-  const canDeploy = actionSupported(capabilities, 'deploy');
-  const canRollback = actionSupported(capabilities, 'rollback');
-  const canRestart = actionSupported(capabilities, 'restart');
-  const canConfig = actionSupported(capabilities, 'configUpdate');
+  // §24: deploy/rollback/restart/config all act on a running application, so
+  // they are gated on TWO independent signals — the relay-reported
+  // capability, and whether this deployment has ever completed an install
+  // (a relay can connect and advertise capabilities before that happens).
+  // Disconnect is exempt from the second gate: a deployment that failed to
+  // ever come up must still be removable.
+  const everRan = everInstalled(detail.state, detail.currentReleaseId);
+  const canDeploy = everRan && actionSupported(capabilities, 'deploy');
+  const canRollback = everRan && actionSupported(capabilities, 'rollback');
+  const canRestart = everRan && actionSupported(capabilities, 'restart');
+  const canConfig = everRan && actionSupported(capabilities, 'configUpdate');
   const canDisconnect = actionSupported(capabilities, 'disconnect');
-  const anyGatedOff = !canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect;
+  const anyCapabilityGatedOff =
+    everRan && (!canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect);
   const hasPreviousRelease = detail.previousReleaseId !== null;
 
   return (
@@ -394,7 +417,9 @@ function DeploymentActions({
         </Button>
       </div>
 
-      {anyGatedOff ? (
+      {!everRan ? (
+        <p className="text-sm text-muted-foreground">{NOT_YET_RUNNING_ACTION_COPY}</p>
+      ) : anyCapabilityGatedOff ? (
         <p className="text-sm text-muted-foreground">{UNSUPPORTED_ACTION_COPY}</p>
       ) : null}
       {!hasPreviousRelease ? (

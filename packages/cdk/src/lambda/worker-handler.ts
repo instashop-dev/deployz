@@ -8,7 +8,7 @@
  * Queue failures are reported per message (`batchItemFailures`) so one bad
  * message never re-drives a whole batch.
  */
-import { CodeBuildClient, StartBuildCommand } from '@aws-sdk/client-codebuild';
+import { BatchGetBuildsCommand, CodeBuildClient, StartBuildCommand } from '@aws-sdk/client-codebuild';
 import { PutObjectCommand, S3Client as SdkS3Client } from '@aws-sdk/client-s3';
 
 import { createAiGateway } from '@deployz/analysis';
@@ -20,6 +20,7 @@ import { connectDb, type LambdaDb } from './db-connection.js';
 import {
   handleMessage,
   recordBuildResult,
+  sweepStuckBuilds,
   sweepStuckJobs,
   type CodeBuildStateChangeEvent,
   type RepositoryFetch,
@@ -93,6 +94,27 @@ function createDeps(db: LambdaDb): WorkerDeps {
       );
       return response.build?.id ?? null;
     },
+    async batchGetBuilds(ids) {
+      if (ids.length === 0) return [];
+      codeBuild ??= new CodeBuildClient({});
+      const response = await codeBuild.send(new BatchGetBuildsCommand({ ids }));
+      return (response.builds ?? []).flatMap((build) =>
+        build.id !== undefined && build.buildStatus !== undefined
+          ? [
+              {
+                id: build.id,
+                buildStatus: build.buildStatus,
+                exportedEnvironmentVariables: (build.exportedEnvironmentVariables ?? []).flatMap(
+                  (variable) =>
+                    variable.name !== undefined && variable.value !== undefined
+                      ? [{ name: variable.name, value: variable.value }]
+                      : [],
+                ),
+              },
+            ]
+          : [],
+      );
+    },
     runAnalysis: createAnalysisRunner({
       db,
       fetchFn,
@@ -117,7 +139,10 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
     }
     if (event['detail-type'] === 'Scheduled Event') {
       const failed = await sweepStuckJobs(db);
-      console.log(JSON.stringify({ event: 'watchdog:sweep-complete', failedJobs: failed }));
+      const sweptBuilds = await sweepStuckBuilds(createDeps(db));
+      console.log(
+        JSON.stringify({ event: 'watchdog:sweep-complete', failedJobs: failed, sweptBuilds }),
+      );
     }
     return;
   }

@@ -6,13 +6,21 @@ import {
   RELAY_STATUS_LABEL,
   UNSUPPORTED_ACTION_COPY,
   actionSupported,
+  everInstalled,
 } from '../src/lib/deployment-vocabulary';
 import { deployableReleases, runningReleaseIds, type Release } from '../src/lib/releases';
 
-// Phase 1 honesty rules: management actions derive their enabled state purely
-// from relay-reported capabilities and release data — never from lifecycle
-// guesses — so the buttons are deterministic from the first render (no
-// click-swallowed-during-hydration class of bug can hide here).
+// Phase 1 honesty rules: management actions derive their enabled state from
+// relay-reported capabilities (actionSupported) AND release data — never from
+// hydration timing — so the buttons are deterministic from the first render
+// (no click-swallowed-during-hydration class of bug can hide here). The audit
+// (N8) added a second, independent gate on top of capabilities: even a relay
+// that advertises every capability must not offer deploy/rollback/restart/
+// config on a deployment that has never completed an install (everInstalled,
+// derived from lifecycle state + currentReleaseId) — those actions act on a
+// running application that, in that case, does not exist. Disconnect is
+// exempt from that second gate: a deployment that failed to ever come up
+// must still be removable.
 
 const FULL_CAPS: RelayCapabilities = {
   deployRelease: true,
@@ -50,6 +58,35 @@ describe('actionSupported', () => {
     expect(UNSUPPORTED_ACTION_COPY).toBe(
       'This action is not supported by the currently installed Deployz connector.',
     );
+  });
+});
+
+describe('everInstalled', () => {
+  it('is false for NOT_INSTALLED regardless of currentReleaseId', () => {
+    expect(everInstalled('NOT_INSTALLED', null)).toBe(false);
+    expect(everInstalled('NOT_INSTALLED', 'r1')).toBe(false);
+  });
+
+  it('is false for FAILED when no release has ever run', () => {
+    expect(everInstalled('FAILED', null)).toBe(false);
+  });
+
+  it('is true for FAILED once a release has run before the failure', () => {
+    expect(everInstalled('FAILED', 'r1')).toBe(true);
+  });
+
+  it('is true for every other state regardless of currentReleaseId', () => {
+    for (const state of [
+      'INSTALLING',
+      'HEALTHY',
+      'UPDATING',
+      'UPDATE_AVAILABLE',
+      'DISCONNECTED',
+      'DELETING',
+      'DELETED',
+    ] as const) {
+      expect(everInstalled(state, null)).toBe(true);
+    }
   });
 });
 

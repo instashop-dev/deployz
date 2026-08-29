@@ -150,11 +150,102 @@ export interface RecoveryDeps {
   readonly wait?: WaitOptions;
 }
 
+/**
+ * Outcome of clearing a DELETE_FAILED stack's known orphan blockers and
+ * retrying the delete. A strict subset of `RecoveryPhase`: this helper never
+ * sees a healthy or in-progress stack, only one already stuck deleting.
+ */
+export interface ClearDeleteBlockersReport {
+  readonly phase: 'STACK_DELETED' | 'DELETE_IN_PROGRESS' | 'DELETE_STUCK';
+  readonly lastStackStatus: string;
+  readonly orphansDeleted: readonly string[];
+  /** Populated only when `phase` is `DELETE_STUCK` — what is still blocking. */
+  readonly blockedResources: readonly string[];
+}
+
+/**
+ * Clears the retained orphans (RDS, ElastiCache) that block a DELETE_FAILED
+ * stack's deletion, then retries `DeleteStack`. Shared by first-install
+ * recovery (below, after its own initial delete attempt fails) and by
+ * `destroy.ts` (which reaches a DELETE_FAILED stack directly, without a
+ * delete attempt of its own to run first).
+ *
+ * Orphans are identified ONLY from the stack's own resource list — never by
+ * name guessing — and only types whose deletion the relay's tag-scoped IAM
+ * already grants (rds:ModifyDBInstance/DeleteDBInstance,
+ * elasticache:DeleteCacheCluster). If nothing here can be cleared, the
+ * delete is not retried — retrying a delete that will fail the same way
+ * again would just waste the caller's wait budget.
+ */
+export async function clearDeleteBlockersAndRetryDelete(
+  deps: RecoveryDeps,
+  stackName: string,
+): Promise<ClearDeleteBlockersReport> {
+  const { cfn, rds, cache } = deps;
+  const wait = resolveWait(deps.wait);
+
+  // The stack's own resources are still readable in DELETE_FAILED — the
+  // orphans to clean are exactly the retained members of this list.
+  const resources = await cfn.describeStackResources(stackName);
+  const orphans = resources.filter(
+    (r) => ORPHAN_RESOURCE_TYPES[r.type] !== undefined && r.physicalId.length > 0,
+  );
+
+  // The retained orphans are what block the default-Delete resources (the
+  // DB instance keeps its security group's ENIs alive; the cache keeps its
+  // subnet group). Clear them, then ask CloudFormation to finish the delete.
+  const deleted: string[] = [];
+  for (const orphan of orphans) {
+    const kind = ORPHAN_RESOURCE_TYPES[orphan.type]!;
+    const physicalId = orphan.physicalId;
+    if (kind === 'rds') {
+      if (!rds) continue;
+      // deletionProtection=true refuses DeleteDBInstance — lower it first.
+      await rds.disableDeletionProtection(physicalId);
+      await rds.deleteInstance(physicalId);
+    } else {
+      if (!cache) continue;
+      await cache.deleteCluster(physicalId);
+    }
+    deleted.push(physicalId);
+  }
+
+  const blockedResources = (): string[] =>
+    resources
+      .filter((r) => !deleted.includes(r.physicalId) && r.status === 'DELETE_FAILED')
+      .map((r) => `${r.type} (${r.logicalId})`);
+
+  if (deleted.length === 0) {
+    return {
+      phase: 'DELETE_STUCK',
+      lastStackStatus: 'DELETE_FAILED',
+      orphansDeleted: deleted,
+      blockedResources: blockedResources(),
+    };
+  }
+
+  await cfn.deleteStack(stackName);
+  const last = await waitForSettled(cfn, wait, stackName);
+
+  if (last === 'DELETE_COMPLETE') {
+    return { phase: 'STACK_DELETED', lastStackStatus: last, orphansDeleted: deleted, blockedResources: [] };
+  }
+  if (isInProgress(last)) {
+    return { phase: 'DELETE_IN_PROGRESS', lastStackStatus: last, orphansDeleted: deleted, blockedResources: [] };
+  }
+  return {
+    phase: 'DELETE_STUCK',
+    lastStackStatus: last,
+    orphansDeleted: deleted,
+    blockedResources: blockedResources(),
+  };
+}
+
 export async function recoverFailedInstallStack(
   deps: RecoveryDeps,
   input: RecoveryInput,
 ): Promise<RecoveryReport> {
-  const { cfn, rds, cache } = deps;
+  const { cfn } = deps;
   const wait = resolveWait(deps.wait);
 
   const initial = await cfn.describeStack(input.stackName);
@@ -174,16 +265,8 @@ export async function recoverFailedInstallStack(
     return { phase: 'ALREADY_ABSENT', lastStackStatus: status, orphansDeleted: [] };
   }
 
-  // Snapshot the stack's own resources BEFORE deleting: after DELETE_FAILED
-  // the list is still readable, but after DELETE_COMPLETE it is gone — and
-  // the orphans we must clean are exactly the retained members of this list.
-  const resources = await cfn.describeStackResources(input.stackName);
-  const orphans = resources.filter(
-    (r) => ORPHAN_RESOURCE_TYPES[r.type] !== undefined && r.physicalId.length > 0,
-  );
-
   await cfn.deleteStack(input.stackName);
-  let last = await waitForSettled(cfn, wait, input.stackName);
+  const last = await waitForSettled(cfn, wait, input.stackName);
 
   if (last === 'DELETE_COMPLETE') {
     return { phase: 'STACK_DELETED', lastStackStatus: last, orphansDeleted: [] };
@@ -192,38 +275,13 @@ export async function recoverFailedInstallStack(
     return { phase: 'DELETE_IN_PROGRESS', lastStackStatus: last, orphansDeleted: [] };
   }
 
-  // DELETE_FAILED: the retained orphans are what block the default-Delete
-  // resources (the DB instance keeps its security group's ENIs alive; the
-  // cache keeps its subnet group). Clear them, then ask CloudFormation to
-  // finish the deletion.
-  const deleted: string[] = [];
-  for (const orphan of orphans) {
-    const kind = ORPHAN_RESOURCE_TYPES[orphan.type]!;
-    const physicalId = orphan.physicalId;
-    if (kind === 'rds') {
-      if (!rds) continue;
-      // deletionProtection=true refuses DeleteDBInstance — lower it first.
-      await rds.disableDeletionProtection(physicalId);
-      await rds.deleteInstance(physicalId);
-    } else {
-      if (!cache) continue;
-      await cache.deleteCluster(physicalId);
-    }
-    deleted.push(physicalId);
-  }
-
-  if (deleted.length > 0) {
-    await cfn.deleteStack(input.stackName);
-    last = await waitForSettled(cfn, wait, input.stackName);
-  }
-
-  if (last === 'DELETE_COMPLETE') {
-    return { phase: 'BLOCKERS_CLEARED_STACK_GONE', lastStackStatus: last, orphansDeleted: deleted };
-  }
-  if (isInProgress(last)) {
-    return { phase: 'DELETE_IN_PROGRESS', lastStackStatus: last, orphansDeleted: deleted };
-  }
-  return { phase: 'DELETE_STUCK', lastStackStatus: last, orphansDeleted: deleted };
+  // DELETE_FAILED: clear known orphan blockers and retry.
+  const cleared = await clearDeleteBlockersAndRetryDelete(deps, input.stackName);
+  return {
+    phase: cleared.phase === 'STACK_DELETED' ? 'BLOCKERS_CLEARED_STACK_GONE' : cleared.phase,
+    lastStackStatus: cleared.lastStackStatus,
+    orphansDeleted: cleared.orphansDeleted,
+  };
 }
 
 /**

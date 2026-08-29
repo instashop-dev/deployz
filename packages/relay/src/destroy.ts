@@ -6,8 +6,10 @@
  * backups. The bootstrap relay stack is never touched. Because the
  * application template's CloudFormation retention policies govern what is
  * actually deleted versus retained, the executor's job is to delete the
- * stack and let CloudFormation enforce those policies — never to enumerate
- * and delete resources itself.
+ * stack and let CloudFormation enforce those policies — it enumerates and
+ * deletes resources itself only for the narrow DELETE_FAILED recovery below,
+ * and only the orphaned RDS/ElastiCache resources CloudFormation itself
+ * named as retained.
  *
  * Safety: the stack must carry this installation's `deployz:installation`
  * tag. An untagged or mismatched stack is refused — the alternative is
@@ -16,6 +18,12 @@
 
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
+import {
+  clearDeleteBlockersAndRetryDelete,
+  type CacheCleanupClient,
+  type RdsCleanupClient,
+  type WaitOptions,
+} from './recover.js';
 import type { CloudFormationReader } from './verify.js';
 
 /** The CloudFormation delete surface this module needs. */
@@ -30,6 +38,15 @@ export interface DestroyDeps {
   readonly installationId: string;
   readonly stackName: string;
   readonly now?: () => string;
+  /**
+   * DELETE_FAILED recovery: clears retained RDS/ElastiCache orphans that
+   * block the delete and retries it (see `clearDeleteBlockersAndRetryDelete`
+   * in ./recover.js). Same clients the INSTALL retry path already uses;
+   * omitted, a DELETE_FAILED stack just fails as before.
+   */
+  readonly rds?: RdsCleanupClient;
+  readonly cache?: CacheCleanupClient;
+  readonly wait?: WaitOptions;
 }
 
 type DestroyOutcome =
@@ -61,9 +78,44 @@ export async function settleDestroy(deps: DestroyDeps): Promise<DestroyOutcome> 
   }
 
   if (status === 'DELETE_FAILED') {
+    // Don't dead-end here: enumerate the stack's own resources, clear the
+    // orphaned RDS/ElastiCache blockers CloudFormation left retained, and
+    // retry the delete — the same recovery the INSTALL retry path already
+    // runs for a stuck first install (see ./recover.js).
+    const cleared = await clearDeleteBlockersAndRetryDelete(
+      {
+        cfn: {
+          describeStack: (name) => deps.cfn.describeStack(name),
+          describeStackResources: async (name) =>
+            (await deps.cfn.describeStackResources(name)).flatMap((r) =>
+              r.physicalId ? [{ ...r, physicalId: r.physicalId }] : [],
+            ),
+          deleteStack: (name) => deps.deleter.deleteStack(name),
+        },
+        ...(deps.rds !== undefined ? { rds: deps.rds } : {}),
+        ...(deps.cache !== undefined ? { cache: deps.cache } : {}),
+        ...(deps.wait !== undefined ? { wait: deps.wait } : {}),
+      },
+      deps.stackName,
+    );
+
+    if (cleared.phase === 'STACK_DELETED') {
+      return { state: 'succeeded', alreadyAbsent: false };
+    }
+    if (cleared.phase === 'DELETE_IN_PROGRESS') {
+      return { state: 'deleting' };
+    }
+
+    const blocked =
+      cleared.blockedResources.length > 0
+        ? ` Still blocked by: ${cleared.blockedResources.join(', ')}.`
+        : '';
     return {
       state: 'failed',
-      reason: `Stack "${deps.stackName}" deletion previously failed (DELETE_FAILED). CloudFormation retained resources it could not delete.`,
+      reason:
+        `Stack "${deps.stackName}" deletion previously failed (DELETE_FAILED); ` +
+        `clearing known orphans (${cleared.orphansDeleted.length} cleared) did not ` +
+        `unblock it.${blocked}`,
     };
   }
 

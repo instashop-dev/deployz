@@ -512,18 +512,49 @@ describe('§18 detectors', () => {
       expect((result.value as string[]).some((v: string) => v.includes('health route file'))).toBe(true);
     });
 
-    it('detects an App Router health route folder', () => {
+    it('detects an App Router health route folder and normalizes its path to /api/health', () => {
       const tree: FileTree = { 'app/api/health/route.ts': 'export function GET() {}\n' };
       const result = detectHealthEndpoint(tree);
       expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/health');
     });
 
-    it('detects a prefixed /api/health route registration', () => {
+    it('normalizes a Pages Router health route file to /api/health', () => {
+      const tree: FileTree = { 'pages/api/health.ts': 'export default function handler() {}\n' };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/health');
+    });
+
+    it('detects a prefixed /api/health route registration and captures its literal path', () => {
       const tree: FileTree = {
         'src/server.ts': "app.get('/api/health', (_req, res) => res.json({ ok: true }));\n",
       };
       const result = detectHealthEndpoint(tree);
       expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/health');
+    });
+
+    it('prefers a literal route registration over a same-repo file-based route path when both are present', () => {
+      const tree: FileTree = {
+        'app/api/health/route.ts': 'export function GET() {}\n',
+        'src/legacy-server.ts': "app.get('/legacy/health', (_req, res) => res.json({ ok: true }));\n",
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/legacy/health');
+    });
+
+    it('does not let a Dockerfile HEALTHCHECK path override a real /api/health route (stale HEALTHCHECK case)', () => {
+      // Mirrors the audited repo: the Dockerfile still curls /health while
+      // the app-router route actually serving traffic is /api/health.
+      const tree: FileTree = {
+        'Dockerfile': 'FROM node:20-alpine\nHEALTHCHECK CMD curl -f http://localhost:3000/health\n',
+        'app/api/health/route.ts': 'export function GET() {}\n',
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/health');
     });
 
     it('detects healthcheck script in package.json', () => {
@@ -542,6 +573,15 @@ describe('§18 detectors', () => {
     it('returns false when no health endpoint is found', () => {
       const result = detectHealthEndpoint(noHealthFixture);
       expect(result.detected).toBe(false);
+    });
+
+    it('defaults to /health when only a Dockerfile HEALTHCHECK (no literal route) is present', () => {
+      const tree: FileTree = {
+        'Dockerfile': 'FROM node:20-alpine\nHEALTHCHECK CMD curl -f http://localhost:3000/health\n',
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/health');
     });
   });
 

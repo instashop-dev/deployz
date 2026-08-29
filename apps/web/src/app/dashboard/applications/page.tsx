@@ -115,8 +115,15 @@ export default function ApplicationsPage() {
               : 'Connect your code, then choose which repositories you deploy.'}
           </p>
         </div>
-        {hasApplications ? (
-          <Button data-testid="add-application-button" onClick={() => setAddOpen(true)}>
+        {/* Visible (disabled) while the application list is still loading, so
+            a first click before the fetch resolves lands on a real control
+            instead of an inert gap where the button will appear. */}
+        {appsState.status === 'loading' || hasApplications ? (
+          <Button
+            data-testid="add-application-button"
+            disabled={appsState.status === 'loading'}
+            onClick={() => setAddOpen(true)}
+          >
             <Plus className="size-4" aria-hidden />
             Add application
           </Button>

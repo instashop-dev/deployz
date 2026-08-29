@@ -605,15 +605,38 @@ const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
 // container). Only then may retry-install supersede the job.
 const INSTALL_JOB_STALE_AFTER_MS = 30 * 60 * 1000;
 
-/** 409s a deploy/rollback aimed at a deployment that has nothing to deploy
- *  into — the single-deployment mirror of the skip reason deploy-bulk gives. */
-function requireDeployableState(deployment: DeploymentRow): void {
+/** 409s a deploy/rollback/restart aimed at a deployment that has nothing to
+ *  deploy into — the single-deployment mirror of the skip reason deploy-bulk
+ *  gives. A FAILED deployment that never completed a first successful
+ *  INSTALL is still effectively uninstalled: there is no relay-managed
+ *  infrastructure for these commands to act on, only retry-install (and
+ *  destroy) may touch it. The same check retry-install itself uses. */
+async function requireDeployableState(db: RuntimeDb, deployment: DeploymentRow): Promise<void> {
   if (UNDEPLOYABLE_STATES.has(deployment.state)) {
     throw new ApiError(
       409,
       'DEPLOYMENT_NOT_DEPLOYABLE',
       `Deployment is ${deployment.state}, not deployable`,
     );
+  }
+  if (deployment.state === 'FAILED') {
+    const installJobs = await db
+      .select({ state: schema.deploymentJobs.state })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'INSTALL'),
+        ),
+      );
+    const everInstalled = installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
+    if (!everInstalled) {
+      throw new ApiError(
+        409,
+        'DEPLOYMENT_NOT_DEPLOYABLE',
+        'This deployment never completed its first install; use Retry install instead.',
+      );
+    }
   }
 }
 
@@ -1828,7 +1851,7 @@ export async function buildServer({
     // The same rule deploy-bulk applies. Without it this route accepted a
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
-    requireDeployableState(deployment);
+    await requireDeployableState(db, deployment);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
       `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
@@ -1947,7 +1970,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = rollbackBodySchema.parse(request.body);
-    requireDeployableState(deployment);
+    await requireDeployableState(db, deployment);
     const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
@@ -1980,7 +2003,7 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
-    requireDeployableState(deployment);
+    await requireDeployableState(db, deployment);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:RESTART`;
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
@@ -2046,8 +2069,25 @@ export async function buildServer({
     // A pending DESTROY blocks every other mutating command: accepting a
     // deploy against a stack that is about to be deleted can only produce a
     // job whose subject disappears underneath it.
+    const destroyJobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'DESTROY'),
+        ),
+      )
+      .orderBy(desc(schema.deploymentJobs.createdAt));
+    // The fixed key is unretryable once its job FAILED — createOrReuseJob
+    // would just keep handing back the same dead job forever. Mirror
+    // retry-install's attempt-scoped key so clicking Disconnect again queues
+    // a fresh attempt instead.
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:DESTROY`;
+      firstHeaderValue(request.headers['idempotency-key']) ??
+      (destroyJobs[0]?.state === 'FAILED'
+        ? `${deployment.id}:DESTROY:RETRY:${destroyJobs.length}`
+        : `${deployment.id}:DESTROY`);
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,

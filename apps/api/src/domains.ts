@@ -61,6 +61,17 @@ export function classifyDomainUniqueViolation(error: unknown): 'DOMAIN_EXISTS' |
 // not mint a second one on top of them.
 const IN_FLIGHT_JOB_STATES = new Set(['REQUESTED', 'QUEUED', 'RUNNING']);
 
+// Deployment states with no ALB/relay to check against — a domain riding
+// along one of these has nothing to probe. Excludes REMOVING's own teardown
+// (driven by the deployment's DESTROY flow itself, so it must keep working
+// while the deployment is DELETING/DELETED).
+const DEPLOYMENT_NOT_RUNNING_STATES = new Set<(typeof schema.deployments.$inferSelect)['state']>([
+  'FAILED',
+  'DELETING',
+  'DELETED',
+  'NOT_INSTALLED',
+]);
+
 export function toDomainView(row: CustomDomainRow): CustomDomainView {
   const records: DomainRecordView[] = [];
   if (row.validationName && row.validationValue) {
@@ -226,14 +237,22 @@ export async function createCustomDomain(
 /**
  * Ensures exactly one live REMOVE_DOMAIN job is chasing this domain's
  * teardown, and marks it REMOVING. The REMOVE_DOMAIN analog of
- * ensureConfigureJob — shared by removeCustomDomain (first call from a
- * vendor action) and runDomainCheck's REMOVING branch (nudging a removal
- * that has stalled or whose prior job died).
+ * ensureConfigureJob — shared by removeCustomDomain (first call, or an
+ * explicit repeat user action, from the DELETE route) and runDomainCheck's
+ * REMOVING branch (the automatic relay-heartbeat nudge).
+ *
+ * `retryFailed` gates re-minting a fresh cycle after the previous job
+ * FAILED. It must stay false for the heartbeat's automatic nudge — every
+ * heartbeat (~5min) hitting a REMOVING domain would otherwise re-mint a new
+ * REMOVE_DOMAIN job forever after one failure, an unbounded retry storm.
+ * removeCustomDomain passes true: a vendor explicitly retrying removal is a
+ * deliberate action, not an automatic poll.
  */
 async function ensureRemoveJob(
   db: RuntimeDb,
   deployment: { id: string },
   domain: CustomDomainRow,
+  opts?: { retryFailed?: boolean },
 ): Promise<CustomDomainRow> {
   const alreadyRemoving = domain.status === 'REMOVING';
   const prefix = `${deployment.id}:REMOVE_DOMAIN:${domain.id}:`;
@@ -252,9 +271,10 @@ async function ensureRemoveJob(
   const newest = jobs[0];
 
   // First call always mints a fresh cycle; a repeat call on an already-
-  // REMOVING row only mints a new one if the previous remove job died —
-  // otherwise it re-ensures (and idempotently reuses) the same job.
-  const shouldBump = !alreadyRemoving || newest?.state === 'FAILED';
+  // REMOVING row only mints a new one if the previous remove job died AND
+  // this call is allowed to retry a failure — otherwise it re-ensures (and
+  // idempotently reuses) the same job.
+  const shouldBump = !alreadyRemoving || (opts?.retryFailed === true && newest?.state === 'FAILED');
   const cycle = shouldBump ? domain.checkCycle + 1 : domain.checkCycle;
 
   const [updated] = await db
@@ -283,7 +303,10 @@ export async function removeCustomDomain(
   deployment: { id: string },
   domain: CustomDomainRow,
 ): Promise<CustomDomainRow> {
-  return ensureRemoveJob(db, deployment, domain);
+  // A vendor action (the DELETE route, or destroy's cleanup of an in-flight
+  // removal) — unlike the heartbeat's automatic nudge, this may retry a
+  // FAILED prior attempt with a fresh cycle.
+  return ensureRemoveJob(db, deployment, domain, { retryFailed: true });
 }
 
 /**
@@ -403,7 +426,12 @@ export async function applyDomainJobResult(
  */
 export async function runDomainCheck(
   db: RuntimeDb,
-  deployment: { id: string; organizationId: string; customerId: string },
+  deployment: {
+    id: string;
+    organizationId: string;
+    customerId: string;
+    state: (typeof schema.deployments.$inferSelect)['state'];
+  },
   domain: CustomDomainRow,
   deps: DomainCheckDeps,
 ): Promise<CustomDomainRow> {
@@ -417,6 +445,26 @@ export async function runDomainCheck(
     .update(schema.customDomains)
     .set({ lastCheckedAt: new Date() })
     .where(eq(schema.customDomains.id, domain.id));
+
+  // No ALB exists to probe once the deployment itself is gone or never
+  // came up — driving DNS/HTTPS checks here just produces a contradictory
+  // "HTTPS not reachable" while the deployment page says FAILED/deleted.
+  // REMOVING is exempt: that teardown is the deployment's own DESTROY flow
+  // and must keep running while the deployment goes DELETING/DELETED.
+  if (DEPLOYMENT_NOT_RUNNING_STATES.has(deployment.state) && domain.status !== 'REMOVING') {
+    if (domain.lastError !== 'DEPLOYMENT_NOT_RUNNING') {
+      await db
+        .update(schema.customDomains)
+        .set({ lastError: 'DEPLOYMENT_NOT_RUNNING' })
+        .where(eq(schema.customDomains.id, domain.id));
+    }
+    const fresh = await db
+      .select()
+      .from(schema.customDomains)
+      .where(eq(schema.customDomains.id, domain.id))
+      .limit(1);
+    return fresh[0] ?? domain;
+  }
 
   switch (domain.status) {
     case 'PENDING':

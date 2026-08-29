@@ -68,7 +68,7 @@ export const HEALTH_STATUS_LABEL: Record<HealthStatus, string> = {
   HEALTHY: 'Healthy',
   DEGRADED: 'Degraded',
   UNHEALTHY: 'Unhealthy',
-  UNKNOWN: 'Running — health unknown',
+  UNKNOWN: 'Health unknown',
 };
 
 export const HEALTH_STATUS_BADGE: Record<HealthStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -80,10 +80,23 @@ export const HEALTH_STATUS_BADGE: Record<HealthStatus, 'default' | 'secondary' |
 
 /**
  * Whether a lifecycle state carries a running application whose health is
- * worth reporting. Not-installed/deleted deployments have nothing to measure.
+ * worth reporting. Not-installed/deleted/failed deployments have nothing
+ * running to measure — a FAILED deployment showing "Health unknown" reads as
+ * "running, we just don't know how" when it isn't running at all.
  */
 export function showHealthBadge(state: DeploymentState): boolean {
-  return state !== 'NOT_INSTALLED' && state !== 'DELETED';
+  return state !== 'NOT_INSTALLED' && state !== 'DELETED' && state !== 'FAILED';
+}
+
+/**
+ * Whether a lifecycle state has per-component infrastructure worth listing.
+ * Same reasoning as `showHealthBadge`, applied to the Infrastructure rows: a
+ * failed, not-yet-installed, or deleted deployment has nothing running, so
+ * per-component rows (often still carrying a stale HEALTHY/UNKNOWN reading
+ * from before the failure) would repeat the same lie at row level.
+ */
+export function showInfrastructureRows(state: DeploymentState): boolean {
+  return state !== 'NOT_INSTALLED' && state !== 'DELETED' && state !== 'FAILED';
 }
 
 // ── Relay connectivity + capability gating ─────────────────────────────────
@@ -124,6 +137,29 @@ export function actionSupported(
 
 export const UNSUPPORTED_ACTION_COPY =
   'This action is not supported by the currently installed Deployz connector.';
+
+/**
+ * Whether `state` denotes a deployment that has completed at least one
+ * install — as opposed to one that never has, either because it hasn't been
+ * installed yet or because its only install attempt failed before a release
+ * ever ran. `currentReleaseId` is the signal: the API only ever sets it once
+ * a release has actually deployed, so a FAILED deployment that still carries
+ * one failed later, after having run — not during its first install.
+ *
+ * Deploy/rollback/restart/config all act on a running application, so they
+ * make no sense to offer here even when the relay has reported capabilities
+ * (it can connect and advertise capabilities before an install completes).
+ * Disconnect is deliberately NOT gated by this — a deployment that failed to
+ * ever come up must still be removable.
+ */
+export function everInstalled(state: DeploymentState, currentReleaseId: string | null): boolean {
+  if (state === 'NOT_INSTALLED') return false;
+  if (state === 'FAILED') return currentReleaseId !== null;
+  return true;
+}
+
+export const NOT_YET_RUNNING_ACTION_COPY =
+  "This deployment hasn't completed an install yet, so these actions aren't available.";
 
 // ── §65 event-type labels (§40 families) ──────────────────────────────────
 
@@ -261,4 +297,21 @@ export function eventResultLabel(result: string | null): string | null {
   if (result === 'skipped') return 'Skipped';
   if (result.startsWith('failed')) return 'Failed';
   return result;
+}
+
+/**
+ * The human-readable failure reason to show at the top level of a failed
+ * event, if it carries one. Previously this text only ever reached the
+ * customer inside the collapsed JSON payload disclosure — a vendor debugging
+ * a stuck deployment had to know to open every event to find it. `null` when
+ * the event did not fail, or failed without a non-empty `payload.error`
+ * string worth surfacing.
+ */
+export function eventFailureReason(
+  result: string | null,
+  payload: Record<string, unknown>,
+): string | null {
+  if (result === null || !result.startsWith('failed')) return null;
+  const error = payload['error'];
+  return typeof error === 'string' && error.trim().length > 0 ? error : null;
 }

@@ -263,6 +263,13 @@ const PROVISION_CREATE_ACTIONS = [
   'elasticache:AddTagsToResource',
   'iam:CreateRole',
   'iam:TagRole',
+  // The application stack's UnhealthyTargetAlarm gets stack-level deployz
+  // tags via that stack's Tags.of aspect, and CreateStack passes the
+  // installation tag, so the request-tag condition on this statement is
+  // satisfied the same way it is for elasticache:AddTagsToResource (see the
+  // comment further below).
+  'cloudwatch:PutMetricAlarm',
+  'cloudwatch:TagResource',
 ] as const;
 
 // Modifies and deletes: conditioned on the installation RESOURCE tag. By the
@@ -319,6 +326,7 @@ const PROVISION_MANAGE_ACTIONS = [
   'iam:DetachRolePolicy',
   'iam:DeleteRole',
   'iam:UntagRole',
+  'cloudwatch:DeleteAlarms',
 ] as const;
 
 /**
@@ -369,6 +377,7 @@ const PROVISION_READ_ACTIONS = [
   'iam:ListRolePolicies',
   'iam:ListAttachedRolePolicies',
   'iam:ListRoleTags',
+  'cloudwatch:DescribeAlarms',
 ] as const;
 
 /**

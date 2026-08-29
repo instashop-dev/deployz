@@ -769,6 +769,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "iam:ListRolePolicies",
                 "iam:ListAttachedRolePolicies",
                 "iam:ListRoleTags",
+                "cloudwatch:DescribeAlarms",
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -886,6 +887,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "elasticache:AddTagsToResource",
                 "iam:CreateRole",
                 "iam:TagRole",
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:TagResource",
               ],
               "Condition": {
                 "StringEquals": {
@@ -931,6 +934,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "elasticache:AddTagsToResource",
                 "iam:CreateRole",
                 "iam:TagRole",
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:TagResource",
               ],
               "Condition": {
                 "StringEquals": {
@@ -998,6 +1003,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "iam:DetachRolePolicy",
                 "iam:DeleteRole",
                 "iam:UntagRole",
+                "cloudwatch:DeleteAlarms",
               ],
               "Condition": {
                 "StringEquals": {

@@ -4,6 +4,7 @@ import {
   DEPLOYMENT_STATE_BADGE,
   DEPLOYMENT_STATE_LABELS,
   DEPLOYMENT_STATES,
+  eventFailureReason,
   eventFamily,
   eventResultLabel,
   eventTypeLabel,
@@ -125,5 +126,25 @@ describe('§62 event result labels', () => {
 
   it('renders no badge for a pending result — a historical request is a fact, not ongoing state', () => {
     expect(eventResultLabel('pending')).toBeNull();
+  });
+});
+
+describe('eventFailureReason', () => {
+  it('surfaces payload.error for a failed result', () => {
+    expect(eventFailureReason('failed:MIGRATION_FAILED', { error: 'Column already exists' })).toBe(
+      'Column already exists',
+    );
+  });
+
+  it('returns null for a non-failed result even with an error payload', () => {
+    expect(eventFailureReason('ok', { error: 'stale leftover text' })).toBeNull();
+    expect(eventFailureReason(null, { error: 'stale leftover text' })).toBeNull();
+  });
+
+  it('returns null for a failed result with no usable payload.error', () => {
+    expect(eventFailureReason('failed:MIGRATION_FAILED', {})).toBeNull();
+    expect(eventFailureReason('failed:MIGRATION_FAILED', { error: '' })).toBeNull();
+    expect(eventFailureReason('failed:MIGRATION_FAILED', { error: '   ' })).toBeNull();
+    expect(eventFailureReason('failed:MIGRATION_FAILED', { error: 42 })).toBeNull();
   });
 });

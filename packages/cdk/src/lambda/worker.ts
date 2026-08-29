@@ -15,7 +15,7 @@
  * The Lambda entry point (worker-handler.ts) wires the real seams; this
  * module holds no AWS clients of its own, so the logic stays testable.
  */
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm';
 
 import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob } from '@deployz/api/jobs';
@@ -60,11 +60,19 @@ export interface WorkerDeps {
   readonly db: RuntimeDb;
   readonly fetchFn: RepositoryFetch;
   readonly s3: S3Client;
-  /** Starts a CodeBuild build and resolves its build id (ARN), or null. */
+  /** Starts a CodeBuild build and resolves its build id (the short "project:uuid" form StartBuild returns), or null. */
   readonly startBuild: (input: {
     projectName: string;
     environmentVariables: { name: string; value: string }[];
   }) => Promise<string | null>;
+  /** Looks up builds by their short "project:uuid" id — the stuck-build watchdog's polling seam. */
+  readonly batchGetBuilds: (ids: string[]) => Promise<
+    {
+      id: string;
+      buildStatus: string;
+      exportedEnvironmentVariables?: { name: string; value: string }[];
+    }[]
+  >;
   readonly runAnalysis: (applicationId: string) => Promise<void>;
 }
 
@@ -243,6 +251,20 @@ function readVariable(
   return variables?.find((variable) => variable.name === name)?.value;
 }
 
+/**
+ * StartBuild resolves a build id in the short "project-name:uuid" form, but
+ * the EventBridge CodeBuild state-change event's `detail['build-id']` is the
+ * full ARN `arn:aws:codebuild:region:acct:build/project-name:uuid`. Strips
+ * everything through the `:build/` marker so both sides of a correlation
+ * check compare in the same format. Input with no marker (already short) is
+ * returned unchanged.
+ */
+export function normalizeBuildId(buildId: string): string {
+  const marker = ':build/';
+  const index = buildId.indexOf(marker);
+  return index === -1 ? buildId : buildId.slice(index + marker.length);
+}
+
 export async function recordBuildResult(
   db: RuntimeDb,
   event: CodeBuildStateChangeEvent,
@@ -270,7 +292,7 @@ export async function recordBuildResult(
   if (
     release.currentBuildId !== null &&
     eventBuildId !== undefined &&
-    eventBuildId !== release.currentBuildId
+    normalizeBuildId(eventBuildId) !== normalizeBuildId(release.currentBuildId)
   ) {
     console.warn(
       `ignoring stale CodeBuild event for release ${releaseId}: event build ${eventBuildId}, current build ${release.currentBuildId}`,
@@ -399,4 +421,63 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
     failed += 1;
   }
   return failed;
+}
+
+// ── Stuck-build watchdog ─────────────────────────────────────────────────
+
+/**
+ * A missed or lost CodeBuild state-change event otherwise leaves a release
+ * BUILDING forever — nothing else ever moves it on. Every 30 minutes without
+ * a status update, ask CodeBuild directly what happened and settle the
+ * release the same way a real event would (reusing recordBuildResult, so
+ * status/digest handling is not duplicated). A build CodeBuild still reports
+ * IN_PROGRESS is left untouched; a build id CodeBuild no longer knows about
+ * fails the release outright.
+ */
+const STUCK_BUILD_TIMEOUT_MS = 30 * 60 * 1000;
+
+export async function sweepStuckBuilds(deps: WorkerDeps, now: Date = new Date()): Promise<number> {
+  const { db } = deps;
+  const cutoff = new Date(now.getTime() - STUCK_BUILD_TIMEOUT_MS);
+  const stuck = await db
+    .select()
+    .from(schema.releases)
+    .where(
+      and(
+        eq(schema.releases.releaseStatus, 'BUILDING'),
+        isNotNull(schema.releases.currentBuildId),
+        lt(schema.releases.updatedAt, cutoff),
+      ),
+    );
+  if (stuck.length === 0) return 0;
+
+  const builds = await deps.batchGetBuilds(
+    stuck.map((release) => release.currentBuildId as string),
+  );
+  const buildsById = new Map(builds.map((build) => [normalizeBuildId(build.id), build]));
+
+  let swept = 0;
+  for (const release of stuck) {
+    const build = buildsById.get(normalizeBuildId(release.currentBuildId as string));
+    if (!build) {
+      await failRelease(db, release.id, 'CodeBuild no longer has a record of this build');
+      swept += 1;
+      continue;
+    }
+    if (build.buildStatus === 'IN_PROGRESS') continue; // Still running — leave it.
+
+    await recordBuildResult(db, {
+      'detail-type': 'CodeBuild Build State Change',
+      detail: {
+        'build-status': build.buildStatus,
+        'build-id': build.id,
+        'exported-environment-variables': [
+          ...(build.exportedEnvironmentVariables ?? []),
+          { name: 'RELEASE_ID', value: release.id },
+        ],
+      },
+    });
+    swept += 1;
+  }
+  return swept;
 }

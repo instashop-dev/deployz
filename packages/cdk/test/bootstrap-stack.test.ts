@@ -635,6 +635,7 @@ describe('BootstrapStack — application provisioning', () => {
       'logs:CreateLogGroup',
       'iam:CreateRole',
       'elasticache:CreateCacheCluster',
+      'cloudwatch:PutMetricAlarm',
     ]) {
       expect(actions).toContain(action);
     }
@@ -670,6 +671,30 @@ describe('BootstrapStack — application provisioning', () => {
 
     const deleting = statements.find((s) =>
       collectActions([s]).includes('rds:DeleteDBInstance'),
+    );
+    const condition = JSON.stringify(deleting?.['Condition']);
+
+    expect(condition).toContain('aws:ResourceTag/deployz:installation');
+  });
+
+  it('scopes the execution role alarm creation to this installation tag', () => {
+    const { template } = synth();
+    const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
+
+    const creating = statements.find((s) =>
+      collectActions([s]).includes('cloudwatch:PutMetricAlarm'),
+    );
+    const condition = JSON.stringify(creating?.['Condition']);
+
+    expect(condition).toContain('aws:RequestTag/deployz:installation');
+  });
+
+  it('scopes the execution role alarm deletes to resources already carrying the tag', () => {
+    const { template } = synth();
+    const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
+
+    const deleting = statements.find((s) =>
+      collectActions([s]).includes('cloudwatch:DeleteAlarms'),
     );
     const condition = JSON.stringify(deleting?.['Condition']);
 

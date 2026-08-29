@@ -947,6 +947,10 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     pending: getPendingStore(installDeps.installationId),
     installationId: installDeps.installationId,
     stackName: DEFAULT_STACK_NAME,
+    // Same DELETE_FAILED recovery clients the INSTALL retry path uses (see
+    // createDefaultInstallDeps's `recover`).
+    rds: getRdsCleanupClient(),
+    cache: getCacheCleanupClient(),
   };
 
   return {
@@ -1116,6 +1120,8 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             pending: getPendingStore(installationId),
             installationId,
             stackName: DEFAULT_STACK_NAME,
+            rds: getRdsCleanupClient(),
+            cache: getCacheCleanupClient(),
           })();
         }),
       identity: deps.identity ?? readRelayIdentity(context),

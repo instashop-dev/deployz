@@ -4,6 +4,7 @@ import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
   showHealthBadge,
+  showInfrastructureRows,
 } from '../src/lib/deployment-vocabulary';
 import {
   infraCheckLabel,
@@ -13,8 +14,8 @@ import {
 } from '../src/lib/diagnostics';
 
 describe('measured health vocabulary', () => {
-  it('labels UNKNOWN as running with unknown health', () => {
-    expect(HEALTH_STATUS_LABEL.UNKNOWN).toBe('Running — health unknown');
+  it('labels UNKNOWN without claiming the app is running', () => {
+    expect(HEALTH_STATUS_LABEL.UNKNOWN).toBe('Health unknown');
     expect(HEALTH_STATUS_LABEL.HEALTHY).toBe('Healthy');
     expect(HEALTH_STATUS_LABEL.DEGRADED).toBe('Degraded');
     expect(HEALTH_STATUS_LABEL.UNHEALTHY).toBe('Unhealthy');
@@ -29,9 +30,17 @@ describe('measured health vocabulary', () => {
   it('shows the health badge only for lifecycle states with a running app', () => {
     expect(showHealthBadge('HEALTHY')).toBe(true);
     expect(showHealthBadge('UPDATE_AVAILABLE')).toBe(true);
-    expect(showHealthBadge('FAILED')).toBe(true);
+    expect(showHealthBadge('FAILED')).toBe(false);
     expect(showHealthBadge('NOT_INSTALLED')).toBe(false);
     expect(showHealthBadge('DELETED')).toBe(false);
+  });
+
+  it('shows infrastructure rows only for lifecycle states with a running app', () => {
+    expect(showInfrastructureRows('HEALTHY')).toBe(true);
+    expect(showInfrastructureRows('UPDATE_AVAILABLE')).toBe(true);
+    expect(showInfrastructureRows('FAILED')).toBe(false);
+    expect(showInfrastructureRows('NOT_INSTALLED')).toBe(false);
+    expect(showInfrastructureRows('DELETED')).toBe(false);
   });
 });
 
