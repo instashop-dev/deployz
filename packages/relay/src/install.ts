@@ -216,13 +216,7 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
 
   const deadline = now() + budgetMs;
 
-  // Describe before create. This is what makes a re-delivered or resumed
-  // INSTALL safe: an existing stack is adopted, never duplicated.
-  const existing = await installer.describeStack(stackName);
-  if (existing !== null) {
-    const settled = await settle(existing, stackName, installer);
-    if (settled) return settled;
-  } else {
+  const createStack = async (): Promise<InstallOutcome | null> => {
     const created = await installer.createStack({
       stackName,
       templateUrl,
@@ -232,7 +226,6 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
       capabilities: [...CAPABILITIES],
       ...(options.executionRoleArn !== undefined ? { roleArn: options.executionRoleArn } : {}),
     });
-
     if (!created.created && !created.alreadyExists) {
       const code = created.errorCode ? `${created.errorCode}: ` : '';
       return {
@@ -241,11 +234,24 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
         outputs: {},
       };
     }
+    return null;
+  };
+
+  // Describe before create. This is what makes a re-delivered or resumed
+  // INSTALL safe: an existing stack is adopted, never duplicated.
+  const existing = await installer.describeStack(stackName);
+  if (existing !== null) {
+    const settled = await settle(existing, stackName, installer);
+    if (settled) return settled;
+  } else {
+    const refused = await createStack();
+    if (refused !== null) return refused;
   }
 
   // Watch it settle.
   let last: StackState | null = existing;
   let unreadable = 0;
+  let createdAfterDelete = false;
   for (;;) {
     if (now() >= deadline) {
       return { state: 'in-progress', status: last?.status ?? 'CREATE_IN_PROGRESS' };
@@ -257,6 +263,20 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
 
     const state = await installer.describeStack(stackName);
     if (state === null) {
+      // An adopted DELETE_IN_PROGRESS finishing is not a loss of access —
+      // it is first-install recovery (or a concurrent destroy) clearing the
+      // failed previous stack. This install's job is the NEW stack, so
+      // create it now and keep watching. (Observed live: recovery deleted
+      // the wedged stack, and the install then failed itself on the empty
+      // reads instead of creating.)
+      if (last?.status === 'DELETE_IN_PROGRESS' && !createdAfterDelete) {
+        const refused = await createStack();
+        if (refused !== null) return refused;
+        createdAfterDelete = true;
+        unreadable = 0;
+        last = null;
+        continue;
+      }
       unreadable += 1;
       if (unreadable >= UNREADABLE_POLLS_BEFORE_FAILING) {
         // It was there a moment ago, and has been unreadable ever since.

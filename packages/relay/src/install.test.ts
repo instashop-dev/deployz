@@ -413,6 +413,29 @@ describe('installApplicationStack', () => {
     expect(outcome.state).toBe('succeeded');
   });
 
+  it('creates the fresh stack when an adopted deletion finishes (first-install recovery)', async () => {
+    // Recovery deletes the failed previous stack; the same INSTALL then owns
+    // creating the new one. Observed live: the watcher instead failed itself
+    // on the empty reads after the delete completed.
+    const installer = scriptedInstaller([
+      { status: 'DELETE_IN_PROGRESS', outputs: {} },
+      { status: 'DELETE_IN_PROGRESS', outputs: {} },
+      null, // deletion finished — the install must now create, not fail
+      { status: 'CREATE_IN_PROGRESS', outputs: {} },
+      complete(),
+    ]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+    expect(installer.createCalls).toHaveLength(1);
+  });
+
   it('fails when the stack disappears mid-create', async () => {
     const installer = scriptedInstaller([
       { status: 'CREATE_IN_PROGRESS', outputs: {} },
