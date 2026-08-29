@@ -10,13 +10,21 @@
  * `deletionProtection: true` (keeping its security group and the VPC alive)
  * and the S3 bucket is `RETAIN`.
  *
- * This module deletes a terminal-failed stack and the retained resources
- * that block its deletion, so the next `installApplicationStack` can create
- * the stack again. It runs ONLY when the command payload carries
- * `recovery.neverInstalled: true` — set by the control plane's
- * retry-install route, which first proves no INSTALL ever succeeded. Defense
- * in depth: a stack found healthy or in progress is refused untouched,
- * whatever the payload claims.
+ * This module clears the retained resources that would block a
+ * terminal-failed stack's deletion, then deletes the stack, so the next
+ * `installApplicationStack` can create it again. It runs ONLY when the
+ * command payload carries `recovery.neverInstalled: true` — set by the
+ * control plane's retry-install route, which first proves no INSTALL ever
+ * succeeded. Defense in depth: a stack found healthy or in progress is
+ * refused untouched, whatever the payload claims.
+ *
+ * Orphans are cleared BEFORE the delete attempt, not after: this stack never
+ * installed successfully, so its RDS/ElastiCache resources are doomed by
+ * definition — there is no need to spend the wait budget watching
+ * `DeleteStack` fail on a blocker its own resource list already names. A
+ * clear that cannot land this pass (already deleting, from a previous poll)
+ * is tolerated, not treated as failure — the retry loop's own convergence
+ * proves it gone.
  *
  * Orphans are identified ONLY from the failed stack's own resource list —
  * never by name guessing — and only types whose deletion the relay's
@@ -164,58 +172,99 @@ export interface ClearDeleteBlockersReport {
 }
 
 /**
- * Clears the retained orphans (RDS, ElastiCache) that block a DELETE_FAILED
- * stack's deletion, then retries `DeleteStack`. Shared by first-install
- * recovery (below, after its own initial delete attempt fails) and by
- * `destroy.ts` (which reaches a DELETE_FAILED stack directly, without a
- * delete attempt of its own to run first).
+ * Attempts to clear every RDS/ElastiCache orphan found in a stack's resource
+ * list — deletion protection off, then delete. Shared by
+ * `recoverFailedInstallStack` (proactively, before its first delete attempt)
+ * and `clearDeleteBlockersAndRetryDelete` (reactively, after a delete has
+ * already failed).
  *
- * Orphans are identified ONLY from the stack's own resource list — never by
- * name guessing — and only types whose deletion the relay's tag-scoped IAM
- * already grants (rds:ModifyDBInstance/DeleteDBInstance,
- * elasticache:DeleteCacheCluster). If nothing here can be cleared, the
- * delete is not retried — retrying a delete that will fail the same way
- * again would just waste the caller's wait budget.
+ * A re-run is expected to hit an orphan that is already deleting or already
+ * gone: the SDK throws (e.g. `InvalidDBInstanceStateFault`,
+ * `DBInstanceNotFoundFault`), which this function tolerates — log via
+ * `console.warn` and move on. It is not this function's job to name every
+ * fault the SDK can raise; the caller's own retry loop is what proves an
+ * orphan is actually gone, so a blanket per-orphan try/catch is correct
+ * here.
  */
-export async function clearDeleteBlockersAndRetryDelete(
-  deps: RecoveryDeps,
-  stackName: string,
-): Promise<ClearDeleteBlockersReport> {
-  const { cfn, rds, cache } = deps;
-  const wait = resolveWait(deps.wait);
+async function clearOrphans(
+  deps: Pick<RecoveryDeps, 'rds' | 'cache'>,
+  resources: readonly PhysicalStackResource[],
+): Promise<{ readonly candidateCount: number; readonly deleted: readonly string[] }> {
+  const { rds, cache } = deps;
 
-  // The stack's own resources are still readable in DELETE_FAILED — the
-  // orphans to clean are exactly the retained members of this list.
-  const resources = await cfn.describeStackResources(stackName);
+  // Orphans are identified ONLY from the stack's own resource list — never
+  // by name guessing — and only types whose deletion the relay's
+  // tag-scoped IAM already grants (rds:ModifyDBInstance/DeleteDBInstance,
+  // elasticache:DeleteCacheCluster).
   const orphans = resources.filter(
     (r) => ORPHAN_RESOURCE_TYPES[r.type] !== undefined && r.physicalId.length > 0,
   );
 
   // The retained orphans are what block the default-Delete resources (the
   // DB instance keeps its security group's ENIs alive; the cache keeps its
-  // subnet group). Clear them, then ask CloudFormation to finish the delete.
+  // subnet group). Clear them so CloudFormation's delete can finish.
   const deleted: string[] = [];
   for (const orphan of orphans) {
     const kind = ORPHAN_RESOURCE_TYPES[orphan.type]!;
     const physicalId = orphan.physicalId;
-    if (kind === 'rds') {
-      if (!rds) continue;
-      // deletionProtection=true refuses DeleteDBInstance — lower it first.
-      await rds.disableDeletionProtection(physicalId);
-      await rds.deleteInstance(physicalId);
-    } else {
-      if (!cache) continue;
-      await cache.deleteCluster(physicalId);
+    if (kind === 'rds' && !rds) continue;
+    if (kind === 'cache' && !cache) continue;
+    try {
+      if (kind === 'rds') {
+        // deletionProtection=true refuses DeleteDBInstance — lower it first.
+        await rds!.disableDeletionProtection(physicalId);
+        await rds!.deleteInstance(physicalId);
+      } else {
+        await cache!.deleteCluster(physicalId);
+      }
+      deleted.push(physicalId);
+    } catch (err) {
+      console.warn(
+        JSON.stringify({
+          event: 'relay:orphan-clear-tolerated',
+          physicalId,
+          resourceType: orphan.type,
+          error: String(err),
+        }),
+      );
     }
-    deleted.push(physicalId);
   }
+
+  return { candidateCount: orphans.length, deleted };
+}
+
+/**
+ * Clears the retained orphans (RDS, ElastiCache) that block a DELETE_FAILED
+ * stack's deletion, then retries `DeleteStack`. Shared by first-install
+ * recovery (below, after its own initial delete attempt fails) and by
+ * `destroy.ts` (which reaches a DELETE_FAILED stack directly, without a
+ * delete attempt of its own to run first).
+ *
+ * If the stack carries no orphan candidates at all, the delete is not
+ * retried — retrying a delete with nothing to clear would just waste the
+ * caller's wait budget on a known outcome. A candidate that could not
+ * actually be cleared this pass (already deleting, no client configured)
+ * still retries the delete: CloudFormation is the honest judge of whether
+ * the stack can finish, not this function's own clearing attempt.
+ */
+export async function clearDeleteBlockersAndRetryDelete(
+  deps: RecoveryDeps,
+  stackName: string,
+): Promise<ClearDeleteBlockersReport> {
+  const { cfn } = deps;
+  const wait = resolveWait(deps.wait);
+
+  // The stack's own resources are still readable in DELETE_FAILED — the
+  // orphans to clean are exactly the retained members of this list.
+  const resources = await cfn.describeStackResources(stackName);
+  const { candidateCount, deleted } = await clearOrphans(deps, resources);
 
   const blockedResources = (): string[] =>
     resources
       .filter((r) => !deleted.includes(r.physicalId) && r.status === 'DELETE_FAILED')
       .map((r) => `${r.type} (${r.logicalId})`);
 
-  if (deleted.length === 0) {
+  if (candidateCount === 0) {
     return {
       phase: 'DELETE_STUCK',
       lastStackStatus: 'DELETE_FAILED',
@@ -265,22 +314,37 @@ export async function recoverFailedInstallStack(
     return { phase: 'ALREADY_ABSENT', lastStackStatus: status, orphansDeleted: [] };
   }
 
+  // This stack never installed successfully — the control plane already
+  // proved `neverInstalled` before issuing the recovery. Its retained
+  // RDS/ElastiCache resources are doomed by definition, so clear them BEFORE
+  // the delete attempt rather than after: waiting for DeleteStack to fail on
+  // a known blocker first just spends the wait budget finding out what this
+  // stack's own resource list already says.
+  const resources = await cfn.describeStackResources(input.stackName);
+  const { deleted: orphansDeleted } = await clearOrphans(deps, resources);
+
   await cfn.deleteStack(input.stackName);
   const last = await waitForSettled(cfn, wait, input.stackName);
 
   if (last === 'DELETE_COMPLETE') {
-    return { phase: 'STACK_DELETED', lastStackStatus: last, orphansDeleted: [] };
+    return {
+      phase: orphansDeleted.length > 0 ? 'BLOCKERS_CLEARED_STACK_GONE' : 'STACK_DELETED',
+      lastStackStatus: last,
+      orphansDeleted,
+    };
   }
   if (isInProgress(last)) {
-    return { phase: 'DELETE_IN_PROGRESS', lastStackStatus: last, orphansDeleted: [] };
+    return { phase: 'DELETE_IN_PROGRESS', lastStackStatus: last, orphansDeleted };
   }
 
-  // DELETE_FAILED: clear known orphan blockers and retry.
+  // Still DELETE_FAILED after the pre-clear — something else is blocking
+  // (or the same orphan is still mid-deletion). One more clear-and-retry
+  // pass, tolerant of a re-run over the same orphans.
   const cleared = await clearDeleteBlockersAndRetryDelete(deps, input.stackName);
   return {
     phase: cleared.phase === 'STACK_DELETED' ? 'BLOCKERS_CLEARED_STACK_GONE' : cleared.phase,
     lastStackStatus: cleared.lastStackStatus,
-    orphansDeleted: cleared.orphansDeleted,
+    orphansDeleted: Array.from(new Set([...orphansDeleted, ...cleared.orphansDeleted])),
   };
 }
 

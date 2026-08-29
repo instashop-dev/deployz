@@ -48,6 +48,11 @@ export interface CodeBuildStateChangeEvent {
         readonly 'phase-status'?: string;
         readonly 'phase-context'?: readonly string[];
       }[];
+      /** Where the real EventBridge event carries the exported vars (verified live). */
+      readonly 'exported-environment-variables'?: readonly {
+        readonly name: string;
+        readonly value: string;
+      }[];
     };
     readonly 'exported-environment-variables'?: readonly {
       readonly name: string;
@@ -296,7 +301,16 @@ export async function recordBuildResult(
   db: RuntimeDb,
   event: CodeBuildStateChangeEvent,
 ): Promise<void> {
-  const exported = event.detail['exported-environment-variables'];
+  // The real EventBridge event nests exported vars under
+  // additional-information; the top-level spelling is kept for the sweep's
+  // synthesized events and any older payloads. (Verified live 2026-08-30: a
+  // SUCCEEDED build's digest arrived ONLY under additional-information, and
+  // the release was wrongly failed as digest-less.)
+  const topLevelExported = event.detail['exported-environment-variables'];
+  const exported =
+    topLevelExported !== undefined && topLevelExported.length > 0
+      ? topLevelExported
+      : event.detail['additional-information']?.['exported-environment-variables'];
   const supplied = event.detail['additional-information']?.environment?.['environment-variables'];
   const releaseId = readVariable(exported, 'RELEASE_ID') ?? readVariable(supplied, 'RELEASE_ID');
   if (!releaseId) return; // A build the control plane did not start.

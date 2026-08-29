@@ -770,6 +770,100 @@ describe('createInstallResumer', () => {
       failureCode: 'STACK_CREATE_FAILED',
     });
   });
+
+  it('re-runs recovery on DELETE_FAILED for a recovery-arc install, keeping the pending record', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({ ...pendingRecord, payload: { recovery: { neverInstalled: true } } });
+    const recover = vi.fn(async () => ({
+      phase: 'DELETE_IN_PROGRESS' as const,
+      lastStackStatus: 'DELETE_IN_PROGRESS',
+      orphansDeleted: ['db-1'],
+    }));
+
+    const results = await createInstallResumer(
+      makeResumeDeps({
+        pending,
+        recover,
+        install: async () => ({
+          state: 'failed',
+          status: 'DELETE_FAILED',
+          reason: 'Stack "deployz-app" finished in DELETE_FAILED',
+          outputs: {},
+        }),
+      }),
+    )();
+
+    // A DELETE_FAILED stack on a recovery arc is not the final answer — the
+    // stuck delete this arc is driving needed another clearing pass.
+    // Nothing is reported to the control plane yet, and the pending record
+    // stays so the next poll can pick up from wherever recovery left off.
+    expect(results).toEqual([]);
+    expect(recover).toHaveBeenCalledWith('deployz-app');
+    expect(await pending.read()).not.toBeNull();
+  });
+
+  it('clears the pending record and reports failure when recovery itself gets stuck', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({ ...pendingRecord, payload: { recovery: { neverInstalled: true } } });
+    const recover = vi.fn(async () => ({
+      phase: 'DELETE_STUCK' as const,
+      lastStackStatus: 'DELETE_FAILED',
+      orphansDeleted: [],
+    }));
+
+    const results = await createInstallResumer(
+      makeResumeDeps({
+        pending,
+        recover,
+        install: async () => ({
+          state: 'failed',
+          status: 'DELETE_FAILED',
+          reason: 'Stack "deployz-app" finished in DELETE_FAILED',
+          outputs: {},
+        }),
+      }),
+    )();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      commandId: 'cmd-1',
+      idempotencyKey: 'dep-1:INSTALL',
+      success: false,
+      failureCode: 'STACK_CREATE_FAILED',
+    });
+    expect(results[0]!.error).toContain('DELETE_FAILED');
+    expect(await pending.read()).toBeNull();
+  });
+
+  it('reports a DELETE_FAILED install as a plain failure when the install was not a recovery arc', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord); // payload: {} — no `recovery.neverInstalled` flag
+    const recover = vi.fn();
+
+    const results = await createInstallResumer(
+      makeResumeDeps({
+        pending,
+        recover,
+        install: async () => ({
+          state: 'failed',
+          status: 'DELETE_FAILED',
+          reason: 'Stack "deployz-app" finished in DELETE_FAILED',
+          outputs: {},
+        }),
+      }),
+    )();
+
+    // Unchanged current behaviour: without a recovery arc to continue,
+    // recover is never consulted and the stack's real status is reported.
+    expect(recover).not.toHaveBeenCalled();
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      commandId: 'cmd-1',
+      success: false,
+      failureCode: 'STACK_CREATE_FAILED',
+    });
+    expect(await pending.read()).toBeNull();
+  });
 });
 
 describe('readInstallParametersFromPayload', () => {
@@ -910,9 +1004,13 @@ describe('createInstallExecutor — recovery arc', () => {
 
     expect(result.success).toBe(true);
     expect(actor.deleteCalls).toEqual(['deployz-app', 'deployz-app']);
-    expect(rds.unprotected).toEqual(['arc-db']);
-    expect(rds.deleted).toEqual(['arc-db']);
+    // Orphans are cleared proactively before the first delete attempt, and
+    // again (harmlessly, on this fake) as the fallback retry once that
+    // first attempt still lands on DELETE_FAILED — two clearing passes.
+    expect(rds.unprotected).toEqual(['arc-db', 'arc-db']);
+    expect(rds.deleted).toEqual(['arc-db', 'arc-db']);
     expect(install).toHaveBeenCalledOnce();
+    // The report itself de-duplicates: one orphan, cleared, reported once.
     expect(result.output).toMatchObject({
       recovery: { phase: 'BLOCKERS_CLEARED_STACK_GONE', orphansDeleted: ['arc-db'] },
     });

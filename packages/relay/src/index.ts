@@ -564,12 +564,24 @@ async function settleInstall(
 }
 
 /**
- * Run the requested first-install recovery, if the command asked for one.
+ * Whether a command's payload carries the control plane's `recovery.
+ * neverInstalled: true` flag — set on its retry-install route only after it
+ * has proved no INSTALL for this stack ever succeeded.
  *
  * The payload flag is control-plane-shaped (`Record<string, unknown>`), so
  * it is checked defensively — anything other than an explicit `true` means
- * no recovery, and a command with no `recover` seam (e.g. a test double)
- * skips it rather than crashing.
+ * no recovery.
+ */
+function isRecoveryRequested(payload: Record<string, unknown>): boolean {
+  const recovery = payload['recovery'] as { neverInstalled?: unknown } | undefined;
+  return recovery?.neverInstalled === true;
+}
+
+/**
+ * Run the requested first-install recovery, if the command asked for one.
+ *
+ * A command with no `recover` seam (e.g. a test double) skips it rather
+ * than crashing.
  *
  * A refusal phase (live or in-progress stack) is not an error: recovery
  * falls through and `settleInstall` reports the stack's real state honestly.
@@ -579,8 +591,7 @@ async function runRequestedRecovery(
   command: RelayCommand,
   stackName: string,
 ): Promise<RecoveryReport | undefined> {
-  const recovery = command.payload['recovery'] as { neverInstalled?: unknown } | undefined;
-  if (recovery?.neverInstalled !== true || !deps.recover) {
+  if (!isRecoveryRequested(command.payload) || !deps.recover) {
     return undefined;
   }
 
@@ -597,6 +608,18 @@ async function runRequestedRecovery(
   );
   return report;
 }
+
+/**
+ * Recovery phases that mean the stack is on its way to being gone — no
+ * further action is needed here; the next poll's `settleInstall` will find
+ * it absent (or still deleting) and either create it fresh or defer again.
+ */
+const RECOVERY_STILL_IN_PROGRESS: ReadonlySet<RecoveryReport['phase']> = new Set([
+  'STACK_DELETED',
+  'BLOCKERS_CLEARED_STACK_GONE',
+  'DELETE_IN_PROGRESS',
+  'ALREADY_ABSENT',
+]);
 
 /**
  * The INSTALL executor: provision the application stack, then prove it.
@@ -717,6 +740,65 @@ export function createInstallResumer(
         }),
       );
       return [];
+    }
+
+    // A first-install recovery arc landing on DELETE_FAILED is not the
+    // final answer — it means the delete this arc is driving got stuck on
+    // an orphan (the RDS instance's ENI, most likely). Re-run recovery
+    // instead of reporting failure: `neverInstalled` already proved this
+    // stack's data is doomed, so there is always forward progress to make.
+    if (
+      !settled.success &&
+      settled.output['stackStatus'] === 'DELETE_FAILED' &&
+      isRecoveryRequested(pending.payload) &&
+      deps.recover
+    ) {
+      const report = await deps.recover(pending.stackName);
+      console.log(
+        JSON.stringify({
+          event: 'relay:install-recovery',
+          commandId: pending.commandId,
+          installationId: deps.installationId,
+          resumed: true,
+          phase: report.phase,
+          lastStackStatus: report.lastStackStatus,
+          orphansDeleted: report.orphansDeleted,
+        }),
+      );
+
+      if (RECOVERY_STILL_IN_PROGRESS.has(report.phase)) {
+        // Keep the pending record — the next poll's settleInstall will find
+        // the stack gone (or still going) and either create it fresh or
+        // defer again. Nothing to report to the control plane yet.
+        return [];
+      }
+
+      // DELETE_STUCK: recovery cannot make more progress on its own. Clear
+      // the pending record and report the failure honestly.
+      await deps.pending.clear();
+      console.log(
+        JSON.stringify({
+          event: 'relay:command-resumed',
+          commandId: pending.commandId,
+          stackName: pending.stackName,
+          success: false,
+          startedAt: pending.startedAt,
+          reason: `recovery stuck: ${report.phase}`,
+        }),
+      );
+      return [
+        {
+          commandId: pending.commandId,
+          idempotencyKey: pending.idempotencyKey,
+          success: false,
+          error:
+            `Stack "${pending.stackName}" is still ${report.lastStackStatus} after first-install ` +
+            `recovery cleared ${report.orphansDeleted.length} orphan(s) — recovery could not ` +
+            'unblock the delete',
+          failureCode: 'STACK_CREATE_FAILED',
+          output: settled.output,
+        },
+      ];
     }
 
     // Clear first: a result reported twice would re-emit the control

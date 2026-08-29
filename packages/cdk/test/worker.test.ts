@@ -296,6 +296,27 @@ describe('worker handler', () => {
     expect(row?.releaseStatus).toBe('READY');
   });
 
+  it('records the digest when the event nests exported vars under additional-information (real EventBridge shape)', async () => {
+    const release = await insertRelease('v2.0.5');
+    const digest =
+      'acme/docs@sha256:5555555555555555555555555555555555555555555555555555555555555555';
+
+    await recordBuildResult(db, {
+      'detail-type': 'CodeBuild Build State Change',
+      detail: {
+        'build-status': 'SUCCEEDED',
+        'additional-information': {
+          environment: { 'environment-variables': [{ name: 'RELEASE_ID', value: release.id }] },
+          'exported-environment-variables': [{ name: 'IMAGE_DIGEST', value: digest }],
+        },
+      },
+    });
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.imageDigest).toBe(digest);
+    expect(row?.releaseStatus).toBe('READY');
+  });
+
   it('fails the release when a build fails', async () => {
     const release = await insertRelease('v2.1.0');
 
