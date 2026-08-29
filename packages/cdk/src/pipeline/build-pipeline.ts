@@ -149,7 +149,13 @@ export class BuildPipeline extends Construct {
             commands: [
               'echo "Pushing Docker image to ECR..."',
               'docker push $ECR_REPOSITORY_URI:$IMAGE_TAG',
-              'docker push $ECR_REPOSITORY_URI:${GIT_SHA:-unknown}',
+              // The repository's tags are IMMUTABLE, and the SHA tag already
+              // exists whenever the same commit is released again (a real
+              // re-release of v0.1.0's commit as v0.1.1 failed on exactly
+              // this). The SHA tag is traceability, not the release identity
+              // — the version tag above and the digest below are — so a
+              // push refused for an existing tag must not fail the build.
+              'docker push $ECR_REPOSITORY_URI:${GIT_SHA:-unknown} || echo "SHA tag already exists (immutable repository) — keeping the existing tag"',
               // Extract the immutable sha256 digest. The format string uses
               // double-brace escaping: `{{...}}` is the Go template syntax
               // for docker inspect; CodeBuild does NOT interpret `{{ }}`.

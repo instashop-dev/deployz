@@ -43,6 +43,11 @@ export interface CodeBuildStateChangeEvent {
           readonly value: string;
         }[];
       };
+      readonly phases?: readonly {
+        readonly 'phase-type'?: string;
+        readonly 'phase-status'?: string;
+        readonly 'phase-context'?: readonly string[];
+      }[];
     };
     readonly 'exported-environment-variables'?: readonly {
       readonly name: string;
@@ -71,6 +76,11 @@ export interface WorkerDeps {
       id: string;
       buildStatus: string;
       exportedEnvironmentVariables?: { name: string; value: string }[];
+      phases?: {
+        'phase-type'?: string;
+        'phase-status'?: string;
+        'phase-context'?: string[];
+      }[];
     }[]
   >;
   readonly runAnalysis: (applicationId: string) => Promise<void>;
@@ -265,6 +275,23 @@ export function normalizeBuildId(buildId: string): string {
   return index === -1 ? buildId : buildId.slice(index + marker.length);
 }
 
+/**
+ * The first failed phase's context from a CodeBuild event — e.g.
+ * "POST_BUILD: COMMAND_EXECUTION_ERROR: Error while executing command:
+ * docker push …". "CodeBuild reported FAILED" alone leaves the vendor
+ * opening the AWS console to learn why; the event already carries the why.
+ */
+export function buildFailureDetail(event: CodeBuildStateChangeEvent): string | null {
+  const phases = event.detail['additional-information']?.phases ?? [];
+  for (const phase of phases) {
+    if (phase['phase-status'] !== 'FAILED' && phase['phase-status'] !== 'FAULT') continue;
+    const context = (phase['phase-context'] ?? []).find((entry) => entry.trim().length > 0);
+    if (context === undefined) continue;
+    return `${phase['phase-type'] ?? 'unknown phase'}: ${context}`.slice(0, 400);
+  }
+  return null;
+}
+
 export async function recordBuildResult(
   db: RuntimeDb,
   event: CodeBuildStateChangeEvent,
@@ -311,7 +338,12 @@ export async function recordBuildResult(
 
   const status = event.detail['build-status'];
   if (status !== 'SUCCEEDED') {
-    await failRelease(db, releaseId, `CodeBuild reported ${status}`);
+    const detail = buildFailureDetail(event);
+    await failRelease(
+      db,
+      releaseId,
+      `CodeBuild reported ${status}${detail === null ? '' : ` — ${detail}`}`,
+    );
     return;
   }
 
@@ -471,6 +503,9 @@ export async function sweepStuckBuilds(deps: WorkerDeps, now: Date = new Date())
       detail: {
         'build-status': build.buildStatus,
         'build-id': build.id,
+        ...(build.phases !== undefined
+          ? { 'additional-information': { phases: build.phases } }
+          : {}),
         'exported-environment-variables': [
           ...(build.exportedEnvironmentVariables ?? []),
           { name: 'RELEASE_ID', value: release.id },

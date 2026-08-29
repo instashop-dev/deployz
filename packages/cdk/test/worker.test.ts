@@ -7,6 +7,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import {
+  buildFailureDetail,
   handleMessage,
   normalizeBuildId,
   recordBuildResult,
@@ -425,6 +426,45 @@ describe('normalizeBuildId', () => {
 
   it('returns input unchanged when the ":build/" marker is absent', () => {
     expect(normalizeBuildId('some-opaque-id')).toBe('some-opaque-id');
+  });
+});
+
+describe('buildFailureDetail', () => {
+  const event = (phases: unknown): CodeBuildStateChangeEvent =>
+    ({
+      'detail-type': 'CodeBuild Build State Change',
+      detail: {
+        'build-status': 'FAILED',
+        'additional-information': { phases },
+      },
+    }) as CodeBuildStateChangeEvent;
+
+  it('returns the first failed phase with its context', () => {
+    expect(
+      buildFailureDetail(
+        event([
+          { 'phase-type': 'BUILD', 'phase-status': 'SUCCEEDED', 'phase-context': [': '] },
+          {
+            'phase-type': 'POST_BUILD',
+            'phase-status': 'FAILED',
+            'phase-context': [
+              'COMMAND_EXECUTION_ERROR: Error while executing command: docker push …. Reason: exit status 1',
+            ],
+          },
+        ]),
+      ),
+    ).toBe(
+      'POST_BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker push …. Reason: exit status 1',
+    );
+  });
+
+  it('returns null when no failed phase carries a context message', () => {
+    expect(
+      buildFailureDetail(
+        event([{ 'phase-type': 'BUILD', 'phase-status': 'FAILED', 'phase-context': [] }]),
+      ),
+    ).toBeNull();
+    expect(buildFailureDetail(event(undefined))).toBeNull();
   });
 });
 

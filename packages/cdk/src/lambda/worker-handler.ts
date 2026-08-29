@@ -110,6 +110,19 @@ function createDeps(db: LambdaDb): WorkerDeps {
                       ? [{ name: variable.name, value: variable.value }]
                       : [],
                 ),
+                // Same shape as the EventBridge event's phases, so the
+                // sweep's synthesized event carries failure detail too.
+                phases: (build.phases ?? []).map((phase) => ({
+                  ...(phase.phaseType !== undefined ? { 'phase-type': phase.phaseType } : {}),
+                  ...(phase.phaseStatus !== undefined
+                    ? { 'phase-status': phase.phaseStatus }
+                    : {}),
+                  'phase-context': (phase.contexts ?? []).flatMap((context) =>
+                    context.message !== undefined && context.message !== ''
+                      ? [`${context.statusCode ?? ''}: ${context.message}`]
+                      : [],
+                  ),
+                })),
               },
             ]
           : [],
