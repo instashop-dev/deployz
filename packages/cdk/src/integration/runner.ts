@@ -17,7 +17,7 @@
  */
 
 import { isScpBlocked } from './scp-blocked.js';
-import { CleanupRegistry, runWithTeardown, type TeardownResult } from './teardown.js';
+import { CleanupRegistry, runWithTeardown, toMessage, type TeardownResult } from './teardown.js';
 import type { AwsClients, CloudFormationClient, StackInfo, StackStatus } from './aws-clients.js';
 import type { PublishResult, SynthOutput } from '../quick-create/index.js';
 
@@ -113,16 +113,6 @@ const FAILED_STATUSES = new Set<StackStatus>([
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function toMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
 }
 
 /**

@@ -11,7 +11,7 @@
 /** Paths the marketing hostname owns. Everything else belongs to the app. */
 const MARKETING_PATHS = new Set(['/', '/pricing']);
 
-export interface HostRouteInput {
+interface HostRouteInput {
   /** Lowercased, port-stripped Host header. */
   readonly host: string;
   readonly pathname: string;
@@ -19,7 +19,7 @@ export interface HostRouteInput {
   readonly appHost: string | undefined;
 }
 
-export interface HostRoute {
+interface HostRoute {
   readonly host: string;
   readonly pathname: string;
 }

@@ -321,17 +321,17 @@ async function applyAiFallback(
   }
 }
 
-// ── §19 checks shape (must match computeReadiness in server.ts EXACTLY) ────
+// ── §19 checks shape (shared with computeReadiness in server.ts) ────────────
 
-interface ReadyCheck {
+export interface ReadyCheck {
   label: string;
 }
-interface AttentionCheck {
+export interface AttentionCheck {
   title: string;
   detail: string;
   suggestedFix: string | null;
 }
-interface UnsupportedCheck {
+export interface UnsupportedCheck {
   title: string;
   reason: string;
 }

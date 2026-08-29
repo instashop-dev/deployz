@@ -5,7 +5,7 @@ import { SetupProgress } from '@/components/setup-progress';
 import { Button } from '@/components/ui/button';
 
 /** The three things between a new organization and its first customer. */
-export const SETUP_STEPS = [
+const SETUP_STEPS = [
   'Connect application',
   'Review deployment setup',
   'Deploy first customer',

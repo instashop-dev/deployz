@@ -194,4 +194,3 @@ export function needsStreaming(
  * for repos up to Lambda's memory limit. The streaming path is a future
  * upgrade when real-AWS testing reveals the need.
  */
-export const _LARGE_REPO_STREAMING_NOTE = 'See function docs above.';

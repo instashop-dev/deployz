@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 
 import type { OrgRole, OrganizationSummary } from './organization-vocabulary';
 
-export interface Me {
+interface Me {
   user: { id: string; name: string; email: string; image: string | null };
   organization: { id: string; name: string; slug: string } | null;
   /** The user's role in the active organization, null when they have none. */

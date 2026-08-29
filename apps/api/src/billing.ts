@@ -32,8 +32,6 @@ import { ApiError } from './errors.js';
 export const METER_EVENT_NAME = 'deployz_healthy_deployment_days';
 export { BASE_PRICE_CENTS, METERED_PRICE_CENTS };
 
-export type StripeClient = Stripe;
-
 // Degrade gracefully: no STRIPE_SECRET_KEY -> null client, every billing
 // surface no-ops (tests without a key, local dev without billing).
 export function createStripe(secretKey: string | undefined = env.stripeSecretKey): Stripe | null {
@@ -383,13 +381,6 @@ async function upsertSubscriptionRow(
 // ---------------------------------------------------------------------------
 // "Billable on Healthy" usage reporting (§48/U8 + §7 exemption)
 // ---------------------------------------------------------------------------
-
-export interface BillableDeployment {
-  id: string;
-  organizationId: string;
-  state: string;
-  isTestDeployment: boolean;
-}
 
 // §48: a deployment bills $19/month when it is live. §46: HEALTHY and
 // UPDATE_AVAILABLE are both live serving states (a deployment moves to

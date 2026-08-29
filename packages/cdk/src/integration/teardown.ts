@@ -50,7 +50,7 @@ export interface TeardownResult {
 }
 
 /** Best-effort message extraction from an unknown thrown value. */
-function toMessage(error: unknown): string {
+export function toMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
   try {
