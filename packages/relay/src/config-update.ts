@@ -50,7 +50,8 @@ type ConfigUpdateOutcome =
 export function computeEnvChanges(
   desired: readonly EffectiveConfigEntry[],
   currentEnvironment: readonly { name?: string | undefined; value?: string | undefined }[],
-): { name: string; value: string }[] | null {
+  removedKeys: readonly string[] = [],
+): { changes: { name: string; value: string }[]; removals: string[] } | null {
   const desiredPlain = desired.filter((entry) => !entry.isSecret && entry.value !== undefined);
   const currentByName = new Map(
     currentEnvironment
@@ -65,7 +66,11 @@ export function computeEnvChanges(
       changes.push({ name: entry.key, value: entry.value! });
     }
   }
-  return changes.length > 0 ? changes : null;
+  // Only the keys the vendor explicitly removed are stripped — everything
+  // else in the environment (install-time values the template baked in) is
+  // not Deployz-managed and must survive untouched.
+  const removals = removedKeys.filter((key) => currentByName.has(key));
+  return changes.length > 0 || removals.length > 0 ? { changes, removals } : null;
 }
 
 async function findServiceArn(deps: ConfigUpdateDeps): Promise<string | null> {
@@ -75,7 +80,10 @@ async function findServiceArn(deps: ConfigUpdateDeps): Promise<string | null> {
   );
 }
 
-async function settleConfigUpdate(deps: ConfigUpdateDeps): Promise<ConfigUpdateOutcome> {
+async function settleConfigUpdate(
+  deps: ConfigUpdateDeps,
+  removedKeys: readonly string[] = [],
+): Promise<ConfigUpdateOutcome> {
   const desired = await deps.fetchEffectiveConfig();
 
   const serviceArn = await findServiceArn(deps);
@@ -109,17 +117,21 @@ async function settleConfigUpdate(deps: ConfigUpdateDeps): Promise<ConfigUpdateO
   }
 
   const currentEnv = (appContainer['environment'] as { name?: string; value?: string }[]) ?? [];
-  const changes = computeEnvChanges(desired, currentEnv);
+  const delta = computeEnvChanges(desired, currentEnv, removedKeys);
 
-  if (changes === null) {
+  if (delta === null) {
     return { state: 'succeeded', alreadyApplied: true };
   }
 
-  // Apply the changes: merge into the environment array, register a new
-  // task definition, update the service.
+  // Apply the delta: merge changes into the environment array, strip the
+  // explicitly removed keys, register a new task definition, update the
+  // service.
   const envByName = new Map(currentEnv.map((env) => [env.name ?? '', env.value ?? '']));
-  for (const change of changes) {
+  for (const change of delta.changes) {
     envByName.set(change.name, change.value);
+  }
+  for (const removed of delta.removals) {
+    envByName.delete(removed);
   }
   const nextEnvironment = [...envByName.entries()].map(([name, value]) => ({ name, value }));
 
@@ -167,9 +179,14 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
       }),
     );
 
+    const payloadRemoved = (command.payload as { removedKeys?: unknown }).removedKeys;
+    const removedKeys = Array.isArray(payloadRemoved)
+      ? payloadRemoved.filter((key): key is string => typeof key === 'string')
+      : [];
+
     let outcome: ConfigUpdateOutcome;
     try {
-      outcome = await settleConfigUpdate(deps);
+      outcome = await settleConfigUpdate(deps, removedKeys);
     } catch (err) {
       return {
         commandId: command.id,
