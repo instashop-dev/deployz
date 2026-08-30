@@ -1,6 +1,7 @@
 /**
  * Synthesizes the application stack and writes the versioned CloudFormation
- * artifact to packages/cdk/artifacts/application-template-v1.json.
+ * artifacts to packages/cdk/artifacts/application-template-v1.json and
+ * application-template-redis-v1.json.
  *
  * This is the programmatic equivalent of `cdk synth` — it runs the same
  * App.synth() assembly the CDK CLI drives and emits the identical
@@ -22,6 +23,8 @@ import { fileURLToPath } from 'node:url';
 import { synthesizeApplicationStack } from '../dist/quick-create/publish.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const outDir = join(here, '..', 'artifacts');
+mkdirSync(outDir, { recursive: true });
 
 // Same synth the publisher runs, so the committed artifact and the template
 // customers actually install cannot drift. `synthesizeApplicationStack` is
@@ -31,12 +34,24 @@ const { template } = await synthesizeApplicationStack({
   outdir: mkdtempSync(join(tmpdir(), 'deployz-synth-app-')),
 });
 
-const outDir = join(here, '..', 'artifacts');
-mkdirSync(outDir, { recursive: true });
 const outPath = join(outDir, 'application-template-v1.json');
 writeFileSync(outPath, `${JSON.stringify(template, null, 2)}\n`);
 
 console.log(
   `Wrote ${outPath} — ${Object.keys(template.Resources).length} resources, ` +
     `${Buffer.byteLength(JSON.stringify(template))} bytes (uncompressed)`,
+);
+
+const { template: redisTemplate } = await synthesizeApplicationStack({
+  outdir: mkdtempSync(join(tmpdir(), 'deployz-synth-app-redis-')),
+  stackId: 'DeployzApplicationRedis',
+  redisRequired: true,
+});
+
+const redisOutPath = join(outDir, 'application-template-redis-v1.json');
+writeFileSync(redisOutPath, `${JSON.stringify(redisTemplate, null, 2)}\n`);
+
+console.log(
+  `Wrote ${redisOutPath} — ${Object.keys(redisTemplate.Resources).length} resources, ` +
+    `${Buffer.byteLength(JSON.stringify(redisTemplate))} bytes (uncompressed)`,
 );

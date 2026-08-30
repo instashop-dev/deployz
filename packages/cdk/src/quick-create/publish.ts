@@ -20,7 +20,11 @@ import {
 import { ApplicationStack } from '../application/application-stack.js';
 import { DOCUMENSO_APPLICATION_PROPS } from '../application/documenso.js';
 import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
-import { buildBootstrapQuickCreateUrl } from '@deployz/contracts';
+import {
+  APPLICATION_TEMPLATE_KEY,
+  APPLICATION_TEMPLATE_REDIS_KEY,
+  buildBootstrapQuickCreateUrl,
+} from '@deployz/contracts';
 import { requireWithinLimits } from './limits.js';
 import { repackTemplate } from './repack.js';
 import { createZip, type ZipEntry } from './zip.js';
@@ -299,8 +303,7 @@ await this.s3.putObject({
 
 // ── Application template ────────────────────────────────────────────────────
 
-/** Object key of the published application template, under the key prefix. */
-export const APPLICATION_TEMPLATE_KEY = 'application-template-v1.json';
+export { APPLICATION_TEMPLATE_KEY, APPLICATION_TEMPLATE_REDIS_KEY };
 
 export interface SynthesizeApplicationOptions {
   /** Output directory for the cloud assembly (temp dir is fine). */
@@ -415,6 +418,7 @@ export class ApplicationPublisher {
   async publish(
     synth: SynthOutput,
     readAsset: AssetReader = readBundledIndexMjs,
+    templateKeyName: string = APPLICATION_TEMPLATE_KEY,
   ): Promise<ApplicationPublishResult> {
     const { template: repacked } = repackTemplate(synth.template, {
       bucket: this.options.bucket,
@@ -437,7 +441,7 @@ export class ApplicationPublisher {
       assetKeys.push(key);
     }
 
-    const templateKey = `${this.options.keyPrefix}/${APPLICATION_TEMPLATE_KEY}`;
+    const templateKey = `${this.options.keyPrefix}/${templateKeyName}`;
     await this.s3.putObject({
       bucket: this.options.bucket,
       key: templateKey,

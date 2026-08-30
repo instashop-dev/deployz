@@ -29,6 +29,7 @@ import {
   jobStateSchema,
   jobTypeSchema,
   organizationSchema,
+  redisApplicationTemplateUrl,
   regionSchema,
   releaseSchema,
   releaseStatusSchema,
@@ -310,5 +311,29 @@ describe('stack name constants', () => {
 
   it('does not collide with the bootstrap stack name', () => {
     expect(DEFAULT_APPLICATION_STACK_NAME).not.toBe(DEFAULT_BOOTSTRAP_STACK_NAME);
+  });
+});
+
+describe('redisApplicationTemplateUrl', () => {
+  it('derives the sibling Redis-enabled template URL', () => {
+    expect(
+      redisApplicationTemplateUrl(
+        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      ),
+    ).toBe('https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json');
+  });
+
+  it('preserves the prefix path exactly', () => {
+    expect(redisApplicationTemplateUrl('s3://a/b/c/application-template-v1.json')).toBe(
+      's3://a/b/c/application-template-redis-v1.json',
+    );
+  });
+
+  it('returns undefined for a URL not ending in the base template key', () => {
+    expect(redisApplicationTemplateUrl('https://bucket.s3.amazonaws.com/other-template.json')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty string', () => {
+    expect(redisApplicationTemplateUrl('')).toBeUndefined();
   });
 });

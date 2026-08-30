@@ -673,7 +673,7 @@ describe('createInstallResumer', () => {
   function makeResumeDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
     return {
       installationId: 'inst-1',
-      templateUrl: 'https://example.com/app.json',
+      templateUrl: 'https://example.com/application-template-v1.json',
       install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
       verify: async () => ({ verified: true, checks: [] }),
       pending: memoryPendingStore(),
@@ -863,6 +863,123 @@ describe('createInstallResumer', () => {
       failureCode: 'STACK_CREATE_FAILED',
     });
     expect(await pending.read()).toBeNull();
+  });
+});
+
+// The control plane sends `redisRequired` at the top level of the INSTALL
+// payload, alongside `parameters` and `recovery`. `settleInstall` — shared by
+// `createInstallExecutor` and `createInstallResumer` — must pick the
+// Redis-enabled template variant for it, so retries and resumed installs
+// agree with the first attempt about which template built the stack.
+describe('settleInstall picks the Redis-enabled template variant', () => {
+  const command = {
+    id: 'cmd-1',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {},
+  };
+
+  function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: memoryPendingStore(),
+      now: () => '2026-08-26T12:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('installs the redis-variant template when redisRequired is true', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: { redisRequired: true, parameters: { paramAppApiKey: 'k' } },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      parameters: { paramAppApiKey: 'k' },
+      stackName: 'deployz-app',
+    });
+  });
+
+  it('installs the base template when redisRequired is false', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: { redisRequired: false },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+    });
+  });
+
+  it('installs the base template when redisRequired is absent', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install }))(command);
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+    });
+  });
+
+  it('fails immediately, without installing or writing a pending marker, when the base template URL is unrecognized', async () => {
+    const install = vi.fn();
+    const pending = memoryPendingStore();
+
+    const result = await createInstallExecutor(
+      makeInstallDeps({ install, pending, templateUrl: 'https://example.com/some-other-template.json' }),
+    )({ ...command, payload: { redisRequired: true } });
+
+    expect(install).not.toHaveBeenCalled();
+    expect(await pending.read()).toBeNull();
+    expect(result.success).toBe(false);
+    expect(result.deferred).toBeUndefined();
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toMatch(/redis/i);
+  });
+
+  it('resumes a pending install with the redis-variant template', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({
+      commandId: 'cmd-1',
+      idempotencyKey: 'dep-1:INSTALL',
+      type: 'INSTALL',
+      stackName: 'deployz-app',
+      startedAt: '2026-08-26T12:00:00.000Z',
+      payload: { redisRequired: true },
+    });
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    const results = await createInstallResumer(makeInstallDeps({ pending, install }))();
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+    });
+    expect(results[0]).toMatchObject({ commandId: 'cmd-1', success: true });
   });
 });
 
