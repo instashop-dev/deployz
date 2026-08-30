@@ -121,10 +121,13 @@ function scriptedDeleteFailedStack(afterRetry: string[], resources: StackResourc
     },
   };
 
-  const deleter: StackDeleter & { deleted: string[] } = {
+  const retained: (readonly string[])[] = [];
+  const deleter: StackDeleter & { deleted: string[]; retained: (readonly string[])[] } = {
     deleted,
-    async deleteStack(stackName) {
+    retained,
+    async deleteStack(stackName, retainResources) {
       deleted.push(stackName);
+      if (retainResources) retained.push(retainResources);
       walk = afterRetry;
       polls = 0;
       const last = afterRetry[afterRetry.length - 1] ?? 'DELETE_IN_PROGRESS';
@@ -181,7 +184,7 @@ describe('settleDestroy', () => {
     ]);
     const rds = rdsFake();
 
-    const outcome = await settleDestroy(deps(cfn, deleter, { rds, wait: NO_SLEEP }));
+    const outcome = await settleDestroy(deps(cfn, deleter, { rds, wait: NO_SLEEP }), true);
 
     expect(outcome).toEqual({ state: 'succeeded', alreadyAbsent: false });
     expect(rds.unprotected).toEqual([DB_ORPHAN.physicalId]);
@@ -198,12 +201,30 @@ describe('settleDestroy', () => {
     ]);
     const rds = rdsFake();
 
-    const outcome = await settleDestroy(deps(cfn, deleter, { rds, wait: NO_SLEEP }));
+    const outcome = await settleDestroy(deps(cfn, deleter, { rds, wait: NO_SLEEP }), true);
 
     expect(outcome.state).toBe('failed');
     expect((outcome as { reason: string }).reason).toContain('AWS::EC2::SecurityGroup');
     expect(rds.deleted).toEqual([DB_ORPHAN.physicalId]);
     expect(deleter.deleted).toEqual([STACK_NAME]);
+  });
+
+  it('finishes a DELETE_FAILED stack by RETAINING the blocked resources when data deletion is not authorized', async () => {
+    // The default path: a deployment that ever ran keeps its database. The
+    // relay never touches the orphan — it re-issues the delete retaining
+    // exactly the resources CloudFormation reported stuck.
+    const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS'], [
+      DB_ORPHAN,
+      STUCK_SECURITY_GROUP,
+    ]);
+    const rds = rdsFake();
+
+    const outcome = await settleDestroy(deps(cfn, deleter, { rds, wait: NO_SLEEP }));
+
+    expect(outcome).toEqual({ state: 'deleting' });
+    expect(rds.unprotected).toEqual([]);
+    expect(rds.deleted).toEqual([]);
+    expect(deleter.retained).toEqual([[DB_ORPHAN.logicalId, STUCK_SECURITY_GROUP.logicalId]]);
   });
 
   it('re-running destroy after a cleared DELETE_FAILED stack is harmless', async () => {
@@ -213,10 +234,10 @@ describe('settleDestroy', () => {
     const rds = rdsFake();
     const d = deps(cfn, deleter, { rds, wait: NO_SLEEP });
 
-    const first = await settleDestroy(d);
+    const first = await settleDestroy(d, true);
     expect(first).toEqual({ state: 'succeeded', alreadyAbsent: false });
 
-    const second = await settleDestroy(d);
+    const second = await settleDestroy(d, true);
     expect(second).toEqual({ state: 'succeeded', alreadyAbsent: true });
     // No second delete attempt — the stack was already gone.
     expect(deleter.deleted).toEqual([STACK_NAME]);
@@ -255,7 +276,10 @@ describe('createDestroyExecutor', () => {
     const rds = rdsFake();
     const d = deps(cfn, deleter, { rds, wait: NO_SLEEP });
 
-    const result = await createDestroyExecutor(d)(destroyCommand());
+    const result = await createDestroyExecutor(d)({
+      ...destroyCommand(),
+      payload: { dataDeletionAuthorized: true },
+    });
 
     expect(result.success).toBe(true);
     expect((result.output as { alreadyAbsent: boolean }).alreadyAbsent).toBe(false);

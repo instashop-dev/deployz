@@ -2128,11 +2128,31 @@ export async function buildServer({
       firstHeaderValue(request.headers['idempotency-key']) ??
       (await retryAwareIdempotencyKey(db, deployment.id, 'DESTROY', `${deployment.id}:DESTROY`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
+    // Data deletion during a wedged destroy is authorized ONLY for a
+    // deployment that never completed an install — its retained database is
+    // an empty artifact of a failed create, not customer data. Anything
+    // that ever ran keeps the data-preserving destroy path (the relay
+    // finishes the stack delete RETAINING what it cannot remove).
+    const installJobsForDestroy = await db
+      .select({ state: schema.deploymentJobs.state })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'INSTALL'),
+        ),
+      );
+    const neverInstalled = !installJobsForDestroy.some(
+      (j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS',
+    );
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DESTROY',
       idempotencyKey,
-      payload: { finalSnapshot: body.finalSnapshot ?? false },
+      payload: {
+        finalSnapshot: body.finalSnapshot ?? false,
+        dataDeletionAuthorized: neverInstalled,
+      },
       requestedBy: request.user?.id ?? null,
     });
     if (created) {

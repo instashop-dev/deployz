@@ -157,8 +157,15 @@ let stackDeleter: StackDeleter | undefined;
 function createStackDeleter(): StackDeleter {
   const client = new AwsCloudFormationClient({});
   return {
-    async deleteStack(stackName) {
-      await client.send(new DeleteStackCommand({ StackName: stackName }));
+    async deleteStack(stackName, retainResources) {
+      await client.send(
+        new DeleteStackCommand({
+          StackName: stackName,
+          ...(retainResources && retainResources.length > 0
+            ? { RetainResources: [...retainResources] }
+            : {}),
+        }),
+      );
     },
   };
 }

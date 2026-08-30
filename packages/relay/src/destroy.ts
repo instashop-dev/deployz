@@ -28,7 +28,12 @@ import type { CloudFormationReader } from './verify.js';
 
 /** The CloudFormation delete surface this module needs. */
 export interface StackDeleter {
-  deleteStack(stackName: string): Promise<void>;
+  /**
+   * `retainResources` (logical ids, only valid on a DELETE_FAILED stack)
+   * finishes the deletion while leaving those resources — and the data they
+   * hold — in the customer's account.
+   */
+  deleteStack(stackName: string, retainResources?: readonly string[]): Promise<void>;
 }
 
 export interface DestroyDeps {
@@ -59,7 +64,10 @@ type DestroyOutcome =
  * before writes: a stack already absent is success (idempotent retry), a
  * stack mid-deletion is deferred, a DELETE_FAILED stack is a failure.
  */
-export async function settleDestroy(deps: DestroyDeps): Promise<DestroyOutcome> {
+export async function settleDestroy(
+  deps: DestroyDeps,
+  dataDeletionAuthorized = false,
+): Promise<DestroyOutcome> {
   const lookup = await deps.cfn.describeStack(deps.stackName);
 
   if (!lookup.found) {
@@ -78,10 +86,34 @@ export async function settleDestroy(deps: DestroyDeps): Promise<DestroyOutcome> 
   }
 
   if (status === 'DELETE_FAILED') {
-    // Don't dead-end here: enumerate the stack's own resources, clear the
-    // orphaned RDS/ElastiCache blockers CloudFormation left retained, and
-    // retry the delete — the same recovery the INSTALL retry path already
-    // runs for a stuck first install (see ./recover.js).
+    // Two very different recoveries, chosen by the control plane:
+    //
+    // The DEFAULT is data-preserving: finish the deletion while RETAINING
+    // the resources CloudFormation could not delete (the retained database
+    // keeps its ENI alive, which blocks its security group and subnet — so
+    // those stay behind with it). Nothing holding data is ever touched.
+    //
+    // Only when the control plane explicitly authorized data deletion —
+    // it proved this deployment NEVER completed an install, so its
+    // database is an empty artifact of a failed create — are the orphaned
+    // RDS/ElastiCache blockers deleted outright (same recovery the INSTALL
+    // retry path runs).
+    if (dataDeletionAuthorized !== true) {
+      const blocked = (await deps.cfn.describeStackResources(deps.stackName))
+        .filter((resource) => resource.status === 'DELETE_FAILED')
+        .map((resource) => resource.logicalId);
+      if (blocked.length === 0) {
+        return {
+          state: 'failed',
+          reason:
+            `Stack "${deps.stackName}" is DELETE_FAILED but no blocking resource is ` +
+            'identifiable — retry Disconnect, or remove the stack manually',
+        };
+      }
+      await deps.deleter.deleteStack(deps.stackName, blocked);
+      return { state: 'deleting' };
+    }
+
     const cleared = await clearDeleteBlockersAndRetryDelete(
       {
         cfn: {
@@ -157,7 +189,7 @@ export function createDestroyExecutor(deps: DestroyDeps): CommandExecutor {
 
     let outcome: DestroyOutcome;
     try {
-      outcome = await settleDestroy(deps);
+      outcome = await settleDestroy(deps, readDataDeletionAuthorized(command.payload));
     } catch (err) {
       return result(command, false, {
         error: String(err),
@@ -230,13 +262,22 @@ export function createDestroyExecutor(deps: DestroyDeps): CommandExecutor {
   };
 }
 
+/**
+ * Whether the control plane explicitly authorized deleting data-holding
+ * resources. Anything but a literal `true` means NO — the default is always
+ * the data-preserving path.
+ */
+function readDataDeletionAuthorized(payload: Record<string, unknown>): boolean {
+  return payload['dataDeletionAuthorized'] === true;
+}
+
 /** The other half: finish a destroy an earlier invocation started. */
 export function createDestroyResumer(deps: DestroyDeps): () => Promise<RelayCommandResult[]> {
   return async () => {
     const pending = await deps.pending.read();
     if (pending === null || pending.type !== 'DESTROY') return [];
 
-    const outcome = await settleDestroy(deps);
+    const outcome = await settleDestroy(deps, readDataDeletionAuthorized(pending.payload));
     if (outcome.state === 'deleting') {
       console.log(
         JSON.stringify({
