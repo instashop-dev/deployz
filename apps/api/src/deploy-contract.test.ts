@@ -310,6 +310,31 @@ describe('deploy contract, busy gate and restart', () => {
     expect(destroyJobs.filter((j) => j.type === 'DESTROY')).toHaveLength(2);
   });
 
+  it('a failed DEPLOY_RELEASE of the same release is retryable with a fresh job', async () => {
+    // Observed live: the fixed derived key handed the FAILED job back on the
+    // retry, so "Confirm Deploy" silently did nothing.
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, 'SUCCEEDED');
+    const releaseId = await seedRelease('v6.0.0');
+
+    const first = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(first.statusCode, first.body).toBe(202);
+    const { jobId: firstJobId } = first.json() as { jobId: string };
+
+    const result = await app.inject({
+      method: 'POST',
+      url: `/api/relay/commands/${firstJobId}/result`,
+      headers: { authorization: `Bearer ${deployment.token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ success: false, error: 'AccessDenied on ecs:TagResource' }),
+    });
+    expect(result.statusCode, result.body).toBe(200);
+
+    const second = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(second.statusCode, second.body).toBe(202);
+    const { jobId: secondJobId } = second.json() as { jobId: string };
+    expect(secondJobId).not.toBe(firstJobId);
+  });
+
   it('advances pointers v1 → v2 → v3 → rollback → v2 through job results', async () => {
     const deployment = await seedDeployment();
     const v1 = await seedRelease('v4.0.0');

@@ -450,6 +450,42 @@ async function requireDeploymentIdle(
   }
 }
 
+/**
+ * Derived idempotency key that a FAILED prior attempt does not poison. The
+ * fixed derived keys exist to absorb double-clicks and replays, but
+ * createOrReuseJob hands the same row back regardless of state — so once an
+ * attempt failed, every later user-initiated retry silently received the
+ * dead job and nothing ran (observed live on a deploy retry). When the
+ * newest attempt under this base key is FAILED, mint an attempt-scoped key;
+ * otherwise the base key keeps its replay-absorbing behavior.
+ */
+async function retryAwareIdempotencyKey(
+  db: RuntimeDb,
+  deploymentId: string,
+  type: JobType,
+  baseKey: string,
+): Promise<string> {
+  const attempts = (
+    await db
+      .select({
+        state: schema.deploymentJobs.state,
+        idempotencyKey: schema.deploymentJobs.idempotencyKey,
+        createdAt: schema.deploymentJobs.createdAt,
+      })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deploymentId),
+          eq(schema.deploymentJobs.type, type),
+        ),
+      )
+  ).filter(
+    (job) => job.idempotencyKey === baseKey || job.idempotencyKey.startsWith(`${baseKey}:RETRY:`),
+  );
+  const newest = attempts.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  return newest?.state === 'FAILED' ? `${baseKey}:RETRY:${attempts.length}` : baseKey;
+}
+
 // §24 AWS accounts are shown, never in full — the control plane still stores
 // the real id, but nothing outside it should ever see more than a hint of it.
 function maskAwsAccountId(awsAccountId: string | null): string | null {
@@ -1854,7 +1890,12 @@ export async function buildServer({
     await requireDeployableState(db, deployment);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
-      `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+      (await retryAwareIdempotencyKey(
+        db,
+        deployment.id,
+        'DEPLOY_RELEASE',
+        `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`,
+      ));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
@@ -1915,7 +1956,12 @@ export async function buildServer({
         });
         continue;
       }
-      const idempotencyKey = `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+      const idempotencyKey = await retryAwareIdempotencyKey(
+        db,
+        deployment.id,
+        'DEPLOY_RELEASE',
+        `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`,
+      );
       const busy = await db
         .select({ id: schema.deploymentJobs.id })
         .from(schema.deploymentJobs)
@@ -1974,7 +2020,12 @@ export async function buildServer({
     const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
-      `${deployment.id}:ROLLBACK:${body.releaseId}`;
+      (await retryAwareIdempotencyKey(
+        db,
+        deployment.id,
+        'ROLLBACK',
+        `${deployment.id}:ROLLBACK:${body.releaseId}`,
+      ));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
@@ -2005,7 +2056,8 @@ export async function buildServer({
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     await requireDeployableState(db, deployment);
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:RESTART`;
+      firstHeaderValue(request.headers['idempotency-key']) ??
+      (await retryAwareIdempotencyKey(db, deployment.id, 'RESTART', `${deployment.id}:RESTART`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
@@ -2069,25 +2121,9 @@ export async function buildServer({
     // A pending DESTROY blocks every other mutating command: accepting a
     // deploy against a stack that is about to be deleted can only produce a
     // job whose subject disappears underneath it.
-    const destroyJobs = await db
-      .select()
-      .from(schema.deploymentJobs)
-      .where(
-        and(
-          eq(schema.deploymentJobs.deploymentId, deployment.id),
-          eq(schema.deploymentJobs.type, 'DESTROY'),
-        ),
-      )
-      .orderBy(desc(schema.deploymentJobs.createdAt));
-    // The fixed key is unretryable once its job FAILED — createOrReuseJob
-    // would just keep handing back the same dead job forever. Mirror
-    // retry-install's attempt-scoped key so clicking Disconnect again queues
-    // a fresh attempt instead.
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
-      (destroyJobs[0]?.state === 'FAILED'
-        ? `${deployment.id}:DESTROY:RETRY:${destroyJobs.length}`
-        : `${deployment.id}:DESTROY`);
+      (await retryAwareIdempotencyKey(db, deployment.id, 'DESTROY', `${deployment.id}:DESTROY`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
