@@ -62,6 +62,7 @@ import {
 } from '@/lib/deployments';
 import {
   HEALTH_STATUS_BADGE,
+  HEALTH_STATUS_DOT,
   HEALTH_STATUS_LABEL,
   NOT_YET_RUNNING_ACTION_COPY,
   RELAY_STATUS_LABEL,
@@ -91,13 +92,6 @@ type DetailState =
       events: ActivityEvent[];
       releases: Release[];
     };
-
-const HEALTH_DOT: Record<HealthStatus, string> = {
-  UNKNOWN: 'bg-muted-foreground',
-  HEALTHY: 'bg-primary',
-  DEGRADED: 'bg-amber-500',
-  UNHEALTHY: 'bg-destructive',
-};
 
 /** The components a relay can report, in the order they are shown. */
 const COMPONENT_LABELS = [
@@ -335,7 +329,7 @@ function DetailBody({
 function InfraRow({ label, status }: { label: string; status: HealthStatus }) {
   return (
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-      <span className={`size-2 shrink-0 rounded-full ${HEALTH_DOT[status]}`} aria-hidden />
+      <span className={`size-2 shrink-0 rounded-full ${HEALTH_STATUS_DOT[status]}`} aria-hidden />
       <span className="text-sm font-medium">{label}</span>
       <span className="ml-auto text-sm text-muted-foreground">{HEALTH_STATUS_LABEL[status]}</span>
     </li>
