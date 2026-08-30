@@ -26,6 +26,7 @@ export function DeploymentList({
               <TableHead>Customer</TableHead>
               {showApplication ? <TableHead>Application</TableHead> : null}
               <TableHead>Version</TableHead>
+              <TableHead>Region</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
@@ -45,6 +46,7 @@ export function DeploymentList({
                 <TableCell className="text-muted-foreground tabular-nums">
                   {deployment.version ?? '—'}
                 </TableCell>
+                <TableCell className="text-muted-foreground">{deployment.region}</TableCell>
                 <TableCell>
                   <DeploymentStatusBadge state={deployment.state} />
                 </TableCell>

@@ -111,9 +111,14 @@ function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operation
   const rows = home.deployments.slice(0, HOMEPAGE_DEPLOYMENT_LIMIT);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your customer infrastructure at a glance.
+          </p>
+        </div>
         <Button asChild size="sm">
           <Link href="/dashboard/deployments/new">Deploy customer</Link>
         </Button>
