@@ -1004,6 +1004,19 @@ describe('GET /api/deployments/:id appUrl', () => {
     expect(await getAppUrl(deployment.id)).toBe('http://alb-1.us-east-1.elb.amazonaws.com');
   });
 
+  it('matches a renamed stack output key by its PublicEndpoint suffix', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        success: true,
+        output: {
+          outputs: { ExportDeployzApplicationRedisPublicEndpoint: 'alb-redis.us-east-1.elb.amazonaws.com' },
+        },
+      },
+    });
+    expect(await getAppUrl(deployment.id)).toBe('http://alb-redis.us-east-1.elb.amazonaws.com');
+  });
+
   it('picks the latest successful INSTALL when there are several', async () => {
     const deployment = await seedDeployment();
     await seedInstallJob(deployment.id, {

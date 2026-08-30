@@ -702,7 +702,12 @@ function albEndpointFromResult(result: DeploymentJobRow['result']): string | nul
   if (!output || typeof output !== 'object') return null;
   const outputs = (output as Record<string, unknown>).outputs;
   if (!outputs || typeof outputs !== 'object') return null;
-  const endpoint = (outputs as Record<string, unknown>).ExportDeployzApplicationPublicEndpoint;
+  // The output key is CDK-generated from the application stack's construct
+  // name (`Export<StackName>PublicEndpoint`), so a stack rename renames it —
+  // as the Redis stack already did. Match the stable suffix instead of one
+  // literal name.
+  const key = Object.keys(outputs).find((k) => k.endsWith('PublicEndpoint'));
+  const endpoint = key === undefined ? undefined : (outputs as Record<string, unknown>)[key];
   return typeof endpoint === 'string' && endpoint.length > 0 ? endpoint : null;
 }
 
