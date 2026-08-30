@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   fetchDiagnostics,
+  infraCheckIsIssue,
   infraCheckLabel,
   readInfraChecks,
   relativeTime,
@@ -124,7 +125,7 @@ function DiagnosticsBody({
                   <li key={`${check.name}-${check.detail}`} className="flex items-baseline gap-3">
                     <span
                       aria-hidden
-                      className={`mt-1.5 size-2 shrink-0 rounded-full ${check.passed ? 'bg-primary' : 'bg-destructive'}`}
+                      className={`mt-1.5 size-2 shrink-0 rounded-full ${check.passed ? 'bg-primary' : infraCheckIsIssue(check) ? 'bg-destructive' : 'bg-muted-foreground'}`}
                     />
                     <span className="text-sm font-medium">{infraCheckLabel(check.name)}</span>
                     <span className="ml-auto text-right text-xs text-muted-foreground">
@@ -133,7 +134,7 @@ function DiagnosticsBody({
                   </li>
                 ))}
               </ul>
-              {checks.every((check) => check.passed) ? (
+              {checks.every((check) => !infraCheckIsIssue(check)) ? (
                 <p className="text-sm text-muted-foreground">No active issues.</p>
               ) : null}
             </CardContent>

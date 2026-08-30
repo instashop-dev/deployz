@@ -7,9 +7,12 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import {
+  buildFailureDetail,
   handleMessage,
+  normalizeBuildId,
   recordBuildResult,
   resolveBuildContext,
+  sweepStuckBuilds,
   sweepStuckJobs,
   type CodeBuildStateChangeEvent,
   type WorkerDeps,
@@ -48,7 +51,11 @@ describe('worker handler', () => {
       },
       async startBuild(input) {
         started.push(input);
-        return `arn:aws:codebuild:us-east-1:151955775369:build/deployz-build:started-${started.length}`;
+        // StartBuild resolves the short "project:uuid" form, not an ARN.
+        return `deployz-build:started-${started.length}`;
+      },
+      async batchGetBuilds() {
+        return [];
       },
       async runAnalysis(id) {
         analysed.push(id);
@@ -289,6 +296,27 @@ describe('worker handler', () => {
     expect(row?.releaseStatus).toBe('READY');
   });
 
+  it('records the digest when the event nests exported vars under additional-information (real EventBridge shape)', async () => {
+    const release = await insertRelease('v2.0.5');
+    const digest =
+      'acme/docs@sha256:5555555555555555555555555555555555555555555555555555555555555555';
+
+    await recordBuildResult(db, {
+      'detail-type': 'CodeBuild Build State Change',
+      detail: {
+        'build-status': 'SUCCEEDED',
+        'additional-information': {
+          environment: { 'environment-variables': [{ name: 'RELEASE_ID', value: release.id }] },
+          'exported-environment-variables': [{ name: 'IMAGE_DIGEST', value: digest }],
+        },
+      },
+    });
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.imageDigest).toBe(digest);
+    expect(row?.releaseStatus).toBe('READY');
+  });
+
   it('fails the release when a build fails', async () => {
     const release = await insertRelease('v2.1.0');
 
@@ -379,6 +407,85 @@ describe('worker handler', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.releaseStatus).toBe('FAILED');
     expect(row?.failureReason).toBe('CodeBuild reported FAILED');
+  });
+
+  // StartBuild resolves the short "project:uuid" form of a build id, but the
+  // EventBridge state-change event's build-id is the full ARN wrapping that
+  // same id. Without normalizing both sides, every real completion event
+  // reads as stale and the release never leaves BUILDING (audit blocker N2).
+  it('reaches READY from a real build-then-event round trip, where the event carries the ARN form', async () => {
+    const release = await insertRelease('v3.6.0');
+
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release.id }, 'msg-n2');
+    const [building] = await db
+      .select()
+      .from(schema.releases)
+      .where(eq(schema.releases.id, release.id));
+    // buildRelease pins the release to startBuild's short-form return value.
+    expect(building?.currentBuildId).not.toContain('arn:');
+
+    const shortBuildId = building!.currentBuildId!;
+    const arnBuildId = `arn:aws:codebuild:us-east-1:151955775369:build/${shortBuildId}`;
+    await recordBuildResult(db, buildEvent(release.id, 'SUCCEEDED', DIGEST_A, arnBuildId));
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('READY');
+    expect(row?.imageDigest).toBe(DIGEST_A);
+  });
+});
+
+describe('normalizeBuildId', () => {
+  it('strips an ARN down to the short "project:uuid" form', () => {
+    expect(
+      normalizeBuildId('arn:aws:codebuild:us-east-1:151955775369:build/deployz-build:some-uuid'),
+    ).toBe('deployz-build:some-uuid');
+  });
+
+  it('leaves an already-short build id unchanged', () => {
+    expect(normalizeBuildId('deployz-build:some-uuid')).toBe('deployz-build:some-uuid');
+  });
+
+  it('returns input unchanged when the ":build/" marker is absent', () => {
+    expect(normalizeBuildId('some-opaque-id')).toBe('some-opaque-id');
+  });
+});
+
+describe('buildFailureDetail', () => {
+  const event = (phases: unknown): CodeBuildStateChangeEvent =>
+    ({
+      'detail-type': 'CodeBuild Build State Change',
+      detail: {
+        'build-status': 'FAILED',
+        'additional-information': { phases },
+      },
+    }) as CodeBuildStateChangeEvent;
+
+  it('returns the first failed phase with its context', () => {
+    expect(
+      buildFailureDetail(
+        event([
+          { 'phase-type': 'BUILD', 'phase-status': 'SUCCEEDED', 'phase-context': [': '] },
+          {
+            'phase-type': 'POST_BUILD',
+            'phase-status': 'FAILED',
+            'phase-context': [
+              'COMMAND_EXECUTION_ERROR: Error while executing command: docker push …. Reason: exit status 1',
+            ],
+          },
+        ]),
+      ),
+    ).toBe(
+      'POST_BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker push …. Reason: exit status 1',
+    );
+  });
+
+  it('returns null when no failed phase carries a context message', () => {
+    expect(
+      buildFailureDetail(
+        event([{ 'phase-type': 'BUILD', 'phase-status': 'FAILED', 'phase-context': [] }]),
+      ),
+    ).toBeNull();
+    expect(buildFailureDetail(event(undefined))).toBeNull();
   });
 });
 
@@ -528,5 +635,147 @@ describe('sweepStuckJobs', () => {
     await sweepStuckJobs(db);
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
     expect(job?.state).toBe('SUCCEEDED');
+  });
+});
+
+// ── Stuck-build watchdog (audit blocker N2) ───────────────────────────────
+//
+// A missed or lost CodeBuild state-change event otherwise leaves a release
+// BUILDING forever — nothing else ever moves it on. sweepStuckBuilds asks
+// CodeBuild directly once a release has gone quiet past the timeout.
+describe('sweepStuckBuilds', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let applicationId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+
+    const [org] = await db
+      .insert(schema.organization)
+      .values({ id: 'org-build-watchdog', name: 'Build Watchdog Org', slug: 'build-watchdog-org' })
+      .returning();
+
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId: org!.id,
+        name: 'App',
+        repoFullName: 'acme/build-watchdog-app',
+        repoUrl: 'https://github.com/acme/build-watchdog-app',
+        defaultBranch: 'main',
+      })
+      .returning();
+    applicationId = application!.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  async function insertStuckRelease(version: string, minutesAgo: number, buildId: string) {
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version,
+        gitSha: 'abc123',
+        currentBuildId: buildId,
+        buildStatus: 'BUILDING',
+        releaseStatus: 'BUILDING',
+        updatedAt: new Date(Date.now() - minutesAgo * 60 * 1000),
+      })
+      .returning();
+    return release!;
+  }
+
+  function depsWithBuilds(
+    builds: {
+      id: string;
+      buildStatus: string;
+      exportedEnvironmentVariables?: { name: string; value: string }[];
+    }[],
+  ): WorkerDeps {
+    return {
+      db,
+      fetchFn: (async () => {
+        throw new Error('not used by sweepStuckBuilds');
+      }) as unknown as WorkerDeps['fetchFn'],
+      s3: { async putObject() {} },
+      async startBuild() {
+        return null;
+      },
+      async batchGetBuilds() {
+        return builds;
+      },
+      async runAnalysis() {},
+    };
+  }
+
+  it('moves a stuck BUILDING release to READY when CodeBuild reports SUCCEEDED', async () => {
+    const release = await insertStuckRelease('sb-1.0.0', 35, 'deployz-build:stuck-1');
+    const digest = `acme/watchdog@sha256:${'c'.repeat(64)}`;
+
+    const swept = await sweepStuckBuilds(
+      depsWithBuilds([
+        {
+          id: 'deployz-build:stuck-1',
+          buildStatus: 'SUCCEEDED',
+          exportedEnvironmentVariables: [{ name: 'IMAGE_DIGEST', value: digest }],
+        },
+      ]),
+    );
+
+    expect(swept).toBe(1);
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('READY');
+    expect(row?.imageDigest).toBe(digest);
+  });
+
+  it('fails a stuck BUILDING release when CodeBuild reports FAILED', async () => {
+    const release = await insertStuckRelease('sb-1.1.0', 35, 'deployz-build:stuck-2');
+
+    const swept = await sweepStuckBuilds(
+      depsWithBuilds([{ id: 'deployz-build:stuck-2', buildStatus: 'FAILED' }]),
+    );
+
+    expect(swept).toBe(1);
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('FAILED');
+  });
+
+  it('leaves a release untouched when it has not yet timed out', async () => {
+    const release = await insertStuckRelease('sb-1.2.0', 5, 'deployz-build:fresh');
+
+    const swept = await sweepStuckBuilds(depsWithBuilds([]));
+
+    expect(swept).toBe(0);
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('BUILDING');
+  });
+
+  it('fails a stuck release with a clear reason when CodeBuild no longer knows the build', async () => {
+    const release = await insertStuckRelease('sb-1.3.0', 35, 'deployz-build:vanished');
+
+    const swept = await sweepStuckBuilds(depsWithBuilds([]));
+
+    expect(swept).toBe(1);
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('FAILED');
+    expect(row?.failureReason).toMatch(/no longer has a record/i);
+  });
+
+  it('leaves a release untouched while CodeBuild still reports IN_PROGRESS', async () => {
+    const release = await insertStuckRelease('sb-1.4.0', 35, 'deployz-build:still-running');
+
+    const swept = await sweepStuckBuilds(
+      depsWithBuilds([{ id: 'deployz-build:still-running', buildStatus: 'IN_PROGRESS' }]),
+    );
+
+    expect(swept).toBe(0);
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('BUILDING');
   });
 });

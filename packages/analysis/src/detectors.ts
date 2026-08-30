@@ -23,6 +23,12 @@ export interface DetectorFinding {
   value?: string | string[] | undefined;
   /** Additional context (e.g. "detected via HEALTHCHECK instruction"). */
   details?: string | undefined;
+  /**
+   * A single normalized URL path, when the detector's evidence names one.
+   * Only `health-endpoint` sets this today (the literal path a health check
+   * targets, e.g. "/api/health") — every other detector leaves it undefined.
+   */
+  path?: string | undefined;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -97,8 +103,14 @@ export function collectDependencyNames(tree: FileTree): string[] {
   return [...names];
 }
 
-/** Every script entry declared anywhere in the repository. */
-function collectScripts(tree: FileTree): [string, string][] {
+/**
+ * Every script entry declared anywhere in the repository — the root
+ * manifest plus every workspace package manifest, same reasoning as
+ * `collectDependencyNames`. Shared with the §35 contract-field backfill
+ * (apps/api/src/analysis.ts) so migration/worker command resolution sees
+ * workspace-package scripts too, not just the root manifest's.
+ */
+export function collectScripts(tree: FileTree): [string, string][] {
   const entries: [string, string][] = [];
   for (const pkg of parsePackageJsons(tree)) {
     for (const [name, command] of Object.entries(getScripts(pkg))) {
@@ -285,11 +297,13 @@ export function detectPort(tree: FileTree): DetectorFinding {
 
 const HEALTHCHECK_REGEX = /HEALTHCHECK\b/i;
 // Route registrations, including the prefixed forms a real application uses:
-// `/health`, `/healthz`, `/api/health`, `/api/v1/healthcheck`.
+// `/health`, `/healthz`, `/api/health`, `/api/v1/healthcheck`. Capturing
+// group added purely so the matched literal path can be reused as the
+// detector's normalized `path` — it does not change which strings match.
 const HEALTH_ROUTE_REGEX =
-  /(?:get|post|put|all|route)\s*\(.*['"`][\w/-]*\/(?:health|healthz|healthcheck|heartbeat)\b/i;
+  /(?:get|post|put|all|route)\s*\(.*['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/i;
 const HEALTH_HTTP_ADAPTER_REGEX =
-  /\.getHttpAdapter\(\)\..*?['"`][\w/-]*\/(?:health|healthz|healthcheck|heartbeat)\b/;
+  /\.getHttpAdapter\(\)\..*?['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/;
 const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
 // File-based routing (Next.js, Remix, Nuxt, SvelteKit) declares the path in
 // the FILE NAME, so there is no route string to match: `api/health.ts`,
@@ -297,12 +311,48 @@ const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
 const HEALTH_ROUTE_FILE_REGEX =
   /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
 
+// Priority for resolving a single normalized `path` when more than one
+// signal names one: an exact route registration (or NestJS adapter call) in
+// source code names the literal path the app actually serves, so it
+// outranks a path only INFERRED from a file-based router convention
+// (Next.js/Remix/SvelteKit). A Dockerfile HEALTHCHECK / package.json
+// "healthcheck" script only prove a check exists — the CMD text can be
+// stale (the audited repo's Dockerfile still curled /health after the app
+// moved its route to /api/health), so they never produce a path candidate.
+const HEALTH_PATH_PRIORITY = {
+  ROUTE_REGISTRATION: 0,
+  FILE_ROUTE: 1,
+} as const;
+
+/** Ensure a captured/derived health path starts with a leading slash. */
+function normalizeHealthPath(raw: string): string {
+  return raw.startsWith('/') ? raw : `/${raw}`;
+}
+
+/**
+ * Derive the URL path a file-based health-check ROUTE FILE implies, mirroring
+ * how a file location maps to a URL for Next.js (app-router
+ * `app/api/health/route.ts`, pages-router `pages/api/health.ts`) and similar
+ * file-based routers. `app`, `pages`, and `src` are router-root directories
+ * that never appear in the URL; once an `api` segment is seen, everything
+ * from there on is literal.
+ */
+function deriveHealthPathFromFile(filePath: string): string {
+  const trimmed = filePath.replace(/\.[jt]sx?$/, '').replace(/\/(?:route|index|\+server)$/, '');
+  const segments = trimmed.split('/').filter(Boolean);
+  const apiIndex = segments.indexOf('api');
+  const relevant =
+    apiIndex === -1 ? segments.filter((s) => s !== 'app' && s !== 'pages' && s !== 'src') : segments.slice(apiIndex);
+  return `/${relevant.join('/')}`;
+}
+
 /**
  * Detect a health check endpoint from Dockerfile HEALTHCHECK, package.json scripts,
  * route patterns in source code, or a file-based route path.
  */
 export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   const sources: string[] = [];
+  const pathCandidates: { path: string; priority: number }[] = [];
 
   // 1. Dockerfile HEALTHCHECK instruction
   for (const path of Object.keys(tree)) {
@@ -326,12 +376,27 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
       if (HEALTH_ROUTE_FILE_REGEX.test(path)) {
         sources.push(`health route file (${path})`);
+        pathCandidates.push({ path: deriveHealthPathFromFile(path), priority: HEALTH_PATH_PRIORITY.FILE_ROUTE });
       }
-      if (HEALTH_ROUTE_REGEX.test(content)) {
+      const routeMatch = HEALTH_ROUTE_REGEX.exec(content);
+      if (routeMatch) {
         sources.push(`/health route (${path})`);
+        if (routeMatch[1]) {
+          pathCandidates.push({
+            path: normalizeHealthPath(routeMatch[1]),
+            priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+          });
+        }
       }
-      if (HEALTH_HTTP_ADAPTER_REGEX.test(content)) {
+      const adapterMatch = HEALTH_HTTP_ADAPTER_REGEX.exec(content);
+      if (adapterMatch) {
         sources.push(`/health adapter (${path})`);
+        if (adapterMatch[1]) {
+          pathCandidates.push({
+            path: normalizeHealthPath(adapterMatch[1]),
+            priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+          });
+        }
       }
     }
   }
@@ -340,11 +405,22 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     return { detector: 'health-endpoint', detected: false };
   }
 
+  // The most specific candidate wins (lowest priority number); when no
+  // source named a literal path (Dockerfile HEALTHCHECK / healthcheck
+  // script only), "/health" remains the faithful default — that IS the
+  // conventional path those two sources check.
+  const bestCandidate = pathCandidates.reduce<{ path: string; priority: number } | undefined>(
+    (best, candidate) => (best === undefined || candidate.priority < best.priority ? candidate : best),
+    undefined,
+  );
+  const path = bestCandidate?.path ?? '/health';
+
   return {
     detector: 'health-endpoint',
     detected: true,
     value: sources,
     details: `Health endpoint detected via: ${sources.join('; ')}`,
+    path,
   };
 }
 

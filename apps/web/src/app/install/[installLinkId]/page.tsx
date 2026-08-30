@@ -65,52 +65,85 @@ export default async function InstallPage({
   // approved a stack in their own account — so say so before they start.
   if (data.alreadyInstalled) {
     const primaryUrl = data.domain?.status === 'active' ? data.domain.url : null;
+    const failed = data.deploymentState === 'FAILED';
+    const removed = data.deploymentState === 'DELETING' || data.deploymentState === 'DELETED';
     return (
       <div className="flex flex-col gap-8">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Running in your cloud account · deployed by {data.publisherName}
+            {failed
+              ? 'Installation failed'
+              : removed
+                ? 'This deployment was removed'
+                : `Running in your cloud account · deployed by ${data.publisherName}`}
           </p>
         </div>
 
-        <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
-          <h2 id="deployment-access" className="text-base font-semibold">
-            Access
-          </h2>
-          {primaryUrl ? (
-            <p className="text-sm">
-              Your deployment is available at{' '}
-              <a className="font-medium underline underline-offset-4" href={primaryUrl}>
-                {primaryUrl}
-              </a>
-            </p>
-          ) : (
+        {failed ? (
+          <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
+            <h2 id="deployment-access" className="text-base font-semibold">
+              Installation failed
+            </h2>
             <p className="text-sm text-muted-foreground">
-              {data.routingTarget
-                ? 'Set up a custom domain below to give this deployment a permanent address.'
-                : 'This deployment does not have a public address configured yet.'}
+              The installation did not finish. {data.publisherName} has been notified. Contact{' '}
+              {data.publisherName} for help.
             </p>
-          )}
-          {data.routingTarget ? (
-            <p className="text-xs text-muted-foreground">
-              Deployment endpoint:{' '}
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                {data.routingTarget}
-              </code>
+          </section>
+        ) : removed ? (
+          <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
+            <h2 id="deployment-access" className="text-base font-semibold">
+              Deployment removed
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              This deployment no longer exists. Contact {data.publisherName} if you did not expect
+              this.
             </p>
-          ) : null}
-        </section>
+          </section>
+        ) : (
+          <>
+            <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
+              <h2 id="deployment-access" className="text-base font-semibold">
+                Access
+              </h2>
+              {primaryUrl ? (
+                <p className="text-sm">
+                  Your deployment is available at{' '}
+                  <a className="font-medium underline underline-offset-4" href={primaryUrl}>
+                    {primaryUrl}
+                  </a>
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {data.routingTarget
+                    ? 'Set up a custom domain below to give this deployment a permanent address.'
+                    : 'This deployment does not have a public address configured yet.'}
+                </p>
+              )}
+              {data.routingTarget ? (
+                <p className="text-xs text-muted-foreground">
+                  Deployment endpoint:{' '}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                    {data.routingTarget}
+                  </code>
+                </p>
+              ) : null}
+            </section>
 
-        <CustomDomainCard
-          deploymentId={data.deploymentId}
-          installLinkId={installLinkId}
-          initialDomain={data.domain}
-        />
+            <CustomDomainCard
+              deploymentId={data.deploymentId}
+              installLinkId={installLinkId}
+              initialDomain={data.domain}
+            />
+          </>
+        )}
 
         <p className="text-xs text-muted-foreground">
-          This setup link has been used — {data.applicationName} is already installed. To install
-          again, ask {data.publisherName} for a new link.
+          {failed
+            ? `This setup link has been used. To try again, ask ${data.publisherName} for a new link.`
+            : removed
+              ? `This setup link has been used. To install again, ask ${data.publisherName} for a new link.`
+              : `This setup link has been used — ${data.applicationName} is already installed. To install again, ask ${data.publisherName} for a new link.`}
         </p>
       </div>
     );

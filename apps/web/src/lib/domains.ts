@@ -62,8 +62,15 @@ const DOMAIN_ERROR_COPY: Record<string, { title: string; body: string }> = {
     body: "The connected AWS account doesn't currently allow Deployz to complete the domain setup.",
   },
   CONFIGURE_FAILED: GENERIC_ERROR_COPY,
-  HTTPS_NOT_REACHABLE: GENERIC_ERROR_COPY,
+  HTTPS_NOT_REACHABLE: {
+    title: "HTTPS isn't reachable yet",
+    body: 'The load balancer may still be provisioning, or the deployment may not be running.',
+  },
   REMOVE_FAILED: GENERIC_ERROR_COPY,
+  DEPLOYMENT_NOT_RUNNING: {
+    title: "This deployment isn't running",
+    body: 'Domain setup resumes once the deployment is running again.',
+  },
 };
 
 /** §65 copy for a domain's `error` code. Unknown codes fall back to the

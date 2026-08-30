@@ -20,6 +20,7 @@ import {
   isDeploymentNotFound,
   resetRelay,
   restartDeployment,
+  retryInstall,
   rollbackDeployment,
   type ActivityEvent,
   type FleetDeploymentDetail,
@@ -28,10 +29,13 @@ import {
 import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
+  NOT_YET_RUNNING_ACTION_COPY,
   RELAY_STATUS_LABEL,
   UNSUPPORTED_ACTION_COPY,
   actionSupported,
+  everInstalled,
   showHealthBadge,
+  showInfrastructureRows,
   type HealthStatus,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
@@ -191,7 +195,7 @@ function DetailBody({
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{detail.applicationName}</h1>
           <DeploymentStatusBadge state={detail.state} />
-          {showHealthBadge(detail.state) ? (
+          {showHealthBadge(detail.state, detail.currentReleaseId) ? (
             <Badge variant={HEALTH_STATUS_BADGE[detail.healthStatus]}>
               {HEALTH_STATUS_LABEL[detail.healthStatus]}
             </Badge>
@@ -254,20 +258,32 @@ function DetailBody({
           Redis is deliberately excluded here: its row comes from observed
           provisioning, not the component map (see RedisRow below).
         */}
-        <ul className="flex flex-col gap-2">
-          {COMPONENT_LABELS.filter(([key]) => key !== 'redis' && detail.components?.[key] !== undefined).map(
-            ([key, label]) => (
-              <InfraRow key={key} label={label} status={detail.components![key]!} />
-            ),
-          )}
-          <RedisRow status={redisStatus} />
-          <RelayRow status={detail.relayStatus} />
-        </ul>
-        {detail.components === null ? (
+        {showInfrastructureRows(detail.state, detail.currentReleaseId) ? (
+          <>
+            <ul className="flex flex-col gap-2">
+              {COMPONENT_LABELS.filter(
+                ([key]) => key !== 'redis' && detail.components?.[key] !== undefined,
+              ).map(([key, label]) => (
+                <InfraRow key={key} label={label} status={detail.components![key]!} />
+              ))}
+              <RedisRow status={redisStatus} />
+              <RelayRow status={detail.relayStatus} />
+            </ul>
+            {detail.components === null ? (
+              <p className="text-sm text-muted-foreground">
+                No health reports yet — this deployment has not checked in.
+              </p>
+            ) : null}
+          </>
+        ) : (
           <p className="text-sm text-muted-foreground">
-            No health reports yet — this deployment has not checked in.
+            {detail.state === 'NOT_INSTALLED'
+              ? 'This deployment has not been installed yet.'
+              : detail.state === 'FAILED'
+                ? "This deployment isn't running, so there's nothing to report."
+                : 'This deployment has been removed.'}
           </p>
-        ) : null}
+        )}
       </section>
 
       <section aria-labelledby="activity" className="flex flex-col gap-3">
@@ -332,14 +348,27 @@ function DeploymentActions({
   previousVersion: string | null;
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState<'deploy' | 'rollback' | 'restart' | 'disconnect' | null>(null);
+  const [open, setOpen] = useState<
+    'deploy' | 'rollback' | 'restart' | 'disconnect' | 'retryInstall' | null
+  >(null);
   const capabilities: RelayCapabilities | null = detail.relayCapabilities;
-  const canDeploy = actionSupported(capabilities, 'deploy');
-  const canRollback = actionSupported(capabilities, 'rollback');
-  const canRestart = actionSupported(capabilities, 'restart');
-  const canConfig = actionSupported(capabilities, 'configUpdate');
+  // §24: deploy/rollback/restart/config all act on a running application, so
+  // they are gated on TWO independent signals — the relay-reported
+  // capability, and whether this deployment has ever completed an install
+  // (a relay can connect and advertise capabilities before that happens).
+  // Disconnect is exempt from the second gate: a deployment that failed to
+  // ever come up must still be removable.
+  const everRan = everInstalled(detail.state, detail.currentReleaseId);
+  const canDeploy = everRan && actionSupported(capabilities, 'deploy');
+  const canRollback = everRan && actionSupported(capabilities, 'rollback');
+  const canRestart = everRan && actionSupported(capabilities, 'restart');
+  const canConfig = everRan && actionSupported(capabilities, 'configUpdate');
   const canDisconnect = actionSupported(capabilities, 'disconnect');
-  const anyGatedOff = !canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect;
+  // Recovery for a failed FIRST install: the API refuses it once any install
+  // has succeeded, so it is offered exactly where the day-2 actions are not.
+  const canRetryInstall = detail.state === 'FAILED' && !everRan;
+  const anyCapabilityGatedOff =
+    everRan && (!canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect);
   const hasPreviousRelease = detail.previousReleaseId !== null;
 
   return (
@@ -384,6 +413,14 @@ function DeploymentActions({
             Configuration
           </Button>
         )}
+        {canRetryInstall ? (
+          <Button
+            size="sm"
+            onClick={() => setOpen(open === 'retryInstall' ? null : 'retryInstall')}
+          >
+            Retry Install
+          </Button>
+        ) : null}
         <Button
           size="sm"
           variant="destructive"
@@ -394,7 +431,9 @@ function DeploymentActions({
         </Button>
       </div>
 
-      {anyGatedOff ? (
+      {!everRan ? (
+        <p className="text-sm text-muted-foreground">{NOT_YET_RUNNING_ACTION_COPY}</p>
+      ) : anyCapabilityGatedOff ? (
         <p className="text-sm text-muted-foreground">{UNSUPPORTED_ACTION_COPY}</p>
       ) : null}
       {!hasPreviousRelease ? (
@@ -430,6 +469,18 @@ function DeploymentActions({
 
       {open === 'restart' ? (
         <RestartPanel
+          deploymentId={detail.id}
+          applicationName={detail.applicationName}
+          onDone={() => {
+            setOpen(null);
+            onChanged();
+          }}
+          onCancel={() => setOpen(null)}
+        />
+      ) : null}
+
+      {open === 'retryInstall' ? (
+        <RetryInstallPanel
           deploymentId={detail.id}
           applicationName={detail.applicationName}
           onDone={() => {
@@ -589,6 +640,61 @@ function RestartPanel({
         <div className="flex items-center gap-3">
           <Button size="sm" variant="outline" disabled={pending} onClick={onConfirm}>
             {pending ? 'Restarting…' : 'Confirm Restart'}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={pending} onClick={onCancel}>
+            Cancel
+          </Button>
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RetryInstallPanel({
+  deploymentId,
+  applicationName,
+  onDone,
+  onCancel,
+}: {
+  deploymentId: string;
+  applicationName: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onConfirm(): Promise<void> {
+    setPending(true);
+    setError(null);
+    try {
+      await retryInstall(deploymentId);
+      onDone();
+    } catch {
+      setError("We couldn't start the retry. Try again in a moment.");
+      setPending(false);
+    }
+  }
+
+  return (
+    <Card data-testid="retry-install-panel">
+      <CardContent className="flex flex-col gap-3 py-4">
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+          <p>
+            Retry installing {applicationName}? The failed infrastructure from the previous attempt
+            is removed from the customer&apos;s account first, then the install runs again. Nothing
+            from this deployment was ever in use, so no data is lost.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button size="sm" variant="outline" disabled={pending} onClick={onConfirm}>
+            {pending ? 'Starting…' : 'Confirm Retry'}
           </Button>
           <Button size="sm" variant="ghost" disabled={pending} onClick={onCancel}>
             Cancel

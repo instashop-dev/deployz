@@ -5,6 +5,7 @@ import {
   REPO_AI_TIMEOUT_MS,
   analyseRepo,
   analyseRepositoryWithAi,
+  collectScripts,
   collectUnresolvedQuestions,
   evaluateCompatibility,
   mergeAiAnalysis,
@@ -126,7 +127,7 @@ export async function runApplicationAnalysis(
     const tree = await fetchTreeForApplication(deps, application, realModeToken);
     const analysis = analyseRepo(tree);
     const compatibility = evaluateCompatibility(analysis);
-    const checks = buildChecks(analysis, compatibility);
+    const checks = buildChecks(analysis, compatibility, tree);
     // The vendor-owned field list lives on detected_metadata, which this
     // write replaces wholesale — carry it across or every re-analysis would
     // forget which fields the vendor edited.
@@ -347,7 +348,7 @@ const READY_LABELS: Partial<Record<string, string>> = {
   'health-endpoint': 'Health check endpoint found',
   'env-vars': 'Environment variables detected',
   postgresql: 'PostgreSQL database configured',
-  redis: 'Redis — managed automatically',
+  redis: 'Redis detected — provisioned automatically on install',
   worker: 'Background worker detected',
   s3: 'Object storage usage detected',
   'migration-command': 'Database migration command found',
@@ -362,10 +363,25 @@ const READY_LABELS: Partial<Record<string, string>> = {
 // never be surfaced in the "ready" list.
 const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem']);
 
-function buildReadyChecks(analysis: AnalysisResult): ReadyCheck[] {
-  return analysis.findings
-    .filter((f) => f.detected && !NEGATIVE_SIGNAL_DETECTORS.has(f.detector))
+// `worker` is handled separately from the generic detector -> ready-check
+// mapping: worker-like code being present is not, on its own, evidence that
+// a worker will actually run — see `buildChecks`.
+const SEPARATELY_HANDLED_DETECTORS = new Set<string>(['worker']);
+
+function buildReadyChecks(analysis: AnalysisResult, workerCommand: string | undefined): ReadyCheck[] {
+  const checks = analysis.findings
+    .filter((f) => f.detected && !NEGATIVE_SIGNAL_DETECTORS.has(f.detector) && !SEPARATELY_HANDLED_DETECTORS.has(f.detector))
     .map((f) => ({ label: READY_LABELS[f.detector] ?? f.details ?? f.detector }));
+
+  // "Background worker detected" is a ready-check, not a mere presence
+  // flag: it must only appear when a worker command actually resolved, or
+  // it promises a worker service application-stack never provisions.
+  const workerFinding = analysis.findings.find((f) => f.detector === 'worker');
+  if (workerFinding?.detected && workerCommand) {
+    checks.push({ label: READY_LABELS['worker']! });
+  }
+
+  return checks;
 }
 
 function humanizeCode(code: string): string {
@@ -409,6 +425,24 @@ function buildNeedsAttentionChecks(compatibility: CompatibilityResult): Attentio
   });
 }
 
+// Worker-like code detected (bull/agenda/bullmq/worker_threads) but no
+// runnable start command resolved — application-stack silently provisions
+// no worker service in that case, so this must never surface as a green
+// ready-check (see `buildReadyChecks`). Independent of the §19 compatibility
+// verdict — a repo can be READY overall and still have this gap.
+function buildWorkerAttentionCheck(analysis: AnalysisResult, workerCommand: string | undefined): AttentionCheck[] {
+  const workerFinding = analysis.findings.find((f) => f.detector === 'worker');
+  if (!workerFinding?.detected || workerCommand) return [];
+  return [
+    {
+      title: 'Add a worker start command',
+      detail: 'Worker-like code detected but no start command found — background jobs will not run.',
+      suggestedFix:
+        'Add a worker start script (for example a "worker" or "worker:start" entry in package.json) so Deployz can run your background job processor.',
+    },
+  ];
+}
+
 // Per-issue-code title for the §19/§10 REJECT rules.
 const UNSUPPORTED_META: Partial<Record<string, string>> = {
   REDIS_UNSUPPORTED: 'This Redis setup is not supported',
@@ -431,41 +465,71 @@ function buildUnsupportedChecks(compatibility: CompatibilityResult): Unsupported
 function buildChecks(
   analysis: AnalysisResult,
   compatibility: CompatibilityResult,
+  tree: FileTree,
 ): { ready: ReadyCheck[]; needsAttention: AttentionCheck[]; unsupported: UnsupportedCheck[] } {
+  const workerCommand = resolveWorkerCommand(tree);
   return {
-    ready: buildReadyChecks(analysis),
-    needsAttention: buildNeedsAttentionChecks(compatibility),
+    ready: buildReadyChecks(analysis, workerCommand),
+    needsAttention: [...buildNeedsAttentionChecks(compatibility), ...buildWorkerAttentionCheck(analysis, workerCommand)],
     unsupported: buildUnsupportedChecks(compatibility),
   };
 }
 
 // ── §35 contract field backfill ─────────────────────────────────────────────
 
-function parsePackageJsonScripts(tree: FileTree): Record<string, string> {
-  const raw = tree['package.json'];
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as { scripts?: unknown };
-    const scripts = parsed.scripts;
-    if (typeof scripts !== 'object' || scripts === null) return {};
-    return scripts as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
 // The §18 migration-command / worker detectors only report WHICH pattern
 // matched (e.g. "drizzle-kit"), not the literal script text — not enough to
 // persist as an executable command. This looks at package.json script KEYS
 // directly (independent of, and narrower than, the §18 detectors) to
 // recover an actual runnable command for the two contract fields that need
-// one; it only ever proposes a value, never invents one.
+// one; it only ever proposes a value, never invents one. `collectScripts`
+// (shared with the §18 detectors) reads every workspace package's scripts,
+// not just the root manifest's — a monorepo's migration/worker script
+// usually lives in the app package, not the workspace root.
 const MIGRATION_SCRIPT_KEY_REGEX = /migrat/i;
 const WORKER_SCRIPT_KEY_REGEX = /^worker$|worker[:-]?start|start[:-]?worker/i;
 
-function findScriptCommand(scripts: Record<string, string>, keyPattern: RegExp): string | null {
-  const key = Object.keys(scripts).find((k) => keyPattern.test(k));
-  return key ? (scripts[key] ?? null) : null;
+// A dev-mode migration command must never reach `migrationCommand` — it runs
+// unattended against the production database on every deploy
+// (deploy-release-workflow.ts), and a dev-mode command is built to prompt
+// interactively / reset data, not to run unattended. Matches "migrate dev",
+// "migrate-dev", and "migrate:dev" (which also covers a ":migrate-dev"
+// script-key form, since that substring contains "migrate-dev").
+const DEV_MIGRATION_REGEX = /migrate[\s:-]dev\b/i;
+
+// The deploy-safe subset of MIGRATION_PATTERNS' vocabulary (detectors.ts) —
+// commands that apply already-generated migrations non-interactively, as
+// opposed to a codegen step (`drizzle-kit generate`) or an ambiguous bare
+// `prisma migrate` that could resolve to either deploy or dev depending on
+// the rest of the command.
+const DEPLOY_MIGRATION_REGEX =
+  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
+
+/**
+ * Resolve the migration command to persist as the §35 `migrationCommand`
+ * contract field — the command deploy-release-workflow.ts runs unattended
+ * against the production database on every deploy, so this picks
+ * defensively:
+ *
+ *   1. Drop every dev-shaped candidate outright (`DEV_MIGRATION_REGEX`) —
+ *      never a candidate for this field, regardless of what else exists.
+ *   2. Among what is left, prefer a deploy-shaped command
+ *      (`DEPLOY_MIGRATION_REGEX`) over an ambiguous one.
+ *   3. If nothing survives step 1, return undefined — an absent migration
+ *      command is safer than a dev-mode one running unattended.
+ */
+function resolveMigrationCommand(tree: FileTree): string | undefined {
+  const candidates = collectScripts(tree).filter(([key]) => MIGRATION_SCRIPT_KEY_REGEX.test(key));
+  const safeCandidates = candidates.filter(([, command]) => !DEV_MIGRATION_REGEX.test(command));
+  if (safeCandidates.length === 0) return undefined;
+  const deployShaped = safeCandidates.find(([, command]) => DEPLOY_MIGRATION_REGEX.test(command));
+  return (deployShaped ?? safeCandidates[0])![1];
+}
+
+/** Resolve the worker start command, across every workspace package's scripts. */
+function resolveWorkerCommand(tree: FileTree): string | undefined {
+  const match = collectScripts(tree).find(([key]) => WORKER_SCRIPT_KEY_REGEX.test(key));
+  return match?.[1];
 }
 
 interface ContractFieldUpdates {
@@ -540,18 +604,17 @@ function deriveContractFieldUpdates(
 
   if (!vendorOwned.has('healthPath')) {
     const health = finding('health-endpoint');
-    if (health?.detected) {
-      // §18's health-endpoint detector only ever matches the literal
-      // "/health" path (HEALTH_ROUTE_REGEX / Dockerfile HEALTHCHECK), so
-      // this is a faithful value, not a guess.
-      updates.healthPath = '/health';
+    // The health-endpoint detector's normalized `path` names the literal
+    // path it found evidence for (a route registration, a file-based route
+    // convention, or the "/health" default when only a Dockerfile
+    // HEALTHCHECK / package.json script was found) — see detectors.ts.
+    if (health?.detected && health.path) {
+      updates.healthPath = health.path;
     }
   }
 
-  const scripts = parsePackageJsonScripts(tree);
-
   if (!vendorOwned.has('migrationCommand')) {
-    const command = findScriptCommand(scripts, MIGRATION_SCRIPT_KEY_REGEX);
+    const command = resolveMigrationCommand(tree);
     if (command) {
       updates.migrationCommand = command;
     } else if (aiResolved.includes('migrationCommands')) {
@@ -563,7 +626,7 @@ function deriveContractFieldUpdates(
   }
 
   if (!vendorOwned.has('workerCommand')) {
-    const command = findScriptCommand(scripts, WORKER_SCRIPT_KEY_REGEX);
+    const command = resolveWorkerCommand(tree);
     if (command) updates.workerCommand = command;
   }
 

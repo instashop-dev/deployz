@@ -407,7 +407,12 @@ describe('custom domain check-now and DELETE routes', () => {
     org = await signUpAndGetOrg(auth, db, 'domain-check-owner@example.com');
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);
-    deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    // HEALTHY: check-now drives runDomainCheck, which now short-circuits for
+    // a deployment with no running infrastructure — these tests exercise the
+    // DNS/HTTPS-probing path, so the deployment must be running.
+    deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+    });
   }, 60_000);
 
   afterAll(async () => {
@@ -469,6 +474,35 @@ describe('custom domain check-now and DELETE routes', () => {
     expect(body.domain.error).toBe('DNS_VALIDATION_NOT_FOUND');
   });
 
+  it('check-now on a FAILED deployment short-circuits to DEPLOYMENT_NOT_RUNNING instead of blaming DNS/HTTPS', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const failedDeployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+    });
+    const created = await postJson(
+      app,
+      `/api/deployments/${failedDeployment.id}/domain`,
+      { hostname: `failed-${crypto.randomUUID().slice(0, 8)}.customer.com` },
+      { cookie: org.cookie },
+    );
+    expect(created.statusCode).toBe(201);
+    await db
+      .update(schema.customDomains)
+      .set({ status: 'CONFIGURING' })
+      .where(eq(schema.customDomains.deploymentId, failedDeployment.id));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/deployments/${failedDeployment.id}/domain/check`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { domain: { status: string; error: string | null } };
+    expect(body.domain.status).toBe('configuring');
+    expect(body.domain.error).toBe('DEPLOYMENT_NOT_RUNNING');
+  });
+
   it('DELETE removes the domain (removing status + a REMOVE_DOMAIN job); DELETE again is 200 with no duplicate unfinished job', async () => {
     const response = await app.inject({
       method: 'DELETE',
@@ -521,7 +555,10 @@ describe('custom domain link-scoped check route', () => {
     org = await signUpAndGetOrg(auth, db, 'domain-link-owner@example.com');
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);
-    deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    // HEALTHY: the link-scoped check route also drives runDomainCheck.
+    deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+    });
   }, 60_000);
 
   afterAll(async () => {

@@ -30,6 +30,7 @@
  *                    a template that is not there installs nothing.
  */
 import { CloudFormationClient, ListExportsCommand } from '@aws-sdk/client-cloudformation';
+import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -69,9 +70,27 @@ async function resolveBucket() {
 const bucket = await resolveBucket();
 const outdir = mkdtempSync(join(tmpdir(), 'deployz-bootstrap-'));
 
+const applicationTemplateKey = `${applicationKeyPrefix}/application-template-v1.json`;
 const applicationTemplateUrl =
   process.env.APPLICATION_TEMPLATE_URL ??
-  `https://${bucket}.s3.${region}.amazonaws.com/${applicationKeyPrefix}/application-template-v1.json`;
+  `https://${bucket}.s3.${region}.amazonaws.com/${applicationTemplateKey}`;
+
+// The URL above is a convention, not a fact — confirm the object it points
+// to actually exists before baking it into the bootstrap template. A link
+// CloudFormation cannot fetch fails inside the customer's own account with
+// nothing they can act on (see the file header).
+if (!process.env.APPLICATION_TEMPLATE_URL) {
+  const s3 = new S3Client({ region });
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: applicationTemplateKey }));
+  } catch {
+    throw new Error(
+      `The application template is not published yet: s3://${bucket}/${applicationTemplateKey} ` +
+        'does not exist. Run `pnpm --filter @deployz/cdk run publish:application` first, or set ' +
+        'APPLICATION_TEMPLATE_URL explicitly.',
+    );
+  }
+}
 
 const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, applicationTemplateUrl });
 const publisher = new BootstrapPublisher(createRealS3Client(), {

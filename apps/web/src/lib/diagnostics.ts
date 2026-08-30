@@ -96,6 +96,13 @@ export interface InfraCheck {
   name: string;
   passed: boolean;
   detail: string;
+  /** `false` marks an informational observation — its failure is not an issue. */
+  required?: boolean;
+}
+
+/** Whether a check represents an actual problem (informational checks never do). */
+export function infraCheckIsIssue(check: InfraCheck): boolean {
+  return !check.passed && check.required !== false;
 }
 
 /** Friendly names for the raw check names the relay reports. */

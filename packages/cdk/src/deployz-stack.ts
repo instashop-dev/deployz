@@ -196,11 +196,14 @@ export class DeployzStack extends Stack {
     });
 
     sourceBucket.grantPut(worker.function);
-    // aws-codebuild has no grant helper for StartBuild, so the statement is
-    // written out — scoped to this project, not codebuild:* on everything.
+    // aws-codebuild has no grant helper for StartBuild/BatchGetBuilds, so the
+    // statement is written out — scoped to this project, not codebuild:* on
+    // everything. CodeBuild authorizes both actions against the PROJECT
+    // resource (BatchGetBuilds included, even though its inputs are build
+    // ids — verified live: a `build/<project>:*` scope is AccessDenied).
     worker.function.addToRolePolicy(
       new PolicyStatement({
-        actions: ['codebuild:StartBuild'],
+        actions: ['codebuild:StartBuild', 'codebuild:BatchGetBuilds'],
         resources: [buildPipeline.project.projectArn],
       }),
     );

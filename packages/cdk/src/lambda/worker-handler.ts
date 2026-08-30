@@ -8,7 +8,7 @@
  * Queue failures are reported per message (`batchItemFailures`) so one bad
  * message never re-drives a whole batch.
  */
-import { CodeBuildClient, StartBuildCommand } from '@aws-sdk/client-codebuild';
+import { BatchGetBuildsCommand, CodeBuildClient, StartBuildCommand } from '@aws-sdk/client-codebuild';
 import { PutObjectCommand, S3Client as SdkS3Client } from '@aws-sdk/client-s3';
 
 import { createAiGateway } from '@deployz/analysis';
@@ -20,6 +20,7 @@ import { connectDb, type LambdaDb } from './db-connection.js';
 import {
   handleMessage,
   recordBuildResult,
+  sweepStuckBuilds,
   sweepStuckJobs,
   type CodeBuildStateChangeEvent,
   type RepositoryFetch,
@@ -93,6 +94,47 @@ function createDeps(db: LambdaDb): WorkerDeps {
       );
       return response.build?.id ?? null;
     },
+    async batchGetBuilds(ids) {
+      if (ids.length === 0) return [];
+      codeBuild ??= new CodeBuildClient({});
+      // BatchGetBuilds caps at 100 ids per call.
+      const chunks: string[][] = [];
+      for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+      const builds = [];
+      for (const chunk of chunks) {
+        const response = await codeBuild.send(new BatchGetBuildsCommand({ ids: chunk }));
+        builds.push(...(response.builds ?? []));
+      }
+      return builds.flatMap((build) =>
+        build.id !== undefined && build.buildStatus !== undefined
+          ? [
+              {
+                id: build.id,
+                buildStatus: build.buildStatus,
+                exportedEnvironmentVariables: (build.exportedEnvironmentVariables ?? []).flatMap(
+                  (variable) =>
+                    variable.name !== undefined && variable.value !== undefined
+                      ? [{ name: variable.name, value: variable.value }]
+                      : [],
+                ),
+                // Same shape as the EventBridge event's phases, so the
+                // sweep's synthesized event carries failure detail too.
+                phases: (build.phases ?? []).map((phase) => ({
+                  ...(phase.phaseType !== undefined ? { 'phase-type': phase.phaseType } : {}),
+                  ...(phase.phaseStatus !== undefined
+                    ? { 'phase-status': phase.phaseStatus }
+                    : {}),
+                  'phase-context': (phase.contexts ?? []).flatMap((context) =>
+                    context.message !== undefined && context.message !== ''
+                      ? [`${context.statusCode ?? ''}: ${context.message}`]
+                      : [],
+                  ),
+                })),
+              },
+            ]
+          : [],
+      );
+    },
     runAnalysis: createAnalysisRunner({
       db,
       fetchFn,
@@ -117,7 +159,16 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
     }
     if (event['detail-type'] === 'Scheduled Event') {
       const failed = await sweepStuckJobs(db);
-      console.log(JSON.stringify({ event: 'watchdog:sweep-complete', failedJobs: failed }));
+      // A build-sweep failure (e.g. a CodeBuild API error) must not fail the
+      // whole scheduled invoke — the job sweep above already committed, and
+      // the next tick retries the build sweep anyway.
+      const sweptBuilds = await sweepStuckBuilds(createDeps(db)).catch((error: unknown) => {
+        console.error('sweepStuckBuilds failed', error);
+        return 0;
+      });
+      console.log(
+        JSON.stringify({ event: 'watchdog:sweep-complete', failedJobs: failed, sweptBuilds }),
+      );
     }
     return;
   }

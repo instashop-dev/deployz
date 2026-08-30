@@ -540,7 +540,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "rds:ModifyDBInstance",
                 "rds:DeleteDBInstance",
                 "rds:DescribeDBInstances",
-                "elasticloadbalancing:DescribeTargetHealth",
               ],
               "Condition": {
                 "StringEquals": {
@@ -599,6 +598,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth",
                 "elasticloadbalancing:DescribeListeners",
                 "elasticloadbalancing:DescribeListenerCertificates",
                 "elasticloadbalancing:DescribeTags",
@@ -661,7 +661,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Sid": "RelayDeployObserve",
             },
             {
-              "Action": "ecs:RegisterTaskDefinition",
+              "Action": [
+                "ecs:RegisterTaskDefinition",
+                "ecs:TagResource",
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:RequestTag/deployz:installation": {
@@ -680,11 +683,17 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": "iam:PassRole",
               "Condition": {
                 "StringEquals": {
-                  "iam:PassedToService": "ecs.amazonaws.com",
+                  "iam:PassedToService": [
+                    "ecs-tasks.amazonaws.com",
+                    "ecs.amazonaws.com",
+                  ],
                 },
               },
               "Effect": "Allow",
-              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Resource": [
+                "arn:aws:iam::*:role/deployz/*",
+                "arn:aws:iam::*:role/deployz-app-*",
+              ],
               "Sid": "RelayDeployPassRole",
             },
             {
@@ -769,6 +778,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "iam:ListRolePolicies",
                 "iam:ListAttachedRolePolicies",
                 "iam:ListRoleTags",
+                "cloudwatch:DescribeAlarms",
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -886,6 +896,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "elasticache:AddTagsToResource",
                 "iam:CreateRole",
                 "iam:TagRole",
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:TagResource",
               ],
               "Condition": {
                 "StringEquals": {
@@ -931,6 +943,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "elasticache:AddTagsToResource",
                 "iam:CreateRole",
                 "iam:TagRole",
+                "cloudwatch:PutMetricAlarm",
+                "cloudwatch:TagResource",
               ],
               "Condition": {
                 "StringEquals": {
@@ -998,6 +1012,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "iam:DetachRolePolicy",
                 "iam:DeleteRole",
                 "iam:UntagRole",
+                "cloudwatch:DeleteAlarms",
               ],
               "Condition": {
                 "StringEquals": {
@@ -1093,7 +1108,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "rds:ModifyDBInstance",
                 "rds:DeleteDBInstance",
                 "rds:DescribeDBInstances",
-                "elasticloadbalancing:DescribeTargetHealth",
               ],
               "Condition": {
                 "StringEquals": {
@@ -1152,6 +1166,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth",
                 "elasticloadbalancing:DescribeListeners",
                 "elasticloadbalancing:DescribeListenerCertificates",
                 "elasticloadbalancing:DescribeTags",
@@ -1214,7 +1229,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Sid": "RelayDeployObserve",
             },
             {
-              "Action": "ecs:RegisterTaskDefinition",
+              "Action": [
+                "ecs:RegisterTaskDefinition",
+                "ecs:TagResource",
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:RequestTag/deployz:installation": {
@@ -1233,11 +1251,17 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": "iam:PassRole",
               "Condition": {
                 "StringEquals": {
-                  "iam:PassedToService": "ecs.amazonaws.com",
+                  "iam:PassedToService": [
+                    "ecs-tasks.amazonaws.com",
+                    "ecs.amazonaws.com",
+                  ],
                 },
               },
               "Effect": "Allow",
-              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Resource": [
+                "arn:aws:iam::*:role/deployz/*",
+                "arn:aws:iam::*:role/deployz-app-*",
+              ],
               "Sid": "RelayDeployPassRole",
             },
             {

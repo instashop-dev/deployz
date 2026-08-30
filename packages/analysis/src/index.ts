@@ -25,6 +25,7 @@ export {
   detectMigrationCommand,
   detectStartupCommand,
   detectExternalServices,
+  collectScripts,
 } from './detectors.js';
 
 export type { RejectionFinding } from './rejection.js';

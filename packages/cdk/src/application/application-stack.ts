@@ -42,12 +42,16 @@
  *                     password is never a parameter (it is generated).
  */
 import {
+  CfnCondition,
   CfnParameter,
   Duration,
+  Fn,
+  Lazy,
   RemovalPolicy,
   SecretValue,
   Stack,
   Tags,
+  Token,
   type StackProps,
 } from 'aws-cdk-lib';
 import { TreatMissingData } from 'aws-cdk-lib/aws-cloudwatch';
@@ -114,6 +118,15 @@ export interface SecretParameterSpec {
   readonly secretKey: string;
   /** Environment variable name injected into the container at task start. */
   readonly envName: string;
+  /**
+   * When the parameter arrives empty (no custom domain configured before
+   * install), fall back to `http://<load balancer DNS>` inside the template
+   * instead of shipping an empty string — an app that derives cookies or
+   * redirects from this URL cannot boot on ''. Plain-Fargate mode only; in
+   * express mode ECS manages the ALB and its DNS is not referencable here,
+   * so the raw parameter value is used unchanged.
+   */
+  readonly fallbackToLoadBalancerUrl?: boolean;
 }
 
 export interface ApplicationStackProps extends StackProps {
@@ -491,6 +504,41 @@ export class ApplicationStack extends Stack {
     // App runtime secrets: the NoEcho parameter values are written into this
     // secret at deploy time (§31 write-through: secret values live in the
     // customer account, never in the control plane).
+    //
+    // fallbackToLoadBalancerUrl specs resolve through an Fn::If: the
+    // parameter when provided, otherwise the ALB's own URL. The condition is
+    // created eagerly (it only involves the parameter); the value string is
+    // Lazy because the load balancer construct does not exist yet here.
+    const lbFallbackConditions = new Map<string, CfnCondition>(
+      props.expressMode === true
+        ? []
+        : secretParams
+            .filter(({ spec }) => spec.fallbackToLoadBalancerUrl === true)
+            .map(({ spec, param }) => [
+              spec.parameterId,
+              new CfnCondition(this, `${spec.parameterId}Provided`, {
+                expression: Fn.conditionNot(Fn.conditionEquals(param.valueAsString, '')),
+              }),
+            ]),
+    );
+    const secretParamValue = (spec: SecretParameterSpec, param: CfnParameter): SecretValue => {
+      const condition = lbFallbackConditions.get(spec.parameterId);
+      if (condition === undefined) return SecretValue.cfnParameter(param);
+      return SecretValue.unsafePlainText(
+        Lazy.string({
+          produce: () =>
+            this.loadBalancer === undefined
+              ? param.valueAsString
+              : Token.asString(
+                  Fn.conditionIf(
+                    condition.logicalId,
+                    param.valueAsString,
+                    `http://${this.loadBalancer.loadBalancerDnsName}`,
+                  ),
+                ),
+        }),
+      );
+    };
     this.appSecret = new Secret(this, 'AppConfigSecret', {
       description:
         'Application runtime secrets (vendor/customer config) supplied via ' +
@@ -499,7 +547,7 @@ export class ApplicationStack extends Stack {
         apiKey: SecretValue.cfnParameter(appApiKeyParam),
         signingSecret: SecretValue.cfnParameter(appSigningSecretParam),
         ...Object.fromEntries(
-          secretParams.map(({ spec, param }) => [spec.secretKey, SecretValue.cfnParameter(param)]),
+          secretParams.map(({ spec, param }) => [spec.secretKey, secretParamValue(spec, param)]),
         ),
       },
     });
@@ -679,8 +727,13 @@ export class ApplicationStack extends Stack {
     });
 
     // ── IAM roles (shared by both modes) ──────────────────────────────────
+    // The /deployz/ path is a contract: the relay's deploy-time iam:PassRole
+    // grant is scoped to role/deployz/* (bootstrap-stack.ts), so ECS task
+    // roles outside that path make every DEPLOY_RELEASE die on PassRole —
+    // verified live before the path was added here.
     const taskExecutionRole = new Role(this, 'TaskExecutionRole', {
       assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com'),
+      path: '/deployz/',
       description:
         'Allows ECS to pull the application image, write task logs, and ' +
         'inject secrets from Secrets Manager at task start.',
@@ -696,6 +749,7 @@ export class ApplicationStack extends Stack {
 
     const taskRole = new Role(this, 'TaskRole', {
       assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com'),
+      path: '/deployz/',
       description: 'Runtime role for the customer application container.',
     });
     this.storageBucket.grantReadWrite(taskRole);

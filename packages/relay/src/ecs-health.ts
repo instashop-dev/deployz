@@ -5,7 +5,7 @@
  * only these observations do.
  */
 
-import type { CloudFormationReader } from './verify.js';
+import type { CloudFormationReader, StackResource } from './verify.js';
 
 export type RuntimeHealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN';
 
@@ -39,7 +39,13 @@ export interface ObserveHealthDeps {
 /** Everything one heartbeat reports about runtime health. */
 export interface RuntimeHealth {
   readonly healthStatus: RuntimeHealthStatus;
-  readonly components: { application: RuntimeHealthStatus; loadBalancer: RuntimeHealthStatus };
+  /**
+   * A component is omitted, not `UNKNOWN`, when its backing resource never
+   * reached a complete state — a rolled-back stack's phantom service or
+   * target-group reference must not be reported as "running, health
+   * unknown".
+   */
+  readonly components: { application?: RuntimeHealthStatus; loadBalancer?: RuntimeHealthStatus };
   readonly desiredCount: number | null;
   readonly runningCount: number | null;
   readonly unhealthyTargetCount: number | null;
@@ -93,48 +99,60 @@ function allTargetsUnhealthy(o: HealthObservation): boolean {
 const SERVICE_TYPE = 'AWS::ECS::Service';
 const TARGET_GROUP_TYPE = 'AWS::ElasticLoadBalancingV2::TargetGroup';
 
+/** Resource statuses whose physicalId actually backs live infrastructure. */
+const RESOURCE_COMPLETE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
+
 /**
- * Observes runtime health for the application stack. A missing service or a
- * failed AWS call yields healthStatus UNKNOWN with the counts that were
- * still observable — never a thrown heartbeat.
+ * A rolled-back stack still has a `CREATE_FAILED` (or `DELETE_COMPLETE`)
+ * resource record with a physicalId attached — CloudFormation does not erase
+ * it. Using that id would ask ECS/ELB about infrastructure that no longer
+ * backs the stack, so a physicalId only counts once its resource reached a
+ * complete state.
+ */
+function completedPhysicalId(resources: readonly StackResource[], type: string): string | null {
+  const resource = resources.find((r) => r.type === type);
+  if (!resource?.physicalId) return null;
+  return RESOURCE_COMPLETE_STATUSES.has(resource.status) ? resource.physicalId : null;
+}
+
+/**
+ * Observes runtime health for the application stack. A failed AWS call
+ * yields healthStatus UNKNOWN with the counts that were still observable —
+ * never a thrown heartbeat. A component whose backing resource is absent or
+ * never completed is omitted rather than reported UNKNOWN.
  */
 export async function observeRuntimeHealth(
   deps: ObserveHealthDeps,
   stackName: string,
 ): Promise<RuntimeHealth> {
   const resources = await deps.cfn.describeStackResources(stackName);
-  const serviceArn = resources.find((r) => r.type === SERVICE_TYPE)?.physicalId ?? null;
-  const targetGroupArn =
-    resources.find((r) => r.type === TARGET_GROUP_TYPE)?.physicalId ?? null;
-  if (!serviceArn) {
-    return unknownHealth();
-  }
+  const serviceArn = completedPhysicalId(resources, SERVICE_TYPE);
+  const targetGroupArn = completedPhysicalId(resources, TARGET_GROUP_TYPE);
   // arn:aws:ecs:REGION:ACCOUNT:service/CLUSTER/SERVICE
-  const cluster = serviceArn.split('/')[1] ?? null;
-  if (!cluster) {
-    return unknownHealth();
-  }
+  const cluster = serviceArn?.split('/')[1] ?? null;
 
   let desiredCount: number | null = null;
   let runningCount: number | null = null;
   let rolloutFailed = false;
   let deploymentRolloutState: string | null = null;
-  try {
-    const { services } = await deps.ecs.describeServices({ cluster, services: [serviceArn] });
-    const service = services[0];
-    if (service) {
-      desiredCount = service.desiredCount ?? null;
-      runningCount = service.runningCount ?? null;
-      if (service.deployments?.some((d) => d.rolloutState === 'FAILED')) {
-        rolloutFailed = true;
-        deploymentRolloutState = 'FAILED';
-      } else {
-        deploymentRolloutState =
-          service.deployments?.find((d) => d.status === 'PRIMARY')?.rolloutState ?? null;
+  if (serviceArn && cluster) {
+    try {
+      const { services } = await deps.ecs.describeServices({ cluster, services: [serviceArn] });
+      const service = services[0];
+      if (service) {
+        desiredCount = service.desiredCount ?? null;
+        runningCount = service.runningCount ?? null;
+        if (service.deployments?.some((d) => d.rolloutState === 'FAILED')) {
+          rolloutFailed = true;
+          deploymentRolloutState = 'FAILED';
+        } else {
+          deploymentRolloutState =
+            service.deployments?.find((d) => d.status === 'PRIMARY')?.rolloutState ?? null;
+        }
       }
+    } catch {
+      // ECS unreadable: counts unknown, but target health may still be readable.
     }
-  } catch {
-    // ECS unreadable: counts unknown, but target health may still be readable.
   }
 
   let targetCount = 0;
@@ -156,23 +174,18 @@ export async function observeRuntimeHealth(
     unhealthyTargetCount,
     rolloutFailed,
   };
+  const derived = deriveComponents(observation);
+  const components: RuntimeHealth['components'] = {
+    ...(serviceArn ? { application: derived.application } : {}),
+    ...(targetGroupArn ? { loadBalancer: derived.loadBalancer } : {}),
+  };
+
   return {
     healthStatus: deriveHealthStatus(observation),
-    components: deriveComponents(observation),
+    components,
     desiredCount,
     runningCount,
     unhealthyTargetCount,
     deploymentRolloutState,
-  };
-}
-
-function unknownHealth(): RuntimeHealth {
-  return {
-    healthStatus: 'UNKNOWN',
-    components: { application: 'UNKNOWN', loadBalancer: 'UNKNOWN' },
-    desiredCount: null,
-    runningCount: null,
-    unhealthyTargetCount: null,
-    deploymentRolloutState: null,
   };
 }

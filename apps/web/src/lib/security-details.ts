@@ -77,7 +77,6 @@ export const PHASE_2_APP_RESOURCE_ACTIONS = [
   'rds:ModifyDBInstance',
   'rds:DeleteDBInstance',
   'rds:DescribeDBInstances',
-  'elasticloadbalancing:DescribeTargetHealth',
 ] as const;
 
 /** Phase 2 — request and manage the TLS certificate for a custom domain you configure (requires the request tag). */
@@ -97,6 +96,7 @@ export const PHASE_2_ACM_MANAGE_ACTIONS = [
 export const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
   'elasticloadbalancing:DescribeLoadBalancers',
   'elasticloadbalancing:DescribeTargetGroups',
+  'elasticloadbalancing:DescribeTargetHealth',
   'elasticloadbalancing:DescribeListeners',
   'elasticloadbalancing:DescribeListenerCertificates',
   'elasticloadbalancing:DescribeTags',

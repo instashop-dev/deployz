@@ -101,17 +101,20 @@ describe('computeEnvChanges', () => {
       { name: 'LOG_LEVEL', value: 'info' },
       { name: 'FEATURE_FLAG', value: 'on' },
     ];
-    const changes = computeEnvChanges(desired, current);
-    expect(changes).toEqual([{ name: 'LOG_LEVEL', value: 'debug' }]);
+    const delta = computeEnvChanges(desired, current);
+    expect(delta).toEqual({ changes: [{ name: 'LOG_LEVEL', value: 'debug' }], removals: [] });
   });
 
   it('returns new entries the task definition does not have yet', () => {
     const current = [{ name: 'LOG_LEVEL', value: 'info' }];
-    const changes = computeEnvChanges(desired, current);
-    expect(changes).toEqual([
-      { name: 'LOG_LEVEL', value: 'debug' },
-      { name: 'FEATURE_FLAG', value: 'on' },
-    ]);
+    const delta = computeEnvChanges(desired, current);
+    expect(delta).toEqual({
+      changes: [
+        { name: 'LOG_LEVEL', value: 'debug' },
+        { name: 'FEATURE_FLAG', value: 'on' },
+      ],
+      removals: [],
+    });
   });
 
   it('ignores secret entries entirely — they are not environment variables', () => {
@@ -119,6 +122,16 @@ describe('computeEnvChanges', () => {
       { key: 'DB_PASSWORD', isSecret: true, source: 'vendor' },
     ];
     expect(computeEnvChanges(secretsOnly, [])).toBeNull();
+  });
+
+  it('strips only the explicitly removed keys, never install-time values', () => {
+    const current = [
+      { name: 'LOG_LEVEL', value: 'debug' },
+      { name: 'FEATURE_FLAG', value: 'on' },
+      { name: 'NODE_ENV', value: 'production' },
+    ];
+    const delta = computeEnvChanges(desired, current, ['FEATURE_FLAG', 'NEVER_EXISTED']);
+    expect(delta).toEqual({ changes: [], removals: ['FEATURE_FLAG'] });
   });
 });
 
@@ -176,6 +189,11 @@ describe('createConfigUpdateExecutor', () => {
       name: 'LOG_LEVEL',
       value: 'debug',
     });
+    // The relay's register grant is request-tag scoped — an untagged
+    // register is AccessDenied (verified live).
+    expect((registered[0] as { tags?: unknown }).tags).toEqual([
+      { key: 'deployz:installation', value: 'inst-test' },
+    ]);
   });
 
   it('fails when the fetch itself errors', async () => {

@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  firstFailureEvent,
   installApplicationStack,
   INSTALLATION_TAG,
   toInstaller,
+  type StackFailureEvent,
   type StackInstaller,
   type StackState,
 } from './install.js';
@@ -34,6 +36,7 @@ function scriptedInstaller(
           index += 1;
           return state;
         },
+    describeStackEvents: overrides.describeStackEvents ? overrides.describeStackEvents : async () => [],
   };
 }
 
@@ -154,6 +157,126 @@ describe('installApplicationStack', () => {
     expect(outcome.state === 'failed' && outcome.reason).toContain('Resource creation cancelled');
   });
 
+  it('appends the first CREATE_FAILED resource reason — the actual cause — to the failure', async () => {
+    const installer = scriptedInstaller(
+      [null, { status: 'ROLLBACK_COMPLETE', statusReason: 'Resource creation cancelled', outputs: {} }],
+      {
+        describeStackEvents: async () => [
+          {
+            logicalResourceId: 'CpuAlarm',
+            resourceType: 'AWS::CloudWatch::Alarm',
+            resourceStatusReason: 'Resource creation cancelled',
+            timestamp: '2026-08-30T10:00:03.000Z',
+          },
+          {
+            logicalResourceId: 'WebServerService',
+            resourceType: 'AWS::ECS::Service',
+            resourceStatusReason: 'AccessDenied on cloudwatch:PutMetricAlarm',
+            timestamp: '2026-08-30T10:00:01.000Z',
+          },
+        ],
+      },
+    );
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.reason).toBe(
+      'Stack "deployz-app" finished in ROLLBACK_COMPLETE — Resource creation cancelled — ' +
+        'WebServerService (AWS::ECS::Service): AccessDenied on cloudwatch:PutMetricAlarm',
+    );
+  });
+
+  it('skips boilerplate-cancelled events and falls back to the stack-level reason alone', async () => {
+    const installer = scriptedInstaller(
+      [null, { status: 'ROLLBACK_COMPLETE', statusReason: 'Resource creation cancelled', outputs: {} }],
+      {
+        describeStackEvents: async () => [
+          {
+            logicalResourceId: 'CpuAlarm',
+            resourceType: 'AWS::CloudWatch::Alarm',
+            resourceStatusReason: 'Resource creation cancelled',
+            timestamp: '2026-08-30T10:00:01.000Z',
+          },
+          {
+            logicalResourceId: 'Nat',
+            resourceType: 'AWS::EC2::NatGateway',
+            resourceStatusReason: 'Resource update cancelled',
+            timestamp: '2026-08-30T10:00:02.000Z',
+          },
+        ],
+      },
+    );
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.reason).toBe(
+      'Stack "deployz-app" finished in ROLLBACK_COMPLETE — Resource creation cancelled',
+    );
+  });
+
+  it('falls back to the stack-level reason when the events API fails', async () => {
+    const installer = scriptedInstaller(
+      [null, { status: 'ROLLBACK_COMPLETE', statusReason: 'Resource creation cancelled', outputs: {} }],
+      {
+        describeStackEvents: async () => {
+          throw new Error('Throttling');
+        },
+      },
+    );
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.reason).toBe(
+      'Stack "deployz-app" finished in ROLLBACK_COMPLETE — Resource creation cancelled',
+    );
+  });
+
+  it('keeps the failure reason bounded even with a very long resource reason', async () => {
+    const installer = scriptedInstaller(
+      [null, { status: 'ROLLBACK_COMPLETE', outputs: {} }],
+      {
+        describeStackEvents: async () => [
+          {
+            logicalResourceId: 'WebServerService',
+            resourceType: 'AWS::ECS::Service',
+            resourceStatusReason: 'x'.repeat(1000),
+            timestamp: '2026-08-30T10:00:01.000Z',
+          },
+        ],
+      },
+    );
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    const reason = outcome.state === 'failed' ? outcome.reason : '';
+    expect(reason.length).toBeLessThanOrEqual(500);
+    expect(reason.endsWith('…')).toBe(true);
+  });
+
   it('does not create a second stack when one is already in flight', async () => {
     const installer = scriptedInstaller([
       { status: 'CREATE_IN_PROGRESS', outputs: {} },
@@ -195,6 +318,7 @@ describe('installApplicationStack', () => {
       installer: {
         createStack: async () => ({ created: false, alreadyExists: true }),
         describeStack,
+        describeStackEvents: async () => [],
       },
       installationId: 'inst-1',
       templateUrl: 'https://example.com/app.json',
@@ -214,6 +338,7 @@ describe('installApplicationStack', () => {
           message: 'not authorized to perform cloudformation:CreateStack',
         }),
         describeStack: async () => null,
+        describeStackEvents: async () => [],
       },
       installationId: 'inst-1',
       templateUrl: 'https://example.com/app.json',
@@ -248,7 +373,11 @@ describe('installApplicationStack', () => {
       .mockResolvedValue({ status: 'CREATE_IN_PROGRESS', outputs: {} });
 
     await installApplicationStack({
-      installer: { createStack: async () => ({ created: true, stackId: 's' }), describeStack },
+      installer: {
+        createStack: async () => ({ created: true, stackId: 's' }),
+        describeStack,
+        describeStackEvents: async () => [],
+      },
       installationId: 'inst-1',
       templateUrl: 'https://example.com/app.json',
       budgetMs: 25_000,
@@ -284,6 +413,29 @@ describe('installApplicationStack', () => {
     expect(outcome.state).toBe('succeeded');
   });
 
+  it('creates the fresh stack when an adopted deletion finishes (first-install recovery)', async () => {
+    // Recovery deletes the failed previous stack; the same INSTALL then owns
+    // creating the new one. Observed live: the watcher instead failed itself
+    // on the empty reads after the delete completed.
+    const installer = scriptedInstaller([
+      { status: 'DELETE_IN_PROGRESS', outputs: {} },
+      { status: 'DELETE_IN_PROGRESS', outputs: {} },
+      null, // deletion finished — the install must now create, not fail
+      { status: 'CREATE_IN_PROGRESS', outputs: {} },
+      complete(),
+    ]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+    expect(installer.createCalls).toHaveLength(1);
+  });
+
   it('fails when the stack disappears mid-create', async () => {
     const installer = scriptedInstaller([
       { status: 'CREATE_IN_PROGRESS', outputs: {} },
@@ -311,6 +463,7 @@ describe('installApplicationStack', () => {
           throw new Error('socket hang up');
         },
         describeStack: async () => null,
+        describeStackEvents: async () => [],
       },
       installationId: 'inst-1',
       templateUrl: 'https://example.com/app.json',
@@ -335,6 +488,44 @@ describe('installApplicationStack', () => {
     expect(installer.createCalls[0]).toMatchObject({
       parameters: { param_AppApiKey: 'k' },
     });
+  });
+});
+
+function failureEvent(overrides: Partial<StackFailureEvent> = {}): StackFailureEvent {
+  return {
+    logicalResourceId: 'WebServerService',
+    resourceType: 'AWS::ECS::Service',
+    resourceStatusReason: 'AccessDenied on cloudwatch:PutMetricAlarm',
+    timestamp: '2026-08-30T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('firstFailureEvent', () => {
+  it('returns null with no events', () => {
+    expect(firstFailureEvent([])).toBeNull();
+  });
+
+  it('skips boilerplate cancellation reasons', () => {
+    expect(
+      firstFailureEvent([
+        failureEvent({ resourceStatusReason: 'Resource creation cancelled' }),
+        failureEvent({ resourceStatusReason: 'Resource update cancelled' }),
+      ]),
+    ).toBeNull();
+  });
+
+  it('picks the chronologically earliest genuine failure, regardless of array order', () => {
+    const earlier = failureEvent({
+      logicalResourceId: 'Database',
+      timestamp: '2026-08-30T10:00:01.000Z',
+    });
+    const later = failureEvent({
+      logicalResourceId: 'WebServerService',
+      timestamp: '2026-08-30T10:00:05.000Z',
+    });
+
+    expect(firstFailureEvent([later, earlier])).toEqual(earlier);
   });
 });
 
@@ -437,5 +628,66 @@ describe('toInstaller', () => {
     const send = vi.fn().mockRejectedValue(new Error('ValidationError'));
 
     await expect(toInstaller({ send }).describeStack('deployz-app')).resolves.toBeNull();
+  });
+
+  it('reads CREATE_FAILED resource events, ignoring other statuses', async () => {
+    const send = vi.fn().mockResolvedValue({
+      StackEvents: [
+        {
+          LogicalResourceId: 'WebServerService',
+          ResourceType: 'AWS::ECS::Service',
+          ResourceStatus: 'CREATE_FAILED',
+          ResourceStatusReason: 'AccessDenied on cloudwatch:PutMetricAlarm',
+          Timestamp: new Date('2026-08-30T10:00:01.000Z'),
+        },
+        {
+          LogicalResourceId: 'Stack',
+          ResourceType: 'AWS::CloudFormation::Stack',
+          ResourceStatus: 'ROLLBACK_IN_PROGRESS',
+          ResourceStatusReason: 'The following resource(s) failed to create',
+          Timestamp: new Date('2026-08-30T10:00:02.000Z'),
+        },
+      ],
+    });
+
+    const events = await toInstaller({ send }).describeStackEvents('deployz-app');
+
+    expect(events).toEqual([
+      {
+        logicalResourceId: 'WebServerService',
+        resourceType: 'AWS::ECS::Service',
+        resourceStatusReason: 'AccessDenied on cloudwatch:PutMetricAlarm',
+        timestamp: '2026-08-30T10:00:01.000Z',
+      },
+    ]);
+  });
+
+  it('follows NextToken up to the page cap', async () => {
+    const send = vi.fn().mockImplementation((command: { input: { NextToken?: string } }) => {
+      const page = command.input.NextToken ? Number(command.input.NextToken) : 0;
+      return Promise.resolve({
+        StackEvents: [
+          {
+            LogicalResourceId: `Resource${page}`,
+            ResourceType: 'AWS::ECS::Service',
+            ResourceStatus: 'CREATE_FAILED',
+            ResourceStatusReason: `failure ${page}`,
+            Timestamp: new Date('2026-08-30T10:00:00.000Z'),
+          },
+        ],
+        NextToken: String(page + 1),
+      });
+    });
+
+    const events = await toInstaller({ send }).describeStackEvents('deployz-app');
+
+    expect(send).toHaveBeenCalledTimes(5);
+    expect(events).toHaveLength(5);
+  });
+
+  it('returns an empty array — never throws — when events cannot be read', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('Throttling'));
+
+    await expect(toInstaller({ send }).describeStackEvents('deployz-app')).resolves.toEqual([]);
   });
 });

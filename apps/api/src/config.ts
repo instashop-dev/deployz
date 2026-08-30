@@ -228,10 +228,15 @@ export async function setConfig(
     );
   }
 
-  const freshSecrets = entries.filter((entry) => entry.isSecret && entry.value.length > 0);
-  if (customerId !== null && freshSecrets.length > 0) {
+  // Every customer-scoped change propagates to the running deployment —
+  // plain values included, not only secrets. A save that only touched plain
+  // variables previously enqueued nothing, so the running application never
+  // saw it while the screen promised it would "within a few minutes"
+  // (verified live). Untouched secrets (empty value) are not changes.
+  const changedEntries = entries.filter((entry) => !(entry.isSecret && entry.value.length === 0));
+  if (customerId !== null && changedEntries.length > 0) {
     try {
-      await deps.secretWriter.writeSecrets(customerId, freshSecrets);
+      await deps.secretWriter.writeSecrets(customerId, changedEntries);
     } catch {
       throw new ApiError(
         502,
@@ -250,16 +255,13 @@ export async function setConfig(
   }
 
   if (deletes.length > 0) {
-    // The customer's own secret store has to lose the value too, or a removed
-    // secret keeps existing in their account with nothing in Deployz showing
-    // it. Only secrets need this; plain values never left the control plane.
-    const existing = await deps.store.list(applicationId, customerId);
-    const secretKeys = existing
-      .filter((entry) => entry.isSecret && deletes.includes(entry.key))
-      .map((entry) => entry.key);
-    if (customerId !== null && secretKeys.length > 0) {
+    // Removals propagate for every key: a removed secret has to leave the
+    // customer's own secret store, and a removed plain variable has to leave
+    // the running task definition — both travel as removedKeys on the same
+    // CONFIG_UPDATE write-through.
+    if (customerId !== null) {
       try {
-        await deps.secretWriter.removeSecrets(customerId, secretKeys);
+        await deps.secretWriter.removeSecrets(customerId, deletes);
       } catch {
         throw new ApiError(
           502,

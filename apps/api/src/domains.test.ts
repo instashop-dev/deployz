@@ -72,7 +72,12 @@ describe('domains (custom-domain service)', () => {
     return row!;
   }
 
-  async function insertDeployment(organizationId: string, applicationId: string, customerId: string) {
+  async function insertDeployment(
+    organizationId: string,
+    applicationId: string,
+    customerId: string,
+    overrides: Partial<typeof schema.deployments.$inferInsert> = {},
+  ) {
     const [row] = await db
       .insert(schema.deployments)
       .values({
@@ -80,20 +85,25 @@ describe('domains (custom-domain service)', () => {
         applicationId,
         customerId,
         region: 'us-east-1',
-        state: 'NOT_INSTALLED',
+        // A domain only makes sense on a deployment that is actually
+        // installed and running — HEALTHY is the realistic default here.
+        // runDomainCheck's own gating on the deployment's state is exercised
+        // explicitly below with overrides.
+        state: 'HEALTHY',
         installationId: `inst-${crypto.randomUUID()}`,
         enrollmentCode: crypto.randomUUID(),
+        ...overrides,
       })
       .returning();
     return row!;
   }
 
   /** A full deployment (org + application + customer + deployment), the unit createCustomDomain/removeCustomDomain operate on. */
-  async function seedDeployment() {
+  async function seedDeployment(overrides: Partial<typeof schema.deployments.$inferInsert> = {}) {
     const org = await insertOrg();
     const application = await insertApplication(org.id);
     const customer = await insertCustomer(org.id);
-    const deployment = await insertDeployment(org.id, application.id, customer.id);
+    const deployment = await insertDeployment(org.id, application.id, customer.id, overrides);
     return { org, deployment };
   }
 
@@ -694,6 +704,104 @@ describe('domains (custom-domain service)', () => {
       expect(fresh.status).toBe('ACTIVE');
       expect(fresh.lastError).toBeNull();
       expect(fresh.lastCheckedAt).not.toBeNull();
+    });
+
+    it('CONFIGURING on a FAILED deployment short-circuits: no HTTPS probe, status unchanged, lastError DEPLOYMENT_NOT_RUNNING', async () => {
+      const { deployment } = await seedDeployment({ state: 'FAILED' });
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      await db
+        .update(schema.customDomains)
+        .set({ status: 'CONFIGURING' })
+        .where(eq(schema.customDomains.id, domain.id));
+      const configuring = await reload(domain.id);
+
+      let probed = false;
+      const fresh = await runDomainCheck(
+        db,
+        deployment,
+        configuring,
+        fakeDeps({
+          probeHttps: async () => {
+            probed = true;
+            return true;
+          },
+        }),
+      );
+
+      expect(probed).toBe(false);
+      expect(fresh.status).toBe('CONFIGURING');
+      expect(fresh.lastError).toBe('DEPLOYMENT_NOT_RUNNING');
+    });
+
+    it.each(['FAILED', 'DELETING', 'DELETED', 'NOT_INSTALLED'] as const)(
+      'short-circuits (no jobs, no probes) once the deployment is %s',
+      async (state) => {
+        const { deployment } = await seedDeployment({ state });
+        const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+
+        const fresh = await runDomainCheck(db, deployment, domain, fakeDeps());
+
+        expect(fresh.lastError).toBe('DEPLOYMENT_NOT_RUNNING');
+        // Only the cycle-0 job createCustomDomain itself created — the
+        // short-circuit must not mint another.
+        const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+        expect(jobs).toHaveLength(1);
+      },
+    );
+
+    it('REMOVING is exempt from the deployment-state short-circuit — its own teardown keeps running while the deployment goes DELETING', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      const removing = await removeCustomDomain(db, deployment, domain);
+      const deletingDeployment = { ...deployment, state: 'DELETING' as const };
+
+      const fresh = await runDomainCheck(db, deletingDeployment, removing, fakeDeps());
+
+      expect(fresh.status).toBe('REMOVING');
+      expect(fresh.lastError).toBeNull();
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'REMOVE_DOMAIN');
+      expect(jobs).toHaveLength(1);
+    });
+
+    it('REMOVING does not re-mint a new REMOVE_DOMAIN job after the prior one FAILED (no automatic retry storm on the heartbeat path)', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      const removing = await removeCustomDomain(db, deployment, domain);
+      const firstJob = (await jobsFor(deployment.id)).find((job) => job.type === 'REMOVE_DOMAIN')!;
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'FAILED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.id, firstJob.id));
+
+      // Two more calls, simulating two more relay heartbeats hitting the
+      // still-REMOVING, still-FAILED domain.
+      const afterFirst = await runDomainCheck(db, deployment, removing, fakeDeps());
+      const afterSecond = await runDomainCheck(db, deployment, afterFirst, fakeDeps());
+
+      expect(afterSecond.status).toBe('REMOVING');
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'REMOVE_DOMAIN');
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.state).toBe('FAILED');
+    });
+  });
+
+  describe('removeCustomDomain retry policy', () => {
+    it('an explicit repeat call re-mints a fresh REMOVE_DOMAIN job after the prior one FAILED', async () => {
+      const { deployment } = await seedDeployment();
+      const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
+      const removing = await removeCustomDomain(db, deployment, domain);
+      const firstJob = (await jobsFor(deployment.id)).find((job) => job.type === 'REMOVE_DOMAIN')!;
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'FAILED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.id, firstJob.id));
+
+      await removeCustomDomain(db, deployment, removing);
+
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'REMOVE_DOMAIN');
+      expect(jobs).toHaveLength(2);
+      expect(firstJob.idempotencyKey.endsWith(':1')).toBe(true);
+      expect(jobs.some((job) => job.idempotencyKey.endsWith(':2'))).toBe(true);
     });
   });
 

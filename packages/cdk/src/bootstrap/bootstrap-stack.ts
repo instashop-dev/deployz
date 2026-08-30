@@ -149,7 +149,6 @@ const PHASE_2_APP_RESOURCE_ACTIONS = [
   'rds:ModifyDBInstance',
   'rds:DeleteDBInstance',
   'rds:DescribeDBInstances',
-  'elasticloadbalancing:DescribeTargetHealth',
 ] as const;
 
 /** Phase 2 — custom-domain certificate lifecycle (custom-domains MVP). */
@@ -170,6 +169,11 @@ const PHASE_2_ACM_MANAGE_ACTIONS = [
 const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
   'elasticloadbalancing:DescribeLoadBalancers',
   'elasticloadbalancing:DescribeTargetGroups',
+  // Same non-resource shape as the two lookups above: DescribeTargetHealth
+  // ignores resource-tag conditions entirely, so inside the tag-conditioned
+  // app-resource statement it was ALWAYS denied and the load-balancer
+  // component reported Health unknown over a healthy target (verified live).
+  'elasticloadbalancing:DescribeTargetHealth',
   'elasticloadbalancing:DescribeListeners',
   'elasticloadbalancing:DescribeListenerCertificates',
   'elasticloadbalancing:DescribeTags',
@@ -224,9 +228,12 @@ const PHASE_4_DEPLOY_OBSERVE_ACTIONS = [
 /**
  * Phase 4 — registering a task-definition copy names a resource that does
  * not exist yet, so (like stack create / cache create) it is scoped by the
- * REQUEST tag the relay stamps on every register.
+ * REQUEST tag the relay stamps on every register. ECS authorizes the tags
+ * on that register as a separate ecs:TagResource call (verified live: a
+ * deploy died on exactly that denial), satisfied by the same request-tag
+ * condition.
  */
-const PHASE_4_DEPLOY_CREATE_ACTIONS = ['ecs:RegisterTaskDefinition'] as const;
+const PHASE_4_DEPLOY_CREATE_ACTIONS = ['ecs:RegisterTaskDefinition', 'ecs:TagResource'] as const;
 
 // ── Application-stack provisioning (the CloudFormation execution role) ──────
 //
@@ -263,6 +270,13 @@ const PROVISION_CREATE_ACTIONS = [
   'elasticache:AddTagsToResource',
   'iam:CreateRole',
   'iam:TagRole',
+  // The application stack's UnhealthyTargetAlarm gets stack-level deployz
+  // tags via that stack's Tags.of aspect, and CreateStack passes the
+  // installation tag, so the request-tag condition on this statement is
+  // satisfied the same way it is for elasticache:AddTagsToResource (see the
+  // comment further below).
+  'cloudwatch:PutMetricAlarm',
+  'cloudwatch:TagResource',
 ] as const;
 
 // Modifies and deletes: conditioned on the installation RESOURCE tag. By the
@@ -319,6 +333,7 @@ const PROVISION_MANAGE_ACTIONS = [
   'iam:DetachRolePolicy',
   'iam:DeleteRole',
   'iam:UntagRole',
+  'cloudwatch:DeleteAlarms',
 ] as const;
 
 /**
@@ -369,6 +384,7 @@ const PROVISION_READ_ACTIONS = [
   'iam:ListRolePolicies',
   'iam:ListAttachedRolePolicies',
   'iam:ListRoleTags',
+  'cloudwatch:DescribeAlarms',
 ] as const;
 
 /**
@@ -784,16 +800,33 @@ export class BootstrapStack extends Stack {
     });
 
     // Phase 4 — PassRole strictly to the application's own task/execution
-    // roles (role/deployz/*), only when handed to ECS. Deliberately NOT the
-    // wildcard-resource form the plan calls out.
+    // roles, only when handed to ECS. Deliberately NOT the wildcard-resource
+    // form the plan calls out. Two shapes: role/deployz/* is the contract
+    // (application-stack roles carry the /deployz/ path), and the
+    // deployz-app-* name prefix covers installs created before that path
+    // existed — their roles live at the default path, named after the fixed
+    // application stack name, and a deploy against them died on PassRole
+    // (verified live).
+    //
+    // Unlike the create/manage statements, this one is NOT scoped by the
+    // installation tag: iam:PassRole does not reliably honour resource-tag
+    // conditions (the same per-action trap DescribeTargetHealth fell into
+    // above), so the isolation here rests on the one-installation-per-region
+    // invariant — a second bootstrap stack cannot coexist (its CDK exports
+    // collide), so there is no sibling installation's role to reach.
     const phase4DeployPassRole = new PolicyStatement({
       sid: 'RelayDeployPassRole',
       effect: Effect.ALLOW,
       actions: ['iam:PassRole'],
-      resources: ['arn:aws:iam::*:role/deployz/*'],
+      resources: ['arn:aws:iam::*:role/deployz/*', 'arn:aws:iam::*:role/deployz-app-*'],
       conditions: {
         StringEquals: {
-          'iam:PassedToService': 'ecs.amazonaws.com',
+          // Task/execution roles are passed to ecs-tasks.amazonaws.com (the
+          // roles' own trust principal); express-mode infrastructure roles
+          // to ecs.amazonaws.com. 'ecs.amazonaws.com' alone denied every
+          // RegisterTaskDefinition (verified live) — same pair the
+          // provisioner's PassRole already uses.
+          'iam:PassedToService': [...PROVISION_PASS_ROLE_SERVICES],
         },
       },
     });

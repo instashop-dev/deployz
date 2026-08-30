@@ -707,6 +707,7 @@
             ]
           }
         ],
+        "Path": "/deployz/",
         "Tags": [
           {
             "Key": "deployz:component",
@@ -780,6 +781,7 @@
           "Version": "2012-10-17"
         },
         "Description": "Runtime role for the customer application container.",
+        "Path": "/deployz/",
         "Tags": [
           {
             "Key": "deployz:component",
@@ -1274,6 +1276,88 @@
         "VpcId": {
           "Ref": "Vpc8378EB38"
         }
+      }
+    },
+    "UnhealthyTargetAlarmC6753764": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "DatapointsToAlarm": 3,
+        "Dimensions": [
+          {
+            "Name": "LoadBalancer",
+            "Value": {
+              "Fn::Join": [
+                "",
+                [
+                  {
+                    "Fn::Select": [
+                      1,
+                      {
+                        "Fn::Split": [
+                          "/",
+                          {
+                            "Ref": "LoadBalancerHttpListener22970844"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "/",
+                  {
+                    "Fn::Select": [
+                      2,
+                      {
+                        "Fn::Split": [
+                          "/",
+                          {
+                            "Ref": "LoadBalancerHttpListener22970844"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "/",
+                  {
+                    "Fn::Select": [
+                      3,
+                      {
+                        "Fn::Split": [
+                          "/",
+                          {
+                            "Ref": "LoadBalancerHttpListener22970844"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "Name": "TargetGroup",
+            "Value": {
+              "Fn::GetAtt": [
+                "LoadBalancerHttpListenerAppTargetsGroup7AAD0468",
+                "TargetGroupFullName"
+              ]
+            }
+          }
+        ],
+        "EvaluationPeriods": 3,
+        "MetricName": "UnHealthyHostCount",
+        "Namespace": "AWS/ApplicationELB",
+        "Period": 60,
+        "Statistic": "Average",
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "application"
+          }
+        ],
+        "Threshold": 1,
+        "TreatMissingData": "notBreaching"
       }
     }
   },

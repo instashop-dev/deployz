@@ -26,7 +26,9 @@ describe('deploy contract, busy gate and restart', () => {
   const REPO = '151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images';
   const DIGEST = 'sha256:' + 'a'.repeat(64);
 
-  async function seedDeployment(): Promise<{
+  async function seedDeployment(
+    overrides: Partial<typeof schema.deployments.$inferInsert> = {},
+  ): Promise<{
     id: string;
     installationId: string;
     token: string;
@@ -46,9 +48,25 @@ describe('deploy contract, busy gate and restart', () => {
         enrollmentUsedAt: new Date(),
         relayTokenHash: hashRelayToken(token),
         relayStatus: 'CONNECTED',
+        ...overrides,
       })
       .returning();
     return { id: row!.id, installationId, token };
+  }
+
+  /** Inserts a bare INSTALL job in the given state, for tests that need a
+   *  deployment's install history without going through the real flow. */
+  async function seedInstallJob(
+    deploymentId: string,
+    state: 'SUCCEEDED' | 'FAILED',
+  ): Promise<void> {
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId,
+      type: 'INSTALL',
+      state,
+      idempotencyKey: `${deploymentId}:INSTALL:${crypto.randomUUID()}`,
+      finishedAt: new Date(),
+    });
   }
 
   async function seedRelease(
@@ -223,6 +241,98 @@ describe('deploy contract, busy gate and restart', () => {
       .where(eq(schema.deployments.id, deployment.id));
     expect(row?.currentReleaseId).toBe(current);
     expect(row?.state).toBe('UPDATING');
+  });
+
+  it('rejects restart and deploy on a never-installed FAILED deployment with 409 DEPLOYMENT_NOT_DEPLOYABLE', async () => {
+    const deployment = await seedDeployment({ state: 'FAILED' });
+    const releaseId = await seedRelease('v5.0.0');
+
+    for (const response of [
+      await post(`/api/deployments/${deployment.id}/restart`, {}),
+      await post(`/api/deployments/${deployment.id}/deploy`, { releaseId }),
+    ]) {
+      expect(response.statusCode, response.body).toBe(409);
+      expect(response.json()).toMatchObject({ error: { code: 'DEPLOYMENT_NOT_DEPLOYABLE' } });
+    }
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('allows restart and deploy on a FAILED deployment that has a prior successful install', async () => {
+    // Two separate deployments — restart's own job would otherwise leave the
+    // deployment busy (DEPLOYMENT_BUSY) for the deploy call right after it.
+    const restartTarget = await seedDeployment({ state: 'FAILED' });
+    await seedInstallJob(restartTarget.id, 'SUCCEEDED');
+    const restart = await post(`/api/deployments/${restartTarget.id}/restart`, {});
+    expect(restart.statusCode, restart.body).toBe(202);
+
+    const deployTarget = await seedDeployment({ state: 'FAILED' });
+    await seedInstallJob(deployTarget.id, 'SUCCEEDED');
+    const releaseId = await seedRelease('v5.1.0');
+    const deploy = await post(`/api/deployments/${deployTarget.id}/deploy`, { releaseId });
+    expect(deploy.statusCode, deploy.body).toBe(202);
+  });
+
+  it('a failed DESTROY is retryable: Disconnect after a FAILED destroy queues a fresh job', async () => {
+    const deployment = await seedDeployment();
+
+    const first = await post(`/api/deployments/${deployment.id}/destroy`, {});
+    expect(first.statusCode, first.body).toBe(202);
+    const { jobId: firstJobId } = first.json() as { jobId: string };
+
+    const result = await app.inject({
+      method: 'POST',
+      url: `/api/relay/commands/${firstJobId}/result`,
+      headers: { authorization: `Bearer ${deployment.token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ success: false, error: 'stack deletion failed' }),
+    });
+    expect(result.statusCode, result.body).toBe(200);
+
+    const [deploymentRow] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deployment.id));
+    expect(deploymentRow?.state).toBe('FAILED');
+
+    const second = await post(`/api/deployments/${deployment.id}/destroy`, {});
+    expect(second.statusCode, second.body).toBe(202);
+    const { jobId: secondJobId } = second.json() as { jobId: string };
+    expect(secondJobId).not.toBe(firstJobId);
+
+    const destroyJobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(destroyJobs.filter((j) => j.type === 'DESTROY')).toHaveLength(2);
+  });
+
+  it('a failed DEPLOY_RELEASE of the same release is retryable with a fresh job', async () => {
+    // Observed live: the fixed derived key handed the FAILED job back on the
+    // retry, so "Confirm Deploy" silently did nothing.
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, 'SUCCEEDED');
+    const releaseId = await seedRelease('v6.0.0');
+
+    const first = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(first.statusCode, first.body).toBe(202);
+    const { jobId: firstJobId } = first.json() as { jobId: string };
+
+    const result = await app.inject({
+      method: 'POST',
+      url: `/api/relay/commands/${firstJobId}/result`,
+      headers: { authorization: `Bearer ${deployment.token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ success: false, error: 'AccessDenied on ecs:TagResource' }),
+    });
+    expect(result.statusCode, result.body).toBe(200);
+
+    const second = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(second.statusCode, second.body).toBe(202);
+    const { jobId: secondJobId } = second.json() as { jobId: string };
+    expect(secondJobId).not.toBe(firstJobId);
   });
 
   it('advances pointers v1 → v2 → v3 → rollback → v2 through job results', async () => {

@@ -450,6 +450,46 @@ async function requireDeploymentIdle(
   }
 }
 
+/**
+ * Derived idempotency key that a FAILED prior attempt does not poison. The
+ * fixed derived keys exist to absorb double-clicks and replays, but
+ * createOrReuseJob hands the same row back regardless of state — so once an
+ * attempt failed, every later user-initiated retry silently received the
+ * dead job and nothing ran (observed live on a deploy retry). When the
+ * newest attempt under this base key is FAILED, mint an attempt-scoped key;
+ * otherwise the base key keeps its replay-absorbing behavior.
+ */
+async function retryAwareIdempotencyKey(
+  db: RuntimeDb,
+  deploymentId: string,
+  type: JobType,
+  baseKey: string,
+): Promise<string> {
+  const attempts = (
+    await db
+      .select({
+        state: schema.deploymentJobs.state,
+        idempotencyKey: schema.deploymentJobs.idempotencyKey,
+        createdAt: schema.deploymentJobs.createdAt,
+      })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deploymentId),
+          eq(schema.deploymentJobs.type, type),
+        ),
+      )
+  ).filter(
+    (job) => job.idempotencyKey === baseKey || job.idempotencyKey.startsWith(`${baseKey}:RETRY:`),
+  );
+  const newest = attempts.sort(
+    (a, b) =>
+      b.createdAt.getTime() - a.createdAt.getTime() ||
+      b.idempotencyKey.localeCompare(a.idempotencyKey),
+  )[0];
+  return newest?.state === 'FAILED' ? `${baseKey}:RETRY:${attempts.length}` : baseKey;
+}
+
 // §24 AWS accounts are shown, never in full — the control plane still stores
 // the real id, but nothing outside it should ever see more than a hint of it.
 function maskAwsAccountId(awsAccountId: string | null): string | null {
@@ -605,9 +645,13 @@ const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
 // container). Only then may retry-install supersede the job.
 const INSTALL_JOB_STALE_AFTER_MS = 30 * 60 * 1000;
 
-/** 409s a deploy/rollback aimed at a deployment that has nothing to deploy
- *  into — the single-deployment mirror of the skip reason deploy-bulk gives. */
-function requireDeployableState(deployment: DeploymentRow): void {
+/** 409s a deploy/rollback/restart aimed at a deployment that has nothing to
+ *  deploy into — the single-deployment mirror of the skip reason deploy-bulk
+ *  gives. A FAILED deployment that never completed a first successful
+ *  INSTALL is still effectively uninstalled: there is no relay-managed
+ *  infrastructure for these commands to act on, only retry-install (and
+ *  destroy) may touch it. The same check retry-install itself uses. */
+async function requireDeployableState(db: RuntimeDb, deployment: DeploymentRow): Promise<void> {
   if (UNDEPLOYABLE_STATES.has(deployment.state)) {
     throw new ApiError(
       409,
@@ -615,6 +659,38 @@ function requireDeployableState(deployment: DeploymentRow): void {
       `Deployment is ${deployment.state}, not deployable`,
     );
   }
+  if (deployment.state === 'FAILED' && !(await hasSucceededInstall(db, deployment.id))) {
+    throw new ApiError(
+      409,
+      'DEPLOYMENT_NOT_DEPLOYABLE',
+      'This deployment never completed its first install; use Retry install instead.',
+    );
+  }
+}
+
+/** Whether the deployment's most recent job is a DESTROY. */
+async function latestJobIsDestroy(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  const [latest] = await db
+    .select({ type: schema.deploymentJobs.type })
+    .from(schema.deploymentJobs)
+    .where(eq(schema.deploymentJobs.deploymentId, deploymentId))
+    .orderBy(desc(schema.deploymentJobs.createdAt))
+    .limit(1);
+  return latest?.type === 'DESTROY';
+}
+
+/** Whether any INSTALL job for this deployment ever finished successfully. */
+async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  const installJobs = await db
+    .select({ state: schema.deploymentJobs.state })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        eq(schema.deploymentJobs.type, 'INSTALL'),
+      ),
+    );
+  return installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
 }
 
 /**
@@ -648,6 +724,9 @@ const JOB_RESULT_EVENT: Partial<
   ROLLBACK: { completed: 'rollback.completed', failed: 'rollback.failed' },
   RESTART: { completed: 'restart.completed', failed: 'restart.failed' },
   DESTROY: { completed: 'destroy.completed', failed: 'destroy.failed' },
+  // Without these, a CONFIG_UPDATE result vanished: the job row held the
+  // relay's error but nothing reached the activity feed (verified live).
+  CONFIG_UPDATE: { completed: 'config.updated', failed: 'config.failed' },
 };
 
 // Control-plane surface: /health, /api/me, /api/auth/*.
@@ -1828,10 +1907,15 @@ export async function buildServer({
     // The same rule deploy-bulk applies. Without it this route accepted a
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
-    requireDeployableState(deployment);
+    await requireDeployableState(db, deployment);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
-      `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+      (await retryAwareIdempotencyKey(
+        db,
+        deployment.id,
+        'DEPLOY_RELEASE',
+        `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`,
+      ));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
@@ -1892,7 +1976,12 @@ export async function buildServer({
         });
         continue;
       }
-      const idempotencyKey = `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`;
+      const idempotencyKey = await retryAwareIdempotencyKey(
+        db,
+        deployment.id,
+        'DEPLOY_RELEASE',
+        `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`,
+      );
       const busy = await db
         .select({ id: schema.deploymentJobs.id })
         .from(schema.deploymentJobs)
@@ -1947,11 +2036,16 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = rollbackBodySchema.parse(request.body);
-    requireDeployableState(deployment);
+    await requireDeployableState(db, deployment);
     const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
     const idempotencyKey =
       firstHeaderValue(request.headers['idempotency-key']) ??
-      `${deployment.id}:ROLLBACK:${body.releaseId}`;
+      (await retryAwareIdempotencyKey(
+        db,
+        deployment.id,
+        'ROLLBACK',
+        `${deployment.id}:ROLLBACK:${body.releaseId}`,
+      ));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
@@ -1980,9 +2074,10 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
-    requireDeployableState(deployment);
+    await requireDeployableState(db, deployment);
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:RESTART`;
+      firstHeaderValue(request.headers['idempotency-key']) ??
+      (await retryAwareIdempotencyKey(db, deployment.id, 'RESTART', `${deployment.id}:RESTART`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
@@ -2047,13 +2142,23 @@ export async function buildServer({
     // deploy against a stack that is about to be deleted can only produce a
     // job whose subject disappears underneath it.
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ?? `${deployment.id}:DESTROY`;
+      firstHeaderValue(request.headers['idempotency-key']) ??
+      (await retryAwareIdempotencyKey(db, deployment.id, 'DESTROY', `${deployment.id}:DESTROY`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
+    // Data deletion during a wedged destroy is authorized ONLY for a
+    // deployment that never completed an install — its retained database is
+    // an empty artifact of a failed create, not customer data. Anything
+    // that ever ran keeps the data-preserving destroy path (the relay
+    // finishes the stack delete RETAINING what it cannot remove).
+    const neverInstalled = !(await hasSucceededInstall(db, deployment.id));
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DESTROY',
       idempotencyKey,
-      payload: { finalSnapshot: body.finalSnapshot ?? false },
+      payload: {
+        finalSnapshot: body.finalSnapshot ?? false,
+        dataDeletionAuthorized: neverInstalled,
+      },
       requestedBy: request.user?.id ?? null,
     });
     if (created) {
@@ -3041,6 +3146,19 @@ export async function buildServer({
     ];
     const rolloutNewlyFailed =
       nextRolloutState === 'FAILED' && previousRolloutState !== 'FAILED';
+    // Observed state wins over a stale FAILED: a failed day-2 operation
+    // marks the deployment FAILED, but the previously installed application
+    // keeps serving — a healthy heartbeat from it is the ground truth that
+    // the deployment is running. A failed FIRST install (no release ever
+    // deployed) has nothing running and stays FAILED until retried.
+    // ...but not when what failed was a DESTROY: the app still serving is
+    // exactly the problem then, and flipping back to HEALTHY would hide the
+    // stuck teardown the vendor explicitly asked for.
+    const stateRecovered =
+      nextHealth === 'HEALTHY' &&
+      deployment.state === 'FAILED' &&
+      deployment.currentReleaseId !== null &&
+      !(await latestJobIsDestroy(db, deployment.id));
 
     await db.transaction(async (tx) => {
       await tx
@@ -3049,6 +3167,7 @@ export async function buildServer({
           observedState,
           relayStatus: 'CONNECTED',
           lastHealthAt: new Date(),
+          ...(stateRecovered ? { state: 'HEALTHY' as const } : {}),
           ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
           ...(identity?.awsAccountId ? { awsAccountId: identity.awsAccountId } : {}),
           ...(typeof identity?.relayVersion === 'string' ? { relayVersion: identity.relayVersion } : {}),
@@ -3074,6 +3193,21 @@ export async function buildServer({
           requestedState: nextHealth,
           result: nextHealth === 'HEALTHY' ? 'success' : 'failure',
           payload: componentsParsed?.success ? { components: componentsParsed.data } : {},
+        });
+      }
+
+      if (stateRecovered) {
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'deployment.state_recovered',
+          actorType: 'relay',
+          actorId: deployment.installationId ?? deployment.id,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          previousState: 'FAILED',
+          requestedState: 'HEALTHY',
+          result: 'success',
+          payload: {},
         });
       }
 

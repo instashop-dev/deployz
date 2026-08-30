@@ -155,7 +155,8 @@ function ConfigBody({
             </p>
           )}
           <p className="text-xs text-muted-foreground">
-            Saved changes are applied to running deployments within a few minutes.
+            Saved changes reach any running deployment within a few minutes. A deployment that
+            isn&apos;t running yet applies them once it starts.
           </p>
         </CardContent>
       </Card>
@@ -545,6 +546,10 @@ function DraftField({
   );
 }
 
+// The "Add value"/"Add secret" controls don't depend on what fetchConfig
+// returns — they open an empty draft row regardless. Rendering them here,
+// disabled, means a click that lands before the fetch resolves hits a real
+// control instead of a skeleton block that silently swallows it.
 function PageSkeleton() {
   return (
     <div className="flex flex-col gap-6" data-testid="config-loading">
@@ -552,7 +557,19 @@ function PageSkeleton() {
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-4 w-96" />
       </div>
-      <Skeleton className="h-56 w-full rounded-xl" />
+      <Skeleton className="h-24 w-full rounded-xl" />
+      <div className="flex flex-col gap-3 rounded-xl border p-6">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-4 w-64" />
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="button" variant="outline" size="sm" disabled>
+            Add value
+          </Button>
+          <Button type="button" variant="outline" size="sm" disabled>
+            Add secret
+          </Button>
+        </div>
+      </div>
       <Skeleton className="h-56 w-full rounded-xl" />
     </div>
   );

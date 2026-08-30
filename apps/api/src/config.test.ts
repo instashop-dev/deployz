@@ -310,7 +310,7 @@ describe('config — setConfig writes', () => {
     ]);
   });
 
-  it('untouched secrets (empty value) are skipped — no relay call, no DB write', async () => {
+  it('untouched secrets (empty value) are excluded from the write-through and never re-written', async () => {
     const store = createMockStore({
       vendorDefaults: [],
       overrides: { [CUSTOMER_ID]: [{ key: 'DATABASE_URL', value: SECRET_MASK, isSecret: true }] },
@@ -327,7 +327,14 @@ describe('config — setConfig writes', () => {
       { store, secretWriter },
     );
 
-    expect(secretWriter.calls).toEqual([]);
+    // The changed plain value rides the write-through (a plain-only save
+    // must still reach the running deployment); the untouched secret does not.
+    expect(secretWriter.calls).toEqual([
+      {
+        customerId: CUSTOMER_ID,
+        entries: [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }],
+      },
+    ]);
     expect(store.written).toEqual([
       { customerId: CUSTOMER_ID, entry: { key: 'LOG_LEVEL', value: 'debug', isSecret: false } },
     ]);
