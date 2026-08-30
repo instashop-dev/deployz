@@ -127,6 +127,40 @@ describe('observeRuntimeHealth', () => {
     expect(health.desiredCount).toBe(1);
     expect(health.unhealthyTargetCount).toBe(0);
     expect(health.deploymentRolloutState).toBe('COMPLETED');
+    // No cache in this stack — the redis component must be omitted, not
+    // reported, so the dashboard's Redis row stays driven by the observe
+    // hook's cache check alone.
+    expect(health.components.redis).toBeUndefined();
+  });
+
+  it('reports the redis component HEALTHY when the stack has a complete replication group', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([
+          ...STACK,
+          { logicalId: 'Cache', type: 'AWS::ElastiCache::ReplicationGroup', status: 'CREATE_COMPLETE', physicalId: 'dec1abc' },
+        ]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['healthy']),
+      },
+      'deployz-app',
+    );
+    expect(health.components.redis).toBe('HEALTHY');
+  });
+
+  it('omits the redis component for a cache that never reached a complete state', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([
+          ...STACK,
+          { logicalId: 'Cache', type: 'AWS::ElastiCache::ReplicationGroup', status: 'CREATE_FAILED', physicalId: 'dec1abc' },
+        ]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['healthy']),
+      },
+      'deployz-app',
+    );
+    expect(health.components.redis).toBeUndefined();
   });
 
   it('reports UNHEALTHY with a failed rollout', async () => {
