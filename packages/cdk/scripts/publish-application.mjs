@@ -102,9 +102,13 @@ const synth = await synthesizeApplicationStack({
 });
 const result = await publisher.publish(synth);
 
+// Same default stack id as the base synth (each call runs its own CDK App,
+// so the ids never collide): CFN output/export names derive from the stack
+// id, and consumers key on them (the control plane reads
+// ExportDeployzApplicationPublicEndpoint off the INSTALL result) — a variant
+// with its own id would make redis installs emit differently-named outputs.
 const redisSynth = await synthesizeApplicationStack({
   outdir: mkdtempSync(join(tmpdir(), 'deployz-application-redis-')),
-  stackId: 'DeployzApplicationRedis',
   imageRepository,
   imageDigest,
   redisRequired: true,

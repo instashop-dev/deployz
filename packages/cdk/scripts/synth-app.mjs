@@ -44,7 +44,6 @@ console.log(
 
 const { template: redisTemplate } = await synthesizeApplicationStack({
   outdir: mkdtempSync(join(tmpdir(), 'deployz-synth-app-redis-')),
-  stackId: 'DeployzApplicationRedis',
   redisRequired: true,
 });
 
