@@ -44,6 +44,7 @@ import {
   createRealS3Client,
   synthesizeApplicationStack,
 } from '../dist/quick-create/publish.js';
+import { APPLICATION_TEMPLATE_REDIS_KEY } from '@deployz/contracts';
 
 const region = process.env.AWS_REGION ?? 'us-east-1';
 const stackName = process.env.CONTROL_PLANE_STACK ?? 'Deployz';
@@ -91,24 +92,38 @@ async function resolveBucket() {
 }
 
 const bucket = await resolveBucket();
-const outdir = mkdtempSync(join(tmpdir(), 'deployz-application-'));
+const publisher = new ApplicationPublisher(createRealS3Client(), { region, bucket, keyPrefix });
 
 const synth = await synthesizeApplicationStack({
-  outdir,
+  outdir: mkdtempSync(join(tmpdir(), 'deployz-application-')),
   imageRepository,
   imageDigest,
   ...(preset !== undefined ? { preset } : {}),
 });
-const publisher = new ApplicationPublisher(createRealS3Client(), { region, bucket, keyPrefix });
 const result = await publisher.publish(synth);
 
+const redisSynth = await synthesizeApplicationStack({
+  outdir: mkdtempSync(join(tmpdir(), 'deployz-application-redis-')),
+  stackId: 'DeployzApplicationRedis',
+  imageRepository,
+  imageDigest,
+  redisRequired: true,
+  ...(preset !== undefined ? { preset } : {}),
+});
+const redisResult = await publisher.publish(redisSynth, undefined, APPLICATION_TEMPLATE_REDIS_KEY);
+
 const resourceCount = Object.keys(synth.template.Resources ?? {}).length;
-console.log(`Published the application template to ${bucket}`);
-console.log(`  template  ${result.templateUrl}`);
-console.log(`  image     ${imageRepository}@${imageDigest}`);
-console.log(`  preset    ${preset ?? '(none)'}`);
+const redisResourceCount = Object.keys(redisSynth.template.Resources ?? {}).length;
+console.log(`Published the application templates to ${bucket}`);
+console.log(`  template       ${result.templateUrl}`);
+console.log(`  template redis ${redisResult.templateUrl}`);
+console.log(`  image          ${imageRepository}@${imageDigest}`);
+console.log(`  preset         ${preset ?? '(none)'}`);
 console.log(
-  `  size      ${result.templateBytes} bytes, ${result.parameterCount} parameter(s), ${resourceCount} resource(s)`,
+  `  size           ${result.templateBytes} bytes, ${result.parameterCount} parameter(s), ${resourceCount} resource(s)`,
+);
+console.log(
+  `  size redis     ${redisResult.templateBytes} bytes, ${redisResult.parameterCount} parameter(s), ${redisResourceCount} resource(s)`,
 );
 console.log();
 console.log('Now republish the bootstrap template so new installs point at it:');

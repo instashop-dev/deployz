@@ -94,7 +94,10 @@ import {
   type VerificationResult,
   type VerifyOptions,
 } from './verify.js';
-import { DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME } from '@deployz/contracts';
+import {
+  DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
+  redisApplicationTemplateUrl,
+} from '@deployz/contracts';
 
 // ── Lazy SDK singleton ───────────────────────────────────────────────────────
 //
@@ -516,9 +519,32 @@ async function settleInstall(
 > {
   const verifyOptions = readVerifyOptionsFromPayload(request.payload);
 
+  let templateUrl = deps.templateUrl;
+  if (verifyOptions.redisRequired === true) {
+    const redisTemplateUrl = redisApplicationTemplateUrl(deps.templateUrl);
+    if (redisTemplateUrl === undefined) {
+      // Provisioning the base template here would build a stack with no
+      // cache and only discover the mistake ~20 minutes later, when
+      // verification demands an ElastiCache cluster that was never asked
+      // for. Failing fast, before CloudFormation is even called, is cheaper
+      // and honest about what went wrong: the relay's configured template
+      // URL, not the customer's account.
+      return {
+        deferred: false,
+        success: false,
+        error:
+          `Redis is required for this installation, but the configured application ` +
+          `template URL ("${deps.templateUrl}") is not recognized, so the Redis-enabled ` +
+          'variant cannot be located',
+        output: {},
+      };
+    }
+    templateUrl = redisTemplateUrl;
+  }
+
   const outcome = await deps.install({
     installationId: deps.installationId,
-    templateUrl: deps.templateUrl,
+    templateUrl,
     stackName: request.stackName,
     parameters: readInstallParametersFromPayload(request.payload),
     ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),

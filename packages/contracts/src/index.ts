@@ -475,6 +475,42 @@ export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
  */
 export const DEFAULT_APPLICATION_STACK_NAME = 'deployz-app';
 
+/**
+ * Final path segment (S3 object key suffix) of the published application
+ * template — the one the bootstrap stack bakes into the relay as
+ * `DEPLOYZ_APPLICATION_TEMPLATE_URL`.
+ *
+ * Shared between the publisher (which writes the object under this name) and
+ * the relay (which recognizes it to derive the Redis variant's URL), so the
+ * two cannot drift apart.
+ */
+export const APPLICATION_TEMPLATE_KEY = 'application-template-v1.json';
+
+/**
+ * Final path segment of the Redis-enabled application template variant —
+ * synthesized from the same stack code with `redisRequired: true`, published
+ * alongside the base template under the same key prefix.
+ */
+export const APPLICATION_TEMPLATE_REDIS_KEY = 'application-template-redis-v1.json';
+
+/**
+ * Derives the Redis-enabled template variant's URL from the base application
+ * template URL the relay is configured with.
+ *
+ * Returns `undefined` when the base URL does not end in
+ * `APPLICATION_TEMPLATE_KEY` — the caller must treat that as "no Redis
+ * variant is known to exist", not guess a URL CloudFormation cannot fetch.
+ * Pure string derivation (no network): the two templates are always
+ * published side by side under the same key prefix.
+ */
+export function redisApplicationTemplateUrl(baseTemplateUrl: string): string | undefined {
+  if (!baseTemplateUrl.endsWith(APPLICATION_TEMPLATE_KEY)) return undefined;
+  return (
+    baseTemplateUrl.slice(0, baseTemplateUrl.length - APPLICATION_TEMPLATE_KEY.length) +
+    APPLICATION_TEMPLATE_REDIS_KEY
+  );
+}
+
 /** The bootstrap stack's non-secret control-plane parameter. */
 export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 

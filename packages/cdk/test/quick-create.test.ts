@@ -20,11 +20,17 @@ import {
 import { repackTemplate } from '../src/quick-create/repack.js';
 import { phaseOf, QuickCreateOrchestrator } from '../src/quick-create/orchestration.js';
 import {
+  APPLICATION_TEMPLATE_KEY,
+  APPLICATION_TEMPLATE_REDIS_KEY,
   ApplicationPublisher,
   BootstrapPublisher,
   synthesizeApplicationStack,
   synthesizeBootstrapStack,
 } from '../src/quick-create/publish.js';
+import {
+  APPLICATION_TEMPLATE_KEY as CONTRACTS_APPLICATION_TEMPLATE_KEY,
+  APPLICATION_TEMPLATE_REDIS_KEY as CONTRACTS_APPLICATION_TEMPLATE_REDIS_KEY,
+} from '@deployz/contracts';
 
 describe('quick-create', () => {
   describe('install-link generator', () => {
@@ -608,6 +614,32 @@ describe('quick-create', () => {
         publisher.publish({ template: tooManyParameters, assets: [] }),
       ).rejects.toThrow(/limits/);
     });
+
+    it('publishes the Redis variant under its own key when a template key is given', async () => {
+      const { client, uploads } = mockS3();
+      const publisher = new ApplicationPublisher(client, {
+        region,
+        bucket,
+        keyPrefix: 'application/v1',
+      });
+
+      const result = await publisher.publish(
+        { template: syntheticTemplate, assets: [] },
+        undefined,
+        APPLICATION_TEMPLATE_REDIS_KEY,
+      );
+
+      expect(result.templateKey).toBe('application/v1/application-template-redis-v1.json');
+      expect(result.templateUrl).toBe(
+        'https://deployz-public-assets.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      );
+      expect(uploads.find((u) => u.key === 'application/v1/application-template-v1.json')).toBeUndefined();
+    });
+
+    it('re-exports the template keys the relay derives the Redis URL from, unchanged', () => {
+      expect(APPLICATION_TEMPLATE_KEY).toBe(CONTRACTS_APPLICATION_TEMPLATE_KEY);
+      expect(APPLICATION_TEMPLATE_REDIS_KEY).toBe(CONTRACTS_APPLICATION_TEMPLATE_REDIS_KEY);
+    });
   });
 
   describe('synthesizeApplicationStack (real synth, no AWS)', () => {
@@ -670,6 +702,39 @@ describe('quick-create', () => {
         const report = assertTemplateLimits(synth.template);
 
         expect(report.withinLimits).toBe(true);
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('provisions no ElastiCache resources when redisRequired is unset', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-'));
+      try {
+        const synth = await synthesizeApplicationStack({ outdir });
+
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+
+        expect(types).not.toContain('AWS::ElastiCache::CacheCluster');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('provisions an ElastiCache Valkey cache when redisRequired is true', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-redis-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          stackId: 'DeployzApplicationRedis',
+          redisRequired: true,
+        });
+
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+
+        expect(types).toContain('AWS::ElastiCache::CacheCluster');
+        expect(types).toContain('AWS::ElastiCache::SubnetGroup');
       } finally {
         rmSync(outdir, { recursive: true, force: true });
       }

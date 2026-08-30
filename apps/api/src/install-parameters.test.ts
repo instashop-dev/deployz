@@ -252,6 +252,52 @@ describe('INSTALL job payload.parameters wiring', () => {
     expect(parameters?.[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).toMatch(SECRET_SHAPE);
   });
 
+  it('POST /api/relay/register carries redisRequired: true when the application requires Redis', async () => {
+    const application = await insertApplication(db, org.organizationId, { redisRequired: true });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+    });
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId: `inst-${crypto.randomUUID()}` },
+      { authorization: 'Bearer relay-token-install-params-redis' },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect((job!.payload as { redisRequired?: boolean }).redisRequired).toBe(true);
+  });
+
+  it('POST /api/relay/register carries redisRequired: false when the application does not require Redis', async () => {
+    const application = await insertApplication(db, org.organizationId, { redisRequired: false });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+    });
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId: `inst-${crypto.randomUUID()}` },
+      { authorization: 'Bearer relay-token-install-params-no-redis' },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect((job!.payload as { redisRequired?: boolean }).redisRequired).toBe(false);
+  });
+
   it('POST /api/deployments/:id/retry-install keeps recovery.neverInstalled AND adds parameters', async () => {
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);
@@ -273,10 +319,39 @@ describe('INSTALL job payload.parameters wiring', () => {
     const { jobId } = response.json() as { jobId: string };
 
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
-    const payload = job!.payload as { recovery?: { neverInstalled?: boolean }; parameters?: Record<string, string> };
+    const payload = job!.payload as {
+      recovery?: { neverInstalled?: boolean };
+      parameters?: Record<string, string>;
+      redisRequired?: boolean;
+    };
     expect(payload.recovery).toEqual({ neverInstalled: true });
     expect(payload.parameters?.[DOCUMENSO_PARAMETERS.nextauthSecret]).toMatch(SECRET_SHAPE);
     expect(payload.parameters?.[DOCUMENSO_PARAMETERS.encryptionKey]).toMatch(SECRET_SHAPE);
     expect(payload.parameters?.[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).toMatch(SECRET_SHAPE);
+    expect(payload.redisRequired).toBe(false);
+  });
+
+  it('POST /api/deployments/:id/retry-install carries redisRequired: true when the application requires Redis', async () => {
+    const application = await insertApplication(db, org.organizationId, { redisRequired: true });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      installationId: `inst-recovery-redis-${crypto.randomUUID()}`,
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'FAILED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(202);
+    const { jobId } = response.json() as { jobId: string };
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect((job!.payload as { redisRequired?: boolean }).redisRequired).toBe(true);
   });
 });

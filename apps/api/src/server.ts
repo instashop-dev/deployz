@@ -68,7 +68,7 @@ import {
   type GithubWebhookEvent,
 } from './github.js';
 import { createEmailSender, type EmailSender } from './email.js';
-import { buildInstallParameters } from './install-parameters.js';
+import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
 import { enqueue } from './queue.js';
 import {
@@ -2308,6 +2308,7 @@ export async function buildServer({
       payload: {
         recovery: { neverInstalled: true },
         parameters: await buildInstallParameters(db, deployment.id),
+        redisRequired: await readRedisRequired(db, deployment.applicationId),
       },
       requestedBy: request.user?.id ?? null,
     });
@@ -2877,7 +2878,10 @@ export async function buildServer({
               deploymentId: deployment.id,
               type: 'INSTALL',
               idempotencyKey: `${deployment.id}:INSTALL`,
-              payload: { parameters: await buildInstallParameters(db, deployment.id) },
+              payload: {
+                parameters: await buildInstallParameters(db, deployment.id),
+                redisRequired: await readRedisRequired(db, deployment.applicationId),
+              },
               requestedBy: null,
             })
           ).job

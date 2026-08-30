@@ -25,6 +25,7 @@ export type { RepackOptions, RepackResult } from './repack.js';
 
 export {
   APPLICATION_TEMPLATE_KEY,
+  APPLICATION_TEMPLATE_REDIS_KEY,
   ApplicationPublisher,
   BootstrapPublisher,
   createRealS3Client,

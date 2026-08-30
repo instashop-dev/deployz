@@ -1,12 +1,30 @@
 import { randomBytes } from 'node:crypto';
 
+import { eq } from 'drizzle-orm';
+
 import { DOCUMENSO_PARAMETERS } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
 
 import { findActiveDomain } from './domains.js';
 
 function generateSecret(): string {
   return randomBytes(32).toString('base64url');
+}
+
+/**
+ * Whether the deployment's application needs a Redis cache provisioned. The
+ * INSTALL executor reads this as a top-level payload field (not one of the
+ * CloudFormation parameters above), so it is looked up separately rather
+ * than folded into buildInstallParameters.
+ */
+export async function readRedisRequired(db: RuntimeDb, applicationId: string): Promise<boolean> {
+  const rows = await db
+    .select({ redisRequired: schema.applications.redisRequired })
+    .from(schema.applications)
+    .where(eq(schema.applications.id, applicationId))
+    .limit(1);
+  return rows[0]?.redisRequired ?? false;
 }
 
 /**
