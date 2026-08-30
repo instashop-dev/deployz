@@ -1,15 +1,49 @@
 'use client';
 
-import { AlertTriangle, ArrowLeft, ExternalLink } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ChevronDown, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 
 import { ActivityFeed } from '@/components/activity-feed';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api-client';
 import {
@@ -28,6 +62,7 @@ import {
 } from '@/lib/deployments';
 import {
   HEALTH_STATUS_BADGE,
+  HEALTH_STATUS_DOT,
   HEALTH_STATUS_LABEL,
   NOT_YET_RUNNING_ACTION_COPY,
   RELAY_STATUS_LABEL,
@@ -39,21 +74,8 @@ import {
   type HealthStatus,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
-import {
-  addDomain,
-  checkDomain,
-  domainErrorCopy,
-  fetchDomainAccess,
-  removeDomain,
-  DOMAIN_STATUS_LABEL,
-  type CustomDomainView,
-} from '@/lib/domains';
-import {
-  REDIS_STATUS_LABEL,
-  readInfraChecks,
-  redisProvisioningStatus,
-  type RedisProvisioningStatus,
-} from '@/lib/diagnostics';
+import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
+import { REDIS_STATUS_LABEL, redisProvisioningStatus, readInfraChecks, type RedisProvisioningStatus } from '@/lib/diagnostics';
 import {
   NO_DEPLOYABLE_RELEASES_COPY,
   deployableReleases,
@@ -71,13 +93,6 @@ type DetailState =
       releases: Release[];
     };
 
-const HEALTH_DOT: Record<HealthStatus, string> = {
-  UNKNOWN: 'bg-muted-foreground',
-  HEALTHY: 'bg-primary',
-  DEGRADED: 'bg-amber-500',
-  UNHEALTHY: 'bg-destructive',
-};
-
 /** The components a relay can report, in the order they are shown. */
 const COMPONENT_LABELS = [
   ['application', 'Application'],
@@ -93,13 +108,21 @@ const RELAY_DOT: Record<RelayStatus, string> = {
   UNKNOWN: 'bg-muted-foreground',
 };
 
+const REDIS_DOT: Record<RedisProvisioningStatus, string> = {
+  HEALTHY: 'bg-primary',
+  UNHEALTHY: 'bg-destructive',
+  NOT_PROVISIONED: 'bg-muted-foreground',
+  NOT_REPORTING: 'bg-muted-foreground',
+};
+
 const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to.';
 
 // §24 deployment detail — all five required actions (Deploy Update, Rollback,
 // View Diagnostics, Configuration, Disconnect Deployment), the masked AWS
 // account + Created date, and the five named infrastructure rows (Application,
-// Database, Storage, Load Balancer, Deployz Relay). M14: deployment health
-// only — no application observability.
+// Database, Storage, Load Balancer, Deployz Relay), organized into
+// Overview / Infrastructure / Activity tabs. M14: deployment health only — no
+// application observability.
 export default function DeploymentDetailPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
@@ -136,7 +159,7 @@ export default function DeploymentDetailPage() {
   }, [load]);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <div className="flex items-center gap-2">
         <Button asChild variant="ghost" size="sm" className="-ml-2">
           <Link href="/dashboard/deployments">
@@ -182,17 +205,11 @@ function DetailBody({
   onChanged: () => void;
 }) {
   const previousVersion = releases.find((r) => r.id === detail.previousReleaseId)?.version ?? null;
-  // Redis provisioning comes from the relay's observed infrastructure checks,
-  // never from the application's "requires Redis" analysis flag.
-  const redisStatus = redisProvisioningStatus(
-    detail.components?.['redis'],
-    readInfraChecks(detail.observedState),
-  );
 
   return (
     <>
       <div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{detail.applicationName}</h1>
           <DeploymentStatusBadge state={detail.state} />
           {showHealthBadge(detail.state, detail.currentReleaseId) ? (
@@ -202,6 +219,13 @@ function DetailBody({
           ) : null}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{detail.customerName}</p>
+        {detail.version ? (
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            v{detail.version} · {detail.region}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-sm text-muted-foreground">{detail.region}</p>
+        )}
       </div>
 
       <section aria-labelledby="actions" className="flex flex-col gap-3">
@@ -216,13 +240,17 @@ function DetailBody({
         />
       </section>
 
+      {detail.state === 'NOT_INSTALLED' ? <InstallLinkCard detail={detail} /> : null}
+
+      {/* Stacked sections rather than tabs: everything a vendor debugging a
+          deployment needs stays visible without an extra click, and the
+          committed E2E contract reads this page as one scroll. */}
       <section aria-labelledby="overview" className="flex flex-col gap-3">
         <h2 id="overview" className="text-base font-semibold">
           Overview
         </h2>
         <Card>
           <CardContent className="flex flex-col gap-3 py-4">
-            <MetaRow label="Application" value={detail.applicationName} />
             {detail.appUrl ? <AppUrlRow url={detail.appUrl} /> : null}
             <MetaRow label="AWS account" value={detail.awsAccountId ?? 'Not connected yet'} />
             <MetaRow label="Region" value={detail.region} />
@@ -239,9 +267,7 @@ function DetailBody({
         </Card>
       </section>
 
-      <DomainCard deploymentId={detail.id} />
-
-      {detail.state === 'NOT_INSTALLED' ? <InstallLinkCard detail={detail} /> : null}
+      <DomainSection detail={detail} />
 
       <section aria-labelledby="infrastructure" className="flex flex-col gap-3">
         <h2 id="infrastructure" className="text-base font-semibold">
@@ -264,7 +290,12 @@ function DetailBody({
               ).map(([key, label]) => (
                 <InfraRow key={key} label={label} status={detail.components![key]!} />
               ))}
-              <RedisRow status={redisStatus} />
+              <RedisRow
+                status={redisProvisioningStatus(
+                  detail.components?.['redis'],
+                  readInfraChecks(detail.observedState),
+                )}
+              />
               <RelayRow status={detail.relayStatus} />
             </ul>
             {detail.components === null ? (
@@ -282,6 +313,7 @@ function DetailBody({
                 : 'This deployment has been removed.'}
           </p>
         )}
+        <AwsDetails detail={detail} />
       </section>
 
       <section aria-labelledby="activity" className="flex flex-col gap-3">
@@ -297,7 +329,7 @@ function DetailBody({
 function InfraRow({ label, status }: { label: string; status: HealthStatus }) {
   return (
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-      <span className={`size-2 shrink-0 rounded-full ${HEALTH_DOT[status]}`} aria-hidden />
+      <span className={`size-2 shrink-0 rounded-full ${HEALTH_STATUS_DOT[status]}`} aria-hidden />
       <span className="text-sm font-medium">{label}</span>
       <span className="ml-auto text-sm text-muted-foreground">{HEALTH_STATUS_LABEL[status]}</span>
     </li>
@@ -314,13 +346,6 @@ function RelayRow({ status }: { status: RelayStatus }) {
   );
 }
 
-const REDIS_DOT: Record<RedisProvisioningStatus, string> = {
-  HEALTHY: 'bg-primary',
-  UNHEALTHY: 'bg-destructive',
-  NOT_PROVISIONED: 'bg-muted-foreground',
-  NOT_REPORTING: 'bg-muted-foreground',
-};
-
 function RedisRow({ status }: { status: RedisProvisioningStatus | null }) {
   if (status === null) return null;
   return (
@@ -329,6 +354,34 @@ function RedisRow({ status }: { status: RedisProvisioningStatus | null }) {
       <span className="text-sm font-medium">Redis</span>
       <span className="ml-auto text-sm text-muted-foreground">{REDIS_STATUS_LABEL[status]}</span>
     </li>
+  );
+}
+
+// §25 — implementation detail progressively disclosed under "AWS details".
+// Nothing here is required reading; the product-level rows above carry the
+// state that matters.
+function AwsDetails({ detail }: { detail: FleetDeploymentDetail }) {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">
+        AWS details
+        <ChevronDown
+          aria-hidden
+          className="size-4 transition-transform group-data-[state=open]:rotate-180"
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <Card className="mt-2">
+          <CardContent className="flex flex-col gap-2 py-4">
+            <MetaRow label="AWS account" value={detail.awsAccountId ?? 'Not connected yet'} />
+            <MetaRow label="Region" value={detail.region} />
+            {detail.infraVersion ? (
+              <MetaRow label="Infrastructure version" value={detail.infraVersion} />
+            ) : null}
+          </CardContent>
+        </Card>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -372,6 +425,14 @@ function DeploymentActions({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
+        {detail.appUrl ? (
+          <Button asChild size="sm" variant="outline">
+            <a href={detail.appUrl} target="_blank" rel="noreferrer">
+              Open app
+              <ExternalLink aria-hidden />
+            </a>
+          </Button>
+        ) : null}
         <Button
           size="sm"
           disabled={!canDeploy}
@@ -438,82 +499,92 @@ function DeploymentActions({
         <p className="text-sm text-muted-foreground">{NO_PREVIOUS_RELEASE_COPY}</p>
       ) : null}
 
-      {open === 'deploy' ? (
-        <DeployUpdatePanel
-          deploymentId={detail.id}
-          applicationName={detail.applicationName}
-          releases={releases}
-          currentReleaseId={detail.currentReleaseId}
-          onDone={() => {
-            setOpen(null);
-            onChanged();
-          }}
-          onCancel={() => setOpen(null)}
-        />
-      ) : null}
+      <DeployUpdateDialog
+        open={open === 'deploy'}
+        deploymentId={detail.id}
+        applicationName={detail.applicationName}
+        currentVersion={detail.version}
+        releases={releases}
+        currentReleaseId={detail.currentReleaseId}
+        onDone={() => {
+          setOpen(null);
+          onChanged();
+        }}
+        onCancel={() => setOpen(null)}
+      />
 
-      {open === 'rollback' && detail.previousReleaseId ? (
-        <RollbackPanel
-          deploymentId={detail.id}
-          previousReleaseId={detail.previousReleaseId}
-          previousVersion={previousVersion}
-          onDone={() => {
-            setOpen(null);
-            onChanged();
-          }}
-          onCancel={() => setOpen(null)}
-        />
-      ) : null}
+      <RollbackDialog
+        open={open === 'rollback' && hasPreviousRelease}
+        deploymentId={detail.id}
+        previousReleaseId={detail.previousReleaseId}
+        previousVersion={previousVersion}
+        currentVersion={detail.version}
+        onDone={() => {
+          setOpen(null);
+          onChanged();
+        }}
+        onCancel={() => setOpen(null)}
+      />
 
-      {open === 'restart' ? (
-        <RestartPanel
-          deploymentId={detail.id}
-          applicationName={detail.applicationName}
-          onDone={() => {
-            setOpen(null);
-            onChanged();
-          }}
-          onCancel={() => setOpen(null)}
-        />
-      ) : null}
+      <RestartDialog
+        open={open === 'restart'}
+        deploymentId={detail.id}
+        applicationName={detail.applicationName}
+        onDone={() => {
+          setOpen(null);
+          onChanged();
+        }}
+        onCancel={() => setOpen(null)}
+      />
 
-      {open === 'retryInstall' ? (
-        <RetryInstallPanel
-          deploymentId={detail.id}
-          applicationName={detail.applicationName}
-          onDone={() => {
-            setOpen(null);
-            onChanged();
-          }}
-          onCancel={() => setOpen(null)}
-        />
-      ) : null}
+      <RetryInstallDialog
+        open={open === 'retryInstall'}
+        deploymentId={detail.id}
+        applicationName={detail.applicationName}
+        onDone={() => {
+          setOpen(null);
+          onChanged();
+        }}
+        onCancel={() => setOpen(null)}
+      />
 
-      {open === 'disconnect' ? (
-        <DisconnectPanel
-          deploymentId={detail.id}
-          customerName={detail.customerName}
-          onDone={() => {
-            setOpen(null);
-            onChanged();
-          }}
-          onCancel={() => setOpen(null)}
-        />
-      ) : null}
+      <DisconnectDialog
+        open={open === 'disconnect'}
+        deploymentId={detail.id}
+        customerName={detail.customerName}
+        onDone={() => {
+          setOpen(null);
+          onChanged();
+        }}
+        onCancel={() => setOpen(null)}
+      />
     </div>
   );
 }
 
-function DeployUpdatePanel({
+function OperationError({ error }: { error: string | null }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="text-sm text-destructive">
+      {error}
+    </p>
+  );
+}
+
+function DeployUpdateDialog({
+  open,
   deploymentId,
   applicationName,
+  currentVersion,
   releases,
   currentReleaseId,
   onDone,
   onCancel,
 }: {
+  open: boolean;
   deploymentId: string;
   applicationName: string;
+  currentVersion: string | null;
   releases: Release[];
   currentReleaseId: string | null;
   onDone: () => void;
@@ -521,7 +592,6 @@ function DeployUpdatePanel({
 }) {
   const candidates = deployableReleases(releases, currentReleaseId);
   const [releaseId, setReleaseId] = useState(candidates[0]?.id ?? '');
-  const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selected = candidates.find((release) => release.id === releaseId);
@@ -532,6 +602,7 @@ function DeployUpdatePanel({
     setError(null);
     try {
       await deployRelease(deploymentId, releaseId);
+      toast.success('Update requested');
       onDone();
     } catch {
       setError("We couldn't start this update. Try again in a moment.");
@@ -540,71 +611,153 @@ function DeployUpdatePanel({
   }
 
   return (
-    <Card data-testid="deploy-update-panel">
-      <CardContent className="flex flex-col gap-3 py-4">
-        <p className="text-sm font-medium">Deploy an update</p>
+    <Dialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
+      <DialogContent data-testid="deploy-update-panel" className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Deploy update</DialogTitle>
+          <DialogDescription>
+            Pick the release to deploy to {applicationName}.
+          </DialogDescription>
+        </DialogHeader>
         {candidates.length === 0 ? (
           <p className="text-sm text-muted-foreground">{NO_DEPLOYABLE_RELEASES_COPY}</p>
-        ) : confirming && selected ? (
-          <>
-            {/* Contractual deploy confirmation — same inline-card pattern as
-                the rollback warning, no modal. */}
-            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
-              <p>
-                Deploy {selected.version} to {applicationName}? The application will restart
-                behind the load balancer.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button size="sm" disabled={pending} onClick={onConfirm}>
-                {pending ? 'Starting…' : 'Confirm Deploy'}
-              </Button>
-              <Button size="sm" variant="ghost" disabled={pending} onClick={() => setConfirming(false)}>
-                Cancel
-              </Button>
-              {error ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              ) : null}
-            </div>
-          </>
         ) : (
-          <>
-            <select
-              aria-label="Release to deploy"
-              className="h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none"
-              value={releaseId}
-              onChange={(event) => setReleaseId(event.target.value)}
-            >
-              {candidates.map((release) => (
-                <option key={release.id} value={release.id}>
-                  {release.version}
-                </option>
-              ))}
-            </select>
-            <div className="flex items-center gap-3">
-              <Button size="sm" disabled={!releaseId} onClick={() => setConfirming(true)}>
-                Deploy
-              </Button>
-              <Button size="sm" variant="ghost" onClick={onCancel}>
-                Cancel
-              </Button>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 rounded-lg border px-3 py-2.5 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Current</span>
+                <span className="font-medium">{currentVersion ? `v${currentVersion}` : '—'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">New</span>
+                <span className="font-medium">{selected ? `v${selected.version}` : '—'}</span>
+              </div>
             </div>
-          </>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="release-to-deploy">Release to deploy</Label>
+              <Select value={releaseId} onValueChange={setReleaseId}>
+                <SelectTrigger id="release-to-deploy" className="w-full">
+                  <SelectValue placeholder="Pick a release" />
+                </SelectTrigger>
+                <SelectContent>
+                  {candidates.map((release) => (
+                    <SelectItem key={release.id} value={release.id}>
+                      v{release.version}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Alert>
+              <AlertTriangle aria-hidden />
+              <AlertTitle>The application will restart behind the load balancer.</AlertTitle>
+              <AlertDescription>
+                Deployz updates the application while preserving existing persistent resources
+                according to current behavior.
+              </AlertDescription>
+            </Alert>
+            <OperationError error={error} />
+          </div>
         )}
-      </CardContent>
-    </Card>
+        <DialogFooter>
+          <Button variant="ghost" disabled={pending} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button disabled={!releaseId || pending} onClick={onConfirm}>
+            {pending ? 'Starting…' : 'Deploy update'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function RestartPanel({
+function RollbackDialog({
+  open,
+  deploymentId,
+  previousReleaseId,
+  previousVersion,
+  currentVersion,
+  onDone,
+  onCancel,
+}: {
+  open: boolean;
+  deploymentId: string;
+  previousReleaseId: string | null;
+  previousVersion: string | null;
+  currentVersion: string | null;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onConfirm(): Promise<void> {
+    if (!previousReleaseId) return;
+    setPending(true);
+    setError(null);
+    try {
+      await rollbackDeployment(deploymentId, previousReleaseId);
+      toast.success('Rollback requested');
+      onDone();
+    } catch {
+      setError("We couldn't start the rollback. Try again in a moment.");
+      setPending(false);
+    }
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
+      <AlertDialogContent data-testid="rollback-panel">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Rollback deployment?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The application returns to its previous release.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex flex-col gap-3 rounded-lg border px-3 py-2.5 text-sm">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Current version</span>
+            <span className="font-medium">{currentVersion ? `v${currentVersion}` : '—'}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Rollback to</span>
+            <span className="font-medium">
+              {previousVersion ? `v${previousVersion}` : 'the previous version'}
+            </span>
+          </div>
+        </div>
+        {/* §26 required copy — verbatim. */}
+        <Alert variant="destructive">
+          <AlertTriangle aria-hidden />
+          <AlertTitle>Application rollback does not automatically reverse database migrations.</AlertTitle>
+        </Alert>
+        <OperationError error={error} />
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={pending}
+            onClick={(event) => {
+              event.preventDefault();
+              void onConfirm();
+            }}
+          >
+            {pending ? 'Rolling back…' : 'Rollback'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function RestartDialog({
+  open,
   deploymentId,
   applicationName,
   onDone,
   onCancel,
 }: {
+  open: boolean;
   deploymentId: string;
   applicationName: string;
   onDone: () => void;
@@ -618,6 +771,7 @@ function RestartPanel({
     setError(null);
     try {
       await restartDeployment(deploymentId);
+      toast.success('Restart requested');
       onDone();
     } catch {
       setError("We couldn't restart this application. Try again in a moment.");
@@ -626,39 +780,41 @@ function RestartPanel({
   }
 
   return (
-    <Card data-testid="restart-panel">
-      <CardContent className="flex flex-col gap-3 py-4">
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
-          <p>
-            Restart {applicationName}? The application will restart behind the load balancer. The
-            running version does not change.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button size="sm" variant="outline" disabled={pending} onClick={onConfirm}>
-            {pending ? 'Restarting…' : 'Confirm Restart'}
-          </Button>
-          <Button size="sm" variant="ghost" disabled={pending} onClick={onCancel}>
-            Cancel
-          </Button>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
-        </div>
-      </CardContent>
-    </Card>
+    <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
+      <AlertDialogContent data-testid="restart-panel">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Restart {applicationName}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The application will restart behind the load balancer. The running version does not
+            change.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <OperationError error={error} />
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={pending}
+            onClick={(event) => {
+              event.preventDefault();
+              void onConfirm();
+            }}
+          >
+            {pending ? 'Restarting…' : 'Restart'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
-function RetryInstallPanel({
+function RetryInstallDialog({
+  open,
   deploymentId,
   applicationName,
   onDone,
   onCancel,
 }: {
+  open: boolean;
   deploymentId: string;
   applicationName: string;
   onDone: () => void;
@@ -672,6 +828,7 @@ function RetryInstallPanel({
     setError(null);
     try {
       await retryInstall(deploymentId);
+      toast.success('Retry requested');
       onDone();
     } catch {
       setError("We couldn't start the retry. Try again in a moment.");
@@ -680,97 +837,42 @@ function RetryInstallPanel({
   }
 
   return (
-    <Card data-testid="retry-install-panel">
-      <CardContent className="flex flex-col gap-3 py-4">
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
-          <p>
-            Retry installing {applicationName}? The failed infrastructure from the previous attempt
-            is removed from the customer&apos;s account first, then the install runs again. Nothing
-            from this deployment was ever in use, so no data is lost.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button size="sm" variant="outline" disabled={pending} onClick={onConfirm}>
-            {pending ? 'Starting…' : 'Confirm Retry'}
-          </Button>
-          <Button size="sm" variant="ghost" disabled={pending} onClick={onCancel}>
-            Cancel
-          </Button>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
-        </div>
-      </CardContent>
-    </Card>
+    <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
+      <AlertDialogContent data-testid="retry-install-panel">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Retry installing {applicationName}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The failed infrastructure from the previous attempt is removed from the
+            customer&apos;s account first, then the install runs again. Nothing from this
+            deployment was ever in use, so no data is lost.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <OperationError error={error} />
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={pending}
+            onClick={(event) => {
+              event.preventDefault();
+              void onConfirm();
+            }}
+          >
+            {pending ? 'Starting…' : 'Retry install'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
-function RollbackPanel({
-  deploymentId,
-  previousReleaseId,
-  previousVersion,
-  onDone,
-  onCancel,
-}: {
-  deploymentId: string;
-  previousReleaseId: string;
-  previousVersion: string | null;
-  onDone: () => void;
-  onCancel: () => void;
-}) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function onConfirm(): Promise<void> {
-    setPending(true);
-    setError(null);
-    try {
-      await rollbackDeployment(deploymentId, previousReleaseId);
-      onDone();
-    } catch {
-      setError("We couldn't start the rollback. Try again in a moment.");
-      setPending(false);
-    }
-  }
-
-  return (
-    <Card data-testid="rollback-panel">
-      <CardContent className="flex flex-col gap-3 py-4">
-        <p className="text-sm font-medium">
-          Roll back to {previousVersion ?? 'the previous version'}?
-        </p>
-        {/* §26 required copy — verbatim. */}
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
-          <p>Application rollback does not automatically reverse database migrations.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button size="sm" variant="outline" disabled={pending} onClick={onConfirm}>
-            {pending ? 'Rolling back…' : 'Confirm rollback'}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function DisconnectPanel({
+function DisconnectDialog({
+  open,
   deploymentId,
   customerName,
   onDone,
   onCancel,
 }: {
+  open: boolean;
   deploymentId: string;
   customerName: string;
   onDone: () => void;
@@ -787,6 +889,7 @@ function DisconnectPanel({
     setError(null);
     try {
       await destroyDeployment(deploymentId);
+      toast.success('Disconnect requested');
       onDone();
     } catch {
       setError("We couldn't disconnect this deployment. Try again in a moment.");
@@ -795,49 +898,53 @@ function DisconnectPanel({
   }
 
   return (
-    <Card data-testid="disconnect-panel" className="border-destructive/40">
-      <CardContent className="flex flex-col gap-3 py-4">
-        <p className="text-sm font-medium text-destructive">Disconnect {customerName}?</p>
-        <p className="text-sm text-muted-foreground">
-          Disconnecting removes the running application and its networking.
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Your database, stored files, and backups will be retained.
-        </p>
-        <p className="text-sm text-muted-foreground">
-          The Deployz connector remains installed.
-        </p>
-        <p className="text-sm text-muted-foreground">
-          This stops the $19/month charge for this deployment.
-        </p>
-        <label className="flex flex-col gap-1.5 text-sm">
-          Type <span className="font-medium">{customerName}</span> to confirm.
-          <input
-            className="h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none"
+    <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
+      <AlertDialogContent data-testid="disconnect-panel" className="max-w-lg">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-destructive">
+            Disconnect {customerName}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Disconnecting removes the running application and its networking.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+          <p>Your database, stored files, and backups will be retained.</p>
+          <p>The Deployz connector remains installed.</p>
+          <p>This stops the $19/month charge for this deployment.</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="disconnect-confirm">
+            Type <span className="font-medium text-foreground">{customerName}</span> to confirm.
+          </Label>
+          <Input
+            id="disconnect-confirm"
             value={confirmText}
             onChange={(event) => setConfirmText(event.target.value)}
             aria-label={`Type ${customerName} to confirm`}
+            autoComplete="off"
           />
-        </label>
-        <div className="flex items-center gap-3">
-          <Button size="sm" variant="destructive" disabled={!confirmed || pending} onClick={onConfirm}>
-            {pending ? 'Disconnecting…' : 'Disconnect Deployment'}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onCancel}>
-            Cancel
-          </Button>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
         </div>
-      </CardContent>
-    </Card>
+        <OperationError error={error} />
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={!confirmed || pending}
+            onClick={(event) => {
+              event.preventDefault();
+              void onConfirm();
+            }}
+          >
+            {pending ? 'Disconnecting…' : 'Disconnect Deployment'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
-function MetaRow({ label, value }: { label: string; value: string }) {
+function MetaRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between">
       <dt className="text-sm text-muted-foreground">{label}</dt>
@@ -861,8 +968,8 @@ function AppUrlRow({ url }: { url: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:items-center">
-      <dt className="text-sm text-muted-foreground">Application URL</dt>
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
+      <dt className="text-sm text-muted-foreground">URL</dt>
       <dd className="flex items-center gap-2">
         <a
           href={url}
@@ -888,7 +995,7 @@ function DetailSkeleton() {
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-4 w-40" />
       </div>
-      <Skeleton className="h-48 w-full rounded-xl" />
+      <Skeleton className="h-10 w-full rounded-xl" />
       <Skeleton className="h-48 w-full rounded-xl" />
     </div>
   );
@@ -970,80 +1077,11 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
   );
 }
 
-// §8.1 — domain management lives IN the dashboard, not on the public install
-// page. The vendor adds, checks and removes the domain here; the customer
-// only sees DNS instructions on their install page.
-function DomainCard({ deploymentId }: { deploymentId: string }) {
-  const [domain, setDomain] = useState<CustomDomainView | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [hostname, setHostname] = useState('');
-  const [pending, setPending] = useState<'add' | 'check' | 'remove' | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load(): Promise<void> {
-      try {
-        const { domain: fetched } = await fetchDomainAccess(deploymentId);
-        if (!cancelled) {
-          setDomain(fetched);
-          setLoaded(true);
-        }
-      } catch {
-        if (!cancelled) setLoaded(true);
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [deploymentId]);
-
-  async function onAdd(): Promise<void> {
-    if (!hostname.trim()) return;
-    setPending('add');
-    setError(null);
-    try {
-      const added = await addDomain(deploymentId, hostname.trim());
-      setDomain(added);
-      setHostname('');
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setPending(null);
-    }
-  }
-
-  async function onCheck(): Promise<void> {
-    setPending('check');
-    setError(null);
-    try {
-      setDomain(await checkDomain(deploymentId));
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setPending(null);
-    }
-  }
-
-  async function onRemove(): Promise<void> {
-    setPending('remove');
-    setError(null);
-    try {
-      const result = await removeDomain(deploymentId);
-      setDomain(result);
-      setConfirmRemove(false);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setPending(null);
-    }
-  }
-
-  if (!loaded) return null;
-
-  const errorCopy = domain !== null ? domainErrorCopy(domain.error) : null;
+// §8.1 — domain management lives IN the dashboard, but through the install
+// page's manage view: this section is the compact summary (hostname, status,
+// Manage link) — add/check/remove happen where the full card already lives.
+function DomainSection({ detail }: { detail: FleetDeploymentDetail }) {
+  const domain = detail.customDomain;
 
   return (
     <section aria-labelledby="custom-domain" className="flex flex-col gap-3">
@@ -1051,103 +1089,25 @@ function DomainCard({ deploymentId }: { deploymentId: string }) {
         Custom domain
       </h2>
       <Card>
-        <CardContent className="flex flex-col gap-3 py-4">
-          {domain === null ? (
+        <CardContent className="flex flex-wrap items-center gap-3 py-4">
+          {domain ? (
             <>
-              <p className="text-sm text-muted-foreground">
-                Give this deployment its own domain name.
-              </p>
-              <div className="flex items-center gap-3">
-                <input
-                  className="h-8 w-full max-w-xs rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none"
-                  placeholder="app.customer.com"
-                  value={hostname}
-                  onChange={(event) => setHostname(event.target.value)}
-                  aria-label="Domain name"
-                />
-                <Button size="sm" disabled={pending === 'add' || !hostname.trim()} onClick={onAdd}>
-                  {pending === 'add' ? 'Adding…' : 'Add domain'}
-                </Button>
-              </div>
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">
+                {domain.hostname}
+              </code>
+              <Badge variant={domain.status === 'error' ? 'destructive' : 'secondary'}>
+                {DOMAIN_STATUS_LABEL[domain.status]}
+              </Badge>
             </>
           ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-3">
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">
-                  {domain.hostname}
-                </code>
-                <span className="text-sm text-muted-foreground">
-                  {DOMAIN_STATUS_LABEL[domain.status]}
-                </span>
-                {domain.url ? (
-                  <a
-                    href={domain.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-primary hover:underline"
-                  >
-                    Open →
-                  </a>
-                ) : null}
-              </div>
-
-              {domain.status === 'waiting_for_dns' && domain.records.length > 0 ? (
-                <div className="flex flex-col gap-2 rounded-lg border px-3 py-2.5">
-                  <p className="text-sm font-medium">
-                    Add these DNS records at the domain&apos;s provider:
-                  </p>
-                  {domain.records.map((record) => (
-                    <div key={`${record.purpose}-${record.name}`} className="flex flex-col gap-0.5">
-                      <span className="text-xs text-muted-foreground">
-                        {record.purpose === 'verification' ? 'Verification' : 'Routing'} CNAME
-                      </span>
-                      <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                        {record.name} → {record.value}
-                      </code>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {errorCopy ? (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm">
-                  <p className="font-medium text-destructive">{errorCopy.title}</p>
-                  <p className="mt-0.5 text-muted-foreground">{errorCopy.body}</p>
-                </div>
-              ) : null}
-
-              <div className="flex items-center gap-3">
-                {domain.status !== 'removing' ? (
-                  <Button size="sm" variant="outline" disabled={pending !== null} onClick={onCheck}>
-                    {pending === 'check' ? 'Checking…' : 'Check again'}
-                  </Button>
-                ) : null}
-                {domain.status !== 'removing' ? (
-                  confirmRemove ? (
-                    <>
-                      <Button size="sm" variant="destructive" disabled={pending !== null} onClick={onRemove}>
-                        {pending === 'remove' ? 'Removing…' : 'Confirm remove'}
-                      </Button>
-                      <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => setConfirmRemove(false)}>
-                        Cancel
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => setConfirmRemove(true)}>
-                      Remove domain
-                    </Button>
-                  )
-                ) : (
-                  <p className="text-sm text-muted-foreground">Removing…</p>
-                )}
-              </div>
-            </>
+            <span className="text-sm text-muted-foreground">No custom domain.</span>
           )}
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
+          <Link
+            href={`/install/${detail.installLinkId}`}
+            className="ml-auto inline-flex items-center gap-1 rounded-md text-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            Manage →
+          </Link>
         </CardContent>
       </Card>
     </section>

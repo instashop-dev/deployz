@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { SidebarMenuButton } from '@/components/ui/sidebar';
 import { apiRequest, errorMessage } from '@/lib/api-client';
 import { ROLE_LABELS, type OrganizationSummary } from '@/lib/organization-vocabulary';
 import { cn } from '@/lib/utils';
@@ -21,9 +22,9 @@ interface OrgSwitcherProps {
   activeOrganizationId: string | null;
 }
 
-// Sidebar tenant switcher: lists every organization the user belongs to and
-// switches the active tenant through the API. The trigger's org-name span
-// keeps showing the active organization's name at all times — Playwright
+// Sidebar-header tenant switcher: lists every organization the user belongs
+// to and switches the active tenant through the API. The trigger's org-name
+// span keeps showing the active organization's name at all times — Playwright
 // asserts its text content — so the pending state is shown on the icon only.
 export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcherProps) {
   const router = useRouter();
@@ -49,21 +50,25 @@ export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcher
   }
 
   return (
-    <div className="flex flex-col gap-1 px-4">
+    <div className="flex flex-col gap-1">
       <DropdownMenu>
-        <DropdownMenuTrigger
-          data-testid="org-switcher-trigger"
-          disabled={pendingId !== null}
-          className="flex w-full items-center justify-between gap-1.5 rounded-md py-0.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-        >
-          <span data-testid="org-name" className="truncate text-xs text-muted-foreground">
-            {activeOrganization?.name ?? 'Select organization'}
-          </span>
-          {pendingId !== null ? (
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" aria-hidden />
-          ) : (
-            <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-          )}
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuButton
+            data-testid="org-switcher-trigger"
+            disabled={pendingId !== null}
+            size="sm"
+            className="w-full justify-between gap-2"
+            aria-label="Switch organization"
+          >
+            <span data-testid="org-name" className="truncate text-xs text-muted-foreground">
+              {activeOrganization?.name ?? 'Select organization'}
+            </span>
+            {pendingId !== null ? (
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+            ) : (
+              <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            )}
+          </SidebarMenuButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
           {organizations.map((org) => (
@@ -91,7 +96,7 @@ export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcher
         </DropdownMenuContent>
       </DropdownMenu>
       {error ? (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="px-2 text-xs text-destructive">
           {error}
         </p>
       ) : null}

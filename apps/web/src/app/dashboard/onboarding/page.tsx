@@ -19,7 +19,7 @@ export default async function OnboardingPage() {
   const complete = currentStep >= 6;
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Get your app ready</h1>
         <p className="mt-1 text-sm text-muted-foreground">

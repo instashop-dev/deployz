@@ -11,6 +11,13 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
   use: { baseURL: `http://localhost:${webPort}` },
+  expect: {
+    toHaveScreenshot: {
+      // Small tolerance for cross-platform font rasterization; content itself
+      // is fully mocked and deterministic (see e2e/visual.spec.ts).
+      maxDiffPixelRatio: 0.02,
+    },
+  },
   webServer: [
     {
       command: 'pnpm --filter @deployz/api dev',

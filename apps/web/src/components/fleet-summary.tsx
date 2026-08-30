@@ -1,9 +1,11 @@
+import { Card, CardContent } from '@/components/ui/card';
 import type { FleetSummary as FleetSummaryCounts } from '@/lib/home-state';
 import { cn } from '@/lib/utils';
 
-// The one-line fleet health summary above the homepage deployment list.
-// Deployment outcomes only — no vanity metrics, no charts. Counts that are
-// zero are left out so the row stays quiet when nothing needs saying.
+// The fleet health summary above the homepage deployment list, as a row of
+// compact cards. Deployment outcomes only — no vanity metrics, no charts.
+// Counts that are zero are left out so the row stays quiet when nothing
+// needs saying. Composed directly from Card — no metric-card abstraction.
 export function FleetSummary({ summary }: { summary: FleetSummaryCounts }) {
   const items: { label: string; value: number; tone?: 'attention' }[] = [
     { label: summary.total === 1 ? 'Customer' : 'Customers', value: summary.total },
@@ -16,20 +18,32 @@ export function FleetSummary({ summary }: { summary: FleetSummaryCounts }) {
   if (summary.waiting > 0) items.push({ label: 'Waiting to install', value: summary.waiting });
 
   return (
-    <dl
+    <div
       data-testid="fleet-summary"
-      className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm"
+      className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
     >
       {items.map((item) => (
-        <div key={item.label} className="flex items-baseline gap-1.5">
-          <dt className={cn('order-2 text-muted-foreground', item.tone === 'attention' && 'text-destructive')}>
-            {item.label}
-          </dt>
-          <dd className={cn('order-1 font-semibold tabular-nums', item.tone === 'attention' && 'text-destructive')}>
-            {item.value}
-          </dd>
-        </div>
+        <Card key={item.label} size="sm" className="gap-0">
+          <CardContent className="flex flex-col gap-1 py-4">
+            <p
+              className={cn(
+                'text-2xl font-semibold tabular-nums',
+                item.tone === 'attention' && 'text-destructive',
+              )}
+            >
+              {item.value}
+            </p>
+            <p
+              className={cn(
+                'text-sm text-muted-foreground',
+                item.tone === 'attention' && 'text-destructive',
+              )}
+            >
+              {item.label}
+            </p>
+          </CardContent>
+        </Card>
       ))}
-    </dl>
+    </div>
   );
 }

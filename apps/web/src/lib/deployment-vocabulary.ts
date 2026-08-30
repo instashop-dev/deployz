@@ -79,6 +79,18 @@ export const HEALTH_STATUS_BADGE: Record<HealthStatus, 'default' | 'secondary' |
 };
 
 /**
+ * Status dot color per measured-health value — the one place a raw palette
+ * color (amber for DEGRADED) is allowed, because "degraded" has no semantic
+ * theme token. Paired with the text label; never color alone.
+ */
+export const HEALTH_STATUS_DOT: Record<HealthStatus, string> = {
+  UNKNOWN: 'bg-muted-foreground',
+  HEALTHY: 'bg-primary',
+  DEGRADED: 'bg-amber-500',
+  UNHEALTHY: 'bg-destructive',
+};
+
+/**
  * Whether the deployment carries a running application whose health is worth
  * reporting. Not-installed/deleted deployments have nothing running to
  * measure. FAILED splits on whether an install ever completed: a failed
