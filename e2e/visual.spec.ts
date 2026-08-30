@@ -291,3 +291,19 @@ test.describe('dashboard visual regression', () => {
     });
   });
 });
+
+test.describe('auth visual regression', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test('sign in', async ({ page }) => {
+    await page.goto('/sign-in');
+    await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+    await expect(page).toHaveScreenshot('auth-sign-in.png');
+  });
+
+  test('sign up', async ({ page }) => {
+    await page.goto('/sign-up');
+    await expect(page.getByRole('heading', { name: 'Sign up' })).toBeVisible();
+    await expect(page).toHaveScreenshot('auth-sign-up.png');
+  });
+});
