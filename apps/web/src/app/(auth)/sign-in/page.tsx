@@ -1,5 +1,6 @@
 'use client';
 
+import { AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
@@ -59,9 +60,9 @@ function SignInForm() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="w-full max-w-sm shadow-sm">
       <CardHeader>
-        <h1 className="font-heading text-base leading-snug font-medium">Sign in</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Sign in</h1>
         <CardDescription>Access your Deployz dashboard.</CardDescription>
       </CardHeader>
       <CardContent>
@@ -80,11 +81,15 @@ function SignInForm() {
               required
             />
           </div>
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" className="w-full" disabled={pending}>
             {pending ? 'Signing in…' : 'Sign in'}
           </Button>
           {error ? (
-            <p role="alert" className="text-sm text-destructive">
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
               {error}
             </p>
           ) : null}
