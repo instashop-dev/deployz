@@ -105,7 +105,22 @@ describe('verifyInstallation', () => {
 
     expect(result.verified).toBe(true);
     expect(result.reason).toBeUndefined();
-    expect(result.checks.every((c) => c.passed)).toBe(true);
+    // Every REQUIRED check passes; the informational cache check reports the
+    // (absent) cache without failing anything.
+    expect(result.checks.filter((c) => c.required !== false).every((c) => c.passed)).toBe(true);
+  });
+
+  it('always reports the cache observation, informational when redis is not required', async () => {
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), COMPLETE_RESOURCES),
+      installationId: INSTALLATION,
+      redisRequired: false,
+    });
+
+    const cache = result.checks.find((c) => c.name === 'cache');
+    expect(cache).toMatchObject({ passed: false, required: false });
+    expect(cache?.detail).toContain('not provisioned');
+    expect(result.verified).toBe(true);
   });
 
   it('requires a cache only when redis is required', async () => {

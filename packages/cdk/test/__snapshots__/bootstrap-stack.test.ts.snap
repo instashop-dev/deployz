@@ -540,7 +540,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "rds:ModifyDBInstance",
                 "rds:DeleteDBInstance",
                 "rds:DescribeDBInstances",
-                "elasticloadbalancing:DescribeTargetHealth",
               ],
               "Condition": {
                 "StringEquals": {
@@ -599,6 +598,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth",
                 "elasticloadbalancing:DescribeListeners",
                 "elasticloadbalancing:DescribeListenerCertificates",
                 "elasticloadbalancing:DescribeTags",
@@ -1108,7 +1108,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "rds:ModifyDBInstance",
                 "rds:DeleteDBInstance",
                 "rds:DescribeDBInstances",
-                "elasticloadbalancing:DescribeTargetHealth",
               ],
               "Condition": {
                 "StringEquals": {
@@ -1167,6 +1166,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth",
                 "elasticloadbalancing:DescribeListeners",
                 "elasticloadbalancing:DescribeListenerCertificates",
                 "elasticloadbalancing:DescribeTags",

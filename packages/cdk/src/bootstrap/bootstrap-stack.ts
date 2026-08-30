@@ -149,7 +149,6 @@ const PHASE_2_APP_RESOURCE_ACTIONS = [
   'rds:ModifyDBInstance',
   'rds:DeleteDBInstance',
   'rds:DescribeDBInstances',
-  'elasticloadbalancing:DescribeTargetHealth',
 ] as const;
 
 /** Phase 2 — custom-domain certificate lifecycle (custom-domains MVP). */
@@ -170,6 +169,12 @@ const PHASE_2_ACM_MANAGE_ACTIONS = [
 const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
   'elasticloadbalancing:DescribeLoadBalancers',
   'elasticloadbalancing:DescribeTargetGroups',
+  // Same non-resource shape as the two lookups above: DescribeTargetHealth
+  // ignores resource-tag conditions entirely, so inside the tag-conditioned
+  // app-resource statement it was ALWAYS denied — the health report's
+  // loadBalancer component sat at "Health unknown" over a healthy target
+  // (verified live).
+  'elasticloadbalancing:DescribeTargetHealth',
   'elasticloadbalancing:DescribeListeners',
   'elasticloadbalancing:DescribeListenerCertificates',
   'elasticloadbalancing:DescribeTags',

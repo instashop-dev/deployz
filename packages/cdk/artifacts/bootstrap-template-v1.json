@@ -392,8 +392,7 @@
                 "ecs:DescribeServices",
                 "rds:ModifyDBInstance",
                 "rds:DeleteDBInstance",
-                "rds:DescribeDBInstances",
-                "elasticloadbalancing:DescribeTargetHealth"
+                "rds:DescribeDBInstances"
               ],
               "Condition": {
                 "StringEquals": {
@@ -452,6 +451,7 @@
               "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth",
                 "elasticloadbalancing:DescribeListeners",
                 "elasticloadbalancing:DescribeListenerCertificates",
                 "elasticloadbalancing:DescribeTags",
@@ -652,8 +652,7 @@
                 "ecs:DescribeServices",
                 "rds:ModifyDBInstance",
                 "rds:DeleteDBInstance",
-                "rds:DescribeDBInstances",
-                "elasticloadbalancing:DescribeTargetHealth"
+                "rds:DescribeDBInstances"
               ],
               "Condition": {
                 "StringEquals": {
@@ -712,6 +711,7 @@
               "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
+                "elasticloadbalancing:DescribeTargetHealth",
                 "elasticloadbalancing:DescribeListeners",
                 "elasticloadbalancing:DescribeListenerCertificates",
                 "elasticloadbalancing:DescribeTags",
@@ -1326,7 +1326,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "f251f90464da282ef8da13dd1e7f22ea8360b08dfbc5edfad5b015d46ac659f1.zip"
+          "S3Key": "b627814ea683130c71f503fd2602588c644462222445c25c34c55b9043b7b697.zip"
         },
         "Environment": {
           "Variables": {

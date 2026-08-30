@@ -77,6 +77,13 @@ export interface VerificationCheck {
   readonly name: string;
   readonly passed: boolean;
   readonly detail: string;
+  /**
+   * A failed informational check does not fail the verification. Used for
+   * the cache check on applications that do not require Redis: reporting
+   * its absence is what lets the dashboard say "Not provisioned" instead of
+   * "Not reporting", but absence is not an installation failure there.
+   */
+  readonly required?: boolean;
 }
 
 export interface VerificationResult {
@@ -190,11 +197,28 @@ async function runChecks(
     });
   }
 
+  // Cache is always OBSERVED even when not required: its absence is what
+  // distinguishes "Not provisioned" from "Not reporting" on the dashboard.
+  if (!options.redisRequired) {
+    const cachePresent = resources.some(
+      (resource) =>
+        resource.type === CACHE_RESOURCE.type && COMPLETE_STATUSES.has(resource.status),
+    );
+    checks.push({
+      name: CACHE_RESOURCE.name,
+      passed: cachePresent,
+      required: false,
+      detail: cachePresent
+        ? 'Found a cache cluster (not required by this application)'
+        : 'No cache cluster in the stack — not provisioned',
+    });
+  }
+
   return conclude(checks);
 }
 
 function conclude(checks: VerificationCheck[]): VerificationResult {
-  const firstFailure = checks.find((check) => !check.passed);
+  const firstFailure = checks.find((check) => !check.passed && check.required !== false);
   return firstFailure
     ? { verified: false, checks, reason: firstFailure.detail }
     : { verified: true, checks };
