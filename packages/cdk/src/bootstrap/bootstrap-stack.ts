@@ -810,7 +810,12 @@ export class BootstrapStack extends Stack {
       resources: ['arn:aws:iam::*:role/deployz/*', 'arn:aws:iam::*:role/deployz-app-*'],
       conditions: {
         StringEquals: {
-          'iam:PassedToService': 'ecs.amazonaws.com',
+          // Task/execution roles are passed to ecs-tasks.amazonaws.com (the
+          // roles' own trust principal); express-mode infrastructure roles
+          // to ecs.amazonaws.com. 'ecs.amazonaws.com' alone denied every
+          // RegisterTaskDefinition (verified live) — same pair the
+          // provisioner's PassRole already uses.
+          'iam:PassedToService': [...PROVISION_PASS_ROLE_SERVICES],
         },
       },
     });

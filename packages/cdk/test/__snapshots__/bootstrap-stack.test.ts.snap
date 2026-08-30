@@ -683,7 +683,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": "iam:PassRole",
               "Condition": {
                 "StringEquals": {
-                  "iam:PassedToService": "ecs.amazonaws.com",
+                  "iam:PassedToService": [
+                    "ecs-tasks.amazonaws.com",
+                    "ecs.amazonaws.com",
+                  ],
                 },
               },
               "Effect": "Allow",
@@ -1248,7 +1251,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": "iam:PassRole",
               "Condition": {
                 "StringEquals": {
-                  "iam:PassedToService": "ecs.amazonaws.com",
+                  "iam:PassedToService": [
+                    "ecs-tasks.amazonaws.com",
+                    "ecs.amazonaws.com",
+                  ],
                 },
               },
               "Effect": "Allow",
