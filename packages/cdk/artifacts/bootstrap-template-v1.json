@@ -514,7 +514,10 @@
               "Sid": "RelayDeployObserve"
             },
             {
-              "Action": "ecs:RegisterTaskDefinition",
+              "Action": [
+                "ecs:RegisterTaskDefinition",
+                "ecs:TagResource"
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:RequestTag/deployz:installation": {
@@ -765,7 +768,10 @@
               "Sid": "RelayDeployObserve"
             },
             {
-              "Action": "ecs:RegisterTaskDefinition",
+              "Action": [
+                "ecs:RegisterTaskDefinition",
+                "ecs:TagResource"
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:RequestTag/deployz:installation": {
@@ -1308,7 +1314,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "6fd00458a386e765962714702581a83bd0499cabd46803735502b17fc8757b5c.zip"
+          "S3Key": "f251f90464da282ef8da13dd1e7f22ea8360b08dfbc5edfad5b015d46ac659f1.zip"
         },
         "Environment": {
           "Variables": {

@@ -79,24 +79,34 @@ export const HEALTH_STATUS_BADGE: Record<HealthStatus, 'default' | 'secondary' |
 };
 
 /**
- * Whether a lifecycle state carries a running application whose health is
- * worth reporting. Not-installed/deleted/failed deployments have nothing
- * running to measure — a FAILED deployment showing "Health unknown" reads as
- * "running, we just don't know how" when it isn't running at all.
+ * Whether the deployment carries a running application whose health is worth
+ * reporting. Not-installed/deleted deployments have nothing running to
+ * measure. FAILED splits on whether an install ever completed: a failed
+ * FIRST install left nothing running ("Health unknown" would read as
+ * "running, we just don't know how"), while a failed day-2 operation on a
+ * previously installed deployment leaves the application serving — hiding
+ * its health there would be the opposite lie (observed live: a failed
+ * deploy-update flipped the page to "nothing running" while the app kept
+ * answering behind the ALB).
  */
-export function showHealthBadge(state: DeploymentState): boolean {
-  return state !== 'NOT_INSTALLED' && state !== 'DELETED' && state !== 'FAILED';
+export function showHealthBadge(
+  state: DeploymentState,
+  currentReleaseId: string | null = null,
+): boolean {
+  if (state === 'NOT_INSTALLED' || state === 'DELETED') return false;
+  if (state === 'FAILED') return everInstalled(state, currentReleaseId);
+  return true;
 }
 
 /**
- * Whether a lifecycle state has per-component infrastructure worth listing.
- * Same reasoning as `showHealthBadge`, applied to the Infrastructure rows: a
- * failed, not-yet-installed, or deleted deployment has nothing running, so
- * per-component rows (often still carrying a stale HEALTHY/UNKNOWN reading
- * from before the failure) would repeat the same lie at row level.
+ * Whether the deployment has per-component infrastructure worth listing.
+ * Same split as `showHealthBadge`, applied to the Infrastructure rows.
  */
-export function showInfrastructureRows(state: DeploymentState): boolean {
-  return state !== 'NOT_INSTALLED' && state !== 'DELETED' && state !== 'FAILED';
+export function showInfrastructureRows(
+  state: DeploymentState,
+  currentReleaseId: string | null = null,
+): boolean {
+  return showHealthBadge(state, currentReleaseId);
 }
 
 // ── Relay connectivity + capability gating ─────────────────────────────────
@@ -246,6 +256,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'destroy.completed': 'Deployment removed',
   'destroy.failed': 'Removal failed',
   'deployment.reconciled': 'Running version corrected from AWS',
+  'deployment.state_recovered': 'Running and healthy — failure cleared',
   'config.updated': 'Configuration updated',
   'health.reported': 'Health reported',
   'health.degraded': 'Health degraded',

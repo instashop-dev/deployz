@@ -195,7 +195,7 @@ function DetailBody({
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{detail.applicationName}</h1>
           <DeploymentStatusBadge state={detail.state} />
-          {showHealthBadge(detail.state) ? (
+          {showHealthBadge(detail.state, detail.currentReleaseId) ? (
             <Badge variant={HEALTH_STATUS_BADGE[detail.healthStatus]}>
               {HEALTH_STATUS_LABEL[detail.healthStatus]}
             </Badge>
@@ -258,7 +258,7 @@ function DetailBody({
           Redis is deliberately excluded here: its row comes from observed
           provisioning, not the component map (see RedisRow below).
         */}
-        {showInfrastructureRows(detail.state) ? (
+        {showInfrastructureRows(detail.state, detail.currentReleaseId) ? (
           <>
             <ul className="flex flex-col gap-2">
               {COMPONENT_LABELS.filter(

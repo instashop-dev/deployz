@@ -3081,6 +3081,15 @@ export async function buildServer({
     ];
     const rolloutNewlyFailed =
       nextRolloutState === 'FAILED' && previousRolloutState !== 'FAILED';
+    // Observed state wins over a stale FAILED: a failed day-2 operation
+    // marks the deployment FAILED, but the previously installed application
+    // keeps serving — a healthy heartbeat from it is the ground truth that
+    // the deployment is running. A failed FIRST install (no release ever
+    // deployed) has nothing running and stays FAILED until retried.
+    const stateRecovered =
+      nextHealth === 'HEALTHY' &&
+      deployment.state === 'FAILED' &&
+      deployment.currentReleaseId !== null;
 
     await db.transaction(async (tx) => {
       await tx
@@ -3089,6 +3098,7 @@ export async function buildServer({
           observedState,
           relayStatus: 'CONNECTED',
           lastHealthAt: new Date(),
+          ...(stateRecovered ? { state: 'HEALTHY' as const } : {}),
           ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
           ...(identity?.awsAccountId ? { awsAccountId: identity.awsAccountId } : {}),
           ...(typeof identity?.relayVersion === 'string' ? { relayVersion: identity.relayVersion } : {}),
@@ -3114,6 +3124,21 @@ export async function buildServer({
           requestedState: nextHealth,
           result: nextHealth === 'HEALTHY' ? 'success' : 'failure',
           payload: componentsParsed?.success ? { components: componentsParsed.data } : {},
+        });
+      }
+
+      if (stateRecovered) {
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'deployment.state_recovered',
+          actorType: 'relay',
+          actorId: deployment.installationId ?? deployment.id,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          previousState: 'FAILED',
+          requestedState: 'HEALTHY',
+          result: 'success',
+          payload: {},
         });
       }
 

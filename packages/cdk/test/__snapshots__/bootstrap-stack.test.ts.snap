@@ -661,7 +661,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Sid": "RelayDeployObserve",
             },
             {
-              "Action": "ecs:RegisterTaskDefinition",
+              "Action": [
+                "ecs:RegisterTaskDefinition",
+                "ecs:TagResource",
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:RequestTag/deployz:installation": {
@@ -1220,7 +1223,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Sid": "RelayDeployObserve",
             },
             {
-              "Action": "ecs:RegisterTaskDefinition",
+              "Action": [
+                "ecs:RegisterTaskDefinition",
+                "ecs:TagResource",
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:RequestTag/deployz:installation": {

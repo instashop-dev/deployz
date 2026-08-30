@@ -27,18 +27,22 @@ describe('measured health vocabulary', () => {
     }
   });
 
-  it('shows the health badge only for lifecycle states with a running app', () => {
+  it('shows the health badge only when something is actually running', () => {
     expect(showHealthBadge('HEALTHY')).toBe(true);
     expect(showHealthBadge('UPDATE_AVAILABLE')).toBe(true);
-    expect(showHealthBadge('FAILED')).toBe(false);
+    // A failed FIRST install left nothing running; a failed day-2 operation
+    // on a previously installed deployment leaves the app serving.
+    expect(showHealthBadge('FAILED', null)).toBe(false);
+    expect(showHealthBadge('FAILED', 'release-1')).toBe(true);
     expect(showHealthBadge('NOT_INSTALLED')).toBe(false);
     expect(showHealthBadge('DELETED')).toBe(false);
   });
 
-  it('shows infrastructure rows only for lifecycle states with a running app', () => {
+  it('shows infrastructure rows only when something is actually running', () => {
     expect(showInfrastructureRows('HEALTHY')).toBe(true);
     expect(showInfrastructureRows('UPDATE_AVAILABLE')).toBe(true);
-    expect(showInfrastructureRows('FAILED')).toBe(false);
+    expect(showInfrastructureRows('FAILED', null)).toBe(false);
+    expect(showInfrastructureRows('FAILED', 'release-1')).toBe(true);
     expect(showInfrastructureRows('NOT_INSTALLED')).toBe(false);
     expect(showInfrastructureRows('DELETED')).toBe(false);
   });

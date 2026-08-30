@@ -224,9 +224,12 @@ const PHASE_4_DEPLOY_OBSERVE_ACTIONS = [
 /**
  * Phase 4 — registering a task-definition copy names a resource that does
  * not exist yet, so (like stack create / cache create) it is scoped by the
- * REQUEST tag the relay stamps on every register.
+ * REQUEST tag the relay stamps on every register. ECS authorizes the tags
+ * on that register as a separate ecs:TagResource call (verified live: a
+ * deploy died on exactly that denial), satisfied by the same request-tag
+ * condition.
  */
-const PHASE_4_DEPLOY_CREATE_ACTIONS = ['ecs:RegisterTaskDefinition'] as const;
+const PHASE_4_DEPLOY_CREATE_ACTIONS = ['ecs:RegisterTaskDefinition', 'ecs:TagResource'] as const;
 
 // ── Application-stack provisioning (the CloudFormation execution role) ──────
 //

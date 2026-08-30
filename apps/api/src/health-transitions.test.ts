@@ -127,6 +127,75 @@ describe('health transition events', () => {
     await client?.close();
   });
 
+  it('recovers a FAILED-but-installed deployment to HEALTHY on a healthy heartbeat', async () => {
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version: 'v9.9.9',
+        gitSha: 'abc123',
+        imageDigest: 'acme/app@sha256:' + 'a'.repeat(64),
+        buildStatus: 'SUCCEEDED',
+        releaseStatus: 'READY',
+      })
+      .returning();
+    const token = 'tok-' + crypto.randomUUID();
+    const installationId = 'inst-' + crypto.randomUUID();
+    await db.insert(schema.deployments).values({
+      organizationId,
+      applicationId,
+      customerId,
+      region: 'us-east-1',
+      state: 'FAILED',
+      currentReleaseId: release!.id,
+      installationId,
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken(token),
+      relayStatus: 'CONNECTED',
+      healthStatus: 'HEALTHY',
+      observedState: {},
+    });
+
+    await heartbeat(installationId, token, 'HEALTHY');
+
+    const [row] = await db
+      .select({ state: schema.deployments.state })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installationId, installationId));
+    expect(row?.state).toBe('HEALTHY');
+    expect((await events(installationId)).map((e) => e.eventType)).toContain(
+      'deployment.state_recovered',
+    );
+  });
+
+  it('keeps a FAILED never-installed deployment FAILED on a healthy heartbeat', async () => {
+    const token = 'tok-' + crypto.randomUUID();
+    const installationId = 'inst-' + crypto.randomUUID();
+    await db.insert(schema.deployments).values({
+      organizationId,
+      applicationId,
+      customerId,
+      region: 'us-east-1',
+      state: 'FAILED',
+      installationId,
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken(token),
+      relayStatus: 'CONNECTED',
+      healthStatus: 'UNKNOWN',
+      observedState: {},
+    });
+
+    await heartbeat(installationId, token, 'HEALTHY');
+
+    const [row] = await db
+      .select({ state: schema.deployments.state })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installationId, installationId));
+    expect(row?.state).toBe('FAILED');
+  });
+
   it('records health.degraded on HEALTHY → DEGRADED', async () => {
     const seeded = await seedDeployment('HEALTHY');
     await heartbeat(seeded.installationId, seeded.token, 'DEGRADED');
