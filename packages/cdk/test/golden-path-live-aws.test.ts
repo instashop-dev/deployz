@@ -268,7 +268,7 @@ describe('synthRedisApplicationTemplate (fake path — no AWS)', () => {
       Outputs?: Record<string, unknown>;
     };
 
-    const cacheResources = Object.values(template.Resources).filter((r) => r.Type === 'AWS::ElastiCache::CacheCluster');
+    const cacheResources = Object.values(template.Resources).filter((r) => r.Type === 'AWS::ElastiCache::ReplicationGroup');
     expect(cacheResources).toHaveLength(1);
 
     const outputKeys = Object.keys(template.Outputs ?? {});

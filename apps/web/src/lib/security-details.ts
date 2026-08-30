@@ -124,6 +124,8 @@ export const PHASE_2_CACHE_ACTIONS = [
   'elasticache:DeleteCacheCluster',
   'elasticache:DescribeCacheClusters',
   'elasticache:ModifyCacheCluster',
+  'elasticache:DeleteReplicationGroup',
+  'elasticache:DescribeReplicationGroups',
   'elasticache:CreateCacheSubnetGroup',
   'elasticache:DeleteCacheSubnetGroup',
   'elasticache:DescribeCacheSubnetGroups',

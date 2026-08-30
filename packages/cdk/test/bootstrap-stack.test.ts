@@ -368,6 +368,8 @@ describe('BootstrapStack', () => {
     expect(actions).toContain('elasticache:DeleteCacheCluster');
     expect(actions).toContain('elasticache:DescribeCacheClusters');
     expect(actions).toContain('elasticache:ModifyCacheCluster');
+    expect(actions).toContain('elasticache:DeleteReplicationGroup');
+    expect(actions).toContain('elasticache:DescribeReplicationGroups');
     expect(actions).toContain('elasticache:CreateCacheSubnetGroup');
     expect(actions).toContain('elasticache:DeleteCacheSubnetGroup');
     expect(actions).toContain('elasticache:DescribeCacheSubnetGroups');
@@ -417,6 +419,7 @@ describe('BootstrapStack', () => {
       [
         'elasticache:DeleteCacheCluster',
         'elasticache:ModifyCacheCluster',
+        'elasticache:DeleteReplicationGroup',
         'elasticache:DeleteCacheSubnetGroup',
         'elasticache:ListTagsForResource',
       ].sort(),
@@ -432,7 +435,11 @@ describe('BootstrapStack', () => {
     const cacheDescribeStatement = findBySid('ProvisionerCacheDescribe');
     expect(cacheDescribeStatement).toBeDefined();
     expect(sortedActions(cacheDescribeStatement)).toEqual(
-      ['elasticache:DescribeCacheClusters', 'elasticache:DescribeCacheSubnetGroups'].sort(),
+      [
+        'elasticache:DescribeCacheClusters',
+        'elasticache:DescribeReplicationGroups',
+        'elasticache:DescribeCacheSubnetGroups',
+      ].sort(),
     );
     expect(cacheDescribeStatement?.['Condition']).toBeUndefined();
 
@@ -634,26 +641,29 @@ describe('BootstrapStack — application provisioning', () => {
       'secretsmanager:CreateSecret',
       'logs:CreateLogGroup',
       'iam:CreateRole',
-      'elasticache:CreateCacheCluster',
+      'elasticache:CreateReplicationGroup',
       'cloudwatch:PutMetricAlarm',
     ]) {
       expect(actions).toContain(action);
     }
   });
 
-  it('grants the execution role cache-cluster lifecycle actions condition-free', () => {
+  it('grants the execution role replication-group lifecycle actions condition-free', () => {
     const { template } = synth();
     const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
 
     // Live-proven multi-resource auth traps (see PROVISION_UNTAGGABLE_ACTIONS):
-    // CreateCacheCluster is also evaluated against the untagged default
-    // parameter group, and rollback's DeleteCacheCluster runs against a
-    // cluster that never received its tag-on-create. A tag condition on
-    // either wedges the stack — these must sit in the condition-free
-    // statement, and must no longer ride in the tagged create/manage buckets.
+    // CreateReplicationGroup is also evaluated against the untagged default
+    // parameter group, and rollback's DeleteReplicationGroup runs against a
+    // replication group that never received its tag-on-create. A tag
+    // condition on either wedges the stack — these must sit in the
+    // condition-free statement, and must no longer ride in the tagged
+    // create/manage buckets. DeleteCacheCluster rides along condition-free
+    // too, kept for stacks created before the ReplicationGroup switch.
     for (const action of [
-      'elasticache:CreateCacheCluster',
-      'elasticache:ModifyCacheCluster',
+      'elasticache:CreateReplicationGroup',
+      'elasticache:ModifyReplicationGroup',
+      'elasticache:DeleteReplicationGroup',
       'elasticache:DeleteCacheCluster',
     ]) {
       const granting = statements.filter((s) => collectActions([s]).includes(action));

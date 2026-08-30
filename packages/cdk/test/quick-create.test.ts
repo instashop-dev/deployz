@@ -715,7 +715,7 @@ describe('quick-create', () => {
         const resources = synth.template.Resources as Record<string, { Type: string }>;
         const types = Object.values(resources).map((r) => r.Type);
 
-        expect(types).not.toContain('AWS::ElastiCache::CacheCluster');
+        expect(types).not.toContain('AWS::ElastiCache::ReplicationGroup');
       } finally {
         rmSync(outdir, { recursive: true, force: true });
       }
@@ -733,7 +733,7 @@ describe('quick-create', () => {
         const resources = synth.template.Resources as Record<string, { Type: string }>;
         const types = Object.values(resources).map((r) => r.Type);
 
-        expect(types).toContain('AWS::ElastiCache::CacheCluster');
+        expect(types).toContain('AWS::ElastiCache::ReplicationGroup');
         expect(types).toContain('AWS::ElastiCache::SubnetGroup');
       } finally {
         rmSync(outdir, { recursive: true, force: true });

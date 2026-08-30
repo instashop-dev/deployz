@@ -93,7 +93,7 @@ function cacheFake(): CacheCleanupClient & { deleted: string[] } {
   const deleted: string[] = [];
   return {
     deleted,
-    async deleteCluster(id) {
+    async deleteReplicationGroup(id) {
       deleted.push(id);
     },
   };
@@ -107,7 +107,7 @@ const DB_ORPHAN: PhysicalStackResource = {
 };
 const CACHE_ORPHAN: PhysicalStackResource = {
   logicalId: 'Cache',
-  type: 'AWS::ElastiCache::CacheCluster',
+  type: 'AWS::ElastiCache::ReplicationGroup',
   status: 'CREATE_COMPLETE',
   physicalId: 'deployz-app-cache-4d5e6f',
 };

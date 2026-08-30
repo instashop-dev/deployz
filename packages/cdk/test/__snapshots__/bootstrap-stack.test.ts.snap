@@ -700,6 +700,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
+                "elasticache:DeleteReplicationGroup",
                 "elasticache:DeleteCacheSubnetGroup",
                 "elasticache:ListTagsForResource",
               ],
@@ -720,6 +721,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             {
               "Action": [
                 "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeReplicationGroups",
                 "elasticache:DescribeCacheSubnetGroups",
               ],
               "Effect": "Allow",
@@ -771,6 +773,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "logs:DescribeLogGroups",
                 "logs:ListTagsForResource",
                 "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeReplicationGroups",
                 "elasticache:DescribeCacheSubnetGroups",
                 "elasticache:ListTagsForResource",
                 "iam:GetRole",
@@ -815,8 +818,9 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "logs:PutRetentionPolicy",
                 "logs:DeleteLogGroup",
                 "ecs:DeregisterTaskDefinition",
-                "elasticache:CreateCacheCluster",
-                "elasticache:ModifyCacheCluster",
+                "elasticache:CreateReplicationGroup",
+                "elasticache:ModifyReplicationGroup",
+                "elasticache:DeleteReplicationGroup",
                 "elasticache:DeleteCacheCluster",
               ],
               "Effect": "Allow",
@@ -1267,6 +1271,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
+                "elasticache:DeleteReplicationGroup",
                 "elasticache:DeleteCacheSubnetGroup",
                 "elasticache:ListTagsForResource",
               ],
@@ -1287,6 +1292,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             {
               "Action": [
                 "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeReplicationGroups",
                 "elasticache:DescribeCacheSubnetGroups",
               ],
               "Effect": "Allow",

@@ -107,7 +107,7 @@ const REQUIRED_RESOURCES = [
 
 const CACHE_RESOURCE = {
   name: 'cache',
-  type: 'AWS::ElastiCache::CacheCluster',
+  type: 'AWS::ElastiCache::ReplicationGroup',
   label: 'cache',
 } as const;
 
