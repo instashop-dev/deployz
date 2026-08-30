@@ -258,6 +258,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'deployment.reconciled': 'Running version corrected from AWS',
   'deployment.state_recovered': 'Running and healthy — failure cleared',
   'config.updated': 'Configuration updated',
+  'config.failed': 'Configuration update failed',
   'health.reported': 'Health reported',
   'health.degraded': 'Health degraded',
   'health.unhealthy': 'Health critical',

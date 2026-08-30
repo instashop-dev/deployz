@@ -176,6 +176,11 @@ describe('createConfigUpdateExecutor', () => {
       name: 'LOG_LEVEL',
       value: 'debug',
     });
+    // The relay's register grant is request-tag scoped — an untagged
+    // register is AccessDenied (verified live).
+    expect((registered[0] as { tags?: unknown }).tags).toEqual([
+      { key: 'deployz:installation', value: 'inst-test' },
+    ]);
   });
 
   it('fails when the fetch itself errors', async () => {

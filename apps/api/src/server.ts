@@ -707,6 +707,9 @@ const JOB_RESULT_EVENT: Partial<
   ROLLBACK: { completed: 'rollback.completed', failed: 'rollback.failed' },
   RESTART: { completed: 'restart.completed', failed: 'restart.failed' },
   DESTROY: { completed: 'destroy.completed', failed: 'destroy.failed' },
+  // Without these, a CONFIG_UPDATE result vanished: the job row held the
+  // relay's error but nothing reached the activity feed (verified live).
+  CONFIG_UPDATE: { completed: 'config.updated', failed: 'config.failed' },
 };
 
 // Control-plane surface: /health, /api/me, /api/auth/*.

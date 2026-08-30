@@ -42,6 +42,7 @@ export type DeploymentEventType =
   // The watchdog failed a stuck mutating job (Phase 7).
   | 'operation.timeout'
   | 'config.updated'
+  | 'config.failed'
   | 'health.reported'
   | 'health.degraded'
   | 'health.unhealthy'

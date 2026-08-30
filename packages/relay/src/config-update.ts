@@ -139,6 +139,10 @@ async function settleConfigUpdate(deps: ConfigUpdateDeps): Promise<ConfigUpdateO
     taskRoleArn: taskDefinition.taskRoleArn,
     containerDefinitions: updatedContainers,
     ...(taskDefinition.volumes ? { volumes: taskDefinition.volumes } : {}),
+    // The relay's ecs:RegisterTaskDefinition grant is request-tag scoped —
+    // an untagged register is AccessDenied (verified live), same as the
+    // deploy executor's register.
+    tags: [{ key: 'deployz:installation', value: deps.installationId }],
   };
 
   const registered = await deps.ecs.registerTaskDefinition(nextDefinition);
