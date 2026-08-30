@@ -7,6 +7,9 @@ import type { NextConfig } from 'next';
 // lockfile higher up the tree as the workspace root.
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(fileURLToPath(new URL('.', import.meta.url)), '..', '..'),
+  // The dev-tools indicator badge renders bottom-left in dev mode and would
+  // sit inside every visual-regression screenshot.
+  devIndicators: false,
   // Emit .next/standalone: a self-contained server plus only the node_modules
   // it actually traced. This is what the container image ships, and it is why
   // the image does not need pnpm or the workspace at runtime.
