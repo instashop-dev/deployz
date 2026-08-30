@@ -104,6 +104,8 @@ export interface FleetDeploymentDetail extends FleetDeployment {
   jobs: DeploymentJob[];
   /** Compact custom-domain summary for the detail page, or null if none is attached. */
   customDomain: { hostname: string; status: CustomDomainStatus } | null;
+  /** The deployment's public application URL, or null if it has none yet. */
+  appUrl: string | null;
 }
 
 /** A single §40 activity-feed event. */

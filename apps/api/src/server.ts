@@ -111,6 +111,7 @@ import {
   removeCustomDomain,
   runDomainCheck,
   toDomainView,
+  type CustomDomainRow,
 } from './domains.js';
 import { deriveHealthStatus, deriveRelayStatus } from './relay-liveness.js';
 import {
@@ -285,6 +286,7 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 type DeploymentRow = typeof schema.deployments.$inferSelect;
 type CustomerRow = typeof schema.customers.$inferSelect;
 type JobType = (typeof schema.deploymentJobs.$inferSelect)['type'];
+type DeploymentJobRow = typeof schema.deploymentJobs.$inferSelect;
 
 async function loadOwnedApplication(
   db: RuntimeDb,
@@ -691,6 +693,37 @@ async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise
       ),
     );
   return installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
+}
+
+/** The hostname a completed INSTALL job's CDK output reports the ALB at. */
+function albEndpointFromResult(result: DeploymentJobRow['result']): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const output = (result as Record<string, unknown>).output;
+  if (!output || typeof output !== 'object') return null;
+  const outputs = (output as Record<string, unknown>).outputs;
+  if (!outputs || typeof outputs !== 'object') return null;
+  const endpoint = (outputs as Record<string, unknown>).ExportDeployzApplicationPublicEndpoint;
+  return typeof endpoint === 'string' && endpoint.length > 0 ? endpoint : null;
+}
+
+/**
+ * The deployment-detail page's first-class application URL. An active custom
+ * domain always wins; otherwise the latest successful INSTALL job's ALB
+ * endpoint; otherwise null. `jobs` must be ascending by createdAt.
+ */
+function resolveAppUrl(
+  jobs: DeploymentJobRow[],
+  domain: Pick<CustomDomainRow, 'hostname' | 'status'> | null,
+): string | null {
+  if (domain?.status === 'ACTIVE') {
+    return `https://${domain.hostname}`;
+  }
+  const installs = jobs.filter(
+    (j) => j.type === 'INSTALL' && (j.state === 'SUCCEEDED' || j.state === 'SUCCESS'),
+  );
+  const endpoint = albEndpointFromResult(installs[installs.length - 1]?.result ?? null);
+  if (!endpoint) return null;
+  return endpoint.startsWith('http://') || endpoint.startsWith('https://') ? endpoint : `http://${endpoint}`;
 }
 
 /**
@@ -1768,7 +1801,8 @@ export async function buildServer({
     // doesn't pick up an extra per-row domain query.
     const domain = await findActiveDomain(db, rows[0]!.deployment.id);
     const customDomain = domain ? { hostname: domain.hostname, status: domain.status.toLowerCase() } : null;
-    return { ...toFleetRow(rows[0]!), jobs, customDomain };
+    const appUrl = resolveAppUrl(jobs, domain);
+    return { ...toFleetRow(rows[0]!), jobs, customDomain, appUrl };
   });
 
   // ── Releases (§22) ──────────────────────────────────────────────────────
