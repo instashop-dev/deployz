@@ -1,13 +1,39 @@
 'use client';
 
+import { Eye, MoreHorizontal, Search, Stethoscope } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { fetchDeployments, type FleetDeployment } from '@/lib/deployments';
+import { DEPLOYMENT_STATES, deploymentStateLabel } from '@/lib/deployment-vocabulary';
+import { attentionReason } from '@/lib/home-state';
 
 type LoadState =
   | { status: 'loading' }
@@ -15,14 +41,39 @@ type LoadState =
   | { status: 'empty' }
   | { status: 'loaded'; deployments: FleetDeployment[] };
 
-// §23 the fleet dashboard — the vendor's primary recurring-value view.
-// Customer / Version / Region / Status, exactly as §23 specifies. §46
-// vocabulary only (no raw AWS/CFN/ECS terms); M14: deployment health only,
-// no app observability. Bulk deploy is not MVP scope, so the list carries no
-// selection controls.
+// Status filter values: the §46 states plus "attention", the homepage's
+// needs-attention classification, so both views speak about the same fleet
+// the same way.
+type StatusFilter = (typeof DEPLOYMENT_STATES)[number] | 'attention';
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'attention', label: 'Needs attention' },
+  ...DEPLOYMENT_STATES.filter((state) => state !== 'DELETED').map((state) => ({
+    value: state as StatusFilter,
+    label: deploymentStateLabel(state),
+  })),
+];
+
+function matchesStatus(deployment: FleetDeployment, filter: StatusFilter): boolean {
+  if (filter === 'attention') return attentionReason(deployment) !== null;
+  return deployment.state === filter;
+}
+
+// The fleet dashboard — the vendor's primary recurring-value view. Customer /
+// Application / Version / Region / Status with client-side search and filters
+// persisted in the URL (e.g. /dashboard/deployments?status=attention), all
+// derived from data the list already carries. §46 vocabulary only; bulk deploy
+// is not MVP scope, so the list carries no selection controls.
 export default function DeploymentsPage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const search = searchParams.get('q') ?? '';
+  const status = searchParams.get('status') ?? 'all';
+  const application = searchParams.get('application') ?? 'all';
+  const region = searchParams.get('region') ?? 'all';
 
   useEffect(() => {
     let cancelled = false;
@@ -50,8 +101,47 @@ export default function DeploymentsPage() {
     };
   }, [attempt]);
 
+  function setFilter(key: string, value: string): void {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === 'all' || value === '') params.delete(key);
+    else params.set(key, value);
+    const query = params.toString();
+    router.replace(query ? `/dashboard/deployments?${query}` : '/dashboard/deployments', {
+      scroll: false,
+    });
+  }
+
+  const deployments = state.status === 'loaded' ? state.deployments : [];
+
+  const applications = useMemo(
+    () => [...new Set(deployments.map((deployment) => deployment.applicationName))].sort(),
+    [deployments],
+  );
+  const regions = useMemo(
+    () => [...new Set(deployments.map((deployment) => deployment.region))].sort(),
+    [deployments],
+  );
+
+  const filtered = useMemo(() => {
+    if (state.status !== 'loaded') return [];
+    const needle = search.trim().toLowerCase();
+    return deployments.filter((deployment) => {
+      if (status !== 'all' && !matchesStatus(deployment, status as StatusFilter)) return false;
+      if (application !== 'all' && deployment.applicationName !== application) return false;
+      if (region !== 'all' && deployment.region !== region) return false;
+      if (needle !== '') {
+        const haystack =
+          `${deployment.customerName} ${deployment.applicationName} ${deployment.version ?? ''}`.toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      return true;
+    });
+  }, [state, deployments, search, status, application, region]);
+
+  const hasFilters = search !== '' || status !== 'all' || application !== 'all' || region !== 'all';
+
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
@@ -63,7 +153,7 @@ export default function DeploymentsPage() {
             would show the same button twice on one screen. */}
         {state.status === 'empty' ? null : (
           <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Create Customer Deployment</Link>
+            <Link href="/dashboard/deployments/new">Deploy customer</Link>
           </Button>
         )}
       </div>
@@ -73,7 +163,81 @@ export default function DeploymentsPage() {
         <ErrorState message={state.message} onRetry={() => setAttempt((n) => n + 1)} />
       ) : null}
       {state.status === 'empty' ? <EmptyState /> : null}
-      {state.status === 'loaded' ? <FleetTable deployments={state.deployments} /> : null}
+      {state.status === 'loaded' ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                value={search}
+                onChange={(event) => setFilter('q', event.target.value)}
+                placeholder="Search customers"
+                aria-label="Search deployments"
+                className="w-full pl-8 sm:w-56"
+              />
+            </div>
+            <Select value={status} onValueChange={(value) => setFilter('status', value)}>
+              <SelectTrigger aria-label="Filter by status" className="w-full sm:w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                {STATUS_FILTER_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {applications.length > 1 ? (
+              <Select
+                value={application}
+                onValueChange={(value) => setFilter('application', value)}
+              >
+                <SelectTrigger aria-label="Filter by application" className="w-full sm:w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All applications</SelectItem>
+                  {applications.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            {regions.length > 1 ? (
+              <Select value={region} onValueChange={(value) => setFilter('region', value)}>
+                <SelectTrigger aria-label="Filter by region" className="w-full sm:w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All regions</SelectItem>
+                  {regions.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+          </div>
+
+          {filtered.length === 0 ? (
+            hasFilters ? (
+              <p className="px-1 text-sm text-muted-foreground">
+                No deployments match these filters.
+              </p>
+            ) : null
+          ) : (
+            <FleetTable deployments={filtered} />
+          )}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -137,44 +301,87 @@ function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
   return (
     <Card>
       <CardContent className="overflow-x-auto p-0">
-        <table className="w-full text-sm" data-testid="deployment-list">
-          <thead>
-            <tr className="border-b text-left">
-              <th className="px-4 py-2.5 font-medium">Customer</th>
-              <th className="px-2 py-2.5 font-medium">Version</th>
-              <th className="px-2 py-2.5 font-medium">Region</th>
-              <th className="px-2 py-2.5 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table data-testid="deployment-list">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Customer</TableHead>
+              <TableHead>Application</TableHead>
+              <TableHead>Version</TableHead>
+              <TableHead>Region</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {deployments.map((deployment) => (
-              <tr key={deployment.id} className="border-b last:border-0 hover:bg-accent/50">
-                <td className="px-4 py-3">
+              <TableRow key={deployment.id}>
+                <TableCell>
                   <Link
                     href={`/dashboard/deployments/${deployment.id}`}
                     className="font-medium hover:underline"
                   >
                     {deployment.customerName}
                   </Link>
-                  <p className="text-xs text-muted-foreground">{deployment.applicationName}</p>
-                </td>
-                <td className="px-2 py-3 text-muted-foreground">
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {deployment.applicationName}
+                </TableCell>
+                <TableCell className="text-muted-foreground tabular-nums">
                   {deployment.version ?? '—'}
-                </td>
-                <td className="px-2 py-3 text-muted-foreground">{deployment.region}</td>
-                <td className="px-2 py-3">
+                </TableCell>
+                <TableCell className="text-muted-foreground">{deployment.region}</TableCell>
+                <TableCell>
                   <DeploymentStatusBadge state={deployment.state} />
                   {/* Relay connectivity is observed (last check-in), never
                       inferred from the lifecycle state above. */}
                   {deployment.relayStatus === 'DISCONNECTED' ? (
                     <p className="mt-0.5 text-xs text-destructive">Relay offline</p>
                   ) : null}
-                </td>
-              </tr>
+                </TableCell>
+                <TableCell className="w-10">
+                  <RowActions deploymentId={deployment.id} />
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
+  );
+}
+
+// Only actions whose availability is derivable from list data: navigation to
+// screens that already exist. Day-2 operations keep their gating on the
+// detail page — one place, one rule.
+function RowActions({ deploymentId }: { deploymentId: string }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Deployment actions"
+          className="ml-auto"
+        >
+          <MoreHorizontal aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem asChild>
+          <Link href={`/dashboard/deployments/${deploymentId}`}>
+            <Eye aria-hidden />
+            View deployment
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={`/dashboard/deployments/${deploymentId}/diagnostics`}>
+            <Stethoscope aria-hidden />
+            View diagnostics
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
