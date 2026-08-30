@@ -61,7 +61,7 @@ const TAGGABLE_TYPES = [
   'AWS::SecretsManager::Secret',
   'AWS::Logs::LogGroup',
   'AWS::IAM::Role',
-  'AWS::ElastiCache::CacheCluster',
+  'AWS::ElastiCache::ReplicationGroup',
   'AWS::ElastiCache::SubnetGroup',
 ] as const;
 
@@ -478,7 +478,7 @@ describe('ApplicationStack', () => {
   describe('ElastiCache Valkey cache (Redis MVP)', () => {
     it('provisions zero ElastiCache resources and no REDIS env vars when redisRequired is unset', () => {
       const { template } = synth();
-      template.resourceCountIs('AWS::ElastiCache::CacheCluster', 0);
+      template.resourceCountIs('AWS::ElastiCache::ReplicationGroup', 0);
       template.resourceCountIs('AWS::ElastiCache::SubnetGroup', 0);
       const json = JSON.stringify(template.toJSON());
       expect(json).not.toContain('REDIS_URL');
@@ -488,20 +488,23 @@ describe('ApplicationStack', () => {
 
     it('provisions a single-node Valkey cache over the private subnets when redisRequired is true', () => {
       const { template } = synth(false, { redisRequired: true });
-      template.resourceCountIs('AWS::ElastiCache::CacheCluster', 1);
-      template.hasResourceProperties('AWS::ElastiCache::CacheCluster', {
+      template.resourceCountIs('AWS::ElastiCache::ReplicationGroup', 1);
+      template.hasResourceProperties('AWS::ElastiCache::ReplicationGroup', {
         Engine: 'valkey',
         CacheNodeType: 'cache.t4g.micro',
-        NumCacheNodes: 1,
+        NumCacheClusters: 1,
+        AutomaticFailoverEnabled: false,
+        MultiAZEnabled: false,
         Port: 6379,
       });
       template.resourceCountIs('AWS::ElastiCache::SubnetGroup', 1);
-      // No hardcoded ClusterName — CFN logical-ID naming keeps it deterministic
-      // per stack without hitting ElastiCache's name-length limits.
-      const [cacheCluster] = Object.values(
-        template.findResources('AWS::ElastiCache::CacheCluster'),
+      // No hardcoded ReplicationGroupId — CFN logical-ID naming keeps it
+      // deterministic per stack without hitting ElastiCache's name-length
+      // limits.
+      const [replicationGroup] = Object.values(
+        template.findResources('AWS::ElastiCache::ReplicationGroup'),
       ) as Array<{ Properties?: Record<string, unknown> }>;
-      expect(cacheCluster?.Properties?.['ClusterName']).toBeUndefined();
+      expect(replicationGroup?.Properties?.['ReplicationGroupId']).toBeUndefined();
     });
 
     it('opens ingress on tcp/6379 from the VPC CIDR block only — never 0.0.0.0/0 (same broad-VPC pattern as RDS)', () => {
@@ -628,7 +631,7 @@ describe('ApplicationStack', () => {
         vendorId: 'vendor-1',
         installationId: 'inst-1',
       });
-      for (const type of ['AWS::ElastiCache::CacheCluster', 'AWS::ElastiCache::SubnetGroup']) {
+      for (const type of ['AWS::ElastiCache::ReplicationGroup', 'AWS::ElastiCache::SubnetGroup']) {
         const resources = template.findResources(type) as Record<
           string,
           { Properties?: Record<string, unknown> }

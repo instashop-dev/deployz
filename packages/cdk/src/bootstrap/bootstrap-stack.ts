@@ -191,6 +191,8 @@ const PHASE_2_CACHE_ACTIONS = [
   'elasticache:DeleteCacheCluster',
   'elasticache:DescribeCacheClusters',
   'elasticache:ModifyCacheCluster',
+  'elasticache:DeleteReplicationGroup',
+  'elasticache:DescribeReplicationGroups',
   'elasticache:CreateCacheSubnetGroup',
   'elasticache:DeleteCacheSubnetGroup',
   'elasticache:DescribeCacheSubnetGroups',
@@ -266,7 +268,6 @@ const PROVISION_CREATE_ACTIONS = [
   'logs:CreateLogGroup',
   'logs:TagResource',
   'elasticache:CreateCacheSubnetGroup',
-  'elasticache:CreateCacheCluster',
   'elasticache:AddTagsToResource',
   'iam:CreateRole',
   'iam:TagRole',
@@ -324,8 +325,6 @@ const PROVISION_MANAGE_ACTIONS = [
   'secretsmanager:DeleteSecret',
   'secretsmanager:GetResourcePolicy',
   'secretsmanager:PutResourcePolicy',
-  'elasticache:ModifyCacheCluster',
-  'elasticache:DeleteCacheCluster',
   'elasticache:DeleteCacheSubnetGroup',
   'iam:PutRolePolicy',
   'iam:DeleteRolePolicy',
@@ -377,6 +376,7 @@ const PROVISION_READ_ACTIONS = [
   'logs:DescribeLogGroups',
   'logs:ListTagsForResource',
   'elasticache:DescribeCacheClusters',
+  'elasticache:DescribeReplicationGroups',
   'elasticache:DescribeCacheSubnetGroups',
   'elasticache:ListTagsForResource',
   'iam:GetRole',
@@ -432,6 +432,19 @@ const PROVISION_STORAGE_ACTIONS = [
  *   CloudFormation has already tagged.
  * - `ecs:DeregisterTaskDefinition` likewise: ECS task definitions carry
  *   tags, but the action does not evaluate them.
+ * - The `elasticache:*ReplicationGroup` lifecycle actions authorize against
+ *   MULTIPLE resource ARNs, not just the replication group. A live install
+ *   proved both directions: `CreateReplicationGroup` is also evaluated
+ *   against the DEFAULT parameter group (`arn:...:parametergroup:*`), which
+ *   carries no request tag and no resource tag, so neither tagged create
+ *   statement can ever match it — the create is denied and the whole stack
+ *   rolls back. The rollback then wedges on the second trap:
+ *   `DeleteReplicationGroup` against a replication group whose creation was
+ *   denied — it never received its tag-on-create, so the resource-tag manage
+ *   statement cannot match either, and the stack lands in ROLLBACK_FAILED.
+ *   `ModifyReplicationGroup` shares Create's auth shape (replication group +
+ *   parameter group), so it is moved with them rather than left to fail the
+ *   same way on the first cache-touching stack update.
  *
  * These are contained by the role's trust policy instead, which admits only
  * CloudFormation acting for this account.
@@ -441,6 +454,13 @@ const PROVISION_UNTAGGABLE_ACTIONS = [
   'logs:PutRetentionPolicy',
   'logs:DeleteLogGroup',
   'ecs:DeregisterTaskDefinition',
+  'elasticache:CreateReplicationGroup',
+  'elasticache:ModifyReplicationGroup',
+  'elasticache:DeleteReplicationGroup',
+  // Deleting a replication group also deletes its member cache clusters, and
+  // recovery/rollback paths may still meet legacy CacheCluster resources
+  // from stacks created before this fix.
+  'elasticache:DeleteCacheCluster',
 ] as const;
 
 /** The services the application stack needs service-linked roles for. */
@@ -710,7 +730,7 @@ export class BootstrapStack extends Stack {
     // asking the resource to already have the tag the call is meant to add.
     // Two things make this safe: (1) the primary tagging path is tags-on-
     // create — Task 7's ApplicationStack sets `Tags` directly on
-    // CfnCacheCluster/CfnSubnetGroup, so CloudFormation creates them already
+    // CfnReplicationGroup/CfnSubnetGroup, so CloudFormation creates them already
     // tagged via the Create* calls (which the RequestTag condition does
     // cover); (2) any subsequent AddTagsToResource — e.g. CloudFormation
     // re-applying the full tag set on a stack update — resends

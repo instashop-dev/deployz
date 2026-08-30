@@ -79,7 +79,7 @@ import {
   Secret as EcsSecret,
   type ICluster,
 } from 'aws-cdk-lib/aws-ecs';
-import { CfnCacheCluster, CfnSubnetGroup } from 'aws-cdk-lib/aws-elasticache';
+import { CfnReplicationGroup, CfnSubnetGroup } from 'aws-cdk-lib/aws-elasticache';
 import {
   ApplicationLoadBalancer,
   ApplicationProtocol,
@@ -375,7 +375,7 @@ export class ApplicationStack extends Stack {
   /** Background worker log group (defined when `workerCommand` is provided). */
   public readonly workerLogGroup?: LogGroup;
   /** ElastiCache Valkey cache (defined when `redisRequired` is true). */
-  public readonly cache?: CfnCacheCluster;
+  public readonly cache?: CfnReplicationGroup;
 
   constructor(scope: Construct, id: string, props: ApplicationStackProps = {}) {
     super(scope, id, props);
@@ -653,16 +653,32 @@ export class ApplicationStack extends Stack {
         'Allow the application to reach the ElastiCache Valkey cache',
       );
 
-      this.cache = new CfnCacheCluster(this, 'Cache', {
+      // CfnReplicationGroup, not CfnCacheCluster: ElastiCache's
+      // CreateCacheCluster API rejects the Valkey engine outright ("This API
+      // doesn't support Valkey engine. Please use CreateReplicationGroup API
+      // for Valkey cluster creation." — observed on a live install).
+      // numCacheClusters: 1 + automaticFailoverEnabled/multiAzEnabled: false
+      // keeps the same single-node, no-failover MVP profile.
+      this.cache = new CfnReplicationGroup(this, 'Cache', {
+        replicationGroupDescription:
+          'Deployz-managed single-node Valkey cache for the customer application',
         engine: REDIS_ENGINE,
         cacheNodeType: REDIS_NODE_TYPE,
-        numCacheNodes: 1,
+        numCacheClusters: 1,
+        automaticFailoverEnabled: false,
+        multiAzEnabled: false,
+        // MVP profile is no TLS (spec §13-18); the Valkey engine defaults
+        // TransitEncryptionEnabled to true and CloudFormation requires it be
+        // set explicitly for this engine, so this is spelled out rather than
+        // left to a default that would silently turn TLS on.
+        transitEncryptionEnabled: false,
         port: REDIS_PORT,
-        vpcSecurityGroupIds: [redisSecurityGroup.securityGroupId],
+        securityGroupIds: [redisSecurityGroup.securityGroupId],
         cacheSubnetGroupName: redisSubnetGroup.ref,
-        // No explicit clusterName — CFN logical-ID naming is deterministic
-        // per stack and avoids ElastiCache's cluster-name length limits
-        // (spec §14), matching the RDS instance's unnamed pattern above.
+        // No explicit replicationGroupId — CFN logical-ID naming is
+        // deterministic per stack and avoids ElastiCache's cluster-name
+        // length limits (spec §14), matching the RDS instance's unnamed
+        // pattern above.
       });
       this.cache.addResourceDependency(redisSubnetGroup);
     }
@@ -679,10 +695,10 @@ export class ApplicationStack extends Stack {
                 case 'url':
                   return [
                     binding.name,
-                    `redis://${cache.attrRedisEndpointAddress}:${REDIS_PORT}`,
+                    `redis://${cache.attrPrimaryEndPointAddress}:${REDIS_PORT}`,
                   ];
                 case 'host':
-                  return [binding.name, cache.attrRedisEndpointAddress];
+                  return [binding.name, cache.attrPrimaryEndPointAddress];
                 case 'port':
                   return [binding.name, String(REDIS_PORT)];
               }
@@ -1198,7 +1214,7 @@ const dbEnv =
       name: `${this.stackName}-PublicEndpoint`,
     });
     if (this.cache !== undefined) {
-      this.exportValue(this.cache.attrRedisEndpointAddress, {
+      this.exportValue(this.cache.attrPrimaryEndPointAddress, {
         name: `${this.stackName}-CacheEndpoint`,
       });
     }

@@ -136,7 +136,7 @@ describe('verifyInstallation', () => {
   it('passes with a cache when redis is required', async () => {
     const withCache: StackResource[] = [
       ...COMPLETE_RESOURCES,
-      { logicalId: 'Cache', type: 'AWS::ElastiCache::CacheCluster', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Cache', type: 'AWS::ElastiCache::ReplicationGroup', status: 'CREATE_COMPLETE' },
     ];
     const result = await verifyInstallation({
       cfn: reader(completeStack(), withCache),

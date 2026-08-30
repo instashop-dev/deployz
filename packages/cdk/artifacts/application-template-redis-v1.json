@@ -723,29 +723,33 @@
       }
     },
     "Cache": {
-      "Type": "AWS::ElastiCache::CacheCluster",
+      "Type": "AWS::ElastiCache::ReplicationGroup",
       "Properties": {
+        "AutomaticFailoverEnabled": false,
         "CacheNodeType": "cache.t4g.micro",
         "CacheSubnetGroupName": {
           "Ref": "RedisSubnetGroup"
         },
         "Engine": "valkey",
-        "NumCacheNodes": 1,
+        "MultiAZEnabled": false,
+        "NumCacheClusters": 1,
         "Port": 6379,
-        "Tags": [
-          {
-            "Key": "deployz:component",
-            "Value": "application"
-          }
-        ],
-        "VpcSecurityGroupIds": [
+        "ReplicationGroupDescription": "Deployz-managed single-node Valkey cache for the customer application",
+        "SecurityGroupIds": [
           {
             "Fn::GetAtt": [
               "RedisSecurityGroupB05951F6",
               "GroupId"
             ]
           }
-        ]
+        ],
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "application"
+          }
+        ],
+        "TransitEncryptionEnabled": false
       },
       "DependsOn": [
         "RedisSubnetGroup"
@@ -999,7 +1003,7 @@
                       {
                         "Fn::GetAtt": [
                           "Cache",
-                          "RedisEndpoint.Address"
+                          "PrimaryEndPoint.Address"
                         ]
                       },
                       ":6379"
@@ -1012,7 +1016,7 @@
                 "Value": {
                   "Fn::GetAtt": [
                     "Cache",
-                    "RedisEndpoint.Address"
+                    "PrimaryEndPoint.Address"
                   ]
                 }
               },
@@ -1547,7 +1551,7 @@
       "Value": {
         "Fn::GetAtt": [
           "Cache",
-          "RedisEndpoint.Address"
+          "PrimaryEndPoint.Address"
         ]
       },
       "Export": {

@@ -274,7 +274,7 @@ describe('classifyFailure — REDIS_PROVISIONING_FAILED (Redis MVP)', () => {
   it('cloudformation event referencing AWS::ElastiCache resourceType → REDIS_PROVISIONING_FAILED', () => {
     const event: StructuredEvent = {
       source: 'cloudformation',
-      context: { resourceType: 'AWS::ElastiCache::CacheCluster' },
+      context: { resourceType: 'AWS::ElastiCache::ReplicationGroup' },
       error: { code: 'CREATE_FAILED', message: 'Cache cluster creation failed' },
     };
     expect(classifyFailure(event)).toBe('REDIS_PROVISIONING_FAILED');
@@ -283,7 +283,7 @@ describe('classifyFailure — REDIS_PROVISIONING_FAILED (Redis MVP)', () => {
   it('cloudformation event whose message references AWS::ElastiCache → REDIS_PROVISIONING_FAILED', () => {
     const event: StructuredEvent = {
       source: 'cloudformation',
-      error: { message: 'Resource of type AWS::ElastiCache::CacheCluster failed to create' },
+      error: { message: 'Resource of type AWS::ElastiCache::ReplicationGroup failed to create' },
     };
     expect(classifyFailure(event)).toBe('REDIS_PROVISIONING_FAILED');
   });
@@ -300,7 +300,7 @@ describe('classifyFailure — REDIS_PROVISIONING_FAILED (Redis MVP)', () => {
   it('non-cloudformation source referencing ElastiCache is NOT redis-provisioning (falls through)', () => {
     const event: StructuredEvent = {
       source: 'ecs',
-      context: { resourceType: 'AWS::ElastiCache::CacheCluster' },
+      context: { resourceType: 'AWS::ElastiCache::ReplicationGroup' },
     };
     expect(classifyFailure(event)).toBe('UNKNOWN');
   });
@@ -537,7 +537,7 @@ describe('classifyFailure — purity invariant (§20)', () => {
       // UNSUPPORTED_ARCHITECTURE
       { source: 'preflight', signal: 'unsupported-arch' },
       // REDIS_PROVISIONING_FAILED
-      { source: 'cloudformation', context: { resourceType: 'AWS::ElastiCache::CacheCluster' } },
+      { source: 'cloudformation', context: { resourceType: 'AWS::ElastiCache::ReplicationGroup' } },
       // REDIS_CONNECTION_FAILED
       { source: 'relay', context: { target: 'redis' }, error: { code: 'ECONNREFUSED' } },
       // UNKNOWN

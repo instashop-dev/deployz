@@ -553,6 +553,7 @@
               "Action": [
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
+                "elasticache:DeleteReplicationGroup",
                 "elasticache:DeleteCacheSubnetGroup",
                 "elasticache:ListTagsForResource"
               ],
@@ -573,6 +574,7 @@
             {
               "Action": [
                 "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeReplicationGroups",
                 "elasticache:DescribeCacheSubnetGroups"
               ],
               "Effect": "Allow",
@@ -813,6 +815,7 @@
               "Action": [
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
+                "elasticache:DeleteReplicationGroup",
                 "elasticache:DeleteCacheSubnetGroup",
                 "elasticache:ListTagsForResource"
               ],
@@ -833,6 +836,7 @@
             {
               "Action": [
                 "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeReplicationGroups",
                 "elasticache:DescribeCacheSubnetGroups"
               ],
               "Effect": "Allow",
@@ -1042,7 +1046,6 @@
                 "logs:CreateLogGroup",
                 "logs:TagResource",
                 "elasticache:CreateCacheSubnetGroup",
-                "elasticache:CreateCacheCluster",
                 "elasticache:AddTagsToResource",
                 "iam:CreateRole",
                 "iam:TagRole",
@@ -1089,7 +1092,6 @@
                 "logs:CreateLogGroup",
                 "logs:TagResource",
                 "elasticache:CreateCacheSubnetGroup",
-                "elasticache:CreateCacheCluster",
                 "elasticache:AddTagsToResource",
                 "iam:CreateRole",
                 "iam:TagRole",
@@ -1153,8 +1155,6 @@
                 "secretsmanager:DeleteSecret",
                 "secretsmanager:GetResourcePolicy",
                 "secretsmanager:PutResourcePolicy",
-                "elasticache:ModifyCacheCluster",
-                "elasticache:DeleteCacheCluster",
                 "elasticache:DeleteCacheSubnetGroup",
                 "iam:PutRolePolicy",
                 "iam:DeleteRolePolicy",
@@ -1229,6 +1229,7 @@
                 "logs:DescribeLogGroups",
                 "logs:ListTagsForResource",
                 "elasticache:DescribeCacheClusters",
+                "elasticache:DescribeReplicationGroups",
                 "elasticache:DescribeCacheSubnetGroups",
                 "elasticache:ListTagsForResource",
                 "iam:GetRole",
@@ -1272,7 +1273,11 @@
                 "secretsmanager:GetRandomPassword",
                 "logs:PutRetentionPolicy",
                 "logs:DeleteLogGroup",
-                "ecs:DeregisterTaskDefinition"
+                "ecs:DeregisterTaskDefinition",
+                "elasticache:CreateReplicationGroup",
+                "elasticache:ModifyReplicationGroup",
+                "elasticache:DeleteReplicationGroup",
+                "elasticache:DeleteCacheCluster"
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -1326,7 +1331,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "60da1a34b45d501564f37757ce4b6668810b8954f042ed983674a8ed752f032e.zip"
+          "S3Key": "26f56c044d92c1712f79523d82906a9ed08c21789bd31c656bf62eb2bf59ab60.zip"
         },
         "Environment": {
           "Variables": {

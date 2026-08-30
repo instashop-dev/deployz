@@ -29,7 +29,7 @@
  * Orphans are identified ONLY from the failed stack's own resource list —
  * never by name guessing — and only types whose deletion the relay's
  * tag-scoped IAM already grants (rds:ModifyDBInstance/DeleteDBInstance,
- * elasticache:DeleteCacheCluster). A retained S3 bucket is deliberately
+ * elasticache:DeleteReplicationGroup). A retained S3 bucket is deliberately
  * left alone: it blocks nothing (it is not a VPC resource), costs nothing
  * when empty, and deleting objects would need object-level S3 permissions
  * the relay does not carry.
@@ -45,7 +45,7 @@ import {
   DescribeStackResourcesCommand,
   DescribeStacksCommand,
 } from '@aws-sdk/client-cloudformation';
-import { DeleteCacheClusterCommand, ElastiCacheClient } from '@aws-sdk/client-elasticache';
+import { DeleteReplicationGroupCommand, ElastiCacheClient } from '@aws-sdk/client-elasticache';
 import {
   DeleteDBInstanceCommand,
   ModifyDBInstanceCommand,
@@ -104,7 +104,7 @@ export interface RdsCleanupClient {
 
 /** ElastiCache cleanup for an orphaned, never-successfully-installed cache. */
 export interface CacheCleanupClient {
-  deleteCluster(cacheClusterId: string): Promise<void>;
+  deleteReplicationGroup(replicationGroupId: string): Promise<void>;
 }
 
 /** Wait configuration; the budget must fit the relay Lambda's own timeout. */
@@ -122,7 +122,7 @@ const DEFAULT_MAX_ATTEMPTS = 24;
 /** Resource types whose retained instances block stack deletion or leak cost. */
 const ORPHAN_RESOURCE_TYPES: Readonly<Record<string, 'rds' | 'cache'>> = {
   'AWS::RDS::DBInstance': 'rds',
-  'AWS::ElastiCache::CacheCluster': 'cache',
+  'AWS::ElastiCache::ReplicationGroup': 'cache',
 };
 
 export type RecoveryPhase =
@@ -195,7 +195,7 @@ async function clearOrphans(
   // Orphans are identified ONLY from the stack's own resource list — never
   // by name guessing — and only types whose deletion the relay's
   // tag-scoped IAM already grants (rds:ModifyDBInstance/DeleteDBInstance,
-  // elasticache:DeleteCacheCluster).
+  // elasticache:DeleteReplicationGroup).
   const orphans = resources.filter(
     (r) => ORPHAN_RESOURCE_TYPES[r.type] !== undefined && r.physicalId.length > 0,
   );
@@ -215,7 +215,7 @@ async function clearOrphans(
         await rds!.disableDeletionProtection(physicalId);
         await rds!.deleteInstance(physicalId);
       } else {
-        await cache!.deleteCluster(physicalId);
+        await cache!.deleteReplicationGroup(physicalId);
       }
       deleted.push(physicalId);
     } catch (err) {
@@ -468,9 +468,9 @@ export function createRealRdsCleanupClient(): RdsCleanupClient {
 export function createRealCacheCleanupClient(): CacheCleanupClient {
   const client = new ElastiCacheClient({});
   return {
-    async deleteCluster(cacheClusterId: string): Promise<void> {
+    async deleteReplicationGroup(replicationGroupId: string): Promise<void> {
       await client.send(
-        new DeleteCacheClusterCommand({ CacheClusterId: cacheClusterId }),
+        new DeleteReplicationGroupCommand({ ReplicationGroupId: replicationGroupId }),
       );
     },
   };
