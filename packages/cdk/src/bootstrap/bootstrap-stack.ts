@@ -266,7 +266,6 @@ const PROVISION_CREATE_ACTIONS = [
   'logs:CreateLogGroup',
   'logs:TagResource',
   'elasticache:CreateCacheSubnetGroup',
-  'elasticache:CreateCacheCluster',
   'elasticache:AddTagsToResource',
   'iam:CreateRole',
   'iam:TagRole',
@@ -324,8 +323,6 @@ const PROVISION_MANAGE_ACTIONS = [
   'secretsmanager:DeleteSecret',
   'secretsmanager:GetResourcePolicy',
   'secretsmanager:PutResourcePolicy',
-  'elasticache:ModifyCacheCluster',
-  'elasticache:DeleteCacheCluster',
   'elasticache:DeleteCacheSubnetGroup',
   'iam:PutRolePolicy',
   'iam:DeleteRolePolicy',
@@ -432,6 +429,18 @@ const PROVISION_STORAGE_ACTIONS = [
  *   CloudFormation has already tagged.
  * - `ecs:DeregisterTaskDefinition` likewise: ECS task definitions carry
  *   tags, but the action does not evaluate them.
+ * - The `elasticache:*CacheCluster` lifecycle actions authorize against
+ *   MULTIPLE resource ARNs, not just the cluster. A live install proved both
+ *   directions: `CreateCacheCluster` is also evaluated against the DEFAULT
+ *   parameter group (`arn:...:parametergroup:*`), which carries no request
+ *   tag and no resource tag, so neither tagged create statement can ever
+ *   match it — the create is denied and the whole stack rolls back. The
+ *   rollback then wedges on the second trap: `DeleteCacheCluster` against a
+ *   cluster whose creation was denied — it never received its tag-on-create,
+ *   so the resource-tag manage statement cannot match either, and the stack
+ *   lands in ROLLBACK_FAILED. `ModifyCacheCluster` shares Create's auth
+ *   shape (cluster + parameter group), so it is moved with them rather than
+ *   left to fail the same way on the first cache-touching stack update.
  *
  * These are contained by the role's trust policy instead, which admits only
  * CloudFormation acting for this account.
@@ -441,6 +450,9 @@ const PROVISION_UNTAGGABLE_ACTIONS = [
   'logs:PutRetentionPolicy',
   'logs:DeleteLogGroup',
   'ecs:DeregisterTaskDefinition',
+  'elasticache:CreateCacheCluster',
+  'elasticache:ModifyCacheCluster',
+  'elasticache:DeleteCacheCluster',
 ] as const;
 
 /** The services the application stack needs service-linked roles for. */

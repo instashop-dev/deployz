@@ -641,6 +641,27 @@ describe('BootstrapStack — application provisioning', () => {
     }
   });
 
+  it('grants the execution role cache-cluster lifecycle actions condition-free', () => {
+    const { template } = synth();
+    const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
+
+    // Live-proven multi-resource auth traps (see PROVISION_UNTAGGABLE_ACTIONS):
+    // CreateCacheCluster is also evaluated against the untagged default
+    // parameter group, and rollback's DeleteCacheCluster runs against a
+    // cluster that never received its tag-on-create. A tag condition on
+    // either wedges the stack — these must sit in the condition-free
+    // statement, and must no longer ride in the tagged create/manage buckets.
+    for (const action of [
+      'elasticache:CreateCacheCluster',
+      'elasticache:ModifyCacheCluster',
+      'elasticache:DeleteCacheCluster',
+    ]) {
+      const granting = statements.filter((s) => collectActions([s]).includes(action));
+      expect(granting).toHaveLength(1);
+      expect(granting[0]?.['Condition']).toBeUndefined();
+    }
+  });
+
   it('never grants the execution role a service wildcard', () => {
     const { template } = synth();
     const actions = inlinePolicyStatements(template, executionRole(template).logicalId).flatMap(
