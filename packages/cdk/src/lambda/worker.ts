@@ -240,6 +240,15 @@ async function configUpdate(
     .from(schema.deployments)
     .where(eq(schema.deployments.customerId, message.customerId));
 
+  console.log(
+    JSON.stringify({
+      event: 'worker:config-update-fanout',
+      messageId,
+      customerId: message.customerId,
+      deployments: deployments.length,
+    }),
+  );
+
   for (const deployment of deployments) {
     await createOrReuseJob(db, {
       deploymentId: deployment.id,
