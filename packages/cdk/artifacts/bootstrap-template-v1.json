@@ -540,7 +540,10 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Resource": [
+                "arn:aws:iam::*:role/deployz/*",
+                "arn:aws:iam::*:role/deployz-app-*"
+              ],
               "Sid": "RelayDeployPassRole"
             },
             {
@@ -794,7 +797,10 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Resource": [
+                "arn:aws:iam::*:role/deployz/*",
+                "arn:aws:iam::*:role/deployz-app-*"
+              ],
               "Sid": "RelayDeployPassRole"
             },
             {

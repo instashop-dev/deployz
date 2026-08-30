@@ -727,8 +727,13 @@ export class ApplicationStack extends Stack {
     });
 
     // ── IAM roles (shared by both modes) ──────────────────────────────────
+    // The /deployz/ path is a contract: the relay's deploy-time iam:PassRole
+    // grant is scoped to role/deployz/* (bootstrap-stack.ts), so ECS task
+    // roles outside that path make every DEPLOY_RELEASE die on PassRole —
+    // verified live before the path was added here.
     const taskExecutionRole = new Role(this, 'TaskExecutionRole', {
       assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com'),
+      path: '/deployz/',
       description:
         'Allows ECS to pull the application image, write task logs, and ' +
         'inject secrets from Secrets Manager at task start.',
@@ -744,6 +749,7 @@ export class ApplicationStack extends Stack {
 
     const taskRole = new Role(this, 'TaskRole', {
       assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com'),
+      path: '/deployz/',
       description: 'Runtime role for the customer application container.',
     });
     this.storageBucket.grantReadWrite(taskRole);

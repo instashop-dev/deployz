@@ -687,7 +687,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 },
               },
               "Effect": "Allow",
-              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Resource": [
+                "arn:aws:iam::*:role/deployz/*",
+                "arn:aws:iam::*:role/deployz-app-*",
+              ],
               "Sid": "RelayDeployPassRole",
             },
             {
@@ -1249,7 +1252,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 },
               },
               "Effect": "Allow",
-              "Resource": "arn:aws:iam::*:role/deployz/*",
+              "Resource": [
+                "arn:aws:iam::*:role/deployz/*",
+                "arn:aws:iam::*:role/deployz-app-*",
+              ],
               "Sid": "RelayDeployPassRole",
             },
             {

@@ -796,13 +796,18 @@ export class BootstrapStack extends Stack {
     });
 
     // Phase 4 — PassRole strictly to the application's own task/execution
-    // roles (role/deployz/*), only when handed to ECS. Deliberately NOT the
-    // wildcard-resource form the plan calls out.
+    // roles, only when handed to ECS. Deliberately NOT the wildcard-resource
+    // form the plan calls out. Two shapes: role/deployz/* is the contract
+    // (application-stack roles carry the /deployz/ path), and the
+    // deployz-app-* name prefix covers installs created before that path
+    // existed — their roles live at the default path, named after the fixed
+    // application stack name, and a deploy against them died on PassRole
+    // (verified live).
     const phase4DeployPassRole = new PolicyStatement({
       sid: 'RelayDeployPassRole',
       effect: Effect.ALLOW,
       actions: ['iam:PassRole'],
-      resources: ['arn:aws:iam::*:role/deployz/*'],
+      resources: ['arn:aws:iam::*:role/deployz/*', 'arn:aws:iam::*:role/deployz-app-*'],
       conditions: {
         StringEquals: {
           'iam:PassedToService': 'ecs.amazonaws.com',

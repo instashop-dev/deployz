@@ -788,6 +788,7 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             ],
           },
         ],
+        "Path": "/deployz/",
         "Tags": [
           {
             "Key": "deployz:component",
@@ -861,6 +862,7 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           "Version": "2012-10-17",
         },
         "Description": "Runtime role for the customer application container.",
+        "Path": "/deployz/",
         "Tags": [
           {
             "Key": "deployz:component",
