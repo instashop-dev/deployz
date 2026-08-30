@@ -14,7 +14,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc"
+            "Value": "DeployzApplication/Vpc"
           }
         ]
       }
@@ -47,7 +47,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PublicSubnet1"
+            "Value": "DeployzApplication/Vpc/PublicSubnet1"
           }
         ],
         "VpcId": {
@@ -65,7 +65,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PublicSubnet1"
+            "Value": "DeployzApplication/Vpc/PublicSubnet1"
           }
         ],
         "VpcId": {
@@ -110,7 +110,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PublicSubnet1"
+            "Value": "DeployzApplication/Vpc/PublicSubnet1"
           }
         ]
       }
@@ -134,7 +134,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PublicSubnet1"
+            "Value": "DeployzApplication/Vpc/PublicSubnet1"
           }
         ]
       },
@@ -171,7 +171,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PublicSubnet2"
+            "Value": "DeployzApplication/Vpc/PublicSubnet2"
           }
         ],
         "VpcId": {
@@ -189,7 +189,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PublicSubnet2"
+            "Value": "DeployzApplication/Vpc/PublicSubnet2"
           }
         ],
         "VpcId": {
@@ -251,7 +251,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PrivateSubnet1"
+            "Value": "DeployzApplication/Vpc/PrivateSubnet1"
           }
         ],
         "VpcId": {
@@ -269,7 +269,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PrivateSubnet1"
+            "Value": "DeployzApplication/Vpc/PrivateSubnet1"
           }
         ],
         "VpcId": {
@@ -328,7 +328,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PrivateSubnet2"
+            "Value": "DeployzApplication/Vpc/PrivateSubnet2"
           }
         ],
         "VpcId": {
@@ -346,7 +346,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc/PrivateSubnet2"
+            "Value": "DeployzApplication/Vpc/PrivateSubnet2"
           }
         ],
         "VpcId": {
@@ -387,7 +387,7 @@
           },
           {
             "Key": "Name",
-            "Value": "DeployzApplicationRedis/Vpc"
+            "Value": "DeployzApplication/Vpc"
           }
         ]
       }
@@ -1109,7 +1109,7 @@
             "Arn"
           ]
         },
-        "Family": "DeployzApplicationRedisTaskDefinitionDA296D54",
+        "Family": "DeployzApplicationTaskDefinition7E4A63B4",
         "Memory": "512",
         "NetworkMode": "awsvpc",
         "RequiresCompatibilities": [
@@ -1209,7 +1209,7 @@
     "ServiceSecurityGroupC96ED6A7": {
       "Type": "AWS::EC2::SecurityGroup",
       "Properties": {
-        "GroupDescription": "DeployzApplicationRedis/Service/SecurityGroup",
+        "GroupDescription": "DeployzApplication/Service/SecurityGroup",
         "SecurityGroupEgress": [
           {
             "CidrIp": "0.0.0.0/0",
@@ -1232,7 +1232,7 @@
         "TaskRole30FC0FBB"
       ]
     },
-    "ServiceSecurityGroupfromDeployzApplicationRedisLoadBalancerSecurityGroup91BE0D9630005386F123": {
+    "ServiceSecurityGroupfromDeployzApplicationLoadBalancerSecurityGroup2327DB2A3000AB5BC619": {
       "Type": "AWS::EC2::SecurityGroupIngress",
       "Properties": {
         "Description": "Load balancer to target",
@@ -1301,7 +1301,7 @@
     "LoadBalancerSecurityGroupA28D6DD7": {
       "Type": "AWS::EC2::SecurityGroup",
       "Properties": {
-        "GroupDescription": "Automatically created Security Group for ELB DeployzApplicationRedisLoadBalancer78D6DB9A",
+        "GroupDescription": "Automatically created Security Group for ELB DeployzApplicationLoadBalancer00A49028",
         "SecurityGroupIngress": [
           {
             "CidrIp": "0.0.0.0/0",
@@ -1329,7 +1329,7 @@
         }
       }
     },
-    "LoadBalancerSecurityGrouptoDeployzApplicationRedisServiceSecurityGroupF5B058BF3000802E1241": {
+    "LoadBalancerSecurityGrouptoDeployzApplicationServiceSecurityGroup5D7BD9013000C21C5EC6": {
       "Type": "AWS::EC2::SecurityGroupEgress",
       "Properties": {
         "Description": "Load balancer to target",
@@ -1501,7 +1501,7 @@
     }
   },
   "Outputs": {
-    "ExportDeployzApplicationRedisDbHost": {
+    "ExportDeployzApplicationDbHost": {
       "Value": {
         "Fn::GetAtt": [
           "DatabaseB269D8BB",
@@ -1509,34 +1509,34 @@
         ]
       },
       "Export": {
-        "Name": "DeployzApplicationRedis-DbHost"
+        "Name": "DeployzApplication-DbHost"
       }
     },
-    "ExportDeployzApplicationRedisDbSecretArn": {
+    "ExportDeployzApplicationDbSecretArn": {
       "Value": {
         "Ref": "DatabaseSecret86DBB7B3"
       },
       "Export": {
-        "Name": "DeployzApplicationRedis-DbSecretArn"
+        "Name": "DeployzApplication-DbSecretArn"
       }
     },
-    "ExportDeployzApplicationRedisStorageBucketName": {
+    "ExportDeployzApplicationStorageBucketName": {
       "Value": {
         "Ref": "AppStorage995579DA"
       },
       "Export": {
-        "Name": "DeployzApplicationRedis-StorageBucketName"
+        "Name": "DeployzApplication-StorageBucketName"
       }
     },
-    "ExportDeployzApplicationRedisClusterName": {
+    "ExportDeployzApplicationClusterName": {
       "Value": {
         "Ref": "ClusterEB0386A7"
       },
       "Export": {
-        "Name": "DeployzApplicationRedis-ClusterName"
+        "Name": "DeployzApplication-ClusterName"
       }
     },
-    "ExportDeployzApplicationRedisPublicEndpoint": {
+    "ExportDeployzApplicationPublicEndpoint": {
       "Value": {
         "Fn::GetAtt": [
           "LoadBalancerBE9EEC3A",
@@ -1544,10 +1544,10 @@
         ]
       },
       "Export": {
-        "Name": "DeployzApplicationRedis-PublicEndpoint"
+        "Name": "DeployzApplication-PublicEndpoint"
       }
     },
-    "ExportDeployzApplicationRedisCacheEndpoint": {
+    "ExportDeployzApplicationCacheEndpoint": {
       "Value": {
         "Fn::GetAtt": [
           "Cache",
@@ -1555,7 +1555,7 @@
         ]
       },
       "Export": {
-        "Name": "DeployzApplicationRedis-CacheEndpoint"
+        "Name": "DeployzApplication-CacheEndpoint"
       }
     }
   },

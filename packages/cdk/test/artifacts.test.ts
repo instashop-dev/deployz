@@ -54,7 +54,6 @@ describe('committed CFN artifacts match a fresh synth', () => {
   it('application-template-redis-v1.json matches synthesizeApplicationStack with redisRequired', async () => {
     const { template } = await synthesizeApplicationStack({
       outdir: mkdtempSync(join(tmpdir(), 'deployz-artifact-check-')),
-      stackId: 'DeployzApplicationRedis',
       redisRequired: true,
     });
 

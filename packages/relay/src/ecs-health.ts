@@ -45,7 +45,11 @@ export interface RuntimeHealth {
    * target-group reference must not be reported as "running, health
    * unknown".
    */
-  readonly components: { application?: RuntimeHealthStatus; loadBalancer?: RuntimeHealthStatus };
+  readonly components: {
+    application?: RuntimeHealthStatus;
+    loadBalancer?: RuntimeHealthStatus;
+    redis?: RuntimeHealthStatus;
+  };
   readonly desiredCount: number | null;
   readonly runningCount: number | null;
   readonly unhealthyTargetCount: number | null;
@@ -98,6 +102,7 @@ function allTargetsUnhealthy(o: HealthObservation): boolean {
 
 const SERVICE_TYPE = 'AWS::ECS::Service';
 const TARGET_GROUP_TYPE = 'AWS::ElasticLoadBalancingV2::TargetGroup';
+const CACHE_TYPE = 'AWS::ElastiCache::ReplicationGroup';
 
 /** Resource statuses whose physicalId actually backs live infrastructure. */
 const RESOURCE_COMPLETE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
@@ -174,10 +179,20 @@ export async function observeRuntimeHealth(
     unhealthyTargetCount,
     rolloutFailed,
   };
+  // The cache has no runtime probe (no ElastiCache describe call, by the
+  // same IAM-frugality that keeps this module to ECS + ELB reads), so its
+  // component reports what CloudFormation observed: a replication group in a
+  // complete state IS the cache the install verified. Absent or incomplete,
+  // the component is omitted per this module's rule — the dashboard then
+  // distinguishes "Not provisioned" from "Not reporting" via the observe
+  // hook's cache check, not this heartbeat.
+  const cacheProvisioned = completedPhysicalId(resources, CACHE_TYPE) !== null;
+
   const derived = deriveComponents(observation);
   const components: RuntimeHealth['components'] = {
     ...(serviceArn ? { application: derived.application } : {}),
     ...(targetGroupArn ? { loadBalancer: derived.loadBalancer } : {}),
+    ...(cacheProvisioned ? { redis: 'HEALTHY' as const } : {}),
   };
 
   return {

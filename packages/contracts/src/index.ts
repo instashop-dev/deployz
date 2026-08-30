@@ -170,6 +170,7 @@ export const healthComponentsSchema = z
     database: healthStatusSchema.optional(),
     storage: healthStatusSchema.optional(),
     loadBalancer: healthStatusSchema.optional(),
+    redis: healthStatusSchema.optional(),
   })
   .strict();
 export type HealthComponents = z.infer<typeof healthComponentsSchema>;
