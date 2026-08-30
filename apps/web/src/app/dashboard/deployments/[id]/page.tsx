@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
@@ -223,9 +223,7 @@ function DetailBody({
         <Card>
           <CardContent className="flex flex-col gap-3 py-4">
             <MetaRow label="Application" value={detail.applicationName} />
-            {detail.customDomain?.status === 'active' ? (
-              <MetaRow label="URL" value={`https://${detail.customDomain.hostname}`} />
-            ) : null}
+            {detail.appUrl ? <AppUrlRow url={detail.appUrl} /> : null}
             <MetaRow label="AWS account" value={detail.awsAccountId ?? 'Not connected yet'} />
             <MetaRow label="Region" value={detail.region} />
             <MetaRow label="Version" value={detail.version ?? 'Not deployed yet'} />
@@ -844,6 +842,41 @@ function MetaRow({ label, value }: { label: string; value: string }) {
     <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between">
       <dt className="text-sm text-muted-foreground">{label}</dt>
       <dd className="text-sm font-medium">{value}</dd>
+    </div>
+  );
+}
+
+function AppUrlRow({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can fail (permissions, insecure context); the link
+      // below still lets the user open or select the URL by hand.
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:items-center">
+      <dt className="text-sm text-muted-foreground">Application URL</dt>
+      <dd className="flex items-center gap-2">
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          {url}
+          <ExternalLink aria-hidden className="size-3.5" />
+        </a>
+        <Button type="button" size="sm" variant="outline" onClick={copy}>
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </dd>
     </div>
   );
 }

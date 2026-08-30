@@ -930,3 +930,186 @@ describe('GET /api/deployments/:id customDomain summary', () => {
     expect(response.json().customDomain).toEqual({ hostname, status: 'active' });
   });
 });
+
+// ── GET /api/deployments/:id — appUrl ────────────────────────────────────────
+//
+// An active custom domain always wins; otherwise the latest successful
+// INSTALL job's ALB endpoint (result.output.outputs.
+// ExportDeployzApplicationPublicEndpoint); otherwise null.
+
+describe('GET /api/deployments/:id appUrl', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db });
+    org = await signUpAndGetOrg(auth, db, 'app-url-owner@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  async function seedDeployment(): Promise<typeof schema.deployments.$inferSelect> {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    return insertDeployment(db, org.organizationId, application.id, customer.id);
+  }
+
+  async function seedInstallJob(
+    deploymentId: string,
+    overrides: Partial<typeof schema.deploymentJobs.$inferInsert> = {},
+  ): Promise<void> {
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deploymentId}:INSTALL:${crypto.randomUUID()}`,
+      finishedAt: new Date(),
+      ...overrides,
+    });
+  }
+
+  async function getAppUrl(deploymentId: string): Promise<unknown> {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deploymentId}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json().appUrl;
+  }
+
+  it('is null when there are no jobs at all', async () => {
+    const deployment = await seedDeployment();
+    expect(await getAppUrl(deployment.id)).toBeNull();
+  });
+
+  it('is the ALB endpoint (http) for a successful INSTALL', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        success: true,
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb-1.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    expect(await getAppUrl(deployment.id)).toBe('http://alb-1.us-east-1.elb.amazonaws.com');
+  });
+
+  it('picks the latest successful INSTALL when there are several', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb-old.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await seedInstallJob(deployment.id, {
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb-new.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    expect(await getAppUrl(deployment.id)).toBe('http://alb-new.us-east-1.elb.amazonaws.com');
+  });
+
+  it('ignores a failed INSTALL after a successful one and uses the older success', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb-good.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await seedInstallJob(deployment.id, {
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+      state: 'FAILED',
+      result: { success: false },
+    });
+    expect(await getAppUrl(deployment.id)).toBe('http://alb-good.us-east-1.elb.amazonaws.com');
+  });
+
+  it('is null when every INSTALL failed', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, { state: 'FAILED', result: { success: false } });
+    expect(await getAppUrl(deployment.id)).toBeNull();
+  });
+
+  it('is null for a successful INSTALL with no result', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id);
+    expect(await getAppUrl(deployment.id)).toBeNull();
+  });
+
+  it('is null for a successful INSTALL with a result missing output.outputs', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, { result: { success: true } });
+    expect(await getAppUrl(deployment.id)).toBeNull();
+  });
+
+  it('is null for a successful INSTALL whose outputs is not an object', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, { result: { output: { outputs: 'nope' } } });
+    expect(await getAppUrl(deployment.id)).toBeNull();
+  });
+
+  it('is null for a successful INSTALL with a non-string endpoint', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: { output: { outputs: { ExportDeployzApplicationPublicEndpoint: 42 } } },
+    });
+    expect(await getAppUrl(deployment.id)).toBeNull();
+  });
+
+  it('is null for a successful INSTALL with an empty endpoint', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: { output: { outputs: { ExportDeployzApplicationPublicEndpoint: '' } } },
+    });
+    expect(await getAppUrl(deployment.id)).toBeNull();
+  });
+
+  it('prefers an ACTIVE custom domain over a successful INSTALL endpoint', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    const hostname = `active-${crypto.randomUUID().slice(0, 8)}.customer.com`;
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname,
+      status: 'ACTIVE',
+      createdBy: org.userId,
+    });
+    expect(await getAppUrl(deployment.id)).toBe(`https://${hostname}`);
+  });
+
+  it('falls back to the INSTALL endpoint when the domain is not yet ACTIVE', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    const hostname = `pending-${crypto.randomUUID().slice(0, 8)}.customer.com`;
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname,
+      status: 'WAITING_FOR_DNS',
+      createdBy: org.userId,
+    });
+    expect(await getAppUrl(deployment.id)).toBe('http://alb.us-east-1.elb.amazonaws.com');
+  });
+});
