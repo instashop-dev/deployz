@@ -1,0 +1,293 @@
+import { expect, test, type Page } from '@playwright/test';
+
+// Visual regression for a small set of canonical dashboard pages
+// (docs/ui-system.md). Every screen renders from fully mocked API responses
+// with fixed ids, names and timestamps, so the only pixel input is the UI
+// itself. The sidebar's org name (derived from the signup email) is masked.
+// Regenerate with: pnpm exec playwright test e2e/visual.spec.ts --update-snapshots
+
+const API_URL = 'http://localhost:3001';
+
+// Fixed clock — every rendered date derives from these strings.
+const CREATED_AT = '2025-09-12T10:00:00Z';
+const UPDATED_AT = '2025-09-12T11:30:00Z';
+
+interface DeploymentFixture {
+  id: string;
+  customerId: string;
+  applicationId: string;
+  organizationId: string;
+  region: string;
+  state: string;
+  awsAccountId: string | null;
+  currentReleaseId: string | null;
+  previousReleaseId: string | null;
+  relayStatus: string;
+  healthStatus: string;
+  components: Record<string, string> | null;
+  installLinkId: string;
+  desiredState: Record<string, unknown>;
+  observedState: Record<string, unknown> | null;
+  infraVersion: string;
+  installationId: string;
+  isTestDeployment: boolean;
+  lastHealthAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+  customerName: string;
+  applicationName: string;
+  version: string | null;
+  [key: string]: unknown;
+}
+
+function deployment(overrides: Partial<DeploymentFixture>): DeploymentFixture {
+  return {
+    id: 'vis-dep-1',
+    customerId: 'vis-cust-1',
+    applicationId: 'vis-app-1',
+    organizationId: 'vis-org',
+    region: 'us-east-1',
+    state: 'HEALTHY',
+    awsAccountId: '123456789012',
+    currentReleaseId: 'vis-rel-2',
+    previousReleaseId: 'vis-rel-1',
+    relayStatus: 'CONNECTED',
+    healthStatus: 'HEALTHY',
+    components: { application: 'HEALTHY', database: 'HEALTHY', loadBalancer: 'HEALTHY' },
+    installLinkId: 'vis-install-link',
+    desiredState: {},
+    observedState: null,
+    infraVersion: 'v1',
+    installationId: 'vis-installation',
+    isTestDeployment: false,
+    lastHealthAt: '2025-09-12T11:29:30Z',
+    deletedAt: null,
+    createdAt: CREATED_AT,
+    updatedAt: UPDATED_AT,
+    createdBy: null,
+    updatedBy: null,
+    customerName: 'Acme',
+    applicationName: 'Documenso',
+    version: '1.14.2',
+    ...overrides,
+  };
+}
+
+const READY_APPLICATION = {
+  id: 'vis-app-1',
+  name: 'Documenso',
+  repoFullName: 'acme/documenso',
+  repoUrl: 'https://github.com/acme/documenso',
+  defaultBranch: 'main',
+  analysisStatus: 'COMPLETE',
+  compatibilityStatus: 'READY',
+  databaseRequired: true,
+  healthPath: '/health',
+  detectedMetadata: { hasDockerfile: true },
+  createdAt: CREATED_AT,
+  updatedAt: UPDATED_AT,
+};
+
+const CAPABILITIES = {
+  deployRelease: true,
+  rollback: true,
+  restart: true,
+  configUpdate: true,
+  destroy: true,
+};
+
+const EVENTS = [
+  {
+    occurredAt: CREATED_AT,
+    eventType: 'install.completed',
+    actorType: 'relay',
+    result: 'success',
+    previousState: 'INSTALLING',
+    requestedState: 'HEALTHY',
+    payload: {},
+  },
+  {
+    occurredAt: UPDATED_AT,
+    eventType: 'deploy.completed',
+    actorType: 'relay',
+    result: 'success',
+    previousState: 'UPDATING',
+    requestedState: 'HEALTHY',
+    payload: {},
+  },
+];
+
+const RELEASES = [
+  { id: 'vis-rel-2', version: '1.14.2', gitSha: '53ae8f100000000000000000000000deadbeef', createdAt: UPDATED_AT },
+  { id: 'vis-rel-1', version: '1.14.1', gitSha: '41bd7c200000000000000000000000deadbeef', createdAt: CREATED_AT },
+];
+
+async function signUp(page: Page): Promise<void> {
+  const email = `visual-${crypto.randomUUID().slice(0, 8)}@example.com`;
+  await page.goto('/sign-up');
+  await page.getByLabel('Name').fill('E2E User');
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Password').fill('super-secret-1');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.waitForURL('/dashboard');
+}
+
+async function mockFleet(page: Page, deployments: DeploymentFixture[]): Promise<void> {
+  await page.route(`${API_URL}/api/deployments`, (route) =>
+    route.fulfill({ json: { deployments } }),
+  );
+  await page.route(`${API_URL}/api/applications`, (route) =>
+    route.fulfill({
+      json: { applications: deployments.length === 0 ? [] : [READY_APPLICATION] },
+    }),
+  );
+}
+
+async function mockDetail(page: Page, detail: DeploymentFixture): Promise<void> {
+  await page.route(`${API_URL}/api/deployments/${detail.id}`, (route) =>
+    route.fulfill({
+      json: {
+        ...detail,
+        jobs: [],
+        customDomain: null,
+        appUrl: 'http://acme-alb.us-east-1.elb.amazonaws.com',
+        relayCapabilities: CAPABILITIES,
+      },
+    }),
+  );
+  await page.route(`${API_URL}/api/deployments/${detail.id}/events`, (route) =>
+    route.fulfill({ json: { events: EVENTS } }),
+  );
+  await page.route(`${API_URL}/api/applications/${detail.applicationId}/releases`, (route) =>
+    route.fulfill({ json: { releases: RELEASES } }),
+  );
+}
+
+test.describe('dashboard visual regression', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test('home — first-time setup', async ({ page }) => {
+    await signUp(page);
+    await mockFleet(page, []);
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Get your first customer deployed' })).toBeVisible();
+    await expect(page).toHaveScreenshot('home-setup.png', {
+      mask: [page.getByTestId('org-name')],
+    });
+  });
+
+  test('home — operational', async ({ page }) => {
+    await signUp(page);
+    await mockFleet(page, [
+      deployment({ id: 'vis-dep-1', customerName: 'Acme', state: 'HEALTHY' }),
+      deployment({
+        id: 'vis-dep-2',
+        customerId: 'vis-cust-2',
+        customerName: 'Globex',
+        state: 'HEALTHY',
+        region: 'eu-west-1',
+        version: '1.14.1',
+      }),
+      deployment({
+        id: 'vis-dep-3',
+        customerId: 'vis-cust-3',
+        customerName: 'Initech',
+        state: 'UPDATING',
+      }),
+    ]);
+    await page.goto('/dashboard');
+    await expect(page.getByTestId('home-deployment-list')).toBeVisible();
+    await expect(page).toHaveScreenshot('home-operational.png', {
+      mask: [page.getByTestId('org-name')],
+    });
+  });
+
+  test('home — needs attention', async ({ page }) => {
+    await signUp(page);
+    await mockFleet(page, [
+      deployment({ customerName: 'Acme', state: 'HEALTHY' }),
+      deployment({
+        id: 'vis-dep-2',
+        customerId: 'vis-cust-2',
+        customerName: 'Globex',
+        state: 'FAILED',
+        healthStatus: 'UNHEALTHY',
+        region: 'eu-west-1',
+        version: '1.14.1',
+      }),
+    ]);
+    await page.goto('/dashboard');
+    await expect(page.getByTestId('needs-attention')).toBeVisible();
+    await expect(page).toHaveScreenshot('home-attention.png', {
+      mask: [page.getByTestId('org-name')],
+    });
+  });
+
+  test('deployments list', async ({ page }) => {
+    await signUp(page);
+    await mockFleet(page, [
+      deployment({ customerName: 'Acme', state: 'HEALTHY' }),
+      deployment({
+        id: 'vis-dep-2',
+        customerId: 'vis-cust-2',
+        customerName: 'Globex',
+        state: 'FAILED',
+        healthStatus: 'UNHEALTHY',
+        relayStatus: 'DISCONNECTED',
+        region: 'eu-west-1',
+        version: '1.14.1',
+      }),
+      deployment({
+        id: 'vis-dep-3',
+        customerId: 'vis-cust-3',
+        customerName: 'Initech',
+        state: 'UPDATING',
+      }),
+    ]);
+    await page.goto('/dashboard/deployments');
+    await expect(page.getByTestId('deployment-list')).toBeVisible();
+    await expect(page).toHaveScreenshot('deployments-list.png', {
+      mask: [page.getByTestId('org-name')],
+    });
+  });
+
+  for (const [name, overrides] of [
+    ['healthy', { state: 'HEALTHY' } as const],
+    ['failed', { state: 'FAILED', healthStatus: 'UNHEALTHY' } as const],
+    ['updating', { state: 'UPDATING' } as const],
+  ] as const) {
+    test(`deployment detail — ${name}`, async ({ page }) => {
+      const detail = deployment(overrides);
+      await signUp(page);
+      await mockFleet(page, [detail]);
+      await mockDetail(page, detail);
+      await page.goto(`/dashboard/deployments/${detail.id}`);
+      await expect(page.getByRole('heading', { name: 'Documenso' })).toBeVisible();
+      await expect(page).toHaveScreenshot(`detail-${name}.png`, {
+        mask: [page.getByTestId('org-name')],
+      });
+    });
+  }
+
+  test('mobile home — operational', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await signUp(page);
+    await mockFleet(page, [
+      deployment({ customerName: 'Acme', state: 'HEALTHY' }),
+      deployment({
+        id: 'vis-dep-2',
+        customerId: 'vis-cust-2',
+        customerName: 'Globex',
+        state: 'UPDATING',
+      }),
+    ]);
+    await page.goto('/dashboard');
+    await expect(page.getByTestId('home-deployment-list')).toBeVisible();
+    await expect(page).toHaveScreenshot('home-operational-mobile.png', {
+      mask: [page.getByTestId('org-name')],
+    });
+  });
+});
