@@ -431,6 +431,7 @@ export async function runDomainCheck(
     organizationId: string;
     customerId: string;
     state: (typeof schema.deployments.$inferSelect)['state'];
+    currentReleaseId?: string | null;
   },
   domain: CustomDomainRow,
   deps: DomainCheckDeps,
@@ -451,7 +452,13 @@ export async function runDomainCheck(
   // "HTTPS not reachable" while the deployment page says FAILED/deleted.
   // REMOVING is exempt: that teardown is the deployment's own DESTROY flow
   // and must keep running while the deployment goes DELETING/DELETED.
-  if (DEPLOYMENT_NOT_RUNNING_STATES.has(deployment.state) && domain.status !== 'REMOVING') {
+  // FAILED splits the same way the rest of the product does: a failed
+  // day-2 operation leaves a previously installed app (currentReleaseId
+  // set) serving behind its ALB, so its domain keeps being checked.
+  const notRunning =
+    DEPLOYMENT_NOT_RUNNING_STATES.has(deployment.state) &&
+    !(deployment.state === 'FAILED' && (deployment.currentReleaseId ?? null) !== null);
+  if (notRunning && domain.status !== 'REMOVING') {
     if (domain.lastError !== 'DEPLOYMENT_NOT_RUNNING') {
       await db
         .update(schema.customDomains)

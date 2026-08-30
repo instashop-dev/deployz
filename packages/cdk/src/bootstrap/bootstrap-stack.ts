@@ -171,9 +171,8 @@ const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
   'elasticloadbalancing:DescribeTargetGroups',
   // Same non-resource shape as the two lookups above: DescribeTargetHealth
   // ignores resource-tag conditions entirely, so inside the tag-conditioned
-  // app-resource statement it was ALWAYS denied — the health report's
-  // loadBalancer component sat at "Health unknown" over a healthy target
-  // (verified live).
+  // app-resource statement it was ALWAYS denied and the load-balancer
+  // component reported Health unknown over a healthy target (verified live).
   'elasticloadbalancing:DescribeTargetHealth',
   'elasticloadbalancing:DescribeListeners',
   'elasticloadbalancing:DescribeListenerCertificates',
@@ -808,6 +807,13 @@ export class BootstrapStack extends Stack {
     // existed — their roles live at the default path, named after the fixed
     // application stack name, and a deploy against them died on PassRole
     // (verified live).
+    //
+    // Unlike the create/manage statements, this one is NOT scoped by the
+    // installation tag: iam:PassRole does not reliably honour resource-tag
+    // conditions (the same per-action trap DescribeTargetHealth fell into
+    // above), so the isolation here rests on the one-installation-per-region
+    // invariant — a second bootstrap stack cannot coexist (its CDK exports
+    // collide), so there is no sibling installation's role to reach.
     const phase4DeployPassRole = new PolicyStatement({
       sid: 'RelayDeployPassRole',
       effect: Effect.ALLOW,

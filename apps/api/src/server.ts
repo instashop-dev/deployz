@@ -482,7 +482,11 @@ async function retryAwareIdempotencyKey(
   ).filter(
     (job) => job.idempotencyKey === baseKey || job.idempotencyKey.startsWith(`${baseKey}:RETRY:`),
   );
-  const newest = attempts.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  const newest = attempts.sort(
+    (a, b) =>
+      b.createdAt.getTime() - a.createdAt.getTime() ||
+      b.idempotencyKey.localeCompare(a.idempotencyKey),
+  )[0];
   return newest?.state === 'FAILED' ? `${baseKey}:RETRY:${attempts.length}` : baseKey;
 }
 
@@ -655,25 +659,38 @@ async function requireDeployableState(db: RuntimeDb, deployment: DeploymentRow):
       `Deployment is ${deployment.state}, not deployable`,
     );
   }
-  if (deployment.state === 'FAILED') {
-    const installJobs = await db
-      .select({ state: schema.deploymentJobs.state })
-      .from(schema.deploymentJobs)
-      .where(
-        and(
-          eq(schema.deploymentJobs.deploymentId, deployment.id),
-          eq(schema.deploymentJobs.type, 'INSTALL'),
-        ),
-      );
-    const everInstalled = installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
-    if (!everInstalled) {
-      throw new ApiError(
-        409,
-        'DEPLOYMENT_NOT_DEPLOYABLE',
-        'This deployment never completed its first install; use Retry install instead.',
-      );
-    }
+  if (deployment.state === 'FAILED' && !(await hasSucceededInstall(db, deployment.id))) {
+    throw new ApiError(
+      409,
+      'DEPLOYMENT_NOT_DEPLOYABLE',
+      'This deployment never completed its first install; use Retry install instead.',
+    );
   }
+}
+
+/** Whether the deployment's most recent job is a DESTROY. */
+async function latestJobIsDestroy(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  const [latest] = await db
+    .select({ type: schema.deploymentJobs.type })
+    .from(schema.deploymentJobs)
+    .where(eq(schema.deploymentJobs.deploymentId, deploymentId))
+    .orderBy(desc(schema.deploymentJobs.createdAt))
+    .limit(1);
+  return latest?.type === 'DESTROY';
+}
+
+/** Whether any INSTALL job for this deployment ever finished successfully. */
+async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  const installJobs = await db
+    .select({ state: schema.deploymentJobs.state })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        eq(schema.deploymentJobs.type, 'INSTALL'),
+      ),
+    );
+  return installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
 }
 
 /**
@@ -2133,18 +2150,7 @@ export async function buildServer({
     // an empty artifact of a failed create, not customer data. Anything
     // that ever ran keeps the data-preserving destroy path (the relay
     // finishes the stack delete RETAINING what it cannot remove).
-    const installJobsForDestroy = await db
-      .select({ state: schema.deploymentJobs.state })
-      .from(schema.deploymentJobs)
-      .where(
-        and(
-          eq(schema.deploymentJobs.deploymentId, deployment.id),
-          eq(schema.deploymentJobs.type, 'INSTALL'),
-        ),
-      );
-    const neverInstalled = !installJobsForDestroy.some(
-      (j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS',
-    );
+    const neverInstalled = !(await hasSucceededInstall(db, deployment.id));
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DESTROY',
@@ -3145,10 +3151,14 @@ export async function buildServer({
     // keeps serving — a healthy heartbeat from it is the ground truth that
     // the deployment is running. A failed FIRST install (no release ever
     // deployed) has nothing running and stays FAILED until retried.
+    // ...but not when what failed was a DESTROY: the app still serving is
+    // exactly the problem then, and flipping back to HEALTHY would hide the
+    // stuck teardown the vendor explicitly asked for.
     const stateRecovered =
       nextHealth === 'HEALTHY' &&
       deployment.state === 'FAILED' &&
-      deployment.currentReleaseId !== null;
+      deployment.currentReleaseId !== null &&
+      !(await latestJobIsDestroy(db, deployment.id));
 
     await db.transaction(async (tx) => {
       await tx

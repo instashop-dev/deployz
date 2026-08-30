@@ -97,8 +97,15 @@ function createDeps(db: LambdaDb): WorkerDeps {
     async batchGetBuilds(ids) {
       if (ids.length === 0) return [];
       codeBuild ??= new CodeBuildClient({});
-      const response = await codeBuild.send(new BatchGetBuildsCommand({ ids }));
-      return (response.builds ?? []).flatMap((build) =>
+      // BatchGetBuilds caps at 100 ids per call.
+      const chunks: string[][] = [];
+      for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+      const builds = [];
+      for (const chunk of chunks) {
+        const response = await codeBuild.send(new BatchGetBuildsCommand({ ids: chunk }));
+        builds.push(...(response.builds ?? []));
+      }
+      return builds.flatMap((build) =>
         build.id !== undefined && build.buildStatus !== undefined
           ? [
               {
