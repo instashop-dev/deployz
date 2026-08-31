@@ -264,7 +264,8 @@ const CHECK_NAME_TO_COMPONENT: Record<string, string> = {
 };
 
 function failedCheckComponents(result: Record<string, unknown> | null | undefined): Set<string> {
-  const checks = (result as { checks?: { name?: string; passed?: boolean }[] } | null | undefined)?.checks ?? [];
+  const source = unwrapJobResult(result) ?? result;
+  const checks = (source as { checks?: { name?: string; passed?: boolean }[] } | null | undefined)?.checks ?? [];
   const out = new Set<string>();
   for (const check of checks) {
     if (check.passed === false && check.name) {
@@ -397,10 +398,23 @@ function latestFailedJob(jobs: DerivationJob[]): DerivationJob | undefined {
   );
 }
 
+/**
+ * The relay reports a settled job as `{ success, error, output }`, so its
+ * fields live under `output` on the wire (the same nesting
+ * albEndpointFromResult in server.ts unwraps); tests and older rows carry
+ * them at the top level. Accept both.
+ */
+function unwrapJobResult(result: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!result || typeof result !== 'object') return null;
+  const output = (result as { output?: unknown }).output;
+  return output && typeof output === 'object' ? (output as Record<string, unknown>) : result;
+}
+
 function extractStackStatus(result: Record<string, unknown> | null | undefined): string | null {
-  if (!result) return null;
-  const value = (result as { stackStatus?: unknown }).stackStatus;
-  return typeof value === 'string' ? value : null;
+  const nested = unwrapJobResult(result)?.stackStatus;
+  if (typeof nested === 'string') return nested;
+  const top = result?.stackStatus;
+  return typeof top === 'string' ? top : null;
 }
 
 function buildFailure(job: DerivationJob | undefined, entry: FailureEntry): DerivedFailure {

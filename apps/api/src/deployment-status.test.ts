@@ -353,6 +353,32 @@ describe('customer projection sanitization', () => {
     expect(vendor.aws.stackStatus).toBe('CREATE_FAILED');
     expect(vendor.failure?.message).toBeTruthy();
   });
+
+  it('reads stackStatus and checks from the real relay result nesting (result.output.*)', () => {
+    // A live relay reports `{ success, output: { stackStatus, checks, ... } }`
+    // (see POST /api/relay/commands/:id/result) — verified against a real
+    // us-west-2 install. Top-level fields are the fixture/legacy shape.
+    const derived = derive({
+      deployment: makeDeployment({ state: 'FAILED', relayStatus: 'CONNECTED', lastHealthAt: NOW }),
+      application: makeApplication({ databaseRequired: true }),
+      jobs: [
+        makeJob({
+          state: 'FAILED',
+          failureCode: 'DATABASE_CREATE_FAILED',
+          result: {
+            success: false,
+            output: {
+              stackStatus: 'ROLLBACK_COMPLETE',
+              checks: [{ name: 'database', passed: false }],
+            },
+          },
+        }),
+      ],
+    });
+    const vendor = toVendorDeploymentStatus(derived);
+    expect(vendor.aws.stackStatus).toBe('ROLLBACK_COMPLETE');
+    expect(derived.components.find((c) => c.key === 'database')?.status).toBe('FAILED');
+  });
 });
 
 describe('customer/vendor stage invariant', () => {
