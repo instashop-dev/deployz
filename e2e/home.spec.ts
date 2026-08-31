@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 // seeding real rows through the API with the browser's session cookie —
 // nothing here asserts against fabricated data.
 
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in rendered top-level copy.
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/;

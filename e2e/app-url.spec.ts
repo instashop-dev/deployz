@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 // the page renders as a link plus a copy button. Mirrors the
 // signUp/seed/relay conventions in diagnostics.spec.ts.
 
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 async function signUp(page: Page): Promise<void> {
   const email = `e2e-appurl-${crypto.randomUUID().slice(0, 8)}@example.com`;

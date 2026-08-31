@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
 // §46 vocabulary: the top-level copy uses the 9 product-language states,
 // never raw AWS/CFN/ECS/ALB terms (M14: deployment health only).
 
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in rendered top-level copy.
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/;
@@ -163,19 +163,22 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
   await expect(page.getByRole('heading', { name: applicationName })).toBeVisible();
   await expect(page.getByText(customerName, { exact: true }).first()).toBeVisible();
 
-  // §24 the five required actions.
+  // §24 the five required actions. Configuration is capability-gated (see
+  // `canConfig` in the detail page) — a deployment with no relay ever
+  // connected has no reported capabilities, so it renders as a disabled
+  // button rather than a link.
   await expect(page.getByRole('button', { name: 'Deploy Update' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Rollback' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'View Diagnostics' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Configuration' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Configuration' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Disconnect Deployment' })).toBeVisible();
 
   // §24 infrastructure. A deployment nobody has installed has no observed
   // health, so the honest render is the empty state — not four green rows all
   // showing the same column default, which is what this used to assert.
-  await expect(
-    page.getByText('No health reports yet — this deployment has not checked in.'),
-  ).toBeVisible();
+  // (showInfrastructureRows gates the whole section on the deployment having
+  // completed an install — see apps/web/src/lib/deployment-vocabulary.ts.)
+  await expect(page.getByText('This deployment has not been installed yet.')).toBeVisible();
   await expect(page.getByText('Deployz Relay', { exact: true })).toBeVisible();
   await expect(page.getByText('Database', { exact: true })).toHaveCount(0);
 });
@@ -201,7 +204,13 @@ test('infrastructure rows appear only for the components the relay reports', asy
   await expect(page.getByText('Application', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Database', { exact: true })).toBeVisible();
   await expect(page.getByText('Load Balancer', { exact: true })).toBeVisible();
-  await expect(page.getByText('Storage', { exact: true })).toHaveCount(0);
+  // Scoped to the Infrastructure rows list: the vendor deployment-progress
+  // card (Phase 4) legitimately shows a "Storage" row with "Not required"
+  // for every deployment regardless of the app's requirements, so an
+  // unscoped page-wide assertion would no longer hold.
+  await expect(
+    page.getByTestId('infrastructure-list').getByText('Storage', { exact: true }),
+  ).toHaveCount(0);
   await expect(page.getByText('Degraded', { exact: true })).toBeVisible();
 });
 
@@ -231,7 +240,28 @@ test('rollback confirmation shows the required §26 migration warning', async ({
 
 test('disconnect requires typing the customer name to confirm (§63)', async ({ page }) => {
   await signUp(page);
-  const { deploymentId, customerName } = await seedDeployment(page);
+  const { deploymentId, customerName, installationId, enrollmentCode } = await seedDeployment(page);
+
+  // Disconnect is capability-gated (see `canDisconnect`/`actionSupported` in
+  // the detail page) — a deployment with no relay ever connected reports no
+  // capabilities, so the button stays disabled with nothing to click. A real
+  // relay reports capabilities on registration; simulate that here.
+  const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
+    headers: { Authorization: `Bearer ${installationId}` },
+    data: {
+      installationId,
+      enrollmentCode,
+      capabilities: {
+        deployRelease: true,
+        rollback: true,
+        restart: true,
+        configUpdate: true,
+        destroy: true,
+        domainManagement: true,
+      },
+    },
+  });
+  expect(registerResponse.ok()).toBeTruthy();
 
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   await page.getByRole('button', { name: 'Disconnect Deployment' }).click();
@@ -243,7 +273,11 @@ test('disconnect requires typing the customer name to confirm (§63)', async ({ 
   await expect(confirmButton).toBeEnabled();
 });
 
-test('a deployment driven to HEALTHY via the relay job workflow is §25 bulk-deployable', async ({
+// The bulk-deploy half of this flow was covered here until commit 2600428
+// dropped the inert bulk controls from the list page ("bulk deploy is not
+// MVP scope" — see the page's own comment), so the test now ends at the §22
+// fleet state those controls existed to clear.
+test('a new release marks a HEALTHY deployment "Update available" on the fleet list', async ({
   page,
 }) => {
   await signUp(page);
@@ -259,31 +293,7 @@ test('a deployment driven to HEALTHY via the relay job workflow is §25 bulk-dep
   await page.goto('/dashboard/deployments');
   const row = page.locator('[data-testid="deployment-list"] tbody tr', { hasText: customerName });
   // Publishing that release put this healthy deployment behind, which is what
-  // §22/§25 mean by "update available" — and is the state bulk deploy exists
-  // to clear. Nothing wrote it before, so the fleet could never show it.
+  // §22/§25 mean by "update available". Nothing wrote it before, so the fleet
+  // could never show it.
   await expect(row.getByText('Update available', { exact: true })).toBeVisible();
-
-  // Previously the deployment was stuck at INSTALLING forever, so this
-  // checkbox was permanently disabled and §25 bulk deploy was unreachable.
-  const checkbox = row.getByRole('checkbox', { name: `Select ${customerName}` });
-  await expect(checkbox).toBeEnabled();
-  await checkbox.check();
-
-  const bar = page.getByTestId('bulk-deploy-bar');
-  await expect(bar).toBeVisible();
-  const releaseSelect = bar.getByRole('combobox', { name: 'Release to deploy' });
-  await expect(releaseSelect.locator('option')).not.toHaveCount(0);
-
-  const [deployBulkResponse] = await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url() === `${API_URL}/api/applications/${applicationId}/deploy-bulk` &&
-        response.request().method() === 'POST',
-    ),
-    bar.getByRole('button', { name: 'Deploy release' }).click(),
-  ]);
-  expect(deployBulkResponse.ok()).toBeTruthy();
-
-  // A successful deploy clears the selection, which hides the bar again.
-  await expect(bar).toBeHidden();
 });

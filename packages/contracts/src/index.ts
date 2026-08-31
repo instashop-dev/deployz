@@ -208,6 +208,154 @@ export type CustomDomainStatus = z.infer<typeof customDomainStatusSchema>;
 export const cleanupStateSchema = z.enum(['SKIPPED_RELAY_OFFLINE', 'COMPLETE']);
 export type CleanupState = z.infer<typeof cleanupStateSchema>;
 
+// ---------------------------------------------------------------------------
+// Unified deployment status — a read-time derivation, not a persisted state.
+//
+// Customers (the public install page) and vendors (the fleet/detail screens)
+// both need "where is this deployment right now", but today that answer is
+// scattered across deployments.state, deployments.healthStatus,
+// deployments.relayStatus, the newest deployment_jobs row, and custom_domains
+// — four sources a page would otherwise have to reconcile itself, and
+// disagree if two pages reconcile them differently. deriveDeploymentStatus
+// (apps/api/src/deployment-status.ts) collapses all four into ONE of six
+// stages, at read time, from data that already exists; nothing new is
+// written to the database for this feature. The two schemas below are the
+// only shapes that ever leave the derivation: customerDeploymentStatusSchema
+// for the unauthenticated install-status endpoint (never relay/job/AWS
+// internals), vendorDeploymentStatusSchema for the authenticated fleet/detail
+// endpoints (full operational detail). Both are produced from the same
+// internal derived object, so their `stage` can never disagree.
+// ---------------------------------------------------------------------------
+
+/**
+ * The six-stage lifecycle every deployment's progress collapses into.
+ * WAITING_FOR_AWS: the customer has not started the CloudFormation Quick
+ * Create yet. CONNECTING: AWS setup ran and the relay is registering.
+ * PROVISIONING: the INSTALL job is actively creating infrastructure.
+ * VERIFYING: infrastructure exists, health/HTTPS are not both confirmed yet.
+ * READY: healthy and reachable over HTTPS. FAILED: the deployment failed
+ * (state === 'FAILED') — a relay outage never lands here, only a terminal
+ * job failure does.
+ */
+export const deploymentStageSchema = z.enum([
+  'WAITING_FOR_AWS',
+  'CONNECTING',
+  'PROVISIONING',
+  'VERIFYING',
+  'READY',
+  'FAILED',
+]);
+export type DeploymentStage = z.infer<typeof deploymentStageSchema>;
+
+/**
+ * Per-component progress status. Deliberately NOT the same vocabulary as
+ * healthStatusSchema: a component can be "not required" or "pending" before
+ * it has ever reported health at all, states healthStatusSchema has no room
+ * for.
+ */
+export const componentProgressStatusSchema = z.enum([
+  'PENDING',
+  'IN_PROGRESS',
+  'READY',
+  'FAILED',
+  'NOT_REQUIRED',
+]);
+export type ComponentProgressStatus = z.infer<typeof componentProgressStatusSchema>;
+
+/** One step in the progress list — runtime, database, storage, redis, https. */
+export const componentProgressSchema = z
+  .object({
+    key: z.string(),
+    label: z.string(),
+    status: componentProgressStatusSchema,
+  })
+  .strict();
+export type ComponentProgress = z.infer<typeof componentProgressSchema>;
+
+/**
+ * The public install-status wire shape (GET /api/install/:installLinkId/
+ * status). Unauthenticated by design, so this is the ONLY place deployment
+ * progress reaches an anonymous caller — no relay identity, no job payloads,
+ * no raw AWS/CFN status beyond the single word failure.technical.awsStatus
+ * allows, no NOT_REQUIRED components (nothing to show for a component the
+ * app never asked for).
+ */
+export const customerDeploymentStatusSchema = z
+  .object({
+    stage: deploymentStageSchema,
+    updatedAt: z.iso.datetime(),
+    currentActivity: z.string(),
+    removed: z.boolean(),
+    statusUpdatesUnavailable: z.boolean(),
+    needsDomainSetup: z.boolean(),
+    components: z.array(componentProgressSchema),
+    url: z.string().nullable(),
+    failure: z
+      .object({
+        customerMessage: z.string(),
+        component: z.string().nullable(),
+        reference: z.string(),
+        technical: z
+          .object({
+            stage: z.string(),
+            component: z.string().nullable(),
+            awsStatus: z.string().nullable(),
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type CustomerDeploymentStatus = z.infer<typeof customerDeploymentStatusSchema>;
+
+/**
+ * The vendor wire shape (GET /api/deployments, GET /api/deployments/:id —
+ * one `deploymentStatus` field per row). Full operational detail: relay
+ * liveness, the latest job, the raw CFN stack status, NOT_REQUIRED
+ * components included. `removed` is not repeated here — the surrounding
+ * fleet row already carries `state` (DELETING/DELETED), which is where the
+ * vendor screens have always read it from.
+ */
+export const vendorDeploymentStatusSchema = z
+  .object({
+    stage: deploymentStageSchema,
+    updatedAt: z.iso.datetime(),
+    currentActivity: z.string(),
+    statusUpdatesUnavailable: z.boolean(),
+    needsDomainSetup: z.boolean(),
+    components: z.array(componentProgressSchema),
+    relay: z
+      .object({
+        connected: z.boolean(),
+        lastSeenAt: z.iso.datetime().nullable(),
+      })
+      .strict(),
+    job: z
+      .object({
+        type: jobTypeSchema,
+        status: jobStateSchema,
+      })
+      .strict()
+      .nullable(),
+    aws: z.object({ stackStatus: z.string().nullable() }).strict(),
+    health: z.object({ status: healthStatusSchema }).strict(),
+    url: z.string().nullable(),
+    failure: z
+      .object({
+        code: failureCodeSchema.nullable(),
+        component: z.string().nullable(),
+        reference: z.string(),
+        message: z.string(),
+        awsStatus: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type VendorDeploymentStatus = z.infer<typeof vendorDeploymentStatusSchema>;
+
 /**
  * How long a relay may stay silent (three missed five-minute polls) before it
  * counts as DISCONNECTED. Shared by the API's liveness module and the worker's

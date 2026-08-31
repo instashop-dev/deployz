@@ -1,0 +1,647 @@
+import { FAILURE_REMEDIATION, failureCodeCopy, type FailureCode } from '@deployz/copy-map';
+import type {
+  ComponentProgress,
+  ComponentProgressStatus,
+  CustomDomainStatus,
+  CustomerDeploymentStatus,
+  DeploymentStage,
+  DeploymentState,
+  HealthStatus,
+  JobState,
+  JobType,
+  RelayStatus,
+  VendorDeploymentStatus,
+} from '@deployz/contracts';
+
+// Unified deployment status — the read-time derivation described in
+// packages/contracts/src/index.ts above customerDeploymentStatusSchema.
+// Everything below is pure: given the same inputs it always returns the
+// same DerivedDeploymentStatus, and nothing here reads a clock except the
+// documented now() fallback for `updatedAt`. That purity is what makes the
+// six-stage model unit-testable without a database and safe to call once
+// per row in a list endpoint.
+
+// ---------------------------------------------------------------------------
+// §24 per-component merge — extracted from toFleetRow (server.ts), which
+// still calls this. The relay's verification checks say what SHOULD exist
+// (observedState.infraHealth.checks); its heartbeat says what is OBSERVED
+// (observedState.components). Combining the two is what lets a screen say
+// "Not provisioned" (required, verification found nothing) instead of "Not
+// reporting" (no observation at all). Kept as ONE implementation so the
+// fleet dashboard and the new stage derivation can never disagree about a
+// component's merged state.
+// ---------------------------------------------------------------------------
+
+/** Whether each optional component is required, per the owning application. */
+export interface ComponentRequirements {
+  databaseRequired?: boolean | null;
+  storageRequired?: boolean | null;
+  redisRequired?: boolean | null;
+}
+
+/** Merged per-component state: HEALTHY/DEGRADED/UNHEALTHY/UNKNOWN/NOT_PROVISIONED. */
+export type MergedComponentState = Record<string, string>;
+
+const COMPONENT_REQUIREMENT_KEYS = ['application', 'loadBalancer', 'database', 'storage', 'redis'] as const;
+
+// The verification check name each merged component key corresponds to —
+// used to fall back to NOT_PROVISIONED/UNKNOWN when the heartbeat never
+// reported the component at all.
+const VERIFY_CHECK_BY_COMPONENT: Record<(typeof COMPONENT_REQUIREMENT_KEYS)[number], string> = {
+  application: 'compute',
+  loadBalancer: 'ingress',
+  database: 'database',
+  storage: 'storage',
+  redis: 'cache',
+};
+
+/**
+ * Merge a deployment's observed heartbeat components with its verification
+ * checks into one per-key state map, or null when nothing is known yet.
+ *   reported          → that state (HEALTHY/DEGRADED/UNHEALTHY/UNKNOWN)
+ *   check says absent → NOT_PROVISIONED
+ *   otherwise         → UNKNOWN when required, omitted when not
+ */
+export function mergeComponentState(
+  observedState: Record<string, unknown> | null | undefined,
+  requirements: ComponentRequirements,
+): MergedComponentState | null {
+  const observed = observedState as
+    | {
+        components?: Record<string, unknown>;
+        infraHealth?: { checks?: { name?: string; passed?: boolean }[] };
+      }
+    | null
+    | undefined;
+  const components: Record<string, string> = {};
+  for (const [key, value] of Object.entries(observed?.components ?? {})) {
+    if (typeof value === 'string') components[key] = value;
+  }
+  const infraChecks = observed?.infraHealth?.checks ?? [];
+  const componentRequirements: Record<(typeof COMPONENT_REQUIREMENT_KEYS)[number], boolean> = {
+    application: true,
+    loadBalancer: true,
+    database: requirements.databaseRequired ?? false,
+    storage: requirements.storageRequired ?? false,
+    redis: requirements.redisRequired ?? false,
+  };
+  for (const key of COMPONENT_REQUIREMENT_KEYS) {
+    if (components[key] !== undefined) continue;
+    if (!componentRequirements[key]) continue;
+    const check = infraChecks.find((candidate) => candidate.name === VERIFY_CHECK_BY_COMPONENT[key]);
+    components[key] = check?.passed === false ? 'NOT_PROVISIONED' : 'UNKNOWN';
+  }
+  return Object.keys(components).length > 0 ? components : null;
+}
+
+// ---------------------------------------------------------------------------
+// Derivation input — deliberately its own plain-object shape rather than the
+// Drizzle row types server.ts uses. A db row satisfies this structurally (so
+// server.ts can pass its query results straight through), but this module
+// never imports @deployz/db: that is what keeps deriveDeploymentStatus
+// callable from a unit test with a handful of object literals and no
+// database.
+// ---------------------------------------------------------------------------
+
+export interface DerivationDeployment {
+  state: DeploymentState;
+  relayStatus: RelayStatus;
+  /** STORED health, never the relay-disconnect-masked display value — see deriveDeploymentStatus. */
+  healthStatus: HealthStatus;
+  enrollmentUsedAt: Date | null;
+  relayBoundAt: Date | null;
+  lastHealthAt: Date | null;
+  currentReleaseId: string | null;
+  observedState: Record<string, unknown> | null;
+  updatedAt: Date;
+}
+
+export interface DerivationApplication {
+  databaseRequired?: boolean | null;
+  storageRequired?: boolean | null;
+  redisRequired?: boolean | null;
+}
+
+export interface DerivationJob {
+  id: string;
+  type: JobType;
+  state: JobState;
+  failureCode: FailureCode | null;
+  result: Record<string, unknown> | null;
+  lastProgressAt: Date | null;
+  finishedAt: Date | null;
+  createdAt: Date;
+}
+
+export interface DerivationDomain {
+  hostname: string;
+  status: CustomDomainStatus;
+}
+
+export interface DeriveDeploymentStatusInput {
+  deployment: DerivationDeployment;
+  application: DerivationApplication;
+  /** This deployment's jobs — at minimum every INSTALL job, the latest job overall, and the latest FAILED job. */
+  jobs: DerivationJob[];
+  domain: DerivationDomain | null;
+  /** resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE, else http for a bare ALB, else null. */
+  appUrl: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Internal derived object — NOT exposed verbatim on any public wire. Both
+// projections are pure views over this.
+// ---------------------------------------------------------------------------
+
+export interface DerivedFailure {
+  code: FailureCode | null;
+  component: string | null;
+  reference: string;
+  customerMessage: string;
+  vendorMessage: string;
+  awsStatus: string | null;
+  /** Type of the job that failed — not necessarily the latest job, which may
+   * be a later health/preflight job that has nothing to do with the failure. */
+  jobType: string | null;
+}
+
+export interface DerivedDeploymentStatus {
+  stage: DeploymentStage;
+  updatedAt: string;
+  currentActivity: string;
+  removed?: { state: 'DELETING' | 'DELETED' };
+  statusUpdatesUnavailable: boolean;
+  needsDomainSetup: boolean;
+  components: ComponentProgress[];
+  relay: { connected: boolean; lastSeenAt: string | null };
+  job: { type: JobType; status: JobState } | null;
+  aws: { stackStatus: string | null };
+  health: { status: HealthStatus };
+  result: { url: string } | null;
+  failure: DerivedFailure | null;
+}
+
+// ---------------------------------------------------------------------------
+// Failure mapping — every §61 failure code gets a (component, customer copy)
+// entry. customerMessage reuses copy-map's already-vetted §65 jargon-free
+// description instead of a second hand-written sentence per code, so the
+// two copies can never drift; vendorMessage reuses the "what happened"
+// clause of the existing §29 remediation copy for the same reason.
+// ---------------------------------------------------------------------------
+
+// component is null when no single component reliably explains the failure
+// (an account-level or stack-level failure, not one piece of the app).
+const FAILURE_COMPONENT: Record<FailureCode, string | null> = {
+  AWS_SCP_BLOCKED: null,
+  PORT_MISMATCH: 'runtime',
+  REGION_NOT_SUPPORTED: null,
+  QUOTA_EXCEEDED: null,
+  IMAGE_HEALTH_CHECK_FAILED: 'runtime',
+  MIGRATION_FAILED: 'database',
+  RELAY_DISCONNECTED: null,
+  ECS_DEPLOYMENT_FAILED: 'runtime',
+  RDS_UNAVAILABLE: 'database',
+  AWS_PERMISSION_DENIED: null,
+  STACK_CREATE_FAILED: null,
+  STACK_DELETE_FAILED: null,
+  DATABASE_CREATE_FAILED: 'database',
+  DATABASE_CONNECTION_FAILED: 'database',
+  IMAGE_PULL_FAILED: 'runtime',
+  CONTAINER_START_FAILED: 'runtime',
+  MISSING_SECRET: 'runtime',
+  UNSUPPORTED_ARCHITECTURE: 'runtime',
+  UNKNOWN: null,
+  REDIS_PROVISIONING_FAILED: 'redis',
+  REDIS_CONNECTION_FAILED: 'redis',
+};
+
+interface FailureEntry {
+  component: string | null;
+  customerMessage: string;
+  vendorMessage: string;
+}
+
+function failureEntryFor(code: FailureCode | null): FailureEntry {
+  // A job can fail with no classified code at all (the relay sent something
+  // failureCodeSchema does not recognise, or nothing). That is not the same
+  // as the taxonomy's own UNKNOWN value, which still has real copy — this is
+  // the last-resort generic message for when there is no code to look up.
+  if (code === null) {
+    return {
+      component: null,
+      customerMessage: 'Deployment needs attention.',
+      vendorMessage: 'The deployment failed without a classified cause.',
+    };
+  }
+  return {
+    component: FAILURE_COMPONENT[code],
+    customerMessage: failureCodeCopy(code).description,
+    vendorMessage: FAILURE_REMEDIATION[code].what,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Component progress list
+// ---------------------------------------------------------------------------
+
+const COMPONENT_LABELS: Record<string, string> = {
+  runtime: 'Application runtime',
+  database: 'PostgreSQL database',
+  storage: 'Storage',
+  redis: 'Redis',
+  https: 'Secure access (HTTPS)',
+};
+
+// result.checks[] entries name the AWS-side check, not the product-facing
+// component — this is the same key space verifyCheckByComponent above maps
+// FROM, inverted, minus loadBalancer/ingress (which has no ComponentProgress
+// entry of its own).
+const CHECK_NAME_TO_COMPONENT: Record<string, string> = {
+  compute: 'runtime',
+  database: 'database',
+  storage: 'storage',
+  cache: 'redis',
+};
+
+function failedCheckComponents(result: Record<string, unknown> | null | undefined): Set<string> {
+  const checks = (result as { checks?: { name?: string; passed?: boolean }[] } | null | undefined)?.checks ?? [];
+  const out = new Set<string>();
+  for (const check of checks) {
+    if (check.passed === false && check.name) {
+      const component = CHECK_NAME_TO_COMPONENT[check.name];
+      if (component) out.add(component);
+    }
+  }
+  return out;
+}
+
+/**
+ * Maps one merged component's raw state to a ComponentProgress status, given
+ * whether it is required and the overall stage. Deliberately never returns
+ * READY without a positive HEALTHY signal — an UNKNOWN/absent component only
+ * ever reaches PENDING, never READY, however far the deployment has otherwise
+ * progressed (see the "no positive signal" branch below).
+ */
+function statusFromMerged(
+  mergedValue: string | undefined,
+  required: boolean,
+  stage: DeploymentStage,
+): ComponentProgressStatus {
+  if (!required) return 'NOT_REQUIRED';
+  if (mergedValue === 'HEALTHY') return 'READY';
+  if (mergedValue === 'DEGRADED') return 'IN_PROGRESS';
+  if (mergedValue === 'UNHEALTHY') return stage === 'FAILED' ? 'FAILED' : 'IN_PROGRESS';
+  if (mergedValue === 'NOT_PROVISIONED') {
+    if (stage === 'FAILED') return 'FAILED';
+    return stage === 'PROVISIONING' ? 'IN_PROGRESS' : 'PENDING';
+  }
+  // mergedValue is undefined or 'UNKNOWN': no positive signal yet.
+  if (stage === 'PROVISIONING') return 'IN_PROGRESS';
+  if (stage === 'WAITING_FOR_AWS' || stage === 'CONNECTING') return 'PENDING';
+  // VERIFYING/READY/FAILED with no signal on this specific component: the
+  // vendor projection keeps PENDING (still useful operationally); the
+  // customer projection drops it below — showing a "pending" step this late
+  // would read as stalled progress with nothing behind it.
+  return 'PENDING';
+}
+
+function httpsComponentStatus(
+  domain: DerivationDomain | null,
+  needsDomainSetup: boolean,
+): ComponentProgressStatus | null {
+  if (domain) {
+    switch (domain.status) {
+      case 'ACTIVE':
+        return 'READY';
+      case 'ERROR':
+        // Component-level only — an HTTPS setup failure never fails the
+        // whole deployment; the app itself may be perfectly healthy.
+        return 'FAILED';
+      case 'PENDING':
+      case 'WAITING_FOR_DNS':
+      case 'CONFIGURING':
+      case 'REMOVING':
+        return 'IN_PROGRESS';
+      default:
+        return 'IN_PROGRESS';
+    }
+  }
+  return needsDomainSetup ? 'PENDING' : null;
+}
+
+function buildComponents(params: {
+  stage: DeploymentStage;
+  observedState: Record<string, unknown> | null;
+  application: DerivationApplication;
+  domain: DerivationDomain | null;
+  needsDomainSetup: boolean;
+  failureResult: Record<string, unknown> | null | undefined;
+}): ComponentProgress[] {
+  const merged = mergeComponentState(params.observedState, params.application) ?? {};
+  const failedChecks = params.stage === 'FAILED' ? failedCheckComponents(params.failureResult) : new Set<string>();
+
+  const components: ComponentProgress[] = [];
+  const push = (key: string, mergedKey: string, required: boolean): void => {
+    let status = statusFromMerged(merged[mergedKey], required, params.stage);
+    if (required && params.stage === 'FAILED' && failedChecks.has(key)) {
+      status = 'FAILED';
+    }
+    components.push({ key, label: COMPONENT_LABELS[key]!, status });
+  };
+
+  push('runtime', 'application', true);
+  push('database', 'database', params.application.databaseRequired ?? false);
+  push('storage', 'storage', params.application.storageRequired ?? false);
+  push('redis', 'redis', params.application.redisRequired ?? false);
+
+  const httpsStatus = httpsComponentStatus(params.domain, params.needsDomainSetup);
+  if (httpsStatus !== null) {
+    components.push({ key: 'https', label: COMPONENT_LABELS.https!, status: httpsStatus });
+  }
+
+  return components;
+}
+
+// ---------------------------------------------------------------------------
+// Job helpers
+// ---------------------------------------------------------------------------
+
+function latestBy<T>(items: T[], keyFn: (item: T) => Date | null): T | undefined {
+  let best: T | undefined;
+  let bestTime = -Infinity;
+  for (const item of items) {
+    const time = keyFn(item)?.getTime();
+    if (time !== undefined && time >= bestTime) {
+      best = item;
+      bestTime = time;
+    }
+  }
+  return best;
+}
+
+function latestJob(jobs: DerivationJob[]): DerivationJob | undefined {
+  return latestBy(jobs, (job) => job.createdAt);
+}
+
+function latestOfType(jobs: DerivationJob[], type: JobType): DerivationJob | undefined {
+  return latestBy(
+    jobs.filter((job) => job.type === type),
+    (job) => job.createdAt,
+  );
+}
+
+function latestFailedJob(jobs: DerivationJob[]): DerivationJob | undefined {
+  return latestBy(
+    jobs.filter((job) => job.state === 'FAILED'),
+    (job) => job.createdAt,
+  );
+}
+
+function extractStackStatus(result: Record<string, unknown> | null | undefined): string | null {
+  if (!result) return null;
+  const value = (result as { stackStatus?: unknown }).stackStatus;
+  return typeof value === 'string' ? value : null;
+}
+
+function buildFailure(job: DerivationJob | undefined, entry: FailureEntry): DerivedFailure {
+  return {
+    code: job?.failureCode ?? null,
+    component: entry.component,
+    // First 8 hex chars of the failed job's id — a uuid's leading segment is
+    // exactly 8 hex characters, so no dash-stripping is needed. Falls back
+    // to a fixed placeholder in the (should-not-happen) case where the
+    // caller's job set omitted the FAILED job the deployment's own state
+    // says exists.
+    reference: job ? `DEP-${job.id.slice(0, 8).toUpperCase()}` : 'DEP-UNKNOWN',
+    customerMessage: entry.customerMessage,
+    vendorMessage: entry.vendorMessage,
+    awsStatus: extractStackStatus(job?.result),
+    jobType: job?.type ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Timestamp helper
+// ---------------------------------------------------------------------------
+
+function maxDate(...dates: (Date | null | undefined)[]): Date | null {
+  let best: Date | null = null;
+  for (const date of dates) {
+    if (date instanceof Date && (best === null || date.getTime() > best.getTime())) {
+      best = date;
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// currentActivity copy per stage. Deliberately short, vendor-grade sentences
+// — the customer projection uses the SAME text (§65: no separate customer
+// vocabulary needed here, none of this mentions AWS/CFN/ECS by name).
+// ---------------------------------------------------------------------------
+
+const STAGE_ACTIVITY: Record<'WAITING_FOR_AWS' | 'CONNECTING' | 'PROVISIONING' | 'READY', string> = {
+  WAITING_FOR_AWS: 'Waiting for AWS setup to start.',
+  CONNECTING: "Connecting to the customer's cloud account.",
+  PROVISIONING: "Creating infrastructure in the customer's cloud account.",
+  READY: 'Live and healthy.',
+};
+
+const EVER_INSTALLED_STATES = new Set<DeploymentState>(['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE']);
+const REMOVED_STATES = new Set<DeploymentState>(['DELETING', 'DELETED']);
+const PROVISIONING_JOB_STATES = new Set<JobState>(['RUNNING', 'WAITING']);
+const SUCCEEDED_JOB_STATES = new Set<JobState>(['SUCCEEDED', 'SUCCESS']);
+
+/**
+ * The pure read-time derivation. Precedence (exact, first match wins):
+ *   1. state FAILED                              → FAILED
+ *   2. everInstalled                              → READY or VERIFYING
+ *   3. latest INSTALL job RUNNING/WAITING          → PROVISIONING
+ *   4. relay registered (enrollment/bind/INSTALLING) → CONNECTING
+ *   5. otherwise                                   → WAITING_FOR_AWS
+ * `removed` is set separately (state DELETING/DELETED) and does not change
+ * which of the above stages is computed — a removed deployment still carries
+ * whatever stage it last earned, so both projections can render "removed"
+ * chrome around a real last-known stage instead of a placeholder.
+ */
+export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): DerivedDeploymentStatus {
+  const { deployment, application, jobs, domain, appUrl } = input;
+
+  // deployments.state 'DISCONNECTED' is a valid enum value that nothing in
+  // this codebase currently writes (the persisted liveness sweep flips
+  // relayStatus, not state). Handled defensively rather than assumed
+  // unreachable: if it is ever written, treat it exactly like the relay
+  // outage it would represent — retain the last confirmed stage instead of
+  // regressing, same as a merely-stale relay does below.
+  const everInstalled =
+    deployment.state === 'DISCONNECTED' ||
+    EVER_INSTALLED_STATES.has(deployment.state) ||
+    deployment.currentReleaseId !== null ||
+    jobs.some((job) => job.type === 'INSTALL' && SUCCEEDED_JOB_STATES.has(job.state));
+  const httpsUrl = appUrl !== null && appUrl.startsWith('https://');
+  const statusUpdatesUnavailable = deployment.relayStatus === 'DISCONNECTED' || deployment.state === 'DISCONNECTED';
+
+  let stage: DeploymentStage;
+  let needsDomainSetup = false;
+  let currentActivity: string;
+
+  const latestFailed = latestFailedJob(jobs);
+  const installJobState = latestOfType(jobs, 'INSTALL')?.state;
+  const failureEntry = deployment.state === 'FAILED' ? failureEntryFor(latestFailed?.failureCode ?? null) : undefined;
+
+  if (deployment.state === 'FAILED') {
+    stage = 'FAILED';
+    currentActivity = failureEntry!.vendorMessage;
+  } else if (everInstalled) {
+    // The STORED healthStatus, never relay-liveness.ts's disconnect-masked
+    // display value: masking exists so a screen doesn't claim to know
+    // current health during an outage, but the STAGE must retain whatever
+    // was last confirmed — regressing a deployment's stage because the
+    // relay went quiet would read as the deployment breaking, when nothing
+    // about the deployment itself changed.
+    if (deployment.healthStatus === 'HEALTHY' && httpsUrl) {
+      stage = 'READY';
+      currentActivity = STAGE_ACTIVITY.READY;
+    } else {
+      stage = 'VERIFYING';
+      if (deployment.healthStatus !== 'HEALTHY') {
+        currentActivity = 'Running health checks.';
+      } else {
+        needsDomainSetup = true;
+        currentActivity = 'Waiting for secure domain setup.';
+      }
+    }
+  } else if (installJobState !== undefined && PROVISIONING_JOB_STATES.has(installJobState)) {
+    stage = 'PROVISIONING';
+    currentActivity = STAGE_ACTIVITY.PROVISIONING;
+  } else if (
+    deployment.enrollmentUsedAt !== null ||
+    deployment.relayBoundAt !== null ||
+    deployment.state === 'INSTALLING'
+  ) {
+    stage = 'CONNECTING';
+    currentActivity = STAGE_ACTIVITY.CONNECTING;
+  } else {
+    stage = 'WAITING_FOR_AWS';
+    currentActivity = STAGE_ACTIVITY.WAITING_FOR_AWS;
+  }
+
+  const components = buildComponents({
+    stage,
+    observedState: deployment.observedState,
+    application,
+    domain,
+    needsDomainSetup,
+    failureResult: latestFailed?.result,
+  });
+
+  const latest = latestJob(jobs);
+  // aws.stackStatus reflects the last CREATE/DELETE the customer's account
+  // actually ran — DEPLOY_RELEASE/ROLLBACK/etc. never touch the stack, so
+  // only INSTALL and DESTROY are candidates.
+  const latestStackJob = latestBy(
+    jobs.filter((job) => job.type === 'INSTALL' || job.type === 'DESTROY'),
+    (job) => job.createdAt,
+  );
+
+  const updatedAt =
+    maxDate(deployment.updatedAt, deployment.lastHealthAt, latest?.lastProgressAt, latest?.finishedAt) ?? new Date();
+
+  return {
+    stage,
+    updatedAt: updatedAt.toISOString(),
+    currentActivity,
+    ...(REMOVED_STATES.has(deployment.state) ? { removed: { state: deployment.state as 'DELETING' | 'DELETED' } } : {}),
+    statusUpdatesUnavailable,
+    needsDomainSetup,
+    components,
+    relay: {
+      connected: deployment.relayStatus === 'CONNECTED',
+      // No dedicated "last seen" column exists yet — the last health report
+      // is the freshest signal this module has of the relay actually being
+      // there, so it stands in for it.
+      lastSeenAt: deployment.lastHealthAt?.toISOString() ?? null,
+    },
+    job: latest ? { type: latest.type, status: latest.state } : null,
+    aws: { stackStatus: extractStackStatus(latestStackJob?.result) },
+    health: { status: deployment.healthStatus },
+    result: stage === 'READY' && appUrl ? { url: appUrl } : null,
+    failure: stage === 'FAILED' ? buildFailure(latestFailed, failureEntry!) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Projections
+// ---------------------------------------------------------------------------
+
+/**
+ * The unauthenticated customer projection. Strips relay identity, job
+ * detail, and the raw stack status (except the one word failure.technical
+ * carries); components with no positive signal this late in the lifecycle
+ * are dropped rather than shown as a stalled-looking PENDING step (see
+ * statusFromMerged) — https is exempt because its own PENDING IS the
+ * positive signal ("domain setup is next").
+ */
+export function toCustomerDeploymentStatus(derived: DerivedDeploymentStatus): CustomerDeploymentStatus {
+  const noSignalStages: DeploymentStage[] = ['VERIFYING', 'READY', 'FAILED'];
+  const components = derived.components.filter((component) => {
+    if (component.status === 'NOT_REQUIRED') return false;
+    if (component.key === 'https') return true;
+    return !(component.status === 'PENDING' && noSignalStages.includes(derived.stage));
+  });
+
+  return {
+    stage: derived.stage,
+    updatedAt: derived.updatedAt,
+    currentActivity: derived.currentActivity,
+    removed: derived.removed !== undefined,
+    statusUpdatesUnavailable: derived.statusUpdatesUnavailable,
+    needsDomainSetup: derived.needsDomainSetup,
+    components,
+    url: derived.result?.url ?? null,
+    failure: derived.failure
+      ? {
+          customerMessage: derived.failure.customerMessage,
+          component: derived.failure.component,
+          reference: derived.failure.reference,
+          technical: {
+            // "Which stage of the pipeline failed" (INSTALL, DEPLOY_RELEASE,
+            // ...) — a job type, not an AWS service name, so it stays inside
+            // §65's rules while still being useful to a customer's own ops
+            // team relaying this to a vendor's support. The FAILED job's own
+            // type, not the latest job's — a later health/preflight job must
+            // not relabel the failure.
+            stage: derived.failure.jobType ?? 'UNKNOWN',
+            component: derived.failure.component,
+            awsStatus: derived.failure.awsStatus,
+          },
+        }
+      : null,
+  };
+}
+
+/** The authenticated vendor projection — full operational detail. */
+export function toVendorDeploymentStatus(derived: DerivedDeploymentStatus): VendorDeploymentStatus {
+  return {
+    stage: derived.stage,
+    updatedAt: derived.updatedAt,
+    currentActivity: derived.currentActivity,
+    statusUpdatesUnavailable: derived.statusUpdatesUnavailable,
+    needsDomainSetup: derived.needsDomainSetup,
+    components: derived.components,
+    relay: derived.relay,
+    job: derived.job,
+    aws: derived.aws,
+    health: derived.health,
+    url: derived.result?.url ?? null,
+    failure: derived.failure
+      ? {
+          code: derived.failure.code,
+          component: derived.failure.component,
+          reference: derived.failure.reference,
+          message: derived.failure.vendorMessage,
+          awsStatus: derived.failure.awsStatus,
+        }
+      : null,
+  };
+}

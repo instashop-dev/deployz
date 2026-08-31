@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
 // (empty password inputs, never plaintext), and a saved secret travels on
 // the write path only — the DOM never shows it afterwards.
 
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 interface ConfigWriteBody {
   customerId?: string | null;

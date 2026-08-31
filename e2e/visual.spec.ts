@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 // itself. The sidebar's org name (derived from the signup email) is masked.
 // Regenerate with: pnpm exec playwright test e2e/visual.spec.ts --update-snapshots
 
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Fixed clock — every rendered date derives from these strings.
 const CREATED_AT = '2025-09-12T10:00:00Z';
@@ -72,9 +72,58 @@ function deployment(overrides: Partial<DeploymentFixture>): DeploymentFixture {
     customerName: 'Acme',
     applicationName: 'Documenso',
     version: '1.14.2',
+    deploymentStatus: vendorStatus(overrides.state === 'FAILED' ? FAILED_STATUS : {}),
     ...overrides,
   };
 }
+
+// The derived progress projection the API now returns with every fleet row
+// (see toVendorDeploymentStatus). Fixed timestamps like everything else here;
+// the relative-time renders it feeds are additionally masked, since they
+// drift with the real clock.
+function vendorStatus(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    stage: 'READY',
+    updatedAt: UPDATED_AT,
+    currentActivity: 'Live and healthy.',
+    statusUpdatesUnavailable: false,
+    needsDomainSetup: false,
+    components: [
+      { key: 'runtime', label: 'Application runtime', status: 'READY' },
+      { key: 'database', label: 'PostgreSQL database', status: 'READY' },
+      { key: 'storage', label: 'Storage', status: 'NOT_REQUIRED' },
+      { key: 'redis', label: 'Redis', status: 'NOT_REQUIRED' },
+      { key: 'https', label: 'Secure access (HTTPS)', status: 'READY' },
+    ],
+    relay: { connected: true, lastSeenAt: UPDATED_AT },
+    job: { type: 'INSTALL', status: 'SUCCEEDED' },
+    aws: { stackStatus: 'CREATE_COMPLETE' },
+    health: { status: 'HEALTHY' },
+    url: 'https://docs.acme.example',
+    failure: null,
+    ...overrides,
+  };
+}
+
+const FAILED_STATUS = {
+  stage: 'FAILED',
+  currentActivity: 'The PostgreSQL database could not be created.',
+  components: [
+    { key: 'runtime', label: 'Application runtime', status: 'PENDING' },
+    { key: 'database', label: 'PostgreSQL database', status: 'FAILED' },
+    { key: 'storage', label: 'Storage', status: 'NOT_REQUIRED' },
+    { key: 'redis', label: 'Redis', status: 'NOT_REQUIRED' },
+  ],
+  health: { status: 'UNKNOWN' },
+  url: null,
+  failure: {
+    code: 'DATABASE_CREATE_FAILED',
+    component: 'database',
+    reference: 'DEP-VIS00001',
+    message: 'The PostgreSQL database could not be created.',
+    awsStatus: 'CREATE_FAILED',
+  },
+};
 
 const READY_APPLICATION = {
   id: 'vis-app-1',
@@ -175,7 +224,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Get your first customer deployed' })).toBeVisible();
     await expect(page).toHaveScreenshot('home-setup.png', {
-      mask: [page.getByTestId('org-name')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
     });
   });
 
@@ -201,7 +250,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard');
     await expect(page.getByTestId('home-deployment-list')).toBeVisible();
     await expect(page).toHaveScreenshot('home-operational.png', {
-      mask: [page.getByTestId('org-name')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
     });
   });
 
@@ -222,7 +271,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard');
     await expect(page.getByTestId('needs-attention')).toBeVisible();
     await expect(page).toHaveScreenshot('home-attention.png', {
-      mask: [page.getByTestId('org-name')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
     });
   });
 
@@ -250,7 +299,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard/deployments');
     await expect(page.getByTestId('deployment-list')).toBeVisible();
     await expect(page).toHaveScreenshot('deployments-list.png', {
-      mask: [page.getByTestId('org-name')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
     });
   });
 
@@ -267,7 +316,7 @@ test.describe('dashboard visual regression', () => {
       await page.goto(`/dashboard/deployments/${detail.id}`);
       await expect(page.getByRole('heading', { name: 'Documenso' })).toBeVisible();
       await expect(page).toHaveScreenshot(`detail-${name}.png`, {
-        mask: [page.getByTestId('org-name')],
+        mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
       });
     });
   }
@@ -287,7 +336,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard');
     await expect(page.getByTestId('home-deployment-list')).toBeVisible();
     await expect(page).toHaveScreenshot('home-operational-mobile.png', {
-      mask: [page.getByTestId('org-name')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
     });
   });
 });

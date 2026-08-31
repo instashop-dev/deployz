@@ -10,7 +10,7 @@ import { expect, test, type Page } from '@playwright/test';
 // everything else — seeding and the relay protocol — through `page.request`,
 // which shares the signed-in session's cookies).
 
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 interface RelayCommand {
   id: string;
@@ -127,6 +127,26 @@ test('custom domain: add, verify DNS, connect, activate, appear on the dashboard
     data: { enrollmentCode, installationId, awsAccountId: '123456789012' },
   });
   expect(registerResponse.ok()).toBeTruthy();
+
+  // ── 3b. Drive the base install to healthy. The domain card only renders
+  // once the unified deployment status reaches VERIFYING/READY (see
+  // InstallProgress's `canAccess` check) — a customer mid-install never sees
+  // domain setup, only a customer whose app already passed health checks
+  // does. Mirrors the INSTALL + health round trip in
+  // deployment-progress.spec.ts's happy-path test.
+  const installRound = await fetchRelayCommands();
+  const installJob = installRound.find((c) => c.type === 'INSTALL');
+  expect(installJob).toBeDefined();
+  const albEndpoint = `deployz-alb-${suffix}.us-east-1.elb.amazonaws.com`;
+  await postRelayResult(installJob!.id, {
+    success: true,
+    output: { outputs: { ExportDeployzApplicationPublicEndpoint: albEndpoint } },
+  });
+  const healthResponse = await page.request.post(`${API_URL}/api/relay/health`, {
+    headers: relayAuth,
+    data: { installationId, healthStatus: 'HEALTHY' },
+  });
+  expect(healthResponse.ok()).toBeTruthy();
 
   // ── 4. The vendor (already signed in from step 1) opens the install page —
   // the enrollment code has been spent, so this is the post-install view —

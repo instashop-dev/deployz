@@ -8,6 +8,8 @@
  * (todo 34) can migrate it into packages/copy-map without touching pages.
  */
 
+import type { JobState, JobType } from '@deployz/contracts';
+
 // ── §46 deployment states ─────────────────────────────────────────────────
 
 /** The 9 product-vocabulary deployment states (§46). Mirrors the contracts enum. */
@@ -207,6 +209,40 @@ export function everInstalled(state: DeploymentState, currentReleaseId: string |
 
 export const NOT_YET_RUNNING_ACTION_COPY =
   "This deployment hasn't completed an install yet, so these actions aren't available.";
+
+// ── §39 job vocabulary ──────────────────────────────────────────────────────
+
+/** Human-readable §39 job type labels — the vendor progress card's "Latest
+ *  job" row, never the raw enum value. */
+export const JOB_TYPE_LABEL: Record<JobType, string> = {
+  INSTALL: 'Install',
+  DEPLOY_RELEASE: 'Deploy update',
+  ROLLBACK: 'Rollback',
+  RESTART: 'Restart',
+  CONFIG_UPDATE: 'Configuration update',
+  DESTROY: 'Disconnect',
+  MIGRATION: 'Database migration',
+  INFRA_UPGRADE: 'Infrastructure upgrade',
+  HEALTH_REPORT: 'Health report',
+  PREFLIGHT: 'Pre-flight check',
+  HEALTH_CHECK: 'Health check',
+  CONFIGURE_DOMAIN: 'Domain setup',
+  REMOVE_DOMAIN: 'Domain removal',
+  PURGE: 'Resource purge',
+};
+
+/** Human-readable §39 job state labels, cased for prose rather than the raw
+ *  enum shout. SUCCEEDED/SUCCESS are the same product-facing outcome. */
+export const JOB_STATE_LABEL: Record<JobState, string> = {
+  REQUESTED: 'Requested',
+  QUEUED: 'Queued',
+  WAITING: 'Waiting',
+  RUNNING: 'Running',
+  SUCCEEDED: 'Succeeded',
+  SUCCESS: 'Succeeded',
+  FAILED: 'Failed',
+  CANCELLED: 'Cancelled',
+};
 
 // ── §65 event-type labels (§40 families) ──────────────────────────────────
 

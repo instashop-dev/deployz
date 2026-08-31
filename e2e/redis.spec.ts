@@ -64,7 +64,7 @@ async function seedCustomerAndDeployment(
   page: Page,
   applicationId: string,
   suffix: string,
-): Promise<{ deploymentId: string; installLinkId: string }> {
+): Promise<{ deploymentId: string; installLinkId: string; installationId: string; enrollmentCode: string }> {
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Redis Customer ${suffix}`, email: `redis-customer-${suffix}@example.com` },
   });
@@ -78,9 +78,50 @@ async function seedCustomerAndDeployment(
   const deployment = (await deploymentResponse.json()) as {
     id: string;
     installLinkId: string;
+    enrollmentCode: string;
   };
 
-  return { deploymentId: deployment.id, installLinkId: deployment.installLinkId };
+  return {
+    deploymentId: deployment.id,
+    installLinkId: deployment.installLinkId,
+    installationId: `inst-${suffix}`,
+    enrollmentCode: deployment.enrollmentCode,
+  };
+}
+
+/**
+ * Drives a fresh deployment to HEALTHY via the real relay job workflow —
+ * mirrors fleet.spec.ts's `driveDeploymentToHealthy`. The Infrastructure
+ * section (including the Redis row) only renders once the deployment has
+ * completed an install (see `showInfrastructureRows` in
+ * apps/web/src/lib/deployment-vocabulary.ts), so a deployment that was never
+ * installed shows the section's empty state instead — no Redis row to find.
+ */
+async function driveDeploymentToHealthy(
+  page: Page,
+  installationId: string,
+  enrollmentCode: string,
+): Promise<void> {
+  const authHeaders = { Authorization: `Bearer ${installationId}` };
+  const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
+    headers: authHeaders,
+    data: { installationId, enrollmentCode },
+  });
+  expect(registerResponse.ok()).toBeTruthy();
+
+  const commandsResponse = await page.request.get(
+    `${API_URL}/api/relay/commands?installationId=${installationId}`,
+    { headers: authHeaders },
+  );
+  const { commands } = (await commandsResponse.json()) as { commands: { id: string; type: string }[] };
+  const installJob = commands.find((command) => command.type === 'INSTALL');
+  expect(installJob).toBeDefined();
+
+  const resultResponse = await page.request.post(
+    `${API_URL}/api/relay/commands/${installJob!.id}/result`,
+    { headers: authHeaders, data: { success: true } },
+  );
+  expect(resultResponse.ok()).toBeTruthy();
 }
 
 test('bullmq-worker: analyses as ready with the managed Redis ready-item, then carries a Redis cache through install + deployment detail', async ({
@@ -104,23 +145,27 @@ test('bullmq-worker: analyses as ready with the managed Redis ready-item, then c
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
   await expect(page.getByText('Your app is ready to deploy.')).toBeVisible();
   const readyList = page.getByTestId('readiness-ready-list');
-  await expect(readyList.getByText('Redis — managed automatically', { exact: true })).toBeVisible();
+  // Copy per apps/api/src/analysis.ts's REDIS_READY_LABEL (verified against
+  // analysis.test.ts's own assertion of the same string).
+  await expect(
+    readyList.getByText('Redis detected — provisioned automatically on install', { exact: true }),
+  ).toBeVisible();
 
   // ── 3. Create a customer + deployment for this application, then open the
   // install link page: the "Deployz will create" list includes a Redis cache
   // because this application's analysed `redisRequired` is true.
-  const { deploymentId, installLinkId } = await seedCustomerAndDeployment(
-    page,
-    applicationId,
-    suffix,
-  );
+  const { deploymentId, installLinkId, installationId, enrollmentCode } =
+    await seedCustomerAndDeployment(page, applicationId, suffix);
   await page.goto(`/install/${installLinkId}`);
   const willCreateSection = page.locator('section[aria-labelledby="will-create"]');
   await expect(willCreateSection.getByRole('listitem').getByText('Redis cache', { exact: true })).toBeVisible();
 
-  // ── 4. Deployment detail: the Infrastructure section lists Redis. The API
-  // synthesizes this row from the application's `redisRequired` the moment
-  // the deployment exists — it does not wait on a relay health report.
+  // ── 4. Deployment detail: the Infrastructure section lists Redis. That
+  // section only renders once the deployment has completed an install (see
+  // `showInfrastructureRows`), so drive a real install through the relay job
+  // workflow first — the same sequence fleet.spec.ts's
+  // `driveDeploymentToHealthy` uses.
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode);
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   const infraSection = page.locator('section[aria-labelledby="infrastructure"]');
   await expect(infraSection.getByText('Redis', { exact: true })).toBeVisible();

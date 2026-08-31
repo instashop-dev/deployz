@@ -1,7 +1,8 @@
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -114,6 +115,12 @@ import {
   toDomainView,
   type CustomDomainRow,
 } from './domains.js';
+import {
+  deriveDeploymentStatus,
+  mergeComponentState,
+  toCustomerDeploymentStatus,
+  toVendorDeploymentStatus,
+} from './deployment-status.js';
 import { deriveHealthStatus } from './relay-liveness.js';
 import {
   hashRelayToken,
@@ -173,6 +180,15 @@ const METERED_PRICE_DOLLARS = METERED_PRICE_CENTS / 100;
 // would raise a Postgres "invalid input syntax for type uuid" error and
 // surface as a 500, so non-uuid ids map to 404 instead.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Route-level rate limit for the three unauthenticated /api/install/:id
+// routes (registered with @fastify/rate-limit's `global: false` above, so
+// nothing else is capped by default). Keyed by IP (trustProxy makes that the
+// real client behind the Lightsail balancer); 300/min is an order of
+// magnitude over the install page's 5s poll cadence (12/min) — several tabs,
+// "Check now" clicks, and NAT'd offices all fit — while still bounding an
+// anonymous caller who has nothing but a guessable-length uuid to try.
+const PUBLIC_INSTALL_RATE_LIMIT = { max: 300, timeWindow: '1 minute' } as const;
 
 // The §35 contract fields the analyser auto-detects and the vendor can take
 // ownership of by editing them (see PATCH /api/applications/:id). `name` is
@@ -521,48 +537,11 @@ function maskAwsAccountId(awsAccountId: string | null): string | null {
     // renders a deployment reads the same value with no per-read derivation
     // that could disagree with what the sweep last persisted.
     const relayStatus = row.deployment.relayStatus;
-  // §24 per-component state. The relay's verification checks say what
-  // SHOULD exist (observedState.infraHealth.checks); its heartbeat says what
-  // is OBSERVED (observedState.components). Combining the two is what lets
-  // the dashboard say "Not provisioned" (required, verification found
-  // nothing) instead of "Not reporting" (no observation at all):
-  //   reported          → that state (HEALTHY/DEGRADED/UNHEALTHY/UNKNOWN)
-  //   check says absent → NOT_PROVISIONED
-  //   otherwise         → UNKNOWN when required, omitted when not
-  const observed = row.deployment.observedState as
-    | {
-        components?: Record<string, unknown>;
-        infraHealth?: { checks?: { name?: string; passed?: boolean }[] };
-      }
-    | null
-    | undefined;
-  const components: Record<string, string> = {};
-  for (const [key, value] of Object.entries(observed?.components ?? {})) {
-    if (typeof value === 'string') components[key] = value;
-  }
-  const infraChecks = observed?.infraHealth?.checks ?? [];
-  const componentRequirements: Record<string, boolean> = {
-    application: true,
-    loadBalancer: true,
-    database: row.databaseRequired ?? false,
-    storage: row.storageRequired ?? false,
-    redis: row.redisRequired ?? false,
-  };
-  const verifyCheckByComponent: Record<string, string> = {
-    application: 'compute',
-    loadBalancer: 'ingress',
-    database: 'database',
-    storage: 'storage',
-    redis: 'cache',
-  };
-  for (const [key, required] of Object.entries(componentRequirements)) {
-    if (components[key] !== undefined) continue;
-    if (!required) continue;
-    const check = infraChecks.find((candidate) => candidate.name === verifyCheckByComponent[key]);
-    components[key] = check?.passed === false ? 'NOT_PROVISIONED' : 'UNKNOWN';
-  }
-  const hasComponentState = Object.keys(components).length > 0;
-  const componentView = hasComponentState ? components : null;
+  // §24 per-component state, merged from the relay's heartbeat and
+  // verification checks — shared with the deployment-status stage
+  // derivation (apps/api/src/deployment-status.ts) so the two can never
+  // disagree about a component's merged state.
+  const componentView = mergeComponentState(row.deployment.observedState, row);
   // Relay enrollment material never crosses into a dashboard response: the
   // enrollment code re-opens enrollment and the token hash is a credential.
   const { enrollmentCode: _enrollmentCode, relayTokenHash: _relayTokenHash, ...deployment } = row.deployment;
@@ -822,8 +801,16 @@ export async function buildServer({
   // production failures in a row could only be diagnosed by reading
   // configuration and guessing. `warn` keeps the per-request info lines off
   // while letting the error handler below say what actually broke.
+  // trustProxy: production runs behind the Lightsail container service's
+  // load balancer, so request.ip is the balancer unless X-Forwarded-For is
+  // honored — and the per-IP rate limit on the public install routes would
+  // otherwise pool every customer into the balancer's single bucket. The
+  // container is only reachable through that balancer, so the header is
+  // trustworthy here.
   const app = Fastify(
-    loggerInstance ? { loggerInstance } : { logger: { level: 'warn' } },
+    loggerInstance
+      ? { loggerInstance, trustProxy: true }
+      : { logger: { level: 'warn' }, trustProxy: true },
   );
 
   // Sentry owns capture via the onError hook this registers. Capture filter:
@@ -859,6 +846,15 @@ export async function buildServer({
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
+
+  // §12/§44 the three public install-link routes take no auth at all, so
+  // they are the one surface an anonymous caller could hammer. `global:
+  // false` means registering this plugin does nothing by itself — every
+  // other route (authenticated or relay-token-authenticated) stays
+  // unaffected; only the routes below that opt in with `config.rateLimit`
+  // are capped. 120/min per IP is generous headroom over the install page's
+  // own 5s status-poll cadence (12/min) while still bounding abuse.
+  await app.register(rateLimit, { global: false });
 
   app.get('/health', () => ({ ok: true }));
 
@@ -1200,78 +1196,127 @@ export async function buildServer({
   // history, so it must not double as the identifier that authenticates a
   // relay. The enrollment code it returns is single-use and is what the
   // customer's bootstrap stack carries.
-  app.get('/api/install/:installLinkId', async (request) => {
-    const { installLinkId } = request.params as { installLinkId: string };
-    requireUuidId(installLinkId);
-    const rows = await db
-      .select({
-        applicationName: schema.applications.name,
-        publisherName: schema.organization.name,
-        customerName: schema.customers.name,
-        region: schema.deployments.region,
-        databaseRequired: schema.applications.databaseRequired,
-        storageRequired: schema.applications.storageRequired,
-        redisRequired: schema.applications.redisRequired,
-        enrollmentCode: schema.deployments.enrollmentCode,
-        enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
-        deploymentId: schema.deployments.id,
-        deploymentState: schema.deployments.state,
-      })
-      .from(schema.deployments)
-      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
-      .innerJoin(schema.organization, eq(schema.deployments.organizationId, schema.organization.id))
-      .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
-      .where(eq(schema.deployments.installLinkId, installLinkId))
-      .limit(1);
-    if (rows.length === 0) {
-      throw new NotFoundError('Installation not found');
-    }
-    const row = rows[0]!;
-    // Spent codes are of no use to the install page — it renders the "already
-    // set up" state instead — so stop handing the credential to anyone who
-    // replays the link out of a mailbox or browser history.
-    const alreadyInstalled = row.enrollmentUsedAt !== null;
-    const resourcesCreated = ['Application runtime'];
-    if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
-    if (row.storageRequired) resourcesCreated.push('Storage');
-    if (row.redisRequired) resourcesCreated.push('Redis cache');
-    resourcesCreated.push('Networking', 'Monitoring');
-    // The install link already identifies exactly this deployment, so its
-    // own id/state/domain are within the scope the link already grants —
-    // this is not a tenant-boundary crossing, just more detail about the
-    // one deployment the link names.
-    const domain = await findActiveDomain(db, row.deploymentId);
-    return {
-      applicationName: row.applicationName,
-      publisherName: row.publisherName,
-      customerName: row.customerName,
-      region: row.region,
-      resourcesCreated,
-      deploymentId: row.deploymentId,
-      deploymentState: row.deploymentState,
-      domain: domain ? toDomainView(domain) : null,
-      routingTarget: domain?.routingTarget ?? null,
-      // The Quick Create link is built HERE, not in the web app: only the
-      // control plane knows which template is currently published, which
-      // region this customer's deployment targets, and this deployment's
-      // single-use enrollment code. The link carries no credential — the
-      // relay's is minted by CloudFormation inside the customer's account.
-      //
-      // Spent codes get no link. The page renders its "already set up" state
-      // in that case and never follows the URL, so building one only hands
-      // the enrollment code to whoever replays the link out of a mailbox.
-      quickCreateUrl:
-        env.bootstrapTemplateUrl && !alreadyInstalled
-          ? buildBootstrapQuickCreateUrl({
-              region: row.region,
-              templateUrl: env.bootstrapTemplateUrl,
-              controlPlaneUrl: env.apiUrl,
-              enrollmentCode: row.enrollmentCode,
-            })
-          : null,
-      alreadyInstalled,
-    };
-  });
+  app.get(
+    '/api/install/:installLinkId',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { installLinkId } = request.params as { installLinkId: string };
+      requireUuidId(installLinkId);
+      const rows = await db
+        .select({
+          applicationName: schema.applications.name,
+          publisherName: schema.organization.name,
+          customerName: schema.customers.name,
+          region: schema.deployments.region,
+          databaseRequired: schema.applications.databaseRequired,
+          storageRequired: schema.applications.storageRequired,
+          redisRequired: schema.applications.redisRequired,
+          enrollmentCode: schema.deployments.enrollmentCode,
+          enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
+          deploymentId: schema.deployments.id,
+          deploymentState: schema.deployments.state,
+        })
+        .from(schema.deployments)
+        .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+        .innerJoin(schema.organization, eq(schema.deployments.organizationId, schema.organization.id))
+        .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
+        .where(eq(schema.deployments.installLinkId, installLinkId))
+        .limit(1);
+      if (rows.length === 0) {
+        throw new NotFoundError('Installation not found');
+      }
+      const row = rows[0]!;
+      // Spent codes are of no use to the install page — it renders the "already
+      // set up" state instead — so stop handing the credential to anyone who
+      // replays the link out of a mailbox or browser history.
+      const alreadyInstalled = row.enrollmentUsedAt !== null;
+      const resourcesCreated = ['Application runtime'];
+      if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
+      if (row.storageRequired) resourcesCreated.push('Storage');
+      if (row.redisRequired) resourcesCreated.push('Redis cache');
+      resourcesCreated.push('Networking', 'Monitoring');
+      // The install link already identifies exactly this deployment, so its
+      // own id/state/domain are within the scope the link already grants —
+      // this is not a tenant-boundary crossing, just more detail about the
+      // one deployment the link names.
+      const domain = await findActiveDomain(db, row.deploymentId);
+      return {
+        applicationName: row.applicationName,
+        publisherName: row.publisherName,
+        customerName: row.customerName,
+        region: row.region,
+        resourcesCreated,
+        deploymentId: row.deploymentId,
+        deploymentState: row.deploymentState,
+        domain: domain ? toDomainView(domain) : null,
+        routingTarget: domain?.routingTarget ?? null,
+        // The Quick Create link is built HERE, not in the web app: only the
+        // control plane knows which template is currently published, which
+        // region this customer's deployment targets, and this deployment's
+        // single-use enrollment code. The link carries no credential — the
+        // relay's is minted by CloudFormation inside the customer's account.
+        //
+        // Spent codes get no link. The page renders its "already set up" state
+        // in that case and never follows the URL, so building one only hands
+        // the enrollment code to whoever replays the link out of a mailbox.
+        quickCreateUrl:
+          env.bootstrapTemplateUrl && !alreadyInstalled
+            ? buildBootstrapQuickCreateUrl({
+                region: row.region,
+                templateUrl: env.bootstrapTemplateUrl,
+                controlPlaneUrl: env.apiUrl,
+                enrollmentCode: row.enrollmentCode,
+              })
+            : null,
+        alreadyInstalled,
+      };
+    },
+  );
+
+  // §12/§44 the unified deployment-status derivation (apps/api/src/
+  // deployment-status.ts), scoped exactly like the route above: the
+  // install-link id, not the relay's own installation id. UNAUTHENTICATED by
+  // design, so this returns ONLY the customer projection — never relay
+  // identity, job payloads, or raw AWS/stack detail (see
+  // customerDeploymentStatusSchema in @deployz/contracts).
+  app.get(
+    '/api/install/:installLinkId/status',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { installLinkId } = request.params as { installLinkId: string };
+      requireUuidId(installLinkId);
+      const rows = await db
+        .select({
+          deployment: schema.deployments,
+          databaseRequired: schema.applications.databaseRequired,
+          storageRequired: schema.applications.storageRequired,
+          redisRequired: schema.applications.redisRequired,
+        })
+        .from(schema.deployments)
+        .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+        .where(eq(schema.deployments.installLinkId, installLinkId))
+        .limit(1);
+      if (rows.length === 0) {
+        throw new NotFoundError('Installation not found');
+      }
+      const row = rows[0]!;
+      const jobs = await db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(eq(schema.deploymentJobs.deploymentId, row.deployment.id))
+        .orderBy(schema.deploymentJobs.createdAt);
+      const domain = await findActiveDomain(db, row.deployment.id);
+      const appUrl = resolveAppUrl(jobs, domain);
+      const derived = deriveDeploymentStatus({
+        deployment: row.deployment,
+        application: row,
+        jobs,
+        domain,
+        appUrl,
+      });
+      return toCustomerDeploymentStatus(derived);
+    },
+  );
 
   // §31 application configuration surface (auth-gated). Vendor defaults are
   // customer_id NULL rows; customer overrides are scoped by ?customerId.
@@ -1809,7 +1854,50 @@ export async function buildServer({
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
       .leftJoin(schema.releases, eq(schema.deployments.currentReleaseId, schema.releases.id))
       .where(and(...conditions));
-    return { deployments: rows.map(toFleetRow) };
+
+    // Batched so the list stays one round trip per table regardless of fleet
+    // size: N per-row queries here previously would have meant N+1 queries
+    // (jobs) and another N+1 (domains) on top of the row query above.
+    const ids = rows.map((row) => row.deployment.id);
+    const jobRows =
+      ids.length > 0
+        ? await db
+            .select()
+            .from(schema.deploymentJobs)
+            .where(inArray(schema.deploymentJobs.deploymentId, ids))
+            .orderBy(schema.deploymentJobs.createdAt)
+        : [];
+    const jobsByDeployment = new Map<string, DeploymentJobRow[]>();
+    for (const job of jobRows) {
+      const list = jobsByDeployment.get(job.deploymentId);
+      if (list) {
+        list.push(job);
+      } else {
+        jobsByDeployment.set(job.deploymentId, [job]);
+      }
+    }
+    // The partial unique index on (deployment_id) WHERE removed_at IS NULL
+    // guarantees at most one row per deployment here, so no per-deployment
+    // "latest" reduction is needed the way findActiveDomain does for a
+    // single deployment.
+    const domainRows =
+      ids.length > 0
+        ? await db
+            .select()
+            .from(schema.customDomains)
+            .where(and(inArray(schema.customDomains.deploymentId, ids), isNull(schema.customDomains.removedAt)))
+        : [];
+    const domainByDeployment = new Map(domainRows.map((domain) => [domain.deploymentId, domain]));
+
+    return {
+      deployments: rows.map((row) => {
+        const jobs = jobsByDeployment.get(row.deployment.id) ?? [];
+        const domain = domainByDeployment.get(row.deployment.id) ?? null;
+        const appUrl = resolveAppUrl(jobs, domain);
+        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: row, jobs, domain, appUrl });
+        return { ...toFleetRow(row), deploymentStatus: toVendorDeploymentStatus(derived) };
+      }),
+    };
   });
 
   // GET /api/deployments/:id — Deployment detail (§24)
@@ -1847,7 +1935,20 @@ export async function buildServer({
     const domain = await findActiveDomain(db, rows[0]!.deployment.id);
     const customDomain = domain ? { hostname: domain.hostname, status: domain.status.toLowerCase() } : null;
     const appUrl = resolveAppUrl(jobs, domain);
-    return { ...toFleetRow(rows[0]!), jobs, customDomain, appUrl };
+    const derived = deriveDeploymentStatus({
+      deployment: rows[0]!.deployment,
+      application: rows[0]!,
+      jobs,
+      domain,
+      appUrl,
+    });
+    return {
+      ...toFleetRow(rows[0]!),
+      jobs,
+      customDomain,
+      appUrl,
+      deploymentStatus: toVendorDeploymentStatus(derived),
+    };
   });
 
   // ── Releases (§22) ──────────────────────────────────────────────────────
@@ -2630,22 +2731,27 @@ export async function buildServer({
   });
 
   // Customer-facing "Check now" — link-scoped like GET /api/install/:installLinkId.
-  // Read-only trigger; runDomainCheck's own interval floor is the rate limit.
-  app.post('/api/install/:installLinkId/domain/check', async (request) => {
-    const { installLinkId } = request.params as { installLinkId: string };
-    requireUuidId(installLinkId);
-    const rows = await db
-      .select()
-      .from(schema.deployments)
-      .where(eq(schema.deployments.installLinkId, installLinkId))
-      .limit(1);
-    const deployment = rows[0];
-    if (!deployment) throw new NotFoundError('Installation not found');
-    const domain = await findActiveDomain(db, deployment.id);
-    if (!domain) throw new NotFoundError('Custom domain not found');
-    const fresh = await runDomainCheck(db, deployment, domain, domainCheckDeps);
-    return { domain: toDomainView(fresh) };
-  });
+  // Read-only trigger; runDomainCheck's own interval floor plus the IP-keyed
+  // rate limit above are the two guards against hammering it.
+  app.post(
+    '/api/install/:installLinkId/domain/check',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { installLinkId } = request.params as { installLinkId: string };
+      requireUuidId(installLinkId);
+      const rows = await db
+        .select()
+        .from(schema.deployments)
+        .where(eq(schema.deployments.installLinkId, installLinkId))
+        .limit(1);
+      const deployment = rows[0];
+      if (!deployment) throw new NotFoundError('Installation not found');
+      const domain = await findActiveDomain(db, deployment.id);
+      if (!domain) throw new NotFoundError('Custom domain not found');
+      const fresh = await runDomainCheck(db, deployment, domain, domainCheckDeps);
+      return { domain: toDomainView(fresh) };
+    },
+  );
 
   // ── Events & diagnostics (§24, §29, §40) ────────────────────────────────
 
