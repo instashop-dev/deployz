@@ -16,7 +16,14 @@ const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC)\b/;
 
 async function seedInstall(
   request: APIRequestContext,
-): Promise<{ installLinkId: string; applicationName: string; publisherName: string }> {
+): Promise<{
+  installLinkId: string;
+  deploymentId: string;
+  applicationId: string;
+  customerId: string;
+  applicationName: string;
+  publisherName: string;
+}> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const email = `e2e-install-${suffix}@example.com`;
   const signUp = await request.post(`${API_URL}/api/auth/sign-up/email`, {
@@ -46,10 +53,16 @@ async function seedInstall(
     data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
   });
   expect(deploymentResponse.ok()).toBeTruthy();
-  const deployment = (await deploymentResponse.json()) as { installLinkId: string };
+  const deployment = (await deploymentResponse.json()) as {
+    id: string;
+    installLinkId: string;
+  };
 
   return {
     installLinkId: deployment.installLinkId,
+    deploymentId: deployment.id,
+    applicationId: application.id,
+    customerId: customer.id,
     applicationName: application.name,
     publisherName: `Install Vendor ${suffix}`,
   };
@@ -194,9 +207,16 @@ test('a setup link that has already been used says so instead of leading to a de
 }) => {
   const { installLinkId } = await seedInstall(request);
 
-  // Enrol a relay, which spends the single-use code.
+  // Enrol a relay, which spends the single-use code. The code travels only
+  // inside the Quick Create link (never as its own response field), so read
+  // it back out of the link the install page hands the customer. The
+  // console deep-link carries its parameters after the `#` fragment, not in
+  // the URL query — `searchParams` alone would not see them.
   const install = await request.get(`${API_URL}/api/install/${installLinkId}`);
-  const { enrollmentCode } = (await install.json()) as { enrollmentCode: string };
+  const { quickCreateUrl } = (await install.json()) as { quickCreateUrl: string };
+  expect(quickCreateUrl).not.toBeNull();
+  const fragmentQuery = new URL(quickCreateUrl).hash.split('?')[1] ?? '';
+  const enrollmentCode = new URLSearchParams(fragmentQuery).get('param_EnrollmentCode')!;
   const register = await request.post(`${API_URL}/api/relay/register`, {
     headers: { Authorization: 'Bearer relay-token-for-e2e' },
     data: { installationId: `inst-${crypto.randomUUID()}`, enrollmentCode },
@@ -204,8 +224,115 @@ test('a setup link that has already been used says so instead of leading to a de
   expect(register.ok()).toBeTruthy();
 
   await page.goto(`/install/${installLinkId}`);
-  await expect(page.getByRole('heading', { name: 'This app is already set up' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Analytics Cloud', exact: false }).first()).toBeVisible();
+  await expect(page.getByText(/Running in your cloud account/)).toBeVisible();
   // Running the setup again would fail only AFTER the customer approved a
   // stack in their own account, so the CTA must be gone, not just disabled.
   await expect(page.getByRole('link', { name: 'Deploy to AWS' })).toHaveCount(0);
+});
+
+// ── Pre-relay lifecycle: per-deployment stack names, launch signal, retry ────
+
+test('two deployments of the same application in the same region prefill different stack names', async ({
+  page,
+  request,
+}) => {
+  const seeded = await seedInstall(request);
+
+  // A second deployment of the SAME application into the SAME region — the
+  // exact collision case: a fixed bootstrap stack name would make the
+  // second install fail with "stack already exists" in one AWS account.
+  const secondDeployment = await request.post(`${API_URL}/api/deployments`, {
+    data: { applicationId: seeded.applicationId, customerId: seeded.customerId, region: 'us-east-1' },
+  });
+  expect(secondDeployment.ok()).toBeTruthy();
+  const second = (await secondDeployment.json()) as { installLinkId: string };
+
+  await page.goto(`/install/${seeded.installLinkId}`);
+  const firstHref = await page.getByRole('link', { name: 'Deploy to AWS' }).getAttribute('href');
+
+  await page.goto(`/install/${second.installLinkId}`);
+  const secondHref = await page.getByRole('link', { name: 'Deploy to AWS' }).getAttribute('href');
+
+  expect(firstHref).toContain('stackName=deployz-bootstrap-analytics-cloud-');
+  expect(secondHref).toContain('stackName=deployz-bootstrap-analytics-cloud-');
+  // The short deployment-id suffix is what keeps two installs of the same
+  // app from colliding on one fixed stack name in one AWS account.
+  expect(firstHref).not.toBe(secondHref);
+  // The prefilled name still carries no credential.
+  expect(firstHref).not.toMatch(/token|secret|credential/i);
+});
+
+test('pressing Deploy to AWS reports the launch and the page then waits for the connector', async ({
+  page,
+  request,
+}) => {
+  const { installLinkId, deploymentId } = await seedInstall(request);
+
+  // Keep the browser on the install page: the real destination is the AWS
+  // console, which the harness must not navigate to. The glob matches the
+  // region-prefixed console host (`us-east-1.console.aws.amazon.com`).
+  let launched = false;
+  await page.route('**.console.aws.amazon.com/**', async (route) => {
+    launched = true;
+    await route.abort();
+  });
+
+  await page.goto(`/install/${installLinkId}`);
+  await expect(page.getByRole('link', { name: 'Deploy to AWS' })).toBeVisible();
+  await page.getByRole('link', { name: 'Deploy to AWS' }).click();
+  await expect
+    .poll(async () => launched, { timeout: 10_000 })
+    .toBe(true);
+
+  const install = (await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) =>
+    r.json(),
+  )) as { waitingForRelay: boolean; relayStuck: boolean; deploymentState: string };
+  expect(install.waitingForRelay).toBe(true);
+  expect(install.relayStuck).toBe(false);
+  expect(install.deploymentState).toBe('WAITING_FOR_RELAY');
+
+  await page.goto(`/install/${installLinkId}`);
+  await expect(
+    page.getByText('Deployz is connecting to your AWS account…'),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open AWS CloudFormation' })).toBeVisible();
+  await expect(page.getByText(deploymentId.slice(0, 8))).toBeVisible();
+
+  // The launch signal is idempotent — reporting it again keeps the waiting
+  // state instead of starting a new attempt.
+  const relaunched = await request.post(`${API_URL}/api/install/${installLinkId}/launched`, {
+    data: {},
+  });
+  expect(relaunched.status()).toBe(200);
+});
+
+test('a customer retry starts a fresh attempt with a fresh stack name and code', async ({
+  page,
+  request,
+}) => {
+  const { installLinkId } = await seedInstall(request);
+
+  await request.post(`${API_URL}/api/install/${installLinkId}/launched`, { data: {} });
+  const before = (await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) =>
+    r.json(),
+  )) as { bootstrapStackName: string; quickCreateUrl: string | null };
+
+  const retry = await request.post(`${API_URL}/api/install/${installLinkId}/retry`, { data: {} });
+  expect(retry.status()).toBe(200);
+  const attempt = (await retry.json()) as {
+    state: string;
+    attemptNumber: number;
+    bootstrapStackName: string;
+  };
+  expect(attempt.state).toBe('NOT_INSTALLED');
+  expect(attempt.attemptNumber).toBe(1);
+  expect(attempt.bootstrapStackName).not.toBe(before.bootstrapStackName);
+  expect(attempt.bootstrapStackName).toContain('-r1');
+
+  // The install page hands the customer the fresh link, prefilled with the
+  // new stack name no leftover from the first attempt can block.
+  await page.goto(`/install/${installLinkId}`);
+  const href = await page.getByRole('link', { name: 'Deploy to AWS' }).getAttribute('href');
+  expect(href).toContain(`stackName=${encodeURIComponent(attempt.bootstrapStackName)}`);
 });
