@@ -9,6 +9,8 @@ import { z } from 'zod';
 // Enum values cite the plan sections (`.omo/plans/deployz-mvp.md`) whose
 // vocabulary they implement. Copy values verbatim from packages/db/src/enums.ts.
 
+export const PACKAGE_NAME = '@deployz/contracts';
+
 // ---------------------------------------------------------------------------
 // Enums (parity-tested against @deployz/db pgEnums)
 // ---------------------------------------------------------------------------
@@ -78,6 +80,7 @@ export const jobTypeSchema = z.enum([
   'HEALTH_CHECK',
   'CONFIGURE_DOMAIN',
   'REMOVE_DOMAIN',
+  'PURGE',
 ]);
 export type JobType = z.infer<typeof jobTypeSchema>;
 
@@ -201,6 +204,17 @@ export const customDomainStatusSchema = z.enum([
   'REMOVING',
 ]);
 export type CustomDomainStatus = z.infer<typeof customDomainStatusSchema>;
+
+export const cleanupStateSchema = z.enum(['SKIPPED_RELAY_OFFLINE', 'COMPLETE']);
+export type CleanupState = z.infer<typeof cleanupStateSchema>;
+
+/**
+ * How long a relay may stay silent (three missed five-minute polls) before it
+ * counts as DISCONNECTED. Shared by the API's liveness module and the worker's
+ * scheduled sweep — the sweep persists it, every read afterwards trusts the
+ * persisted column, so the two must agree on the threshold.
+ */
+export const RELAY_STALE_AFTER_MS = 15 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Shared column groups
@@ -350,6 +364,7 @@ export const deploymentSchema = z.object({
   isTestDeployment: z.boolean(),
   lastHealthAt: z.iso.datetime().nullable(),
   deletedAt: z.iso.datetime().nullable(),
+  cleanupState: cleanupStateSchema.nullable(),
   ...auditColumns,
 });
 export type Deployment = z.infer<typeof deploymentSchema>;
@@ -452,6 +467,17 @@ export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;
 
 /** Default CloudFormation stack name for the customer bootstrap stack. */
 export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
+
+/**
+ * How long a DESTROY job may stay pending before the dashboard offers
+ * "Complete disconnect anyway" — and the API accepts it — when the relay is
+ * persistently DISCONNECTED. The value the stuck-job watchdog historically
+ * allowed a DESTROY before failing it; the sweep now leaves DESTROY to this
+ * path instead, because a watchdog FAILED would strand the deployment with
+ * no disconnect left. Shared so the API gate and the UI prompt cannot
+ * disagree about when the escape hatch opens.
+ */
+export const DESTROY_PENDING_STALE_AFTER_MS = 60 * 60 * 1000;
 
 /**
  * CloudFormation stack name for a customer's application stack.

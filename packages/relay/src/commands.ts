@@ -2,7 +2,7 @@
  * Relay command vocabulary — the fixed set of commands the relay can execute.
  *
  * The relay is a fixed-vocabulary actor, not a general-purpose agent. It
- * understands exactly eleven command types (§39). Every command carries an
+ * understands exactly twelve command types (§39). Every command carries an
  * idempotency key; re-delivery of the same key produces the same result with
  * no side effects.
  *
@@ -20,6 +20,7 @@ export const RELAY_COMMAND_TYPES = [
   'RESTART',
   'CONFIG_UPDATE',
   'DESTROY',
+  'PURGE',
   'MIGRATE',
   'REFRESH_METADATA',
   'CONFIGURE_DOMAIN',

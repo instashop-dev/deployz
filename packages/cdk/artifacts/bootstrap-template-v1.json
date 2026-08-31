@@ -580,6 +580,19 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerCacheDescribe"
+            },
+            {
+              "Action": [
+                "s3:ListAllMyBuckets",
+                "s3:GetBucketTagging",
+                "s3:ListBucketVersions",
+                "s3:DeleteObject",
+                "s3:DeleteObjectVersion",
+                "s3:DeleteBucket"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeStorage"
             }
           ],
           "Version": "2012-10-17"
@@ -842,6 +855,19 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerCacheDescribe"
+            },
+            {
+              "Action": [
+                "s3:ListAllMyBuckets",
+                "s3:GetBucketTagging",
+                "s3:ListBucketVersions",
+                "s3:DeleteObject",
+                "s3:DeleteObjectVersion",
+                "s3:DeleteBucket"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeStorage"
             }
           ],
           "Version": "2012-10-17"
@@ -1331,7 +1357,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "26f56c044d92c1712f79523d82906a9ed08c21789bd31c656bf62eb2bf59ab60.zip"
+          "S3Key": "a51deb2c7ebe1570e212d25ae63cb6b521e755c3dd43e89c63ca1f0fc5d73b79.zip"
         },
         "Environment": {
           "Variables": {

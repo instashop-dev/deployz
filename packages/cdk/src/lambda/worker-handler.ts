@@ -20,6 +20,7 @@ import { connectDb, type LambdaDb } from './db-connection.js';
 import {
   handleMessage,
   recordBuildResult,
+  sweepRelayLiveness,
   sweepStuckBuilds,
   sweepStuckJobs,
   type CodeBuildStateChangeEvent,
@@ -159,6 +160,7 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
     }
     if (event['detail-type'] === 'Scheduled Event') {
       const failed = await sweepStuckJobs(db);
+      const relaysDisconnected = await sweepRelayLiveness(db);
       // A build-sweep failure (e.g. a CodeBuild API error) must not fail the
       // whole scheduled invoke — the job sweep above already committed, and
       // the next tick retries the build sweep anyway.
@@ -167,7 +169,12 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
         return 0;
       });
       console.log(
-        JSON.stringify({ event: 'watchdog:sweep-complete', failedJobs: failed, sweptBuilds }),
+        JSON.stringify({
+          event: 'watchdog:sweep-complete',
+          failedJobs: failed,
+          relaysDisconnected,
+          sweptBuilds,
+        }),
       );
     }
     return;

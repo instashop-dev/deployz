@@ -583,6 +583,47 @@ describe('§18 detectors', () => {
       expect(result.detected).toBe(true);
       expect(result.path).toBe('/health');
     });
+
+    it('composes a router /health mounted at /api into /api/health', () => {
+      const tree: FileTree = {
+        'src/server.ts': "import { healthRouter } from './routes/health';\napp.use('/api', healthRouter);\n",
+        'src/routes/health.ts':
+          "import { Router } from 'express';\nconst healthRouter = Router();\nhealthRouter.get('/health', (_req, res) => res.json({ ok: true }));\n",
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/health');
+    });
+
+    it('composes a nested mount chain into its full path', () => {
+      const tree: FileTree = {
+        'src/app.ts': "import { apiRouter } from './routes/api';\napp.use('/api', apiRouter);\n",
+        'src/routes/api.ts': "import { v1Router } from './v1';\napiRouter.use('/v1', v1Router);\n",
+        'src/routes/v1.ts': "v1Router.get('/health', (_req, res) => res.json({ ok: true }));\n",
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/v1/health');
+    });
+
+    it('prefers the mounted route over a stale direct /health registration', () => {
+      const tree: FileTree = {
+        'src/server.ts': "app.use('/api', healthRouter);\napp.get('/health', (_req, res) => res.json({ ok: true }));\n",
+        'src/routes/health.ts': "healthRouter.get('/health', (_req, res) => res.json({ ok: true }));\n",
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/health');
+    });
+
+    it('keeps the raw route path when the receiver has no mount anywhere', () => {
+      const tree: FileTree = {
+        'src/routes/health.ts': "healthRouter.get('/health', (_req, res) => res.json({ ok: true }));\n",
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/health');
+    });
   });
 
   // ------------------------------------------------------------------

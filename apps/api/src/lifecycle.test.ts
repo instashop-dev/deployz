@@ -8,11 +8,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
-import {
-  deriveHealthStatus,
-  deriveRelayStatus,
-  RELAY_STALE_AFTER_MS,
-} from './relay-liveness.js';
+import { deriveHealthStatus } from './relay-liveness.js';
 import { buildServer } from './server.js';
 
 // The behaviour the end-to-end test pass found missing: honest deployment
@@ -311,24 +307,6 @@ describe('duplicate guards', () => {
 });
 
 describe('relay liveness (pure)', () => {
-  const now = new Date('2026-08-24T12:00:00Z');
-
-  it('a deployment that has never checked in has an unknown relay, not a disconnected one', () => {
-    // Saying "disconnected" would send the vendor chasing a fault that does
-    // not exist — the customer simply has not run the install link yet.
-    expect(deriveRelayStatus('UNKNOWN', null, now)).toBe('UNKNOWN');
-  });
-
-  it('a recent check-in is connected', () => {
-    const recent = new Date(now.getTime() - 60_000);
-    expect(deriveRelayStatus('CONNECTED', recent, now)).toBe('CONNECTED');
-  });
-
-  it('a relay that has missed its window is disconnected', () => {
-    const stale = new Date(now.getTime() - RELAY_STALE_AFTER_MS - 1);
-    expect(deriveRelayStatus('CONNECTED', stale, now)).toBe('DISCONNECTED');
-  });
-
   it('health from a disconnected relay is unknown, whatever it last said', () => {
     // It last reported healthy, weeks ago. That is not evidence it is healthy
     // now, and billing follows this state.

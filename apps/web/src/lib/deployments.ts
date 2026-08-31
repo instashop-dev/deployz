@@ -13,6 +13,8 @@ import { apiUrl } from '@/lib/api-url';
 
 export type RelayStatus = 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
 export type HealthStatus = 'UNKNOWN' | 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
+/** A required component the verifier found no AWS resource for. */
+export type ComponentState = HealthStatus | 'NOT_PROVISIONED';
 
 /** What the installed relay can execute. Null = relay never reported
  *  capabilities (pre-capability build) — the UI treats that as nothing
@@ -26,14 +28,14 @@ export interface RelayCapabilities {
   domainManagement: boolean;
 }
 
-/** §24 the components a relay reports on. Absent = not reported, not healthy. */
+/** §24 the components a relay reports on. Absent = not required. */
 export interface HealthComponents {
-  application?: HealthStatus;
-  database?: HealthStatus;
-  storage?: HealthStatus;
-  loadBalancer?: HealthStatus;
+  application?: ComponentState;
+  database?: ComponentState;
+  storage?: ComponentState;
+  loadBalancer?: ComponentState;
   /** Present only when the application requires a managed Redis cache. */
-  redis?: HealthStatus;
+  redis?: ComponentState;
 }
 
 /**
@@ -65,6 +67,8 @@ export interface FleetDeployment {
   isTestDeployment: boolean;
   lastHealthAt: string | null;
   deletedAt: string | null;
+  /** What the control plane knows about AWS leftovers at disconnect. */
+  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'COMPLETE' | null;
   createdAt: string;
   updatedAt: string;
   createdBy: string | null;
@@ -96,6 +100,8 @@ export interface DeploymentJob {
   failureCode: string | null;
   createdAt: string;
   startedAt: string | null;
+  /** Last progress signal (relay acknowledgement, heartbeat, result). */
+  lastProgressAt: string | null;
   finishedAt: string | null;
 }
 
@@ -237,6 +243,36 @@ export function destroyDeployment(
   return postJson<JobResult>(`/api/deployments/${encodeURIComponent(deploymentId)}/destroy`, {
     finalSnapshot: finalSnapshot ?? false,
   });
+}
+
+export interface ForceCompleteResult {
+  state: string;
+  cleanupState: string;
+}
+
+/**
+ * Settle a disconnect whose relay went offline mid-delete. Control-plane
+ * only: the API refuses it unless the DESTROY has been pending past
+ * DESTROY_PENDING_STALE_AFTER_MS on a relay the sweep confirmed offline, and
+ * the deployment keeps the "resources may remain" warning afterwards.
+ */
+export function forceCompleteDisconnect(
+  deploymentId: string,
+): Promise<ForceCompleteResult> {
+  return postJson<ForceCompleteResult>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/disconnect/force-complete`,
+    {},
+  );
+}
+
+/**
+ * P2 "Permanently remove retained AWS resources" — POST
+ * /api/deployments/:id/purge. Eligible only for a force-completed
+ * deployment; the relay re-verifies ownership of every resource before
+ * deleting it, and a successful purge clears the retained-resources warning.
+ */
+export function purgeDeployment(deploymentId: string): Promise<JobResult> {
+  return postJson<JobResult>(`/api/deployments/${encodeURIComponent(deploymentId)}/purge`, {});
 }
 
 /**

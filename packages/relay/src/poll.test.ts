@@ -220,6 +220,40 @@ describe('pollOnce — command fetching', () => {
     expect(result.error).toContain('Failed to fetch commands');
     expect(result.error).toContain('Network error');
   });
+
+  it('hands the deployment meta to the observe hook before the health report', async () => {
+    const { fetchFn } = makeMockFetch({
+      commandsBody: { commands: [], deployment: { redisRequired: true } },
+    });
+    const meta: { redisRequired: boolean }[] = [];
+    const deps = makeDeps({
+      fetchFn,
+      onDeploymentMeta: (m) => meta.push(m),
+    });
+    const authState = createAuthState('inst-test', 'tok-123');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    expect(meta).toEqual([{ redisRequired: true }]);
+  });
+
+  it('ignores a deployment meta that is missing or wrongly typed', async () => {
+    const { fetchFn } = makeMockFetch({
+      commandsBody: { commands: [], deployment: { redisRequired: 'yes' } },
+    });
+    const meta: { redisRequired: boolean }[] = [];
+    const deps = makeDeps({
+      fetchFn,
+      onDeploymentMeta: (m) => meta.push(m),
+    });
+    const authState = createAuthState('inst-test', 'tok-123');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    expect(meta).toEqual([]);
+  });
 });
 
 // ── Command execution ────────────────────────────────────────────────────────

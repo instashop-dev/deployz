@@ -60,6 +60,15 @@ import {
   type StackDeleter,
 } from './destroy.js';
 import {
+  createPurgeExecutor,
+  createPurgeResumer,
+  createRealPurgeClients,
+  type CachePurgeClient,
+  type PurgeDeps,
+  type RdsPurgeClient,
+  type S3PurgeClient,
+} from './purge.js';
+import {
   createConfigUpdateExecutor,
   type EffectiveConfigEntry,
 } from './config-update.js';
@@ -96,6 +105,7 @@ import {
 } from './verify.js';
 import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
+  DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
   redisApplicationTemplateUrl,
 } from '@deployz/contracts';
 
@@ -178,6 +188,21 @@ function getStackDeleter(): StackDeleter {
     stackDeleter = createStackDeleter();
   }
   return stackDeleter;
+}
+
+// Purge clients are lazy the same way: no SDK client is constructed until a
+// PURGE command actually runs, so importing this module stays AWS-free.
+let purgeClients: { rds: RdsPurgeClient; cache: CachePurgeClient; s3: S3PurgeClient } | undefined;
+
+function getPurgeClients(installationId: string): {
+  rds: RdsPurgeClient;
+  cache: CachePurgeClient;
+  s3: S3PurgeClient;
+} {
+  if (!purgeClients) {
+    purgeClients = createRealPurgeClients(installationId);
+  }
+  return purgeClients;
 }
 
 // Lazy readers behind runtime health observation — same construct-on-first-use
@@ -937,9 +962,9 @@ export function readInstallParametersFromPayload(
  * ElastiCache cluster would pass the relay gate and only get caught later,
  * by hand, via `audit:deployment`.
  *
- * The §59 `observe` hook (wired in `createRelayHandler`) is deliberately not
- * routed through this: it runs on every poll, outside any command, so it has
- * no payload to read — its defaults stay as they are.
+ * The §59 `observe` hook (wired in `createRelayHandler`) does not read a
+ * payload — it runs on every poll, outside any command. It gets its
+ * `redisRequired` from the commands response's deployment meta instead.
  */
 export function readVerifyOptionsFromPayload(
   payload: Record<string, unknown>,
@@ -1068,6 +1093,16 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     cache: getCacheCleanupClient(),
   };
 
+  const purgeDeps: PurgeDeps = {
+    cfn: getCloudFormationReader(),
+    deleter: getStackDeleter(),
+    pending: getPendingStore(installDeps.installationId),
+    installationId: installDeps.installationId,
+    stackName: DEFAULT_STACK_NAME,
+    bootstrapStackName: DEFAULT_BOOTSTRAP_STACK_NAME,
+    ...getPurgeClients(installDeps.installationId),
+  };
+
   return {
     INSTALL: createInstallExecutor(installDeps),
     REPORT_HEALTH: noop,
@@ -1076,6 +1111,7 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     RESTART: createRestartExecutor(deployDeps),
     CONFIG_UPDATE: noop,
     DESTROY: createDestroyExecutor(destroyDeps),
+    PURGE: createPurgeExecutor(purgeDeps),
     MIGRATE: noop,
     REFRESH_METADATA: noop,
     CONFIGURE_DOMAIN: domainExecutors.CONFIGURE_DOMAIN,
@@ -1137,6 +1173,13 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   const installDeps = createDefaultInstallDeps(process.env['DEPLOYZ_INSTALLATION_ID'] ?? '');
   const executors = deps.executors ?? createDefaultExecutors(installDeps);
   const idempotency = deps.idempotency ?? new IdempotencyStore();
+
+  // Deployment facts the commands response refreshes every poll. The §59
+  // observe hook runs outside any command, so the poll response is the only
+  // channel that can tell it whether the installation should include a
+  // cache — without this, a redis-required deployment's heartbeats verify
+  // against the cache-less expectation and never report the cache check.
+  const deploymentMeta: { redisRequired: boolean } = { redisRequired: false };
 
   // Auth state persists across invocations within the same warm Lambda
   // container. On cold start it's re-created from Secrets Manager.
@@ -1217,7 +1260,12 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       idempotency,
       observe:
         deps.observe ??
-        (() => verifyInstallation({ cfn: getCloudFormationReader(), installationId })),
+        (() =>
+          verifyInstallation({
+            cfn: getCloudFormationReader(),
+            installationId,
+            ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
+          })),
       // One pending store, several resumers: each settles only its own
       // command type, so composing them is safe.
       resume:
@@ -1229,7 +1277,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             deployResumerDeps(installDeps.installationId),
           )();
           if (deployResults.length > 0) return deployResults;
-          return createDestroyResumer({
+          const destroyResults = await createDestroyResumer({
             cfn: getCloudFormationReader(),
             deleter: getStackDeleter(),
             pending: getPendingStore(installationId),
@@ -1237,6 +1285,16 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             stackName: DEFAULT_STACK_NAME,
             rds: getRdsCleanupClient(),
             cache: getCacheCleanupClient(),
+          })();
+          if (destroyResults.length > 0) return destroyResults;
+          return createPurgeResumer({
+            cfn: getCloudFormationReader(),
+            deleter: getStackDeleter(),
+            pending: getPendingStore(installationId),
+            installationId,
+            stackName: DEFAULT_STACK_NAME,
+            bootstrapStackName: DEFAULT_BOOTSTRAP_STACK_NAME,
+            ...getPurgeClients(installationId),
           })();
         }),
       identity: deps.identity ?? readRelayIdentity(context),
@@ -1262,6 +1320,9 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             },
             DEFAULT_STACK_NAME,
           )),
+      onDeploymentMeta: (meta) => {
+        deploymentMeta.redisRequired = meta.redisRequired;
+      },
     };
 
     const result = await pollOnce(pollDeps, authState);

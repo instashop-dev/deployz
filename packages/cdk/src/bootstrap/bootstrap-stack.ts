@@ -217,6 +217,26 @@ const PHASE_2_RELAY_STATE_ACTIONS = [
 ] as const;
 
 /**
+ * Phase 2 — PURGE retained-resource sweep (S3).
+ *
+ * S3 bucket/object actions do not honour `aws:ResourceTag` (the same
+ * finding PROVISION_STORAGE_ACTIONS documents for the execution role), so
+ * these cannot be tag-scoped at IAM. Containment is code-side: the purge
+ * executor verifies `deployz:installation` via GetBucketTagging before
+ * touching any bucket, and refuses — never deletes — anything whose tags
+ * are unreadable or mismatched. ListAllMyBuckets is account-level,
+ * read-only discovery for that verification.
+ */
+const PHASE_2_PURGE_STORAGE_ACTIONS = [
+  's3:ListAllMyBuckets',
+  's3:GetBucketTagging',
+  's3:ListBucketVersions',
+  's3:DeleteObject',
+  's3:DeleteObjectVersion',
+  's3:DeleteBucket',
+] as const;
+
+/**
  * Phase 4 — task-level reads behind runtime observation and deploy
  * idempotence. Task and task-definition ARNs carry no usable tag condition,
  * so these stay condition-free like the Describe* precedents above.
@@ -796,6 +816,17 @@ export class BootstrapStack extends Stack {
       ],
     });
 
+    // Phase 2 — PURGE's S3 sweep. Bucket actions cannot honour
+    // aws:ResourceTag, so the statement is condition-free; the purge
+    // executor verifies ownership per bucket via GetBucketTagging and
+    // refuses anything that does not carry this installation's tag.
+    const phase2PurgeStorage = new PolicyStatement({
+      sid: 'RelayPurgeStorage',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_PURGE_STORAGE_ACTIONS],
+      resources: ['*'],
+    });
+
     // Phase 4 — deploy/rollback/restart. ListTasks/DescribeTasks/
     // DescribeTaskDefinition carry no usable tag condition (see the const);
     // RegisterTaskDefinition is bounded by the installation request tag the
@@ -866,6 +897,7 @@ export class BootstrapStack extends Stack {
       phase4DeployPassRole,
       phase2CacheManage,
       phase2CacheDescribe,
+      phase2PurgeStorage,
     ];
 
     // The permissions boundary is the CEILING for the relay role: the union of

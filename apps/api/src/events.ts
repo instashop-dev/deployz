@@ -35,6 +35,9 @@ export type DeploymentEventType =
   | 'destroy.requested'
   | 'destroy.completed'
   | 'destroy.failed'
+  // Control-plane-only completion of a disconnect whose relay went offline:
+  // AWS resources were NOT verified or removed (see cleanupState).
+  | 'destroy.force_completed'
   // Runtime observation corrected the release pointer (never a deploy claim).
   | 'deployment.reconciled'
   // A healthy heartbeat cleared a stale FAILED on an installed deployment.
@@ -53,7 +56,12 @@ export type DeploymentEventType =
   | 'domain.added'
   | 'domain.activated'
   | 'domain.failed'
-  | 'domain.removed';
+  | 'domain.removed'
+  // purge family — explicit removal of retained AWS resources on an
+  // already-disconnected deployment.
+  | 'purge.requested'
+  | 'purge.completed'
+  | 'purge.failed';
 
 export interface DeploymentEvent {
   readonly organizationId: string;

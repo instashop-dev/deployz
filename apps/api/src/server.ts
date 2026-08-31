@@ -17,6 +17,7 @@ import {
   type StructuredEvent,
 } from '@deployz/analysis';
 import {
+  DESTROY_PENDING_STALE_AFTER_MS,
   buildBootstrapQuickCreateUrl,
   failureCodeSchema,
   healthComponentsSchema,
@@ -113,7 +114,7 @@ import {
   toDomainView,
   type CustomDomainRow,
 } from './domains.js';
-import { deriveHealthStatus, deriveRelayStatus } from './relay-liveness.js';
+import { deriveHealthStatus } from './relay-liveness.js';
 import {
   hashRelayToken,
   mintEnrollmentCode,
@@ -500,38 +501,68 @@ function maskAwsAccountId(awsAccountId: string | null): string | null {
   return `${awsAccountId.slice(0, 4)}${'•'.repeat(awsAccountId.length - 4)}`;
 }
 
-// §23/§24 fleet row shape: the raw deployments row plus the display fields
-// the UI needs (customer/application name, current version) that only exist
-// via a join.
-function toFleetRow(row: {
-  deployment: DeploymentRow;
-  customerName: string;
-  applicationName: string;
-  version: string | null;
-  /** Whether the application requires a managed Redis cache. */
-  redisRequired?: boolean | null;
-}) {
-  // §28 liveness and health are derived here, not read raw, so every screen
-  // that renders a deployment agrees about whether the relay is still there.
-  const relayStatus = deriveRelayStatus(
-    row.deployment.relayStatus,
-    row.deployment.lastHealthAt,
-    new Date(),
-  );
-  // §24 per-component health, reported by the relay. Absent until it has
-  // reported at least once — the detail page renders nothing rather than
-  // inventing four healthy rows out of one column default.
-  const observedComponents = (row.deployment.observedState as { components?: Record<string, unknown> } | null)
-    ?.components;
-  // Redis is the one component the API itself knows to expect (from the
-  // application's `redisRequired`, not just what the relay happened to
-  // report) — mirroring `database`'s always-present-when-required shape, but
-  // synthesized here rather than merely passed through, since a redis-
-  // requiring deployment that has never reported health would otherwise omit
-  // the row entirely instead of showing it as unknown.
-  const components = row.redisRequired
-    ? { ...(observedComponents ?? {}), redis: (observedComponents?.['redis'] as string | undefined) ?? 'UNKNOWN' }
-    : (observedComponents ?? null);
+  // §23/§24 fleet row shape: the raw deployments row plus the display fields
+  // the UI needs (customer/application name, current version) that only exist
+  // via a join.
+  function toFleetRow(row: {
+    deployment: DeploymentRow;
+    customerName: string;
+    applicationName: string;
+    version: string | null;
+    /** Whether the application requires a managed database. */
+    databaseRequired?: boolean | null;
+    /** Whether the application requires object storage. */
+    storageRequired?: boolean | null;
+    /** Whether the application requires a managed Redis cache. */
+    redisRequired?: boolean | null;
+  }) {
+    // §28 liveness is the persisted column: the heartbeat writes CONNECTED,
+    // the worker's scheduled sweep writes DISCONNECTED — every screen that
+    // renders a deployment reads the same value with no per-read derivation
+    // that could disagree with what the sweep last persisted.
+    const relayStatus = row.deployment.relayStatus;
+  // §24 per-component state. The relay's verification checks say what
+  // SHOULD exist (observedState.infraHealth.checks); its heartbeat says what
+  // is OBSERVED (observedState.components). Combining the two is what lets
+  // the dashboard say "Not provisioned" (required, verification found
+  // nothing) instead of "Not reporting" (no observation at all):
+  //   reported          → that state (HEALTHY/DEGRADED/UNHEALTHY/UNKNOWN)
+  //   check says absent → NOT_PROVISIONED
+  //   otherwise         → UNKNOWN when required, omitted when not
+  const observed = row.deployment.observedState as
+    | {
+        components?: Record<string, unknown>;
+        infraHealth?: { checks?: { name?: string; passed?: boolean }[] };
+      }
+    | null
+    | undefined;
+  const components: Record<string, string> = {};
+  for (const [key, value] of Object.entries(observed?.components ?? {})) {
+    if (typeof value === 'string') components[key] = value;
+  }
+  const infraChecks = observed?.infraHealth?.checks ?? [];
+  const componentRequirements: Record<string, boolean> = {
+    application: true,
+    loadBalancer: true,
+    database: row.databaseRequired ?? false,
+    storage: row.storageRequired ?? false,
+    redis: row.redisRequired ?? false,
+  };
+  const verifyCheckByComponent: Record<string, string> = {
+    application: 'compute',
+    loadBalancer: 'ingress',
+    database: 'database',
+    storage: 'storage',
+    redis: 'cache',
+  };
+  for (const [key, required] of Object.entries(componentRequirements)) {
+    if (components[key] !== undefined) continue;
+    if (!required) continue;
+    const check = infraChecks.find((candidate) => candidate.name === verifyCheckByComponent[key]);
+    components[key] = check?.passed === false ? 'NOT_PROVISIONED' : 'UNKNOWN';
+  }
+  const hasComponentState = Object.keys(components).length > 0;
+  const componentView = hasComponentState ? components : null;
   // Relay enrollment material never crosses into a dashboard response: the
   // enrollment code re-opens enrollment and the token hash is a credential.
   const { enrollmentCode: _enrollmentCode, relayTokenHash: _relayTokenHash, ...deployment } = row.deployment;
@@ -540,7 +571,7 @@ function toFleetRow(row: {
     awsAccountId: maskAwsAccountId(row.deployment.awsAccountId),
     relayStatus,
     healthStatus: deriveHealthStatus(row.deployment.healthStatus, relayStatus),
-    components,
+    components: componentView,
     // The digest the relay last observed running in ECS, raw. Null when the
     // relay could not observe it — never a guess from the release pointer.
     runningImageDigest:
@@ -754,9 +785,9 @@ const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
 const RELEASE_ADVANCING_JOBS = new Set<JobType>(['DEPLOY_RELEASE', 'ROLLBACK']);
 
 /** §40 event type per job outcome. Job types with no vendor-visible event are absent. */
-const JOB_RESULT_EVENT: Partial<
-  Record<JobType, { completed: DeploymentEventType; failed: DeploymentEventType }>
-> = {
+  const JOB_RESULT_EVENT: Partial<
+    Record<JobType, { completed: DeploymentEventType; failed: DeploymentEventType }>
+  > = {
   INSTALL: { completed: 'install.completed', failed: 'install.failed' },
   DEPLOY_RELEASE: { completed: 'deploy.completed', failed: 'deploy.failed' },
   ROLLBACK: { completed: 'rollback.completed', failed: 'rollback.failed' },
@@ -765,6 +796,7 @@ const JOB_RESULT_EVENT: Partial<
   // Without these, a CONFIG_UPDATE result vanished: the job row held the
   // relay's error but nothing reached the activity feed (verified live).
   CONFIG_UPDATE: { completed: 'config.updated', failed: 'config.failed' },
+  PURGE: { completed: 'purge.completed', failed: 'purge.failed' },
 };
 
 // Control-plane surface: /health, /api/me, /api/auth/*.
@@ -829,6 +861,10 @@ export async function buildServer({
   });
 
   app.get('/health', () => ({ ok: true }));
+
+  // Stable, minimal readiness probe for external monitors: no internal or
+  // customer detail crosses this boundary — reachability is the whole answer.
+  app.get('/api/health', () => ({ status: 'ok' }));
 
   // Webhook signature verification (Stripe + GitHub) needs the RAW body, so
   // register a raw-json parser for those routes before the JSON parser
@@ -1764,6 +1800,8 @@ export async function buildServer({
         customerName: schema.customers.name,
         applicationName: schema.applications.name,
         version: schema.releases.version,
+        databaseRequired: schema.applications.databaseRequired,
+        storageRequired: schema.applications.storageRequired,
         redisRequired: schema.applications.redisRequired,
       })
       .from(schema.deployments)
@@ -1785,6 +1823,8 @@ export async function buildServer({
         customerName: schema.customers.name,
         applicationName: schema.applications.name,
         version: schema.releases.version,
+        databaseRequired: schema.applications.databaseRequired,
+        storageRequired: schema.applications.storageRequired,
         redisRequired: schema.applications.redisRequired,
       })
       .from(schema.deployments)
@@ -2219,6 +2259,166 @@ export async function buildServer({
       await removeCustomDomain(db, deployment, activeDomain);
     }
 
+    return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
+  });
+
+  // POST /api/deployments/:id/disconnect/force-complete — settle a DESTROY
+  // whose relay went offline mid-delete.
+  //
+  // This completes the CONTROL-PLANE disconnect only. It never claims the
+  // customer's AWS resources were removed: cleanupState records
+  // SKIPPED_RELAY_OFFLINE, the warning stays visible until a PURGE runs, and
+  // the stuck DESTROY job is cancelled rather than failed so the deployment
+  // does not land in FAILED with no way out.
+  app.post(
+    '/api/deployments/:id/disconnect/force-complete',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      requireUuidId(id);
+      const organizationId = requireSessionOrganizationId(request);
+      const deployment = await loadOwnedDeployment(db, id, organizationId);
+
+      if (deployment.state !== 'DELETING') {
+        throw new ApiError(
+          409,
+          'NOT_DELETING',
+          'Only a disconnect that is still in progress can be completed this way.',
+        );
+      }
+      // Persisted liveness is the gate: the worker sweep only writes
+      // DISCONNECTED after the relay missed its check-in window, so this
+      // cannot fire on a relay that is merely between polls.
+      if (deployment.relayStatus !== 'DISCONNECTED') {
+        throw new ApiError(
+          409,
+          'RELAY_NOT_OFFLINE',
+          'The relay for this deployment is not confirmed offline.',
+        );
+      }
+
+      const pendingDestroy = await db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            eq(schema.deploymentJobs.type, 'DESTROY'),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+          ),
+        )
+        .orderBy(desc(schema.deploymentJobs.createdAt))
+        .limit(1);
+      const job = pendingDestroy[0];
+      if (!job) {
+        throw new ApiError(409, 'NO_PENDING_DESTROY', 'No disconnect is waiting on this deployment.');
+      }
+      const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
+      const pendingMs = Date.now() - lastSignal.getTime();
+      if (pendingMs < DESTROY_PENDING_STALE_AFTER_MS) {
+        throw new ApiError(
+          409,
+          'DESTROY_NOT_STALE',
+          'The disconnect has not been pending long enough to complete it this way.',
+        );
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.deploymentJobs)
+          .set({
+            state: 'CANCELLED',
+            finishedAt: new Date(),
+            result: { forceCompleted: true, reason: 'RELAY_OFFLINE' },
+          })
+          .where(eq(schema.deploymentJobs.id, job.id));
+        await tx
+          .update(schema.deployments)
+          .set({
+            state: 'DELETED',
+            deletedAt: new Date(),
+            cleanupState: 'SKIPPED_RELAY_OFFLINE',
+            updatedBy: request.user?.id ?? null,
+          })
+          .where(eq(schema.deployments.id, deployment.id));
+        // Same safety net as a DESTROY success: the row must not linger as a
+        // phantom "removing" domain for a deployment that no longer exists.
+        const danglingDomain = await findActiveDomain(tx, deployment.id);
+        if (danglingDomain) {
+          await tx
+            .update(schema.customDomains)
+            .set({ removedAt: new Date() })
+            .where(eq(schema.customDomains.id, danglingDomain.id));
+        }
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'destroy.force_completed',
+          actorType: 'user',
+          actorId: request.user?.id ?? 'system',
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          jobId: job.id,
+          previousState: deployment.state,
+          requestedState: 'DELETED',
+          result: 'success',
+          payload: {
+            relayStatus: 'DISCONNECTED',
+            pendingMs,
+            awsResourcesRemoved: false,
+            cleanupState: 'SKIPPED_RELAY_OFFLINE',
+          },
+        });
+      });
+
+      return { state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE' as const };
+    },
+  );
+
+  // POST /api/deployments/:id/purge — Permanently remove retained AWS
+  // resources (P2). Only a force-completed disconnect can carry leftovers:
+  // a normal disconnect removed its resources via the relay. The vendor
+  // typed the deployment name in the dashboard to confirm; the relay
+  // re-verifies ownership of every resource before deleting it.
+  app.post('/api/deployments/:id/purge', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+
+    if (deployment.state !== 'DELETED' || deployment.cleanupState !== 'SKIPPED_RELAY_OFFLINE') {
+      throw new ApiError(
+        409,
+        'NOT_PURGE_ELIGIBLE',
+        'Only a disconnected deployment with retained resources can be purged.',
+      );
+    }
+    // One mutating operation per deployment: a purge already in flight must
+    // not be joined by another.
+    const idempotencyKey =
+      firstHeaderValue(request.headers['idempotency-key']) ??
+      (await retryAwareIdempotencyKey(db, deployment.id, 'PURGE', `${deployment.id}:PURGE`));
+    await requireDeploymentIdle(db, deployment.id, idempotencyKey);
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'PURGE',
+      idempotencyKey,
+      payload: {},
+      requestedBy: request.user?.id ?? null,
+    });
+    if (created) {
+      await recordEvent(db, {
+        organizationId: deployment.organizationId,
+        eventType: 'purge.requested',
+        actorType: 'user',
+        actorId: request.user?.id ?? 'system',
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        jobId: job.id,
+        previousState: deployment.state,
+        result: 'pending',
+        payload: {},
+      });
+    }
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
@@ -2996,6 +3196,15 @@ export async function buildServer({
         );
     }
 
+    // Deployment facts the observe hook needs but no command carries: the
+    // heartbeat runs outside any command, so this poll response is the only
+    // channel that reaches it.
+    const appRows = await db
+      .select({ redisRequired: schema.applications.redisRequired })
+      .from(schema.applications)
+      .where(eq(schema.applications.id, deployment.applicationId))
+      .limit(1);
+
     return {
       commands: jobs.map((job) => ({
         id: job.id,
@@ -3004,6 +3213,7 @@ export async function buildServer({
         idempotencyKey: job.idempotencyKey,
         payload: job.payload,
       })),
+      deployment: { redisRequired: appRows[0]?.redisRequired ?? false },
     };
   });
 
@@ -3103,6 +3313,16 @@ export async function buildServer({
             .set({ removedAt: new Date() })
             .where(eq(schema.customDomains.id, danglingDomain.id));
         }
+      }
+
+      // A successful PURGE is what clears the retained-resources warning:
+      // the relay verified and removed every owned leftover. The deployment
+      // state itself never moves — it was already DELETED.
+      if (job.type === 'PURGE' && state === 'SUCCEEDED') {
+        await tx
+          .update(schema.deployments)
+          .set({ cleanupState: 'COMPLETE' })
+          .where(eq(schema.deployments.id, deployment.id));
       }
 
       const eventType = JOB_RESULT_EVENT[job.type]?.[state === 'FAILED' ? 'failed' : 'completed'];

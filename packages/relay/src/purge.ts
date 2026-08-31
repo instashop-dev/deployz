@@ -1,0 +1,490 @@
+/**
+ * PURGE executor — permanently remove retained AWS resources.
+ *
+ * The destructive counterpart to Disconnect (Phase 6 boundary): Disconnect
+ * removes the running application while RETAINING the database, stored
+ * files, and backups; PURGE removes those retained leftovers too, plus the
+ * bootstrap/relay stack itself. It only ever runs for a deployment whose
+ * vendor typed its name to confirm, and only after the control plane
+ * accepted the request (deployment already DELETED with
+ * SKIPPED_RELAY_OFFLINE leftovers).
+ *
+ * Safety: every resource is touched only after it verifies as THIS
+ * installation's — the application and bootstrap stacks by their
+ * `deployz:installation` stack tag, orphaned RDS/ElastiCache/S3 resources by
+ * their resource tags. An untagged or mismatched resource is refused, never
+ * deleted; the ownership check lives inside the clients (`listOwned*`
+ * returns only verified resources) and the stack checks here.
+ *
+ * Idempotent by construction: a pass only deletes what a fresh read shows
+ * still present, and a resource already deleting is waited on, not
+ * re-deleted. Retries and resumptions converge to the same end state.
+ */
+
+import {
+  DescribeReplicationGroupsCommand,
+  ElastiCacheClient,
+  ListTagsForResourceCommand,
+} from '@aws-sdk/client-elasticache';
+import {
+  DescribeDBInstancesCommand,
+  ListTagsForResourceCommand as ListRdsTagsCommand,
+  RDSClient,
+} from '@aws-sdk/client-rds';
+import {
+  DeleteBucketCommand,
+  DeleteObjectsCommand,
+  GetBucketTaggingCommand,
+  ListBucketsCommand,
+  ListObjectVersionsCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
+
+import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
+import type { PendingStore } from './pending.js';
+import {
+  clearDeleteBlockersAndRetryDelete,
+  createRealCacheCleanupClient,
+  createRealRdsCleanupClient,
+  type CacheCleanupClient,
+  type RdsCleanupClient,
+  type WaitOptions,
+} from './recover.js';
+import type { CloudFormationReader } from './verify.js';
+import type { StackDeleter } from './destroy.js';
+
+/** RDS resources this installation owns, plus the deletion surface. */
+export interface RdsPurgeClient extends RdsCleanupClient {
+  /** Owned (tag-verified) instances only; anything else is omitted, not attempted. */
+  listOwnedInstances(): Promise<{ identifier: string; status: string }[]>;
+}
+
+/** ElastiCache resources this installation owns, plus the deletion surface. */
+export interface CachePurgeClient extends CacheCleanupClient {
+  /** Owned (tag-verified) replication groups only. */
+  listOwnedReplicationGroups(): Promise<{ identifier: string; status: string }[]>;
+}
+
+/**
+ * S3 resources this installation owns. Buckets cannot be tag-scoped at IAM,
+ * so ownership is verified in code (GetBucketTagging) and only verified
+ * buckets are ever returned or touched.
+ */
+export interface S3PurgeClient {
+  /** Owned (tag-verified) bucket names only. */
+  listOwnedBuckets(): Promise<string[]>;
+  /** Removes every object version and delete marker; a no-op on an empty bucket. */
+  emptyBucket(bucketName: string): Promise<void>;
+  deleteBucket(bucketName: string): Promise<void>;
+}
+
+export interface PurgeDeps {
+  readonly cfn: CloudFormationReader;
+  readonly deleter: StackDeleter;
+  readonly pending: PendingStore;
+  readonly installationId: string;
+  readonly stackName: string;
+  readonly bootstrapStackName: string;
+  readonly rds: RdsPurgeClient;
+  readonly cache: CachePurgeClient;
+  readonly s3: S3PurgeClient;
+  readonly now?: () => string;
+  readonly wait?: WaitOptions;
+}
+
+type PurgeOutcome =
+  | { readonly state: 'succeeded' }
+  | { readonly state: 'failed'; readonly reason: string }
+  | { readonly state: 'purging' };
+
+const INSTALLATION_TAG = 'deployz:installation';
+
+/**
+ * Runs the purge to whatever conclusion is available right now. Reads
+ * before writes, one phase at a time: application stack first, then the
+ * owned orphans it left behind, then the bootstrap/relay stack LAST — the
+ * relay deletes its own home, so nothing may follow that call.
+ */
+export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
+  // Phase 1 — the application stack. Deleting it enforces the template's
+  // per-resource policies; the retained RDS/S3/cache leftovers are swept in
+  // the next phase, after the stack is gone.
+  const lookup = await deps.cfn.describeStack(deps.stackName);
+  if (lookup.found) {
+    if (lookup.stack.tags[INSTALLATION_TAG] !== deps.installationId) {
+      return {
+        state: 'failed',
+        reason: `Stack "${deps.stackName}" does not carry this installation's tag — refusing to purge`,
+      };
+    }
+    const status = lookup.stack.status;
+    if (status === 'DELETE_IN_PROGRESS') {
+      return { state: 'purging' };
+    }
+    if (status === 'DELETE_FAILED') {
+      // PURGE is the explicitly authorized data-deletion path: clear the
+      // retained RDS/ElastiCache blockers outright and retry the delete.
+      const cleared = await clearDeleteBlockersAndRetryDelete(
+        {
+          cfn: {
+            describeStack: (name) => deps.cfn.describeStack(name),
+            describeStackResources: async (name) =>
+              (await deps.cfn.describeStackResources(name)).flatMap((r) =>
+                r.physicalId ? [{ ...r, physicalId: r.physicalId }] : [],
+              ),
+            deleteStack: (name) => deps.deleter.deleteStack(name),
+          },
+          ...(deps.rds !== undefined ? { rds: deps.rds } : {}),
+          ...(deps.cache !== undefined ? { cache: deps.cache } : {}),
+          ...(deps.wait !== undefined ? { wait: deps.wait } : {}),
+        },
+        deps.stackName,
+      );
+      if (cleared.phase === 'DELETE_IN_PROGRESS') return { state: 'purging' };
+      if (cleared.phase !== 'STACK_DELETED') {
+        const blocked =
+          cleared.blockedResources.length > 0
+            ? ` Still blocked by: ${cleared.blockedResources.join(', ')}.`
+            : '';
+        return {
+          state: 'failed',
+          reason:
+            `Stack "${deps.stackName}" deletion previously failed (DELETE_FAILED); ` +
+            `clearing known orphans (${cleared.orphansDeleted.length} cleared) did not unblock it.${blocked}`,
+        };
+      }
+    } else {
+      await deps.deleter.deleteStack(deps.stackName);
+      return { state: 'purging' };
+    }
+  }
+
+  // Phase 2 — owned orphans. The stack is gone, so ownership is verifiable
+  // only by resource tags. Each sub-phase initiates its deletions and then
+  // waits (deferred) for a later pass to see them gone before moving on.
+  const instances = await deps.rds.listOwnedInstances();
+  if (instances.length > 0) {
+    for (const instance of instances) {
+      if (instance.status === 'deleting') continue;
+      await deps.rds.disableDeletionProtection(instance.identifier);
+      await deps.rds.deleteInstance(instance.identifier);
+    }
+    return { state: 'purging' };
+  }
+
+  const groups = await deps.cache.listOwnedReplicationGroups();
+  if (groups.length > 0) {
+    for (const group of groups) {
+      if (group.status === 'deleting') continue;
+      await deps.cache.deleteReplicationGroup(group.identifier);
+    }
+    return { state: 'purging' };
+  }
+
+  const buckets = await deps.s3.listOwnedBuckets();
+  if (buckets.length > 0) {
+    for (const bucket of buckets) {
+      await deps.s3.emptyBucket(bucket);
+      await deps.s3.deleteBucket(bucket);
+    }
+    return { state: 'purging' };
+  }
+
+  // Phase 3 — the bootstrap/relay stack, LAST by design. Initiated, not
+  // awaited: the teardown takes minutes while the result of this very
+  // command is reported sub-second after the executor returns, and the
+  // relay cannot outlive its own stack to watch it go.
+  const bootstrap = await deps.cfn.describeStack(deps.bootstrapStackName);
+  if (bootstrap.found) {
+    if (bootstrap.stack.tags[INSTALLATION_TAG] !== deps.installationId) {
+      return {
+        state: 'failed',
+        reason:
+          `Bootstrap stack "${deps.bootstrapStackName}" does not carry this installation's tag — ` +
+          'resources purged, but the bootstrap stack must be removed manually',
+      };
+    }
+    if (bootstrap.stack.status !== 'DELETE_IN_PROGRESS') {
+      await deps.deleter.deleteStack(deps.bootstrapStackName);
+    }
+  }
+
+  return { state: 'succeeded' };
+}
+
+function result(
+  command: RelayCommand,
+  success: boolean,
+  extra: { output?: Record<string, unknown>; error?: string; failureCode?: string } = {},
+): RelayCommandResult {
+  return {
+    commandId: command.id,
+    idempotencyKey: command.idempotencyKey,
+    success,
+    ...extra,
+  };
+}
+
+export function createPurgeExecutor(deps: PurgeDeps): CommandExecutor {
+  return async (command) => {
+    console.log(
+      JSON.stringify({
+        event: 'relay:command-executed',
+        commandId: command.id,
+        type: command.type,
+        deploymentId: command.deploymentId,
+        idempotencyKey: command.idempotencyKey,
+      }),
+    );
+
+    let outcome: PurgeOutcome;
+    try {
+      outcome = await settlePurge(deps);
+    } catch (err) {
+      return result(command, false, {
+        error: String(err),
+        failureCode: 'AWS_PERMISSION_DENIED',
+      });
+    }
+
+    if (outcome.state === 'failed') {
+      console.log(
+        JSON.stringify({
+          event: 'relay:command-failed',
+          commandId: command.id,
+          type: command.type,
+          reason: outcome.reason,
+        }),
+      );
+      return result(command, false, {
+        error: outcome.reason,
+        failureCode: 'STACK_DELETE_FAILED',
+      });
+    }
+
+    if (outcome.state === 'succeeded') {
+      console.log(
+        JSON.stringify({
+          event: 'relay:command-succeeded',
+          commandId: command.id,
+          type: command.type,
+        }),
+      );
+      return result(command, true, {
+        output: { executed: true, type: command.type, purged: true },
+      });
+    }
+
+    // Deletions are in flight and will outlive this invocation — record the
+    // debt so the resumer picks it up on a later poll.
+    const recorded = await deps.pending.write({
+      commandId: command.id,
+      idempotencyKey: command.idempotencyKey,
+      type: command.type,
+      stackName: deps.stackName,
+      startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+      payload: command.payload,
+    });
+    if (!recorded) {
+      return result(command, false, {
+        error: 'Purge in progress, but the relay could not record that it must report back',
+      });
+    }
+
+    console.log(
+      JSON.stringify({
+        event: 'relay:command-deferred',
+        commandId: command.id,
+        type: command.type,
+        stackName: deps.stackName,
+      }),
+    );
+    return {
+      commandId: command.id,
+      idempotencyKey: command.idempotencyKey,
+      success: false,
+      deferred: true,
+    };
+  };
+}
+
+/** The other half: finish a purge an earlier invocation started. */
+export function createPurgeResumer(deps: PurgeDeps): () => Promise<RelayCommandResult[]> {
+  return async () => {
+    const pending = await deps.pending.read();
+    if (pending === null || pending.type !== 'PURGE') return [];
+
+    const outcome = await settlePurge(deps);
+    if (outcome.state === 'purging') {
+      console.log(
+        JSON.stringify({
+          event: 'relay:command-still-pending',
+          commandId: pending.commandId,
+          type: pending.type,
+          startedAt: pending.startedAt,
+        }),
+      );
+      return [];
+    }
+
+    await deps.pending.clear();
+    console.log(
+      JSON.stringify({
+        event: 'relay:command-resumed',
+        commandId: pending.commandId,
+        type: pending.type,
+        success: outcome.state === 'succeeded',
+        startedAt: pending.startedAt,
+      }),
+    );
+    return [
+      outcome.state === 'succeeded'
+        ? {
+            commandId: pending.commandId,
+            idempotencyKey: pending.idempotencyKey,
+            success: true,
+            output: { executed: true, type: pending.type, purged: true },
+          }
+        : {
+            commandId: pending.commandId,
+            idempotencyKey: pending.idempotencyKey,
+            success: false,
+            error: outcome.reason,
+            failureCode: 'STACK_DELETE_FAILED',
+          },
+    ];
+  };
+}
+
+// ── Real AWS clients ───────────────────────────────────────────────────────
+
+/**
+ * Production purge clients. Ownership filtering happens HERE, not in the
+ * executor: every `listOwned*` call verifies the `deployz:installation` tag
+ * and returns only this installation's resources — a resource whose tags
+ * are unreadable or mismatched is omitted, never attempted.
+ */
+export function createRealPurgeClients(installationId: string): {
+  rds: RdsPurgeClient;
+  cache: CachePurgeClient;
+  s3: S3PurgeClient;
+} {
+  const rdsBase = createRealRdsCleanupClient();
+  const rds = new RDSClient({});
+  const cacheBase = createRealCacheCleanupClient();
+  const elasticache = new ElastiCacheClient({});
+  const s3 = new S3Client({});
+  const owns = (
+    tags: readonly { readonly Key?: string | undefined; readonly Value?: string | undefined }[],
+  ) => tags.some((tag) => tag.Key === INSTALLATION_TAG && tag.Value === installationId);
+
+  return {
+    rds: {
+      ...rdsBase,
+      async listOwnedInstances() {
+        const response = await rds.send(new DescribeDBInstancesCommand({}));
+        const owned: { identifier: string; status: string }[] = [];
+        for (const instance of response.DBInstances ?? []) {
+          if (!instance.DBInstanceIdentifier || !instance.DBInstanceArn) continue;
+          try {
+            const tags = await rds.send(
+              new ListRdsTagsCommand({ ResourceName: instance.DBInstanceArn }),
+            );
+            if (owns(tags.TagList ?? [])) {
+              owned.push({
+                identifier: instance.DBInstanceIdentifier,
+                status: instance.DBInstanceStatus ?? '',
+              });
+            }
+          } catch {
+            // Unreadable tags are not verifiably ours — omitted.
+          }
+        }
+        return owned;
+      },
+    },
+    cache: {
+      ...cacheBase,
+      async listOwnedReplicationGroups() {
+        const response = await elasticache.send(new DescribeReplicationGroupsCommand({}));
+        const owned: { identifier: string; status: string }[] = [];
+        for (const group of response.ReplicationGroups ?? []) {
+          if (!group.ReplicationGroupId || !group.ARN) continue;
+          try {
+            const tags = await elasticache.send(
+              new ListTagsForResourceCommand({ ResourceName: group.ARN }),
+            );
+            if (owns(tags.TagList ?? [])) {
+              owned.push({ identifier: group.ReplicationGroupId, status: group.Status ?? '' });
+            }
+          } catch {
+            // Unreadable tags are not verifiably ours — omitted.
+          }
+        }
+        return owned;
+      },
+    },
+    s3: {
+      async listOwnedBuckets() {
+        const response = await s3.send(new ListBucketsCommand({}));
+        const owned: string[] = [];
+        for (const bucket of response.Buckets ?? []) {
+          if (!bucket.Name) continue;
+          try {
+            const tagging = await s3.send(new GetBucketTaggingCommand({ Bucket: bucket.Name }));
+            if (owns(tagging.TagSet ?? [])) owned.push(bucket.Name);
+          } catch {
+            // An untaggable/unreadable bucket is not verifiably ours.
+          }
+        }
+        return owned;
+      },
+      async emptyBucket(bucketName) {
+        // Round-based: collect every object version and delete marker (all
+        // pages), delete them in batches of 1000, repeat until a full round
+        // collects nothing. Versioning means "empty" is zero versions AND
+        // zero delete markers.
+        for (;;) {
+          const objects: { Key: string; VersionId: string }[] = [];
+          let keyMarker: string | undefined;
+          let versionIdMarker: string | undefined;
+          do {
+            const page = await s3.send(
+              new ListObjectVersionsCommand({
+                Bucket: bucketName,
+                ...(keyMarker !== undefined ? { KeyMarker: keyMarker } : {}),
+                ...(versionIdMarker !== undefined ? { VersionIdMarker: versionIdMarker } : {}),
+              }),
+            );
+            objects.push(
+              ...(page.Versions ?? []).flatMap((version) =>
+                version.Key !== undefined && version.VersionId !== undefined
+                  ? [{ Key: version.Key, VersionId: version.VersionId }]
+                  : [],
+              ),
+              ...(page.DeleteMarkers ?? []).flatMap((marker) =>
+                marker.Key !== undefined && marker.VersionId !== undefined
+                  ? [{ Key: marker.Key, VersionId: marker.VersionId }]
+                  : [],
+              ),
+            );
+            keyMarker = page.NextKeyMarker;
+            versionIdMarker = page.NextVersionIdMarker;
+          } while (keyMarker !== undefined);
+          if (objects.length === 0) return;
+          for (let offset = 0; offset < objects.length; offset += 1000) {
+            await s3.send(
+              new DeleteObjectsCommand({
+                Bucket: bucketName,
+                Delete: { Objects: objects.slice(offset, offset + 1000) },
+              }),
+            );
+          }
+        }
+      },
+      async deleteBucket(bucketName) {
+        await s3.send(new DeleteBucketCommand({ Bucket: bucketName }));
+      },
+    },
+  };
+}

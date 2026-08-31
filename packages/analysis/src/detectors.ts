@@ -297,11 +297,12 @@ export function detectPort(tree: FileTree): DetectorFinding {
 
 const HEALTHCHECK_REGEX = /HEALTHCHECK\b/i;
 // Route registrations, including the prefixed forms a real application uses:
-// `/health`, `/healthz`, `/api/health`, `/api/v1/healthcheck`. Capturing
-// group added purely so the matched literal path can be reused as the
-// detector's normalized `path` — it does not change which strings match.
+// `/health`, `/healthz`, `/api/health`, `/api/v1/healthcheck`. The receiver
+// group (what precedes `.get(`) feeds mount composition; the path group is
+// the detector's normalized `path`. Neither group changes which strings
+// match — `get(` with no receiver still matches.
 const HEALTH_ROUTE_REGEX =
-  /(?:get|post|put|all|route)\s*\(.*['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/i;
+  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/i;
 const HEALTH_HTTP_ADAPTER_REGEX =
   /\.getHttpAdapter\(\)\..*?['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/;
 const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
@@ -310,6 +311,11 @@ const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
 // `app/api/health/route.ts`, `pages/api/healthz.js`.
 const HEALTH_ROUTE_FILE_REGEX =
   /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
+// Router mounts: `app.use('/api', router)` / `apiRouter.use('/v1', v1Router)`.
+// The prefix is as literal as a route string, so composing mount prefix +
+// route path yields the path the app actually serves.
+const ROUTER_MOUNT_REGEX =
+  /([A-Za-z_$][\w$]*)\s*\.\s*use\s*\(\s*['"`](\/[\w/-]*)['"`]\s*,\s*([A-Za-z_$][\w$]*)/g;
 
 // Priority for resolving a single normalized `path` when more than one
 // signal names one: an exact route registration (or NestJS adapter call) in
@@ -347,12 +353,53 @@ function deriveHealthPathFromFile(filePath: string): string {
 }
 
 /**
+ * Compose the mount chain a router route hangs from: `router.get('/health')`
+ * mounted by `app.use('/api', router)` serves `/api/health`. Walks mounts by
+ * variable identity until a receiver nothing mounts (typically `app`), with a
+ * cycle guard. Returns undefined when the receiver sits on no mount — the
+ * route string is then already the full path (`app.get('/health')`), or its
+ * mount simply was not found and the raw path is the honest fallback.
+ */
+function composeMountedPath(
+  receiver: string | undefined,
+  routePath: string,
+  mounts: { mounter: string; prefix: string; router: string }[],
+): string | undefined {
+  if (receiver === undefined) return undefined;
+  let path = routePath;
+  let current: string | undefined = receiver;
+  const seen = new Set<string>();
+  let composed = false;
+  while (current !== undefined && !seen.has(current)) {
+    seen.add(current);
+    const mount = mounts.find((candidate) => candidate.router === current);
+    if (!mount) break;
+    path = `${mount.prefix}${path}`;
+    composed = true;
+    current = mount.mounter;
+  }
+  return composed ? path : undefined;
+}
+
+/**
  * Detect a health check endpoint from Dockerfile HEALTHCHECK, package.json scripts,
  * route patterns in source code, or a file-based route path.
  */
 export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   const sources: string[] = [];
   const pathCandidates: { path: string; priority: number }[] = [];
+
+  // 0. Router mounts, collected first because a mount and the routes it
+  // carries usually live in different files.
+  const mounts: { mounter: string; prefix: string; router: string }[] = [];
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) || !content) continue;
+    for (const match of content.matchAll(ROUTER_MOUNT_REGEX)) {
+      if (match[1] && match[2] && match[3]) {
+        mounts.push({ mounter: match[1], prefix: match[2], router: match[3] });
+      }
+    }
+  }
 
   // 1. Dockerfile HEALTHCHECK instruction
   for (const path of Object.keys(tree)) {
@@ -381,9 +428,11 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
       const routeMatch = HEALTH_ROUTE_REGEX.exec(content);
       if (routeMatch) {
         sources.push(`/health route (${path})`);
-        if (routeMatch[1]) {
+        if (routeMatch[2]) {
           pathCandidates.push({
-            path: normalizeHealthPath(routeMatch[1]),
+            path:
+              composeMountedPath(routeMatch[1], normalizeHealthPath(routeMatch[2]), mounts) ??
+              normalizeHealthPath(routeMatch[2]),
             priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
           });
         }
@@ -405,12 +454,19 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     return { detector: 'health-endpoint', detected: false };
   }
 
-  // The most specific candidate wins (lowest priority number); when no
-  // source named a literal path (Dockerfile HEALTHCHECK / healthcheck
-  // script only), "/health" remains the faithful default — that IS the
-  // conventional path those two sources check.
+  // The most specific candidate wins (lowest priority number); on an equal
+  // priority the longer path wins — when a repo both registers `/health`
+  // directly and mounts a health router under `/api`, the longer mounted
+  // path is the one the app actually serves at that URL. When no source
+  // named a literal path (Dockerfile HEALTHCHECK / healthcheck script only),
+  // "/health" remains the faithful default — that IS the conventional path
+  // those two sources check.
   const bestCandidate = pathCandidates.reduce<{ path: string; priority: number } | undefined>(
-    (best, candidate) => (best === undefined || candidate.priority < best.priority ? candidate : best),
+    (best, candidate) => {
+      if (best === undefined || candidate.priority < best.priority) return candidate;
+      if (candidate.priority === best.priority && candidate.path.length > best.path.length) return candidate;
+      return best;
+    },
     undefined,
   );
   const path = bestCandidate?.path ?? '/health';

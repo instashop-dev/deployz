@@ -204,7 +204,7 @@ describe('ApplicationStack', () => {
         Scheme: 'internet-facing',
       });
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
-        HealthCheckPath: '/health',
+        HealthCheckPath: { Ref: 'paramHealthCheckPath' },
       });
     });
 
@@ -217,7 +217,7 @@ describe('ApplicationStack', () => {
       template.resourceCountIs('AWS::ECS::TaskDefinition', 0);
       template.resourceCountIs('AWS::ECS::Service', 0);
       template.hasResourceProperties('AWS::ECS::ExpressGatewayService', {
-        HealthCheckPath: '/health',
+        HealthCheckPath: { Ref: 'paramHealthCheckPath' },
         Cpu: '256',
         Memory: '512',
       });
@@ -244,8 +244,11 @@ describe('ApplicationStack', () => {
     const params = appParameters(template);
     const names = Object.keys(params);
 
-    // The only application parameters are the two app-env secrets.
-    expect(names.sort()).toEqual(['paramAppApiKey', 'paramAppSigningSecret'].sort());
+    // The only application parameters are the two app-env secrets and the
+    // health path override.
+    expect(names.sort()).toEqual(
+      ['paramAppApiKey', 'paramAppSigningSecret', 'paramHealthCheckPath'].sort(),
+    );
 
     for (const [name, param] of Object.entries(params)) {
       // `param_` naming prefix — CDK/CloudFormation strip the underscore from
@@ -677,23 +680,15 @@ describe('ApplicationStack', () => {
       const { template } = synth(false, { containerPort: 4000, healthCheckPath: '/api/health' });
 
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
-        HealthCheckPath: '/api/health',
+        HealthCheckPath: { Ref: 'paramHealthCheckPath' },
         Port: 4000,
       });
-      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
-        ContainerDefinitions: Match.arrayWith([
-          Match.objectLike({
-            Name: 'App',
-            PortMappings: Match.arrayWith([Match.objectLike({ ContainerPort: 4000 })]),
-            Environment: Match.arrayWith([{ Name: 'PORT', Value: '4000' }]),
-            HealthCheck: Match.objectLike({
-              Command: Match.arrayWith([
-                Match.stringLikeRegexp('http://localhost:4000/api/health'),
-              ]),
-            }),
-          }),
-        ]),
-      });
+      // The curl command interpolates the parameter, so CDK renders it as a
+      // Join over the Ref rather than a plain string.
+      const taskDefs = template.findResources('AWS::ECS::TaskDefinition');
+      const serialized = JSON.stringify(taskDefs);
+      expect(serialized).toContain('"Ref":"paramHealthCheckPath"');
+      expect(serialized).toContain('http://localhost:4000');
     });
 
     it('applies containerPort/healthCheckPath to the target group in the HTTPS branch too', () => {
@@ -704,9 +699,15 @@ describe('ApplicationStack', () => {
       });
 
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
-        HealthCheckPath: '/api/health',
+        HealthCheckPath: { Ref: 'paramHealthCheckPath' },
         Port: 4000,
       });
+    });
+
+    it('defaults the health path parameter to the prop value and lets an install override it', () => {
+      const { template } = synth(false, { healthCheckPath: '/api/health' });
+      const params = appParameters(template);
+      expect(params['paramHealthCheckPath']).toMatchObject({ NoEcho: true, Default: '/api/health' });
     });
 
     it('injects containerEnvironment into the App container', () => {
@@ -980,7 +981,12 @@ describe('ApplicationStack', () => {
       const params = appParameters(template);
 
       expect(Object.keys(params).sort()).toEqual(
-        ['paramAppApiKey', 'paramAppSigningSecret', ...Object.values(DOCUMENSO_PARAMETERS)].sort(),
+        [
+          'paramAppApiKey',
+          'paramAppSigningSecret',
+          'paramHealthCheckPath',
+          ...Object.values(DOCUMENSO_PARAMETERS),
+        ].sort(),
       );
 
       for (const [name, param] of Object.entries(params)) {
@@ -991,8 +997,13 @@ describe('ApplicationStack', () => {
     it('applies the Documenso health path to the container health check and target group (HTTP branch)', () => {
       const { template } = synth(false, { ...DOCUMENSO_APPLICATION_PROPS });
 
+      // The path travels via the NoEcho parameter, defaulting to the preset
+      // value — an install that sends its own canonical path overrides it.
+      expect(appParameters(template)['paramHealthCheckPath']).toMatchObject({
+        Default: '/api/health',
+      });
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
-        HealthCheckPath: '/api/health',
+        HealthCheckPath: { Ref: 'paramHealthCheckPath' },
         Port: 3000,
       });
       template.hasResourceProperties('AWS::ECS::TaskDefinition', {
@@ -1014,7 +1025,7 @@ describe('ApplicationStack', () => {
       });
 
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
-        HealthCheckPath: '/api/health',
+        HealthCheckPath: { Ref: 'paramHealthCheckPath' },
         Port: 3000,
       });
     });

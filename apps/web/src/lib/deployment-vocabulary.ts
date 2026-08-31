@@ -59,9 +59,34 @@ export function deploymentStateLabel(state: string): string {
 
 // ── Measured runtime health ─────────────────────────────────────────────────
 
-import type { HealthStatus as WireHealthStatus } from './deployments';
+import type { ComponentState as WireComponentState, HealthStatus as WireHealthStatus } from './deployments';
 
 export type HealthStatus = WireHealthStatus;
+export type ComponentState = WireComponentState;
+
+/**
+ * Per-component labels. A component is infrastructure, not the deployment
+ * itself, so "unknown" reads differently: the relay has not reported an
+ * observation for it — "Not reporting" — and a required one the verifier
+ * found no AWS resource for is "Not provisioned". Components an application
+ * does not require are omitted entirely.
+ */
+export const COMPONENT_STATE_LABEL: Record<ComponentState, string> = {
+  HEALTHY: 'Healthy',
+  DEGRADED: 'Degraded',
+  UNHEALTHY: 'Unhealthy',
+  UNKNOWN: 'Not reporting',
+  NOT_PROVISIONED: 'Not provisioned',
+};
+
+/** Status dot color per component state — paired with the label, never color alone. */
+export const COMPONENT_STATE_DOT: Record<ComponentState, string> = {
+  HEALTHY: 'bg-primary',
+  DEGRADED: 'bg-amber-500',
+  UNHEALTHY: 'bg-destructive',
+  UNKNOWN: 'bg-muted-foreground',
+  NOT_PROVISIONED: 'bg-muted-foreground',
+};
 
 /** Measured-health labels — the only user-facing wording for health. */
 export const HEALTH_STATUS_LABEL: Record<HealthStatus, string> = {

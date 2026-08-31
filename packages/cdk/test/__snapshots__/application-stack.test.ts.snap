@@ -68,6 +68,12 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       "NoEcho": true,
       "Type": "String",
     },
+    "paramHealthCheckPath": {
+      "Default": "/health",
+      "Description": "Path the ALB target group and container health checks probe. NoEcho - never echoed.",
+      "NoEcho": true,
+      "Type": "String",
+    },
   },
   "Resources": {
     "AppConfigSecret251CAC1E": {
@@ -411,7 +417,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
     },
     "LoadBalancerHttpListenerAppTargetsGroup7AAD0468": {
       "Properties": {
-        "HealthCheckPath": "/health",
+        "HealthCheckPath": {
+          "Ref": "paramHealthCheckPath",
+        },
         "Port": 3000,
         "Protocol": "HTTP",
         "Tags": [
@@ -654,7 +662,18 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "HealthCheck": {
               "Command": [
                 "CMD-SHELL",
-                "curl -f http://localhost:3000/health || exit 1",
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "curl -f http://localhost:3000",
+                      {
+                        "Ref": "paramHealthCheckPath",
+                      },
+                      " || exit 1",
+                    ],
+                  ],
+                },
               ],
               "Interval": 30,
               "Retries": 3,

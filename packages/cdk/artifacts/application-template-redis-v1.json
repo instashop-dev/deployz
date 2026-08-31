@@ -1,4 +1,29 @@
 {
+  "Parameters": {
+    "paramHealthCheckPath": {
+      "Type": "String",
+      "Default": "/health",
+      "Description": "Path the ALB target group and container health checks probe. NoEcho - never echoed.",
+      "NoEcho": true
+    },
+    "paramAppApiKey": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Application API key (vendor/customer secret). NoEcho — never echoed.",
+      "NoEcho": true
+    },
+    "paramAppSigningSecret": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Application signing secret (vendor/customer secret). NoEcho — never echoed.",
+      "NoEcho": true
+    },
+    "BootstrapVersion": {
+      "Type": "AWS::SSM::Parameter::Value<String>",
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+    }
+  },
   "Resources": {
     "Vpc8378EB38": {
       "Type": "AWS::EC2::VPC",
@@ -1029,7 +1054,18 @@
             "HealthCheck": {
               "Command": [
                 "CMD-SHELL",
-                "curl -f http://localhost:3000/health || exit 1"
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "curl -f http://localhost:3000",
+                      {
+                        "Ref": "paramHealthCheckPath"
+                      },
+                      " || exit 1"
+                    ]
+                  ]
+                }
               ],
               "Interval": 30,
               "Retries": 3,
@@ -1377,7 +1413,9 @@
     "LoadBalancerHttpListenerAppTargetsGroup7AAD0468": {
       "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
       "Properties": {
-        "HealthCheckPath": "/health",
+        "HealthCheckPath": {
+          "Ref": "paramHealthCheckPath"
+        },
         "Port": 3000,
         "Protocol": "HTTP",
         "Tags": [
@@ -1479,25 +1517,6 @@
         "Threshold": 1,
         "TreatMissingData": "notBreaching"
       }
-    }
-  },
-  "Parameters": {
-    "paramAppApiKey": {
-      "Type": "String",
-      "Default": "",
-      "Description": "Application API key (vendor/customer secret). NoEcho — never echoed.",
-      "NoEcho": true
-    },
-    "paramAppSigningSecret": {
-      "Type": "String",
-      "Default": "",
-      "Description": "Application signing secret (vendor/customer secret). NoEcho — never echoed.",
-      "NoEcho": true
-    },
-    "BootstrapVersion": {
-      "Type": "AWS::SSM::Parameter::Value<String>",
-      "Default": "/cdk-bootstrap/hnb659fds/version",
-      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
     }
   },
   "Outputs": {
