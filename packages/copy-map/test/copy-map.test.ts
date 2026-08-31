@@ -30,9 +30,10 @@ import {
 // ── §46 deployment states ───────────────────────────────────────────────────
 
 describe('§46 deployment states', () => {
-  it('defines exactly the 9 product-vocabulary states', () => {
+  it('defines exactly the product-vocabulary states', () => {
     expect(DEPLOYMENT_STATES).toEqual([
       'NOT_INSTALLED',
+      'WAITING_FOR_RELAY',
       'INSTALLING',
       'HEALTHY',
       'UPDATING',

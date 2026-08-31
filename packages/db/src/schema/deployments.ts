@@ -1,4 +1,4 @@
-import { boolean, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 import {
   cleanupStateEnum,
@@ -48,6 +48,13 @@ export const deployments = pgTable('deployments', {
   enrollmentCode: text('enrollment_code').notNull().unique(),
   enrollmentUsedAt: timestamp('enrollment_used_at', { withTimezone: true }),
   installationId: text('installation_id').unique(),
+  // Retry-isolation fields: the attempt counter keeps Quick Create stack
+  // names fresh across retries (a ROLLBACK_COMPLETE stack never blocks the
+  // next attempt), bootstrap_stack_name is the expected name of the current
+  // attempt, and install_started_at marks when the customer launched AWS.
+  attemptNumber: integer('attempt_number').notNull().default(0),
+  bootstrapStackName: text('bootstrap_stack_name'),
+  installStartedAt: timestamp('install_started_at', { withTimezone: true }),
   // sha256 of the relay's bearer token. Stored (not the plaintext) and in
   // Postgres (not in memory) so a restart cannot reopen the enrollment.
   relayTokenHash: text('relay_token_hash'),
