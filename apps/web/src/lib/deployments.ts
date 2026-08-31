@@ -245,6 +245,14 @@ export function destroyDeployment(
   });
 }
 
+/**
+ * Mirrors DESTROY_PENDING_STALE_AFTER_MS in @deployz/contracts — the API's
+ * force-complete gate enforces the same value. The web app mirrors wire
+ * constants locally rather than importing the contracts package (the web
+ * image stages no workspace packages beyond copy-map).
+ */
+export const DESTROY_PENDING_STALE_AFTER_MS = 60 * 60 * 1000;
+
 export interface ForceCompleteResult {
   state: string;
   cleanupState: string;

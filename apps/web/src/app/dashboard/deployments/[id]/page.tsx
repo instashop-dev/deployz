@@ -1,6 +1,5 @@
 'use client';
 
-import { DESTROY_PENDING_STALE_AFTER_MS } from '@deployz/contracts';
 import { AlertTriangle, ArrowLeft, ChevronDown, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -48,6 +47,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api-client';
 import {
+  DESTROY_PENDING_STALE_AFTER_MS,
   deployRelease,
   destroyDeployment,
   fetchDeployment,
