@@ -44,8 +44,8 @@ function makeExecutors(
 // ── Command vocabulary ───────────────────────────────────────────────────────
 
 describe('command vocabulary', () => {
-  it('has exactly eleven command types', () => {
-    expect(RELAY_COMMAND_TYPES).toHaveLength(11);
+  it('has exactly twelve command types', () => {
+    expect(RELAY_COMMAND_TYPES).toHaveLength(12);
   });
 
   it('includes all required types', () => {

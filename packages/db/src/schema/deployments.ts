@@ -1,6 +1,12 @@
 import { boolean, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-import { deploymentStateEnum, healthStatusEnum, regionEnum, relayStatusEnum } from '../enums.js';
+import {
+  cleanupStateEnum,
+  deploymentStateEnum,
+  healthStatusEnum,
+  regionEnum,
+  relayStatusEnum,
+} from '../enums.js';
 import { organization } from './auth.js';
 import { auditFields, id } from './common.js';
 import { applications, customers, releases } from './core.js';
@@ -55,5 +61,8 @@ export const deployments = pgTable('deployments', {
   isTestDeployment: boolean('is_test_deployment').notNull().default(false),
   lastHealthAt: timestamp('last_health_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  // Null on a normal disconnect (relay removed the resources). Set only when
+  // the control plane knows something about the AWS-side leftovers.
+  cleanupState: cleanupStateEnum('cleanup_state'),
   ...auditFields(),
 });

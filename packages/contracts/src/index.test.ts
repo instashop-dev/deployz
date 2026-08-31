@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 
 import {
   analysisStatusEnum,
+  cleanupStateEnum,
   compatibilityStatusEnum,
   deploymentStateEnum,
   failureCodeEnum,
@@ -16,8 +17,11 @@ import {
 import {
   DEFAULT_APPLICATION_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME,
+  DESTROY_PENDING_STALE_AFTER_MS,
+  PACKAGE_NAME,
   analysisStatusSchema,
   applicationSchema,
+  cleanupStateSchema,
   compatibilityStatusSchema,
   customerSchema,
   deploymentJobSchema,
@@ -26,6 +30,7 @@ import {
   errorEnvelopeSchema,
   eventLogSchema,
   failureCodeSchema,
+  healthComponentsSchema,
   jobStateSchema,
   jobTypeSchema,
   organizationSchema,
@@ -38,6 +43,12 @@ import {
   usageRecordSchema,
   userSchema,
 } from './index.js';
+
+describe('@deployz/contracts scaffold', () => {
+  it('exports the package name placeholder', () => {
+    expect(PACKAGE_NAME).toBe('@deployz/contracts');
+  });
+});
 
 // Parity law: every contracts enum is EXACTLY the live db pgEnum vocabulary —
 // sorted comparison so ordering drift in either source is visible but never
@@ -52,6 +63,7 @@ describe('enum parity with @deployz/db pgEnums', () => {
     ['jobType', jobTypeSchema, jobTypeEnum.enumValues],
     ['jobState', jobStateSchema, jobStateEnum.enumValues],
     ['failureCode', failureCodeSchema, failureCodeEnum.enumValues],
+    ['cleanupState', cleanupStateSchema, cleanupStateEnum.enumValues],
     ['subscriptionStatus', subscriptionStatusSchema, subscriptionStatusEnum.enumValues],
   ] as const;
 
@@ -198,6 +210,7 @@ describe('core-object round-trip (db row -> JSON -> schema.parse -> wire)', () =
         isTestDeployment: false,
         lastHealthAt: updated,
         deletedAt: null,
+        cleanupState: null,
         createdAt: created,
         updatedAt: updated,
         createdBy: null,
@@ -337,3 +350,22 @@ describe('redisApplicationTemplateUrl', () => {
     expect(redisApplicationTemplateUrl('')).toBeUndefined();
   });
 });
+
+describe('healthComponentsSchema', () => {
+  it('accepts a redis component', () => {
+    expect(healthComponentsSchema.parse({ redis: 'HEALTHY' })).toStrictEqual({
+      redis: 'HEALTHY',
+    });
+  });
+
+  it('still rejects unknown component keys', () => {
+    expect(() => healthComponentsSchema.parse({ queue: 'HEALTHY' })).toThrow(ZodError);
+  });
+});
+
+describe('DESTROY_PENDING_STALE_AFTER_MS', () => {
+  it('is the 60-minute escape-hatch threshold', () => {
+    expect(DESTROY_PENDING_STALE_AFTER_MS).toBe(60 * 60 * 1000);
+  });
+});
+

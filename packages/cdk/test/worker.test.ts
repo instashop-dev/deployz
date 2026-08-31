@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -12,6 +12,7 @@ import {
   normalizeBuildId,
   recordBuildResult,
   resolveBuildContext,
+  sweepRelayLiveness,
   sweepStuckBuilds,
   sweepStuckJobs,
   type CodeBuildStateChangeEvent,
@@ -635,6 +636,133 @@ describe('sweepStuckJobs', () => {
     await sweepStuckJobs(db);
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
     expect(job?.state).toBe('SUCCEEDED');
+  });
+
+  // A timed-out DESTROY only ever means the relay is dead (heartbeats refresh
+  // lastProgressAt while it lives). Failing it here would strand the
+  // deployment in FAILED with no disconnect path; force-complete owns the
+  // dead-relay DESTROY instead.
+  it('never sweeps a DESTROY, however stale', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('DESTROY', 'RUNNING', 120, 120);
+    await sweepStuckJobs(db);
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('RUNNING');
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    expect(deployment?.state).toBe('UPDATING');
+  });
+});
+
+// ── Relay-liveness sweep (persisted DISCONNECTED) ─────────────────────────
+describe('sweepRelayLiveness', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let organizationId: string;
+  let applicationId: string;
+  let customerId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+
+    const [org] = await db
+      .insert(schema.organization)
+      .values({ id: 'org-liveness', name: 'Liveness Org', slug: 'liveness-org' })
+      .returning();
+    organizationId = org!.id;
+
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'App',
+        repoFullName: 'acme/liveness-app',
+        repoUrl: 'https://github.com/acme/liveness-app',
+        defaultBranch: 'main',
+      })
+      .returning();
+    applicationId = application!.id;
+
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId, name: 'Cust', email: 'liveness@example.test' })
+      .returning();
+    customerId = customer!.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  async function seedRelay(overrides: {
+    relayStatus: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+    lastHealthMinutesAgo: number | null;
+    relayBoundMinutesAgo?: number | null;
+  }): Promise<string> {
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'HEALTHY',
+        installationId: `inst-${randomUUID()}`,
+        enrollmentCode: randomUUID(),
+        relayStatus: overrides.relayStatus,
+        ...(overrides.lastHealthMinutesAgo !== null
+          ? { lastHealthAt: new Date(Date.now() - overrides.lastHealthMinutesAgo * 60 * 1000) }
+          : {}),
+        ...(overrides.relayBoundMinutesAgo !== undefined
+          ? { relayBoundAt: new Date(Date.now() - overrides.relayBoundMinutesAgo * 60 * 1000) }
+          : {}),
+      })
+      .returning();
+    return deployment!.id;
+  }
+
+  it('persists DISCONNECTED once the check-in window is missed', async () => {
+    const id = await seedRelay({ relayStatus: 'CONNECTED', lastHealthMinutesAgo: 30 });
+    await sweepRelayLiveness(db);
+    const [row] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, id));
+    expect(row?.relayStatus).toBe('DISCONNECTED');
+  });
+
+  it('keeps a CONNECTED relay whose last check-in is recent', async () => {
+    const id = await seedRelay({ relayStatus: 'CONNECTED', lastHealthMinutesAgo: 5 });
+    await sweepRelayLiveness(db);
+    const [row] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, id));
+    expect(row?.relayStatus).toBe('CONNECTED');
+  });
+
+  it('counts a registered-but-never-reporting relay from relayBoundAt', async () => {
+    const stale = await seedRelay({ relayStatus: 'CONNECTED', lastHealthMinutesAgo: null, relayBoundMinutesAgo: 60 });
+    const fresh = await seedRelay({ relayStatus: 'CONNECTED', lastHealthMinutesAgo: null, relayBoundMinutesAgo: 5 });
+    await sweepRelayLiveness(db);
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(inArray(schema.deployments.id, [stale, fresh]));
+    const byId = new Map(rows.map((row) => [row.id, row.relayStatus]));
+    expect(byId.get(stale)).toBe('DISCONNECTED');
+    expect(byId.get(fresh)).toBe('CONNECTED');
+  });
+
+  it('never touches UNKNOWN or already-DISCONNECTED rows', async () => {
+    const unknown = await seedRelay({ relayStatus: 'UNKNOWN', lastHealthMinutesAgo: 60 });
+    const disconnected = await seedRelay({ relayStatus: 'DISCONNECTED', lastHealthMinutesAgo: 60 });
+    const swept = await sweepRelayLiveness(db);
+    expect(swept).toBe(0);
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(inArray(schema.deployments.id, [unknown, disconnected]));
+    const byId = new Map(rows.map((row) => [row.id, row.relayStatus]));
+    expect(byId.get(unknown)).toBe('UNKNOWN');
+    expect(byId.get(disconnected)).toBe('DISCONNECTED');
   });
 });
 

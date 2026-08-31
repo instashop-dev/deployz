@@ -15,11 +15,12 @@
  * The Lambda entry point (worker-handler.ts) wires the real seams; this
  * module holds no AWS clients of its own, so the logic stays testable.
  */
-import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
 
 import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob } from '@deployz/api/jobs';
 import type { QueueMessage } from '@deployz/api/queue';
+import { RELAY_STALE_AFTER_MS } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -411,7 +412,11 @@ const JOB_TIMEOUTS_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect
   ROLLBACK: 20 * 60 * 1000,
   RESTART: 20 * 60 * 1000,
   CONFIG_UPDATE: 20 * 60 * 1000,
-  DESTROY: 60 * 60 * 1000,
+  // DESTROY is deliberately absent: while the relay lives, its heartbeats
+  // refresh lastProgressAt, so a DESTROY only ever trips a timeout when the
+  // relay is dead — and failing it here would strand the deployment in
+  // FAILED with no disconnect path left. That case is settled by the
+  // force-complete escape hatch instead, gated on the same staleness.
 };
 
 const ACTIVE_MUTATING_STATES = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'] as const;
@@ -476,6 +481,39 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
     failed += 1;
   }
   return failed;
+}
+
+// ── Relay-liveness sweep ──────────────────────────────────────────────────
+
+/**
+ * Persists DISCONNECTED on deployments whose relay missed its check-in
+ * window. Reads trust the persisted column (see toFleetRow), so someone has
+ * to write the transition — this is that someone. A relay that registered
+ * but died before its first health report counts from relayBoundAt instead
+ * of lastHealthAt, which would otherwise stay NULL forever and pin the row
+ * at CONNECTED. A returning relay needs no help: its heartbeat writes
+ * CONNECTED back directly.
+ */
+export async function sweepRelayLiveness(db: RuntimeDb, now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - RELAY_STALE_AFTER_MS);
+  const swept = await db
+    .update(schema.deployments)
+    .set({ relayStatus: 'DISCONNECTED' })
+    .where(
+      and(
+        eq(schema.deployments.relayStatus, 'CONNECTED'),
+        or(
+          lt(schema.deployments.lastHealthAt, cutoff),
+          and(
+            isNull(schema.deployments.lastHealthAt),
+            isNotNull(schema.deployments.relayBoundAt),
+            lt(schema.deployments.relayBoundAt, cutoff),
+          ),
+        ),
+      ),
+    )
+    .returning({ id: schema.deployments.id });
+  return swept.length;
 }
 
 // ── Stuck-build watchdog ─────────────────────────────────────────────────

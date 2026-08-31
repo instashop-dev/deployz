@@ -387,7 +387,18 @@ export class ApplicationStack extends Stack {
     const imageReference = `${imageRepository}@${imageDigest}`;
     const databaseRequired = props.databaseRequired ?? true;
     const containerPort = props.containerPort ?? APP_PORT;
-    const healthCheckPath = props.healthCheckPath ?? HEALTH_CHECK_PATH;
+    // One canonical health path per install. The parameter lets CreateStack
+    // carry the application's stored, analysis-resolved path (a router
+    // `/health` mounted at `/api` serves `/api/health`); the default keeps
+    // the synth-time prop, so the Documenso preset stays pinned to its own
+    // path when an install sends nothing.
+    const healthCheckPathParam = new CfnParameter(this, 'param_HealthCheckPath', {
+      type: 'String',
+      noEcho: true,
+      default: props.healthCheckPath ?? HEALTH_CHECK_PATH,
+      description: 'Path the ALB target group and container health checks probe. NoEcho - never echoed.',
+    });
+    const healthCheckPath = healthCheckPathParam.valueAsString;
     const containerEnvEntries: Array<[string, string]> = Object.entries(
       props.containerEnvironment ?? {},
     );

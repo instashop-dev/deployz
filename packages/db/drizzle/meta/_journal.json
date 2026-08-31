@@ -120,6 +120,13 @@
       "when": 1787942242164,
       "tag": "0016_married_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788156156071,
+      "tag": "0017_cooing_prowler",
+      "breakpoints": true
     }
   ]
 }

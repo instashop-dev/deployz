@@ -77,6 +77,7 @@ export const jobTypeEnum = pgEnum('job_type', [
   'HEALTH_CHECK',
   'CONFIGURE_DOMAIN',
   'REMOVE_DOMAIN',
+  'PURGE',
 ]);
 
 // §39 job states. WAITING semantics: the job is waiting on customer approval
@@ -180,4 +181,14 @@ export const customDomainStatusEnum = pgEnum('custom_domain_status', [
   'ACTIVE',
   'ERROR',
   'REMOVING',
+]);
+
+// deployments.cleanup_state — what happened to AWS resources at disconnect.
+//   SKIPPED_RELAY_OFFLINE — force-completed while the relay was offline; the
+//                          customer account may still hold Deployz resources.
+//   COMPLETE              — a later PURGE removed every retained resource.
+// Null on every normal disconnect: the relay deleted the resources itself.
+export const cleanupStateEnum = pgEnum('cleanup_state', [
+  'SKIPPED_RELAY_OFFLINE',
+  'COMPLETE',
 ]);

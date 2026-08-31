@@ -1602,17 +1602,21 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect((response.json() as { version: string | null }).version).toBeNull();
   });
 
-  it('deployment detail includes components.redis (defaulting to UNKNOWN) only when the application requires Redis', async () => {
+  it('deployment detail derives per-component state from requirements, verification checks and relay reports', async () => {
     const redisApp = await insertApplication(db, org.organizationId, { redisRequired: true });
     const redisCustomer = await insertCustomer(db, org.organizationId);
     const redisDeployment = await insertDeployment(db, org.organizationId, redisApp.id, redisCustomer.id);
 
+    // Required but never observed: Not reporting (UNKNOWN). Compute and
+    // ingress are always required for an installed deployment.
     const withRedis = await app.inject({
       method: 'GET',
       url: `/api/deployments/${redisDeployment.id}`,
       headers: { cookie: org.cookie },
     });
     expect((withRedis.json() as { components: Record<string, string> | null }).components).toEqual({
+      application: 'UNKNOWN',
+      loadBalancer: 'UNKNOWN',
       redis: 'UNKNOWN',
     });
 
@@ -1625,10 +1629,13 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       url: `/api/deployments/${noRedisDeployment.id}`,
       headers: { cookie: org.cookie },
     });
-    expect((withoutRedis.json() as { components: Record<string, string> | null }).components).toBeNull();
+    expect((withoutRedis.json() as { components: Record<string, string> | null }).components).toEqual({
+      application: 'UNKNOWN',
+      loadBalancer: 'UNKNOWN',
+    });
 
-    // A component the relay HAS reported is preserved verbatim, redis just
-    // joins it — mirroring how `database` would sit alongside it.
+    // A component the relay HAS reported is preserved verbatim; required
+    // ones it did not report (load balancer) are synthesized alongside.
     await db
       .update(schema.deployments)
       .set({ observedState: { components: { application: 'HEALTHY', redis: 'HEALTHY' } } })
@@ -1640,8 +1647,28 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     });
     expect((reported.json() as { components: Record<string, string> | null }).components).toEqual({
       application: 'HEALTHY',
+      loadBalancer: 'UNKNOWN',
       redis: 'HEALTHY',
     });
+
+    // Required, verification looked, nothing there: Not provisioned.
+    await db
+      .update(schema.deployments)
+      .set({
+        observedState: {
+          components: {},
+          infraHealth: { verified: false, checks: [{ name: 'cache', passed: false, detail: '' }] },
+        },
+      })
+      .where(eq(schema.deployments.id, redisDeployment.id));
+    const notProvisioned = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${redisDeployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(
+      (notProvisioned.json() as { components: Record<string, string> | null }).components?.redis,
+    ).toBe('NOT_PROVISIONED');
   });
 
   it('readiness: analysis not COMPLETE returns analysisStatus instead of a fabricated score', async () => {

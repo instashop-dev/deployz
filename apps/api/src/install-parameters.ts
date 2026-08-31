@@ -45,12 +45,24 @@ export async function buildInstallParameters(
   db: RuntimeDb,
   deploymentId: string,
 ): Promise<Record<string, string>> {
+  const rows = await db
+    .select({ healthPath: schema.applications.healthPath })
+    .from(schema.deployments)
+    .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+    .where(eq(schema.deployments.id, deploymentId))
+    .limit(1);
   const domain = await findActiveDomain(db, deploymentId);
   const parameters: Record<string, string> = {
     [DOCUMENSO_PARAMETERS.nextauthSecret]: generateSecret(),
     [DOCUMENSO_PARAMETERS.encryptionKey]: generateSecret(),
     [DOCUMENSO_PARAMETERS.encryptionSecondaryKey]: generateSecret(),
   };
+  if (rows[0]?.healthPath) {
+    // The canonical, analysis-resolved health path — the same value the ALB
+    // target group and container health checks probe via the template's
+    // param_HealthCheckPath parameter (CDK strips the underscore).
+    parameters['paramHealthCheckPath'] = rows[0].healthPath;
+  }
   if (domain) {
     parameters[DOCUMENSO_PARAMETERS.publicUrl] = `https://${domain.hostname}`;
   }

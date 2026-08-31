@@ -48,6 +48,8 @@ export interface RuntimeHealth {
   readonly components: {
     application?: RuntimeHealthStatus;
     loadBalancer?: RuntimeHealthStatus;
+    database?: RuntimeHealthStatus;
+    storage?: RuntimeHealthStatus;
     redis?: RuntimeHealthStatus;
   };
   readonly desiredCount: number | null;
@@ -102,6 +104,8 @@ function allTargetsUnhealthy(o: HealthObservation): boolean {
 
 const SERVICE_TYPE = 'AWS::ECS::Service';
 const TARGET_GROUP_TYPE = 'AWS::ElasticLoadBalancingV2::TargetGroup';
+const DATABASE_TYPE = 'AWS::RDS::DBInstance';
+const STORAGE_TYPE = 'AWS::S3::Bucket';
 const CACHE_TYPE = 'AWS::ElastiCache::ReplicationGroup';
 
 /** Resource statuses whose physicalId actually backs live infrastructure. */
@@ -179,19 +183,21 @@ export async function observeRuntimeHealth(
     unhealthyTargetCount,
     rolloutFailed,
   };
-  // The cache has no runtime probe (no ElastiCache describe call, by the
-  // same IAM-frugality that keeps this module to ECS + ELB reads), so its
-  // component reports what CloudFormation observed: a replication group in a
-  // complete state IS the cache the install verified. Absent or incomplete,
-  // the component is omitted per this module's rule — the dashboard then
-  // distinguishes "Not provisioned" from "Not reporting" via the observe
-  // hook's cache check, not this heartbeat.
+  // The cache, database and storage have no runtime probe (no describe
+  // calls, by the same IAM-frugality that keeps this module to ECS + ELB
+  // reads), so their components report what CloudFormation observed: a
+  // resource in a complete state IS what the install verified. Absent or
+  // incomplete, the component is omitted per this module's rule.
   const cacheProvisioned = completedPhysicalId(resources, CACHE_TYPE) !== null;
+  const databaseProvisioned = completedPhysicalId(resources, DATABASE_TYPE) !== null;
+  const storageProvisioned = completedPhysicalId(resources, STORAGE_TYPE) !== null;
 
   const derived = deriveComponents(observation);
   const components: RuntimeHealth['components'] = {
     ...(serviceArn ? { application: derived.application } : {}),
     ...(targetGroupArn ? { loadBalancer: derived.loadBalancer } : {}),
+    ...(databaseProvisioned ? { database: 'HEALTHY' as const } : {}),
+    ...(storageProvisioned ? { storage: 'HEALTHY' as const } : {}),
     ...(cacheProvisioned ? { redis: 'HEALTHY' as const } : {}),
   };
 

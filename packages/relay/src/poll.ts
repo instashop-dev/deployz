@@ -36,6 +36,8 @@ import type { VerificationResult } from './verify.js';
 /** Response from GET /api/relay/commands */
 interface PendingCommandsResponse {
   commands: RelayCommand[];
+  /** Deployment facts the control plane passes along every poll. */
+  deployment?: { redisRequired?: boolean };
 }
 
 /** Payload for POST /api/relay/commands/:id/result */
@@ -96,6 +98,12 @@ export interface PollDependencies {
   observeImage?: () => Promise<string | null>;
   /** Measures runtime health (ECS counts, target health, rollout state). */
   observeHealth?: () => Promise<RuntimeHealth>;
+  /**
+   * Receives the deployment facts the commands response carries, before the
+   * cycle's health observation runs — the observe hook reads them to know
+   * whether the installation should include a cache.
+   */
+  onDeploymentMeta?: (meta: { redisRequired: boolean }) => void;
 }
 
 /** Result of a single poll cycle. */
@@ -229,6 +237,9 @@ export async function pollOnce(
 
   const body = (await commandsResponse.json()) as PendingCommandsResponse;
   const commands = body.commands;
+  if (body.deployment && typeof body.deployment.redisRequired === 'boolean') {
+    deps.onDeploymentMeta?.({ redisRequired: body.deployment.redisRequired });
+  }
 
   if (!Array.isArray(commands) || commands.length === 0) {
     // Still report observed state (§59) on an idle poll — most polls have no

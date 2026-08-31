@@ -1,5 +1,6 @@
 'use client';
 
+import { DESTROY_PENDING_STALE_AFTER_MS } from '@deployz/contracts';
 import { AlertTriangle, ArrowLeft, ChevronDown, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -51,7 +52,9 @@ import {
   destroyDeployment,
   fetchDeployment,
   fetchDeploymentEvents,
+  forceCompleteDisconnect,
   isDeploymentNotFound,
+  purgeDeployment,
   resetRelay,
   restartDeployment,
   retryInstall,
@@ -61,8 +64,9 @@ import {
   type RelayCapabilities,
 } from '@/lib/deployments';
 import {
+  COMPONENT_STATE_DOT,
+  COMPONENT_STATE_LABEL,
   HEALTH_STATUS_BADGE,
-  HEALTH_STATUS_DOT,
   HEALTH_STATUS_LABEL,
   NOT_YET_RUNNING_ACTION_COPY,
   RELAY_STATUS_LABEL,
@@ -71,11 +75,17 @@ import {
   everInstalled,
   showHealthBadge,
   showInfrastructureRows,
-  type HealthStatus,
+  type ComponentState,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
 import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
-import { REDIS_STATUS_LABEL, redisProvisioningStatus, readInfraChecks, type RedisProvisioningStatus } from '@/lib/diagnostics';
+import {
+  REDIS_STATUS_LABEL,
+  readInfraChecks,
+  redisProvisioningStatus,
+  relativeTime,
+  type RedisProvisioningStatus,
+} from '@/lib/diagnostics';
 import {
   NO_DEPLOYABLE_RELEASES_COPY,
   deployableReleases,
@@ -228,6 +238,24 @@ function DetailBody({
         )}
       </div>
 
+      {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' ? (
+        <div className="flex flex-col gap-3">
+          <Alert>
+            <AlertTriangle aria-hidden />
+            <AlertTitle>Resources may remain in the customer AWS account</AlertTitle>
+            <AlertDescription>
+              AWS resources may still exist because the Deployz Relay was offline during
+              disconnect.
+            </AlertDescription>
+          </Alert>
+          <PurgeRetainedResources
+            deploymentId={detail.id}
+            applicationName={detail.applicationName}
+            onChanged={onChanged}
+          />
+        </div>
+      ) : null}
+
       <section aria-labelledby="actions" className="flex flex-col gap-3">
         <h2 id="actions" className="sr-only">
           Actions
@@ -239,6 +267,10 @@ function DetailBody({
           onChanged={onChanged}
         />
       </section>
+
+      {detail.state === 'DELETING' ? (
+        <DisconnectStatusPanel detail={detail} onChanged={onChanged} />
+      ) : null}
 
       {detail.state === 'NOT_INSTALLED' ? <InstallLinkCard detail={detail} /> : null}
 
@@ -274,12 +306,11 @@ function DetailBody({
           Infrastructure
         </h2>
         {/*
-          Only components the relay has actually reported on. These four rows
-          used to render the SAME single healthStatus column four times — a
-          value the database defaulted to HEALTHY at row creation — so a
-          deployment with nothing provisioned showed four green ticks, and a
-          Database row appeared for applications that have no database.
-          Redis is deliberately excluded here: its row comes from observed
+          Component rows come from the API-composed component map: required
+          components are always present (""Not provisioned"" when verification
+          found no AWS resource, ""Not reporting"" when nothing was observed),
+          and components the application does not require are omitted. Redis
+          is deliberately excluded here: its row comes from observed
           provisioning, not the component map (see RedisRow below).
         */}
         {showInfrastructureRows(detail.state, detail.currentReleaseId) ? (
@@ -296,13 +327,8 @@ function DetailBody({
                   readInfraChecks(detail.observedState),
                 )}
               />
-              <RelayRow status={detail.relayStatus} />
+              <RelayRow status={detail.relayStatus} lastContact={relativeTime(detail.lastHealthAt)} />
             </ul>
-            {detail.components === null ? (
-              <p className="text-sm text-muted-foreground">
-                No health reports yet — this deployment has not checked in.
-              </p>
-            ) : null}
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
@@ -326,22 +352,24 @@ function DetailBody({
   );
 }
 
-function InfraRow({ label, status }: { label: string; status: HealthStatus }) {
+function InfraRow({ label, status }: { label: string; status: ComponentState }) {
   return (
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-      <span className={`size-2 shrink-0 rounded-full ${HEALTH_STATUS_DOT[status]}`} aria-hidden />
+      <span className={`size-2 shrink-0 rounded-full ${COMPONENT_STATE_DOT[status]}`} aria-hidden />
       <span className="text-sm font-medium">{label}</span>
-      <span className="ml-auto text-sm text-muted-foreground">{HEALTH_STATUS_LABEL[status]}</span>
+      <span className="ml-auto text-sm text-muted-foreground">{COMPONENT_STATE_LABEL[status]}</span>
     </li>
   );
 }
 
-function RelayRow({ status }: { status: RelayStatus }) {
+function RelayRow({ status, lastContact }: { status: RelayStatus; lastContact: string | null }) {
   return (
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
       <span className={`size-2 shrink-0 rounded-full ${RELAY_DOT[status]}`} aria-hidden />
       <span className="text-sm font-medium">Deployz Relay</span>
-      <span className="ml-auto text-sm text-muted-foreground">{RELAY_STATUS_LABEL[status]}</span>
+      <span className="ml-auto text-sm text-muted-foreground">
+        {lastContact ? `${RELAY_STATUS_LABEL[status]} · ${lastContact}` : RELAY_STATUS_LABEL[status]}
+      </span>
     </li>
   );
 }
@@ -410,11 +438,14 @@ function DeploymentActions({
   // Disconnect is exempt from the second gate: a deployment that failed to
   // ever come up must still be removable.
   const everRan = everInstalled(detail.state, detail.currentReleaseId);
-  const canDeploy = everRan && actionSupported(capabilities, 'deploy');
-  const canRollback = everRan && actionSupported(capabilities, 'rollback');
-  const canRestart = everRan && actionSupported(capabilities, 'restart');
-  const canConfig = everRan && actionSupported(capabilities, 'configUpdate');
-  const canDisconnect = actionSupported(capabilities, 'disconnect');
+  // A pending DESTROY owns the deployment: every other mutating action
+  // targets a stack that is about to disappear underneath it.
+  const disconnecting = detail.state === 'DELETING';
+  const canDeploy = everRan && !disconnecting && actionSupported(capabilities, 'deploy');
+  const canRollback = everRan && !disconnecting && actionSupported(capabilities, 'rollback');
+  const canRestart = everRan && !disconnecting && actionSupported(capabilities, 'restart');
+  const canConfig = everRan && !disconnecting && actionSupported(capabilities, 'configUpdate');
+  const canDisconnect = !disconnecting && actionSupported(capabilities, 'disconnect');
   // Recovery for a failed FIRST install: the API refuses it once any install
   // has succeeded, so it is offered exactly where the day-2 actions are not.
   const canRetryInstall = detail.state === 'FAILED' && !everRan;
@@ -862,6 +893,176 @@ function RetryInstallDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+// P1 dead-relay disconnect: while a DESTROY is pending, the disconnect owns
+// this deployment — the panel keeps its status, the relay's state and last
+// contact visible. When the relay is confirmed offline and the DESTROY has
+// been pending past the shared threshold, the vendor can settle the
+// control-plane side alone. That never claims the AWS resources were
+// removed — the warning at the top of the page stays until a purge runs.
+function DisconnectStatusPanel({
+  detail,
+  onChanged,
+}: {
+  detail: FleetDeploymentDetail;
+  onChanged: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const activeJobStates = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'];
+  const pendingDestroy =
+    detail.jobs
+      .filter((job) => job.type === 'DESTROY' && activeJobStates.includes(job.state))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  const pendingSince = pendingDestroy
+    ? Date.parse(
+        pendingDestroy.lastProgressAt ?? pendingDestroy.startedAt ?? pendingDestroy.createdAt,
+      )
+    : Number.NaN;
+  const forceCompleteEligible =
+    detail.relayStatus === 'DISCONNECTED' &&
+    Number.isFinite(pendingSince) &&
+    Date.now() - pendingSince >= DESTROY_PENDING_STALE_AFTER_MS;
+  const lastContact = relativeTime(detail.lastHealthAt);
+
+  async function onForceComplete(): Promise<void> {
+    setPending(true);
+    setError(null);
+    try {
+      await forceCompleteDisconnect(detail.id);
+      toast.success('Deployment disconnected');
+      onChanged();
+    } catch {
+      setError("We couldn't complete this disconnect. Try again in a moment.");
+      setPending(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3 py-4">
+        <div>
+          <p className="text-sm font-medium">Disconnect in progress</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Deployz is waiting for the relay to remove the AWS resources.
+          </p>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {lastContact
+            ? `${RELAY_STATUS_LABEL[detail.relayStatus]} · ${lastContact}`
+            : RELAY_STATUS_LABEL[detail.relayStatus]}
+        </p>
+        {forceCompleteEligible ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-destructive/50 p-4">
+            <p className="text-sm font-medium">Relay is offline.</p>
+            <p className="text-sm text-muted-foreground">
+              Deployz cannot verify or remove resources in the customer AWS account.
+            </p>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={pending}
+              onClick={() => void onForceComplete()}
+            >
+              {pending ? 'Completing…' : 'Complete disconnect anyway'}
+            </Button>
+          </div>
+        ) : null}
+        <OperationError error={error} />
+      </CardContent>
+    </Card>
+  );
+}
+
+// P2 purge: the explicit destructive action for resources a force-completed
+// disconnect left behind. Typed application-name confirmation, because this
+// permanently deletes the retained database, stored files, and cache — and
+// the bootstrap/relay stack itself.
+function PurgeRetainedResources({
+  deploymentId,
+  applicationName,
+  onChanged,
+}: {
+  deploymentId: string;
+  applicationName: string;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirmed = confirmText.trim() === applicationName;
+
+  async function onConfirm(): Promise<void> {
+    if (!confirmed) return;
+    setPending(true);
+    setError(null);
+    try {
+      await purgeDeployment(deploymentId);
+      toast.success('Purge requested');
+      setOpen(false);
+      setConfirmText('');
+      onChanged();
+    } catch {
+      setError("We couldn't start the purge. Try again in a moment.");
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Button
+        size="sm"
+        variant="destructive"
+        className="self-start"
+        onClick={() => setOpen(true)}
+      >
+        Permanently remove retained AWS resources
+      </Button>
+      <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : setOpen(false))}>
+        <AlertDialogContent data-testid="purge-panel" className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive">
+              Permanently remove {applicationName}&apos;s retained resources?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the retained database, stored files, backups, and cache in
+              your customer&apos;s AWS account, and removes the Deployz connector. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="purge-confirm">
+              Type <span className="font-medium text-foreground">{applicationName}</span> to confirm.
+            </Label>
+            <Input
+              id="purge-confirm"
+              value={confirmText}
+              onChange={(event) => setConfirmText(event.target.value)}
+              aria-label={`Type ${applicationName} to confirm`}
+              autoComplete="off"
+            />
+          </div>
+          <OperationError error={error} />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!confirmed || pending}
+              onClick={(event) => {
+                event.preventDefault();
+                void onConfirm();
+              }}
+            >
+              {pending ? 'Purging…' : 'Permanently remove'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }
 

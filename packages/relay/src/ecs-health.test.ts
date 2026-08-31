@@ -148,6 +148,36 @@ describe('observeRuntimeHealth', () => {
     expect(health.components.redis).toBe('HEALTHY');
   });
 
+  it('reports database and storage components when the stack carries complete RDS and S3 resources', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([
+          ...STACK,
+          { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE', physicalId: 'app-db' },
+          { logicalId: 'Storage', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE', physicalId: 'app-bucket' },
+        ]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['healthy']),
+      },
+      'deployz-app',
+    );
+    expect(health.components.database).toBe('HEALTHY');
+    expect(health.components.storage).toBe('HEALTHY');
+  });
+
+  it('omits database and storage when the stack has neither resource', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([...STACK]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['healthy']),
+      },
+      'deployz-app',
+    );
+    expect(health.components.database).toBeUndefined();
+    expect(health.components.storage).toBeUndefined();
+  });
+
   it('omits the redis component for a cache that never reached a complete state', async () => {
     const health = await observeRuntimeHealth(
       {
