@@ -1,8 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
 
 import { CustomDomainCard } from '@/components/custom-domain-card';
+import { InstallLaunchButton } from '@/components/install-launch-button';
+import { InstallRetryButton } from '@/components/install-retry-button';
 import { Button } from '@/components/ui/button';
+import {
+  COMPONENT_STATE_DOT,
+  COMPONENT_STATE_LABEL,
+  INSTALL_COMPONENT_LABELS,
+  RELAY_STUCK_GUIDANCE,
+  type ComponentState,
+} from '@/lib/deployment-vocabulary';
 import { fetchInstallData } from '@/lib/install-data';
 
 // Rendered per request so the install data — including the Quick Create link
@@ -55,6 +65,56 @@ export default async function InstallPage({
           This installation link doesn&apos;t match an active deployment. It may have been
           removed, or the link may be incorrect. Contact whoever sent you this link for a new
           one.
+        </p>
+      </div>
+    );
+  }
+
+  // The customer pressed "Deploy to AWS" and the control plane is waiting
+  // for the relay to enroll. Never a failure: past the staleness window the
+  // page shows guidance and a retry instead. The enrollment code is spent
+  // only when a relay actually connects, so this state needs no "already
+  // used" warning.
+  if (data.waitingForRelay) {
+    const cloudFormationUrl = `https://${data.region}.console.aws.amazon.com/cloudformation/home?region=${data.region}#/stacks`;
+    return (
+      <div className="flex flex-col gap-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {data.publisherName} is setting up inside your AWS account
+          </p>
+        </div>
+
+        <section aria-labelledby="install-waiting" className="flex flex-col gap-3">
+          <h2 id="install-waiting" className="text-base font-semibold">
+            {data.relayStuck ? 'Still connecting' : 'Connecting to your AWS account'}
+          </h2>
+          <div className="flex items-start gap-3">
+            <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              {data.relayStuck ? RELAY_STUCK_GUIDANCE : 'Deployz is connecting to your AWS account…'}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Expected stack name:{' '}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+              {data.bootstrapStackName}
+            </code>
+          </p>
+          <div className="flex flex-wrap items-start gap-2">
+            {data.relayStuck ? <InstallRetryButton installLinkId={installLinkId} /> : null}
+            <Button asChild variant="outline">
+              <a href={cloudFormationUrl} target="_blank" rel="noreferrer">
+                Open AWS CloudFormation
+              </a>
+            </Button>
+          </div>
+        </section>
+
+        <p className="text-xs text-muted-foreground">
+          Installation reference:{' '}
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
         </p>
       </div>
     );
@@ -129,6 +189,36 @@ export default async function InstallPage({
                 </p>
               ) : null}
             </section>
+
+            {data.components ? (
+              <section aria-labelledby="component-status" className="flex flex-col gap-3">
+                <h2 id="component-status" className="text-base font-semibold">
+                  Status
+                </h2>
+                <ul className="flex flex-col gap-2">
+                  {INSTALL_COMPONENT_LABELS.filter(
+                    ([key]) => data.components?.[key] !== undefined,
+                  ).map(([key, label]) => {
+                    const status = data.components![key]!;
+                    return (
+                      <li
+                        key={key}
+                        className="flex items-center gap-3 rounded-lg border px-3 py-2.5"
+                      >
+                        <span
+                          aria-hidden
+                          className={`size-2 shrink-0 rounded-full ${COMPONENT_STATE_DOT[status as ComponentState]}`}
+                        />
+                        <span className="text-sm font-medium">{label}</span>
+                        <span className="ml-auto text-sm text-muted-foreground">
+                          {COMPONENT_STATE_LABEL[status as ComponentState] ?? status}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ) : null}
 
             <CustomDomainCard
               deploymentId={data.deploymentId}
@@ -251,9 +341,10 @@ export default async function InstallPage({
               a template AWS cannot fetch fails inside the customer's console
               with nothing to act on. */}
           {data.quickCreateUrl ? (
-            <Button asChild size="lg">
-              <a href={data.quickCreateUrl}>Deploy to AWS</a>
-            </Button>
+            <InstallLaunchButton
+              installLinkId={installLinkId}
+              quickCreateUrl={data.quickCreateUrl}
+            />
           ) : (
             <Button size="lg" disabled>
               Deploy to AWS

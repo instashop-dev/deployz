@@ -85,6 +85,12 @@ export interface FleetDeployment {
   relayCapabilities: RelayCapabilities | null;
   /** Digest the relay last observed running in ECS; null = not observed. */
   runningImageDigest: string | null;
+  /** Install-attempt counter; bumped by each retry. */
+  attemptNumber: number;
+  /** The expected bootstrap stack name once an attempt has launched. */
+  bootstrapStackName: string | null;
+  /** When the customer launched the current install attempt. */
+  installStartedAt: string | null;
 }
 
 /** A §39 deployment job, as returned in the deployment-detail `jobs` array. */
@@ -186,6 +192,17 @@ export async function fetchDeploymentEvents(id: string): Promise<ActivityEvent[]
 
 // ── Action triggers (§24, §25, §27, §63) ────────────────────────────────────
 
+/** A failed action that knows WHICH status and error code came back. */
+export class DeploymentActionError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(`Deployment action failed (${status})`);
+    this.name = 'DeploymentActionError';
+  }
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     method: 'POST',
@@ -194,7 +211,9 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(`Deployment action failed (${response.status})`);
+    const payload: unknown = await response.json().catch(() => null);
+    const envelope = payload as { error?: { code?: string } } | null;
+    throw new DeploymentActionError(response.status, envelope?.error?.code ?? 'REQUEST_FAILED');
   }
   return (await response.json()) as T;
 }

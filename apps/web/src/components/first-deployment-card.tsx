@@ -9,7 +9,8 @@ import type { FleetDeployment } from '@/lib/deployments';
 // homepage follows it instead of showing a one-row fleet. The stage shown is
 // the deployment's real §46 state; no invented progress steps.
 export function FirstDeploymentCard({ deployment }: { deployment: FleetDeployment }) {
-  const waiting = deployment.state === 'NOT_INSTALLED';
+  const waiting =
+    deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY';
 
   return (
     <section aria-labelledby="first-deployment" className="flex max-w-xl flex-col gap-6">

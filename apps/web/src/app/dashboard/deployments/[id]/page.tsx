@@ -48,6 +48,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api-client';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
+  DeploymentActionError,
   deployRelease,
   destroyDeployment,
   fetchDeployment,
@@ -69,10 +70,12 @@ import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
   NOT_YET_RUNNING_ACTION_COPY,
+  RELAY_STUCK_GUIDANCE,
   RELAY_STATUS_LABEL,
   UNSUPPORTED_ACTION_COPY,
   actionSupported,
   everInstalled,
+  relayWaitingStuck,
   showHealthBadge,
   showInfrastructureRows,
   type ComponentState,
@@ -272,7 +275,9 @@ function DetailBody({
         <DisconnectStatusPanel detail={detail} onChanged={onChanged} />
       ) : null}
 
-      {detail.state === 'NOT_INSTALLED' ? <InstallLinkCard detail={detail} /> : null}
+      {detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY' ? (
+        <InstallLinkCard detail={detail} />
+      ) : null}
 
       {/* Stacked sections rather than tabs: everything a vendor debugging a
           deployment needs stays visible without an extra click, and the
@@ -853,16 +858,36 @@ function RetryInstallDialog({
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [relayDisconnected, setRelayDisconnected] = useState(false);
 
   async function onConfirm(): Promise<void> {
     setPending(true);
     setError(null);
+    setRelayDisconnected(false);
     try {
       await retryInstall(deploymentId);
       toast.success('Retry requested');
       onDone();
+    } catch (caught) {
+      // A bound-but-disconnected relay never picks the retry job up — the
+      // fix is re-enrollment, so point at the reconnect path instead.
+      if (caught instanceof DeploymentActionError && caught.code === 'RELAY_DISCONNECTED') {
+        setRelayDisconnected(true);
+      } else {
+        setError("We couldn't start the retry. Try again in a moment.");
+      }
+      setPending(false);
+    }
+  }
+
+  async function onReconnect(): Promise<void> {
+    setPending(true);
+    setError(null);
+    try {
+      await resetRelay(deploymentId);
+      window.location.reload();
     } catch {
-      setError("We couldn't start the retry. Try again in a moment.");
+      setError("We couldn't reconnect the relay. Try again in a moment.");
       setPending(false);
     }
   }
@@ -878,6 +903,22 @@ function RetryInstallDialog({
             deployment was ever in use, so no data is lost.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {relayDisconnected ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-muted-foreground">
+              The relay is disconnected — reconnect it first.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="self-start"
+              disabled={pending}
+              onClick={() => void onReconnect()}
+            >
+              {pending ? 'Reconnecting…' : 'Reconnect relay'}
+            </Button>
+          </div>
+        ) : null}
         <OperationError error={error} />
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
@@ -1218,6 +1259,10 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
     typeof window === 'undefined'
       ? ''
       : `${window.location.origin}/install/${detail.installLinkId}`;
+  // The customer launched the install but no relay has enrolled within the
+  // staleness window — guidance, never a failure.
+  const stuck =
+    detail.state === 'WAITING_FOR_RELAY' && relayWaitingStuck(detail.installStartedAt);
 
   async function copy(): Promise<void> {
     try {
@@ -1267,6 +1312,19 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
             Reconnecting issues a new link and stops the old one working. Use it if the customer
             needs to install again.
           </p>
+          {stuck ? (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+              {detail.bootstrapStackName ? (
+                <p className="text-xs text-muted-foreground">
+                  Expected stack name:{' '}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                    {detail.bootstrapStackName}
+                  </code>
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
