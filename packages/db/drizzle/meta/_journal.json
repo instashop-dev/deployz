@@ -127,6 +127,13 @@
       "when": 1788156156071,
       "tag": "0017_cooing_prowler",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788178821635,
+      "tag": "0018_stormy_harrier",
+      "breakpoints": true
     }
   ]
 }

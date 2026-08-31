@@ -1400,50 +1400,35 @@
     }
   },
   "Outputs": {
-    "ExportDeployzApplicationDbHost": {
+    "DbHost": {
       "Value": {
         "Fn::GetAtt": [
           "DatabaseB269D8BB",
           "Endpoint.Address"
         ]
-      },
-      "Export": {
-        "Name": "DeployzApplication-DbHost"
       }
     },
-    "ExportDeployzApplicationDbSecretArn": {
+    "DbSecretArn": {
       "Value": {
         "Ref": "DatabaseSecret86DBB7B3"
-      },
-      "Export": {
-        "Name": "DeployzApplication-DbSecretArn"
       }
     },
-    "ExportDeployzApplicationStorageBucketName": {
+    "StorageBucketName": {
       "Value": {
         "Ref": "AppStorage995579DA"
-      },
-      "Export": {
-        "Name": "DeployzApplication-StorageBucketName"
       }
     },
-    "ExportDeployzApplicationClusterName": {
+    "ClusterName": {
       "Value": {
         "Ref": "ClusterEB0386A7"
-      },
-      "Export": {
-        "Name": "DeployzApplication-ClusterName"
       }
     },
-    "ExportDeployzApplicationPublicEndpoint": {
+    "PublicEndpoint": {
       "Value": {
         "Fn::GetAtt": [
           "LoadBalancerBE9EEC3A",
           "DNSName"
         ]
-      },
-      "Export": {
-        "Name": "DeployzApplication-PublicEndpoint"
       }
     }
   },

@@ -53,6 +53,7 @@ export type Region = z.infer<typeof regionSchema>;
 // CFN/ECS internals; these nine states are the whole user-facing model.
 export const deploymentStateSchema = z.enum([
   'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
   'INSTALLING',
   'HEALTHY',
   'UPDATING',
@@ -649,6 +650,59 @@ export const DESTROY_PENDING_STALE_AFTER_MS = 60 * 60 * 1000;
  * constant when `INSTALL` lands.
  */
 export const DEFAULT_APPLICATION_STACK_NAME = 'deployz-app';
+
+/**
+ * Per-deployment bootstrap stack names. A fixed `deployz-bootstrap` makes
+ * the second deployment into the same AWS account/region fail with "stack
+ * already exists"; deriving the name from the deployment identity (plus an
+ * attempt suffix on retry) keeps attempts isolated and readable.
+ */
+export interface BootstrapStackNameParts {
+  /** Customer-facing application name — contributes the readable slug. */
+  readonly appName: string;
+  /** Deployment id (uuid) — the uniqueness carrier. */
+  readonly deploymentId: string;
+  /** Install attempt number; 0 (default) is the first attempt. */
+  readonly attempt?: number;
+}
+
+function slugify(value: string, maxLength: number): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLength)
+    .replace(/-+$/g, '');
+}
+
+/**
+ * `deployz-bootstrap-<slug>-<shortId>` (`-r<n>` from attempt 1 on). Pure
+ * and deterministic — the Quick Create URL, the `bootstrap_stack_name`
+ * column, and the install page all derive the same name from the same
+ * deployment row.
+ */
+export function bootstrapStackName(parts: BootstrapStackNameParts): string {
+  const slug = slugify(parts.appName, 24);
+  const shortId = parts.deploymentId.slice(0, 8).toLowerCase();
+  const attempt = parts.attempt ?? 0;
+  return [
+    'deployz-bootstrap',
+    ...(slug !== '' ? [slug] : []),
+    shortId,
+    ...(attempt > 0 ? [`r${attempt}`] : []),
+  ].join('-');
+}
+
+/**
+ * `deployz-app-<shortInstallationId>` — unique per attempt without
+ * control-plane state, because the installation identifier is minted per
+ * bootstrap stack. Falls back to the fixed default when no installation
+ * identifier is known (tests, pre-enrollment).
+ */
+export function applicationStackNameForInstallation(installationId: string): string {
+  const short = installationId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+  return short !== '' ? `deployz-app-${short}` : DEFAULT_APPLICATION_STACK_NAME;
+}
 
 /**
  * Final path segment (S3 object key suffix) of the published application

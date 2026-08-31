@@ -4,7 +4,7 @@ import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { errorEnvelopeSchema } from '@deployz/contracts';
+import { bootstrapStackName, errorEnvelopeSchema } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -2186,6 +2186,17 @@ describe('server — organization settings, public install page, and bulk deploy
       deploymentState: 'NOT_INSTALLED',
       domain: null,
       routingTarget: null,
+      // Pre-relay fields: no launch has been recorded yet, so the expected
+      // bootstrap stack name is derived live (deterministic from the
+      // deployment identity) and nothing is stuck.
+      components: null,
+      bootstrapStackName: bootstrapStackName({
+        appName: 'Analytics Cloud',
+        deploymentId: deployment.id,
+        attempt: 0,
+      }),
+      waitingForRelay: false,
+      relayStuck: false,
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('999999999999');
@@ -2358,6 +2369,316 @@ describe('server — organization settings, public install page, and bulk deploy
   });
 });
 
+// ── pre-relay install lifecycle: launch signal, WAITING_FOR_RELAY, retry ──────
+describe('server — pre-relay install lifecycle (waiting-for-relay and retry)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  interface Seeded {
+    deployment: typeof schema.deployments.$inferSelect;
+    installLinkId: string;
+  }
+
+  async function seedWaiting(overrides: Partial<typeof schema.deployments.$inferInsert> = {}): Promise<Seeded> {
+    const application = await insertApplication(db, org.organizationId, { name: 'Widget Suite' });
+    const customer = await insertCustomer(db, org.organizationId, { name: 'Widgets Inc' });
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      installationId: null,
+      ...overrides,
+    });
+    return { deployment, installLinkId: deployment.installLinkId };
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'waiting-relay@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('gives two deployments of the same application in the same region different stack names', async () => {
+    const first = await seedWaiting();
+    const second = await seedWaiting();
+
+    const firstBody = (await app.inject({ method: 'GET', url: `/api/install/${first.installLinkId}` })).json() as {
+      bootstrapStackName: string;
+    };
+    const secondBody = (await app.inject({ method: 'GET', url: `/api/install/${second.installLinkId}` })).json() as {
+      bootstrapStackName: string;
+    };
+
+    expect(firstBody.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Widget Suite', deploymentId: first.deployment.id, attempt: 0 }),
+    );
+    expect(secondBody.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Widget Suite', deploymentId: second.deployment.id, attempt: 0 }),
+    );
+    expect(firstBody.bootstrapStackName).not.toBe(secondBody.bootstrapStackName);
+  });
+
+  it('POST /api/install/:installLinkId/launched moves NOT_INSTALLED to WAITING_FOR_RELAY and records the launch', async () => {
+    const { deployment, installLinkId } = await seedWaiting();
+
+    const response = await postJson(app, `/api/install/${installLinkId}/launched`, {});
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { state: string }).state).toBe('WAITING_FOR_RELAY');
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('WAITING_FOR_RELAY');
+    expect(dep!.installStartedAt).not.toBeNull();
+    expect(dep!.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Widget Suite', deploymentId: deployment.id, attempt: 0 }),
+    );
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, deployment.id));
+    expect(events.some((row) => row.eventType === 'install.launched')).toBe(true);
+  });
+
+  it('POST /api/install/:installLinkId/launched is idempotent while waiting', async () => {
+    const { installLinkId } = await seedWaiting();
+
+    const first = await postJson(app, `/api/install/${installLinkId}/launched`, {});
+    const second = await postJson(app, `/api/install/${installLinkId}/launched`, {});
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+  });
+
+  it('marks the install relay-stuck (never FAILED) when no relay enrolls within the staleness window', async () => {
+    const { deployment, installLinkId } = await seedWaiting({
+      state: 'WAITING_FOR_RELAY',
+      installStartedAt: new Date(Date.now() - 20 * 60 * 1000),
+    });
+
+    const body = (
+      await app.inject({ method: 'GET', url: `/api/install/${installLinkId}` })
+    ).json() as { deploymentState: string; waitingForRelay: boolean; relayStuck: boolean };
+    expect(body.deploymentState).toBe('WAITING_FOR_RELAY');
+    expect(body.waitingForRelay).toBe(true);
+    expect(body.relayStuck).toBe(true);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('WAITING_FOR_RELAY');
+  });
+
+  it('relay registration from WAITING_FOR_RELAY moves to INSTALLING and queues the first INSTALL job', async () => {
+    const { deployment } = await seedWaiting({ state: 'WAITING_FOR_RELAY' });
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deployment.id));
+    const enrollmentCode = rows[0]!.enrollmentCode;
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode, installationId: 'inst-waiting-relay' },
+      { authorization: 'Bearer waiting-relay-token' },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('INSTALLING');
+    expect(dep!.relayBoundAt).not.toBeNull();
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.type).toBe('INSTALL');
+    expect(jobs[0]!.state).toBe('REQUESTED');
+  });
+
+  it('POST /api/install/:installLinkId/retry starts a fresh attempt: new code, new stack name, dead jobs cancelled', async () => {
+    const { deployment, installLinkId } = await seedWaiting({
+      state: 'WAITING_FOR_RELAY',
+      installationId: 'inst-old-attempt',
+      enrollmentUsedAt: null,
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'REQUESTED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+    const oldStackName = bootstrapStackName({
+      appName: 'Widget Suite',
+      deploymentId: deployment.id,
+      attempt: 0,
+    });
+    await db
+      .update(schema.deployments)
+      .set({ bootstrapStackName: oldStackName, installStartedAt: new Date(Date.now() - 20 * 60 * 1000) })
+      .where(eq(schema.deployments.id, deployment.id));
+
+    const response = await postJson(app, `/api/install/${installLinkId}/retry`, {});
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      state: string;
+      attemptNumber: number;
+      bootstrapStackName: string;
+      quickCreateUrl: string | null;
+    };
+    expect(body.state).toBe('NOT_INSTALLED');
+    expect(body.attemptNumber).toBe(1);
+    expect(body.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Widget Suite', deploymentId: deployment.id, attempt: 1 }),
+    );
+    expect(body.bootstrapStackName).not.toBe(oldStackName);
+    // No published template in the test environment: the fresh link is
+    // handed out by the install page once the vendor publishes one.
+    expect(body.quickCreateUrl).toBeNull();
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('NOT_INSTALLED');
+    expect(dep!.installationId).toBeNull();
+    expect(dep!.enrollmentUsedAt).toBeNull();
+    expect(dep!.attemptNumber).toBe(1);
+    expect(dep!.installStartedAt).toBeNull();
+    expect(dep!.enrollmentCode).not.toBe(deployment.enrollmentCode);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs[0]!.state).toBe('CANCELLED');
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, deployment.id));
+    expect(events.some((row) => row.eventType === 'install.retry.requested')).toBe(true);
+  });
+
+  it('POST /api/install/:installLinkId/retry refuses a deployment that already installed successfully', async () => {
+    const { deployment, installLinkId } = await seedWaiting({ state: 'HEALTHY' });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/install/${installLinkId}/retry`, {});
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'INSTALL_ALREADY_SUCCEEDED' } });
+  });
+
+  it('POST /api/install/:installLinkId/retry 404s for an unknown link', async () => {
+    const response = await postJson(app, `/api/install/${crypto.randomUUID()}/retry`, {});
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('relay/reset bumps the attempt, recomputes the stack name, and returns a never-installed deployment to NOT_INSTALLED', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      installationId: 'inst-reset-test',
+      relayStatus: 'DISCONNECTED',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'REQUESTED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('NOT_INSTALLED');
+    expect(dep!.attemptNumber).toBe(1);
+    expect(dep!.installationId).toBeNull();
+    expect(dep!.installStartedAt).toBeNull();
+    expect(dep!.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Reset App', deploymentId: deployment.id, attempt: 1 }),
+    );
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs[0]!.state).toBe('CANCELLED');
+  });
+
+  it('relay/reset keeps a healthy deployment in place (credential rotation only)', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Healthy Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('HEALTHY');
+    expect(dep!.attemptNumber).toBe(1);
+    expect(dep!.installationId).toBeNull();
+    expect(dep!.enrollmentCode).not.toBe(deployment.enrollmentCode);
+  });
+
+  it('serves the same §24 component view on the install page as the fleet row', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      name: 'Component Parity App',
+      databaseRequired: true,
+    });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      enrollmentUsedAt: new Date(),
+      observedState: {
+        components: { application: 'HEALTHY' },
+        infraHealth: { checks: [{ name: 'database', passed: true }] },
+      },
+    });
+
+    const installBody = (
+      await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` })
+    ).json() as { components: Record<string, string> | null; alreadyInstalled: boolean };
+    expect(installBody.alreadyInstalled).toBe(true);
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(detail.statusCode).toBe(200);
+    const detailBody = detail.json() as { components: Record<string, string> | null };
+
+    expect(installBody.components).toStrictEqual(detailBody.components);
+  });
+});
+
 // ── POST /api/deployments/:id/retry-install — first-install recovery ────────
 describe('server — retry-install (first-install recovery)', () => {
   let client: PGlite | undefined;
@@ -2485,6 +2806,18 @@ describe('server — retry-install (first-install recovery)', () => {
     const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: { code: 'RELAY_NOT_CONNECTED' } });
+  });
+
+  // A dead relay never picks the retry job up; the watchdog would re-fail the
+  // deployment an hour later. The recovery for a dead relay is
+  // re-enrollment (relay/reset), which the UI can point to only if this
+  // route refuses.
+  it('409s (RELAY_DISCONNECTED) when the bound relay is dead — re-enrollment, not another job', async () => {
+    const deployment = await seedFailedInstall({ relayStatus: 'DISCONNECTED' });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'RELAY_DISCONNECTED' } });
   });
 
   it('409s while a fresh INSTALL attempt is still in flight', async () => {

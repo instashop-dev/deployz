@@ -28,9 +28,11 @@
  *      `logs:FilterLogEvents` (§16 — it writes logs, never reads them back).
  */
 import {
+  CfnOutput,
   CfnParameter,
   CustomResource,
   Duration,
+  Fn,
   Stack,
   Tags,
   type StackProps,
@@ -1131,6 +1133,11 @@ export class BootstrapStack extends Stack {
         DEPLOYZ_ENROLLMENT_CODE: enrollmentCodeParam.valueAsString,
         DEPLOYZ_APPLICATION_TEMPLATE_URL: applicationTemplateUrlParam.valueAsString,
         DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN: this.applicationExecutionRole.roleArn,
+        // The relay purges its own bootstrap stack (destroy flow). Ref
+        // AWS::StackName resolves to the DEPLOYED stack name at runtime —
+        // even when the customer renames the stack in the console — where a
+        // synth-time `this.stackName` literal would go stale.
+        DEPLOYZ_BOOTSTRAP_STACK_NAME: Fn.ref('AWS::StackName'),
       },
       bundling: {
         format: 'esm' as OutputFormat,
@@ -1200,23 +1207,32 @@ export class BootstrapStack extends Stack {
     // AWS::IAM::ManagedPolicy has no `Tags` property in CloudFormation, so the
     // permissions-boundary and provisioner policies cannot carry deployz:
     // tags. They remain bound to the installation by the deployz:installation
-    // IAM condition in their statements and the ARN exports below.
+    // IAM condition in their statements and the ARN outputs below.
 
     // ── 6. Stack outputs (control-plane handshake surface) ──────────────
-    this.exportValue(this.relayFunction.functionArn, {
-      name: `${this.stackName}-RelayFunctionArn`,
+    // Plain outputs, NOT Fn::Export values: this template is synthesized once
+    // with fixed logical ids and deployed many times into the same account,
+    // where fixed export names would collide (the second stack rolls back).
+    // Nothing imports these — readers use DescribeStacks, which returns plain
+    // outputs exactly as it returned exports.
+    new CfnOutput(this, 'RelayFunctionArn', {
+      value: this.relayFunction.functionArn,
     });
-    this.exportValue(this.credentialSecret.secretArn, {
-      name: `${this.stackName}-CredentialSecretArn`,
+    new CfnOutput(this, 'CredentialSecretArn', {
+      value: this.credentialSecret.secretArn,
     });
-    this.exportValue(this.provisionerPolicy.managedPolicyArn, {
-      name: `${this.stackName}-ProvisionerPolicyArn`,
+    new CfnOutput(this, 'ProvisionerPolicyArn', {
+      value: this.provisionerPolicy.managedPolicyArn,
     });
-    this.exportValue(this.installationId, {
-      name: `${this.stackName}-InstallationId`,
+    // The install-id CustomResource above already owns the construct id
+    // 'InstallationId', so this output takes a distinct construct id and pins
+    // the template logical id instead.
+    const installationIdOutput = new CfnOutput(this, 'InstallationIdOutput', {
+      value: this.installationId,
     });
-    this.exportValue(this.applicationExecutionRole.roleArn, {
-      name: `${this.stackName}-ApplicationExecutionRoleArn`,
+    installationIdOutput.overrideLogicalId('InstallationId');
+    new CfnOutput(this, 'ApplicationExecutionRoleArn', {
+      value: this.applicationExecutionRole.roleArn,
     });
   }
 }

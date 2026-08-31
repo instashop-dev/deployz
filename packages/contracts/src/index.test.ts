@@ -21,6 +21,8 @@ import {
   PACKAGE_NAME,
   analysisStatusSchema,
   applicationSchema,
+  applicationStackNameForInstallation,
+  bootstrapStackName,
   cleanupStateSchema,
   compatibilityStatusSchema,
   componentProgressStatusSchema,
@@ -329,6 +331,84 @@ describe('stack name constants', () => {
 
   it('does not collide with the bootstrap stack name', () => {
     expect(DEFAULT_APPLICATION_STACK_NAME).not.toBe(DEFAULT_BOOTSTRAP_STACK_NAME);
+  });
+});
+
+describe('bootstrapStackName', () => {
+  const deploymentId = '1b2e3d4f-5678-4abc-9def-0123456789ab';
+
+  it('derives a readable slug + short-id name for the first attempt', () => {
+    expect(bootstrapStackName({ appName: 'Documenso', deploymentId })).toBe(
+      'deployz-bootstrap-documenso-1b2e3d4f',
+    );
+  });
+
+  it('gives two deployments of the same app different names', () => {
+    const other = 'ffffffff-0000-4abc-9def-0123456789ab';
+    expect(bootstrapStackName({ appName: 'Documenso', deploymentId: other })).not.toBe(
+      bootstrapStackName({ appName: 'Documenso', deploymentId }),
+    );
+  });
+
+  it('appends a fresh attempt suffix from attempt 1 on', () => {
+    const first = bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 0 });
+    const retry = bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 1 });
+    expect(first).toBe('deployz-bootstrap-documenso-1b2e3d4f');
+    expect(retry).toBe('deployz-bootstrap-documenso-1b2e3d4f-r1');
+    expect(bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 2 })).toBe(
+      'deployz-bootstrap-documenso-1b2e3d4f-r2',
+    );
+  });
+
+  it('is deterministic for the same inputs', () => {
+    expect(bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 1 })).toBe(
+      bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 1 }),
+    );
+  });
+
+  it('collapses symbols and whitespace in the application name', () => {
+    expect(bootstrapStackName({ appName: 'My App!! (v2)', deploymentId })).toBe(
+      'deployz-bootstrap-my-app-v2-1b2e3d4f',
+    );
+  });
+
+  it('caps the slug so the name stays under the CFN 128-char limit', () => {
+    const name = bootstrapStackName({ appName: 'a'.repeat(200), deploymentId, attempt: 12 });
+    expect(name.length).toBeLessThan(128);
+    expect(name).toMatch(/^deployz-bootstrap-a{24}-1b2e3d4f-r12$/);
+  });
+
+  it('omits an empty slug rather than emitting a double hyphen', () => {
+    expect(bootstrapStackName({ appName: '!!!', deploymentId })).toBe(
+      'deployz-bootstrap-1b2e3d4f',
+    );
+  });
+
+  it('only emits CFN-legal stack-name characters', () => {
+    const name = bootstrapStackName({ appName: 'Ünïcødé App 42%', deploymentId, attempt: 3 });
+    expect(name).toMatch(/^[a-zA-Z0-9-]+$/);
+  });
+});
+
+describe('applicationStackNameForInstallation', () => {
+  it('derives the app stack name from the installation id', () => {
+    expect(
+      applicationStackNameForInstallation('9F3AB2C1-1234-4abc-9def-0123456789ab'),
+    ).toBe('deployz-app-9f3ab2c1');
+  });
+
+  it('gives two installations different app stack names', () => {
+    expect(applicationStackNameForInstallation('aaaaaaaa-0000-0000-0000-000000000000')).not.toBe(
+      applicationStackNameForInstallation('bbbbbbbb-0000-0000-0000-000000000000'),
+    );
+  });
+
+  it('keeps only CFN-legal characters from the installation id', () => {
+    expect(applicationStackNameForInstallation('i-1a_2b!3c')).toBe('deployz-app-i1a2b3c');
+  });
+
+  it('falls back to the default when no installation id is known', () => {
+    expect(applicationStackNameForInstallation('')).toBe(DEFAULT_APPLICATION_STACK_NAME);
   });
 });
 

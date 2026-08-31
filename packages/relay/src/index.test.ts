@@ -11,6 +11,8 @@ import {
   createVerifyingExecutor,
   readInstallParametersFromPayload,
   readVerifyOptionsFromPayload,
+  relayApplicationStackName,
+  relayBootstrapStackName,
   type InstallExecutorDeps,
 } from './index.js';
 import { memoryPendingStore } from './pending.js';
@@ -477,6 +479,50 @@ describe('readVerifyOptionsFromPayload', () => {
 
   it('reads redisRequired: false explicitly, not just truthy values', () => {
     expect(readVerifyOptionsFromPayload({ redisRequired: false })).toEqual({ redisRequired: false });
+  });
+});
+
+describe('relay stack-name resolution', () => {
+  it('derives the application stack name from the installation id', () => {
+    const restore = setEnv({
+      DEPLOYZ_INSTALLATION_ID: '9f3ab2c1-1234-4abc-9def-0123456789ab',
+      DEPLOYZ_BOOTSTRAP_STACK_NAME: 'deployz-bootstrap-acme-9f3ab2c1',
+    });
+
+    try {
+      expect(relayApplicationStackName()).toBe('deployz-app-9f3ab2c1');
+      expect(relayBootstrapStackName()).toBe('deployz-bootstrap-acme-9f3ab2c1');
+    } finally {
+      restore();
+    }
+  });
+
+  it('falls back to the fixed defaults when the env is absent', () => {
+    const restore = setEnv({
+      DEPLOYZ_INSTALLATION_ID: undefined,
+      DEPLOYZ_BOOTSTRAP_STACK_NAME: undefined,
+    });
+
+    try {
+      expect(relayApplicationStackName()).toBe('deployz-app');
+      expect(relayBootstrapStackName()).toBe('deployz-bootstrap');
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps the bootstrap name in sync when the deployment is retried under a fresh stack name', () => {
+    const restore = setEnv({
+      DEPLOYZ_INSTALLATION_ID: 'deadbeef-0000-4abc-9def-0123456789ab',
+      DEPLOYZ_BOOTSTRAP_STACK_NAME: 'deployz-bootstrap-acme-deadbeef-r1',
+    });
+
+    try {
+      expect(relayBootstrapStackName()).toBe('deployz-bootstrap-acme-deadbeef-r1');
+      expect(relayApplicationStackName()).not.toBe('deployz-app-9f3ab2c1');
+    } finally {
+      restore();
+    }
   });
 });
 

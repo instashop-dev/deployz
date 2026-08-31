@@ -151,7 +151,7 @@ function DiagnosticsBody({
             No issues found
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {detail.state === 'NOT_INSTALLED'
+            {detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY'
               ? 'This deployment has not been installed yet, so there is nothing to diagnose.'
               : 'This deployment is healthy, so there is nothing to diagnose.'}
           </p>

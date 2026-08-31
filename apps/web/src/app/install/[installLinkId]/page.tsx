@@ -1,8 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
 
+import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
+import { InstallRetryButton } from '@/components/install-retry-button';
 import { Button } from '@/components/ui/button';
+import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { fetchInstallData } from '@/lib/install-data';
 import { fetchInstallStatusServer } from '@/lib/install-status';
 
@@ -62,6 +66,75 @@ export default async function InstallPage({
           This installation link doesn&apos;t match an active deployment. It may have been
           removed, or the link may be incorrect. Contact whoever sent you this link for a new
           one.
+        </p>
+      </div>
+    );
+  }
+
+  // The customer pressed "Deploy to AWS" and the control plane is waiting
+  // for the relay to enroll. Never a failure: past the staleness window the
+  // page shows guidance and a retry instead. The enrollment code is spent
+  // only when a relay actually connects, so this state needs no "already
+  // used" warning.
+  if (data.waitingForRelay) {
+    const cloudFormationUrl = `https://${data.region}.console.aws.amazon.com/cloudformation/home?region=${data.region}#/stacks`;
+    return (
+      <div className="flex flex-col gap-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {data.publisherName} is setting up inside your AWS account
+          </p>
+        </div>
+
+        {/* Live six-stage progress; `preinstall` refreshes this server-
+            rendered layout the moment the relay enrolls and the stage moves
+            past WAITING_FOR_AWS. */}
+        <InstallProgress
+          installLinkId={installLinkId}
+          deploymentId={data.deploymentId}
+          initialStatus={initialStatus}
+          quickCreateUrl={data.quickCreateUrl}
+          initialDomain={data.domain}
+          routingTarget={data.routingTarget}
+          preinstall
+        />
+
+        <section aria-labelledby="install-waiting" className="flex flex-col gap-3">
+          {data.relayStuck ? (
+            <>
+              <h2 id="install-waiting" className="text-base font-semibold">
+                Still connecting
+              </h2>
+              <div className="flex items-start gap-3">
+                <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+              </div>
+            </>
+          ) : (
+            <h2 id="install-waiting" className="sr-only">
+              AWS setup details
+            </h2>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Expected stack name:{' '}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+              {data.bootstrapStackName}
+            </code>
+          </p>
+          <div className="flex flex-wrap items-start gap-2">
+            {data.relayStuck ? <InstallRetryButton installLinkId={installLinkId} /> : null}
+            <Button asChild variant="outline">
+              <a href={cloudFormationUrl} target="_blank" rel="noreferrer">
+                Open AWS CloudFormation
+              </a>
+            </Button>
+          </div>
+        </section>
+
+        <p className="text-xs text-muted-foreground">
+          Installation reference:{' '}
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
         </p>
       </div>
     );
@@ -220,11 +293,10 @@ export default async function InstallPage({
               template yet: a link to a template AWS cannot fetch fails
               inside the customer's console with nothing to act on. */}
           {data.quickCreateUrl ? (
-            <Button asChild size="lg">
-              <a href={data.quickCreateUrl} target="_blank" rel="noopener">
-                Deploy to AWS
-              </a>
-            </Button>
+            <InstallLaunchButton
+              installLinkId={installLinkId}
+              quickCreateUrl={data.quickCreateUrl}
+            />
           ) : (
             <Button size="lg" disabled>
               Deploy to AWS

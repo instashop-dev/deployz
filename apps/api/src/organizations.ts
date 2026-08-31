@@ -450,7 +450,10 @@ export async function deleteOrganization(
     .from(schema.deployments)
     .where(eq(schema.deployments.organizationId, organizationId));
   const live = deployments.filter(
-    (deployment) => deployment.state !== 'DELETED' && deployment.state !== 'NOT_INSTALLED',
+    (deployment) =>
+      deployment.state !== 'DELETED' &&
+      deployment.state !== 'NOT_INSTALLED' &&
+      deployment.state !== 'WAITING_FOR_RELAY',
   );
   if (live.length > 0) {
     throw new ApiError(

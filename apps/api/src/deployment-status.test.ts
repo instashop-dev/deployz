@@ -136,6 +136,13 @@ describe('deriveDeploymentStatus — the seven spec scenarios', () => {
     expect(derive().stage).toBe('WAITING_FOR_AWS');
   });
 
+  it('WAITING_FOR_RELAY (Deploy to AWS pressed, relay not enrolled) is still WAITING_FOR_AWS', () => {
+    // The launch signal changes the install page's sub-copy, never the
+    // six-stage model — only the relay's first contact moves the stage.
+    const status = derive({ deployment: makeDeployment({ state: 'WAITING_FOR_RELAY' }) });
+    expect(status.stage).toBe('WAITING_FOR_AWS');
+  });
+
   it('relay registered → CONNECTING', () => {
     const status = derive({ deployment: makeDeployment({ relayBoundAt: NOW }) });
     expect(status.stage).toBe('CONNECTING');

@@ -536,6 +536,11 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     stage = 'CONNECTING';
     currentActivity = STAGE_ACTIVITY.CONNECTING;
   } else {
+    // NOT_INSTALLED (link not launched) and WAITING_FOR_RELAY (customer
+    // pressed Deploy to AWS, no relay yet) both land here: the spec's
+    // WAITING_FOR_AWS covers everything before the relay's first contact,
+    // and the install page distinguishes the two sub-states with the
+    // launch-signal fields, not with a different stage.
     stage = 'WAITING_FOR_AWS';
     currentActivity = STAGE_ACTIVITY.WAITING_FOR_AWS;
   }

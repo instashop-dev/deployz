@@ -19,6 +19,8 @@ import {
 } from '@deployz/analysis';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
+  RELAY_STALE_AFTER_MS,
+  bootstrapStackName,
   buildBootstrapQuickCreateUrl,
   failureCodeSchema,
   healthComponentsSchema,
@@ -647,6 +649,7 @@ const BULK_DEPLOYABLE_STATES = new Set<DeploymentRow['state']>(['HEALTHY', 'UPDA
 // in-flight UPDATING retry still reaches the idempotent job path.
 const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
   'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
   'DELETING',
   'DELETED',
 ]);
@@ -1200,76 +1203,109 @@ export async function buildServer({
     '/api/install/:installLinkId',
     { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
     async (request) => {
-      const { installLinkId } = request.params as { installLinkId: string };
-      requireUuidId(installLinkId);
-      const rows = await db
-        .select({
-          applicationName: schema.applications.name,
-          publisherName: schema.organization.name,
-          customerName: schema.customers.name,
-          region: schema.deployments.region,
-          databaseRequired: schema.applications.databaseRequired,
-          storageRequired: schema.applications.storageRequired,
-          redisRequired: schema.applications.redisRequired,
-          enrollmentCode: schema.deployments.enrollmentCode,
-          enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
-          deploymentId: schema.deployments.id,
-          deploymentState: schema.deployments.state,
-        })
-        .from(schema.deployments)
-        .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
-        .innerJoin(schema.organization, eq(schema.deployments.organizationId, schema.organization.id))
-        .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
-        .where(eq(schema.deployments.installLinkId, installLinkId))
-        .limit(1);
-      if (rows.length === 0) {
-        throw new NotFoundError('Installation not found');
-      }
-      const row = rows[0]!;
-      // Spent codes are of no use to the install page — it renders the "already
-      // set up" state instead — so stop handing the credential to anyone who
-      // replays the link out of a mailbox or browser history.
-      const alreadyInstalled = row.enrollmentUsedAt !== null;
-      const resourcesCreated = ['Application runtime'];
-      if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
-      if (row.storageRequired) resourcesCreated.push('Storage');
-      if (row.redisRequired) resourcesCreated.push('Redis cache');
-      resourcesCreated.push('Networking', 'Monitoring');
-      // The install link already identifies exactly this deployment, so its
-      // own id/state/domain are within the scope the link already grants —
-      // this is not a tenant-boundary crossing, just more detail about the
-      // one deployment the link names.
-      const domain = await findActiveDomain(db, row.deploymentId);
-      return {
-        applicationName: row.applicationName,
-        publisherName: row.publisherName,
-        customerName: row.customerName,
-        region: row.region,
-        resourcesCreated,
+    const { installLinkId } = request.params as { installLinkId: string };
+    requireUuidId(installLinkId);
+    const rows = await db
+      .select({
+        applicationName: schema.applications.name,
+        publisherName: schema.organization.name,
+        customerName: schema.customers.name,
+        region: schema.deployments.region,
+        databaseRequired: schema.applications.databaseRequired,
+        storageRequired: schema.applications.storageRequired,
+        redisRequired: schema.applications.redisRequired,
+        enrollmentCode: schema.deployments.enrollmentCode,
+        enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
+        deploymentId: schema.deployments.id,
+        deploymentState: schema.deployments.state,
+        attemptNumber: schema.deployments.attemptNumber,
+        bootstrapStackName: schema.deployments.bootstrapStackName,
+        installStartedAt: schema.deployments.installStartedAt,
+        observedState: schema.deployments.observedState,
+      })
+      .from(schema.deployments)
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .innerJoin(schema.organization, eq(schema.deployments.organizationId, schema.organization.id))
+      .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
+      .where(eq(schema.deployments.installLinkId, installLinkId))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Installation not found');
+    }
+    const row = rows[0]!;
+    // Spent codes are of no use to the install page — it renders the "already
+    // set up" state instead — so stop handing the credential to anyone who
+    // replays the link out of a mailbox or browser history.
+    const alreadyInstalled = row.enrollmentUsedAt !== null;
+    const resourcesCreated = ['Application runtime'];
+    if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
+    if (row.storageRequired) resourcesCreated.push('Storage');
+    if (row.redisRequired) resourcesCreated.push('Redis cache');
+    resourcesCreated.push('Networking', 'Monitoring');
+    // The expected bootstrap stack name: the persisted one once an attempt
+    // has launched (a record of what the customer was told), otherwise the
+    // name the link below will prefill. Derived from deployment identity so
+    // two deployments into the same AWS account/region never collide.
+    const stackName =
+      row.bootstrapStackName ??
+      bootstrapStackName({
+        appName: row.applicationName,
         deploymentId: row.deploymentId,
-        deploymentState: row.deploymentState,
-        domain: domain ? toDomainView(domain) : null,
-        routingTarget: domain?.routingTarget ?? null,
-        // The Quick Create link is built HERE, not in the web app: only the
-        // control plane knows which template is currently published, which
-        // region this customer's deployment targets, and this deployment's
-        // single-use enrollment code. The link carries no credential — the
-        // relay's is minted by CloudFormation inside the customer's account.
-        //
-        // Spent codes get no link. The page renders its "already set up" state
-        // in that case and never follows the URL, so building one only hands
-        // the enrollment code to whoever replays the link out of a mailbox.
-        quickCreateUrl:
-          env.bootstrapTemplateUrl && !alreadyInstalled
-            ? buildBootstrapQuickCreateUrl({
-                region: row.region,
-                templateUrl: env.bootstrapTemplateUrl,
-                controlPlaneUrl: env.apiUrl,
-                enrollmentCode: row.enrollmentCode,
-              })
-            : null,
-        alreadyInstalled,
-      };
+        attempt: row.attemptNumber,
+      });
+    const waitingForRelay = row.deploymentState === 'WAITING_FOR_RELAY';
+    // The relay enrolling is the only way out of WAITING_FOR_RELAY. Past one
+    // relay-staleness window with no enrollment the page shows guidance
+    // instead of a failure — the bootstrap stack may still be creating, or
+    // may have failed before the connector ever started.
+    const relayStuck =
+      waitingForRelay &&
+      row.installStartedAt !== null &&
+      Date.now() - row.installStartedAt.getTime() > RELAY_STALE_AFTER_MS;
+    // The install link already identifies exactly this deployment, so its
+    // own id/state/domain are within the scope the link already grants —
+    // this is not a tenant-boundary crossing, just more detail about the
+    // one deployment the link names.
+    const domain = await findActiveDomain(db, row.deploymentId);
+    return {
+      applicationName: row.applicationName,
+      publisherName: row.publisherName,
+      customerName: row.customerName,
+      region: row.region,
+      resourcesCreated,
+      deploymentId: row.deploymentId,
+      deploymentState: row.deploymentState,
+      domain: domain ? toDomainView(domain) : null,
+      routingTarget: domain?.routingTarget ?? null,
+      // Same §24 derivation the fleet row uses — one progress model for the
+      // install page and the dashboard, so the two cannot disagree. Only
+      // offered once a relay enrolled; before that there is nothing to
+      // observe.
+      components: alreadyInstalled ? mergeComponentState(row.observedState, row) : null,
+      bootstrapStackName: stackName,
+      waitingForRelay,
+      relayStuck,
+      // The Quick Create link is built HERE, not in the web app: only the
+      // control plane knows which template is currently published, which
+      // region this customer's deployment targets, and this deployment's
+      // single-use enrollment code. The link carries no credential — the
+      // relay's is minted by CloudFormation inside the customer's account.
+      //
+      // Spent codes get no link. The page renders its "already set up" state
+      // in that case and never follows the URL, so building one only hands
+      // the enrollment code to whoever replays the link out of a mailbox.
+      quickCreateUrl:
+        env.bootstrapTemplateUrl && !alreadyInstalled
+          ? buildBootstrapQuickCreateUrl({
+              region: row.region,
+              templateUrl: env.bootstrapTemplateUrl,
+              controlPlaneUrl: env.apiUrl,
+              enrollmentCode: row.enrollmentCode,
+              stackName,
+            })
+          : null,
+      alreadyInstalled,
+    };
     },
   );
 
@@ -1315,6 +1351,153 @@ export async function buildServer({
         appUrl,
       });
       return toCustomerDeploymentStatus(derived);
+    },
+  );
+
+  // Pre-relay launch signal: the install page reports the customer pressing
+  // "Deploy to AWS" so the deployment can show an explicit waiting state
+  // (and, if no relay ever enrolls, guidance instead of a false failure).
+  // Public for the same reason GET above is: keyed on the install link,
+  // which is the only credential the customer holds. Idempotent — reopening
+  // the CloudFormation console page is not a new attempt.
+  app.post(
+    '/api/install/:installLinkId/launched',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request, reply) => {
+    const { installLinkId } = request.params as { installLinkId: string };
+    requireUuidId(installLinkId);
+    const rows = await db
+      .select({ deployment: schema.deployments, applicationName: schema.applications.name })
+      .from(schema.deployments)
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .where(eq(schema.deployments.installLinkId, installLinkId))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Installation not found');
+    }
+    const { deployment, applicationName } = rows[0]!;
+    if (deployment.state !== 'NOT_INSTALLED') {
+      return reply.code(200).send({ state: deployment.state });
+    }
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deployments)
+        .set({
+          state: 'WAITING_FOR_RELAY',
+          installStartedAt: new Date(),
+          bootstrapStackName: bootstrapStackName({
+            appName: applicationName,
+            deploymentId: deployment.id,
+            attempt: deployment.attemptNumber,
+          }),
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'install.launched',
+        actorType: 'system',
+        actorId: `install-link:${deployment.installLinkId}`,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        previousState: deployment.state,
+        requestedState: 'WAITING_FOR_RELAY',
+      });
+    });
+    return { state: 'WAITING_FOR_RELAY' };
+    },
+  );
+
+  // Customer-facing retry for an install that never connected. Fresh
+  // attempt: new enrollment code, bumped attempt number (so the Quick
+  // Create link prefill moves to a stack name no ROLLBACK_COMPLETE
+  // remnant of the failed attempt can block), spent in-flight INSTALL
+  // jobs cancelled. The failed attempt's stack is NOT deleted here —
+  // cleanup stays on the separate purge path. Guarded like retry-install:
+  // a deployment that was ever healthy must not be reset from the public
+  // page.
+  app.post(
+    '/api/install/:installLinkId/retry',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request, reply) => {
+    const { installLinkId } = request.params as { installLinkId: string };
+    requireUuidId(installLinkId);
+    const rows = await db
+      .select({ deployment: schema.deployments, applicationName: schema.applications.name })
+      .from(schema.deployments)
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .where(eq(schema.deployments.installLinkId, installLinkId))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Installation not found');
+    }
+    const { deployment, applicationName } = rows[0]!;
+    if (await hasSucceededInstall(db, deployment.id)) {
+      throw new ApiError(
+        409,
+        'INSTALL_ALREADY_SUCCEEDED',
+        'This deployment installed successfully before; contact the vendor to make changes.',
+      );
+    }
+    const nextAttempt = deployment.attemptNumber + 1;
+    const stackName = bootstrapStackName({
+      appName: applicationName,
+      deploymentId: deployment.id,
+      attempt: nextAttempt,
+    });
+    const enrollmentCode = mintEnrollmentCode();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deploymentJobs)
+        .set({ state: 'CANCELLED', finishedAt: new Date() })
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            eq(schema.deploymentJobs.type, 'INSTALL'),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'RUNNING', 'WAITING']),
+          ),
+        );
+      await tx
+        .update(schema.deployments)
+        .set({
+          state: 'NOT_INSTALLED',
+          enrollmentCode,
+          enrollmentUsedAt: null,
+          installationId: null,
+          relayTokenHash: null,
+          relayBoundAt: null,
+          relayStatus: 'UNKNOWN',
+          attemptNumber: nextAttempt,
+          bootstrapStackName: stackName,
+          installStartedAt: null,
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'install.retry.requested',
+        actorType: 'system',
+        actorId: `install-link:${deployment.installLinkId}`,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        previousState: deployment.state,
+        requestedState: 'NOT_INSTALLED',
+        payload: { attempt: nextAttempt, bootstrapStackName: stackName },
+      });
+    });
+    return reply.code(200).send({
+      state: 'NOT_INSTALLED',
+      attemptNumber: nextAttempt,
+      bootstrapStackName: stackName,
+      quickCreateUrl:
+        env.bootstrapTemplateUrl
+          ? buildBootstrapQuickCreateUrl({
+              region: deployment.region,
+              templateUrl: env.bootstrapTemplateUrl,
+              controlPlaneUrl: env.apiUrl,
+              enrollmentCode,
+              stackName,
+            })
+          : null,
+    });
     },
   );
 
@@ -2297,7 +2480,7 @@ export async function buildServer({
     // account to remove and no relay to ask. Queuing a DESTROY job here left
     // the deployment sitting at "Not installed" forever while the vendor
     // watched a confirmation dialog close and nothing happen.
-    if (deployment.state === 'NOT_INSTALLED') {
+    if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') {
       await db.transaction(async (tx) => {
         await tx
           .update(schema.deployments)
@@ -2529,13 +2712,46 @@ export async function buildServer({
   // rejected enrollment. Without it a 409 from /api/relay/register would be
   // unrecoverable: the binding is single-use by design, so something has to
   // be able to clear it, and that something is a deliberate vendor action.
+  //
+  // A reset is also a fresh install attempt when nothing was ever installed:
+  // the attempt number bumps (so the next Quick Create link prefills a
+  // stack name no ROLLBACK_COMPLETE remnant can block), leftover in-flight
+  // INSTALL jobs from the dead attempt are cancelled (they would otherwise
+  // be failed by the watchdog and drag the reset deployment back to
+  // FAILED), and the deployment returns to NOT_INSTALLED so the dashboard
+  // offers the install link again. A deployment that was ever healthy keeps
+  // its state — its reset only rotates the credential.
   app.post('/api/deployments/:id/relay/reset', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const enrollmentCode = mintEnrollmentCode();
+    const [application] = await db
+      .select({ name: schema.applications.name })
+      .from(schema.applications)
+      .where(eq(schema.applications.id, deployment.applicationId))
+      .limit(1);
+    const neverInstalled = !(await hasSucceededInstall(db, deployment.id));
+    const nextAttempt = deployment.attemptNumber + 1;
+    const stackName = bootstrapStackName({
+      appName: application?.name ?? '',
+      deploymentId: deployment.id,
+      attempt: nextAttempt,
+    });
 
     await db.transaction(async (tx) => {
+      if (neverInstalled) {
+        await tx
+          .update(schema.deploymentJobs)
+          .set({ state: 'CANCELLED', finishedAt: new Date() })
+          .where(
+            and(
+              eq(schema.deploymentJobs.deploymentId, deployment.id),
+              eq(schema.deploymentJobs.type, 'INSTALL'),
+              inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'RUNNING', 'WAITING']),
+            ),
+          );
+      }
       await tx
         .update(schema.deployments)
         .set({
@@ -2545,7 +2761,11 @@ export async function buildServer({
           relayTokenHash: null,
           relayBoundAt: null,
           relayStatus: 'UNKNOWN',
+          attemptNumber: nextAttempt,
+          bootstrapStackName: neverInstalled ? stackName : deployment.bootstrapStackName,
+          installStartedAt: null,
           updatedBy: request.user?.id ?? null,
+          ...(neverInstalled ? { state: 'NOT_INSTALLED' as const } : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
       await recordEvent(tx, {
@@ -2556,6 +2776,8 @@ export async function buildServer({
         deploymentId: deployment.id,
         customerId: deployment.customerId,
         previousState: deployment.state,
+        requestedState: neverInstalled ? 'NOT_INSTALLED' : deployment.state,
+        payload: { attempt: nextAttempt, bootstrapStackName: neverInstalled ? stackName : null },
       });
     });
 
@@ -2633,6 +2855,19 @@ export async function buildServer({
         409,
         'RELAY_NOT_CONNECTED',
         'No relay is connected to this deployment. Reconnect it before retrying the install.',
+      );
+    }
+
+    // A bound-but-disconnected relay never picks the retry job up, and the
+    // watchdog would fail it an hour later — re-failing the deployment the
+    // vendor just tried to save. The fix for a dead relay is re-enrollment
+    // (relay/reset: fresh code + attempt + stack name), not another install
+    // job; refuse so the UI points there instead.
+    if (deployment.relayStatus === 'DISCONNECTED') {
+      throw new ApiError(
+        409,
+        'RELAY_DISCONNECTED',
+        'The relay for this deployment is disconnected. Reconnect it before retrying the install.',
       );
     }
 
@@ -3212,12 +3447,16 @@ export async function buildServer({
     }
 
     // §6/§39: an INSTALL job must be reachable through the API so a fresh
-    // deployment can ever progress past NOT_INSTALLED. We create it here
-    // (first relay registration) rather than at deployment-creation time —
-    // the deployment row can legitimately exist before any relay has called
-    // home, and this is the first point where we know the relay is alive.
+    // deployment can ever progress past the pre-install states. We create it
+    // here (first relay registration) rather than at deployment-creation
+    // time — the deployment row can legitimately exist before any relay has
+    // called home, and this is the first point where we know the relay is
+    // alive. WAITING_FOR_RELAY is the same first-install case with the
+    // launch signal already recorded.
+    const firstInstall =
+      deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY';
     const installJob =
-      deployment.state === 'NOT_INSTALLED'
+      firstInstall
         ? (
             await createOrReuseJob(db, {
               deploymentId: deployment.id,
@@ -3247,7 +3486,9 @@ export async function buildServer({
           ...(typeof body.relayVersion === 'string' ? { relayVersion: body.relayVersion } : {}),
           ...(typeof body.bootstrapVersion === 'string' ? { bootstrapVersion: body.bootstrapVersion } : {}),
           ...(capabilitiesParsed.success ? { relayCapabilities: capabilitiesParsed.data } : {}),
-          ...(deployment.state === 'NOT_INSTALLED' ? { state: 'INSTALLING' as const } : {}),
+          ...(deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY'
+            ? { state: 'INSTALLING' as const }
+            : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
 

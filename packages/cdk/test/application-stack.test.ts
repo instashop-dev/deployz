@@ -269,14 +269,28 @@ describe('ApplicationStack', () => {
     }
   });
 
-  it('exports the application handshake outputs', () => {
+  it('publishes plain stack outputs with no Export blocks', () => {
     const { template } = synth();
-    const outputs = Object.keys(template.findOutputs('*'));
-    expect(outputs).toContain('ExportApplicationTestDbHost');
-    expect(outputs).toContain('ExportApplicationTestDbSecretArn');
-    expect(outputs).toContain('ExportApplicationTestStorageBucketName');
-    expect(outputs).toContain('ExportApplicationTestClusterName');
-    expect(outputs).toContain('ExportApplicationTestPublicEndpoint');
+    const outputs = (template.toJSON()['Outputs'] ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >;
+
+    // The template is synthesized once and deployed many times per account:
+    // a fixed export name would collide across deployments and roll the
+    // second stack back. Plain outputs keep the DescribeStacks handshake.
+    for (const [name, output] of Object.entries(outputs)) {
+      expect(output['Export'], `output ${name} must not be an export`).toBeUndefined();
+    }
+    expect(Object.keys(outputs)).toEqual(
+      expect.arrayContaining([
+        'DbHost',
+        'DbSecretArn',
+        'StorageBucketName',
+        'ClusterName',
+        'PublicEndpoint',
+      ]),
+    );
   });
 
   it('opens the load balancer on 443 even with no certificate at synth time', () => {
@@ -426,11 +440,11 @@ describe('ApplicationStack', () => {
     it('omits the DB stack outputs (DbHost / DbSecretArn)', () => {
       const { template } = synth(false, { databaseRequired: false });
       const outputs = Object.keys(template.findOutputs('*'));
-      expect(outputs).not.toContain('ExportApplicationTestDbHost');
-      expect(outputs).not.toContain('ExportApplicationTestDbSecretArn');
+      expect(outputs).not.toContain('DbHost');
+      expect(outputs).not.toContain('DbSecretArn');
       // Non-DB outputs are unaffected.
-      expect(outputs).toContain('ExportApplicationTestStorageBucketName');
-      expect(outputs).toContain('ExportApplicationTestPublicEndpoint');
+      expect(outputs).toContain('StorageBucketName');
+      expect(outputs).toContain('PublicEndpoint');
     });
 
     it('omits the generated DB-password secret', () => {
@@ -459,8 +473,8 @@ describe('ApplicationStack', () => {
       const { template } = synth();
       template.resourceCountIs('AWS::RDS::DBInstance', 1);
       const outputs = Object.keys(template.findOutputs('*'));
-      expect(outputs).toContain('ExportApplicationTestDbHost');
-      expect(outputs).toContain('ExportApplicationTestDbSecretArn');
+      expect(outputs).toContain('DbHost');
+      expect(outputs).toContain('DbSecretArn');
     });
   });
 
@@ -662,16 +676,16 @@ describe('ApplicationStack', () => {
       expect(redisSg, 'expected a Redis security group logical id').toBeDefined();
     });
 
-    it('exports the cache endpoint output', () => {
+    it('publishes the cache endpoint output', () => {
       const { template } = synth(false, { redisRequired: true });
       const outputs = Object.keys(template.findOutputs('*'));
-      expect(outputs).toContain('ExportApplicationTestCacheEndpoint');
+      expect(outputs).toContain('CacheEndpoint');
     });
 
-    it('does not export a cache endpoint output when redisRequired is unset', () => {
+    it('omits the cache endpoint output when redisRequired is unset', () => {
       const { template } = synth();
       const outputs = Object.keys(template.findOutputs('*'));
-      expect(outputs).not.toContain('ExportApplicationTestCacheEndpoint');
+      expect(outputs).not.toContain('CacheEndpoint');
     });
   });
 
