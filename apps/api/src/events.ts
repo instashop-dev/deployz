@@ -19,6 +19,7 @@ import * as schema from '@deployz/db/schema';
 /** §40 event vocabulary. Families are install/deploy/rollback/destroy/config/health/relay. */
 export type DeploymentEventType =
   | 'install.requested'
+  | 'install.launched'
   | 'install.completed'
   | 'install.failed'
   | 'install.retry.requested'

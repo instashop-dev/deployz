@@ -70,6 +70,7 @@ const DEPLOYMENT_NOT_RUNNING_STATES = new Set<(typeof schema.deployments.$inferS
   'DELETING',
   'DELETED',
   'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
 ]);
 
 export function toDomainView(row: CustomDomainRow): CustomDomainView {
