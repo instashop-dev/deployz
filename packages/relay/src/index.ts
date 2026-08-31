@@ -106,8 +106,30 @@ import {
 import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
+  applicationStackNameForInstallation,
   redisApplicationTemplateUrl,
 } from '@deployz/contracts';
+
+/**
+ * This installation's application stack name. Derived from the
+ * installation identifier the bootstrap stack minted, so two deployments in
+ * the same AWS account/region never collide on `deployz-app` and no
+ * control-plane state is needed to agree on the name. Falls back to the
+ * fixed default only when the env is absent (unit tests, direct invokes).
+ */
+export function relayApplicationStackName(): string {
+  const installationId = process.env['DEPLOYZ_INSTALLATION_ID'];
+  return installationId ? applicationStackNameForInstallation(installationId) : DEFAULT_STACK_NAME;
+}
+
+/**
+ * The bootstrap stack this relay was deployed by — baked by the stack as
+ * Ref AWS::StackName, so it tracks the deployed name even if the customer
+ * renames the stack in the console. Purge uses it to remove its own stack.
+ */
+export function relayBootstrapStackName(): string {
+  return process.env['DEPLOYZ_BOOTSTRAP_STACK_NAME'] ?? DEFAULT_BOOTSTRAP_STACK_NAME;
+}
 
 // ── Lazy SDK singleton ───────────────────────────────────────────────────────
 //
@@ -699,7 +721,7 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
       );
     }
 
-    const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? DEFAULT_STACK_NAME;
+    const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? relayApplicationStackName();
     const recoveryReport = await runRequestedRecovery(deps, command, stackName);
     const settled = await settleInstall(deps, { stackName, payload: command.payload });
 
@@ -1024,7 +1046,7 @@ function deployResumerDeps(installationId: string): EcsDeployDeps {
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
     pending: getPendingStore(installationId),
-    stackName: DEFAULT_STACK_NAME,
+    stackName: relayApplicationStackName(),
     installationId,
   };
 }
@@ -1077,7 +1099,7 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
     pending: getPendingStore(installDeps.installationId),
-    stackName: DEFAULT_STACK_NAME,
+    stackName: relayApplicationStackName(),
     installationId: installDeps.installationId,
   };
 
@@ -1086,7 +1108,7 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     deleter: getStackDeleter(),
     pending: getPendingStore(installDeps.installationId),
     installationId: installDeps.installationId,
-    stackName: DEFAULT_STACK_NAME,
+    stackName: relayApplicationStackName(),
     // Same DELETE_FAILED recovery clients the INSTALL retry path uses (see
     // createDefaultInstallDeps's `recover`).
     rds: getRdsCleanupClient(),
@@ -1098,8 +1120,8 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     deleter: getStackDeleter(),
     pending: getPendingStore(installDeps.installationId),
     installationId: installDeps.installationId,
-    stackName: DEFAULT_STACK_NAME,
-    bootstrapStackName: DEFAULT_BOOTSTRAP_STACK_NAME,
+    stackName: relayApplicationStackName(),
+    bootstrapStackName: relayBootstrapStackName(),
     ...getPurgeClients(installDeps.installationId),
   };
 
@@ -1247,7 +1269,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
         const body = (await response.json()) as { entries: EffectiveConfigEntry[] };
         return body.entries;
       },
-      stackName: DEFAULT_STACK_NAME,
+      stackName: relayApplicationStackName(),
       installationId,
     });
 
@@ -1264,6 +1286,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
           verifyInstallation({
             cfn: getCloudFormationReader(),
             installationId,
+            stackName: relayApplicationStackName(),
             ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
           })),
       // One pending store, several resumers: each settles only its own
@@ -1282,7 +1305,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             deleter: getStackDeleter(),
             pending: getPendingStore(installationId),
             installationId,
-            stackName: DEFAULT_STACK_NAME,
+            stackName: relayApplicationStackName(),
             rds: getRdsCleanupClient(),
             cache: getCacheCleanupClient(),
           })();
@@ -1292,8 +1315,8 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             deleter: getStackDeleter(),
             pending: getPendingStore(installationId),
             installationId,
-            stackName: DEFAULT_STACK_NAME,
-            bootstrapStackName: DEFAULT_BOOTSTRAP_STACK_NAME,
+            stackName: relayApplicationStackName(),
+            bootstrapStackName: relayBootstrapStackName(),
             ...getPurgeClients(installationId),
           })();
         }),
@@ -1307,7 +1330,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               ecs: getEcsTaskReader(),
               installationId,
             },
-            DEFAULT_STACK_NAME,
+            relayApplicationStackName(),
           )),
       observeHealth:
         deps.observeHealth ??
@@ -1318,7 +1341,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               ecs: getEcsServiceReader(),
               elb: getTargetHealthReader(),
             },
-            DEFAULT_STACK_NAME,
+            relayApplicationStackName(),
           )),
       onDeploymentMeta: (meta) => {
         deploymentMeta.redisRequired = meta.redisRequired;
