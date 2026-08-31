@@ -50,6 +50,7 @@ export const regionEnum = pgEnum('region', [
 // CFN/ECS internals; these nine states are the whole user-facing model.
 export const deploymentStateEnum = pgEnum('deployment_state', [
   'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
   'INSTALLING',
   'HEALTHY',
   'UPDATING',

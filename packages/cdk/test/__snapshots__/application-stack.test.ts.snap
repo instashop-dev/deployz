@@ -3,18 +3,12 @@
 exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] = `
 {
   "Outputs": {
-    "ExportApplicationTestClusterName": {
-      "Export": {
-        "Name": "ApplicationTest-ClusterName",
-      },
+    "ClusterName": {
       "Value": {
         "Ref": "ClusterEB0386A7",
       },
     },
-    "ExportApplicationTestDbHost": {
-      "Export": {
-        "Name": "ApplicationTest-DbHost",
-      },
+    "DbHost": {
       "Value": {
         "Fn::GetAtt": [
           "DatabaseB269D8BB",
@@ -22,18 +16,12 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
         ],
       },
     },
-    "ExportApplicationTestDbSecretArn": {
-      "Export": {
-        "Name": "ApplicationTest-DbSecretArn",
-      },
+    "DbSecretArn": {
       "Value": {
         "Ref": "DatabaseSecret86DBB7B3",
       },
     },
-    "ExportApplicationTestPublicEndpoint": {
-      "Export": {
-        "Name": "ApplicationTest-PublicEndpoint",
-      },
+    "PublicEndpoint": {
       "Value": {
         "Fn::GetAtt": [
           "LoadBalancerBE9EEC3A",
@@ -41,10 +29,7 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
         ],
       },
     },
-    "ExportApplicationTestStorageBucketName": {
-      "Export": {
-        "Name": "ApplicationTest-StorageBucketName",
-      },
+    "StorageBucketName": {
       "Value": {
         "Ref": "AppStorage995579DA",
       },

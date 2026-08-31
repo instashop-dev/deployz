@@ -51,9 +51,10 @@ export const JARGON_PATTERN = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)
 
 // ── §46 deployment states ───────────────────────────────────────────────────
 
-/** The 9 product-vocabulary deployment states (§46). */
+/** The product-vocabulary deployment states (§46). */
 export const DEPLOYMENT_STATES = [
   'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
   'INSTALLING',
   'HEALTHY',
   'UPDATING',
@@ -69,6 +70,7 @@ export type DeploymentState = (typeof DEPLOYMENT_STATES)[number];
 /** Human-readable §46 labels — the only user-facing status wording. */
 export const DEPLOYMENT_STATE_LABELS: Record<DeploymentState, string> = {
   NOT_INSTALLED: 'Not installed',
+  WAITING_FOR_RELAY: 'Waiting for AWS',
   INSTALLING: 'Installing',
   HEALTHY: 'Healthy',
   UPDATING: 'Updating',
@@ -84,6 +86,7 @@ export type DeploymentBadgeVariant = 'default' | 'secondary' | 'destructive' | '
 
 export const DEPLOYMENT_STATE_BADGE: Record<DeploymentState, DeploymentBadgeVariant> = {
   NOT_INSTALLED: 'secondary',
+  WAITING_FOR_RELAY: 'outline',
   INSTALLING: 'outline',
   HEALTHY: 'default',
   UPDATING: 'outline',
@@ -168,6 +171,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   // kept because those events are still the intended shape once the workflow
   // layer runs.
   'install.requested': 'Installation started',
+  'install.launched': 'AWS install launched',
   'install.completed': 'Installed and healthy',
   'install.failed': 'Installation failed',
   'install.enrollment.rejected': 'Another helper tried to connect',

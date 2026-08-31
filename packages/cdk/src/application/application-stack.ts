@@ -43,6 +43,7 @@
  */
 import {
   CfnCondition,
+  CfnOutput,
   CfnParameter,
   Duration,
   Fn,
@@ -1205,28 +1206,33 @@ const dbEnv =
     }
 
     // ── Stack outputs ─────────────────────────────────────────────────────
+    // Plain outputs, NOT Fn::Export values: this template is synthesized once
+    // with fixed logical ids and deployed many times into the same account,
+    // where fixed export names would collide (the second stack rolls back).
+    // Nothing imports these — readers use DescribeStacks, which returns plain
+    // outputs exactly as it returned exports.
     if (this.database !== undefined) {
-      this.exportValue(this.database.instanceEndpoint.hostname, {
-        name: `${this.stackName}-DbHost`,
+      new CfnOutput(this, 'DbHost', {
+        value: this.database.instanceEndpoint.hostname,
       });
     }
     if (this.databaseSecret !== undefined) {
-      this.exportValue(this.databaseSecret.secretArn, {
-        name: `${this.stackName}-DbSecretArn`,
+      new CfnOutput(this, 'DbSecretArn', {
+        value: this.databaseSecret.secretArn,
       });
     }
-    this.exportValue(this.storageBucket.bucketName, {
-      name: `${this.stackName}-StorageBucketName`,
+    new CfnOutput(this, 'StorageBucketName', {
+      value: this.storageBucket.bucketName,
     });
-    this.exportValue(this.cluster.clusterName, {
-      name: `${this.stackName}-ClusterName`,
+    new CfnOutput(this, 'ClusterName', {
+      value: this.cluster.clusterName,
     });
-    this.exportValue(publicEndpoint, {
-      name: `${this.stackName}-PublicEndpoint`,
+    new CfnOutput(this, 'PublicEndpoint', {
+      value: publicEndpoint,
     });
     if (this.cache !== undefined) {
-      this.exportValue(this.cache.attrPrimaryEndPointAddress, {
-        name: `${this.stackName}-CacheEndpoint`,
+      new CfnOutput(this, 'CacheEndpoint', {
+        value: this.cache.attrPrimaryEndPointAddress,
       });
     }
   }

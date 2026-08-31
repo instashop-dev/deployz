@@ -10,9 +10,10 @@
 
 // ── §46 deployment states ─────────────────────────────────────────────────
 
-/** The 9 product-vocabulary deployment states (§46). Mirrors the contracts enum. */
+/** The 10 product-vocabulary deployment states (§46). Mirrors the contracts enum. */
 export const DEPLOYMENT_STATES = [
   'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
   'INSTALLING',
   'HEALTHY',
   'UPDATING',
@@ -28,6 +29,7 @@ export type DeploymentState = (typeof DEPLOYMENT_STATES)[number];
 /** Human-readable §46 labels — the only user-facing status wording. */
 export const DEPLOYMENT_STATE_LABELS: Record<DeploymentState, string> = {
   NOT_INSTALLED: 'Not installed',
+  WAITING_FOR_RELAY: 'Waiting for AWS',
   INSTALLING: 'Installing',
   HEALTHY: 'Healthy',
   UPDATING: 'Updating',
@@ -43,6 +45,7 @@ export type DeploymentBadgeVariant = 'default' | 'secondary' | 'destructive' | '
 
 export const DEPLOYMENT_STATE_BADGE: Record<DeploymentState, DeploymentBadgeVariant> = {
   NOT_INSTALLED: 'secondary',
+  WAITING_FOR_RELAY: 'outline',
   INSTALLING: 'outline',
   HEALTHY: 'default',
   UPDATING: 'outline',
@@ -130,7 +133,9 @@ export function showHealthBadge(
   state: DeploymentState,
   currentReleaseId: string | null = null,
 ): boolean {
-  if (state === 'NOT_INSTALLED' || state === 'DELETED') return false;
+  if (state === 'NOT_INSTALLED' || state === 'WAITING_FOR_RELAY' || state === 'DELETED') {
+    return false;
+  }
   if (state === 'FAILED') return everInstalled(state, currentReleaseId);
   return true;
 }
@@ -200,13 +205,52 @@ export const UNSUPPORTED_ACTION_COPY =
  * ever come up must still be removable.
  */
 export function everInstalled(state: DeploymentState, currentReleaseId: string | null): boolean {
-  if (state === 'NOT_INSTALLED') return false;
+  if (state === 'NOT_INSTALLED' || state === 'WAITING_FOR_RELAY') return false;
   if (state === 'FAILED') return currentReleaseId !== null;
   return true;
 }
 
 export const NOT_YET_RUNNING_ACTION_COPY =
   "This deployment hasn't completed an install yet, so these actions aren't available.";
+
+// ── Pre-relay install lifecycle (WAITING_FOR_RELAY) ────────────────────────
+
+/**
+ * Mirrors RELAY_STALE_AFTER_MS in @deployz/contracts — the API computes
+ * `relayStuck` with the same window. The web app mirrors wire constants
+ * locally rather than importing the contracts package.
+ */
+export const RELAY_STALE_AFTER_MS = 15 * 60 * 1000;
+
+/**
+ * Whether a WAITING_FOR_RELAY deployment has been waiting past the relay
+ * staleness window. Never a failure — the bootstrap stack may still be
+ * running, or may have failed before the connector started.
+ */
+export function relayWaitingStuck(
+  installStartedAt: string | null,
+  now: number = Date.now(),
+): boolean {
+  if (installStartedAt === null) return false;
+  return now - Date.parse(installStartedAt) > RELAY_STALE_AFTER_MS;
+}
+
+/** Guidance shown on both the install page and the dashboard when stuck. */
+export const RELAY_STUCK_GUIDANCE =
+  'Deployz has not connected to AWS yet. The CloudFormation stack may still be running or may have failed before the connector started.';
+
+/**
+ * The §24 component view in install-page display order, with customer
+ * labels. The dashboard keeps its own ordering; this one reads top-down as
+ * application first, cache last.
+ */
+export const INSTALL_COMPONENT_LABELS: readonly (readonly [key: string, label: string])[] = [
+  ['application', 'Application'],
+  ['loadBalancer', 'Load balancer'],
+  ['database', 'Database'],
+  ['storage', 'Storage'],
+  ['redis', 'Redis cache'],
+];
 
 // ── §65 event-type labels (§40 families) ──────────────────────────────────
 
@@ -277,6 +321,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   // kept because those events are still the intended shape once the workflow
   // layer runs.
   'install.requested': 'Installation started',
+  'install.launched': 'AWS install launched',
   'install.completed': 'Installed and healthy',
   'install.failed': 'Installation failed',
   'install.enrollment.rejected': 'Another helper tried to connect',
