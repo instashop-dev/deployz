@@ -41,8 +41,14 @@ COPY packages/relay/package.json ./packages/relay/package.json
 # keeps aws-cdk-lib and the AWS SDKs out of the build entirely.
 RUN pnpm install --frozen-lockfile --filter @deployz/web...
 
+COPY packages/contracts ./packages/contracts
 COPY packages/copy-map ./packages/copy-map
 COPY apps/web ./apps/web
+
+# apps/web has value imports from @deployz/contracts, and the package resolves
+# through its compiled dist/ (see its exports map) — it must be built before
+# `next build` can bundle it.
+RUN pnpm --filter @deployz/contracts build
 
 # NEXT_PUBLIC_* IS INLINED INTO THE CLIENT BUNDLE AT THIS STEP. A container
 # environment variable cannot change them afterwards — a new value needs a new

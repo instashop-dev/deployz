@@ -1,3 +1,5 @@
+import type { VendorDeploymentStatus } from '@deployz/contracts';
+
 import type { DeploymentState } from './deployment-vocabulary';
 import type { CustomDomainStatus } from './domains';
 
@@ -91,6 +93,10 @@ export interface FleetDeployment {
   bootstrapStackName: string | null;
   /** When the customer launched the current install attempt. */
   installStartedAt: string | null;
+  /** The read-time derived stage/progress projection (vendor detail) — the
+   *  single source both fleet surfaces render "where is this deployment
+   *  right now" from, so the list and detail pages can never disagree. */
+  deploymentStatus: VendorDeploymentStatus;
 }
 
 /** A §39 deployment job, as returned in the deployment-detail `jobs` array. */

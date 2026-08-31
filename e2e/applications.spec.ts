@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
+
 // §42 application management lifecycle: list, edit, delete, delete-blocked,
 // and cross-org isolation. Runs against the REAL API in GITHUB_FIXTURE_MODE
 // (see playwright.config.ts), so the fixture repo deployz-demo/express-api is
@@ -112,13 +114,13 @@ test('delete is blocked when the application has a deployment', async ({ page })
   const cookies = await page.context().cookies();
   const cookie = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-  const customerRes = await page.request.post('http://localhost:3001/api/customers', {
+  const customerRes = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: 'Test Customer', email: 'test@example.com' },
     headers: { cookie },
   });
   const customer = await customerRes.json();
 
-  await page.request.post('http://localhost:3001/api/deployments', {
+  await page.request.post(`${API_URL}/api/deployments`, {
     data: { applicationId: appId, customerId: customer.id, region: 'us-east-1' },
     headers: { cookie },
   });
@@ -156,7 +158,7 @@ test('cross-org isolation: cannot PATCH or DELETE another org\'s application', a
   const orgBCookie = orgBCookies.map(c => `${c.name}=${c.value}`).join('; ');
 
   // Org B tries to PATCH org A's application — expect 404.
-  const patchRes = await orgBPage.request.patch(`http://localhost:3001/api/applications/${appId}`, {
+  const patchRes = await orgBPage.request.patch(`${API_URL}/api/applications/${appId}`, {
     data: { name: 'hacked' },
     headers: { cookie: orgBCookie, 'content-type': 'application/json' },
   });
@@ -164,7 +166,7 @@ test('cross-org isolation: cannot PATCH or DELETE another org\'s application', a
 
   // Org B tries to DELETE org A's application — expect 404.
   const deleteRes = await orgBPage.request.delete(
-    `http://localhost:3001/api/applications/${appId}`,
+    `${API_URL}/api/applications/${appId}`,
     { headers: { cookie: orgBCookie } },
   );
   expect(deleteRes.status()).toBe(404);

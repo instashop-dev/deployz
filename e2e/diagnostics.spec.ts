@@ -11,7 +11,7 @@ import { expect, test, type Page } from '@playwright/test';
 // hasn't failed) end to end and the page linking from deployment detail.
 
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)\b/;
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 async function signUp(page: Page): Promise<void> {
   const email = `e2e-${crypto.randomUUID().slice(0, 8)}@example.com`;
@@ -69,15 +69,21 @@ async function seedDeployment(
 
 /**
  * Drives a fresh deployment to FAILED via the real relay job workflow: the
- * relay registers (creating the INSTALL job), reports it a success (the
- * deployment goes HEALTHY), then a real release is deployed and reported
- * back as a failure — the exact sequence `POST
- * /api/relay/commands/:id/result` now uses to advance `deployments.state`.
+ * relay registers (creating the INSTALL job), then reports the INSTALL
+ * itself a failure — the exact sequence `POST
+ * /api/relay/commands/:id/result` uses to advance `deployments.state`.
+ *
+ * This drives the FAILED classification through the INSTALL job rather than
+ * a DEPLOY_RELEASE (as an earlier version of this helper did): a release
+ * only becomes deployable once a real CodeBuild run reports it READY, which
+ * this local/e2e environment has no way to trigger (`enqueue()` no-ops
+ * without JOB_QUEUE_URL, and — unlike the analyse endpoint — the release
+ * route has no inline fallback), so `POST .../deploy` always 409s here.
+ * Mirrors the INSTALL-failure path deployment-progress.spec.ts's own failure
+ * test already drives.
  */
 async function driveDeploymentToFailed(
   page: Page,
-  applicationId: string,
-  deploymentId: string,
   installationId: string,
   enrollmentCode: string,
 ): Promise<void> {
@@ -103,42 +109,17 @@ async function driveDeploymentToFailed(
 
   const installResultResponse = await page.request.post(
     `${API_URL}/api/relay/commands/${installJob!.id}/result`,
-    { headers: authHeaders, data: { success: true } },
-  );
-  expect(installResultResponse.ok()).toBeTruthy();
-
-  const releaseResponse = await page.request.post(
-    `${API_URL}/api/applications/${applicationId}/releases`,
-    { data: { version: '1.0.0', gitSha: 'e2e0000000000000000000000000000deadbeef' } },
-  );
-  expect(releaseResponse.ok()).toBeTruthy();
-  const release = (await releaseResponse.json()) as { id: string };
-
-  const deployResponse = await page.request.post(`${API_URL}/api/deployments/${deploymentId}/deploy`, {
-    data: { releaseId: release.id },
-  });
-  expect(deployResponse.ok()).toBeTruthy();
-
-  const deployCommands = (await (
-    await page.request.get(`${API_URL}/api/relay/commands?installationId=${installationId}`, {
-      headers: authHeaders,
-    })
-  ).json()) as { commands: { id: string; type: string }[] };
-  const deployJob = deployCommands.commands.find((command) => command.type === 'DEPLOY_RELEASE');
-  expect(deployJob).toBeDefined();
-
-  const deployResultResponse = await page.request.post(
-    `${API_URL}/api/relay/commands/${deployJob!.id}/result`,
     {
       headers: authHeaders,
       data: {
         success: false,
-        error: 'Container failed the health check',
-        failureCode: 'HEALTH_CHECK_FAILED',
+        error: 'internal: RDS CreateDBInstance timed out after 900s (should never reach the customer)',
+        failureCode: 'DATABASE_CREATE_FAILED',
+        stackStatus: 'CREATE_FAILED',
       },
     },
   );
-  expect(deployResultResponse.ok()).toBeTruthy();
+  expect(installResultResponse.ok()).toBeTruthy();
 }
 
 test('detail page links to diagnostics and a non-failed deployment shows the no-issues state', async ({
@@ -153,8 +134,11 @@ test('detail page links to diagnostics and a non-failed deployment shows the no-
 
   await expect(page.getByRole('heading', { name: 'Diagnostics', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No issues found', exact: true })).toBeVisible();
+  // A freshly seeded deployment is NOT_INSTALLED, which gets its own empty-
+  // state sentence (see DiagnosticsBody in the diagnostics page) rather than
+  // the "healthy" one, which only applies once a deployment has installed.
   await expect(
-    page.getByText('This deployment is healthy, so there is nothing to diagnose.'),
+    page.getByText('This deployment has not been installed yet, so there is nothing to diagnose.'),
   ).toBeVisible();
 });
 
@@ -171,8 +155,8 @@ test('a deployment failed via the relay job workflow shows a real §29 classific
   page,
 }) => {
   await signUp(page);
-  const { deploymentId, applicationId, installationId, enrollmentCode } = await seedDeployment(page);
-  await driveDeploymentToFailed(page, applicationId, deploymentId, installationId, enrollmentCode);
+  const { deploymentId, installationId, enrollmentCode } = await seedDeployment(page);
+  await driveDeploymentToFailed(page, installationId, enrollmentCode);
 
   await page.goto(`/dashboard/deployments/${deploymentId}/diagnostics`);
 

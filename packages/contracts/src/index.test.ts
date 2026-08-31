@@ -25,9 +25,13 @@ import {
   bootstrapStackName,
   cleanupStateSchema,
   compatibilityStatusSchema,
+  componentProgressStatusSchema,
+  customDomainStatusSchema,
+  customerDeploymentStatusSchema,
   customerSchema,
   deploymentJobSchema,
   deploymentSchema,
+  deploymentStageSchema,
   deploymentStateSchema,
   errorEnvelopeSchema,
   eventLogSchema,
@@ -44,6 +48,7 @@ import {
   subscriptionStatusSchema,
   usageRecordSchema,
   userSchema,
+  vendorDeploymentStatusSchema,
 } from './index.js';
 
 describe('@deployz/contracts scaffold', () => {
@@ -446,6 +451,99 @@ describe('healthComponentsSchema', () => {
 describe('DESTROY_PENDING_STALE_AFTER_MS', () => {
   it('is the 60-minute escape-hatch threshold', () => {
     expect(DESTROY_PENDING_STALE_AFTER_MS).toBe(60 * 60 * 1000);
+  });
+});
+
+// Unified deployment status — schema-level checks. The derivation itself
+// (every stage/precedence rule) is unit-tested in
+// apps/api/src/deployment-status.test.ts; this only checks the wire shapes.
+describe('deploymentStageSchema', () => {
+  it('is exactly the six documented stages', () => {
+    expect([...deploymentStageSchema.options].sort()).toEqual(
+      ['CONNECTING', 'FAILED', 'PROVISIONING', 'READY', 'VERIFYING', 'WAITING_FOR_AWS'].sort(),
+    );
+  });
+});
+
+describe('componentProgressStatusSchema', () => {
+  it('is exactly the five documented statuses', () => {
+    expect([...componentProgressStatusSchema.options].sort()).toEqual(
+      ['FAILED', 'IN_PROGRESS', 'NOT_REQUIRED', 'PENDING', 'READY'].sort(),
+    );
+  });
+});
+
+describe('customerDeploymentStatusSchema', () => {
+  const minimal = {
+    stage: 'WAITING_FOR_AWS',
+    updatedAt: '2026-08-31T12:00:00.000Z',
+    currentActivity: 'Waiting for AWS setup to start.',
+    removed: false,
+    statusUpdatesUnavailable: false,
+    needsDomainSetup: false,
+    components: [],
+    url: null,
+    failure: null,
+  };
+
+  it('parses the minimal (no-failure) shape', () => {
+    expect(customerDeploymentStatusSchema.parse(minimal)).toStrictEqual(minimal);
+  });
+
+  it('parses a failure with a technical block', () => {
+    const withFailure = {
+      ...minimal,
+      stage: 'FAILED',
+      failure: {
+        customerMessage: 'The application image could not be downloaded.',
+        component: 'runtime',
+        reference: 'DEP-ABCDEF12',
+        technical: { stage: 'INSTALL', component: 'runtime', awsStatus: 'CREATE_FAILED' },
+      },
+    };
+    expect(customerDeploymentStatusSchema.parse(withFailure)).toStrictEqual(withFailure);
+  });
+
+  it('rejects a relay/job/aws field leaking onto the customer shape', () => {
+    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, relay: { connected: true } })).toThrow(
+      ZodError,
+    );
+    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, job: null })).toThrow(ZodError);
+  });
+});
+
+describe('vendorDeploymentStatusSchema', () => {
+  it('parses the full operational shape, including a NOT_REQUIRED component', () => {
+    const vendor = {
+      stage: 'VERIFYING',
+      updatedAt: '2026-08-31T12:00:00.000Z',
+      currentActivity: 'Running health checks.',
+      statusUpdatesUnavailable: false,
+      needsDomainSetup: false,
+      components: [{ key: 'redis', label: 'Redis', status: 'NOT_REQUIRED' as const }],
+      relay: { connected: true, lastSeenAt: '2026-08-31T11:59:00.000Z' },
+      job: { type: 'INSTALL' as const, status: 'SUCCEEDED' as const },
+      aws: { stackStatus: 'CREATE_COMPLETE' },
+      health: { status: 'UNKNOWN' as const },
+      url: null,
+      failure: null,
+    };
+    expect(vendorDeploymentStatusSchema.parse(vendor)).toStrictEqual(vendor);
+  });
+
+  it('has no removed field — vendor screens read removal from the surrounding row state instead', () => {
+    expect('removed' in vendorDeploymentStatusSchema.shape).toBe(false);
+  });
+});
+
+// customDomainStatusSchema already exists above; this just confirms the
+// values httpsComponentStatus (apps/api/src/deployment-status.ts) switches
+// on are exactly what the db enum can hold.
+describe('customDomainStatusSchema (used by the https component mapping)', () => {
+  it('is exactly the six documented statuses', () => {
+    expect([...customDomainStatusSchema.options].sort()).toEqual(
+      ['ACTIVE', 'CONFIGURING', 'ERROR', 'PENDING', 'REMOVING', 'WAITING_FOR_DNS'].sort(),
+    );
   });
 });
 

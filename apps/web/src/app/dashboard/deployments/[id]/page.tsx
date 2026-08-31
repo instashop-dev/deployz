@@ -3,10 +3,11 @@
 import { AlertTriangle, ArrowLeft, ChevronDown, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { ActivityFeed } from '@/components/activity-feed';
+import { DeploymentProgressCard } from '@/components/deployment-progress-card';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -95,6 +96,8 @@ import {
   fetchReleases,
   type Release,
 } from '@/lib/releases';
+import { isTerminalStage } from '@/lib/deployment-progress';
+import { useStatusPoll } from '@/lib/use-status-poll';
 
 type DetailState =
   | { status: 'loading' }
@@ -140,6 +143,10 @@ export default function DeploymentDetailPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const [state, setState] = useState<DetailState>({ status: 'loading' });
+  // Signature of the last (stage, state) pair the poll observed — refetching
+  // the activity feed on every 5s tick would hammer it for nothing, so it
+  // only happens when this actually moved.
+  const lastSignature = useRef<{ stage: string; state: string } | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -148,6 +155,7 @@ export default function DeploymentDetailPage() {
         fetchDeploymentEvents(id),
         fetchReleases(detail.applicationId),
       ]);
+      lastSignature.current = { stage: detail.deploymentStatus.stage, state: detail.state };
       setState({ status: 'loaded', detail, events, releases });
     } catch (caught) {
       // A 404 is permanent for this URL — no retry-oriented copy for it.
@@ -170,6 +178,35 @@ export default function DeploymentDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Silent background refresh of the deployment's derived status. Only the
+  // `detail` object is replaced — open dialogs and in-flight actions keep
+  // their own local state, so a poll tick never resets them.
+  const poll = useStatusPoll({
+    fetcher: () => fetchDeployment(id),
+    intervalMs: 5000,
+    terminalIntervalMs: 60000,
+    isTerminal: (detail) => isTerminalStage(detail.deploymentStatus.stage),
+    enabled: state.status === 'loaded',
+  });
+
+  useEffect(() => {
+    if (poll.data === null) return;
+    const detail = poll.data;
+    setState((current) => (current.status === 'loaded' ? { ...current, detail } : current));
+
+    const signature = { stage: detail.deploymentStatus.stage, state: detail.state };
+    const moved =
+      lastSignature.current === null ||
+      lastSignature.current.stage !== signature.stage ||
+      lastSignature.current.state !== signature.state;
+    lastSignature.current = signature;
+    if (moved) {
+      void fetchDeploymentEvents(id).then((events) => {
+        setState((current) => (current.status === 'loaded' ? { ...current, events } : current));
+      });
+    }
+  }, [poll.data, id]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -271,6 +308,13 @@ function DetailBody({
         />
       </section>
 
+      <section aria-labelledby="deployment-progress" className="flex flex-col gap-3">
+        <h2 id="deployment-progress" className="text-base font-semibold">
+          Deployment progress
+        </h2>
+        <DeploymentProgressCard status={detail.deploymentStatus} />
+      </section>
+
       {detail.state === 'DELETING' ? (
         <DisconnectStatusPanel detail={detail} onChanged={onChanged} />
       ) : null}
@@ -320,7 +364,7 @@ function DetailBody({
         */}
         {showInfrastructureRows(detail.state, detail.currentReleaseId) ? (
           <>
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-2" data-testid="infrastructure-list">
               {COMPONENT_LABELS.filter(
                 ([key]) => key !== 'redis' && detail.components?.[key] !== undefined,
               ).map(([key, label]) => (

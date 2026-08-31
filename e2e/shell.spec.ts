@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 // /dashboard for anonymous visitors, and shows an authenticated user the
 // first-run homepage (no fake deployment data anywhere).
 
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 test('sign-in page renders', async ({ page }) => {
   await page.goto('/sign-in');
