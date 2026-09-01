@@ -239,14 +239,16 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   await eventsTrigger.click();
   await expect(page.getByText('PublicSubnet1')).toBeVisible();
   await expect(page.getByText('ApplicationDatabase')).toBeVisible();
-  await expect(page.getByText('CREATE_IN_PROGRESS').first()).toBeVisible();
 
-  // ── 3. Customer install page: the existing step timeline, no raw AWS
-  // jargon anywhere on the page.
+  // ── 3. Customer install page: the existing step timeline reflects the
+  // same ingested NETWORK progress (not just the coarse PROVISIONING
+  // heading — see the 'Creating database & storage' idiom at
+  // deployment-progress.spec.ts:279), and no raw AWS jargon anywhere.
   await page.goto(`/install/${installLinkId}`);
   await expect(
     page.getByRole('heading', { name: 'Creating application infrastructure' }),
   ).toBeVisible();
+  await expect(page.getByText('Creating network')).toBeVisible();
   const installPageText = await page.locator('body').innerText();
   expect(installPageText).not.toMatch(JARGON);
 
