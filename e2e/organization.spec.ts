@@ -7,7 +7,7 @@ import { expect, test, type Browser, type Locator, type Page } from '@playwright
 // test generates its own fresh emails so it is safe to re-run against the
 // shared dev database.
 
-const API_URL = 'http://localhost:3001';
+const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 // Throwaway credentials for the accounts these tests create, generated per
 // run. Nothing is written down, so there is no credential in the source
 // for a scanner to find.

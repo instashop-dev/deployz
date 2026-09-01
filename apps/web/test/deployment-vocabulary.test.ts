@@ -4,22 +4,28 @@ import {
   DEPLOYMENT_STATE_BADGE,
   DEPLOYMENT_STATE_LABELS,
   DEPLOYMENT_STATES,
+  INSTALL_COMPONENT_LABELS,
   eventFailureReason,
   eventFamily,
   eventResultLabel,
   eventTypeLabel,
+  everInstalled,
+  relayWaitingStuck,
+  showHealthBadge,
+  showInfrastructureRows,
 } from '../src/lib/deployment-vocabulary';
 
-// Locks the §46/§65 guardrail: the fleet surfaces use ONLY the 9
+// Locks the §46/§65 guardrail: the fleet surfaces use ONLY the 10
 // product-vocabulary states and jargon-free event labels — no raw
 // AWS/CFN/ECS/ALB/IAM/Lambda/VPC terms reach the UI edge.
 
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/i;
 
 describe('§46 deployment states', () => {
-  it('defines exactly the 9 product-vocabulary states', () => {
+  it('defines exactly the 10 product-vocabulary states', () => {
     expect(DEPLOYMENT_STATES).toEqual([
       'NOT_INSTALLED',
+      'WAITING_FOR_RELAY',
       'INSTALLING',
       'HEALTHY',
       'UPDATING',
@@ -49,6 +55,58 @@ describe('§46 deployment states', () => {
   it('marks FAILED and DISCONNECTED as destructive', () => {
     expect(DEPLOYMENT_STATE_BADGE.FAILED).toBe('destructive');
     expect(DEPLOYMENT_STATE_BADGE.DISCONNECTED).toBe('destructive');
+  });
+});
+
+describe('WAITING_FOR_RELAY grouping', () => {
+  it('uses the copy-map wording and outline badge', () => {
+    expect(DEPLOYMENT_STATE_LABELS.WAITING_FOR_RELAY).toBe('Waiting for AWS');
+    expect(DEPLOYMENT_STATE_BADGE.WAITING_FOR_RELAY).toBe('outline');
+  });
+
+  it('has not completed an install — grouped with NOT_INSTALLED', () => {
+    for (const currentReleaseId of [null, 'r1']) {
+      expect(everInstalled('WAITING_FOR_RELAY', currentReleaseId)).toBe(false);
+      expect(everInstalled('WAITING_FOR_RELAY', currentReleaseId)).toBe(
+        everInstalled('NOT_INSTALLED', currentReleaseId),
+      );
+    }
+    expect(showHealthBadge('WAITING_FOR_RELAY')).toBe(false);
+    expect(showInfrastructureRows('WAITING_FOR_RELAY')).toBe(false);
+    expect(showInfrastructureRows('WAITING_FOR_RELAY')).toBe(
+      showInfrastructureRows('NOT_INSTALLED'),
+    );
+  });
+});
+
+describe('relayWaitingStuck', () => {
+  const now = Date.parse('2026-08-31T12:00:00.000Z');
+
+  it('is false when nothing has launched yet', () => {
+    expect(relayWaitingStuck(null, now)).toBe(false);
+  });
+
+  it('is false within the 15-minute staleness window', () => {
+    expect(relayWaitingStuck('2026-08-31T11:59:00.000Z', now)).toBe(false);
+    // Exactly 15 minutes is still inside the window — the API uses a strict >.
+    expect(relayWaitingStuck('2026-08-31T11:45:00.000Z', now)).toBe(false);
+  });
+
+  it('is true past the 15-minute staleness window', () => {
+    expect(relayWaitingStuck('2026-08-31T11:44:59.000Z', now)).toBe(true);
+    expect(relayWaitingStuck('2026-08-31T11:00:00.000Z', now)).toBe(true);
+  });
+});
+
+describe('install component labels', () => {
+  it('labels the §24 component view in install-page display order', () => {
+    expect(INSTALL_COMPONENT_LABELS).toEqual([
+      ['application', 'Application'],
+      ['loadBalancer', 'Load balancer'],
+      ['database', 'Database'],
+      ['storage', 'Storage'],
+      ['redis', 'Redis cache'],
+    ]);
   });
 });
 

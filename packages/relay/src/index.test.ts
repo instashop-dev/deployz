@@ -7,13 +7,17 @@ import { IdempotencyStore, type CommandExecutor } from './commands.js';
 import {
   createInstallExecutor,
   createInstallResumer,
+  createObserveHook,
   createRelayHandler,
   createVerifyingExecutor,
   readInstallParametersFromPayload,
   readVerifyOptionsFromPayload,
+  relayApplicationStackName,
+  relayBootstrapStackName,
   type InstallExecutorDeps,
 } from './index.js';
 import { memoryPendingStore } from './pending.js';
+import type { ProvisioningSnapshot } from './provision-progress.js';
 import {
   recoverFailedInstallStack,
   type PhysicalStackResource,
@@ -453,6 +457,107 @@ describe('createVerifyingExecutor passes the command through to verify()', () =>
   });
 });
 
+describe('createObserveHook', () => {
+  const MID_CREATE: VerificationResult = {
+    verified: false,
+    reason: 'Stack status CREATE_IN_PROGRESS is not a successful terminal state',
+    checks: [
+      { name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' },
+      { name: 'stack-complete', passed: false, detail: 'Stack status CREATE_IN_PROGRESS is not a successful terminal state' },
+    ],
+  };
+
+  const COMPLETE: VerificationResult = {
+    verified: true,
+    checks: [
+      { name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' },
+      { name: 'stack-complete', passed: true, detail: 'Stack status CREATE_COMPLETE' },
+    ],
+  };
+
+  const SNAPSHOT: ProvisioningSnapshot = {
+    stackStatus: 'CREATE_IN_PROGRESS',
+    observedAt: '2026-01-01T00:05:00.000Z',
+    categories: { network: { status: 'COMPLETE', startedAt: '2026-01-01T00:00:00.000Z', completedAt: '2026-01-01T00:01:00.000Z' } },
+  };
+
+  it('attaches the provisioning snapshot when the stack exists but is not yet complete', async () => {
+    const hook = createObserveHook(
+      async () => MID_CREATE,
+      async () => SNAPSHOT,
+    );
+
+    const result = await hook();
+
+    expect(result).toEqual({ ...MID_CREATE, provisioning: SNAPSHOT });
+  });
+
+  it('does not attach a provisioning field when the stack is already complete', async () => {
+    let called = false;
+    const hook = createObserveHook(
+      async () => COMPLETE,
+      async () => {
+        called = true;
+        return SNAPSHOT;
+      },
+    );
+
+    const result = await hook();
+
+    expect(result).toEqual(COMPLETE);
+    expect(result).not.toHaveProperty('provisioning');
+    // The snapshot fetch is pointless once the stack is complete — no
+    // reason to spend the extra DescribeStackResources call.
+    expect(called).toBe(false);
+  });
+
+  it('does not attach a provisioning field when the stack does not exist at all', async () => {
+    const notFound: VerificationResult = {
+      verified: false,
+      reason: 'No CloudFormation stack named "deployz-app" in this account and region',
+      checks: [{ name: 'stack-exists', passed: false, detail: 'No stack found' }],
+    };
+
+    const hook = createObserveHook(
+      async () => notFound,
+      async () => SNAPSHOT,
+    );
+
+    expect(await hook()).toEqual(notFound);
+  });
+
+  it('returns the plain verification when the snapshot builder resolves to null', async () => {
+    const hook = createObserveHook(
+      async () => MID_CREATE,
+      async () => null,
+    );
+
+    expect(await hook()).toEqual(MID_CREATE);
+  });
+
+  it('returns the plain verification when the snapshot builder throws', async () => {
+    const hook = createObserveHook(
+      async () => MID_CREATE,
+      async () => {
+        throw new Error('DescribeStackResources threw despite its no-throw contract');
+      },
+    );
+
+    expect(await hook()).toEqual(MID_CREATE);
+  });
+
+  it('returns the plain verification when verify() itself throws', async () => {
+    const hook = createObserveHook(
+      async () => {
+        throw new Error('verification could not run');
+      },
+      async () => SNAPSHOT,
+    );
+
+    await expect(hook()).rejects.toThrow('verification could not run');
+  });
+});
+
 describe('readVerifyOptionsFromPayload', () => {
   it('reads redisRequired and stackName when both are present and well-typed', () => {
     expect(readVerifyOptionsFromPayload({ redisRequired: true, stackName: 'deployz-app-custom' })).toEqual({
@@ -477,6 +582,50 @@ describe('readVerifyOptionsFromPayload', () => {
 
   it('reads redisRequired: false explicitly, not just truthy values', () => {
     expect(readVerifyOptionsFromPayload({ redisRequired: false })).toEqual({ redisRequired: false });
+  });
+});
+
+describe('relay stack-name resolution', () => {
+  it('derives the application stack name from the installation id', () => {
+    const restore = setEnv({
+      DEPLOYZ_INSTALLATION_ID: '9f3ab2c1-1234-4abc-9def-0123456789ab',
+      DEPLOYZ_BOOTSTRAP_STACK_NAME: 'deployz-bootstrap-acme-9f3ab2c1',
+    });
+
+    try {
+      expect(relayApplicationStackName()).toBe('deployz-app-9f3ab2c1');
+      expect(relayBootstrapStackName()).toBe('deployz-bootstrap-acme-9f3ab2c1');
+    } finally {
+      restore();
+    }
+  });
+
+  it('falls back to the fixed defaults when the env is absent', () => {
+    const restore = setEnv({
+      DEPLOYZ_INSTALLATION_ID: undefined,
+      DEPLOYZ_BOOTSTRAP_STACK_NAME: undefined,
+    });
+
+    try {
+      expect(relayApplicationStackName()).toBe('deployz-app');
+      expect(relayBootstrapStackName()).toBe('deployz-bootstrap');
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps the bootstrap name in sync when the deployment is retried under a fresh stack name', () => {
+    const restore = setEnv({
+      DEPLOYZ_INSTALLATION_ID: 'deadbeef-0000-4abc-9def-0123456789ab',
+      DEPLOYZ_BOOTSTRAP_STACK_NAME: 'deployz-bootstrap-acme-deadbeef-r1',
+    });
+
+    try {
+      expect(relayBootstrapStackName()).toBe('deployz-bootstrap-acme-deadbeef-r1');
+      expect(relayApplicationStackName()).not.toBe('deployz-app-9f3ab2c1');
+    } finally {
+      restore();
+    }
   });
 });
 

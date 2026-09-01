@@ -3,10 +3,11 @@
 import { AlertTriangle, ArrowLeft, ChevronDown, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { ActivityFeed } from '@/components/activity-feed';
+import { DeploymentProgressCard } from '@/components/deployment-progress-card';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -48,6 +49,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api-client';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
+  DeploymentActionError,
   deployRelease,
   destroyDeployment,
   fetchDeployment,
@@ -69,10 +71,12 @@ import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
   NOT_YET_RUNNING_ACTION_COPY,
+  RELAY_STUCK_GUIDANCE,
   RELAY_STATUS_LABEL,
   UNSUPPORTED_ACTION_COPY,
   actionSupported,
   everInstalled,
+  relayWaitingStuck,
   showHealthBadge,
   showInfrastructureRows,
   type ComponentState,
@@ -92,6 +96,8 @@ import {
   fetchReleases,
   type Release,
 } from '@/lib/releases';
+import { isTerminalStage } from '@/lib/deployment-progress';
+import { useStatusPoll } from '@/lib/use-status-poll';
 
 type DetailState =
   | { status: 'loading' }
@@ -137,6 +143,10 @@ export default function DeploymentDetailPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const [state, setState] = useState<DetailState>({ status: 'loading' });
+  // Signature of the last (stage, state) pair the poll observed — refetching
+  // the activity feed on every 5s tick would hammer it for nothing, so it
+  // only happens when this actually moved.
+  const lastSignature = useRef<{ stage: string; state: string } | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -145,6 +155,7 @@ export default function DeploymentDetailPage() {
         fetchDeploymentEvents(id),
         fetchReleases(detail.applicationId),
       ]);
+      lastSignature.current = { stage: detail.deploymentStatus.stage, state: detail.state };
       setState({ status: 'loaded', detail, events, releases });
     } catch (caught) {
       // A 404 is permanent for this URL — no retry-oriented copy for it.
@@ -167,6 +178,35 @@ export default function DeploymentDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Silent background refresh of the deployment's derived status. Only the
+  // `detail` object is replaced — open dialogs and in-flight actions keep
+  // their own local state, so a poll tick never resets them.
+  const poll = useStatusPoll({
+    fetcher: () => fetchDeployment(id),
+    intervalMs: 5000,
+    terminalIntervalMs: 60000,
+    isTerminal: (detail) => isTerminalStage(detail.deploymentStatus.stage),
+    enabled: state.status === 'loaded',
+  });
+
+  useEffect(() => {
+    if (poll.data === null) return;
+    const detail = poll.data;
+    setState((current) => (current.status === 'loaded' ? { ...current, detail } : current));
+
+    const signature = { stage: detail.deploymentStatus.stage, state: detail.state };
+    const moved =
+      lastSignature.current === null ||
+      lastSignature.current.stage !== signature.stage ||
+      lastSignature.current.state !== signature.state;
+    lastSignature.current = signature;
+    if (moved) {
+      void fetchDeploymentEvents(id).then((events) => {
+        setState((current) => (current.status === 'loaded' ? { ...current, events } : current));
+      });
+    }
+  }, [poll.data, id]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -268,11 +308,20 @@ function DetailBody({
         />
       </section>
 
+      <section aria-labelledby="deployment-progress" className="flex flex-col gap-3">
+        <h2 id="deployment-progress" className="text-base font-semibold">
+          Deployment progress
+        </h2>
+        <DeploymentProgressCard status={detail.deploymentStatus} />
+      </section>
+
       {detail.state === 'DELETING' ? (
         <DisconnectStatusPanel detail={detail} onChanged={onChanged} />
       ) : null}
 
-      {detail.state === 'NOT_INSTALLED' ? <InstallLinkCard detail={detail} /> : null}
+      {detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY' ? (
+        <InstallLinkCard detail={detail} />
+      ) : null}
 
       {/* Stacked sections rather than tabs: everything a vendor debugging a
           deployment needs stays visible without an extra click, and the
@@ -315,7 +364,7 @@ function DetailBody({
         */}
         {showInfrastructureRows(detail.state, detail.currentReleaseId) ? (
           <>
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-2" data-testid="infrastructure-list">
               {COMPONENT_LABELS.filter(
                 ([key]) => key !== 'redis' && detail.components?.[key] !== undefined,
               ).map(([key, label]) => (
@@ -853,16 +902,36 @@ function RetryInstallDialog({
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [relayDisconnected, setRelayDisconnected] = useState(false);
 
   async function onConfirm(): Promise<void> {
     setPending(true);
     setError(null);
+    setRelayDisconnected(false);
     try {
       await retryInstall(deploymentId);
       toast.success('Retry requested');
       onDone();
+    } catch (caught) {
+      // A bound-but-disconnected relay never picks the retry job up — the
+      // fix is re-enrollment, so point at the reconnect path instead.
+      if (caught instanceof DeploymentActionError && caught.code === 'RELAY_DISCONNECTED') {
+        setRelayDisconnected(true);
+      } else {
+        setError("We couldn't start the retry. Try again in a moment.");
+      }
+      setPending(false);
+    }
+  }
+
+  async function onReconnect(): Promise<void> {
+    setPending(true);
+    setError(null);
+    try {
+      await resetRelay(deploymentId);
+      window.location.reload();
     } catch {
-      setError("We couldn't start the retry. Try again in a moment.");
+      setError("We couldn't reconnect the relay. Try again in a moment.");
       setPending(false);
     }
   }
@@ -878,6 +947,22 @@ function RetryInstallDialog({
             deployment was ever in use, so no data is lost.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {relayDisconnected ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-muted-foreground">
+              The relay is disconnected — reconnect it first.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="self-start"
+              disabled={pending}
+              onClick={() => void onReconnect()}
+            >
+              {pending ? 'Reconnecting…' : 'Reconnect relay'}
+            </Button>
+          </div>
+        ) : null}
         <OperationError error={error} />
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
@@ -1218,6 +1303,10 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
     typeof window === 'undefined'
       ? ''
       : `${window.location.origin}/install/${detail.installLinkId}`;
+  // The customer launched the install but no relay has enrolled within the
+  // staleness window — guidance, never a failure.
+  const stuck =
+    detail.state === 'WAITING_FOR_RELAY' && relayWaitingStuck(detail.installStartedAt);
 
   async function copy(): Promise<void> {
     try {
@@ -1267,6 +1356,19 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
             Reconnecting issues a new link and stops the old one working. Use it if the customer
             needs to install again.
           </p>
+          {stuck ? (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+              {detail.bootstrapStackName ? (
+                <p className="text-xs text-muted-foreground">
+                  Expected stack name:{' '}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                    {detail.bootstrapStackName}
+                  </code>
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}

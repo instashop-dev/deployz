@@ -513,14 +513,40 @@ describe('BootstrapStack', () => {
     ]);
   });
 
-  it('exports the control-plane handshake outputs', () => {
+  it('publishes plain stack outputs with no Export blocks', () => {
     const { template } = synth();
-    const outputs = Object.keys(template.findOutputs('*'));
-    expect(outputs).toContain('ExportBootstrapTestRelayFunctionArn');
-    expect(outputs).toContain('ExportBootstrapTestCredentialSecretArn');
-    expect(outputs).toContain('ExportBootstrapTestProvisionerPolicyArn');
-    expect(outputs).toContain('ExportBootstrapTestInstallationId');
-    expect(outputs).toContain('ExportBootstrapTestApplicationExecutionRoleArn');
+    const outputs = (template.toJSON()['Outputs'] ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >;
+
+    // The template is synthesized once and deployed many times per account:
+    // a fixed export name would collide across deployments and roll the
+    // second stack back. Plain outputs keep the DescribeStacks handshake.
+    for (const [name, output] of Object.entries(outputs)) {
+      expect(output['Export'], `output ${name} must not be an export`).toBeUndefined();
+    }
+    expect(Object.keys(outputs)).toEqual(
+      expect.arrayContaining([
+        'RelayFunctionArn',
+        'CredentialSecretArn',
+        'ProvisionerPolicyArn',
+        'InstallationId',
+        'ApplicationExecutionRoleArn',
+      ]),
+    );
+  });
+
+  it('tells the relay its own deployed bootstrap stack name', () => {
+    const { template } = synth();
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({
+          // Ref AWS::StackName — the DEPLOYED name, not a synth-time literal.
+          DEPLOYZ_BOOTSTRAP_STACK_NAME: { Ref: 'AWS::StackName' },
+        }),
+      }),
+    });
   });
 
   it('lets the relay read its own application stack', () => {

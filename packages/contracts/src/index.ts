@@ -87,6 +87,7 @@ export function isSupportedRegion(value: string): value is Region {
 // CFN/ECS internals; these nine states are the whole user-facing model.
 export const deploymentStateSchema = z.enum([
   'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
   'INSTALLING',
   'HEALTHY',
   'UPDATING',
@@ -242,6 +243,249 @@ export type CustomDomainStatus = z.infer<typeof customDomainStatusSchema>;
 export const cleanupStateSchema = z.enum(['SKIPPED_RELAY_OFFLINE', 'COMPLETE']);
 export type CleanupState = z.infer<typeof cleanupStateSchema>;
 
+// ---------------------------------------------------------------------------
+// Unified deployment status — a read-time derivation, not a persisted state.
+//
+// Customers (the public install page) and vendors (the fleet/detail screens)
+// both need "where is this deployment right now", but today that answer is
+// scattered across deployments.state, deployments.healthStatus,
+// deployments.relayStatus, the newest deployment_jobs row, and custom_domains
+// — four sources a page would otherwise have to reconcile itself, and
+// disagree if two pages reconcile them differently. deriveDeploymentStatus
+// (apps/api/src/deployment-status.ts) collapses all four into ONE of six
+// stages, at read time, from data that already exists; nothing new is
+// written to the database for this feature. The two schemas below are the
+// only shapes that ever leave the derivation: customerDeploymentStatusSchema
+// for the unauthenticated install-status endpoint (never relay/job/AWS
+// internals), vendorDeploymentStatusSchema for the authenticated fleet/detail
+// endpoints (full operational detail). Both are produced from the same
+// internal derived object, so their `stage` can never disagree.
+// ---------------------------------------------------------------------------
+
+/**
+ * The six-stage lifecycle every deployment's progress collapses into.
+ * WAITING_FOR_AWS: the customer has not started the CloudFormation Quick
+ * Create yet. CONNECTING: AWS setup ran and the relay is registering.
+ * PROVISIONING: the INSTALL job is actively creating infrastructure.
+ * VERIFYING: infrastructure exists, health/HTTPS are not both confirmed yet.
+ * READY: healthy and reachable over HTTPS. FAILED: the deployment failed
+ * (state === 'FAILED') — a relay outage never lands here, only a terminal
+ * job failure does.
+ */
+export const deploymentStageSchema = z.enum([
+  'WAITING_FOR_AWS',
+  'CONNECTING',
+  'PROVISIONING',
+  'VERIFYING',
+  'READY',
+  'FAILED',
+]);
+export type DeploymentStage = z.infer<typeof deploymentStageSchema>;
+
+/**
+ * A read-time DERIVED sub-step of the six stages above (apps/api/src/
+ * deployment-status.ts) — NOT a new persisted lifecycle; `state` and
+ * `stage` remain the only source of truth. Mainly distinguishes what
+ * PROVISIONING is actually doing (PREPARING/NETWORK/DATABASE_STORAGE/
+ * REDIS/APPLICATION), but also covers WAITING_FOR_AWS (AWS_SETUP),
+ * CONNECTING (RELAY_CONNECT), VERIFYING (HEALTH_CHECK/TLS), and READY.
+ * TLS deliberately comes AFTER HEALTH_CHECK, not before: in Deployz, HTTPS
+ * (custom domain) setup only starts once health passes (`needsDomainSetup`),
+ * so an earlier position in the order would misstate what happens next.
+ */
+export const deploymentStepSchema = z.enum([
+  'AWS_SETUP',
+  'RELAY_CONNECT',
+  'PREPARING',
+  'NETWORK',
+  'DATABASE_STORAGE',
+  'REDIS',
+  'APPLICATION',
+  'HEALTH_CHECK',
+  'TLS',
+  'READY',
+]);
+export type DeploymentStep = z.infer<typeof deploymentStepSchema>;
+
+/**
+ * Canonical step order. The one place the API's applicable-steps filter and
+ * the UI's progress list both read from, so the two can never disagree
+ * about sequence.
+ */
+export const DEPLOYMENT_STEP_ORDER: readonly DeploymentStep[] = [
+  'AWS_SETUP',
+  'RELAY_CONNECT',
+  'PREPARING',
+  'NETWORK',
+  'DATABASE_STORAGE',
+  'REDIS',
+  'APPLICATION',
+  'HEALTH_CHECK',
+  'TLS',
+  'READY',
+];
+
+/**
+ * How long each step typically takes, in seconds — the ONLY source either
+ * projection may cite for "usually takes N minutes" or a slow-step nudge;
+ * nothing else hardcodes a duration. `null` means no honest range exists:
+ * TLS is customer-DNS-dependent (the customer's own action, not AWS's), and
+ * READY has no duration at all. These are wide, deliberately-forgiving
+ * envelopes, not a promise — `takingLongerThanUsual` (apps/api/src/
+ * deployment-status.ts) only fires once the active step's elapsed time
+ * passes `max`.
+ */
+export const TYPICAL_STEP_DURATION_SECONDS: Record<DeploymentStep, { min: number; max: number } | null> = {
+  AWS_SETUP: { min: 60, max: 300 },
+  RELAY_CONNECT: { min: 60, max: 420 }, // relay polls every 5 min
+  PREPARING: { min: 30, max: 360 },
+  NETWORK: { min: 120, max: 360 },
+  DATABASE_STORAGE: { min: 180, max: 720 }, // RDS dominates
+  REDIS: { min: 480, max: 1200 }, // ElastiCache replication group
+  APPLICATION: { min: 180, max: 600 }, // ECS stabilization behind CFN
+  HEALTH_CHECK: { min: 60, max: 600 }, // bounded by heartbeat cadence
+  TLS: null,
+  READY: null,
+};
+
+/**
+ * Per-component progress status. Deliberately NOT the same vocabulary as
+ * healthStatusSchema: a component can be "not required" or "pending" before
+ * it has ever reported health at all, states healthStatusSchema has no room
+ * for.
+ */
+export const componentProgressStatusSchema = z.enum([
+  'PENDING',
+  'IN_PROGRESS',
+  'READY',
+  'FAILED',
+  'NOT_REQUIRED',
+]);
+export type ComponentProgressStatus = z.infer<typeof componentProgressStatusSchema>;
+
+/** One step in the progress list — runtime, database, storage, redis, https. */
+export const componentProgressSchema = z
+  .object({
+    key: z.string(),
+    label: z.string(),
+    status: componentProgressStatusSchema,
+  })
+  .strict();
+export type ComponentProgress = z.infer<typeof componentProgressSchema>;
+
+/**
+ * The public install-status wire shape (GET /api/install/:installLinkId/
+ * status). Unauthenticated by design, so this is the ONLY place deployment
+ * progress reaches an anonymous caller — no relay identity, no job payloads,
+ * no raw AWS/CFN status beyond the single word failure.technical.awsStatus
+ * allows, no NOT_REQUIRED components (nothing to show for a component the
+ * app never asked for). Deliberately no `stepStartedAt`/`stepTimings`
+ * either — those give elapsed-time precision the anonymous surface has no
+ * business exposing; the vendor projection below carries both.
+ */
+export const customerDeploymentStatusSchema = z
+  .object({
+    stage: deploymentStageSchema,
+    updatedAt: z.iso.datetime(),
+    currentActivity: z.string(),
+    step: deploymentStepSchema,
+    // Applicable steps for THIS deployment, in order (REDIS present only
+    // when the application requires it) — what a progress list renders.
+    steps: z.array(deploymentStepSchema),
+    // The active step's typical range, or null when none exists (TLS/READY).
+    typicalDurationSeconds: z.object({ min: z.number().int(), max: z.number().int() }).strict().nullable(),
+    takingLongerThanUsual: z.boolean(),
+    removed: z.boolean(),
+    statusUpdatesUnavailable: z.boolean(),
+    needsDomainSetup: z.boolean(),
+    components: z.array(componentProgressSchema),
+    url: z.string().nullable(),
+    failure: z
+      .object({
+        customerMessage: z.string(),
+        component: z.string().nullable(),
+        reference: z.string(),
+        technical: z
+          .object({
+            stage: z.string(),
+            component: z.string().nullable(),
+            awsStatus: z.string().nullable(),
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type CustomerDeploymentStatus = z.infer<typeof customerDeploymentStatusSchema>;
+
+/**
+ * The vendor wire shape (GET /api/deployments, GET /api/deployments/:id —
+ * one `deploymentStatus` field per row). Full operational detail: relay
+ * liveness, the latest job, the raw CFN stack status, NOT_REQUIRED
+ * components included. `removed` is not repeated here — the surrounding
+ * fleet row already carries `state` (DELETING/DELETED), which is where the
+ * vendor screens have always read it from.
+ */
+export const vendorDeploymentStatusSchema = z
+  .object({
+    stage: deploymentStageSchema,
+    updatedAt: z.iso.datetime(),
+    currentActivity: z.string(),
+    step: deploymentStepSchema,
+    steps: z.array(deploymentStepSchema),
+    typicalDurationSeconds: z.object({ min: z.number().int(), max: z.number().int() }).strict().nullable(),
+    takingLongerThanUsual: z.boolean(),
+    // When the active step started, per the resolution ladder in
+    // apps/api/src/deployment-status.ts — null when nothing authoritative is
+    // known yet.
+    stepStartedAt: z.iso.datetime().nullable(),
+    // Completed + active steps only, in order. durationSeconds is null until
+    // both ends of a step are known.
+    stepTimings: z.array(
+      z
+        .object({
+          step: deploymentStepSchema,
+          startedAt: z.iso.datetime(),
+          completedAt: z.iso.datetime().nullable(),
+          durationSeconds: z.number().int().nullable(),
+        })
+        .strict(),
+    ),
+    statusUpdatesUnavailable: z.boolean(),
+    needsDomainSetup: z.boolean(),
+    components: z.array(componentProgressSchema),
+    relay: z
+      .object({
+        connected: z.boolean(),
+        lastSeenAt: z.iso.datetime().nullable(),
+      })
+      .strict(),
+    job: z
+      .object({
+        type: jobTypeSchema,
+        status: jobStateSchema,
+      })
+      .strict()
+      .nullable(),
+    aws: z.object({ stackStatus: z.string().nullable() }).strict(),
+    health: z.object({ status: healthStatusSchema }).strict(),
+    url: z.string().nullable(),
+    failure: z
+      .object({
+        code: failureCodeSchema.nullable(),
+        component: z.string().nullable(),
+        reference: z.string(),
+        message: z.string(),
+        awsStatus: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type VendorDeploymentStatus = z.infer<typeof vendorDeploymentStatusSchema>;
+
 /**
  * How long a relay may stay silent (three missed five-minute polls) before it
  * counts as DISCONNECTED. Shared by the API's liveness module and the worker's
@@ -393,6 +637,9 @@ export const deploymentSchema = z.object({
   healthStatus: healthStatusSchema,
   desiredState: jsonRecord,
   observedState: jsonRecord.nullable(),
+  // Write-once observational timestamps for the derived deployment `step`
+  // (apps/api/src/deployment-status.ts) — NOT a persisted lifecycle.
+  stepTimings: jsonRecord.nullable(),
   infraVersion: z.string(),
   installationId: z.string(),
   isTestDeployment: z.boolean(),
@@ -535,6 +782,59 @@ export const DESTROY_PENDING_STALE_AFTER_MS = 60 * 60 * 1000;
  * constant when `INSTALL` lands.
  */
 export const DEFAULT_APPLICATION_STACK_NAME = 'deployz-app';
+
+/**
+ * Per-deployment bootstrap stack names. A fixed `deployz-bootstrap` makes
+ * the second deployment into the same AWS account/region fail with "stack
+ * already exists"; deriving the name from the deployment identity (plus an
+ * attempt suffix on retry) keeps attempts isolated and readable.
+ */
+export interface BootstrapStackNameParts {
+  /** Customer-facing application name — contributes the readable slug. */
+  readonly appName: string;
+  /** Deployment id (uuid) — the uniqueness carrier. */
+  readonly deploymentId: string;
+  /** Install attempt number; 0 (default) is the first attempt. */
+  readonly attempt?: number;
+}
+
+function slugify(value: string, maxLength: number): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLength)
+    .replace(/-+$/g, '');
+}
+
+/**
+ * `deployz-bootstrap-<slug>-<shortId>` (`-r<n>` from attempt 1 on). Pure
+ * and deterministic — the Quick Create URL, the `bootstrap_stack_name`
+ * column, and the install page all derive the same name from the same
+ * deployment row.
+ */
+export function bootstrapStackName(parts: BootstrapStackNameParts): string {
+  const slug = slugify(parts.appName, 24);
+  const shortId = parts.deploymentId.slice(0, 8).toLowerCase();
+  const attempt = parts.attempt ?? 0;
+  return [
+    'deployz-bootstrap',
+    ...(slug !== '' ? [slug] : []),
+    shortId,
+    ...(attempt > 0 ? [`r${attempt}`] : []),
+  ].join('-');
+}
+
+/**
+ * `deployz-app-<shortInstallationId>` — unique per attempt without
+ * control-plane state, because the installation identifier is minted per
+ * bootstrap stack. Falls back to the fixed default when no installation
+ * identifier is known (tests, pre-enrollment).
+ */
+export function applicationStackNameForInstallation(installationId: string): string {
+  const short = installationId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+  return short !== '' ? `deployz-app-${short}` : DEFAULT_APPLICATION_STACK_NAME;
+}
 
 /**
  * Final path segment (S3 object key suffix) of the published application

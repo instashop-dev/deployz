@@ -19,6 +19,7 @@ import * as schema from '@deployz/db/schema';
 /** §40 event vocabulary. Families are install/deploy/rollback/destroy/config/health/relay. */
 export type DeploymentEventType =
   | 'install.requested'
+  | 'install.launched'
   | 'install.completed'
   | 'install.failed'
   | 'install.retry.requested'
@@ -44,6 +45,11 @@ export type DeploymentEventType =
   | 'deployment.state_recovered'
   // The watchdog failed a stuck mutating job (Phase 7).
   | 'operation.timeout'
+  // A derived deployment `step` (apps/api/src/deployment-status.ts) finished —
+  // written by apps/api/src/step-timings.ts's advanceStepTimings, from the
+  // relay-authenticated write paths only. Not a lifecycle transition; the
+  // append-only record IS the duration dataset for a future P50/P90.
+  | 'deployment.step_completed'
   | 'config.updated'
   | 'config.failed'
   | 'health.reported'

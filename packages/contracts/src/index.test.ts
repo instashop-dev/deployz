@@ -23,13 +23,22 @@ import {
   SUPPORTED_AWS_REGIONS,
   analysisStatusSchema,
   applicationSchema,
+  applicationStackNameForInstallation,
+  bootstrapStackName,
   bootstrapTemplateBucketName,
   cleanupStateSchema,
   compatibilityStatusSchema,
+  componentProgressStatusSchema,
+  customDomainStatusSchema,
+  customerDeploymentStatusSchema,
   customerSchema,
   deploymentJobSchema,
   deploymentSchema,
+  deploymentStageSchema,
   deploymentStateSchema,
+  deploymentStepSchema,
+  DEPLOYMENT_STEP_ORDER,
+  TYPICAL_STEP_DURATION_SECONDS,
   errorEnvelopeSchema,
   eventLogSchema,
   failureCodeSchema,
@@ -47,6 +56,7 @@ import {
   subscriptionStatusSchema,
   usageRecordSchema,
   userSchema,
+  vendorDeploymentStatusSchema,
 } from './index.js';
 
 describe('@deployz/contracts scaffold', () => {
@@ -210,6 +220,7 @@ describe('core-object round-trip (db row -> JSON -> schema.parse -> wire)', () =
         healthStatus: 'HEALTHY',
         desiredState: { image: 'shop:1.4.2' },
         observedState: null,
+        stepTimings: null,
         infraVersion: 'runtime-v1',
         installationId: 'inst_01JABC',
         isTestDeployment: false,
@@ -414,6 +425,84 @@ describe('resolveBootstrapTemplate', () => {
   });
 });
 
+describe('bootstrapStackName', () => {
+  const deploymentId = '1b2e3d4f-5678-4abc-9def-0123456789ab';
+
+  it('derives a readable slug + short-id name for the first attempt', () => {
+    expect(bootstrapStackName({ appName: 'Documenso', deploymentId })).toBe(
+      'deployz-bootstrap-documenso-1b2e3d4f',
+    );
+  });
+
+  it('gives two deployments of the same app different names', () => {
+    const other = 'ffffffff-0000-4abc-9def-0123456789ab';
+    expect(bootstrapStackName({ appName: 'Documenso', deploymentId: other })).not.toBe(
+      bootstrapStackName({ appName: 'Documenso', deploymentId }),
+    );
+  });
+
+  it('appends a fresh attempt suffix from attempt 1 on', () => {
+    const first = bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 0 });
+    const retry = bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 1 });
+    expect(first).toBe('deployz-bootstrap-documenso-1b2e3d4f');
+    expect(retry).toBe('deployz-bootstrap-documenso-1b2e3d4f-r1');
+    expect(bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 2 })).toBe(
+      'deployz-bootstrap-documenso-1b2e3d4f-r2',
+    );
+  });
+
+  it('is deterministic for the same inputs', () => {
+    expect(bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 1 })).toBe(
+      bootstrapStackName({ appName: 'Documenso', deploymentId, attempt: 1 }),
+    );
+  });
+
+  it('collapses symbols and whitespace in the application name', () => {
+    expect(bootstrapStackName({ appName: 'My App!! (v2)', deploymentId })).toBe(
+      'deployz-bootstrap-my-app-v2-1b2e3d4f',
+    );
+  });
+
+  it('caps the slug so the name stays under the CFN 128-char limit', () => {
+    const name = bootstrapStackName({ appName: 'a'.repeat(200), deploymentId, attempt: 12 });
+    expect(name.length).toBeLessThan(128);
+    expect(name).toMatch(/^deployz-bootstrap-a{24}-1b2e3d4f-r12$/);
+  });
+
+  it('omits an empty slug rather than emitting a double hyphen', () => {
+    expect(bootstrapStackName({ appName: '!!!', deploymentId })).toBe(
+      'deployz-bootstrap-1b2e3d4f',
+    );
+  });
+
+  it('only emits CFN-legal stack-name characters', () => {
+    const name = bootstrapStackName({ appName: 'Ünïcødé App 42%', deploymentId, attempt: 3 });
+    expect(name).toMatch(/^[a-zA-Z0-9-]+$/);
+  });
+});
+
+describe('applicationStackNameForInstallation', () => {
+  it('derives the app stack name from the installation id', () => {
+    expect(
+      applicationStackNameForInstallation('9F3AB2C1-1234-4abc-9def-0123456789ab'),
+    ).toBe('deployz-app-9f3ab2c1');
+  });
+
+  it('gives two installations different app stack names', () => {
+    expect(applicationStackNameForInstallation('aaaaaaaa-0000-0000-0000-000000000000')).not.toBe(
+      applicationStackNameForInstallation('bbbbbbbb-0000-0000-0000-000000000000'),
+    );
+  });
+
+  it('keeps only CFN-legal characters from the installation id', () => {
+    expect(applicationStackNameForInstallation('i-1a_2b!3c')).toBe('deployz-app-i1a2b3c');
+  });
+
+  it('falls back to the default when no installation id is known', () => {
+    expect(applicationStackNameForInstallation('')).toBe(DEFAULT_APPLICATION_STACK_NAME);
+  });
+});
+
 describe('redisApplicationTemplateUrl', () => {
   it('derives the sibling Redis-enabled template URL', () => {
     expect(
@@ -453,6 +542,153 @@ describe('healthComponentsSchema', () => {
 describe('DESTROY_PENDING_STALE_AFTER_MS', () => {
   it('is the 60-minute escape-hatch threshold', () => {
     expect(DESTROY_PENDING_STALE_AFTER_MS).toBe(60 * 60 * 1000);
+  });
+});
+
+// Unified deployment status — schema-level checks. The derivation itself
+// (every stage/precedence rule) is unit-tested in
+// apps/api/src/deployment-status.test.ts; this only checks the wire shapes.
+describe('deploymentStageSchema', () => {
+  it('is exactly the six documented stages', () => {
+    expect([...deploymentStageSchema.options].sort()).toEqual(
+      ['CONNECTING', 'FAILED', 'PROVISIONING', 'READY', 'VERIFYING', 'WAITING_FOR_AWS'].sort(),
+    );
+  });
+});
+
+describe('componentProgressStatusSchema', () => {
+  it('is exactly the five documented statuses', () => {
+    expect([...componentProgressStatusSchema.options].sort()).toEqual(
+      ['FAILED', 'IN_PROGRESS', 'NOT_REQUIRED', 'PENDING', 'READY'].sort(),
+    );
+  });
+});
+
+describe('deploymentStepSchema', () => {
+  it('is exactly the ten documented steps', () => {
+    expect([...deploymentStepSchema.options].sort()).toEqual(
+      [
+        'AWS_SETUP',
+        'RELAY_CONNECT',
+        'PREPARING',
+        'NETWORK',
+        'DATABASE_STORAGE',
+        'REDIS',
+        'APPLICATION',
+        'HEALTH_CHECK',
+        'TLS',
+        'READY',
+      ].sort(),
+    );
+  });
+
+  it('DEPLOYMENT_STEP_ORDER carries every step exactly once, TLS after HEALTH_CHECK', () => {
+    expect([...DEPLOYMENT_STEP_ORDER].sort()).toEqual([...deploymentStepSchema.options].sort());
+    expect(DEPLOYMENT_STEP_ORDER.indexOf('TLS')).toBeGreaterThan(DEPLOYMENT_STEP_ORDER.indexOf('HEALTH_CHECK'));
+  });
+
+  it('TYPICAL_STEP_DURATION_SECONDS covers every step, null only for TLS/READY', () => {
+    for (const step of DEPLOYMENT_STEP_ORDER) {
+      const range = TYPICAL_STEP_DURATION_SECONDS[step];
+      if (step === 'TLS' || step === 'READY') {
+        expect(range).toBeNull();
+      } else {
+        expect(range).not.toBeNull();
+        expect(range!.min).toBeLessThanOrEqual(range!.max);
+      }
+    }
+  });
+});
+
+describe('customerDeploymentStatusSchema', () => {
+  const minimal = {
+    stage: 'WAITING_FOR_AWS',
+    updatedAt: '2026-08-31T12:00:00.000Z',
+    currentActivity: 'Waiting for AWS setup to start.',
+    step: 'AWS_SETUP',
+    steps: ['AWS_SETUP', 'RELAY_CONNECT', 'PREPARING', 'NETWORK', 'APPLICATION', 'HEALTH_CHECK', 'TLS', 'READY'],
+    typicalDurationSeconds: { min: 60, max: 300 },
+    takingLongerThanUsual: false,
+    removed: false,
+    statusUpdatesUnavailable: false,
+    needsDomainSetup: false,
+    components: [],
+    url: null,
+    failure: null,
+  };
+
+  it('parses the minimal (no-failure) shape', () => {
+    expect(customerDeploymentStatusSchema.parse(minimal)).toStrictEqual(minimal);
+  });
+
+  it('parses a failure with a technical block', () => {
+    const withFailure = {
+      ...minimal,
+      stage: 'FAILED',
+      failure: {
+        customerMessage: 'The application image could not be downloaded.',
+        component: 'runtime',
+        reference: 'DEP-ABCDEF12',
+        technical: { stage: 'INSTALL', component: 'runtime', awsStatus: 'CREATE_FAILED' },
+      },
+    };
+    expect(customerDeploymentStatusSchema.parse(withFailure)).toStrictEqual(withFailure);
+  });
+
+  it('rejects a relay/job/aws field leaking onto the customer shape', () => {
+    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, relay: { connected: true } })).toThrow(
+      ZodError,
+    );
+    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, job: null })).toThrow(ZodError);
+  });
+
+  it('rejects stepStartedAt/stepTimings leaking onto the customer shape', () => {
+    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, stepStartedAt: null })).toThrow(ZodError);
+    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, stepTimings: [] })).toThrow(ZodError);
+  });
+});
+
+describe('vendorDeploymentStatusSchema', () => {
+  it('parses the full operational shape, including a NOT_REQUIRED component', () => {
+    const vendor = {
+      stage: 'VERIFYING',
+      updatedAt: '2026-08-31T12:00:00.000Z',
+      currentActivity: 'Running health checks.',
+      step: 'HEALTH_CHECK',
+      steps: ['AWS_SETUP', 'RELAY_CONNECT', 'PREPARING', 'NETWORK', 'APPLICATION', 'HEALTH_CHECK', 'TLS', 'READY'],
+      typicalDurationSeconds: { min: 60, max: 600 },
+      takingLongerThanUsual: false,
+      stepStartedAt: '2026-08-31T11:55:00.000Z',
+      stepTimings: [
+        { step: 'AWS_SETUP' as const, startedAt: '2026-08-31T11:00:00.000Z', completedAt: '2026-08-31T11:02:00.000Z', durationSeconds: 120 },
+        { step: 'HEALTH_CHECK' as const, startedAt: '2026-08-31T11:55:00.000Z', completedAt: null, durationSeconds: null },
+      ],
+      statusUpdatesUnavailable: false,
+      needsDomainSetup: false,
+      components: [{ key: 'redis', label: 'Redis', status: 'NOT_REQUIRED' as const }],
+      relay: { connected: true, lastSeenAt: '2026-08-31T11:59:00.000Z' },
+      job: { type: 'INSTALL' as const, status: 'SUCCEEDED' as const },
+      aws: { stackStatus: 'CREATE_COMPLETE' },
+      health: { status: 'UNKNOWN' as const },
+      url: null,
+      failure: null,
+    };
+    expect(vendorDeploymentStatusSchema.parse(vendor)).toStrictEqual(vendor);
+  });
+
+  it('has no removed field — vendor screens read removal from the surrounding row state instead', () => {
+    expect('removed' in vendorDeploymentStatusSchema.shape).toBe(false);
+  });
+});
+
+// customDomainStatusSchema already exists above; this just confirms the
+// values httpsComponentStatus (apps/api/src/deployment-status.ts) switches
+// on are exactly what the db enum can hold.
+describe('customDomainStatusSchema (used by the https component mapping)', () => {
+  it('is exactly the six documented statuses', () => {
+    expect([...customDomainStatusSchema.options].sort()).toEqual(
+      ['ACTIVE', 'CONFIGURING', 'ERROR', 'PENDING', 'REMOVING', 'WAITING_FOR_DNS'].sort(),
+    );
   });
 });
 

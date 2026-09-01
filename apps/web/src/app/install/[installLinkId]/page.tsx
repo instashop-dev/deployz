@@ -1,9 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
 
-import { CustomDomainCard } from '@/components/custom-domain-card';
+import { InstallLaunchButton } from '@/components/install-launch-button';
+import { InstallProgress } from '@/components/install-progress';
+import { InstallRetryButton } from '@/components/install-retry-button';
 import { Button } from '@/components/ui/button';
+import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { fetchInstallData } from '@/lib/install-data';
+import { fetchInstallStatusServer } from '@/lib/install-status';
 
 // Rendered per request so the install data — including the Quick Create link
 // the control plane builds for this deployment's region — is always fresh.
@@ -45,7 +50,13 @@ export default async function InstallPage({
   params: Promise<{ installLinkId: string }>;
 }) {
   const { installLinkId } = await params;
-  const data = await fetchInstallData(installLinkId);
+  // Fetched in parallel: the status projection is a nice-to-have for the
+  // first paint (a failed fetch just costs one extra client round trip —
+  // see fetchInstallStatusServer), so it never blocks or fails the page.
+  const [data, initialStatus] = await Promise.all([
+    fetchInstallData(installLinkId),
+    fetchInstallStatusServer(installLinkId),
+  ]);
 
   if (!data) {
     return (
@@ -60,37 +71,90 @@ export default async function InstallPage({
     );
   }
 
+  // The customer pressed "Deploy to AWS" and the control plane is waiting
+  // for the relay to enroll. Never a failure: past the staleness window the
+  // page shows guidance and a retry instead. The enrollment code is spent
+  // only when a relay actually connects, so this state needs no "already
+  // used" warning.
+  if (data.waitingForRelay) {
+    const cloudFormationUrl = `https://${data.region}.console.aws.amazon.com/cloudformation/home?region=${data.region}#/stacks`;
+    return (
+      <div className="flex flex-col gap-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {data.publisherName} is setting up inside your AWS account
+          </p>
+        </div>
+
+        {/* Live six-stage progress; `preinstall` refreshes this server-
+            rendered layout the moment the relay enrolls and the stage moves
+            past WAITING_FOR_AWS. */}
+        <InstallProgress
+          installLinkId={installLinkId}
+          deploymentId={data.deploymentId}
+          initialStatus={initialStatus}
+          quickCreateUrl={data.quickCreateUrl}
+          initialDomain={data.domain}
+          routingTarget={data.routingTarget}
+          preinstall
+        />
+
+        <section aria-labelledby="install-waiting" className="flex flex-col gap-3">
+          {data.relayStuck ? (
+            <>
+              <h2 id="install-waiting" className="text-base font-semibold">
+                Still connecting
+              </h2>
+              <div className="flex items-start gap-3">
+                <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+              </div>
+            </>
+          ) : (
+            <h2 id="install-waiting" className="sr-only">
+              AWS setup details
+            </h2>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Expected stack name:{' '}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+              {data.bootstrapStackName}
+            </code>
+          </p>
+          <div className="flex flex-wrap items-start gap-2">
+            {data.relayStuck ? <InstallRetryButton installLinkId={installLinkId} /> : null}
+            <Button asChild variant="outline">
+              <a href={cloudFormationUrl} target="_blank" rel="noreferrer">
+                Open AWS CloudFormation
+              </a>
+            </Button>
+          </div>
+        </section>
+
+        <p className="text-xs text-muted-foreground">
+          Installation reference:{' '}
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
+        </p>
+      </div>
+    );
+  }
+
   // The enrollment code is single use. Once a relay has traded it, running the
   // setup again would fail at the point of no return — after the customer has
   // approved a stack in their own account — so say so before they start.
   if (data.alreadyInstalled) {
-    const primaryUrl = data.domain?.status === 'active' ? data.domain.url : null;
-    const failed = data.deploymentState === 'FAILED';
     const removed = data.deploymentState === 'DELETING' || data.deploymentState === 'DELETED';
     return (
       <div className="flex flex-col gap-8">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {failed
-              ? 'Installation failed'
-              : removed
-                ? 'This deployment was removed'
-                : `Running in your cloud account · deployed by ${data.publisherName}`}
+            {removed ? 'This deployment was removed' : `Deployed by ${data.publisherName}`}
           </p>
         </div>
 
-        {failed ? (
-          <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
-            <h2 id="deployment-access" className="text-base font-semibold">
-              Installation failed
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Bootstrap installation failed. No application resources were created. You can safely
-              retry. {data.publisherName} can restart the installation for you.
-            </p>
-          </section>
-        ) : removed ? (
+        {removed ? (
           <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
             <h2 id="deployment-access" className="text-base font-semibold">
               Deployment removed
@@ -101,49 +165,25 @@ export default async function InstallPage({
             </p>
           </section>
         ) : (
-          <>
-            <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
-              <h2 id="deployment-access" className="text-base font-semibold">
-                Access
-              </h2>
-              {primaryUrl ? (
-                <p className="text-sm">
-                  Your deployment is available at{' '}
-                  <a className="font-medium underline underline-offset-4" href={primaryUrl}>
-                    {primaryUrl}
-                  </a>
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {data.routingTarget
-                    ? 'Set up a custom domain below to give this deployment a permanent address.'
-                    : 'This deployment does not have a public address configured yet.'}
-                </p>
-              )}
-              {data.routingTarget ? (
-                <p className="text-xs text-muted-foreground">
-                  Deployment endpoint:{' '}
-                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                    {data.routingTarget}
-                  </code>
-                </p>
-              ) : null}
-            </section>
-
-            <CustomDomainCard
-              deploymentId={data.deploymentId}
-              installLinkId={installLinkId}
-              initialDomain={data.domain}
-            />
-          </>
+          // CONNECTING through READY, plus a terminal FAILED, all live here:
+          // InstallProgress polls the server-derived stage and — once the
+          // stage reaches VERIFYING/READY — also renders the Access section
+          // and the custom-domain card itself, so this branch doesn't need
+          // its own stage logic.
+          <InstallProgress
+            installLinkId={installLinkId}
+            deploymentId={data.deploymentId}
+            initialStatus={initialStatus}
+            quickCreateUrl={data.quickCreateUrl}
+            initialDomain={data.domain}
+            routingTarget={data.routingTarget}
+          />
         )}
 
         <p className="text-xs text-muted-foreground">
-          {failed
-            ? `This setup link has been used. To try again, ask ${data.publisherName} for a new link.`
-            : removed
-              ? `This setup link has been used. To install again, ask ${data.publisherName} for a new link.`
-              : `This setup link has been used — ${data.applicationName} is already installed. To install again, ask ${data.publisherName} for a new link.`}
+          {removed
+            ? `This setup link has been used. To install again, ask ${data.publisherName} for a new link.`
+            : `This setup link has been used — ${data.applicationName} is already installed. To install again, ask ${data.publisherName} for a new link.`}
         </p>
       </div>
     );
@@ -246,14 +286,17 @@ export default async function InstallPage({
       <section aria-label="Install actions" className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           {/* External handoff to the customer's own AWS console — a plain
-              anchor, not a Next Link. Disabled rather than broken when the
-              publisher has not published a bootstrap template yet: a link to
-              a template AWS cannot fetch fails inside the customer's console
-              with nothing to act on. */}
+              anchor, not a Next Link. Opens in a new tab so this page stays
+              open behind it: it's what starts showing live deployment
+              progress once AWS hands off to the relay. Disabled rather than
+              broken when the publisher has not published a bootstrap
+              template yet: a link to a template AWS cannot fetch fails
+              inside the customer's console with nothing to act on. */}
           {data.quickCreateUrl ? (
-            <Button asChild size="lg">
-              <a href={data.quickCreateUrl}>Deploy to AWS</a>
-            </Button>
+            <InstallLaunchButton
+              installLinkId={installLinkId}
+              quickCreateUrl={data.quickCreateUrl}
+            />
           ) : (
             <Button size="lg" disabled>
               Deploy to AWS
@@ -276,6 +319,20 @@ export default async function InstallPage({
           <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
         </p>
       </section>
+
+      {/* Starts at WAITING_FOR_AWS — small and unobtrusive under the CTA
+          above. Polling picks up relay registration on its own, so if the
+          customer stays on this page through the whole install, the same
+          card grows into the full progress view without a reload. */}
+      <InstallProgress
+        installLinkId={installLinkId}
+        deploymentId={data.deploymentId}
+        initialStatus={initialStatus}
+        quickCreateUrl={data.quickCreateUrl}
+        initialDomain={data.domain}
+        routingTarget={data.routingTarget}
+        preinstall
+      />
     </div>
   );
 }

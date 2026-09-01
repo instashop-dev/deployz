@@ -4,7 +4,7 @@ import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { errorEnvelopeSchema } from '@deployz/contracts';
+import { bootstrapStackName, errorEnvelopeSchema } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -1671,7 +1671,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     ).toBe('NOT_PROVISIONED');
   });
 
-  it('readiness: analysis not COMPLETE returns analysisStatus instead of a fabricated score', async () => {
+  it('readiness: analysis not COMPLETE returns state ANALYSIS_INCOMPLETE with empty findings, never a fabricated result', async () => {
     const application = await insertApplication(db, org.organizationId, { analysisStatus: 'ANALYZING' });
     const response = await app.inject({
       method: 'GET',
@@ -1681,13 +1681,14 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toStrictEqual({
       analysisStatus: 'ANALYZING',
-      verdict: null,
-      score: null,
-      changesRequired: null,
+      state: 'ANALYSIS_INCOMPLETE',
+      requiredCount: 0,
+      recommendedCount: 0,
+      summary: null,
       failureReason: null,
-      ready: [],
-      needsAttention: [],
-      unsupported: [],
+      findings: [],
+      passed: [],
+      analyzedCommitSha: null,
     });
   });
 
@@ -1707,21 +1708,70 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       analysisStatus: 'FAILED',
-      verdict: null,
+      state: 'ANALYSIS_INCOMPLETE',
       failureReason: 'Failed to mint a GitHub installation token',
     });
   });
 
-  it('readiness: score is the ratio of satisfied checks, not a hardcoded constant', async () => {
+  it('readiness: a row with a stored semantic report returns it verbatim, plus the analyzed commit sha', async () => {
+    const finding = {
+      id: 'health-check',
+      category: 'health',
+      title: 'Deployment health check',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+      whyItMatters: 'During every deployment, Deployz waits for your app to report healthy.',
+      technicalEvidence: 'No health endpoint or container health check was found.',
+      suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+      confidence: 'likely',
+    };
+    const readiness = {
+      state: 'ALMOST_READY',
+      requiredCount: 1,
+      recommendedCount: 0,
+      summary: 'Deployz found a few things to address before this app can be deployed reliably.',
+      findings: [finding],
+      passed: [{ id: 'dockerfile', label: 'Container setup found' }],
+    };
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      compatibilityReason: readiness.summary,
+      detectedMetadata: { readiness, analysisCommitSha: 'deadbeef' },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toStrictEqual({
+      analysisStatus: 'COMPLETE',
+      state: 'ALMOST_READY',
+      requiredCount: 1,
+      recommendedCount: 0,
+      summary: readiness.summary,
+      failureReason: null,
+      findings: [finding],
+      passed: readiness.passed,
+      analyzedCommitSha: 'deadbeef',
+    });
+  });
+
+  // Legacy rows (analysed before the semantic readiness report existed) only
+  // carry `detected_metadata.checks` — computeReadiness must degrade these
+  // into equivalent findings rather than 500 or silently drop them.
+  it('readiness: a legacy row (checks only, no readiness report) degrades to equivalent findings', async () => {
     const application = await insertApplication(db, org.organizationId, {
       analysisStatus: 'COMPLETE',
       compatibilityStatus: 'NEEDS_ATTENTION',
       detectedMetadata: {
         checks: {
-          ready: [{ label: 'Docker container detected' }, { label: 'PostgreSQL detected' }, { label: 'Port 3000 detected' }],
+          ready: [{ label: 'Docker container detected' }, { label: 'PostgreSQL detected' }],
           needsAttention: [
             { title: 'Health endpoint missing', detail: 'Deployz requires an HTTP health endpoint.', suggestedFix: 'GET /health -> 200' },
-            { title: 'Local file storage detected', detail: 'Files written to /uploads will disappear on restart.', suggestedFix: null },
           ],
           unsupported: [],
         },
@@ -1734,24 +1784,29 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       headers: { cookie: org.cookie },
     });
     const body = response.json() as {
-      verdict: string;
-      score: number;
-      changesRequired: number;
-      ready: unknown[];
-      needsAttention: unknown[];
+      state: string;
+      findings: Array<{ id: string; severity: string; blocking: boolean; title: string }>;
+      passed: Array<{ id: string; label: string }>;
     };
-    expect(body.verdict).toBe('NEEDS_ATTENTION');
-    expect(body.score).toBe(60); // 3 ready / 5 total checks
-    expect(body.changesRequired).toBe(2);
-    expect(body.ready).toHaveLength(3);
-    expect(body.needsAttention).toHaveLength(2);
+    expect(body.state).toBe('ALMOST_READY');
+    expect(body.findings).toHaveLength(1);
+    expect(body.findings[0]).toMatchObject({ severity: 'required', blocking: false, title: 'Health endpoint missing' });
+    expect(body.passed).toHaveLength(2);
+    expect(body.passed).toContainEqual({ id: 'legacy-passed-0', label: 'Docker container detected' });
   });
 
-  it('readiness: NOT_COMPATIBLE with no persisted checks falls back to one unsupported entry from compatibilityReason', async () => {
+  it('readiness: a legacy NOT_COMPATIBLE row degrades its unsupported entries into blocking required findings', async () => {
     const application = await insertApplication(db, org.organizationId, {
       analysisStatus: 'COMPLETE',
       compatibilityStatus: 'NOT_COMPATIBLE',
       compatibilityReason: 'Persistent Redis is required.',
+      detectedMetadata: {
+        checks: {
+          ready: [],
+          needsAttention: [],
+          unsupported: [{ title: 'This Redis setup is not supported', reason: 'Redis Stack modules detected.' }],
+        },
+      },
     });
 
     const response = await app.inject({
@@ -1759,13 +1814,17 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       url: `/api/applications/${application.id}/readiness`,
       headers: { cookie: org.cookie },
     });
-    const body = response.json() as { verdict: string; score: number; unsupported: Array<{ title: string; reason: string }> };
-    expect(body.verdict).toBe('NOT_COMPATIBLE');
-    expect(body.score).toBe(0);
-    expect(body.unsupported).toEqual([{ title: 'Not compatible', reason: 'Persistent Redis is required.' }]);
+    const body = response.json() as {
+      state: string;
+      findings: Array<{ severity: string; blocking: boolean; title: string }>;
+    };
+    expect(body.state).toBe('NEEDS_CHANGES');
+    expect(body.findings).toEqual([
+      expect.objectContaining({ severity: 'required', blocking: true, title: 'This Redis setup is not supported' }),
+    ]);
   });
 
-  it('readiness: fully READY with no issues scores 100', async () => {
+  it('readiness: a legacy fully-READY row (no issues) has passed checks and no findings', async () => {
     const application = await insertApplication(db, org.organizationId, {
       analysisStatus: 'COMPLETE',
       compatibilityStatus: 'READY',
@@ -1777,10 +1836,241 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       url: `/api/applications/${application.id}/readiness`,
       headers: { cookie: org.cookie },
     });
-    const body = response.json() as { verdict: string; score: number; changesRequired: number };
-    expect(body.verdict).toBe('READY');
-    expect(body.score).toBe(100);
-    expect(body.changesRequired).toBe(0);
+    const body = response.json() as { state: string; findings: unknown[]; passed: unknown[] };
+    expect(body.state).toBe('READY');
+    expect(body.findings).toEqual([]);
+    expect(body.passed).toEqual([{ id: 'legacy-passed-0', label: 'Docker container detected' }]);
+  });
+});
+
+// ── POST /api/applications/:id/fix-instructions ─────────────────────────────
+// Generates the consolidated coding-agent prompt for the unresolved readiness
+// findings. Read-only with respect to the analysis: generation never changes
+// findings, readiness state, or the repository — success or failure.
+describe('server — POST /api/applications/:id/fix-instructions', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  const someFinding = {
+    id: 'health-check',
+    category: 'health',
+    title: 'Deployment health check',
+    severity: 'required',
+    blocking: false,
+    plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+    whyItMatters: 'During every deployment, Deployz waits for your app to report healthy.',
+    technicalEvidence: 'No health endpoint or container health check was found.',
+    suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+    confidence: 'likely',
+  };
+
+  async function insertAnalyzedApplication(
+    overrides: Partial<typeof schema.applications.$inferInsert> = {},
+  ): Promise<typeof schema.applications.$inferSelect> {
+    return insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      detectedMetadata: {
+        readiness: {
+          state: 'ALMOST_READY',
+          requiredCount: 1,
+          recommendedCount: 0,
+          summary: 'Deployz found a few things to address before this app can be deployed reliably.',
+          findings: [someFinding],
+          passed: [],
+        },
+      },
+      ...overrides,
+    });
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'fix-instructions@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('200s with an instructions document containing the guardrail sentence, the repo name, and a generatedAt', async () => {
+    const application = await insertAnalyzedApplication();
+    const stubApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          return {
+            object: { perFinding: [{ id: 'health-check', guidance: 'Add a /health route.' }], generalNotes: [] },
+            usage: { promptTokens: 100, completionTokens: 50 },
+          };
+        },
+      },
+    });
+
+    const response = await postJson(
+      stubApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { instructions: string; generatedAt: string };
+    expect(body.instructions).toContain(
+      'Do not assume Deployz findings are correct. Inspect the repository first.',
+    );
+    expect(body.instructions).toContain(application.repoFullName);
+    expect(body.generatedAt).toEqual(expect.any(String));
+    expect(Number.isNaN(Date.parse(body.generatedAt))).toBe(false);
+
+    await stubApp.close();
+  });
+
+  it('409s ANALYSIS_NOT_COMPLETE when the analysis has not finished', async () => {
+    const application = await insertApplication(db, org.organizationId, { analysisStatus: 'ANALYZING' });
+    const stubApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('must not be called');
+        },
+      },
+    });
+
+    const response = await postJson(
+      stubApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('ANALYSIS_NOT_COMPLETE');
+
+    await stubApp.close();
+  });
+
+  it('409s NO_UNRESOLVED_FINDINGS when the analysis is COMPLETE with a READY report and no findings', async () => {
+    const application = await insertAnalyzedApplication({
+      compatibilityStatus: 'READY',
+      detectedMetadata: {
+        readiness: {
+          state: 'READY',
+          requiredCount: 0,
+          recommendedCount: 0,
+          summary: 'This app can be deployed through Deployz.',
+          findings: [],
+          passed: [{ id: 'dockerfile', label: 'Container setup found' }],
+        },
+      },
+    });
+    const stubApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('must not be called');
+        },
+      },
+    });
+
+    const response = await postJson(
+      stubApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NO_UNRESOLVED_FINDINGS');
+
+    await stubApp.close();
+  });
+
+  it('503s FIX_INSTRUCTIONS_UNAVAILABLE (retryable) when the AI gateway fails', async () => {
+    const application = await insertAnalyzedApplication();
+    const failingApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('gateway unreachable');
+        },
+      },
+    });
+
+    const response = await postJson(
+      failingApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(503);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('FIX_INSTRUCTIONS_UNAVAILABLE');
+
+    await failingApp.close();
+  });
+
+  it('never modifies the application row — readiness is identical before and after, on success and on failure', async () => {
+    const application = await insertAnalyzedApplication();
+    const readOnlyApp = await buildServer({ auth, db });
+
+    const readinessBefore = await readOnlyApp.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+
+    const succeedingApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          return {
+            object: { perFinding: [], generalNotes: [] },
+            usage: { promptTokens: 10, completionTokens: 5 },
+          };
+        },
+      },
+    });
+    const success = await postJson(
+      succeedingApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(success.statusCode).toBe(200);
+    await succeedingApp.close();
+
+    const failingApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('gateway unreachable');
+        },
+      },
+    });
+    const failure = await postJson(
+      failingApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(failure.statusCode).toBe(503);
+    await failingApp.close();
+
+    const readinessAfter = await readOnlyApp.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(readinessAfter.json()).toEqual(readinessBefore.json());
+    await readOnlyApp.close();
   });
 });
 
@@ -2186,6 +2476,17 @@ describe('server — organization settings, public install page, and bulk deploy
       deploymentState: 'NOT_INSTALLED',
       domain: null,
       routingTarget: null,
+      // Pre-relay fields: no launch has been recorded yet, so the expected
+      // bootstrap stack name is derived live (deterministic from the
+      // deployment identity) and nothing is stuck.
+      components: null,
+      bootstrapStackName: bootstrapStackName({
+        appName: 'Analytics Cloud',
+        deploymentId: deployment.id,
+        attempt: 0,
+      }),
+      waitingForRelay: false,
+      relayStuck: false,
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('999999999999');
@@ -2454,6 +2755,316 @@ describe('server — organization settings, public install page, and bulk deploy
   });
 });
 
+// ── pre-relay install lifecycle: launch signal, WAITING_FOR_RELAY, retry ──────
+describe('server — pre-relay install lifecycle (waiting-for-relay and retry)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  interface Seeded {
+    deployment: typeof schema.deployments.$inferSelect;
+    installLinkId: string;
+  }
+
+  async function seedWaiting(overrides: Partial<typeof schema.deployments.$inferInsert> = {}): Promise<Seeded> {
+    const application = await insertApplication(db, org.organizationId, { name: 'Widget Suite' });
+    const customer = await insertCustomer(db, org.organizationId, { name: 'Widgets Inc' });
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      installationId: null,
+      ...overrides,
+    });
+    return { deployment, installLinkId: deployment.installLinkId };
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'waiting-relay@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('gives two deployments of the same application in the same region different stack names', async () => {
+    const first = await seedWaiting();
+    const second = await seedWaiting();
+
+    const firstBody = (await app.inject({ method: 'GET', url: `/api/install/${first.installLinkId}` })).json() as {
+      bootstrapStackName: string;
+    };
+    const secondBody = (await app.inject({ method: 'GET', url: `/api/install/${second.installLinkId}` })).json() as {
+      bootstrapStackName: string;
+    };
+
+    expect(firstBody.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Widget Suite', deploymentId: first.deployment.id, attempt: 0 }),
+    );
+    expect(secondBody.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Widget Suite', deploymentId: second.deployment.id, attempt: 0 }),
+    );
+    expect(firstBody.bootstrapStackName).not.toBe(secondBody.bootstrapStackName);
+  });
+
+  it('POST /api/install/:installLinkId/launched moves NOT_INSTALLED to WAITING_FOR_RELAY and records the launch', async () => {
+    const { deployment, installLinkId } = await seedWaiting();
+
+    const response = await postJson(app, `/api/install/${installLinkId}/launched`, {});
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { state: string }).state).toBe('WAITING_FOR_RELAY');
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('WAITING_FOR_RELAY');
+    expect(dep!.installStartedAt).not.toBeNull();
+    expect(dep!.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Widget Suite', deploymentId: deployment.id, attempt: 0 }),
+    );
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, deployment.id));
+    expect(events.some((row) => row.eventType === 'install.launched')).toBe(true);
+  });
+
+  it('POST /api/install/:installLinkId/launched is idempotent while waiting', async () => {
+    const { installLinkId } = await seedWaiting();
+
+    const first = await postJson(app, `/api/install/${installLinkId}/launched`, {});
+    const second = await postJson(app, `/api/install/${installLinkId}/launched`, {});
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+  });
+
+  it('marks the install relay-stuck (never FAILED) when no relay enrolls within the staleness window', async () => {
+    const { deployment, installLinkId } = await seedWaiting({
+      state: 'WAITING_FOR_RELAY',
+      installStartedAt: new Date(Date.now() - 20 * 60 * 1000),
+    });
+
+    const body = (
+      await app.inject({ method: 'GET', url: `/api/install/${installLinkId}` })
+    ).json() as { deploymentState: string; waitingForRelay: boolean; relayStuck: boolean };
+    expect(body.deploymentState).toBe('WAITING_FOR_RELAY');
+    expect(body.waitingForRelay).toBe(true);
+    expect(body.relayStuck).toBe(true);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('WAITING_FOR_RELAY');
+  });
+
+  it('relay registration from WAITING_FOR_RELAY moves to INSTALLING and queues the first INSTALL job', async () => {
+    const { deployment } = await seedWaiting({ state: 'WAITING_FOR_RELAY' });
+    const rows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deployment.id));
+    const enrollmentCode = rows[0]!.enrollmentCode;
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode, installationId: 'inst-waiting-relay' },
+      { authorization: 'Bearer waiting-relay-token' },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('INSTALLING');
+    expect(dep!.relayBoundAt).not.toBeNull();
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.type).toBe('INSTALL');
+    expect(jobs[0]!.state).toBe('REQUESTED');
+  });
+
+  it('POST /api/install/:installLinkId/retry starts a fresh attempt: new code, new stack name, dead jobs cancelled', async () => {
+    const { deployment, installLinkId } = await seedWaiting({
+      state: 'WAITING_FOR_RELAY',
+      installationId: 'inst-old-attempt',
+      enrollmentUsedAt: null,
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'REQUESTED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+    const oldStackName = bootstrapStackName({
+      appName: 'Widget Suite',
+      deploymentId: deployment.id,
+      attempt: 0,
+    });
+    await db
+      .update(schema.deployments)
+      .set({ bootstrapStackName: oldStackName, installStartedAt: new Date(Date.now() - 20 * 60 * 1000) })
+      .where(eq(schema.deployments.id, deployment.id));
+
+    const response = await postJson(app, `/api/install/${installLinkId}/retry`, {});
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      state: string;
+      attemptNumber: number;
+      bootstrapStackName: string;
+      quickCreateUrl: string | null;
+    };
+    expect(body.state).toBe('NOT_INSTALLED');
+    expect(body.attemptNumber).toBe(1);
+    expect(body.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Widget Suite', deploymentId: deployment.id, attempt: 1 }),
+    );
+    expect(body.bootstrapStackName).not.toBe(oldStackName);
+    // No published template in the test environment: the fresh link is
+    // handed out by the install page once the vendor publishes one.
+    expect(body.quickCreateUrl).toBeNull();
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('NOT_INSTALLED');
+    expect(dep!.installationId).toBeNull();
+    expect(dep!.enrollmentUsedAt).toBeNull();
+    expect(dep!.attemptNumber).toBe(1);
+    expect(dep!.installStartedAt).toBeNull();
+    expect(dep!.enrollmentCode).not.toBe(deployment.enrollmentCode);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs[0]!.state).toBe('CANCELLED');
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, deployment.id));
+    expect(events.some((row) => row.eventType === 'install.retry.requested')).toBe(true);
+  });
+
+  it('POST /api/install/:installLinkId/retry refuses a deployment that already installed successfully', async () => {
+    const { deployment, installLinkId } = await seedWaiting({ state: 'HEALTHY' });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/install/${installLinkId}/retry`, {});
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'INSTALL_ALREADY_SUCCEEDED' } });
+  });
+
+  it('POST /api/install/:installLinkId/retry 404s for an unknown link', async () => {
+    const response = await postJson(app, `/api/install/${crypto.randomUUID()}/retry`, {});
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('relay/reset bumps the attempt, recomputes the stack name, and returns a never-installed deployment to NOT_INSTALLED', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      installationId: 'inst-reset-test',
+      relayStatus: 'DISCONNECTED',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'REQUESTED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('NOT_INSTALLED');
+    expect(dep!.attemptNumber).toBe(1);
+    expect(dep!.installationId).toBeNull();
+    expect(dep!.installStartedAt).toBeNull();
+    expect(dep!.bootstrapStackName).toBe(
+      bootstrapStackName({ appName: 'Reset App', deploymentId: deployment.id, attempt: 1 }),
+    );
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs[0]!.state).toBe('CANCELLED');
+  });
+
+  it('relay/reset keeps a healthy deployment in place (credential rotation only)', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Healthy Reset App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('HEALTHY');
+    expect(dep!.attemptNumber).toBe(1);
+    expect(dep!.installationId).toBeNull();
+    expect(dep!.enrollmentCode).not.toBe(deployment.enrollmentCode);
+  });
+
+  it('serves the same §24 component view on the install page as the fleet row', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      name: 'Component Parity App',
+      databaseRequired: true,
+    });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      enrollmentUsedAt: new Date(),
+      observedState: {
+        components: { application: 'HEALTHY' },
+        infraHealth: { checks: [{ name: 'database', passed: true }] },
+      },
+    });
+
+    const installBody = (
+      await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` })
+    ).json() as { components: Record<string, string> | null; alreadyInstalled: boolean };
+    expect(installBody.alreadyInstalled).toBe(true);
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(detail.statusCode).toBe(200);
+    const detailBody = detail.json() as { components: Record<string, string> | null };
+
+    expect(installBody.components).toStrictEqual(detailBody.components);
+  });
+});
+
 // ── POST /api/deployments/:id/retry-install — first-install recovery ────────
 describe('server — retry-install (first-install recovery)', () => {
   let client: PGlite | undefined;
@@ -2581,6 +3192,18 @@ describe('server — retry-install (first-install recovery)', () => {
     const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: { code: 'RELAY_NOT_CONNECTED' } });
+  });
+
+  // A dead relay never picks the retry job up; the watchdog would re-fail the
+  // deployment an hour later. The recovery for a dead relay is
+  // re-enrollment (relay/reset), which the UI can point to only if this
+  // route refuses.
+  it('409s (RELAY_DISCONNECTED) when the bound relay is dead — re-enrollment, not another job', async () => {
+    const deployment = await seedFailedInstall({ relayStatus: 'DISCONNECTED' });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'RELAY_DISCONNECTED' } });
   });
 
   it('409s while a fresh INSTALL attempt is still in flight', async () => {

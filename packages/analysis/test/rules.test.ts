@@ -42,7 +42,10 @@ const noHealthTree: FileTree = {
     "import express from 'express';\nconst app = express();\napp.get('/', (_req, res) => res.send('ok'));\napp.listen(3000);\n",
 };
 
-/** No migration command. */
+/** No migration command — with the readiness-report refactor this is now a
+ *  RECOMMENDED finding, so the §19 verdict stays READY (see the dedicated
+ *  describe block below; the recommended-finding assertions live in
+ *  readiness-report.test.ts, which is what actually builds the finding). */
 const noMigrationTree: FileTree = {
   ...readyTree,
   'package.json': JSON.stringify({
@@ -138,11 +141,11 @@ const localFsTree: FileTree = {
     "import fs from 'fs';\nexport function save(path: string, data: string) { fs.writeFileSync(path, data); }\n",
 };
 
-/** A rejection AND an attention issue both present (reject must win). */
+/** A rejection AND a fixable-required issue both present (blocking must win the verdict). */
 const rejectPlusAttentionTree: FileTree = { ...unsupportedRedisTree };
 delete rejectPlusAttentionTree['Dockerfile'];
 
-/** Multiple §10 rejections plus missing PostgreSQL — all must be listed. */
+/** Multiple §10 rejections plus no database at all — all rejections must be listed. */
 const multiRejectTree: FileTree = {
   ...readyTree,
   'package.json': JSON.stringify({
@@ -157,7 +160,7 @@ const multiRejectTree: FileTree = {
   }),
 };
 
-/** Multiple attention issues — all must be listed. */
+/** Multiple fixable-required issues — all must be listed. */
 const multiAttentionTree: FileTree = {
   'package.json': JSON.stringify({
     scripts: { start: 'node dist/index.js' },
@@ -172,116 +175,115 @@ function codes(result: CompatibilityResult): string[] {
   return result.issues.map((i) => i.code);
 }
 
+const READY_REASON = 'This app can be deployed through Deployz.';
+const ALMOST_READY_REASON =
+  'Deployz found a few things to address before this app can be deployed reliably.';
+const NEEDS_CHANGES_REASON = 'This app needs changes before Deployz can deploy it.';
+
 // ==========================================================================
-// §19 verdict engine — REJECT rules
+// §19 verdict engine — blocking (reject) rules → NOT_COMPATIBLE
 // ==========================================================================
 
-describe('evaluateCompatibility — REJECT rules (→ NOT_COMPATIBLE)', () => {
-  it('unsupported Redis setup → NOT_COMPATIBLE (REDIS_UNSUPPORTED)', () => {
+describe('evaluateCompatibility — blocking rules (→ NOT_COMPATIBLE)', () => {
+  it('unsupported Redis setup → NOT_COMPATIBLE (unsupported-redis-setup)', () => {
     const result = evaluateCompatibility(analyseRepo(unsupportedRedisTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toEqual(['REDIS_UNSUPPORTED']);
+    expect(codes(result)).toEqual(['unsupported-redis-setup']);
     expect(result.issues[0]?.severity).toBe('reject');
-    expect(result.reason).toContain('Redis');
+    expect(result.reason).toBe(NEEDS_CHANGES_REASON);
   });
 
-  it('MySQL dependency → NOT_COMPATIBLE (MYSQL_DEPENDENCY)', () => {
+  it('MySQL dependency → NOT_COMPATIBLE (unsupported-database-mysql)', () => {
     const result = evaluateCompatibility(analyseRepo(mysqlTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toContain('MYSQL_DEPENDENCY');
-    expect(result.reason).toContain('MySQL');
+    expect(codes(result)).toEqual(['unsupported-database-mysql']);
+    expect(result.reason).toBe(NEEDS_CHANGES_REASON);
   });
 
-  it('MongoDB dependency → NOT_COMPATIBLE (MONGO_DEPENDENCY)', () => {
+  it('MongoDB dependency → NOT_COMPATIBLE (unsupported-database-mongo)', () => {
     const result = evaluateCompatibility(analyseRepo(mongoTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toContain('MONGO_DEPENDENCY');
-    expect(result.reason).toContain('MongoDB');
+    expect(codes(result)).toEqual(['unsupported-database-mongo']);
   });
 
-  it('Elasticsearch dependency → NOT_COMPATIBLE (ELASTICSEARCH_DEPENDENCY)', () => {
+  it('Elasticsearch dependency → NOT_COMPATIBLE (unsupported-database-elasticsearch)', () => {
     const result = evaluateCompatibility(analyseRepo(elasticsearchTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toContain('ELASTICSEARCH_DEPENDENCY');
+    expect(codes(result)).toEqual(['unsupported-database-elasticsearch']);
   });
 
-  it('other unsupported database → NOT_COMPATIBLE (UNSUPPORTED_DATABASE)', () => {
+  it('other unsupported database → NOT_COMPATIBLE (unsupported-database-other)', () => {
     const result = evaluateCompatibility(analyseRepo(otherDbTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toContain('UNSUPPORTED_DATABASE');
+    expect(codes(result)).toEqual(['unsupported-database-other']);
   });
 
   it('no PostgreSQL (no database at all) → READY, not a reject', () => {
     const result = evaluateCompatibility(analyseRepo(noPostgresTree));
     expect(result.verdict).toBe('READY');
     expect(result.issues).toEqual([]);
-    // A repository with no database is a neutral 'none' state — not the
-    // old MISSING_POSTGRESQL reject.
+    // A repository with no database is a neutral 'none' state — never a reject.
     expect(analyseRepo(noPostgresTree).metadata['databaseState']).toBe('none');
   });
 
-  it('local filesystem usage → NOT_COMPATIBLE (LOCAL_FILESYSTEM_USAGE)', () => {
+  it('local filesystem usage → NOT_COMPATIBLE (local-file-storage)', () => {
     const result = evaluateCompatibility(analyseRepo(localFsTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toEqual(['LOCAL_FILESYSTEM_USAGE']);
-    expect(result.reason).toContain('filesystem');
+    expect(codes(result)).toEqual(['local-file-storage']);
+    expect(result.reason).toBe(NEEDS_CHANGES_REASON);
   });
 
-  it('lists ALL reject issues when multiple fire (§10 rejections only — missing PostgreSQL is no longer a reject)', () => {
+  it('lists ALL §10 rejections when multiple fire (no database at all never fires one)', () => {
     const result = evaluateCompatibility(analyseRepo(multiRejectTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
     const cs = codes(result);
-    expect(cs).toContain('REDIS_UNSUPPORTED');
-    expect(cs).toContain('MONGO_DEPENDENCY');
-    // No database at all is not a reject, so MISSING_POSTGRESQL never fires.
-    expect(cs).not.toContain('MISSING_POSTGRESQL');
-    // Reason lists every reject issue.
-    expect(result.reason).toContain('Redis');
-    expect(result.reason).toContain('MongoDB');
+    expect(cs).toContain('unsupported-redis-setup');
+    expect(cs).toContain('unsupported-database-mongo');
+    expect(result.reason).toBe(NEEDS_CHANGES_REASON);
   });
 });
 
 // ==========================================================================
-// §19 verdict engine — ATTENTION rules
+// §19 verdict engine — fixable-required rules → NEEDS_ATTENTION
 // ==========================================================================
 
-describe('evaluateCompatibility — ATTENTION rules (→ NEEDS_ATTENTION)', () => {
-  it('missing Dockerfile → NEEDS_ATTENTION (MISSING_DOCKERFILE)', () => {
+describe('evaluateCompatibility — fixable-required rules (→ NEEDS_ATTENTION)', () => {
+  it('missing Dockerfile → NEEDS_ATTENTION (container-setup)', () => {
     const result = evaluateCompatibility(analyseRepo(noDockerfileTree));
     expect(result.verdict).toBe('NEEDS_ATTENTION');
-    expect(codes(result)).toEqual(['MISSING_DOCKERFILE']);
+    expect(codes(result)).toEqual(['container-setup']);
     expect(result.issues[0]?.severity).toBe('attention');
-    expect(result.reason).toBe('Missing Dockerfile');
+    expect(result.reason).toBe(ALMOST_READY_REASON);
   });
 
-  it('missing health endpoint → NEEDS_ATTENTION (MISSING_HEALTH_ENDPOINT)', () => {
+  it('missing health endpoint → NEEDS_ATTENTION (health-check)', () => {
     const result = evaluateCompatibility(analyseRepo(noHealthTree));
     expect(result.verdict).toBe('NEEDS_ATTENTION');
-    expect(codes(result)).toEqual(['MISSING_HEALTH_ENDPOINT']);
-    expect(result.reason).toBe('Missing health endpoint');
+    expect(codes(result)).toEqual(['health-check']);
+    expect(result.reason).toBe(ALMOST_READY_REASON);
   });
 
-  it('missing migration command → NEEDS_ATTENTION (MISSING_MIGRATION_COMMAND)', () => {
+  it('missing migration command is now a RECOMMENDED finding — verdict stays READY', () => {
+    // With the readiness-report refactor, a missing migration command for a
+    // detected-PostgreSQL repo is RECOMMENDED, never REQUIRED — so it never
+    // appears in `issues` and never affects the §19 verdict. The report-level
+    // recommended finding itself is asserted in readiness-report.test.ts.
     const result = evaluateCompatibility(analyseRepo(noMigrationTree));
-    expect(result.verdict).toBe('NEEDS_ATTENTION');
-    expect(codes(result)).toEqual(['MISSING_MIGRATION_COMMAND']);
-    expect(result.reason).toBe('Missing migration command');
+    expect(result.verdict).toBe('READY');
+    expect(result.issues).toEqual([]);
+    expect(result.reason).toBe(READY_REASON);
   });
 
-  it('lists ALL attention issues when multiple are missing', () => {
+  it('lists ALL fixable-required issues when multiple are missing (migration is not one of them)', () => {
     const result = evaluateCompatibility(analyseRepo(multiAttentionTree));
     expect(result.verdict).toBe('NEEDS_ATTENTION');
-    expect(codes(result).sort()).toEqual(
-      ['MISSING_DOCKERFILE', 'MISSING_HEALTH_ENDPOINT', 'MISSING_MIGRATION_COMMAND'].sort(),
-    );
-    expect(result.reason).toContain('Dockerfile');
-    expect(result.reason).toContain('health endpoint');
-    expect(result.reason).toContain('migration command');
+    expect(codes(result).sort()).toEqual(['container-setup', 'health-check']);
+    expect(result.reason).toBe(ALMOST_READY_REASON);
   });
 });
 
 // ==========================================================================
-// §19 verdict engine — READY + precedence
+// §19 verdict engine — READY + verdict precedence
 // ==========================================================================
 
 describe('evaluateCompatibility — READY + verdict precedence', () => {
@@ -289,7 +291,7 @@ describe('evaluateCompatibility — READY + verdict precedence', () => {
     const result = evaluateCompatibility(analyseRepo(readyTree));
     expect(result.verdict).toBe('READY');
     expect(result.issues).toEqual([]);
-    expect(result.reason).toBe('Compatible with Deployz');
+    expect(result.reason).toBe(READY_REASON);
   });
 
   it('plain Redis dependency → READY (supported, not a rejection)', () => {
@@ -298,12 +300,15 @@ describe('evaluateCompatibility — READY + verdict precedence', () => {
     expect(codes(result)).toEqual([]);
   });
 
-  it('REJECT wins over ATTENTION (unsupported Redis + missing Dockerfile → NOT_COMPATIBLE)', () => {
+  it('a blocking rejection outranks a fixable-required issue for the VERDICT, but both are listed', () => {
     const result = evaluateCompatibility(analyseRepo(rejectPlusAttentionTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
-    // The attention issue must NOT leak into a NOT_COMPATIBLE result.
-    expect(codes(result)).not.toContain('MISSING_DOCKERFILE');
-    expect(codes(result)).toContain('REDIS_UNSUPPORTED');
+    // Both required findings are still reported — `issues` is not filtered to
+    // the winning severity — but only the blocking one drives the verdict.
+    expect(codes(result)).toContain('unsupported-redis-setup');
+    expect(codes(result)).toContain('container-setup');
+    expect(result.issues.find((i) => i.code === 'unsupported-redis-setup')?.severity).toBe('reject');
+    expect(result.issues.find((i) => i.code === 'container-setup')?.severity).toBe('attention');
   });
 });
 
@@ -367,7 +372,7 @@ describe('evaluateCompatibility — purity invariant (§20)', () => {
     }
   });
 
-  it('falls back to UNSUPPORTED_DEPENDENCY for unknown rejection dependencies', () => {
+  it('falls back to unsupported-database-other for unknown rejection dependencies', () => {
     const result: AnalysisResult = {
       findings: [
         { detector: 'dockerfile', detected: true },
@@ -388,7 +393,7 @@ describe('evaluateCompatibility — purity invariant (§20)', () => {
     };
     const out = evaluateCompatibility(result);
     expect(out.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(out)).toContain('UNSUPPORTED_DEPENDENCY');
+    expect(codes(out)).toContain('unsupported-database-other');
   });
 });
 
@@ -407,12 +412,12 @@ describe('persistVerdict — DB persistence', () => {
     expect(update).toHaveBeenCalledWith('app-123', {
       analysisStatus: 'COMPLETE',
       compatibilityStatus: 'READY',
-      compatibilityReason: 'Compatible with Deployz',
+      compatibilityReason: READY_REASON,
       detectedMetadata: analysis.metadata,
     });
   });
 
-  it('writes NOT_COMPATIBLE verdict with the rejection reason', async () => {
+  it('writes NOT_COMPATIBLE verdict with the blocking-state reason', async () => {
     const update = vi.fn<VerdictStore['update']>();
     const analysis = analyseRepo(unsupportedRedisTree);
 
@@ -422,19 +427,19 @@ describe('persistVerdict — DB persistence', () => {
     expect(applicationId).toBe('app-456');
     expect(values?.analysisStatus).toBe('COMPLETE');
     expect(values?.compatibilityStatus).toBe('NOT_COMPATIBLE');
-    expect(values?.compatibilityReason).toContain('Redis');
+    expect(values?.compatibilityReason).toBe(NEEDS_CHANGES_REASON);
     expect(values?.detectedMetadata).toEqual(analysis.metadata);
   });
 
-  it('writes NEEDS_ATTENTION verdict with the attention reason', async () => {
+  it('writes NEEDS_ATTENTION verdict with the almost-ready reason', async () => {
     const update = vi.fn<VerdictStore['update']>();
-    const analysis = analyseRepo(noMigrationTree);
+    const analysis = analyseRepo(noDockerfileTree);
 
     await persistVerdict('app-789', analysis, { update });
 
     const [, values] = update.mock.calls[0] ?? [];
     expect(values?.compatibilityStatus).toBe('NEEDS_ATTENTION');
-    expect(values?.compatibilityReason).toBe('Missing migration command');
+    expect(values?.compatibilityReason).toBe(ALMOST_READY_REASON);
   });
 });
 

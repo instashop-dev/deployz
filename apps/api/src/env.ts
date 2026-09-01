@@ -174,4 +174,7 @@ export const env = {
   // Custom-domains MVP E2E fixture mode — see domain-check.ts's
   // createFixtureDomainCheckDeps. Mirrors githubFixtureMode.
   domainFixtureMode: process.env.DOMAIN_FIXTURE_MODE === 'true',
+  // AI fixture mode — canned gateway responses so the E2E suite can drive
+  // the fix-instructions flow without a live model. Mirrors githubFixtureMode.
+  aiFixtureMode: process.env.AI_FIXTURE_MODE === 'true',
 } as const;

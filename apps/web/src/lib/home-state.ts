@@ -16,10 +16,11 @@ import type { FleetDeployment } from './deployments';
 export function attentionReason(deployment: FleetDeployment): string | null {
   if (deployment.state === 'FAILED') return 'Deployment failed';
   if (deployment.state === 'DISCONNECTED') return 'Deployment disconnected';
-  // A deployment nobody has installed yet, or one on its way out, cannot be
-  // unhealthy in a way the vendor can act on.
+  // A deployment nobody has installed yet (launched or not), or one on its
+  // way out, cannot be unhealthy in a way the vendor can act on.
   if (
     deployment.state === 'NOT_INSTALLED' ||
+    deployment.state === 'WAITING_FOR_RELAY' ||
     deployment.state === 'DELETING' ||
     deployment.state === 'DELETED'
   ) {
@@ -70,7 +71,7 @@ export function summarise(deployments: FleetDeployment[]): FleetSummary {
       summary.attention += 1;
     } else if (deployment.state === 'INSTALLING' || deployment.state === 'UPDATING') {
       summary.deploying += 1;
-    } else if (deployment.state === 'NOT_INSTALLED') {
+    } else if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') {
       summary.waiting += 1;
     } else if (deployment.state === 'HEALTHY' || deployment.state === 'UPDATE_AVAILABLE') {
       summary.healthy += 1;
@@ -91,7 +92,7 @@ export function sortForHomepage(deployments: FleetDeployment[]): FleetDeployment
 function homeRank(deployment: FleetDeployment): number {
   if (attentionReason(deployment) !== null) return 0;
   if (deployment.state === 'INSTALLING' || deployment.state === 'UPDATING') return 1;
-  if (deployment.state === 'NOT_INSTALLED') return 2;
+  if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') return 2;
   return 3;
 }
 
@@ -198,7 +199,12 @@ export function deriveHomeState(input: {
   }
 
   const only = deployments.length === 1 ? deployments[0]! : null;
-  if (only !== null && (only.state === 'NOT_INSTALLED' || only.state === 'INSTALLING')) {
+  if (
+    only !== null &&
+    (only.state === 'NOT_INSTALLED' ||
+      only.state === 'WAITING_FOR_RELAY' ||
+      only.state === 'INSTALLING')
+  ) {
     return { kind: 'first-deployment', deployment: only };
   }
 

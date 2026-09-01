@@ -14,13 +14,16 @@ import {
   FAILURE_SEVERITY_DOT,
   JARGON_PATTERN,
   ONBOARDING_STEPS,
+  READINESS_STATE_PRESENTATION,
+  READINESS_STATES,
   SECRET_MASK,
-  VERDICT_PRESENTATION,
   deploymentStateLabel,
   eventFamily,
   eventResultLabel,
   eventTypeLabel,
   failureCodeCopy,
+  readinessCountsLabel,
+  readinessStateFromVerdict,
 } from '../src/index';
 
 // Locks the §46/§61/§19 vocabulary + §65 copy principles in the single
@@ -30,9 +33,10 @@ import {
 // ── §46 deployment states ───────────────────────────────────────────────────
 
 describe('§46 deployment states', () => {
-  it('defines exactly the 9 product-vocabulary states', () => {
+  it('defines exactly the product-vocabulary states', () => {
     expect(DEPLOYMENT_STATES).toEqual([
       'NOT_INSTALLED',
+      'WAITING_FOR_RELAY',
       'INSTALLING',
       'HEALTHY',
       'UPDATING',
@@ -294,21 +298,59 @@ describe('§19 readiness verdicts', () => {
       'NOT_COMPATIBLE',
     ]);
   });
+});
 
-  it('maps every verdict to a non-empty, jargon-free heading and label', () => {
-    for (const verdict of COMPATIBILITY_VERDICTS) {
-      const presentation = VERDICT_PRESENTATION[verdict];
-      expect(presentation.heading, `heading for ${verdict}`).toBeTruthy();
-      expect(presentation.label, `label for ${verdict}`).toBeTruthy();
-      expect(presentation.heading, `heading for ${verdict}`).not.toMatch(JARGON_PATTERN);
-      expect(presentation.label, `label for ${verdict}`).not.toMatch(JARGON_PATTERN);
+// ── Semantic readiness states ───────────────────────────────────────────────
+
+describe('semantic readiness states', () => {
+  it('defines exactly the 4 readiness states in order', () => {
+    expect(READINESS_STATES).toEqual([
+      'READY',
+      'ALMOST_READY',
+      'NEEDS_CHANGES',
+      'ANALYSIS_INCOMPLETE',
+    ]);
+  });
+
+  it('maps every state to a non-empty, jargon-free heading and label', () => {
+    for (const state of READINESS_STATES) {
+      const presentation = READINESS_STATE_PRESENTATION[state];
+      expect(presentation.heading, `heading for ${state}`).toBeTruthy();
+      expect(presentation.label, `label for ${state}`).toBeTruthy();
+      expect(presentation.heading, `heading for ${state}`).not.toMatch(JARGON_PATTERN);
+      expect(presentation.label, `label for ${state}`).not.toMatch(JARGON_PATTERN);
     }
   });
 
-  it('assigns the correct tones per verdict', () => {
-    expect(VERDICT_PRESENTATION.READY.tone).toBe('ready');
-    expect(VERDICT_PRESENTATION.NEEDS_ATTENTION.tone).toBe('attention');
-    expect(VERDICT_PRESENTATION.NOT_COMPATIBLE.tone).toBe('incompatible');
+  it('assigns the correct tones per state', () => {
+    expect(READINESS_STATE_PRESENTATION.READY.tone).toBe('ready');
+    expect(READINESS_STATE_PRESENTATION.ALMOST_READY.tone).toBe('attention');
+    expect(READINESS_STATE_PRESENTATION.NEEDS_CHANGES.tone).toBe('incompatible');
+    expect(READINESS_STATE_PRESENTATION.ANALYSIS_INCOMPLETE.tone).toBe('pending');
+  });
+
+  it('readinessStateFromVerdict maps every §19 verdict onto its state', () => {
+    expect(readinessStateFromVerdict('READY')).toBe('READY');
+    expect(readinessStateFromVerdict('NEEDS_ATTENTION')).toBe('ALMOST_READY');
+    expect(readinessStateFromVerdict('NOT_COMPATIBLE')).toBe('NEEDS_CHANGES');
+  });
+
+  it('readinessCountsLabel formats the exact example: "2 required changes · 1 recommendation"', () => {
+    expect(readinessCountsLabel(2, 1)).toBe('2 required changes · 1 recommendation');
+  });
+
+  it('readinessCountsLabel singularizes "change" and "recommendation" for exactly one', () => {
+    expect(readinessCountsLabel(1, 0)).toBe('1 required change');
+    expect(readinessCountsLabel(0, 1)).toBe('1 recommendation');
+  });
+
+  it('readinessCountsLabel pluralizes for more than one', () => {
+    expect(readinessCountsLabel(2, 0)).toBe('2 required changes');
+    expect(readinessCountsLabel(0, 2)).toBe('2 recommendations');
+  });
+
+  it('readinessCountsLabel reports "All checks passed" when both counts are zero', () => {
+    expect(readinessCountsLabel(0, 0)).toBe('All checks passed');
   });
 });
 

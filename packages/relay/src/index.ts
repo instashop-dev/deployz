@@ -103,11 +103,34 @@ import {
   type VerificationResult,
   type VerifyOptions,
 } from './verify.js';
+import { buildProvisioningSnapshot, type ProvisioningSnapshot } from './provision-progress.js';
 import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
+  applicationStackNameForInstallation,
   redisApplicationTemplateUrl,
 } from '@deployz/contracts';
+
+/**
+ * This installation's application stack name. Derived from the
+ * installation identifier the bootstrap stack minted, so two deployments in
+ * the same AWS account/region never collide on `deployz-app` and no
+ * control-plane state is needed to agree on the name. Falls back to the
+ * fixed default only when the env is absent (unit tests, direct invokes).
+ */
+export function relayApplicationStackName(): string {
+  const installationId = process.env['DEPLOYZ_INSTALLATION_ID'];
+  return installationId ? applicationStackNameForInstallation(installationId) : DEFAULT_STACK_NAME;
+}
+
+/**
+ * The bootstrap stack this relay was deployed by — baked by the stack as
+ * Ref AWS::StackName, so it tracks the deployed name even if the customer
+ * renames the stack in the console. Purge uses it to remove its own stack.
+ */
+export function relayBootstrapStackName(): string {
+  return process.env['DEPLOYZ_BOOTSTRAP_STACK_NAME'] ?? DEFAULT_BOOTSTRAP_STACK_NAME;
+}
 
 // ── Lazy SDK singleton ───────────────────────────────────────────────────────
 //
@@ -699,7 +722,7 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
       );
     }
 
-    const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? DEFAULT_STACK_NAME;
+    const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? relayApplicationStackName();
     const recoveryReport = await runRequestedRecovery(deps, command, stackName);
     const settled = await settleInstall(deps, { stackName, payload: command.payload });
 
@@ -1024,7 +1047,7 @@ function deployResumerDeps(installationId: string): EcsDeployDeps {
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
     pending: getPendingStore(installationId),
-    stackName: DEFAULT_STACK_NAME,
+    stackName: relayApplicationStackName(),
     installationId,
   };
 }
@@ -1077,7 +1100,7 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
     pending: getPendingStore(installDeps.installationId),
-    stackName: DEFAULT_STACK_NAME,
+    stackName: relayApplicationStackName(),
     installationId: installDeps.installationId,
   };
 
@@ -1086,7 +1109,7 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     deleter: getStackDeleter(),
     pending: getPendingStore(installDeps.installationId),
     installationId: installDeps.installationId,
-    stackName: DEFAULT_STACK_NAME,
+    stackName: relayApplicationStackName(),
     // Same DELETE_FAILED recovery clients the INSTALL retry path uses (see
     // createDefaultInstallDeps's `recover`).
     rds: getRdsCleanupClient(),
@@ -1098,8 +1121,8 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     deleter: getStackDeleter(),
     pending: getPendingStore(installDeps.installationId),
     installationId: installDeps.installationId,
-    stackName: DEFAULT_STACK_NAME,
-    bootstrapStackName: DEFAULT_BOOTSTRAP_STACK_NAME,
+    stackName: relayApplicationStackName(),
+    bootstrapStackName: relayBootstrapStackName(),
     ...getPurgeClients(installDeps.installationId),
   };
 
@@ -1116,6 +1139,50 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     REFRESH_METADATA: noop,
     CONFIGURE_DOMAIN: domainExecutors.CONFIGURE_DOMAIN,
     REMOVE_DOMAIN: domainExecutors.REMOVE_DOMAIN,
+  };
+}
+
+// ── §59 observe hook ─────────────────────────────────────────────────────────
+
+/**
+ * Wrap a §59 observe function so a mid-create or mid-update stack's
+ * heartbeat carries a per-category provisioning snapshot alongside the
+ * verification it already reports.
+ *
+ * `verifyInstallation` early-returns at `stack-complete` while the stack is
+ * still building — right for the verified/not-verified question, but it
+ * means that check alone tells a heartbeat nothing about progress. The
+ * signal for "the stack exists and is still working" is exactly
+ * `stack-exists` passed and `stack-complete` failed; any other shape
+ * (missing stack, wrong installation, a fully complete but unverified
+ * stack) has nothing a provisioning snapshot would add, so the plain
+ * verification is returned unchanged.
+ *
+ * `verify` and `buildSnapshot` are passed in as functions, not clients, so
+ * this composes and tests without an AWS reader — matching the seam style
+ * of `createVerifyingExecutor` above.
+ */
+export function createObserveHook(
+  verify: () => Promise<VerificationResult>,
+  buildSnapshot: () => Promise<ProvisioningSnapshot | null>,
+): () => Promise<VerificationResult> {
+  return async () => {
+    const verification = await verify();
+
+    const stackExists = verification.checks.find((check) => check.name === 'stack-exists');
+    const stackComplete = verification.checks.find((check) => check.name === 'stack-complete');
+    if (stackExists?.passed !== true || stackComplete?.passed !== false) {
+      return verification;
+    }
+
+    try {
+      const snapshot = await buildSnapshot();
+      return snapshot ? { ...verification, provisioning: snapshot } : verification;
+    } catch {
+      // The snapshot is enrichment on top of an already-computed
+      // verification — never the reason a heartbeat is lost.
+      return verification;
+    }
   };
 }
 
@@ -1247,7 +1314,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
         const body = (await response.json()) as { entries: EffectiveConfigEntry[] };
         return body.entries;
       },
-      stackName: DEFAULT_STACK_NAME,
+      stackName: relayApplicationStackName(),
       installationId,
     });
 
@@ -1260,12 +1327,16 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       idempotency,
       observe:
         deps.observe ??
-        (() =>
-          verifyInstallation({
-            cfn: getCloudFormationReader(),
-            installationId,
-            ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
-          })),
+        createObserveHook(
+          () =>
+            verifyInstallation({
+              cfn: getCloudFormationReader(),
+              installationId,
+              stackName: relayApplicationStackName(),
+              ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
+            }),
+          () => buildProvisioningSnapshot(getCloudFormationReader(), relayApplicationStackName()),
+        ),
       // One pending store, several resumers: each settles only its own
       // command type, so composing them is safe.
       resume:
@@ -1282,7 +1353,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             deleter: getStackDeleter(),
             pending: getPendingStore(installationId),
             installationId,
-            stackName: DEFAULT_STACK_NAME,
+            stackName: relayApplicationStackName(),
             rds: getRdsCleanupClient(),
             cache: getCacheCleanupClient(),
           })();
@@ -1292,8 +1363,8 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             deleter: getStackDeleter(),
             pending: getPendingStore(installationId),
             installationId,
-            stackName: DEFAULT_STACK_NAME,
-            bootstrapStackName: DEFAULT_BOOTSTRAP_STACK_NAME,
+            stackName: relayApplicationStackName(),
+            bootstrapStackName: relayBootstrapStackName(),
             ...getPurgeClients(installationId),
           })();
         }),
@@ -1307,7 +1378,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               ecs: getEcsTaskReader(),
               installationId,
             },
-            DEFAULT_STACK_NAME,
+            relayApplicationStackName(),
           )),
       observeHealth:
         deps.observeHealth ??
@@ -1318,7 +1389,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               ecs: getEcsServiceReader(),
               elb: getTargetHealthReader(),
             },
-            DEFAULT_STACK_NAME,
+            relayApplicationStackName(),
           )),
       onDeploymentMeta: (meta) => {
         deploymentMeta.redisRequired = meta.redisRequired;

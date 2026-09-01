@@ -44,6 +44,8 @@ import migration0014 from '../../../db/drizzle/0014_lethal_bastion.sql';
 import migration0015 from '../../../db/drizzle/0015_tan_blue_blade.sql';
 import migration0016 from '../../../db/drizzle/0016_married_wolf_cub.sql';
 import migration0017 from '../../../db/drizzle/0017_cooing_prowler.sql';
+import migration0018 from '../../../db/drizzle/0018_stormy_harrier.sql';
+import migration0019 from '../../../db/drizzle/0019_happy_retro_girl.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -75,6 +77,8 @@ const MIGRATION_SQL: Record<string, string> = {
   '0015_tan_blue_blade': migration0015,
   '0016_married_wolf_cub': migration0016,
   '0017_cooing_prowler': migration0017,
+  '0018_stormy_harrier': migration0018,
+  '0019_happy_retro_girl': migration0019,
 };
 
 interface RdsSecret {

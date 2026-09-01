@@ -1357,7 +1357,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "a51deb2c7ebe1570e212d25ae63cb6b521e755c3dd43e89c63ca1f0fc5d73b79.zip"
+          "S3Key": "013431d63028655630ede8b38c3cd2028392b6756aa89abfe15b34c9817eb714.zip"
         },
         "Environment": {
           "Variables": {
@@ -1384,6 +1384,9 @@
                 "ApplicationExecutionRoleB4697B7D",
                 "Arn"
               ]
+            },
+            "DEPLOYZ_BOOTSTRAP_STACK_NAME": {
+              "Ref": "AWS::StackName"
             }
           }
         },
@@ -1587,53 +1590,38 @@
     }
   },
   "Outputs": {
-    "ExportDeployzBootstrapRelayFunctionArn": {
+    "RelayFunctionArn": {
       "Value": {
         "Fn::GetAtt": [
           "RelayFunctionD137DF95",
           "Arn"
         ]
-      },
-      "Export": {
-        "Name": "DeployzBootstrap-RelayFunctionArn"
       }
     },
-    "ExportDeployzBootstrapCredentialSecretArn": {
+    "CredentialSecretArn": {
       "Value": {
         "Ref": "RelayCredential6AA8BC18"
-      },
-      "Export": {
-        "Name": "DeployzBootstrap-CredentialSecretArn"
       }
     },
-    "ExportDeployzBootstrapProvisionerPolicyArn": {
+    "ProvisionerPolicyArn": {
       "Value": {
         "Ref": "ProvisionerPolicyCCE83F9D"
-      },
-      "Export": {
-        "Name": "DeployzBootstrap-ProvisionerPolicyArn"
       }
     },
-    "ExportDeployzBootstrapInstallationId": {
+    "InstallationId": {
       "Value": {
         "Fn::GetAtt": [
           "InstallationId",
           "InstallationId"
         ]
-      },
-      "Export": {
-        "Name": "DeployzBootstrap-InstallationId"
       }
     },
-    "ExportDeployzBootstrapApplicationExecutionRoleArn": {
+    "ApplicationExecutionRoleArn": {
       "Value": {
         "Fn::GetAtt": [
           "ApplicationExecutionRoleB4697B7D",
           "Arn"
         ]
-      },
-      "Export": {
-        "Name": "DeployzBootstrap-ApplicationExecutionRoleArn"
       }
     }
   },

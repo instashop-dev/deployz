@@ -66,6 +66,9 @@ function deployment(overrides: Partial<FleetDeployment> = {}): FleetDeployment {
     customerName: 'Acme Corp',
     applicationName: 'MyApp',
     version: '1.4.2',
+    attemptNumber: 1,
+    bootstrapStackName: null,
+    installStartedAt: null,
     ...overrides,
   };
 }
@@ -90,6 +93,7 @@ describe('attentionReason', () => {
     expect(attentionReason(deployment({ state: 'UPDATE_AVAILABLE' }))).toBeNull();
     // Nobody has installed it yet, so its default health is not a problem.
     expect(attentionReason(deployment({ state: 'NOT_INSTALLED', relayStatus: 'UNKNOWN' }))).toBeNull();
+    expect(attentionReason(deployment({ state: 'WAITING_FOR_RELAY', relayStatus: 'UNKNOWN' }))).toBeNull();
     expect(attentionReason(deployment({ state: 'DELETING', healthStatus: 'UNHEALTHY' }))).toBeNull();
   });
 });
@@ -102,10 +106,11 @@ describe('summarise', () => {
       deployment({ id: 'c', state: 'FAILED' }),
       deployment({ id: 'd', state: 'INSTALLING' }),
       deployment({ id: 'e', state: 'NOT_INSTALLED' }),
+      deployment({ id: 'g', state: 'WAITING_FOR_RELAY' }),
       // Unhealthy but still in the HEALTHY state: counted as attention, not healthy.
       deployment({ id: 'f', healthStatus: 'UNHEALTHY' }),
     ]);
-    expect(summary).toEqual({ total: 6, healthy: 2, attention: 2, deploying: 1, waiting: 1 });
+    expect(summary).toEqual({ total: 7, healthy: 2, attention: 2, deploying: 1, waiting: 2 });
   });
 });
 
@@ -114,10 +119,17 @@ describe('sortForHomepage', () => {
     const rows = sortForHomepage([
       deployment({ id: 'healthy' }),
       deployment({ id: 'waiting', state: 'NOT_INSTALLED' }),
+      deployment({ id: 'waiting-relay', state: 'WAITING_FOR_RELAY' }),
       deployment({ id: 'failed', state: 'FAILED' }),
       deployment({ id: 'installing', state: 'INSTALLING' }),
     ]);
-    expect(rows.map((row) => row.id)).toEqual(['failed', 'installing', 'waiting', 'healthy']);
+    expect(rows.map((row) => row.id)).toEqual([
+      'failed',
+      'installing',
+      'waiting',
+      'waiting-relay',
+      'healthy',
+    ]);
   });
 
   it('breaks ties by most recently updated', () => {
@@ -224,7 +236,11 @@ describe('deriveHomeState', () => {
   });
 
   it('D — a single deployment that is still being set up', () => {
-    for (const state of ['NOT_INSTALLED', 'INSTALLING'] satisfies DeploymentState[]) {
+    for (const state of [
+      'NOT_INSTALLED',
+      'WAITING_FOR_RELAY',
+      'INSTALLING',
+    ] satisfies DeploymentState[]) {
       const home = deriveHomeState({
         applications: [application()],
         deployments: [deployment({ state })],

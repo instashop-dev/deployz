@@ -1,7 +1,8 @@
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -11,15 +12,22 @@ import Fastify, {
 import { z } from 'zod';
 
 import {
+  FIX_INSTRUCTIONS_TIMEOUT_MS,
   createAiGateway,
+  generateFixInstructions,
   normalizeErrorText,
   type AiGateway,
+  type PassedCheck,
+  type ReadinessFinding,
+  type ReadinessState,
   type StructuredEvent,
 } from '@deployz/analysis';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
   REGION_LABELS,
+  RELAY_STALE_AFTER_MS,
   SUPPORTED_AWS_REGIONS,
+  bootstrapStackName,
   buildBootstrapQuickCreateUrl,
   failureCodeSchema,
   healthComponentsSchema,
@@ -34,6 +42,7 @@ import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
 import { resolveExplanation } from './ai-explanation.js';
+import { createFixtureAiGateway } from './ai-fixture.js';
 import {
   createAnalysisRunner,
   readVendorOverrides,
@@ -42,6 +51,7 @@ import {
   type ReadyCheck,
   type UnsupportedCheck,
 } from './analysis.js';
+import { buildFixInstructionsContext, readReadinessReport } from './fix-instructions.js';
 import {
   createCheckoutSession,
   createStripe,
@@ -118,6 +128,13 @@ import {
   toDomainView,
   type CustomDomainRow,
 } from './domains.js';
+import {
+  deriveDeploymentStatus,
+  mergeComponentState,
+  toCustomerDeploymentStatus,
+  toVendorDeploymentStatus,
+} from './deployment-status.js';
+import { advanceStepTimings } from './step-timings.js';
 import { deriveHealthStatus } from './relay-liveness.js';
 import {
   hashRelayToken,
@@ -177,6 +194,15 @@ const METERED_PRICE_DOLLARS = METERED_PRICE_CENTS / 100;
 // would raise a Postgres "invalid input syntax for type uuid" error and
 // surface as a 500, so non-uuid ids map to 404 instead.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Route-level rate limit for the three unauthenticated /api/install/:id
+// routes (registered with @fastify/rate-limit's `global: false` above, so
+// nothing else is capped by default). Keyed by IP (trustProxy makes that the
+// real client behind the Lightsail balancer); 300/min is an order of
+// magnitude over the install page's 5s poll cadence (12/min) — several tabs,
+// "Check now" clicks, and NAT'd offices all fit — while still bounding an
+// anonymous caller who has nothing but a guessable-length uuid to try.
+const PUBLIC_INSTALL_RATE_LIMIT = { max: 300, timeWindow: '1 minute' } as const;
 
 // The §35 contract fields the analyser auto-detects and the vendor can take
 // ownership of by editing them (see PATCH /api/applications/:id). `name` is
@@ -525,48 +551,11 @@ function maskAwsAccountId(awsAccountId: string | null): string | null {
     // renders a deployment reads the same value with no per-read derivation
     // that could disagree with what the sweep last persisted.
     const relayStatus = row.deployment.relayStatus;
-  // §24 per-component state. The relay's verification checks say what
-  // SHOULD exist (observedState.infraHealth.checks); its heartbeat says what
-  // is OBSERVED (observedState.components). Combining the two is what lets
-  // the dashboard say "Not provisioned" (required, verification found
-  // nothing) instead of "Not reporting" (no observation at all):
-  //   reported          → that state (HEALTHY/DEGRADED/UNHEALTHY/UNKNOWN)
-  //   check says absent → NOT_PROVISIONED
-  //   otherwise         → UNKNOWN when required, omitted when not
-  const observed = row.deployment.observedState as
-    | {
-        components?: Record<string, unknown>;
-        infraHealth?: { checks?: { name?: string; passed?: boolean }[] };
-      }
-    | null
-    | undefined;
-  const components: Record<string, string> = {};
-  for (const [key, value] of Object.entries(observed?.components ?? {})) {
-    if (typeof value === 'string') components[key] = value;
-  }
-  const infraChecks = observed?.infraHealth?.checks ?? [];
-  const componentRequirements: Record<string, boolean> = {
-    application: true,
-    loadBalancer: true,
-    database: row.databaseRequired ?? false,
-    storage: row.storageRequired ?? false,
-    redis: row.redisRequired ?? false,
-  };
-  const verifyCheckByComponent: Record<string, string> = {
-    application: 'compute',
-    loadBalancer: 'ingress',
-    database: 'database',
-    storage: 'storage',
-    redis: 'cache',
-  };
-  for (const [key, required] of Object.entries(componentRequirements)) {
-    if (components[key] !== undefined) continue;
-    if (!required) continue;
-    const check = infraChecks.find((candidate) => candidate.name === verifyCheckByComponent[key]);
-    components[key] = check?.passed === false ? 'NOT_PROVISIONED' : 'UNKNOWN';
-  }
-  const hasComponentState = Object.keys(components).length > 0;
-  const componentView = hasComponentState ? components : null;
+  // §24 per-component state, merged from the relay's heartbeat and
+  // verification checks — shared with the deployment-status stage
+  // derivation (apps/api/src/deployment-status.ts) so the two can never
+  // disagree about a component's merged state.
+  const componentView = mergeComponentState(row.deployment.observedState, row);
   // Relay enrollment material never crosses into a dashboard response: the
   // enrollment code re-opens enrollment and the token hash is a credential.
   const { enrollmentCode: _enrollmentCode, relayTokenHash: _relayTokenHash, ...deployment } = row.deployment;
@@ -588,74 +577,123 @@ function maskAwsAccountId(awsAccountId: string | null): string | null {
 }
 
 
-// §19 readiness derivation. The analyser (out of scope here) is expected to
-// persist its findings on `applications.detected_metadata` as:
-//   { checks: { ready: [{label}], needsAttention: [{title,detail,suggestedFix?}], unsupported: [{title,reason}] } }
-// Score is the ratio of satisfied checks (ready / total), never a hardcoded
-// constant. Older/partial rows (compatibilityStatus set, no detectedMetadata
-// checks yet) degrade gracefully into a single derived check bucket.
+// §19 semantic readiness derivation. Analyses persist the full semantic
+// report on `applications.detected_metadata.readiness` (analysis.ts) — this
+// puts it on the wire, adding the state derived from `analysisStatus`
+// (ANALYSIS_INCOMPLETE while pending/failed — never a fabricated result).
+// Rows analysed before the report existed degrade into equivalent findings
+// built from the legacy `checks` shape. No percentages, ever.
+
+/** The `GET /api/applications/:id/readiness` wire shape. */
+interface ReadinessResponse {
+  analysisStatus: string;
+  state: ReadinessState;
+  requiredCount: number;
+  recommendedCount: number;
+  /** One short explanation of the state. Null while analysis is incomplete. */
+  summary: string | null;
+  /** Why a FAILED analysis failed. Null in every other state. */
+  failureReason: string | null;
+  findings: ReadinessFinding[];
+  passed: PassedCheck[];
+  /** The commit the analysis ran against, when known. */
+  analyzedCommitSha: string | null;
+}
+
+/** Legacy-row bridge: rebuild findings from the pre-report `checks` shape. */
+function legacyReadiness(app: {
+  compatibilityStatus: string | null;
+  compatibilityReason: string | null;
+  detectedMetadata: Record<string, unknown> | null;
+}): Pick<ReadinessResponse, 'state' | 'requiredCount' | 'recommendedCount' | 'summary' | 'findings' | 'passed'> {
+  const rawChecks = app.detectedMetadata?.checks as
+    | { ready?: ReadyCheck[]; needsAttention?: AttentionCheck[]; unsupported?: UnsupportedCheck[] }
+    | undefined;
+
+  const toFinding = (
+    entry: { title: string; detail?: string; reason?: string; suggestedFix?: string | null },
+    blocking: boolean,
+    index: number,
+  ): ReadinessFinding => ({
+    id: `legacy-${blocking ? 'blocking' : 'required'}-${index}`,
+    category: 'legacy',
+    title: entry.title,
+    severity: 'required',
+    blocking,
+    plainEnglishExplanation: entry.detail ?? entry.reason ?? entry.title,
+    whyItMatters: '',
+    technicalEvidence: entry.detail ?? entry.reason ?? '',
+    suggestedOutcome: entry.suggestedFix ?? '',
+    confidence: 'confirmed',
+  });
+
+  const unsupported = (rawChecks?.unsupported ?? []).map((entry, i) => toFinding(entry, true, i));
+  const attention = (rawChecks?.needsAttention ?? []).map((entry, i) => toFinding(entry, false, i));
+  const findings = [...unsupported, ...attention];
+  // A COMPLETE row with no verdict at all is treated like NEEDS_ATTENTION
+  // (the old endpoint's fallback) — never READY by omission.
+  const state: ReadinessState =
+    app.compatibilityStatus === 'NOT_COMPATIBLE'
+      ? 'NEEDS_CHANGES'
+      : app.compatibilityStatus === 'READY'
+        ? 'READY'
+        : 'ALMOST_READY';
+
+  return {
+    state,
+    requiredCount: findings.length,
+    recommendedCount: 0,
+    summary: app.compatibilityReason,
+    findings,
+    passed: (rawChecks?.ready ?? []).map((entry, i) => ({ id: `legacy-passed-${i}`, label: entry.label })),
+  };
+}
+
 function computeReadiness(app: {
   analysisStatus: string;
   compatibilityStatus: string | null;
   compatibilityReason: string | null;
   detectedMetadata: Record<string, unknown> | null;
-}): {
-  analysisStatus: string;
-  verdict: string | null;
-  score: number | null;
-  changesRequired: number | null;
-  /** Why a FAILED analysis failed. Null in every other state. */
-  failureReason: string | null;
-  ready: ReadyCheck[];
-  needsAttention: AttentionCheck[];
-  unsupported: UnsupportedCheck[];
-} {
+}): ReadinessResponse {
   if (app.analysisStatus !== 'COMPLETE') {
     return {
       analysisStatus: app.analysisStatus,
-      verdict: null,
-      score: null,
-      changesRequired: null,
+      state: 'ANALYSIS_INCOMPLETE',
+      requiredCount: 0,
+      recommendedCount: 0,
+      summary: null,
       // A FAILED analysis used to look exactly like a still-running one on
       // the wire, so the page showed "Analysing your app" for ever and
       // Re-analyse appeared to do nothing. The reason is on the row either
       // way (analysis.ts persists it) — it just was never sent.
       failureReason: app.analysisStatus === 'FAILED' ? app.compatibilityReason : null,
-      ready: [],
-      needsAttention: [],
-      unsupported: [],
+      findings: [],
+      passed: [],
+      analyzedCommitSha: null,
     };
   }
 
-  const rawChecks = app.detectedMetadata?.checks as
-    | { ready?: ReadyCheck[]; needsAttention?: AttentionCheck[]; unsupported?: UnsupportedCheck[] }
-    | undefined;
-
-  const ready = rawChecks?.ready ?? [];
-  const needsAttention =
-    rawChecks?.needsAttention ??
-    (app.compatibilityStatus === 'NEEDS_ATTENTION' && app.compatibilityReason
-      ? [{ title: 'Attention required', detail: app.compatibilityReason, suggestedFix: null }]
-      : []);
-  const unsupported =
-    rawChecks?.unsupported ??
-    (app.compatibilityStatus === 'NOT_COMPATIBLE' && app.compatibilityReason
-      ? [{ title: 'Not compatible', reason: app.compatibilityReason }]
-      : []);
-
-  const total = ready.length + needsAttention.length + unsupported.length;
-  const score =
-    total > 0 ? Math.round((ready.length / total) * 100) : app.compatibilityStatus === 'READY' ? 100 : 0;
+  const analyzedCommitSha =
+    typeof app.detectedMetadata?.['analysisCommitSha'] === 'string'
+      ? (app.detectedMetadata['analysisCommitSha'] as string)
+      : null;
+  const report = readReadinessReport(app.detectedMetadata);
+  const body = report
+    ? {
+        state: report.state as ReadinessState,
+        requiredCount: report.requiredCount,
+        recommendedCount: report.recommendedCount,
+        summary: report.summary,
+        findings: report.findings,
+        passed: report.passed,
+      }
+    : legacyReadiness(app);
 
   return {
     analysisStatus: app.analysisStatus,
-    verdict: app.compatibilityStatus ?? 'NEEDS_ATTENTION',
-    score,
-    changesRequired: needsAttention.length,
+    ...body,
     failureReason: null,
-    ready,
-    needsAttention,
-    unsupported,
+    analyzedCommitSha,
   };
 }
 
@@ -672,6 +710,7 @@ const BULK_DEPLOYABLE_STATES = new Set<DeploymentRow['state']>(['HEALTHY', 'UPDA
 // in-flight UPDATING retry still reaches the idempotent job path.
 const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
   'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
   'DELETING',
   'DELETED',
 ]);
@@ -767,6 +806,77 @@ function resolveAppUrl(
 }
 
 /**
+ * Step-timings follow-up shared by both relay-authenticated write paths
+ * (POST /api/relay/health and the job-result handler below): re-derive the
+ * deployment's status from the values THEY just wrote (not the stale
+ * pre-transaction row — deriveDeploymentStatus is read-time, so a stale row
+ * would compute yesterday's step), advance the persisted `step_timings`
+ * against it, and record one `deployment.step_completed` event per step that
+ * newly finished.
+ *
+ * Best-effort by design, same idiom as reconcileRunningDigest's call site
+ * below: a relay heartbeat or job result must never fail because this
+ * observational side channel had a bad day. Callers wrap this in try/catch
+ * and log rather than propagate.
+ *
+ * `knownDomain` lets a caller that already looked up the active domain this
+ * request (the health handler does, further down, for its own DNS
+ * auto-check) hand it over instead of paying for a second identical query;
+ * omit it and this fetches its own.
+ */
+async function advanceStepTimingsAfterWrite(
+  db: RuntimeDb,
+  freshDeployment: DeploymentRow,
+  knownDomain?: CustomDomainRow | null,
+): Promise<void> {
+  const applicationRows = await db
+    .select({
+      databaseRequired: schema.applications.databaseRequired,
+      storageRequired: schema.applications.storageRequired,
+      redisRequired: schema.applications.redisRequired,
+    })
+    .from(schema.applications)
+    .where(eq(schema.applications.id, freshDeployment.applicationId))
+    .limit(1);
+  const application = applicationRows[0] ?? {};
+
+  const jobs = await db
+    .select()
+    .from(schema.deploymentJobs)
+    .where(eq(schema.deploymentJobs.deploymentId, freshDeployment.id))
+    .orderBy(schema.deploymentJobs.createdAt);
+  const domain = knownDomain !== undefined ? knownDomain : await findActiveDomain(db, freshDeployment.id);
+  const appUrl = resolveAppUrl(jobs, domain);
+
+  const derived = deriveDeploymentStatus({ deployment: freshDeployment, application, jobs, domain, appUrl });
+  const { next, changed, completedSteps } = advanceStepTimings(freshDeployment.stepTimings, derived, new Date());
+  if (!changed) return;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.deployments)
+      .set({ stepTimings: next })
+      .where(eq(schema.deployments.id, freshDeployment.id));
+    for (const completed of completedSteps) {
+      await recordEvent(tx, {
+        organizationId: freshDeployment.organizationId,
+        eventType: 'deployment.step_completed',
+        actorType: 'relay',
+        actorId: freshDeployment.installationId ?? freshDeployment.id,
+        deploymentId: freshDeployment.id,
+        customerId: freshDeployment.customerId,
+        payload: {
+          step: completed.step,
+          startedAt: completed.startedAt,
+          completedAt: completed.completedAt,
+          durationSeconds: completed.durationSeconds,
+        },
+      });
+    }
+  });
+}
+
+/**
  * §46 deployment state a finished job leaves behind. The relay reporting a
  * command result is what actually moves a deployment through its lifecycle —
  * without this the fleet is stuck in INSTALLING forever, which silently
@@ -817,7 +927,7 @@ export async function buildServer({
   githubFetch: injectedGithubFetch,
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
-  aiGateway = createAiGateway(env.aiGateway),
+  aiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.aiGateway),
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
   loggerInstance,
 }: ServerDeps): Promise<FastifyInstance> {
@@ -826,8 +936,16 @@ export async function buildServer({
   // production failures in a row could only be diagnosed by reading
   // configuration and guessing. `warn` keeps the per-request info lines off
   // while letting the error handler below say what actually broke.
+  // trustProxy: production runs behind the Lightsail container service's
+  // load balancer, so request.ip is the balancer unless X-Forwarded-For is
+  // honored — and the per-IP rate limit on the public install routes would
+  // otherwise pool every customer into the balancer's single bucket. The
+  // container is only reachable through that balancer, so the header is
+  // trustworthy here.
   const app = Fastify(
-    loggerInstance ? { loggerInstance } : { logger: { level: 'warn' } },
+    loggerInstance
+      ? { loggerInstance, trustProxy: true }
+      : { logger: { level: 'warn' }, trustProxy: true },
   );
 
   // Sentry owns capture via the onError hook this registers. Capture filter:
@@ -863,6 +981,15 @@ export async function buildServer({
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
+
+  // §12/§44 the three public install-link routes take no auth at all, so
+  // they are the one surface an anonymous caller could hammer. `global:
+  // false` means registering this plugin does nothing by itself — every
+  // other route (authenticated or relay-token-authenticated) stays
+  // unaffected; only the routes below that opt in with `config.rateLimit`
+  // are capped. 120/min per IP is generous headroom over the install page's
+  // own 5s status-poll cadence (12/min) while still bounding abuse.
+  await app.register(rateLimit, { global: false });
 
   app.get('/health', () => ({ ok: true }));
 
@@ -1204,7 +1331,10 @@ export async function buildServer({
   // history, so it must not double as the identifier that authenticates a
   // relay. The enrollment code it returns is single-use and is what the
   // customer's bootstrap stack carries.
-  app.get('/api/install/:installLinkId', async (request) => {
+  app.get(
+    '/api/install/:installLinkId',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
     const { installLinkId } = request.params as { installLinkId: string };
     requireUuidId(installLinkId);
     const rows = await db
@@ -1220,6 +1350,10 @@ export async function buildServer({
         enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
         deploymentId: schema.deployments.id,
         deploymentState: schema.deployments.state,
+        attemptNumber: schema.deployments.attemptNumber,
+        bootstrapStackName: schema.deployments.bootstrapStackName,
+        installStartedAt: schema.deployments.installStartedAt,
+        observedState: schema.deployments.observedState,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
@@ -1240,6 +1374,26 @@ export async function buildServer({
     if (row.storageRequired) resourcesCreated.push('Storage');
     if (row.redisRequired) resourcesCreated.push('Redis cache');
     resourcesCreated.push('Networking', 'Monitoring');
+    // The expected bootstrap stack name: the persisted one once an attempt
+    // has launched (a record of what the customer was told), otherwise the
+    // name the link below will prefill. Derived from deployment identity so
+    // two deployments into the same AWS account/region never collide.
+    const stackName =
+      row.bootstrapStackName ??
+      bootstrapStackName({
+        appName: row.applicationName,
+        deploymentId: row.deploymentId,
+        attempt: row.attemptNumber,
+      });
+    const waitingForRelay = row.deploymentState === 'WAITING_FOR_RELAY';
+    // The relay enrolling is the only way out of WAITING_FOR_RELAY. Past one
+    // relay-staleness window with no enrollment the page shows guidance
+    // instead of a failure — the bootstrap stack may still be creating, or
+    // may have failed before the connector ever started.
+    const relayStuck =
+      waitingForRelay &&
+      row.installStartedAt !== null &&
+      Date.now() - row.installStartedAt.getTime() > RELAY_STALE_AFTER_MS;
     // The install link already identifies exactly this deployment, so its
     // own id/state/domain are within the scope the link already grants —
     // this is not a tenant-boundary crossing, just more detail about the
@@ -1255,6 +1409,14 @@ export async function buildServer({
       deploymentState: row.deploymentState,
       domain: domain ? toDomainView(domain) : null,
       routingTarget: domain?.routingTarget ?? null,
+      // Same §24 derivation the fleet row uses — one progress model for the
+      // install page and the dashboard, so the two cannot disagree. Only
+      // offered once a relay enrolled; before that there is nothing to
+      // observe.
+      components: alreadyInstalled ? mergeComponentState(row.observedState, row) : null,
+      bootstrapStackName: stackName,
+      waitingForRelay,
+      relayStuck,
       // The Quick Create link is built HERE, not in the web app: only the
       // control plane knows which template is currently published, which
       // region this customer's deployment targets, and this deployment's
@@ -1287,13 +1449,207 @@ export async function buildServer({
                     templateUrl,
                     controlPlaneUrl: env.apiUrl,
                     enrollmentCode: row.enrollmentCode,
+                    stackName,
                   })
                 : null;
             })()
           : null,
       alreadyInstalled,
     };
-  });
+    },
+  );
+
+  // §12/§44 the unified deployment-status derivation (apps/api/src/
+  // deployment-status.ts), scoped exactly like the route above: the
+  // install-link id, not the relay's own installation id. UNAUTHENTICATED by
+  // design, so this returns ONLY the customer projection — never relay
+  // identity, job payloads, or raw AWS/stack detail (see
+  // customerDeploymentStatusSchema in @deployz/contracts).
+  app.get(
+    '/api/install/:installLinkId/status',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { installLinkId } = request.params as { installLinkId: string };
+      requireUuidId(installLinkId);
+      const rows = await db
+        .select({
+          deployment: schema.deployments,
+          databaseRequired: schema.applications.databaseRequired,
+          storageRequired: schema.applications.storageRequired,
+          redisRequired: schema.applications.redisRequired,
+        })
+        .from(schema.deployments)
+        .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+        .where(eq(schema.deployments.installLinkId, installLinkId))
+        .limit(1);
+      if (rows.length === 0) {
+        throw new NotFoundError('Installation not found');
+      }
+      const row = rows[0]!;
+      const jobs = await db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(eq(schema.deploymentJobs.deploymentId, row.deployment.id))
+        .orderBy(schema.deploymentJobs.createdAt);
+      const domain = await findActiveDomain(db, row.deployment.id);
+      const appUrl = resolveAppUrl(jobs, domain);
+      const derived = deriveDeploymentStatus({
+        deployment: row.deployment,
+        application: row,
+        jobs,
+        domain,
+        appUrl,
+      });
+      return toCustomerDeploymentStatus(derived);
+    },
+  );
+
+  // Pre-relay launch signal: the install page reports the customer pressing
+  // "Deploy to AWS" so the deployment can show an explicit waiting state
+  // (and, if no relay ever enrolls, guidance instead of a false failure).
+  // Public for the same reason GET above is: keyed on the install link,
+  // which is the only credential the customer holds. Idempotent — reopening
+  // the CloudFormation console page is not a new attempt.
+  app.post(
+    '/api/install/:installLinkId/launched',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request, reply) => {
+    const { installLinkId } = request.params as { installLinkId: string };
+    requireUuidId(installLinkId);
+    const rows = await db
+      .select({ deployment: schema.deployments, applicationName: schema.applications.name })
+      .from(schema.deployments)
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .where(eq(schema.deployments.installLinkId, installLinkId))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Installation not found');
+    }
+    const { deployment, applicationName } = rows[0]!;
+    if (deployment.state !== 'NOT_INSTALLED') {
+      return reply.code(200).send({ state: deployment.state });
+    }
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deployments)
+        .set({
+          state: 'WAITING_FOR_RELAY',
+          installStartedAt: new Date(),
+          bootstrapStackName: bootstrapStackName({
+            appName: applicationName,
+            deploymentId: deployment.id,
+            attempt: deployment.attemptNumber,
+          }),
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'install.launched',
+        actorType: 'system',
+        actorId: `install-link:${deployment.installLinkId}`,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        previousState: deployment.state,
+        requestedState: 'WAITING_FOR_RELAY',
+      });
+    });
+    return { state: 'WAITING_FOR_RELAY' };
+    },
+  );
+
+  // Customer-facing retry for an install that never connected. Fresh
+  // attempt: new enrollment code, bumped attempt number (so the Quick
+  // Create link prefill moves to a stack name no ROLLBACK_COMPLETE
+  // remnant of the failed attempt can block), spent in-flight INSTALL
+  // jobs cancelled. The failed attempt's stack is NOT deleted here —
+  // cleanup stays on the separate purge path. Guarded like retry-install:
+  // a deployment that was ever healthy must not be reset from the public
+  // page.
+  app.post(
+    '/api/install/:installLinkId/retry',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request, reply) => {
+    const { installLinkId } = request.params as { installLinkId: string };
+    requireUuidId(installLinkId);
+    const rows = await db
+      .select({ deployment: schema.deployments, applicationName: schema.applications.name })
+      .from(schema.deployments)
+      .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .where(eq(schema.deployments.installLinkId, installLinkId))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundError('Installation not found');
+    }
+    const { deployment, applicationName } = rows[0]!;
+    if (await hasSucceededInstall(db, deployment.id)) {
+      throw new ApiError(
+        409,
+        'INSTALL_ALREADY_SUCCEEDED',
+        'This deployment installed successfully before; contact the vendor to make changes.',
+      );
+    }
+    const nextAttempt = deployment.attemptNumber + 1;
+    const stackName = bootstrapStackName({
+      appName: applicationName,
+      deploymentId: deployment.id,
+      attempt: nextAttempt,
+    });
+    const enrollmentCode = mintEnrollmentCode();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.deploymentJobs)
+        .set({ state: 'CANCELLED', finishedAt: new Date() })
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            eq(schema.deploymentJobs.type, 'INSTALL'),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'RUNNING', 'WAITING']),
+          ),
+        );
+      await tx
+        .update(schema.deployments)
+        .set({
+          state: 'NOT_INSTALLED',
+          enrollmentCode,
+          enrollmentUsedAt: null,
+          installationId: null,
+          relayTokenHash: null,
+          relayBoundAt: null,
+          relayStatus: 'UNKNOWN',
+          attemptNumber: nextAttempt,
+          bootstrapStackName: stackName,
+          installStartedAt: null,
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'install.retry.requested',
+        actorType: 'system',
+        actorId: `install-link:${deployment.installLinkId}`,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        previousState: deployment.state,
+        requestedState: 'NOT_INSTALLED',
+        payload: { attempt: nextAttempt, bootstrapStackName: stackName },
+      });
+    });
+    return reply.code(200).send({
+      state: 'NOT_INSTALLED',
+      attemptNumber: nextAttempt,
+      bootstrapStackName: stackName,
+      quickCreateUrl:
+        env.bootstrapTemplateUrl
+          ? buildBootstrapQuickCreateUrl({
+              region: deployment.region,
+              templateUrl: env.bootstrapTemplateUrl,
+              controlPlaneUrl: env.apiUrl,
+              enrollmentCode,
+              stackName,
+            })
+          : null,
+    });
+    },
+  );
 
   // §31 application configuration surface (auth-gated). Vendor defaults are
   // customer_id NULL rows; customer overrides are scoped by ?customerId.
@@ -1720,6 +2076,57 @@ export async function buildServer({
     return computeReadiness(app);
   });
 
+  // POST /api/applications/:id/fix-instructions — Generate the consolidated
+  // coding-agent prompt for the unresolved readiness findings. Read-only with
+  // respect to the analysis: generation never changes findings, readiness
+  // state, or the repository. Any AI failure maps to a retryable 503 — the
+  // analysis stays fully usable without it.
+  app.post(
+    '/api/applications/:id/fix-instructions',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const application = await loadOwnedApplication(db, id, organizationId);
+
+      if (application.analysisStatus !== 'COMPLETE') {
+        throw new ApiError(
+          409,
+          'ANALYSIS_NOT_COMPLETE',
+          'Run the analysis before generating fix instructions.',
+        );
+      }
+      const context = buildFixInstructionsContext(application);
+      if (!context) {
+        throw new ApiError(
+          409,
+          'NO_UNRESOLVED_FINDINGS',
+          'There are no unresolved findings to generate instructions for.',
+        );
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FIX_INSTRUCTIONS_TIMEOUT_MS);
+      try {
+        const instructions = await generateFixInstructions(context, aiGateway, {
+          abortSignal: controller.signal,
+        });
+        return { instructions, generatedAt: new Date().toISOString() };
+      } catch (error) {
+        // Every AI failure (unconfigured gateway, timeout, malformed output,
+        // spend limit) is the same retryable condition to the vendor.
+        request.log.warn({ err: error }, 'fix-instructions generation failed');
+        throw new ApiError(
+          503,
+          'FIX_INSTRUCTIONS_UNAVAILABLE',
+          "We couldn't generate the instructions right now. Try again in a moment.",
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
+
   // ── Customers (§37) ─────────────────────────────────────────────────────
 
   // POST /api/customers — Create customer
@@ -1855,7 +2262,50 @@ export async function buildServer({
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
       .leftJoin(schema.releases, eq(schema.deployments.currentReleaseId, schema.releases.id))
       .where(and(...conditions));
-    return { deployments: rows.map(toFleetRow) };
+
+    // Batched so the list stays one round trip per table regardless of fleet
+    // size: N per-row queries here previously would have meant N+1 queries
+    // (jobs) and another N+1 (domains) on top of the row query above.
+    const ids = rows.map((row) => row.deployment.id);
+    const jobRows =
+      ids.length > 0
+        ? await db
+            .select()
+            .from(schema.deploymentJobs)
+            .where(inArray(schema.deploymentJobs.deploymentId, ids))
+            .orderBy(schema.deploymentJobs.createdAt)
+        : [];
+    const jobsByDeployment = new Map<string, DeploymentJobRow[]>();
+    for (const job of jobRows) {
+      const list = jobsByDeployment.get(job.deploymentId);
+      if (list) {
+        list.push(job);
+      } else {
+        jobsByDeployment.set(job.deploymentId, [job]);
+      }
+    }
+    // The partial unique index on (deployment_id) WHERE removed_at IS NULL
+    // guarantees at most one row per deployment here, so no per-deployment
+    // "latest" reduction is needed the way findActiveDomain does for a
+    // single deployment.
+    const domainRows =
+      ids.length > 0
+        ? await db
+            .select()
+            .from(schema.customDomains)
+            .where(and(inArray(schema.customDomains.deploymentId, ids), isNull(schema.customDomains.removedAt)))
+        : [];
+    const domainByDeployment = new Map(domainRows.map((domain) => [domain.deploymentId, domain]));
+
+    return {
+      deployments: rows.map((row) => {
+        const jobs = jobsByDeployment.get(row.deployment.id) ?? [];
+        const domain = domainByDeployment.get(row.deployment.id) ?? null;
+        const appUrl = resolveAppUrl(jobs, domain);
+        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: row, jobs, domain, appUrl });
+        return { ...toFleetRow(row), deploymentStatus: toVendorDeploymentStatus(derived) };
+      }),
+    };
   });
 
   // GET /api/deployments/:id — Deployment detail (§24)
@@ -1893,7 +2343,20 @@ export async function buildServer({
     const domain = await findActiveDomain(db, rows[0]!.deployment.id);
     const customDomain = domain ? { hostname: domain.hostname, status: domain.status.toLowerCase() } : null;
     const appUrl = resolveAppUrl(jobs, domain);
-    return { ...toFleetRow(rows[0]!), jobs, customDomain, appUrl };
+    const derived = deriveDeploymentStatus({
+      deployment: rows[0]!.deployment,
+      application: rows[0]!,
+      jobs,
+      domain,
+      appUrl,
+    });
+    return {
+      ...toFleetRow(rows[0]!),
+      jobs,
+      customDomain,
+      appUrl,
+      deploymentStatus: toVendorDeploymentStatus(derived),
+    };
   });
 
   // ── Releases (§22) ──────────────────────────────────────────────────────
@@ -2242,7 +2705,7 @@ export async function buildServer({
     // account to remove and no relay to ask. Queuing a DESTROY job here left
     // the deployment sitting at "Not installed" forever while the vendor
     // watched a confirmation dialog close and nothing happen.
-    if (deployment.state === 'NOT_INSTALLED') {
+    if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') {
       await db.transaction(async (tx) => {
         await tx
           .update(schema.deployments)
@@ -2474,13 +2937,46 @@ export async function buildServer({
   // rejected enrollment. Without it a 409 from /api/relay/register would be
   // unrecoverable: the binding is single-use by design, so something has to
   // be able to clear it, and that something is a deliberate vendor action.
+  //
+  // A reset is also a fresh install attempt when nothing was ever installed:
+  // the attempt number bumps (so the next Quick Create link prefills a
+  // stack name no ROLLBACK_COMPLETE remnant can block), leftover in-flight
+  // INSTALL jobs from the dead attempt are cancelled (they would otherwise
+  // be failed by the watchdog and drag the reset deployment back to
+  // FAILED), and the deployment returns to NOT_INSTALLED so the dashboard
+  // offers the install link again. A deployment that was ever healthy keeps
+  // its state — its reset only rotates the credential.
   app.post('/api/deployments/:id/relay/reset', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const enrollmentCode = mintEnrollmentCode();
+    const [application] = await db
+      .select({ name: schema.applications.name })
+      .from(schema.applications)
+      .where(eq(schema.applications.id, deployment.applicationId))
+      .limit(1);
+    const neverInstalled = !(await hasSucceededInstall(db, deployment.id));
+    const nextAttempt = deployment.attemptNumber + 1;
+    const stackName = bootstrapStackName({
+      appName: application?.name ?? '',
+      deploymentId: deployment.id,
+      attempt: nextAttempt,
+    });
 
     await db.transaction(async (tx) => {
+      if (neverInstalled) {
+        await tx
+          .update(schema.deploymentJobs)
+          .set({ state: 'CANCELLED', finishedAt: new Date() })
+          .where(
+            and(
+              eq(schema.deploymentJobs.deploymentId, deployment.id),
+              eq(schema.deploymentJobs.type, 'INSTALL'),
+              inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'RUNNING', 'WAITING']),
+            ),
+          );
+      }
       await tx
         .update(schema.deployments)
         .set({
@@ -2490,7 +2986,11 @@ export async function buildServer({
           relayTokenHash: null,
           relayBoundAt: null,
           relayStatus: 'UNKNOWN',
+          attemptNumber: nextAttempt,
+          bootstrapStackName: neverInstalled ? stackName : deployment.bootstrapStackName,
+          installStartedAt: null,
           updatedBy: request.user?.id ?? null,
+          ...(neverInstalled ? { state: 'NOT_INSTALLED' as const } : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
       await recordEvent(tx, {
@@ -2501,6 +3001,8 @@ export async function buildServer({
         deploymentId: deployment.id,
         customerId: deployment.customerId,
         previousState: deployment.state,
+        requestedState: neverInstalled ? 'NOT_INSTALLED' : deployment.state,
+        payload: { attempt: nextAttempt, bootstrapStackName: neverInstalled ? stackName : null },
       });
     });
 
@@ -2578,6 +3080,19 @@ export async function buildServer({
         409,
         'RELAY_NOT_CONNECTED',
         'No relay is connected to this deployment. Reconnect it before retrying the install.',
+      );
+    }
+
+    // A bound-but-disconnected relay never picks the retry job up, and the
+    // watchdog would fail it an hour later — re-failing the deployment the
+    // vendor just tried to save. The fix for a dead relay is re-enrollment
+    // (relay/reset: fresh code + attempt + stack name), not another install
+    // job; refuse so the UI points there instead.
+    if (deployment.relayStatus === 'DISCONNECTED') {
+      throw new ApiError(
+        409,
+        'RELAY_DISCONNECTED',
+        'The relay for this deployment is disconnected. Reconnect it before retrying the install.',
       );
     }
 
@@ -2676,22 +3191,27 @@ export async function buildServer({
   });
 
   // Customer-facing "Check now" — link-scoped like GET /api/install/:installLinkId.
-  // Read-only trigger; runDomainCheck's own interval floor is the rate limit.
-  app.post('/api/install/:installLinkId/domain/check', async (request) => {
-    const { installLinkId } = request.params as { installLinkId: string };
-    requireUuidId(installLinkId);
-    const rows = await db
-      .select()
-      .from(schema.deployments)
-      .where(eq(schema.deployments.installLinkId, installLinkId))
-      .limit(1);
-    const deployment = rows[0];
-    if (!deployment) throw new NotFoundError('Installation not found');
-    const domain = await findActiveDomain(db, deployment.id);
-    if (!domain) throw new NotFoundError('Custom domain not found');
-    const fresh = await runDomainCheck(db, deployment, domain, domainCheckDeps);
-    return { domain: toDomainView(fresh) };
-  });
+  // Read-only trigger; runDomainCheck's own interval floor plus the IP-keyed
+  // rate limit above are the two guards against hammering it.
+  app.post(
+    '/api/install/:installLinkId/domain/check',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { installLinkId } = request.params as { installLinkId: string };
+      requireUuidId(installLinkId);
+      const rows = await db
+        .select()
+        .from(schema.deployments)
+        .where(eq(schema.deployments.installLinkId, installLinkId))
+        .limit(1);
+      const deployment = rows[0];
+      if (!deployment) throw new NotFoundError('Installation not found');
+      const domain = await findActiveDomain(db, deployment.id);
+      if (!domain) throw new NotFoundError('Custom domain not found');
+      const fresh = await runDomainCheck(db, deployment, domain, domainCheckDeps);
+      return { domain: toDomainView(fresh) };
+    },
+  );
 
   // ── Events & diagnostics (§24, §29, §40) ────────────────────────────────
 
@@ -3152,12 +3672,16 @@ export async function buildServer({
     }
 
     // §6/§39: an INSTALL job must be reachable through the API so a fresh
-    // deployment can ever progress past NOT_INSTALLED. We create it here
-    // (first relay registration) rather than at deployment-creation time —
-    // the deployment row can legitimately exist before any relay has called
-    // home, and this is the first point where we know the relay is alive.
+    // deployment can ever progress past the pre-install states. We create it
+    // here (first relay registration) rather than at deployment-creation
+    // time — the deployment row can legitimately exist before any relay has
+    // called home, and this is the first point where we know the relay is
+    // alive. WAITING_FOR_RELAY is the same first-install case with the
+    // launch signal already recorded.
+    const firstInstall =
+      deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY';
     const installJob =
-      deployment.state === 'NOT_INSTALLED'
+      firstInstall
         ? (
             await createOrReuseJob(db, {
               deploymentId: deployment.id,
@@ -3187,7 +3711,9 @@ export async function buildServer({
           ...(typeof body.relayVersion === 'string' ? { relayVersion: body.relayVersion } : {}),
           ...(typeof body.bootstrapVersion === 'string' ? { bootstrapVersion: body.bootstrapVersion } : {}),
           ...(capabilitiesParsed.success ? { relayCapabilities: capabilitiesParsed.data } : {}),
-          ...(deployment.state === 'NOT_INSTALLED' ? { state: 'INSTALLING' as const } : {}),
+          ...(deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY'
+            ? { state: 'INSTALLING' as const }
+            : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
 
@@ -3394,6 +3920,19 @@ export async function buildServer({
       }
     });
 
+    // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
+    // derived from the values THIS request just wrote, not the stale
+    // pre-transaction `deployment`.
+    try {
+      await advanceStepTimingsAfterWrite(db, {
+        ...deployment,
+        ...(nextState ? { state: nextState } : {}),
+        ...(releaseId ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId } : {}),
+      });
+    } catch (error) {
+      request.log.warn({ err: error }, 'step-timings advance failed');
+    }
+
     return reply.code(200).send({ received: true });
   });
 
@@ -3570,6 +4109,27 @@ export async function buildServer({
       } catch {
         // swallowed — heartbeat must succeed regardless
       }
+    }
+
+    // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
+    // derived from the values THIS heartbeat just wrote, not the stale
+    // pre-transaction `deployment`. Reuses `activeDomain` above instead of
+    // looking it up again.
+    try {
+      await advanceStepTimingsAfterWrite(
+        db,
+        {
+          ...deployment,
+          observedState: observedState as Record<string, unknown> | null,
+          relayStatus: 'CONNECTED',
+          lastHealthAt: new Date(),
+          ...(stateRecovered ? { state: 'HEALTHY' as const } : {}),
+          ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
+        },
+        activeDomain,
+      );
+    } catch (error) {
+      request.log.warn({ err: error }, 'step-timings advance failed');
     }
 
     return reply.code(200).send({ received: true });

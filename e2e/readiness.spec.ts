@@ -63,8 +63,8 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
   // The fixture repo (deployz-demo/express-api) analyses as fully READY —
   // analysis completes near-instantly in fixture mode, so the page renders
   // the real verdict, not the pending state.
-  await expect(page.getByText('Your app is ready to deploy.')).toBeVisible();
-  await expect(page.getByText('100% — 0 changes required')).toBeVisible();
+  await expect(page.getByText('Ready to deploy')).toBeVisible();
+  await expect(page.getByTestId('readiness-summary')).toHaveText('All checks passed');
   await expect(page.getByText('Analysing your app')).toHaveCount(0);
 });
 

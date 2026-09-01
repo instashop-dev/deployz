@@ -31,9 +31,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import type { VendorDeploymentStatus } from '@deployz/contracts';
+
 import { fetchDeployments, type FleetDeployment } from '@/lib/deployments';
 import { DEPLOYMENT_STATES, deploymentStateLabel } from '@/lib/deployment-vocabulary';
+import { STAGE_LABEL, STEP_LABEL } from '@/lib/deployment-progress';
+import { relativeTime } from '@/lib/diagnostics';
 import { attentionReason } from '@/lib/home-state';
+import { useStatusPoll } from '@/lib/use-status-poll';
 
 type LoadState =
   | { status: 'loading' }
@@ -57,6 +62,25 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
 function matchesStatus(deployment: FleetDeployment, filter: StatusFilter): boolean {
   if (filter === 'attention') return attentionReason(deployment) !== null;
   return deployment.state === filter;
+}
+
+/** True once a deployment's derived stage can no longer advance on its own —
+ *  the list slows its poll cadence the same way the detail page does. */
+function isSettled(status: VendorDeploymentStatus): boolean {
+  return status.stage === 'READY' || status.stage === 'FAILED';
+}
+
+/** The compact detail shown next to the stage on the fleet list: the
+ *  server-derived step during PROVISIONING (more specific than the
+ *  stage-level activity sentence), falling back to the component actively
+ *  being created, then to the server's own currentActivity sentence. */
+function progressDetail(status: VendorDeploymentStatus): string {
+  // The step lookup tolerates an older API without `step` (a mixed-version
+  // rollout window) by falling through to the activity sentence.
+  if (status.stage === 'PROVISIONING' && status.step && STEP_LABEL[status.step]) {
+    return STEP_LABEL[status.step].pending;
+  }
+  return status.currentActivity;
 }
 
 // The fleet dashboard — the vendor's primary recurring-value view. Customer /
@@ -100,6 +124,26 @@ export default function DeploymentsPage() {
       cancelled = true;
     };
   }, [attempt]);
+
+  // Background refresh of the fleet's derived status, once the initial load
+  // has already produced a list to update — the loading/error skeleton above
+  // never re-triggers from this. Filters/search stay untouched: they are
+  // client-side and URL-persisted, derived fresh from the updated rows below.
+  const poll = useStatusPoll({
+    fetcher: fetchDeployments,
+    intervalMs: 12_000,
+    terminalIntervalMs: 60_000,
+    isTerminal: (list) =>
+      list.length === 0 || list.every((deployment) => isSettled(deployment.deploymentStatus)),
+    enabled: state.status === 'loaded' || state.status === 'empty',
+  });
+
+  useEffect(() => {
+    if (poll.data === null) return;
+    setState(
+      poll.data.length === 0 ? { status: 'empty' } : { status: 'loaded', deployments: poll.data },
+    );
+  }, [poll.data]);
 
   function setFilter(key: string, value: string): void {
     const params = new URLSearchParams(searchParams.toString());
@@ -334,6 +378,17 @@ function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
                 <TableCell className="text-muted-foreground">{deployment.region}</TableCell>
                 <TableCell>
                   <DeploymentStatusBadge state={deployment.state} />
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {STAGE_LABEL[deployment.deploymentStatus.stage]} ·{' '}
+                    {progressDetail(deployment.deploymentStatus)}
+                  </p>
+                  {relativeTime(deployment.deploymentStatus.updatedAt) ? (
+                    // data-testid: masked in visual regression — relative
+                    // time drifts with the clock.
+                    <p className="text-xs text-muted-foreground" data-testid="status-updated">
+                      Updated {relativeTime(deployment.deploymentStatus.updatedAt)}
+                    </p>
+                  ) : null}
                   {/* Relay connectivity is observed (last check-in), never
                       inferred from the lifecycle state above. */}
                   {deployment.relayStatus === 'DISCONNECTED' ? (

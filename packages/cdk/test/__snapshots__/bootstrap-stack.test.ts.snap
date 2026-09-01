@@ -3,10 +3,7 @@
 exports[`BootstrapStack > matches the committed snapshot 1`] = `
 {
   "Outputs": {
-    "ExportBootstrapTestApplicationExecutionRoleArn": {
-      "Export": {
-        "Name": "BootstrapTest-ApplicationExecutionRoleArn",
-      },
+    "ApplicationExecutionRoleArn": {
       "Value": {
         "Fn::GetAtt": [
           "ApplicationExecutionRoleB4697B7D",
@@ -14,18 +11,12 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
         ],
       },
     },
-    "ExportBootstrapTestCredentialSecretArn": {
-      "Export": {
-        "Name": "BootstrapTest-CredentialSecretArn",
-      },
+    "CredentialSecretArn": {
       "Value": {
         "Ref": "RelayCredential6AA8BC18",
       },
     },
-    "ExportBootstrapTestInstallationId": {
-      "Export": {
-        "Name": "BootstrapTest-InstallationId",
-      },
+    "InstallationId": {
       "Value": {
         "Fn::GetAtt": [
           "InstallationId",
@@ -33,18 +24,12 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
         ],
       },
     },
-    "ExportBootstrapTestProvisionerPolicyArn": {
-      "Export": {
-        "Name": "BootstrapTest-ProvisionerPolicyArn",
-      },
+    "ProvisionerPolicyArn": {
       "Value": {
         "Ref": "ProvisionerPolicyCCE83F9D",
       },
     },
-    "ExportBootstrapTestRelayFunctionArn": {
-      "Export": {
-        "Name": "BootstrapTest-RelayFunctionArn",
-      },
+    "RelayFunctionArn": {
       "Value": {
         "Fn::GetAtt": [
           "RelayFunctionD137DF95",
@@ -1382,6 +1367,9 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             "DEPLOYZ_APPLICATION_TEMPLATE_URL": {
               "Ref": "ApplicationTemplateUrl",
+            },
+            "DEPLOYZ_BOOTSTRAP_STACK_NAME": {
+              "Ref": "AWS::StackName",
             },
             "DEPLOYZ_CONTROL_PLANE_URL": {
               "Ref": "ControlPlaneUrl",

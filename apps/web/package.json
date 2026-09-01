@@ -9,6 +9,7 @@
     "dev": "next dev"
   },
   "dependencies": {
+    "@deployz/contracts": "workspace:*",
     "@deployz/copy-map": "workspace:*",
     "@tailwindcss/postcss": "^4.3.3",
     "better-auth": "^1.6.30",
