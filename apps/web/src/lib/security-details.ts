@@ -67,6 +67,7 @@ export const PHASE_2_MANAGE_STACK_ACTIONS = [
   'cloudformation:DescribeStacks',
   'cloudformation:DescribeStackEvents',
   'cloudformation:DescribeStackResources',
+  'cloudformation:ListStackResources',
 ] as const;
 
 /** Phase 2 — reconcile the application's own resources (requires the resource tag). */

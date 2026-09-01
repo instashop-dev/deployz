@@ -54,6 +54,7 @@ import {
   destroyDeployment,
   fetchDeployment,
   fetchDeploymentEvents,
+  fetchDeploymentInfrastructure,
   forceCompleteDisconnect,
   isDeploymentNotFound,
   purgeDeployment,
@@ -63,11 +64,10 @@ import {
   rollbackDeployment,
   type ActivityEvent,
   type FleetDeploymentDetail,
+  type InfrastructureResponse,
   type RelayCapabilities,
 } from '@/lib/deployments';
 import {
-  COMPONENT_STATE_DOT,
-  COMPONENT_STATE_LABEL,
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
   NOT_YET_RUNNING_ACTION_COPY,
@@ -79,23 +79,17 @@ import {
   relayWaitingStuck,
   showHealthBadge,
   showInfrastructureRows,
-  type ComponentState,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
 import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
-import {
-  REDIS_STATUS_LABEL,
-  readInfraChecks,
-  redisProvisioningStatus,
-  relativeTime,
-  type RedisProvisioningStatus,
-} from '@/lib/diagnostics';
+import { relativeTime } from '@/lib/diagnostics';
 import {
   NO_DEPLOYABLE_RELEASES_COPY,
   deployableReleases,
   fetchReleases,
   type Release,
 } from '@/lib/releases';
+import { InfrastructureSection } from '@/components/infrastructure-section';
 import { isTerminalStage } from '@/lib/deployment-progress';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
@@ -109,26 +103,10 @@ type DetailState =
       releases: Release[];
     };
 
-/** The components a relay can report, in the order they are shown. */
-const COMPONENT_LABELS = [
-  ['application', 'Application'],
-  ['database', 'Database'],
-  ['redis', 'Redis'],
-  ['storage', 'Storage'],
-  ['loadBalancer', 'Load Balancer'],
-] as const;
-
 const RELAY_DOT: Record<RelayStatus, string> = {
   CONNECTED: 'bg-primary',
   DISCONNECTED: 'bg-destructive',
   UNKNOWN: 'bg-muted-foreground',
-};
-
-const REDIS_DOT: Record<RedisProvisioningStatus, string> = {
-  HEALTHY: 'bg-primary',
-  UNHEALTHY: 'bg-destructive',
-  NOT_PROVISIONED: 'bg-muted-foreground',
-  NOT_REPORTING: 'bg-muted-foreground',
 };
 
 const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to.';
@@ -143,6 +121,7 @@ export default function DeploymentDetailPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const [state, setState] = useState<DetailState>({ status: 'loading' });
+  const [infrastructure, setInfrastructure] = useState<InfrastructureResponse | null>(null);
   // Signature of the last (stage, state) pair the poll observed — refetching
   // the activity feed on every 5s tick would hammer it for nothing, so it
   // only happens when this actually moved.
@@ -151,12 +130,14 @@ export default function DeploymentDetailPage() {
   const load = useCallback(async (): Promise<void> => {
     try {
       const detail = await fetchDeployment(id);
-      const [events, releases] = await Promise.all([
+      const [events, releases, infrastructure] = await Promise.all([
         fetchDeploymentEvents(id),
         fetchReleases(detail.applicationId),
+        fetchDeploymentInfrastructure(id),
       ]);
       lastSignature.current = { stage: detail.deploymentStatus.stage, state: detail.state };
       setState({ status: 'loaded', detail, events, releases });
+      setInfrastructure(infrastructure);
     } catch (caught) {
       // A 404 is permanent for this URL — no retry-oriented copy for it.
       setState(
@@ -206,6 +187,11 @@ export default function DeploymentDetailPage() {
         setState((current) => (current.status === 'loaded' ? { ...current, events } : current));
       });
     }
+    // Refresh the infrastructure snapshot on every poll tick so the
+    // component list stays live during disconnect.
+    void fetchDeploymentInfrastructure(id).then((infrastructure) => {
+      setInfrastructure(infrastructure);
+    });
   }, [poll.data, id]);
 
   return (
@@ -236,6 +222,7 @@ export default function DeploymentDetailPage() {
           detail={state.detail}
           events={state.events}
           releases={state.releases}
+          infrastructure={infrastructure}
           onChanged={load}
         />
       ) : null}
@@ -247,11 +234,13 @@ function DetailBody({
   detail,
   events,
   releases,
+  infrastructure,
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
   events: ActivityEvent[];
   releases: Release[];
+  infrastructure: InfrastructureResponse | null;
   onChanged: () => void;
 }) {
   const previousVersion = releases.find((r) => r.id === detail.previousReleaseId)?.version ?? null;
@@ -304,6 +293,7 @@ function DetailBody({
           detail={detail}
           releases={releases}
           previousVersion={previousVersion}
+          infrastructure={infrastructure}
           onChanged={onChanged}
         />
       </section>
@@ -316,7 +306,11 @@ function DetailBody({
       </section>
 
       {detail.state === 'DELETING' ? (
-        <DisconnectStatusPanel detail={detail} onChanged={onChanged} />
+        <DisconnectStatusPanel
+          detail={detail}
+          infrastructure={infrastructure}
+          onChanged={onChanged}
+        />
       ) : null}
 
       {detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY' ? (
@@ -354,30 +348,14 @@ function DetailBody({
         <h2 id="infrastructure" className="text-base font-semibold">
           Infrastructure
         </h2>
-        {/*
-          Component rows come from the API-composed component map: required
-          components are always present (""Not provisioned"" when verification
-          found no AWS resource, ""Not reporting"" when nothing was observed),
-          and components the application does not require are omitted. Redis
-          is deliberately excluded here: its row comes from observed
-          provisioning, not the component map (see RedisRow below).
-        */}
-        {showInfrastructureRows(detail.state, detail.currentReleaseId) ? (
+        {showInfrastructureRows(detail.state, detail.currentReleaseId) || detail.state === 'DELETED' ? (
           <>
-            <ul className="flex flex-col gap-2" data-testid="infrastructure-list">
-              {COMPONENT_LABELS.filter(
-                ([key]) => key !== 'redis' && detail.components?.[key] !== undefined,
-              ).map(([key, label]) => (
-                <InfraRow key={key} label={label} status={detail.components![key]!} />
-              ))}
-              <RedisRow
-                status={redisProvisioningStatus(
-                  detail.components?.['redis'],
-                  readInfraChecks(detail.observedState),
-                )}
-              />
-              <RelayRow status={detail.relayStatus} lastContact={relativeTime(detail.lastHealthAt)} />
-            </ul>
+            <InfrastructureSection
+              data={infrastructure}
+              deploymentId={detail.id}
+              deploymentState={detail.state}
+            />
+            <RelayRow status={detail.relayStatus} lastContact={relativeTime(detail.lastHealthAt)} />
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
@@ -401,16 +379,6 @@ function DetailBody({
   );
 }
 
-function InfraRow({ label, status }: { label: string; status: ComponentState }) {
-  return (
-    <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-      <span className={`size-2 shrink-0 rounded-full ${COMPONENT_STATE_DOT[status]}`} aria-hidden />
-      <span className="text-sm font-medium">{label}</span>
-      <span className="ml-auto text-sm text-muted-foreground">{COMPONENT_STATE_LABEL[status]}</span>
-    </li>
-  );
-}
-
 function RelayRow({ status, lastContact }: { status: RelayStatus; lastContact: string | null }) {
   return (
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
@@ -419,17 +387,6 @@ function RelayRow({ status, lastContact }: { status: RelayStatus; lastContact: s
       <span className="ml-auto text-sm text-muted-foreground">
         {lastContact ? `${RELAY_STATUS_LABEL[status]} · ${lastContact}` : RELAY_STATUS_LABEL[status]}
       </span>
-    </li>
-  );
-}
-
-function RedisRow({ status }: { status: RedisProvisioningStatus | null }) {
-  if (status === null) return null;
-  return (
-    <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-      <span className={`size-2 shrink-0 rounded-full ${REDIS_DOT[status]}`} aria-hidden />
-      <span className="text-sm font-medium">Redis</span>
-      <span className="ml-auto text-sm text-muted-foreground">{REDIS_STATUS_LABEL[status]}</span>
     </li>
   );
 }
@@ -469,11 +426,13 @@ function DeploymentActions({
   detail,
   releases,
   previousVersion,
+  infrastructure,
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
   releases: Release[];
   previousVersion: string | null;
+  infrastructure: InfrastructureResponse | null;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState<
@@ -632,6 +591,7 @@ function DeploymentActions({
         open={open === 'disconnect'}
         deploymentId={detail.id}
         customerName={detail.customerName}
+        infrastructure={infrastructure}
         onDone={() => {
           setOpen(null);
           onChanged();
@@ -989,9 +949,11 @@ function RetryInstallDialog({
 // removed — the warning at the top of the page stays until a purge runs.
 function DisconnectStatusPanel({
   detail,
+  infrastructure,
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
+  infrastructure: InfrastructureResponse | null;
   onChanged: () => void;
 }) {
   const [pending, setPending] = useState(false);
@@ -1040,6 +1002,21 @@ function DisconnectStatusPanel({
             ? `${RELAY_STATUS_LABEL[detail.relayStatus]} · ${lastContact}`
             : RELAY_STATUS_LABEL[detail.relayStatus]}
         </p>
+        {infrastructure ? (
+          <ul className="flex flex-col gap-2">
+            {infrastructure.components.map((component) => (
+              <li
+                key={component.kind}
+                className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
+              >
+                <span className="font-medium">{component.name}</span>
+                <span className="text-muted-foreground">
+                  {disconnectStatusLabel(component.lifecycle)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {forceCompleteEligible ? (
           <div className="flex flex-col gap-3 rounded-lg border border-destructive/50 p-4">
             <p className="text-sm font-medium">Relay is offline.</p>
@@ -1060,6 +1037,13 @@ function DisconnectStatusPanel({
       </CardContent>
     </Card>
   );
+}
+
+function disconnectStatusLabel(lifecycle: 'delete' | 'retain' | 'snapshot' | 'conditional'): string {
+  if (lifecycle === 'delete') return 'Removing';
+  if (lifecycle === 'retain') return 'Retained';
+  if (lifecycle === 'snapshot') return 'Snapshot retained';
+  return 'Retained conditionally';
 }
 
 // P2 purge: the explicit destructive action for resources a force-completed
@@ -1155,12 +1139,14 @@ function DisconnectDialog({
   open,
   deploymentId,
   customerName,
+  infrastructure,
   onDone,
   onCancel,
 }: {
   open: boolean;
   deploymentId: string;
   customerName: string;
+  infrastructure: InfrastructureResponse | null;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -1168,6 +1154,13 @@ function DisconnectDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirmed = confirmText.trim() === customerName;
+
+  const removed =
+    infrastructure?.components.filter((component) => component.lifecycle === 'delete') ?? [];
+  const retained =
+    infrastructure?.components.filter(
+      (component) => component.lifecycle === 'retain' || component.lifecycle === 'snapshot',
+    ) ?? [];
 
   async function onConfirm(): Promise<void> {
     if (!confirmed) return;
@@ -1194,8 +1187,37 @@ function DisconnectDialog({
             Disconnecting removes the running application and its networking.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-          <p>Your database, stored files, and backups will be retained.</p>
+        <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+          {infrastructure ? (
+            <>
+              {removed.length > 0 ? (
+                <div className="flex flex-col gap-1">
+                  <p className="font-medium text-foreground">Will be removed</p>
+                  <ul className="list-disc pl-5">
+                    {removed.map((component) => (
+                      <li key={component.kind}>{component.name}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {retained.length > 0 ? (
+                <div className="flex flex-col gap-1">
+                  <p className="font-medium text-foreground">Will be retained</p>
+                  <ul className="list-disc pl-5">
+                    {retained.map((component) => (
+                      <li key={component.kind}>{component.name}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <p>
+                Retained AWS resources may continue generating charges after this deployment is
+                removed.
+              </p>
+            </>
+          ) : (
+            <p>Your database, stored files, and backups will be retained.</p>
+          )}
           <p>The Deployz connector remains installed.</p>
           <p>This stops the $19/month charge for this deployment.</p>
         </div>

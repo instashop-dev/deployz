@@ -141,6 +141,20 @@
       "when": 1788228384178,
       "tag": "0019_happy_retro_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788269055471,
+      "tag": "0020_same_ultragirl",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788271505502,
+      "tag": "0021_youthful_excalibur",
+      "breakpoints": true
     }
   ]
 }

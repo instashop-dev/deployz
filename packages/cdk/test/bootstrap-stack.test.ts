@@ -558,7 +558,11 @@ describe('BootstrapStack', () => {
           Match.objectLike({
             Sid: 'RelayVerifyInstallation',
             Effect: 'Allow',
-            Action: ['cloudformation:DescribeStacks', 'cloudformation:DescribeStackResources'],
+            Action: [
+              'cloudformation:DescribeStacks',
+              'cloudformation:DescribeStackResources',
+              'cloudformation:ListStackResources',
+            ],
           }),
         ]),
       },

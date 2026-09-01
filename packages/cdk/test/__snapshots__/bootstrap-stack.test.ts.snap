@@ -491,6 +491,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "cloudformation:DescribeStacks",
                 "cloudformation:DescribeStackEvents",
                 "cloudformation:DescribeStackResources",
+                "cloudformation:ListStackResources",
               ],
               "Condition": {
                 "StringEquals": {
@@ -1075,6 +1076,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "cloudformation:DescribeStacks",
                 "cloudformation:DescribeStackEvents",
                 "cloudformation:DescribeStackResources",
+                "cloudformation:ListStackResources",
               ],
               "Condition": {
                 "StringEquals": {
@@ -1470,6 +1472,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Action": [
                 "cloudformation:DescribeStacks",
                 "cloudformation:DescribeStackResources",
+                "cloudformation:ListStackResources",
               ],
               "Condition": {
                 "StringEquals": {

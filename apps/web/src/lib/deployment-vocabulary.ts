@@ -288,6 +288,107 @@ export const INSTALL_COMPONENT_LABELS: readonly (readonly [key: string, label: s
   ['redis', 'Redis cache'],
 ];
 
+// ── Infrastructure inventory vocabulary ─────────────────────────────────────
+
+import type {
+  InfrastructureComponentKind,
+  InfrastructureComponentStatus,
+  InfrastructureLifecycle,
+  InfrastructureSummaryStatus,
+} from './deployments';
+
+/** Friendly labels for each logical infrastructure component kind. */
+export const INFRASTRUCTURE_COMPONENT_NAME: Record<InfrastructureComponentKind, string> = {
+  application: 'Application',
+  database: 'Database',
+  storage: 'Storage',
+  cache: 'Cache',
+  endpoint: 'Secure endpoint',
+  network: 'Network',
+  monitoring: 'Monitoring',
+  container_registry: 'Container registry',
+  other: 'Other',
+};
+
+/** Plain-English purpose for each logical infrastructure component kind. */
+export const INFRASTRUCTURE_COMPONENT_PURPOSE: Record<InfrastructureComponentKind, string> = {
+  application: 'Runs your application',
+  database: 'Stores persistent application data',
+  storage: 'Stores uploaded files',
+  cache: 'Speeds up application requests',
+  endpoint: 'Provides HTTPS access',
+  network: 'Isolates application infrastructure',
+  monitoring: 'Collects logs and health information',
+  container_registry: 'Stores application images',
+  other: '',
+};
+
+export type InfrastructureStatusBadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
+
+/** Badge variant per component status — paired with the label, never color alone. */
+export const INFRASTRUCTURE_STATUS_BADGE: Record<
+  InfrastructureComponentStatus,
+  InfrastructureStatusBadgeVariant
+> = {
+  pending: 'secondary',
+  provisioning: 'outline',
+  ready: 'default',
+  updating: 'outline',
+  deleting: 'outline',
+  failed: 'destructive',
+  retained: 'default',
+  removed: 'secondary',
+  unknown: 'secondary',
+};
+
+/** Human-readable label per component status. */
+export const INFRASTRUCTURE_STATUS_LABEL: Record<InfrastructureComponentStatus, string> = {
+  pending: 'Pending',
+  provisioning: 'Provisioning',
+  ready: 'Ready',
+  updating: 'Updating',
+  deleting: 'Deleting',
+  failed: 'Failed',
+  retained: 'Retained',
+  removed: 'Removed',
+  unknown: 'Unknown',
+};
+
+/** Plain-English lifecycle copy shown under each component. */
+export const INFRASTRUCTURE_LIFECYCLE_LABEL: Record<InfrastructureLifecycle, string> = {
+  retain: 'Retained when deployment is removed. AWS charges may continue until this resource is deleted.',
+  delete: 'Removed automatically when the deployment is deleted.',
+  snapshot: 'A snapshot is kept when the deployment is deleted.',
+  conditional: 'Retention depends on the deployment\'s configuration.',
+};
+
+/** Human-readable label per summary status. */
+export const INFRASTRUCTURE_SUMMARY_STATUS_LABEL: Record<InfrastructureSummaryStatus, string> = {
+  healthy: 'Healthy',
+  provisioning: 'Provisioning',
+  updating: 'Updating',
+  degraded: 'Degraded',
+  failed: 'Failed',
+  deleting: 'Deleting',
+  retained: 'Retained',
+  unknown: 'Unknown',
+};
+
+/** Badge variant per summary status — paired with the label, never color alone. */
+export const INFRASTRUCTURE_SUMMARY_STATUS_BADGE: Record<
+  InfrastructureSummaryStatus,
+  InfrastructureStatusBadgeVariant
+> = {
+  healthy: 'default',
+  provisioning: 'outline',
+  updating: 'outline',
+  degraded: 'outline',
+  failed: 'destructive',
+  deleting: 'outline',
+  retained: 'secondary',
+  unknown: 'secondary',
+};
+
 // ── §65 event-type labels (§40 families) ──────────────────────────────────
 
 /** The §40 event families (§65). Mirrors @deployz/copy-map verbatim. */

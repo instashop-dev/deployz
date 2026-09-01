@@ -100,10 +100,12 @@ import {
   createCloudFormationReader,
   verifyInstallation,
   type CloudFormationReader,
+  type ResourceInventory,
   type VerificationResult,
   type VerifyOptions,
 } from './verify.js';
 import { buildProvisioningSnapshot, type ProvisioningSnapshot } from './provision-progress.js';
+import { listAllStackResources } from './stack-resources.js';
 import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
@@ -1165,23 +1167,36 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
 export function createObserveHook(
   verify: () => Promise<VerificationResult>,
   buildSnapshot: () => Promise<ProvisioningSnapshot | null>,
+  listInventory?: () => Promise<ResourceInventory | null>,
 ): () => Promise<VerificationResult> {
   return async () => {
     const verification = await verify();
 
+    let inventory: ResourceInventory | null = null;
+    if (listInventory) {
+      try {
+        inventory = await listInventory();
+      } catch {
+        // The inventory is enrichment on top of the verification — never the
+        // reason a heartbeat is lost. Absent means "not observed".
+        inventory = null;
+      }
+    }
+    const withInventory = inventory === null ? verification : { ...verification, inventory };
+
     const stackExists = verification.checks.find((check) => check.name === 'stack-exists');
     const stackComplete = verification.checks.find((check) => check.name === 'stack-complete');
     if (stackExists?.passed !== true || stackComplete?.passed !== false) {
-      return verification;
+      return withInventory;
     }
 
     try {
       const snapshot = await buildSnapshot();
-      return snapshot ? { ...verification, provisioning: snapshot } : verification;
+      return snapshot ? { ...withInventory, provisioning: snapshot } : withInventory;
     } catch {
       // The snapshot is enrichment on top of an already-computed
       // verification — never the reason a heartbeat is lost.
-      return verification;
+      return withInventory;
     }
   };
 }
@@ -1336,6 +1351,11 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
             }),
           () => buildProvisioningSnapshot(getCloudFormationReader(), relayApplicationStackName()),
+          () =>
+            listAllStackResources(getCloudFormationReader(), relayApplicationStackName()).then(
+              (inventory) =>
+                inventory ? { ...inventory, observedAt: new Date().toISOString() } : null,
+            ),
         ),
       // One pending store, several resumers: each settles only its own
       // command type, so composing them is safe.

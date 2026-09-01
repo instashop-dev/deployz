@@ -193,3 +193,43 @@ export const cleanupStateEnum = pgEnum('cleanup_state', [
   'SKIPPED_RELAY_OFFLINE',
   'COMPLETE',
 ]);
+
+// Infrastructure resource inventory — how the control plane classifies every
+// CloudFormation resource the relay observes. Values mirror the contracts
+// unions (packages/contracts/src/infrastructure.ts) exactly; the parity test
+// locks them.
+export const infrastructureComponentKindEnum = pgEnum('infrastructure_component_kind', [
+  'application',
+  'database',
+  'storage',
+  'cache',
+  'endpoint',
+  'network',
+  'monitoring',
+  'container_registry',
+  'other',
+]);
+
+export const infrastructureResourceRoleEnum = pgEnum('infrastructure_resource_role', [
+  'primary',
+  'supporting',
+]);
+
+export const infrastructureLifecycleEnum = pgEnum('infrastructure_lifecycle', [
+  'delete',
+  'retain',
+  'snapshot',
+  'conditional',
+]);
+
+export const infrastructureComponentStatusEnum = pgEnum('infrastructure_component_status', [
+  'pending',
+  'provisioning',
+  'ready',
+  'updating',
+  'deleting',
+  'failed',
+  'retained',
+  'removed',
+  'unknown',
+]);

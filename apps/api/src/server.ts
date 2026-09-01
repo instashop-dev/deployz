@@ -27,16 +27,21 @@ import {
   REGION_LABELS,
   RELAY_STALE_AFTER_MS,
   SUPPORTED_AWS_REGIONS,
+  aggregateInfrastructureComponents,
   bootstrapStackName,
   buildBootstrapQuickCreateUrl,
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
+  infrastructureResponseSchema,
   regionSchema,
   relayCapabilitiesSchema,
   resolveBootstrapTemplate,
+  type InfrastructureComponentStatus,
+  type InfrastructureSummaryStatus,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
+import { persistDeploymentResourceSnapshot, type ObservedStackResource } from '@deployz/db';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -3315,6 +3320,96 @@ export async function buildServer({
     };
   });
 
+  // GET /api/deployments/:id/infrastructure — composed infrastructure
+  // inventory (§59). Reads ONLY the persisted relay snapshot — the relay is
+  // the single pipeline that observes AWS, so this route never calls it. A
+  // stale or absent snapshot keeps the last-known rows; the connection
+  // warning, not the statuses, surfaces the relay gap.
+  app.get(
+    '/api/deployments/:id/infrastructure',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const deployment = await loadOwnedDeployment(db, id, organizationId);
+
+      const resources = await db
+        .select()
+        .from(schema.deploymentResources)
+        .where(eq(schema.deploymentResources.deploymentId, id))
+        .orderBy(
+          schema.deploymentResources.componentKind,
+          schema.deploymentResources.logicalResourceId,
+        );
+
+      const now = Date.now();
+      const lastHealthAt = deployment.lastHealthAt;
+      const connected =
+        deployment.relayStatus === 'CONNECTED' &&
+        lastHealthAt !== null &&
+        now - lastHealthAt.getTime() <= RELAY_STALE_AFTER_MS;
+
+      let maxUpdatedAt: Date | null = null;
+      for (const row of resources) {
+        if (maxUpdatedAt === null || row.lastUpdatedAt.getTime() > maxUpdatedAt.getTime()) {
+          maxUpdatedAt = row.lastUpdatedAt;
+        }
+      }
+      const lastUpdatedAt = maxUpdatedAt;
+
+      const snapshotState =
+        resources.length === 0
+          ? 'none'
+          : lastUpdatedAt !== null && now - lastUpdatedAt.getTime() <= RELAY_STALE_AFTER_MS
+            ? 'fresh'
+            : 'stale';
+
+      const observed = deployment.observedState as
+        | { infraHealth?: { provisioning?: { stackStatus?: unknown } } }
+        | null
+        | undefined;
+      const rawStackStatus = observed?.infraHealth?.provisioning?.stackStatus;
+
+      const aggregate = aggregateInfrastructureComponents(
+        resources.map((row) => ({
+          ...row,
+          // resource_status is text in the table; the persistence helper
+          // only ever writes mapped values (mapResourceStatus in contracts).
+          resourceStatus: row.resourceStatus as InfrastructureComponentStatus,
+        })),
+        { deploymentState: deployment.state, region: deployment.region },
+      );
+
+      // The aggregate rolls up to the component vocabulary ('ready'); the
+      // wire summary presents it as 'healthy'.
+      const summaryStatus: InfrastructureSummaryStatus =
+        aggregate.summaryStatus === 'ready'
+          ? 'healthy'
+          : (aggregate.summaryStatus as InfrastructureSummaryStatus);
+
+      const lastUpdatedAtIso = lastUpdatedAt?.toISOString() ?? null;
+
+      return infrastructureResponseSchema.parse({
+        provider: 'aws',
+        region: deployment.region,
+        stackStatus: typeof rawStackStatus === 'string' ? rawStackStatus : null,
+        connectionState: connected ? 'connected' : 'disconnected',
+        snapshotState,
+        summary: {
+          status: summaryStatus,
+          componentCount: aggregate.components.length,
+          technicalResourceCount: resources.length,
+        },
+        components: aggregate.components,
+        lastUpdatedAt: lastUpdatedAtIso,
+        disconnectWarning:
+          !connected && snapshotState !== 'none' && lastUpdatedAt !== null
+            ? { lastVerifiedAt: lastUpdatedAtIso }
+            : null,
+      });
+    },
+  );
+
   // ── Billing (§48) ───────────────────────────────────────────────────────
 
   // POST /api/billing/checkout — Create Stripe checkout session
@@ -4072,6 +4167,27 @@ export async function buildServer({
         });
       }
     });
+
+    // §59 inventory persistence: the relay is the ONLY pipeline that observes
+    // AWS — this stores the raw ListStackResources read it transported.
+    // Absent inventory (read failed / stack gone) passes null, a no-op that
+    // preserves the last complete snapshot — a partial read must never
+    // overwrite a good one. A persistence error never fails the heartbeat.
+    try {
+      const infraHealth = (observedState as Record<string, unknown> | null)?.['infraHealth'] as
+        | { inventory?: { stackId: string; resources: ObservedStackResource[]; observedAt: string } }
+        | null
+        | undefined;
+      const inventory = infraHealth?.inventory ?? null;
+      await persistDeploymentResourceSnapshot(db, {
+        deploymentId: deployment.id,
+        stackId: inventory?.stackId ?? '',
+        resources: inventory?.resources ?? null,
+        observedAt: inventory?.observedAt ?? new Date().toISOString(),
+      });
+    } catch (error) {
+      request.log.warn({ err: error }, 'infrastructure inventory persistence failed');
+    }
 
     // Runtime truth wins: reconcile the deployment's release pointer to
     // whatever the relay observed actually running. Failures here must not
