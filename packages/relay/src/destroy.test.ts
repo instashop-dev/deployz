@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createDestroyExecutor, createDestroyResumer, settleDestroy, type StackDeleter } from './destroy.js';
 import { memoryPendingStore } from './pending.js';
 import type { CacheCleanupClient, RdsCleanupClient, WaitOptions } from './recover.js';
+import { createStackEventCollector, type StackEventCollector, type StackEventsReader } from './stack-events.js';
 import type { CloudFormationReader, StackLookup, StackResource } from './verify.js';
 
 const INSTALLATION_ID = 'inst-destroy-test';
@@ -137,6 +138,49 @@ function scriptedDeleteFailedStack(afterRetry: string[], resources: StackResourc
 
   return { cfn, deleter };
 }
+
+/** Records every `poll` call; `lastEventAt` returns a fixed cursor once set. */
+function fakeCollector(cursor: string | null = null): StackEventCollector & { polled: string[] } {
+  const polled: string[] = [];
+  return {
+    polled,
+    async poll(stackName) {
+      polled.push(stackName);
+    },
+    lastEventAt() {
+      return cursor;
+    },
+  };
+}
+
+/** Records the args each `createStackEventCollector` call was made with. */
+function collectorFactory(collector: StackEventCollector) {
+  const calls: {
+    commandId: string;
+    operationStartedAt: string;
+    stackName: string;
+    resumeAfter?: string;
+  }[] = [];
+  return {
+    calls,
+    create: (args: {
+      commandId: string;
+      operationStartedAt: string;
+      stackName: string;
+      resumeAfter?: string;
+    }) => {
+      calls.push(args);
+      return collector;
+    },
+  };
+}
+
+/** A reader that always fails — `createStackEventCollector`'s `poll` must swallow this. */
+const FAILING_READER: StackEventsReader = {
+  async describeStackEventsPage() {
+    throw new Error('boom');
+  },
+};
 
 describe('settleDestroy', () => {
   it('reports success without deleting when the stack is already absent', async () => {
@@ -293,6 +337,59 @@ describe('createDestroyExecutor', () => {
     expect(pending?.commandId).toBe('job-destroy');
     expect(pending?.type).toBe('DESTROY');
   });
+
+  it('polls the collector once with the stack name after issuing the delete', async () => {
+    const collector = fakeCollector();
+    const factory = collectorFactory(collector);
+    const d = { ...deps(cfnReturning(taggedStack('CREATE_COMPLETE'))), createStackEventCollector: factory.create };
+
+    await createDestroyExecutor(d)(destroyCommand());
+
+    expect(collector.polled).toEqual([STACK_NAME]);
+    expect(factory.calls).toHaveLength(1);
+    expect(factory.calls[0]).toMatchObject({ commandId: 'job-destroy', stackName: STACK_NAME });
+  });
+
+  it('writes the collector cursor into the pending marker on defer', async () => {
+    const collector = fakeCollector('2026-09-01T00:00:05.000Z');
+    const factory = collectorFactory(collector);
+    const d = { ...deps(cfnReturning(taggedStack('CREATE_COMPLETE'))), createStackEventCollector: factory.create };
+
+    await createDestroyExecutor(d)(destroyCommand());
+
+    const pending = await d.pending.read();
+    expect(pending?.stackEventsCursor).toEqual({ lastEventAt: '2026-09-01T00:00:05.000Z' });
+  });
+
+  it('reports the same outcome whether or not a stack-event collector is supplied', async () => {
+    const withoutFactory = deps(cfnMissing());
+    const withFactory = {
+      ...deps(cfnMissing()),
+      createStackEventCollector: () => fakeCollector(),
+    };
+
+    const a = await createDestroyExecutor(withoutFactory)(destroyCommand());
+    const b = await createDestroyExecutor(withFactory)(destroyCommand());
+
+    expect(b.success).toBe(a.success);
+    expect(b.output).toEqual(a.output);
+  });
+
+  it('does not change the destroy outcome when the real collector fails to collect events', async () => {
+    const realCollector = createStackEventCollector({
+      reader: FAILING_READER,
+      report: async () => true,
+      operationStartedAt: new Date().toISOString(),
+    });
+    const d = {
+      ...deps(cfnReturning(taggedStack('CREATE_COMPLETE'))),
+      createStackEventCollector: () => realCollector,
+    };
+
+    const result = await createDestroyExecutor(d)(destroyCommand());
+
+    expect(result.deferred).toBe(true);
+  });
 });
 
 describe('createDestroyResumer', () => {
@@ -338,5 +435,85 @@ describe('createDestroyResumer', () => {
     });
     const results = await createDestroyResumer(d)();
     expect(results).toHaveLength(0);
+  });
+
+  it('builds the collector with the pending startedAt and cursor, and polls once', async () => {
+    const collector = fakeCollector();
+    const factory = collectorFactory(collector);
+    const d = { ...deps(cfnReturning(taggedStack('DELETE_IN_PROGRESS'))), createStackEventCollector: factory.create };
+    await d.pending.write({
+      commandId: 'job-destroy',
+      idempotencyKey: 'dep-1:DESTROY',
+      type: 'DESTROY',
+      stackName: STACK_NAME,
+      startedAt: '2026-09-01T00:00:00.000Z',
+      payload: {},
+      stackEventsCursor: { lastEventAt: '2026-09-01T00:00:03.000Z' },
+    });
+
+    await createDestroyResumer(d)();
+
+    expect(factory.calls).toEqual([
+      {
+        commandId: 'job-destroy',
+        operationStartedAt: '2026-09-01T00:00:00.000Z',
+        stackName: STACK_NAME,
+        resumeAfter: '2026-09-01T00:00:03.000Z',
+      },
+    ]);
+    expect(collector.polled).toEqual([STACK_NAME]);
+  });
+
+  it('re-defers with the updated cursor while deletion is still in progress', async () => {
+    const collector = fakeCollector('2026-09-01T00:00:09.000Z');
+    const d = {
+      ...deps(cfnReturning(taggedStack('DELETE_IN_PROGRESS'))),
+      createStackEventCollector: () => collector,
+    };
+    await d.pending.write({
+      commandId: 'job-destroy',
+      idempotencyKey: 'dep-1:DESTROY',
+      type: 'DESTROY',
+      stackName: STACK_NAME,
+      startedAt: new Date().toISOString(),
+      payload: {},
+    });
+
+    const results = await createDestroyResumer(d)();
+
+    expect(results).toHaveLength(0);
+    const pending = await d.pending.read();
+    expect(pending?.stackEventsCursor).toEqual({ lastEventAt: '2026-09-01T00:00:09.000Z' });
+  });
+
+  it('resumes to the same outcome whether or not a stack-event collector is supplied', async () => {
+    let absent = false;
+    const cfn: CloudFormationReader = {
+      async describeStack() {
+        return absent ? { found: false } : taggedStack('DELETE_IN_PROGRESS');
+      },
+      async describeStackResources() {
+        return [];
+      },
+    };
+    const withoutFactory = deps(cfn);
+    const withFactory = { ...deps(cfn), createStackEventCollector: () => fakeCollector() };
+    for (const d of [withoutFactory, withFactory]) {
+      await d.pending.write({
+        commandId: 'job-destroy',
+        idempotencyKey: 'dep-1:DESTROY',
+        type: 'DESTROY',
+        stackName: STACK_NAME,
+        startedAt: new Date().toISOString(),
+        payload: {},
+      });
+    }
+
+    absent = true;
+    const a = await createDestroyResumer(withoutFactory)();
+    const b = await createDestroyResumer(withFactory)();
+
+    expect(b[0]!.success).toBe(a[0]!.success);
+    expect(b[0]!.output).toEqual(a[0]!.output);
   });
 });

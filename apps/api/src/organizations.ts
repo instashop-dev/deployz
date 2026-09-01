@@ -478,6 +478,9 @@ export async function deleteOrganization(
       .delete(schema.usageRecords)
       .where(inArray(schema.usageRecords.deploymentId, deploymentIds));
     await db
+      .delete(schema.deploymentStackEvents)
+      .where(inArray(schema.deploymentStackEvents.deploymentId, deploymentIds));
+    await db
       .delete(schema.deploymentJobs)
       .where(inArray(schema.deploymentJobs.deploymentId, deploymentIds));
   }

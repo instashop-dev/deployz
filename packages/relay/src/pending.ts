@@ -47,6 +47,13 @@ export interface PendingCommand {
    * failure, and an install that starts strict must not finish lenient.
    */
   readonly payload: Record<string, unknown>;
+  /**
+   * Cross-invocation resume point for the stack-event collector. Optional so
+   * a marker written by an older relay version, before this field existed,
+   * still parses; a resumer that finds it absent just starts collecting
+   * from `startedAt` instead of a prior cursor.
+   */
+  readonly stackEventsCursor?: { readonly lastEventAt: string };
 }
 
 export interface PendingStore {
@@ -165,6 +172,13 @@ function parse(value: string): PendingCommand | null {
   }
 
   const payload = candidate['payload'];
+  const stackEventsCursorRaw = candidate['stackEventsCursor'];
+  const stackEventsCursor =
+    typeof stackEventsCursorRaw === 'object' &&
+    stackEventsCursorRaw !== null &&
+    typeof (stackEventsCursorRaw as Record<string, unknown>)['lastEventAt'] === 'string'
+      ? { lastEventAt: (stackEventsCursorRaw as Record<string, unknown>)['lastEventAt'] as string }
+      : undefined;
 
   return {
     commandId: candidate['commandId'] as string,
@@ -176,5 +190,6 @@ function parse(value: string): PendingCommand | null {
       typeof payload === 'object' && payload !== null && !Array.isArray(payload)
         ? (payload as Record<string, unknown>)
         : {},
+    ...(stackEventsCursor !== undefined ? { stackEventsCursor } : {}),
   };
 }

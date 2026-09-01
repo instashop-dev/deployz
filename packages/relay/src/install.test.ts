@@ -349,6 +349,25 @@ describe('installApplicationStack', () => {
     expect(outcome.state === 'failed' && outcome.reason).toContain('AccessDenied');
   });
 
+  it('defaults the poll interval to 5 seconds', async () => {
+    const installer = scriptedInstaller([{ status: 'CREATE_IN_PROGRESS', outputs: {} }, complete()]);
+    let clock = 0;
+    const sleeps: number[] = [];
+
+    await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      now: () => clock,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        clock += ms;
+      },
+    });
+
+    expect(sleeps[0]).toBe(5_000);
+  });
+
   it('reports in-progress rather than a verdict when the time budget runs out', async () => {
     let clock = 0;
     const outcome = await installApplicationStack({
@@ -472,6 +491,42 @@ describe('installApplicationStack', () => {
 
     expect(outcome.state).toBe('failed');
     expect(outcome.state === 'failed' && outcome.reason).toContain('socket hang up');
+  });
+
+  it('polls onPoll once per wait-loop tick, plus once more after the terminal state', async () => {
+    const installer = scriptedInstaller([null, { status: 'CREATE_IN_PROGRESS', outputs: {} }, complete()]);
+    const calls: string[] = [];
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      onPoll: async (stackName) => {
+        calls.push(stackName);
+      },
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+    // 2 wait-loop ticks (CREATE_IN_PROGRESS, then CREATE_COMPLETE) + 1 final
+    // flush once the stack settles.
+    expect(calls).toEqual(['deployz-app', 'deployz-app', 'deployz-app']);
+  });
+
+  it('never lets a rejecting onPoll change the install outcome', async () => {
+    const installer = scriptedInstaller([null, { status: 'CREATE_IN_PROGRESS', outputs: {} }, complete()]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      onPoll: async () => {
+        throw new Error('control plane unreachable');
+      },
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
   });
 
   it('forwards template parameters as CreateStack parameters', async () => {

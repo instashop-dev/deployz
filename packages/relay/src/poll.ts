@@ -18,6 +18,8 @@
  * relay is the only thing that can remember it.
  */
 
+import type { RelayCommandProgress } from '@deployz/contracts';
+
 import type { RelayCommand, RelayCommandResult } from './commands.js';
 import { dispatchCommand, IdempotencyStore, type CommandExecutor } from './commands.js';
 import {
@@ -321,6 +323,55 @@ async function reportCommandResult(
   } catch {
     // Best-effort reporting — the control plane will re-deliver the command
     // on the next poll if it doesn't receive the result.
+  }
+}
+
+/**
+ * Statuses already logged this container's lifetime — so a control plane
+ * stuck returning the same non-2xx does not spam the log on every tick of
+ * every in-flight install, while a genuinely new failure mode still gets
+ * one line.
+ */
+const loggedProgressFailureStatuses = new Set<number>();
+
+/**
+ * Report a batch of CloudFormation stack events to the control plane, in
+ * the same auth/fetch idiom as `reportCommandResult`.
+ *
+ * Progress is diagnostics, never an input to a lifecycle decision — so
+ * unlike `reportCommandResult`, this returns whether the post was accepted
+ * rather than swallowing the answer, which is what lets the stack-event
+ * collector know whether to advance its cursor. It still never throws: a
+ * control plane an older version doesn't recognize this route on (a 404) is
+ * tolerated exactly like any other non-2xx.
+ */
+export async function reportCommandProgress(
+  fetchFn: FetchFn,
+  controlPlaneUrl: string,
+  authHeaders: Record<string, string>,
+  progress: RelayCommandProgress,
+): Promise<boolean> {
+  try {
+    const response = await fetchFn(
+      `${controlPlaneUrl}/api/relay/commands/${encodeURIComponent(progress.commandId)}/progress`,
+      {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(progress),
+      },
+    );
+
+    if (response.status >= 200 && response.status < 300) return true;
+
+    if (!loggedProgressFailureStatuses.has(response.status)) {
+      loggedProgressFailureStatuses.add(response.status);
+      console.error(
+        JSON.stringify({ event: 'relay:stack-events-report-failed', status: response.status }),
+      );
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 

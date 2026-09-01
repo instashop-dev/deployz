@@ -16,6 +16,7 @@ import {
   createAiGateway,
   generateFixInstructions,
   normalizeErrorText,
+  redactSecrets,
   type AiGateway,
   type PassedCheck,
   type ReadinessFinding,
@@ -36,9 +37,11 @@ import {
   infrastructureResponseSchema,
   regionSchema,
   relayCapabilitiesSchema,
+  relayCommandProgressSchema,
   resolveBootstrapTemplate,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
+  type VendorStackEvent,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
 // Deep import so the Lambda bundle never touches @deployz/db's package root:
@@ -153,6 +156,7 @@ import {
   verifyRelayToken,
   verifyRelayTokenWithRotation,
 } from './relay-store.js';
+import { summarizeStackEvents, type StoredStackEvent } from './stack-event-progress.js';
 import { createRequireAuth, requireRole, type OrganizationRow } from './require-auth.js';
 
 export interface ServerDeps {
@@ -3244,6 +3248,30 @@ export async function buildServer({
     return { events: rows };
   });
 
+  // GET /api/deployments/:id/stack-events — vendor CloudFormation diagnostics
+  app.get('/api/deployments/:id/stack-events', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedDeployment(db, id, organizationId);
+    const { limit } = request.query as { limit?: string };
+    const take = Math.min(Number(limit ?? 100), 200);
+    const rows = await db
+      .select()
+      .from(schema.deploymentStackEvents)
+      .where(eq(schema.deploymentStackEvents.deploymentId, id))
+      .orderBy(desc(schema.deploymentStackEvents.eventAt), desc(schema.deploymentStackEvents.id))
+      .limit(take);
+    const events: VendorStackEvent[] = rows.map((row) => ({
+      id: row.id,
+      eventAt: row.eventAt.toISOString(),
+      logicalResourceId: row.logicalResourceId,
+      resourceType: row.resourceType,
+      resourceStatus: row.resourceStatus,
+      resourceStatusReason: row.resourceStatusReason,
+    }));
+    return { events };
+  });
+
   // GET /api/deployments/:id/diagnostics — Diagnostics (§29)
   app.get('/api/deployments/:id/diagnostics', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
@@ -4035,6 +4063,116 @@ export async function buildServer({
     }
 
     return reply.code(200).send({ received: true });
+  });
+
+  // Relay stack-event progress ingest: fed by the relay while an INSTALL or
+  // DESTROY job is mid-flight, well before /result ever reports. Auth mirrors
+  // /health's (installationId travels in the body, not derived from the job)
+  // rather than /result's job-first lookup — the job named in :id is
+  // cross-checked against the authenticated deployment below, so a relay can
+  // never probe another deployment's job ids: it gets the same 404 as an
+  // unknown one.
+  app.post('/api/relay/commands/:id/progress', async (request, reply) => {
+    const token = requireBearerToken(request);
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+
+    const rawBody = request.body as { installationId?: string } | undefined;
+    const deployment = await requireRelayDeployment(rawBody?.installationId, token, oldRelayToken(request));
+
+    const parsed = relayCommandProgressSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new ApiError(400, 'INVALID_REQUEST', 'Invalid progress payload');
+    }
+    const body = parsed.data;
+
+    const jobRows = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, id)).limit(1);
+    const job = jobRows[0];
+    if (!job || job.deploymentId !== deployment.id) {
+      throw new NotFoundError('Job not found');
+    }
+    if (job.type !== 'INSTALL' && job.type !== 'DESTROY') {
+      throw new ApiError(409, 'UNSUPPORTED_JOB_TYPE', 'Progress ingest is only supported for INSTALL and DESTROY jobs');
+    }
+
+    const now = new Date();
+    const insertedRows = await db
+      .insert(schema.deploymentStackEvents)
+      .values(
+        body.events.map((event) => ({
+          deploymentId: deployment.id,
+          jobId: job.id,
+          providerEventId: event.eventId,
+          eventAt: new Date(event.timestamp),
+          logicalResourceId: event.logicalResourceId,
+          resourceType: event.resourceType,
+          resourceStatus: event.resourceStatus,
+          resourceStatusReason: event.resourceStatusReason
+            ? redactSecrets(event.resourceStatusReason).slice(0, 500)
+            : null,
+        })),
+      )
+      .onConflictDoNothing({
+        target: [schema.deploymentStackEvents.deploymentId, schema.deploymentStackEvents.providerEventId],
+      })
+      .returning();
+    const accepted = insertedRows.length;
+
+    await db
+      .update(schema.deploymentJobs)
+      .set({ lastProgressAt: now })
+      .where(eq(schema.deploymentJobs.id, job.id));
+
+    if (job.type === 'INSTALL' && (job.state === 'RUNNING' || job.state === 'WAITING')) {
+      const eventRows = await db
+        .select()
+        .from(schema.deploymentStackEvents)
+        .where(
+          and(
+            eq(schema.deploymentStackEvents.deploymentId, deployment.id),
+            eq(schema.deploymentStackEvents.jobId, job.id),
+          ),
+        )
+        .orderBy(schema.deploymentStackEvents.eventAt, schema.deploymentStackEvents.id);
+      const storedEvents: StoredStackEvent[] = eventRows.map((row) => ({
+        eventAt: row.eventAt,
+        logicalResourceId: row.logicalResourceId,
+        resourceType: row.resourceType,
+        resourceStatus: row.resourceStatus,
+        resourceStatusReason: row.resourceStatusReason,
+      }));
+      const snapshot = summarizeStackEvents(body.stackName, storedEvents, now.toISOString());
+      if (snapshot !== null) {
+        const existingObservedState = deployment.observedState;
+        const nextObservedState = {
+          ...(existingObservedState ?? {}),
+          infraHealth: {
+            ...((existingObservedState?.['infraHealth'] as Record<string, unknown>) ?? {}),
+            provisioning: snapshot,
+          },
+        };
+        await db
+          .update(schema.deployments)
+          .set({ observedState: nextObservedState })
+          .where(eq(schema.deployments.id, deployment.id));
+
+        try {
+          await advanceStepTimingsAfterWrite(db, { ...deployment, observedState: nextObservedState });
+        } catch (error) {
+          request.log.warn({ err: error }, 'step-timings advance failed');
+        }
+      }
+    }
+
+    request.log.info({
+      deploymentId: deployment.id,
+      jobId: job.id,
+      stackName: body.stackName,
+      accepted,
+      event: 'relay:stack-events-ingested',
+    });
+
+    return reply.code(200).send({ accepted });
   });
 
   app.post('/api/relay/health', async (request, reply) => {

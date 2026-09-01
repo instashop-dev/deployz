@@ -4,5 +4,6 @@ export * from './custom-domains.js';
 export * from './deployment-resources.js';
 export * from './deployments.js';
 export * from './jobs.js';
+export * from './stack-events.js';
 export * from './events.js';
 export * from './billing.js';

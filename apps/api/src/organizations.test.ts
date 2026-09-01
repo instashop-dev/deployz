@@ -1196,7 +1196,22 @@ describe('DELETE /api/organization', () => {
     const application = await insertApplication(db, orgId);
     const customer = await insertCustomer(db, orgId);
     // A non-live deployment must not block deletion.
-    await insertDeployment(db, orgId, application.id, customer.id, { state: 'DELETED' });
+    const deployment = await insertDeployment(db, orgId, application.id, customer.id, { state: 'DELETED' });
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({ deploymentId: deployment.id, type: 'INSTALL', idempotencyKey: crypto.randomUUID() })
+      .returning();
+    // A deployment_stack_events row referencing both the job and the
+    // deployment must not block deletion via its FK (no ON DELETE cascade).
+    await db.insert(schema.deploymentStackEvents).values({
+      deploymentId: deployment.id,
+      jobId: job!.id,
+      providerEventId: `evt-${crypto.randomUUID()}`,
+      eventAt: new Date(),
+      logicalResourceId: 'MyResource',
+      resourceType: 'AWS::CloudFormation::Stack',
+      resourceStatus: 'CREATE_IN_PROGRESS',
+    });
 
     sentEmails.length = 0;
     const response = await sendJson(app, 'DELETE', '/api/organization', { confirmName: 'Deletable Org' }, { cookie: owner.cookie });
@@ -1208,6 +1223,11 @@ describe('DELETE /api/organization', () => {
     expect(appRows).toHaveLength(0);
     const customerRows = await db.select().from(schema.customers).where(eq(schema.customers.organizationId, orgId));
     expect(customerRows).toHaveLength(0);
+    const stackEventRows = await db
+      .select()
+      .from(schema.deploymentStackEvents)
+      .where(eq(schema.deploymentStackEvents.deploymentId, deployment.id));
+    expect(stackEventRows).toHaveLength(0);
 
     // event_logs outlives the organization it describes.
     const eventRows = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.organizationId, orgId));

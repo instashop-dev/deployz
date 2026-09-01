@@ -23,6 +23,45 @@ describe('memoryPendingStore', () => {
   });
 });
 
+describe('stackEventsCursor', () => {
+  it('round-trips a marker that carries a stack-events cursor', async () => {
+    let stored: string | undefined;
+    const send = vi.fn().mockImplementation((command: { input: { Value?: string } }) => {
+      if (command.input.Value !== undefined) stored = command.input.Value;
+      return Promise.resolve({ Parameter: { Value: stored } });
+    });
+    const withCursor: PendingCommand = {
+      ...PENDING,
+      stackEventsCursor: { lastEventAt: '2026-08-26T12:03:00.000Z' },
+    };
+
+    const store = toPendingStore({ send }, '/p');
+    await store.write(withCursor);
+
+    await expect(store.read()).resolves.toEqual(withCursor);
+  });
+
+  it('tolerates a legacy marker JSON with no stackEventsCursor field', async () => {
+    const send = vi.fn().mockResolvedValue({ Parameter: { Value: JSON.stringify(PENDING) } });
+
+    const parsed = await toPendingStore({ send }, '/p').read();
+
+    expect(parsed).toEqual(PENDING);
+    expect(parsed).not.toHaveProperty('stackEventsCursor');
+  });
+
+  it('drops a malformed stackEventsCursor rather than rejecting the whole record', async () => {
+    const send = vi.fn().mockResolvedValue({
+      Parameter: { Value: JSON.stringify({ ...PENDING, stackEventsCursor: { lastEventAt: 42 } }) },
+    });
+
+    const parsed = await toPendingStore({ send }, '/p').read();
+
+    expect(parsed).toEqual(PENDING);
+    expect(parsed).not.toHaveProperty('stackEventsCursor');
+  });
+});
+
 describe('toPendingStore', () => {
   it('writes the pending command as a parameter under the installation', async () => {
     const send = vi.fn().mockResolvedValue({});
