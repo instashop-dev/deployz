@@ -145,8 +145,22 @@
     {
       "idx": 20,
       "version": "7",
-      "when": 1788257391358,
-      "tag": "0020_unknown_sage",
+      "when": 1788269055471,
+      "tag": "0020_same_ultragirl",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788271505502,
+      "tag": "0021_youthful_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788283564335,
+      "tag": "0022_faithful_krista_starr",
       "breakpoints": true
     }
   ]

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export * from './infrastructure.js';
+
 // Shared Zod contracts between api and web. Shapes mirror the Drizzle schema
 // in @deployz/db (packages/db/src/schema/*.ts) exactly — the db stays the
 // source of truth; these are the WIRE forms (timestamptz -> ISO datetime
@@ -28,7 +30,13 @@ export const releaseStatusSchema = z.enum(['BUILDING', 'READY', 'FAILED']);
 export type ReleaseStatus = z.infer<typeof releaseStatusSchema>;
 
 // §32 region allowlist — EXACTLY these 17 AWS regions, nothing else.
-export const regionSchema = z.enum([
+//
+// This is the SINGLE canonical source of the supported-region set. Every
+// consumer derives from it — API/deployment validation (regionSchema), the
+// install page's Quick Create link (resolveBootstrapTemplate), the bootstrap
+// publisher's regional fan-out (SUPPORTED_AWS_REGIONS) and the UI's region
+// options (REGION_LABELS) — so no other module ever lists regions again.
+export const SUPPORTED_AWS_REGIONS = [
   'us-east-1',
   'us-east-2',
   'us-west-1',
@@ -46,8 +54,36 @@ export const regionSchema = z.enum([
   'ap-south-1',
   'ap-southeast-1',
   'ap-southeast-2',
-]);
-export type Region = z.infer<typeof regionSchema>;
+] as const;
+export type Region = (typeof SUPPORTED_AWS_REGIONS)[number];
+
+export const regionSchema = z.enum(SUPPORTED_AWS_REGIONS);
+
+/** Human-readable label per supported region, for UI region options. */
+export const REGION_LABELS: Readonly<Record<Region, string>> = {
+  'us-east-1': 'US East (N. Virginia)',
+  'us-east-2': 'US East (Ohio)',
+  'us-west-1': 'US West (N. California)',
+  'us-west-2': 'US West (Oregon)',
+  'ca-central-1': 'Canada (Central)',
+  'sa-east-1': 'South America (São Paulo)',
+  'eu-west-1': 'Europe (Ireland)',
+  'eu-west-2': 'Europe (London)',
+  'eu-west-3': 'Europe (Paris)',
+  'eu-central-1': 'Europe (Frankfurt)',
+  'eu-north-1': 'Europe (Stockholm)',
+  'ap-northeast-1': 'Asia Pacific (Tokyo)',
+  'ap-northeast-2': 'Asia Pacific (Seoul)',
+  'ap-northeast-3': 'Asia Pacific (Osaka)',
+  'ap-south-1': 'Asia Pacific (Mumbai)',
+  'ap-southeast-1': 'Asia Pacific (Singapore)',
+  'ap-southeast-2': 'Asia Pacific (Sydney)',
+};
+
+/** Type guard for a value that must be one of the supported regions. */
+export function isSupportedRegion(value: string): value is Region {
+  return (SUPPORTED_AWS_REGIONS as readonly string[]).includes(value);
+}
 
 // §46 deployment states — product vocabulary. Customers never see raw
 // CFN/ECS internals; these nine states are the whole user-facing model.
@@ -882,6 +918,72 @@ export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 
 /** The bootstrap stack's single-use enrollment parameter. */
 export const ENROLLMENT_CODE_PARAMETER = 'EnrollmentCode';
+
+/**
+ * Deterministic public bucket that carries one supported region's bootstrap
+ * template + Lambda assets.
+ *
+ * A bootstrap stack must read its Lambda code from a bucket in ITS OWN
+ * region — a cross-region bucket fails Lambda creation with
+ * `PermanentRedirect` (verified in production: a us-east-2 stack referencing
+ * the us-east-1 template bucket rolled back on exactly that error). The
+ * publisher therefore fans identical artifacts out to `deployz-templates-<region>`
+ * per region, and this function is the single rule for what each region's
+ * bucket is called, shared by the publisher (which writes it) and the
+ * resolver (which builds the URL).
+ */
+export function bootstrapTemplateBucketName(region: string): string {
+  return `deployz-templates-${region}`;
+}
+
+/** Object key of the published bootstrap template (under the key prefix). */
+export const BOOTSTRAP_TEMPLATE_KEY = 'bootstrap-template-v1.json';
+
+/**
+ * Resolves the public bootstrap template URL for a deployment's region.
+ *
+ * Deterministic string construction (no AWS calls, no maintained region→URL
+ * map): every supported region's template lives at
+ * `https://deployz-templates-<region>.s3.<region>.amazonaws.com/bootstrap/v1/...`.
+ *
+ * FAILS CLOSED. Returns `undefined` — never a template from another region —
+ * when the region is unsupported, when `deployableRegions` is given and does
+ * not include the region (artifacts not confirmed published), or when
+ * `legacyUrl` (the old single-bucket `BOOTSTRAP_TEMPLATE_URL`) would be the
+ * only option but does not belong to the requested region. `legacyUrl` is
+ * honored ONLY for `us-east-1`, the one region the legacy bucket ever
+ * served; a deployment in any other region must never silently fall back to
+ * it. Callers must treat `undefined` as "no link can be generated" and reject
+ * before building a Quick Create URL.
+ */
+export function resolveBootstrapTemplate(
+  region: string,
+  options: {
+    /** Legacy single-bucket template URL (`BOOTSTRAP_TEMPLATE_URL`), if set. */
+    readonly legacyUrl?: string;
+    /** Key prefix under the bucket (e.g. `bootstrap/v1`). */
+    readonly keyPrefix?: string;
+    /**
+     * Regions whose regional artifacts are confirmed published. When given,
+     * a region outside it resolves to `undefined` even if supported — the
+     * "regional artifacts are unavailable" fail-closed case.
+     */
+    readonly deployableRegions?: readonly string[];
+  } = {},
+): string | undefined {
+  if (!isSupportedRegion(region)) return undefined;
+  // Migration compatibility: the legacy flow published exactly one template,
+  // to one us-east-1 bucket. It is safe to keep handing that URL to
+  // us-east-1 deployments only — never as a fallback for another region.
+  // Checked before the deployable gate: the legacy URL IS the confirmation
+  // that us-east-1 is published, so it must work even when
+  // `deployableRegions` is unset.
+  if (region === 'us-east-1' && options.legacyUrl) return options.legacyUrl;
+  const deployable = options.deployableRegions;
+  if (deployable !== undefined && !deployable.includes(region)) return undefined;
+  const keyPrefix = options.keyPrefix ?? 'bootstrap/v1';
+  return `https://${bootstrapTemplateBucketName(region)}.s3.${region}.amazonaws.com/${keyPrefix}/${BOOTSTRAP_TEMPLATE_KEY}`;
+}
 
 export interface BootstrapQuickCreateOptions {
   /** AWS region the console deep-link targets. */

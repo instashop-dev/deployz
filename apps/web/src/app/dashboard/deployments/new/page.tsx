@@ -12,32 +12,18 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { fetchApplications, type Application } from '@/lib/applications';
 import { createCustomerRecord, createDeploymentRecord } from '@/lib/deployments';
+import { fetchRegions, type RegionOption } from '@/lib/regions';
 
 // §12/§41 screen 12 "Create customer deployment" — previously this only
 // formatted a slug client-side and rendered a fake install link; nothing was
 // ever persisted. Now it creates a real Customer (POST /api/customers), then
 // a real Deployment (POST /api/deployments), and shows the install link built
 // from the REAL installationId the API returns.
-
-const REGIONS = [
-  { value: 'us-east-1', label: 'US East (N. Virginia)' },
-  { value: 'us-east-2', label: 'US East (Ohio)' },
-  { value: 'us-west-1', label: 'US West (N. California)' },
-  { value: 'us-west-2', label: 'US West (Oregon)' },
-  { value: 'ca-central-1', label: 'Canada (Central)' },
-  { value: 'sa-east-1', label: 'South America (São Paulo)' },
-  { value: 'eu-west-1', label: 'Europe (Ireland)' },
-  { value: 'eu-west-2', label: 'Europe (London)' },
-  { value: 'eu-west-3', label: 'Europe (Paris)' },
-  { value: 'eu-central-1', label: 'Europe (Frankfurt)' },
-  { value: 'eu-north-1', label: 'Europe (Stockholm)' },
-  { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' },
-  { value: 'ap-northeast-2', label: 'Asia Pacific (Seoul)' },
-  { value: 'ap-northeast-3', label: 'Asia Pacific (Osaka)' },
-  { value: 'ap-south-1', label: 'Asia Pacific (Mumbai)' },
-  { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
-  { value: 'ap-southeast-2', label: 'Asia Pacific (Sydney)' },
-] as const;
+//
+// Region options come from GET /api/regions (never hardcoded here): the
+// control plane serves only regions whose regional bootstrap artifacts are
+// confirmed published, so the UI cannot offer a region that would fail to
+// install.
 
 const selectClass =
   'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 md:text-sm dark:bg-input/30';
@@ -62,6 +48,8 @@ function NewDeploymentScreen() {
   const isTestDeployment = searchParams.get('test') === 'true';
 
   const [appsState, setAppsState] = useState<AppsState>({ status: 'loading' });
+  const [regions, setRegions] = useState<RegionOption[]>([]);
+  const [regionsError, setRegionsError] = useState(false);
   const [installLink, setInstallLink] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +75,28 @@ function NewDeploymentScreen() {
     };
   }, []);
 
+  // Region options come from the control plane so only confirmed-deployable
+  // regions are ever offered. A failure to load them is a hard error — a form
+  // that defaulted to a stale hardcoded region would let the vendor create a
+  // deployment in a region that cannot install.
+  useEffect(() => {
+    let cancelled = false;
+    async function load(): Promise<void> {
+      try {
+        const options = await fetchRegions();
+        if (cancelled) return;
+        setRegions(options);
+        setRegionsError(false);
+      } catch {
+        if (!cancelled) setRegionsError(true);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setError(null);
@@ -95,7 +105,7 @@ function NewDeploymentScreen() {
     const customerName = String(form.get('customerName') ?? '').trim();
     const customerEmail = String(form.get('customerEmail') ?? '').trim();
     const applicationId = String(form.get('application') ?? '');
-    const region = String(form.get('region') ?? REGIONS[0].value);
+    const region = String(form.get('region') ?? regions[0]?.value ?? '');
 
     try {
       const customer = await createCustomerRecord({ name: customerName, email: customerEmail });
@@ -204,18 +214,34 @@ function NewDeploymentScreen() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="region">AWS region</Label>
-                  <select id="region" name="region" className={selectClass} required defaultValue={REGIONS[0].value}>
-                    {REGIONS.map((region) => (
-                      <option key={region.value} value={region.value}>
-                        {region.label}
-                      </option>
-                    ))}
-                  </select>
+                  {regionsError ? (
+                    <p className="text-sm text-destructive">
+                      We couldn&apos;t load the available regions. Try again in a moment.
+                    </p>
+                  ) : regions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No regions are available for installation yet.
+                    </p>
+                  ) : (
+                    <select
+                      id="region"
+                      name="region"
+                      className={selectClass}
+                      required
+                      defaultValue={regions[0]?.value}
+                    >
+                      {regions.map((region) => (
+                        <option key={region.value} value={region.value}>
+                          {region.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
-                <Button type="submit" disabled={pending}>
+                <Button type="submit" disabled={pending || regionsError || regions.length === 0}>
                   {pending ? 'Creating…' : isTestDeployment ? 'Create Test Deployment' : 'Create Customer Deployment'}
                 </Button>
                 {error ? (

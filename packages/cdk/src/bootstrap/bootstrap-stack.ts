@@ -124,18 +124,20 @@ const PHASE_2_MANAGE_STACK_ACTIONS = [
   'cloudformation:DescribeStacks',
   'cloudformation:DescribeStackEvents',
   'cloudformation:DescribeStackResources',
+  'cloudformation:ListStackResources',
 ] as const;
 
 /**
  * Phase 2 — read-only stack access so the relay can verify its own
- * installation. Both actions are already inside
- * `PHASE_2_MANAGE_STACK_ACTIONS`, so this grant does not raise the
+ * installation and page its full resource inventory. All actions are already
+ * inside `PHASE_2_MANAGE_STACK_ACTIONS`, so this grant does not raise the
  * permissions boundary's ceiling — it only extends what the role is
  * actually granted beneath it.
  */
 const PHASE_2_VERIFY_STACK_ACTIONS = [
   'cloudformation:DescribeStacks',
   'cloudformation:DescribeStackResources',
+  'cloudformation:ListStackResources',
 ] as const;
 
 /**

@@ -29,9 +29,12 @@ export {
   ApplicationPublisher,
   BootstrapPublisher,
   createRealS3Client,
+  createRealRegionVerifier,
+  publishBootstrapToAllRegions,
   synthesizeApplicationStack,
   synthesizeBootstrapStack,
   readBundledIndexMjs,
+  verifyPublishedRegion,
 } from './publish.js';
 export type {
   ApplicationPublishResult,
@@ -42,8 +45,12 @@ export type {
   SynthesizeApplicationOptions,
   AssetReader,
   PublishApplicationOptions,
+  PublishAllRegionsOptions,
   PublishBootstrapOptions,
   PublishResult,
+  RegionalPublishResult,
+  RegionVerifier,
+  VerifyPublishedRegionOptions,
 } from './publish.js';
 
 export {

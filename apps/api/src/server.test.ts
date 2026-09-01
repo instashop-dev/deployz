@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { bootstrapStackName, errorEnvelopeSchema } from '@deployz/contracts';
-import { applyMigrations, createDb, type Db } from '@deployz/db';
+import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
@@ -2556,6 +2556,102 @@ describe('server — organization settings, public install page, and bulk deploy
     }
   });
 
+  it('GET /api/install/:installationId resolves the template for the deployment\'s OWN region', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Regional App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    // us-east-2 deployment: the link must point at the us-east-2 regional
+    // template, never the us-east-1 legacy bucket (S3 PermanentRedirect).
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      region: 'us-east-2',
+    });
+
+    const mutableEnv = env as {
+      bootstrapTemplateUrl: string | undefined;
+      deployableAwsRegions: readonly string[];
+    };
+    const prevUrl = mutableEnv.bootstrapTemplateUrl;
+    const prevRegions = mutableEnv.deployableAwsRegions;
+    // A legacy us-east-1 URL is configured — it must NOT leak to us-east-2.
+    mutableEnv.bootstrapTemplateUrl = 'https://legacy-bucket.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json';
+    mutableEnv.deployableAwsRegions = ['us-east-1', 'us-east-2'];
+    try {
+      const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      const body = response.json() as Record<string, unknown>;
+      expect(response.statusCode).toBe(200);
+      const url = String(body['quickCreateUrl']);
+      expect(url).toContain('region=us-east-2');
+      expect(url).toContain('deployz-templates-us-east-2.s3.us-east-2.amazonaws.com');
+      // The legacy us-east-1 URL must never be used for a us-east-2 deployment.
+      expect(url).not.toContain('legacy-bucket');
+    } finally {
+      mutableEnv.bootstrapTemplateUrl = prevUrl;
+      mutableEnv.deployableAwsRegions = prevRegions;
+    }
+  });
+
+  it('GET /api/install/:installationId fails closed (no link) for an unpublished region', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Unpublished App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    // us-east-2 is supported but not in the default deployable set → no link.
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      region: 'us-east-2',
+    });
+
+    const mutableEnv = env as { bootstrapTemplateUrl: string | undefined };
+    const prev = mutableEnv.bootstrapTemplateUrl;
+    mutableEnv.bootstrapTemplateUrl = 'https://legacy-bucket.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json';
+    try {
+      const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      const body = response.json() as Record<string, unknown>;
+      expect(body['quickCreateUrl']).toBeNull();
+    } finally {
+      mutableEnv.bootstrapTemplateUrl = prev;
+    }
+  });
+
+  it('GET /api/regions returns only deployable regions (auth)', async () => {
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const prev = mutableEnv.deployableAwsRegions;
+    mutableEnv.deployableAwsRegions = ['us-east-1', 'us-east-2'];
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/regions', headers: { cookie: org.cookie } });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { regions: Array<{ value: string; label: string }> };
+      expect(body.regions).toEqual([
+        { value: 'us-east-1', label: 'US East (N. Virginia)' },
+        { value: 'us-east-2', label: 'US East (Ohio)' },
+      ]);
+    } finally {
+      mutableEnv.deployableAwsRegions = prev;
+    }
+  });
+
+  it('GET /api/regions requires auth', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/regions' });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('POST /api/deployments rejects a supported-but-unpublished region', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Guard App' });
+    const customer = await insertCustomer(db, org.organizationId);
+
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const prev = mutableEnv.deployableAwsRegions;
+    mutableEnv.deployableAwsRegions = ['us-east-1']; // us-east-2 not deployable
+    try {
+      const response = await postJson(
+        app,
+        '/api/deployments',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-2' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(422);
+      expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('REGION_NOT_SUPPORTED');
+    } finally {
+      mutableEnv.deployableAwsRegions = prev;
+    }
+  });
+
   it('GET /api/install/:installationId 404s for an unknown installation', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/install/does-not-exist' });
     expect(response.statusCode).toBe(404);
@@ -3133,5 +3229,329 @@ describe('server — retry-install (first-install recovery)', () => {
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
     expect(jobs.find((j) => j.idempotencyKey === `${deployment.id}:INSTALL`)!.state).toBe('CANCELLED');
     expect(jobs.find((j) => j.idempotencyKey === `${deployment.id}:INSTALL:RETRY:1`)!.state).toBe('REQUESTED');
+  });
+});
+
+// ── §59: composed infrastructure inventory ───────────────────────────────────
+describe('server — infrastructure inventory (§59)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let applicationId: string;
+  let customerId: string;
+  const STACK_ID = 'arn:aws:cloudformation:us-east-1:123456789012:stack/deployz-app/test';
+  const RELAY_TOKEN = 'infra-relay-token';
+
+  interface InfraBody {
+    provider: string;
+    region: string;
+    stackStatus: string | null;
+    connectionState: string;
+    snapshotState: string;
+    summary: { status: string; componentCount: number; technicalResourceCount: number };
+    components: Array<{
+      kind: string;
+      name: string;
+      purpose: string;
+      status: string;
+      awsService: string;
+      region: string;
+      lifecycle: string;
+      resources: Array<{
+        logicalId: string;
+        physicalId: string | null;
+        type: string;
+        status: string;
+        statusReason: string | null;
+      }>;
+    }>;
+    lastUpdatedAt: string | null;
+    disconnectWarning: { lastVerifiedAt: string } | null;
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'infra-org@example.com');
+    app = await buildServer({ auth, db });
+
+    const application = await insertApplication(db, org.organizationId);
+    applicationId = application.id;
+    const customer = await insertCustomer(db, org.organizationId);
+    customerId = customer.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  async function newDeployment(
+    overrides: Partial<typeof schema.deployments.$inferInsert> = {},
+  ): Promise<typeof schema.deployments.$inferSelect> {
+    return insertDeployment(db, org.organizationId, applicationId, customerId, overrides);
+  }
+
+  async function getInfrastructure(
+    deploymentId: string,
+    headers: Record<string, string> = {},
+  ): Promise<Awaited<ReturnType<FastifyInstance['inject']>>> {
+    return app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deploymentId}/infrastructure`,
+      headers,
+    });
+  }
+
+  async function persistRows(
+    deploymentId: string,
+    resources: Array<{ logicalId: string; type: string; status: string; statusReason?: string }>,
+    observedAt: string,
+  ): Promise<void> {
+    await persistDeploymentResourceSnapshot(db, {
+      deploymentId,
+      stackId: STACK_ID,
+      resources,
+      observedAt,
+    });
+  }
+
+  async function bindRelay(
+    deploymentId: string,
+    installationId: string,
+  ): Promise<void> {
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    const register = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment!.enrollmentCode, installationId },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(register.statusCode, register.body).toBe(200);
+  }
+
+  it('authorization — 401 without a session, 404 for another organization', async () => {
+    const deployment = await newDeployment();
+    const url = `/api/deployments/${deployment.id}/infrastructure`;
+
+    const unauth = await app.inject({ method: 'GET', url });
+    expect(unauth.statusCode).toBe(401);
+
+    const snooper = await signUpAndGetOrg(auth, db, 'infra-snooper@example.com');
+    const crossOrg = await app.inject({ method: 'GET', url, headers: { cookie: snooper.cookie } });
+    expect(crossOrg.statusCode).toBe(404);
+  });
+
+  it('healthy — all-ready rows serve a healthy summary, fresh and connected', async () => {
+    const deployment = await newDeployment({
+      state: 'HEALTHY',
+      relayStatus: 'CONNECTED',
+      lastHealthAt: new Date(),
+      observedState: { infraHealth: { provisioning: { stackStatus: 'CREATE_COMPLETE' } } },
+    });
+    await persistRows(
+      deployment.id,
+      [
+        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+        { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
+        { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+      ],
+      new Date().toISOString(),
+    );
+
+    const response = await getInfrastructure(deployment.id, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as InfraBody;
+
+    expect(body.provider).toBe('aws');
+    expect(body.region).toBe('us-east-1');
+    expect(body.stackStatus).toBe('CREATE_COMPLETE');
+    expect(body.connectionState).toBe('connected');
+    expect(body.snapshotState).toBe('fresh');
+    expect(body.summary).toEqual({ status: 'healthy', componentCount: 3, technicalResourceCount: 3 });
+    expect(body.components.map((c) => [c.kind, c.status])).toEqual([
+      ['application', 'ready'],
+      ['database', 'ready'],
+      ['storage', 'ready'],
+    ]);
+    expect(body.components[0]!.awsService).toBe('ECS');
+    expect(body.components[2]!.awsService).toBe('S3');
+    // The technical disclosure carries the RAW AWS status, not the mapped one.
+    expect(body.components[1]!.resources[0]).toMatchObject({
+      type: 'AWS::RDS::DBInstance',
+      status: 'CREATE_COMPLETE',
+    });
+    expect(body.lastUpdatedAt).not.toBeNull();
+    expect(body.disconnectWarning).toBeNull();
+  });
+
+  it('provisioning — in-progress rows dominate the summary', async () => {
+    const deployment = await newDeployment({ state: 'INSTALLING' });
+    await persistRows(
+      deployment.id,
+      [
+        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS' },
+        { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_IN_PROGRESS' },
+      ],
+      new Date().toISOString(),
+    );
+
+    const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(body.summary.status).toBe('provisioning');
+    expect(body.components.every((c) => c.status === 'provisioning')).toBe(true);
+  });
+
+  it('failure — a CREATE_FAILED resource fails its component and the summary', async () => {
+    const deployment = await newDeployment({ state: 'FAILED' });
+    await persistRows(
+      deployment.id,
+      [
+        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_FAILED', statusReason: 'No space left on device' },
+        { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
+      ],
+      new Date().toISOString(),
+    );
+
+    const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(body.summary.status).toBe('failed');
+    const application = body.components.find((c) => c.kind === 'application')!;
+    expect(application.status).toBe('failed');
+    expect(application.resources[0]).toMatchObject({
+      status: 'CREATE_FAILED',
+      statusReason: 'No space left on device',
+    });
+    expect(body.components.find((c) => c.kind === 'database')!.status).toBe('ready');
+  });
+
+  it('disconnected — a stale snapshot keeps last-known healthy statuses and warns', async () => {
+    const deployment = await newDeployment({ state: 'HEALTHY' });
+    // Snapshot and relay liveness both an hour old — well past the 15-minute
+    // staleness window.
+    await persistRows(
+      deployment.id,
+      [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+      new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    );
+    await db
+      .update(schema.deployments)
+      .set({ relayStatus: 'DISCONNECTED', lastHealthAt: new Date(Date.now() - 60 * 60 * 1000) })
+      .where(eq(schema.deployments.id, deployment.id));
+
+    const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(body.connectionState).toBe('disconnected');
+    expect(body.snapshotState).toBe('stale');
+    expect(body.disconnectWarning).not.toBeNull();
+    // The disconnect never rewrites the inventory: last-known rows stay ready.
+    expect(body.components[0]!.status).toBe('ready');
+    expect(body.summary.status).toBe('healthy');
+  });
+
+  it('deleted — the preserved final snapshot re-derives statuses from lifecycle', async () => {
+    const deployment = await newDeployment({ state: 'DELETED', deletedAt: new Date() });
+    await persistRows(
+      deployment.id,
+      [
+        { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+        { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
+        { logicalId: 'BackupBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+      ],
+      new Date().toISOString(),
+    );
+
+    const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(body.components.map((c) => [c.kind, c.status])).toEqual([
+      ['application', 'removed'],
+      ['database', 'retained'],
+      ['storage', 'retained'],
+    ]);
+    expect(body.summary.status).toBe('retained');
+    // Technical detail from the final snapshot survives the override.
+    expect(body.components[0]!.resources[0].status).toBe('CREATE_COMPLETE');
+  });
+
+  it('a relay heartbeat inventory persists and serves back through the endpoint', async () => {
+    const deployment = await newDeployment({ state: 'NOT_INSTALLED' });
+    const installationId = `inst-heartbeat-${crypto.randomUUID()}`;
+    await bindRelay(deployment.id, installationId);
+
+    const observedAt = new Date().toISOString();
+    const health = await postJson(
+      app,
+      '/api/relay/health',
+      {
+        installationId,
+        healthStatus: 'HEALTHY',
+        observedState: {
+          infraHealth: {
+            verified: true,
+            checks: [],
+            inventory: {
+              stackId: STACK_ID,
+              observedAt,
+              resources: [
+                { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+                { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
+              ],
+            },
+          },
+        },
+      },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(health.statusCode).toBe(200);
+
+    const persisted = await db
+      .select()
+      .from(schema.deploymentResources)
+      .where(eq(schema.deploymentResources.deploymentId, deployment.id));
+    expect(persisted).toHaveLength(2);
+    expect(persisted.find((r) => r.logicalResourceId === 'Database')).toMatchObject({
+      resourceStatus: 'ready',
+      rawResourceStatus: 'CREATE_COMPLETE',
+      componentKind: 'database',
+    });
+
+    const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(body.summary).toEqual({ status: 'healthy', componentCount: 2, technicalResourceCount: 2 });
+    expect(body.snapshotState).toBe('fresh');
+  });
+
+  it('a heartbeat WITHOUT an inventory is a no-op that preserves the previous snapshot', async () => {
+    const deployment = await newDeployment({ state: 'NOT_INSTALLED' });
+    const installationId = `inst-noop-${crypto.randomUUID()}`;
+    await bindRelay(deployment.id, installationId);
+    // One row persisted directly — the "good" snapshot a later null read must
+    // never disturb.
+    await persistRows(
+      deployment.id,
+      [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+      new Date().toISOString(),
+    );
+
+    const health = await postJson(
+      app,
+      '/api/relay/health',
+      { installationId, healthStatus: 'HEALTHY', observedState: { infraHealth: null } },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(health.statusCode).toBe(200);
+
+    const rows = await db
+      .select()
+      .from(schema.deploymentResources)
+      .where(eq(schema.deploymentResources.deploymentId, deployment.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.resourceStatus).toBe('ready');
+
+const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+    expect(body.summary).toEqual({ status: 'healthy', componentCount: 1, technicalResourceCount: 1 });
+    expect(body.components[0]!.status).toBe('ready');
   });
 });

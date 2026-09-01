@@ -126,6 +126,86 @@ export interface FleetDeploymentDetail extends FleetDeployment {
   appUrl: string | null;
 }
 
+// ── Infrastructure inventory (Lane 3 composed component view) ───────────────
+
+export type InfrastructureComponentKind =
+  | 'application'
+  | 'database'
+  | 'storage'
+  | 'cache'
+  | 'endpoint'
+  | 'network'
+  | 'monitoring'
+  | 'container_registry'
+  | 'other';
+
+export type InfrastructureComponentStatus =
+  | 'pending'
+  | 'provisioning'
+  | 'ready'
+  | 'updating'
+  | 'deleting'
+  | 'failed'
+  | 'retained'
+  | 'removed'
+  | 'unknown';
+
+export type InfrastructureLifecycle = 'delete' | 'retain' | 'snapshot' | 'conditional';
+
+export type InfrastructureConnectionState = 'connected' | 'disconnected';
+export type InfrastructureSnapshotState = 'fresh' | 'stale' | 'none';
+
+export type InfrastructureSummaryStatus =
+  | 'healthy'
+  | 'provisioning'
+  | 'updating'
+  | 'degraded'
+  | 'failed'
+  | 'deleting'
+  | 'retained'
+  | 'unknown';
+
+export interface InfrastructureResource {
+  logicalId: string;
+  physicalId: string | null;
+  type: string;
+  status: string;
+  statusReason: string | null;
+}
+
+export interface InfrastructureComponent {
+  kind: InfrastructureComponentKind;
+  name: string;
+  purpose: string;
+  status: InfrastructureComponentStatus;
+  awsService: string;
+  region: string;
+  lifecycle: InfrastructureLifecycle;
+  resources: InfrastructureResource[];
+}
+
+export interface InfrastructureSummary {
+  status: InfrastructureSummaryStatus;
+  componentCount: number;
+  technicalResourceCount: number;
+}
+
+export interface InfrastructureDisconnectWarning {
+  lastVerifiedAt: string;
+}
+
+export interface InfrastructureResponse {
+  provider: 'aws';
+  region: string;
+  stackStatus: string | null;
+  connectionState: InfrastructureConnectionState;
+  snapshotState: InfrastructureSnapshotState;
+  summary: InfrastructureSummary;
+  components: InfrastructureComponent[];
+  lastUpdatedAt: string | null;
+  disconnectWarning: InfrastructureDisconnectWarning | null;
+}
+
 /** A single §40 activity-feed event. */
 export interface ActivityEvent {
   occurredAt: string;
@@ -186,6 +266,11 @@ export async function fetchDeploymentsForApplication(
 /** Fetch one deployment detail (§24). */
 export function fetchDeployment(id: string): Promise<FleetDeploymentDetail> {
   return getJson<FleetDeploymentDetail>(`/api/deployments/${encodeURIComponent(id)}`);
+}
+
+/** Fetch the composed infrastructure inventory for a deployment (Lane 3). */
+export function fetchDeploymentInfrastructure(id: string): Promise<InfrastructureResponse> {
+  return getJson<InfrastructureResponse>(`/api/deployments/${encodeURIComponent(id)}/infrastructure`);
 }
 
 /** Fetch a deployment's activity feed (§40). */

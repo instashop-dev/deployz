@@ -1,15 +1,33 @@
 /**
- * Publishes the customer bootstrap template.
+ * Publishes the customer bootstrap template to EVERY supported region.
  *
- * Synthesizes the bootstrap stack, repacks the template so it is
- * self-contained (no CDK asset bucket, no bootstrap-version rule), ZIPs and
- * uploads the Lambda assets plus the template to the PUBLIC template bucket,
- * and prints the resulting template URL and Quick Create link.
+ * Synthesizes the bootstrap stack ONCE, then repacks a separate template per
+ * region so every Lambda `Code.S3Bucket` points at that region's own public
+ * bucket (`deployz-templates-<region>`), ZIPs the Lambda assets once, and
+ * uploads the identical asset bytes + regional template into each regional
+ * bucket. Every region is verified after publishing (bucket region, template
+ * + asset presence, `Code.S3Bucket` match, URL reachability, and
+ * CloudFormation `ValidateTemplate`); publishing FAILS if any region fails
+ * verification — a partially published set would silently leave some regions
+ * broken with an S3 `PermanentRedirect` on stack creation.
  *
- * Until this has run, no install link can be handed to a customer: the
- * control plane returns `quickCreateUrl: null` and the install page says the
- * publisher has not published a template yet. That is deliberate — a link to
- * a template CloudFormation cannot fetch fails inside the customer's own
+ * Why per region: a Lambda must read its code from a bucket in its OWN
+ * region. A single us-east-1 bucket referenced from a us-east-2 stack fails
+ * Lambda creation with `PermanentRedirect` (verified in production). The
+ * application template is fetched by CloudFormation over HTTPS (not a Lambda
+ * code asset), so it stays single-region.
+ *
+ * Bucket prerequisite: each `deployz-templates-<region>` bucket must already
+ * exist with public read access before this script runs — the publisher
+ * verifies, it does not create. Verification fails (and publishing aborts)
+ * for any region whose bucket is missing, in the wrong region, or missing
+ * objects, so a broken region can never be half-published.
+ *
+ * Until this has run, no install link can be handed to a customer in any
+ * non-default region: the control plane's `DEPLOYABLE_AWS_REGIONS` is unset,
+ * so deployment creation rejects those regions and the install link resolver
+ * never hands out a template for them. That is deliberate — a link to a
+ * template CloudFormation cannot fetch fails inside the customer's own
  * console with nothing they can act on.
  *
  * Requires `pnpm build` first (imports the compiled @deployz/cdk dist).
@@ -17,17 +35,19 @@
  *   pnpm --filter @deployz/cdk run publish:bootstrap
  *
  * Environment:
- *   TEMPLATE_BUCKET  public bucket to publish into. Defaults to the
- *                    `<stack>-TemplateBucket` output of the deployed control
- *                    plane stack (read via CloudFormation).
- *   API_URL          control-plane URL baked into the link.
- *   AWS_REGION       region of the bucket and the console deep-link.
+ *   TEMPLATE_BUCKET       legacy us-east-1 bucket used for the application
+ *                         template URL default. Defaults to the
+ *                         `<stack>-TemplateBucket` output of the deployed
+ *                         control plane stack (read via CloudFormation).
+ *   API_URL               control-plane URL baked into every link.
+ *   AWS_REGION            region of the legacy application-template bucket.
  *   APPLICATION_TEMPLATE_URL
- *                    published application template the relay installs.
- *                    Defaults to the `application/v1` object in the same
- *                    bucket, which is where `publish:application` puts it.
- *                    Publish that FIRST — a bootstrap template pointing at
- *                    a template that is not there installs nothing.
+ *                         published application template the relay installs.
+ *                         Defaults to the `application/v1` object in the
+ *                         legacy bucket, which is where `publish:application`
+ *                         puts it. Publish that FIRST — a bootstrap template
+ *                         pointing at a template that is not there installs
+ *                         nothing.
  */
 import { CloudFormationClient, ListExportsCommand } from '@aws-sdk/client-cloudformation';
 import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
@@ -36,8 +56,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  BootstrapPublisher,
+  createRealRegionVerifier,
   createRealS3Client,
+  publishBootstrapToAllRegions,
   synthesizeBootstrapStack,
 } from '../dist/quick-create/publish.js';
 
@@ -93,19 +114,24 @@ if (!process.env.APPLICATION_TEMPLATE_URL) {
 }
 
 const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, applicationTemplateUrl });
-const publisher = new BootstrapPublisher(createRealS3Client(), {
-  region,
-  bucket,
-  keyPrefix,
-  controlPlaneUrl,
-});
-const result = await publisher.publish(synth);
 
-console.log(`Published ${synth.assets.length} Lambda asset(s) + the template to ${bucket}`);
-console.log(`  template   ${result.templateUrl}`);
-console.log(`  size       ${result.templateBytes} bytes, ${result.parameterCount} parameter(s)`);
-console.log(`  quickCreate ${result.quickCreateUrl}`);
+// One real S3 client + verifier per region (each bound to that region's
+// endpoint), assets built once and reused everywhere.
+const results = await publishBootstrapToAllRegions(
+  (r) => createRealS3Client(r),
+  (r) => createRealRegionVerifier(r),
+  synth,
+  { keyPrefix, controlPlaneUrl },
+);
+
+console.log(`Published ${synth.assets.length} Lambda asset(s) + a template to ${results.length} region(s):`);
+for (const result of results) {
+  console.log(`  ${result.region}`);
+  console.log(`    template    ${result.templateUrl}`);
+  console.log(`    quickCreate ${result.quickCreateUrl}`);
+  console.log(`    size        ${result.templateBytes} bytes, ${result.parameterCount} parameter(s)`);
+}
 console.log(`  application ${applicationTemplateUrl}`);
 console.log();
-console.log('Set this on the control plane so install links are handed out:');
-console.log(`  BOOTSTRAP_TEMPLATE_URL=${result.templateUrl}`);
+console.log('Record the verified regions on the control plane so install links are handed out:');
+console.log(`  DEPLOYABLE_AWS_REGIONS=${results.map((r) => r.region).join(',')}`);

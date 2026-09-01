@@ -25,17 +25,26 @@ import {
 } from '@deployz/analysis';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
+  REGION_LABELS,
   RELAY_STALE_AFTER_MS,
+  SUPPORTED_AWS_REGIONS,
+  aggregateInfrastructureComponents,
   bootstrapStackName,
   buildBootstrapQuickCreateUrl,
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
+  infrastructureResponseSchema,
+  regionSchema,
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
+  resolveBootstrapTemplate,
+  type InfrastructureComponentStatus,
+  type InfrastructureSummaryStatus,
   type VendorStackEvent,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
+import { persistDeploymentResourceSnapshot, type ObservedStackResource } from '@deployz/db';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -1426,15 +1435,33 @@ export async function buildServer({
       // Spent codes get no link. The page renders its "already set up" state
       // in that case and never follows the URL, so building one only hands
       // the enrollment code to whoever replays the link out of a mailbox.
+      //
+      // The template is resolved for THIS deployment's region, never for a
+      // bucket in another region: a Lambda must read its code from a bucket
+      // in the function's own region, and a cross-region reference fails
+      // stack creation with an S3 PermanentRedirect (verified in
+      // production). resolveBootstrapTemplate fails closed — an unsupported
+      // or unpublished region yields no URL, and no cross-region link is
+      // ever generated.
       quickCreateUrl:
-        env.bootstrapTemplateUrl && !alreadyInstalled
-          ? buildBootstrapQuickCreateUrl({
-              region: row.region,
-              templateUrl: env.bootstrapTemplateUrl,
-              controlPlaneUrl: env.apiUrl,
-              enrollmentCode: row.enrollmentCode,
-              stackName,
-            })
+        !alreadyInstalled
+          ? (() => {
+              const templateUrl = resolveBootstrapTemplate(row.region, {
+                ...(env.bootstrapTemplateUrl
+                  ? { legacyUrl: env.bootstrapTemplateUrl }
+                  : {}),
+                deployableRegions: env.deployableAwsRegions,
+              });
+              return templateUrl
+                ? buildBootstrapQuickCreateUrl({
+                    region: row.region,
+                    templateUrl,
+                    controlPlaneUrl: env.apiUrl,
+                    enrollmentCode: row.enrollmentCode,
+                    stackName,
+                  })
+                : null;
+            })()
           : null,
       alreadyInstalled,
     };
@@ -1830,13 +1857,9 @@ export async function buildServer({
     applicationId: z.string().uuid(),
     customerId: z.string().uuid(),
     organizationId: z.string().min(1).optional(),
-    region: z.enum([
-      'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
-      'ca-central-1', 'sa-east-1',
-      'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-central-1', 'eu-north-1',
-      'ap-northeast-1', 'ap-northeast-2', 'ap-northeast-3',
-      'ap-south-1', 'ap-southeast-1', 'ap-southeast-2',
-    ]),
+    // The canonical supported set from @deployz/contracts — never a
+    // hand-maintained duplicate.
+    region: regionSchema,
     isTestDeployment: z.boolean().nullish(),
   });
 
@@ -2150,6 +2173,19 @@ export async function buildServer({
   // legitimately exist before any relay has ever called home.
   app.post('/api/deployments', { preHandler: requireAuth }, async (request, reply) => {
     const body = createDeploymentBodySchema.parse(request.body);
+    // Fail closed: a deployment may only target a region whose bootstrap
+    // artifacts are CONFIRMED published. Selecting a supported-but-unpublished
+    // region would produce an install link whose Lambda code cannot be fetched
+    // in that region — the exact PermanentRedirect failure this guard exists
+    // to prevent. The region must be in the canonical deployable set, not just
+    // the supported enum.
+    if (!env.deployableAwsRegions.includes(body.region)) {
+      throw new ApiError(
+        422,
+        'REGION_NOT_SUPPORTED',
+        `Region ${body.region} is not available for installation yet.`,
+      );
+    }
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
     // 404 on a non-existent/other-org applicationId or customerId — otherwise
     // the INSERT below hits a foreign-key violation and surfaces as a 500.
@@ -2175,6 +2211,21 @@ export async function buildServer({
       })
       .returning();
     return reply.code(201).send(row);
+  });
+
+  // GET /api/regions — the region options for the "Create customer
+  // deployment" screen. Served by the control plane (not hardcoded in the
+  // web app) so the UI can never offer a region that is not actually
+  // deployable: only regions whose regional bootstrap artifacts are confirmed
+  // published appear here. Derived from the canonical SUPPORTED_AWS_REGIONS /
+  // REGION_LABELS in @deployz/contracts, intersected with
+  // env.deployableAwsRegions.
+  app.get('/api/regions', { preHandler: requireAuth }, async () => {
+    return {
+      regions: SUPPORTED_AWS_REGIONS.filter((region) => env.deployableAwsRegions.includes(region)).map(
+        (region) => ({ value: region, label: REGION_LABELS[region] }),
+      ),
+    };
   });
 
   // GET /api/deployments — Fleet dashboard (§23). Joined with customers +
@@ -3297,6 +3348,96 @@ export async function buildServer({
     };
   });
 
+  // GET /api/deployments/:id/infrastructure — composed infrastructure
+  // inventory (§59). Reads ONLY the persisted relay snapshot — the relay is
+  // the single pipeline that observes AWS, so this route never calls it. A
+  // stale or absent snapshot keeps the last-known rows; the connection
+  // warning, not the statuses, surfaces the relay gap.
+  app.get(
+    '/api/deployments/:id/infrastructure',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const deployment = await loadOwnedDeployment(db, id, organizationId);
+
+      const resources = await db
+        .select()
+        .from(schema.deploymentResources)
+        .where(eq(schema.deploymentResources.deploymentId, id))
+        .orderBy(
+          schema.deploymentResources.componentKind,
+          schema.deploymentResources.logicalResourceId,
+        );
+
+      const now = Date.now();
+      const lastHealthAt = deployment.lastHealthAt;
+      const connected =
+        deployment.relayStatus === 'CONNECTED' &&
+        lastHealthAt !== null &&
+        now - lastHealthAt.getTime() <= RELAY_STALE_AFTER_MS;
+
+      let maxUpdatedAt: Date | null = null;
+      for (const row of resources) {
+        if (maxUpdatedAt === null || row.lastUpdatedAt.getTime() > maxUpdatedAt.getTime()) {
+          maxUpdatedAt = row.lastUpdatedAt;
+        }
+      }
+      const lastUpdatedAt = maxUpdatedAt;
+
+      const snapshotState =
+        resources.length === 0
+          ? 'none'
+          : lastUpdatedAt !== null && now - lastUpdatedAt.getTime() <= RELAY_STALE_AFTER_MS
+            ? 'fresh'
+            : 'stale';
+
+      const observed = deployment.observedState as
+        | { infraHealth?: { provisioning?: { stackStatus?: unknown } } }
+        | null
+        | undefined;
+      const rawStackStatus = observed?.infraHealth?.provisioning?.stackStatus;
+
+      const aggregate = aggregateInfrastructureComponents(
+        resources.map((row) => ({
+          ...row,
+          // resource_status is text in the table; the persistence helper
+          // only ever writes mapped values (mapResourceStatus in contracts).
+          resourceStatus: row.resourceStatus as InfrastructureComponentStatus,
+        })),
+        { deploymentState: deployment.state, region: deployment.region },
+      );
+
+      // The aggregate rolls up to the component vocabulary ('ready'); the
+      // wire summary presents it as 'healthy'.
+      const summaryStatus: InfrastructureSummaryStatus =
+        aggregate.summaryStatus === 'ready'
+          ? 'healthy'
+          : (aggregate.summaryStatus as InfrastructureSummaryStatus);
+
+      const lastUpdatedAtIso = lastUpdatedAt?.toISOString() ?? null;
+
+      return infrastructureResponseSchema.parse({
+        provider: 'aws',
+        region: deployment.region,
+        stackStatus: typeof rawStackStatus === 'string' ? rawStackStatus : null,
+        connectionState: connected ? 'connected' : 'disconnected',
+        snapshotState,
+        summary: {
+          status: summaryStatus,
+          componentCount: aggregate.components.length,
+          technicalResourceCount: resources.length,
+        },
+        components: aggregate.components,
+        lastUpdatedAt: lastUpdatedAtIso,
+        disconnectWarning:
+          !connected && snapshotState !== 'none' && lastUpdatedAt !== null
+            ? { lastVerifiedAt: lastUpdatedAtIso }
+            : null,
+      });
+    },
+  );
+
   // ── Billing (§48) ───────────────────────────────────────────────────────
 
   // POST /api/billing/checkout — Create Stripe checkout session
@@ -4164,6 +4305,27 @@ export async function buildServer({
         });
       }
     });
+
+    // §59 inventory persistence: the relay is the ONLY pipeline that observes
+    // AWS — this stores the raw ListStackResources read it transported.
+    // Absent inventory (read failed / stack gone) passes null, a no-op that
+    // preserves the last complete snapshot — a partial read must never
+    // overwrite a good one. A persistence error never fails the heartbeat.
+    try {
+      const infraHealth = (observedState as Record<string, unknown> | null)?.['infraHealth'] as
+        | { inventory?: { stackId: string; resources: ObservedStackResource[]; observedAt: string } }
+        | null
+        | undefined;
+      const inventory = infraHealth?.inventory ?? null;
+      await persistDeploymentResourceSnapshot(db, {
+        deploymentId: deployment.id,
+        stackId: inventory?.stackId ?? '',
+        resources: inventory?.resources ?? null,
+        observedAt: inventory?.observedAt ?? new Date().toISOString(),
+      });
+    } catch (error) {
+      request.log.warn({ err: error }, 'infrastructure inventory persistence failed');
+    }
 
     // Runtime truth wins: reconcile the deployment's release pointer to
     // whatever the relay observed actually running. Failures here must not
