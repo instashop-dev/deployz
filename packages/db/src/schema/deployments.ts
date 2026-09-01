@@ -34,6 +34,12 @@ export const deployments = pgTable('deployments', {
   healthStatus: healthStatusEnum('health_status').notNull().default('UNKNOWN'),
   desiredState: jsonb('desired_state').$type<Record<string, unknown>>().notNull().default({}),
   observedState: jsonb('observed_state').$type<Record<string, unknown>>(),
+  // Write-once observational timestamps for the derived deployment `step`
+  // (apps/api/src/deployment-status.ts) — NOT a persisted lifecycle. Keyed by
+  // DeploymentStep, `{ startedAt, completedAt? }` per step. Populated by
+  // apps/api/src/step-timings.ts from the relay-authenticated write paths so
+  // the event_logs `deployment.step_completed` stream has a duration to cite.
+  stepTimings: jsonb('step_timings').$type<Record<string, { startedAt: string; completedAt?: string }>>(),
   infraVersion: text('infra_version').notNull().default('runtime-v1'),
   // §12 enrollment. Three identifiers, deliberately separate:
   //   installLinkId  — the only one in a customer-facing URL (/install/:id).

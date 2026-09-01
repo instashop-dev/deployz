@@ -11,19 +11,25 @@ export function DeploymentProgressSteps({ steps, className }: { steps: ProgressS
   return (
     <ol className={cn('flex flex-col gap-2', className)}>
       {steps.map((step) => (
-        <li key={step.key} className="flex items-center gap-2.5 text-sm">
+        <li key={step.key} className="flex items-start gap-2.5 text-sm">
           <StepIcon state={step.state} />
-          <span
-            className={cn(
-              step.state === 'waiting' && 'text-muted-foreground',
-              step.state === 'current' && 'font-medium',
-              step.state === 'attention' && 'font-medium text-destructive',
-            )}
-          >
-            {step.label}
-            {step.state === 'current' ? <span className="sr-only"> (in progress)</span> : null}
-            {step.state === 'done' ? <span className="sr-only"> (complete)</span> : null}
+          <span className="flex flex-col">
+            <span
+              className={cn(
+                step.state === 'waiting' && 'text-muted-foreground',
+                step.state === 'current' && 'font-medium',
+                step.state === 'attention' && 'font-medium text-destructive',
+              )}
+            >
+              {step.label}
+              {step.state === 'current' ? <span className="sr-only"> (in progress)</span> : null}
+              {step.state === 'done' ? <span className="sr-only"> (complete)</span> : null}
+            </span>
+            {step.detail ? <span className="text-xs text-muted-foreground">{step.detail}</span> : null}
           </span>
+          {step.meta ? (
+            <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">{step.meta}</span>
+          ) : null}
         </li>
       ))}
     </ol>

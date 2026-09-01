@@ -103,6 +103,7 @@ import {
   type VerificationResult,
   type VerifyOptions,
 } from './verify.js';
+import { buildProvisioningSnapshot, type ProvisioningSnapshot } from './provision-progress.js';
 import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
@@ -1141,6 +1142,50 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
   };
 }
 
+// ── §59 observe hook ─────────────────────────────────────────────────────────
+
+/**
+ * Wrap a §59 observe function so a mid-create or mid-update stack's
+ * heartbeat carries a per-category provisioning snapshot alongside the
+ * verification it already reports.
+ *
+ * `verifyInstallation` early-returns at `stack-complete` while the stack is
+ * still building — right for the verified/not-verified question, but it
+ * means that check alone tells a heartbeat nothing about progress. The
+ * signal for "the stack exists and is still working" is exactly
+ * `stack-exists` passed and `stack-complete` failed; any other shape
+ * (missing stack, wrong installation, a fully complete but unverified
+ * stack) has nothing a provisioning snapshot would add, so the plain
+ * verification is returned unchanged.
+ *
+ * `verify` and `buildSnapshot` are passed in as functions, not clients, so
+ * this composes and tests without an AWS reader — matching the seam style
+ * of `createVerifyingExecutor` above.
+ */
+export function createObserveHook(
+  verify: () => Promise<VerificationResult>,
+  buildSnapshot: () => Promise<ProvisioningSnapshot | null>,
+): () => Promise<VerificationResult> {
+  return async () => {
+    const verification = await verify();
+
+    const stackExists = verification.checks.find((check) => check.name === 'stack-exists');
+    const stackComplete = verification.checks.find((check) => check.name === 'stack-complete');
+    if (stackExists?.passed !== true || stackComplete?.passed !== false) {
+      return verification;
+    }
+
+    try {
+      const snapshot = await buildSnapshot();
+      return snapshot ? { ...verification, provisioning: snapshot } : verification;
+    } catch {
+      // The snapshot is enrichment on top of an already-computed
+      // verification — never the reason a heartbeat is lost.
+      return verification;
+    }
+  };
+}
+
 // ── Handler factory (injectable deps for testing) ────────────────────────────
 
 export interface RelayHandlerDeps {
@@ -1282,13 +1327,16 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       idempotency,
       observe:
         deps.observe ??
-        (() =>
-          verifyInstallation({
-            cfn: getCloudFormationReader(),
-            installationId,
-            stackName: relayApplicationStackName(),
-            ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
-          })),
+        createObserveHook(
+          () =>
+            verifyInstallation({
+              cfn: getCloudFormationReader(),
+              installationId,
+              stackName: relayApplicationStackName(),
+              ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
+            }),
+          () => buildProvisioningSnapshot(getCloudFormationReader(), relayApplicationStackName()),
+        ),
       // One pending store, several resumers: each settles only its own
       // command type, so composing them is safe.
       resume:

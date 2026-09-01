@@ -1,16 +1,19 @@
 import { FAILURE_REMEDIATION, failureCodeCopy, type FailureCode } from '@deployz/copy-map';
-import type {
-  ComponentProgress,
-  ComponentProgressStatus,
-  CustomDomainStatus,
-  CustomerDeploymentStatus,
-  DeploymentStage,
-  DeploymentState,
-  HealthStatus,
-  JobState,
-  JobType,
-  RelayStatus,
-  VendorDeploymentStatus,
+import {
+  DEPLOYMENT_STEP_ORDER,
+  TYPICAL_STEP_DURATION_SECONDS,
+  type ComponentProgress,
+  type ComponentProgressStatus,
+  type CustomDomainStatus,
+  type CustomerDeploymentStatus,
+  type DeploymentStage,
+  type DeploymentState,
+  type DeploymentStep,
+  type HealthStatus,
+  type JobState,
+  type JobType,
+  type RelayStatus,
+  type VendorDeploymentStatus,
 } from '@deployz/contracts';
 
 // Unified deployment status — the read-time derivation described in
@@ -114,6 +117,10 @@ export interface DerivationDeployment {
   currentReleaseId: string | null;
   observedState: Record<string, unknown> | null;
   updatedAt: Date;
+  /** When the customer launched the CloudFormation Quick Create — the AWS_SETUP step's authoritative start. */
+  installStartedAt: Date | null;
+  /** Persisted write-once step timestamps (deployments.step_timings) — see apps/api/src/step-timings.ts. */
+  stepTimings: Record<string, { startedAt: string; completedAt?: string }> | null;
 }
 
 export interface DerivationApplication {
@@ -129,6 +136,7 @@ export interface DerivationJob {
   failureCode: FailureCode | null;
   result: Record<string, unknown> | null;
   lastProgressAt: Date | null;
+  startedAt: Date | null;
   finishedAt: Date | null;
   createdAt: Date;
 }
@@ -146,6 +154,14 @@ export interface DeriveDeploymentStatusInput {
   domain: DerivationDomain | null;
   /** resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE, else http for a bare ALB, else null. */
   appUrl: string | null;
+  /**
+   * The second (and only other) documented clock exception, alongside the
+   * existing `updatedAt` fallback below — used SOLELY to compare against a
+   * step's `stepStartedAt` for `takingLongerThanUsual`. Defaults to
+   * `new Date()`; tests inject a fixed value so the slow-step boundary is
+   * deterministic.
+   */
+  now?: Date;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,10 +181,36 @@ export interface DerivedFailure {
   jobType: string | null;
 }
 
+/** One entry of the vendor-only `stepTimings` list — see deploymentSchema in @deployz/contracts. */
+export interface StepTimingEntry {
+  step: DeploymentStep;
+  startedAt: string;
+  completedAt: string | null;
+  durationSeconds: number | null;
+}
+
 export interface DerivedDeploymentStatus {
   stage: DeploymentStage;
   updatedAt: string;
   currentActivity: string;
+  step: DeploymentStep;
+  /** Applicable steps for this deployment, in canonical order (REDIS/DATABASE_STORAGE only when required). */
+  steps: DeploymentStep[];
+  /** When the active step started, per the resolution ladder — null when nothing authoritative is known yet. */
+  stepStartedAt: string | null;
+  typicalDurationSeconds: { min: number; max: number } | null;
+  takingLongerThanUsual: boolean;
+  /** Completed + active steps only, in canonical order — the vendor-only timing list. */
+  stepTimings: StepTimingEntry[];
+  /**
+   * INTERNAL ONLY — never exposed on either wire projection. A per-step
+   * completedAt sourced from the relay provisioning snapshot, when that
+   * snapshot marks the category COMPLETE. Read by apps/api/src/
+   * step-timings.ts (advanceStepTimings) to prefer a precise completion
+   * time over "whenever the next step started" for the four
+   * snapshot-backed steps (NETWORK/DATABASE_STORAGE/REDIS/APPLICATION).
+   */
+  stepSnapshotCompletedAt: Partial<Record<DeploymentStep, string>>;
   removed?: { state: 'DELETING' | 'DELETED' };
   statusUpdatesUnavailable: boolean;
   needsDomainSetup: boolean;
@@ -449,6 +491,228 @@ function maxDate(...dates: (Date | null | undefined)[]): Date | null {
 }
 
 // ---------------------------------------------------------------------------
+// Relay provisioning snapshot — the mid-PROVISIONING truth `observedState.
+// infraHealth.provisioning` carries once a relay reports one (see
+// packages/relay/src/provision-progress.ts). Absent entirely on older
+// relays and on every heartbeat before the CFN stack exists, so every read
+// here is defensive: an unrecognised shape is treated exactly like "no
+// snapshot yet", never as an error.
+// ---------------------------------------------------------------------------
+
+type ProvisioningCategoryKey = 'network' | 'database' | 'storage' | 'redis' | 'application';
+const PROVISIONING_CATEGORY_KEYS: readonly ProvisioningCategoryKey[] = [
+  'network',
+  'database',
+  'storage',
+  'redis',
+  'application',
+];
+const PROVISIONING_CATEGORY_STATUSES = new Set(['IN_PROGRESS', 'COMPLETE', 'FAILED']);
+
+interface ProvisioningCategory {
+  status: 'IN_PROGRESS' | 'COMPLETE' | 'FAILED';
+  startedAt?: string;
+  completedAt?: string;
+}
+type ProvisioningSnapshot = Partial<Record<ProvisioningCategoryKey, ProvisioningCategory>>;
+
+/** The live CloudFormation stack status the snapshot carries, if any — the
+ *  only stack-status signal that exists while the INSTALL job has no result
+ *  yet (see `aws.stackStatus` below). */
+function readSnapshotStackStatus(observedState: Record<string, unknown> | null | undefined): string | null {
+  const infraHealth = (observedState as { infraHealth?: unknown } | null | undefined)?.infraHealth;
+  const provisioning = (infraHealth as { provisioning?: unknown } | null | undefined)?.provisioning;
+  const stackStatus = (provisioning as { stackStatus?: unknown } | null | undefined)?.stackStatus;
+  return typeof stackStatus === 'string' ? stackStatus : null;
+}
+
+function readProvisioningSnapshot(observedState: Record<string, unknown> | null | undefined): ProvisioningSnapshot | null {
+  const infraHealth = (observedState as { infraHealth?: unknown } | null | undefined)?.infraHealth;
+  const provisioning = (infraHealth as { provisioning?: unknown } | null | undefined)?.provisioning;
+  const categories = (provisioning as { categories?: unknown } | null | undefined)?.categories;
+  if (categories === null || typeof categories !== 'object') return null;
+
+  const snapshot: ProvisioningSnapshot = {};
+  for (const key of PROVISIONING_CATEGORY_KEYS) {
+    const raw = (categories as Record<string, unknown>)[key];
+    if (raw === null || typeof raw !== 'object') continue;
+    const status = (raw as { status?: unknown }).status;
+    if (typeof status !== 'string' || !PROVISIONING_CATEGORY_STATUSES.has(status)) continue;
+    const startedAt = (raw as { startedAt?: unknown }).startedAt;
+    const completedAt = (raw as { completedAt?: unknown }).completedAt;
+    snapshot[key] = {
+      status: status as ProvisioningCategory['status'],
+      ...(typeof startedAt === 'string' ? { startedAt } : {}),
+      ...(typeof completedAt === 'string' ? { completedAt } : {}),
+    };
+  }
+  return Object.keys(snapshot).length > 0 ? snapshot : null;
+}
+
+/**
+ * Which snapshot categories back a given step's timing — DATABASE_STORAGE
+ * merges `database`+`storage`, restricted to whichever the application
+ * actually requires (an unrequired component never gates the merged step).
+ */
+function categoryKeysForStep(step: DeploymentStep, application: DerivationApplication): ProvisioningCategoryKey[] {
+  switch (step) {
+    case 'NETWORK':
+      return ['network'];
+    case 'DATABASE_STORAGE': {
+      const keys: ProvisioningCategoryKey[] = [];
+      if (application.databaseRequired) keys.push('database');
+      if (application.storageRequired) keys.push('storage');
+      return keys;
+    }
+    case 'REDIS':
+      return ['redis'];
+    case 'APPLICATION':
+      return ['application'];
+    default:
+      return [];
+  }
+}
+
+/** Earliest known start across a step's backing categories, or null if none reported one yet. */
+function snapshotStartedAt(
+  snapshot: ProvisioningSnapshot | null,
+  step: DeploymentStep,
+  application: DerivationApplication,
+): string | null {
+  const dates = categoryKeysForStep(step, application)
+    .map((key) => snapshot?.[key]?.startedAt)
+    .filter((date): date is string => typeof date === 'string');
+  return dates.length > 0 ? dates.reduce((min, date) => (date < min ? date : min)) : null;
+}
+
+/** Latest known completion across a step's backing categories, only once ALL of them are COMPLETE. */
+function snapshotCompletedAt(
+  snapshot: ProvisioningSnapshot | null,
+  step: DeploymentStep,
+  application: DerivationApplication,
+): string | null {
+  const keys = categoryKeysForStep(step, application);
+  if (keys.length === 0) return null;
+  const categories = keys.map((key) => snapshot?.[key]);
+  if (categories.some((category) => category === undefined || category.status !== 'COMPLETE')) return null;
+  const completions = categories
+    .map((category) => category!.completedAt)
+    .filter((date): date is string => typeof date === 'string');
+  return completions.length === categories.length
+    ? completions.reduce((max, date) => (date > max ? date : max))
+    : null;
+}
+
+/**
+ * The active PROVISIONING sub-step per the snapshot: first of NETWORK,
+ * DATABASE_STORAGE (iff required), REDIS (iff required), APPLICATION whose
+ * merged category is not COMPLETE. Returns null when there is no snapshot
+ * at all — the caller decides the fallback (PREPARING for an in-flight
+ * install, the FAILURE_COMPONENT map for a failed one).
+ */
+function provisioningLadderStep(
+  snapshot: ProvisioningSnapshot | null,
+  application: DerivationApplication,
+): DeploymentStep | null {
+  if (!snapshot) return null;
+  const complete = (step: DeploymentStep): boolean => snapshotCompletedAt(snapshot, step, application) !== null;
+
+  if (!complete('NETWORK')) return 'NETWORK';
+  const databaseStorageRequired = (application.databaseRequired ?? false) || (application.storageRequired ?? false);
+  if (databaseStorageRequired && !complete('DATABASE_STORAGE')) return 'DATABASE_STORAGE';
+  if ((application.redisRequired ?? false) && !complete('REDIS')) return 'REDIS';
+  return 'APPLICATION';
+}
+
+/**
+ * The step whose backing category the snapshot marks FAILED, if any — in
+ * canonical order, so a multi-category failure names the earliest step.
+ * The only ladder question that stays answerable while a stack rolls back.
+ */
+function snapshotFailedStep(
+  snapshot: ProvisioningSnapshot | null,
+  application: DerivationApplication,
+): DeploymentStep | null {
+  if (!snapshot) return null;
+  for (const step of ['NETWORK', 'DATABASE_STORAGE', 'REDIS', 'APPLICATION'] as const) {
+    const failed = categoryKeysForStep(step, application).some(
+      (key) => snapshot[key]?.status === 'FAILED',
+    );
+    if (failed) return step;
+  }
+  return null;
+}
+
+/** Applicable steps for this deployment, in canonical order — REDIS/DATABASE_STORAGE only when required. */
+function applicableSteps(application: DerivationApplication): DeploymentStep[] {
+  const databaseStorageRequired = (application.databaseRequired ?? false) || (application.storageRequired ?? false);
+  return DEPLOYMENT_STEP_ORDER.filter((step) => {
+    if (step === 'DATABASE_STORAGE') return databaseStorageRequired;
+    if (step === 'REDIS') return application.redisRequired ?? false;
+    return true;
+  });
+}
+
+/**
+ * stepStartedAt resolution ladder (first non-null wins):
+ *   1. persisted deployments.step_timings[step].startedAt
+ *   2. an authoritative fallback specific to the step
+ *   3. null (and, per deriveDeploymentStatus, no slow-step flag either)
+ */
+function resolveStepStartedAt(
+  step: DeploymentStep,
+  params: {
+    persisted: Record<string, { startedAt: string; completedAt?: string }> | null;
+    deployment: DerivationDeployment;
+    jobs: DerivationJob[];
+    application: DerivationApplication;
+    snapshot: ProvisioningSnapshot | null;
+  },
+): string | null {
+  const persistedStartedAt = params.persisted?.[step]?.startedAt;
+  if (persistedStartedAt) return persistedStartedAt;
+
+  switch (step) {
+    case 'AWS_SETUP':
+      return params.deployment.installStartedAt?.toISOString() ?? null;
+    case 'RELAY_CONNECT':
+      return (params.deployment.enrollmentUsedAt ?? params.deployment.relayBoundAt)?.toISOString() ?? null;
+    case 'PREPARING': {
+      const installJob = latestOfType(params.jobs, 'INSTALL');
+      const at = installJob?.startedAt ?? installJob?.createdAt ?? null;
+      return at?.toISOString() ?? null;
+    }
+    case 'NETWORK':
+    case 'DATABASE_STORAGE':
+    case 'REDIS':
+    case 'APPLICATION':
+      return snapshotStartedAt(params.snapshot, step, params.application);
+    case 'HEALTH_CHECK':
+      return latestOfType(params.jobs, 'INSTALL')?.finishedAt?.toISOString() ?? null;
+    case 'TLS':
+    case 'READY':
+      return null;
+  }
+}
+
+/** The vendor-only `stepTimings` list: completed + active steps from the persisted map, in canonical order. */
+function buildStepTimings(
+  persisted: Record<string, { startedAt: string; completedAt?: string }> | null,
+): StepTimingEntry[] {
+  if (!persisted) return [];
+  const entries: StepTimingEntry[] = [];
+  for (const step of DEPLOYMENT_STEP_ORDER) {
+    const record = persisted[step];
+    if (!record) continue;
+    const durationSeconds = record.completedAt
+      ? Math.round((new Date(record.completedAt).getTime() - new Date(record.startedAt).getTime()) / 1000)
+      : null;
+    entries.push({ step, startedAt: record.startedAt, completedAt: record.completedAt ?? null, durationSeconds });
+  }
+  return entries;
+}
+
+// ---------------------------------------------------------------------------
 // currentActivity copy per stage. Deliberately short, vendor-grade sentences
 // — the customer projection uses the SAME text (§65: no separate customer
 // vocabulary needed here, none of this mentions AWS/CFN/ECS by name).
@@ -459,6 +723,17 @@ const STAGE_ACTIVITY: Record<'WAITING_FOR_AWS' | 'CONNECTING' | 'PROVISIONING' |
   CONNECTING: "Connecting to the customer's cloud account.",
   PROVISIONING: "Creating infrastructure in the customer's cloud account.",
   READY: 'Live and healthy.',
+};
+
+// Step-aware PROVISIONING copy — replaces the generic STAGE_ACTIVITY.PROVISIONING
+// sentence once the active sub-step is known, so the install page can say what
+// is actually happening instead of a single catch-all "creating infrastructure".
+const PROVISIONING_STEP_ACTIVITY: Record<'PREPARING' | 'NETWORK' | 'DATABASE_STORAGE' | 'REDIS' | 'APPLICATION', string> = {
+  PREPARING: 'Preparing the deployment.',
+  NETWORK: 'Creating the network.',
+  DATABASE_STORAGE: 'Creating the database and storage.',
+  REDIS: 'Creating the Redis cache.',
+  APPLICATION: 'Starting the application.',
 };
 
 const EVER_INSTALLED_STATES = new Set<DeploymentState>(['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE']);
@@ -479,7 +754,7 @@ const SUCCEEDED_JOB_STATES = new Set<JobState>(['SUCCEEDED', 'SUCCESS']);
  * chrome around a real last-known stage instead of a placeholder.
  */
 export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): DerivedDeploymentStatus {
-  const { deployment, application, jobs, domain, appUrl } = input;
+  const { deployment, application, jobs, domain, appUrl, now = new Date() } = input;
 
   // deployments.state 'DISCONNECTED' is a valid enum value that nothing in
   // this codebase currently writes (the persisted liveness sweep flips
@@ -545,6 +820,97 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     currentActivity = STAGE_ACTIVITY.WAITING_FOR_AWS;
   }
 
+  // ── Step derivation (a read-time sub-step of `stage`, never persisted) ──
+  const snapshot = readProvisioningSnapshot(deployment.observedState);
+  const snapshotStackStatus = readSnapshotStackStatus(deployment.observedState);
+  // A rolling-back (or deleting) stack still reports a snapshot, but its
+  // categories describe resources being torn down, not created — feeding
+  // them to the forward ladder made the step visibly REGRESS mid-rollback
+  // (observed live: "Creating the network" while CloudFormation deleted it).
+  // The one snapshot fact that stays truthful through a rollback is a
+  // category that FAILED — that is where the attempt actually stopped.
+  const snapshotRollingBack =
+    snapshotStackStatus !== null && /ROLLBACK|DELETE/.test(snapshotStackStatus);
+  const failedCategoryStep = snapshotFailedStep(snapshot, application);
+  let step: DeploymentStep;
+  switch (stage) {
+    case 'WAITING_FOR_AWS':
+      step = 'AWS_SETUP';
+      break;
+    case 'CONNECTING':
+      step = 'RELAY_CONNECT';
+      break;
+    case 'PROVISIONING':
+      step =
+        failedCategoryStep ??
+        (snapshotRollingBack ? 'PREPARING' : (provisioningLadderStep(snapshot, application) ?? 'PREPARING'));
+      currentActivity = PROVISIONING_STEP_ACTIVITY[step as keyof typeof PROVISIONING_STEP_ACTIVITY];
+      break;
+    case 'VERIFYING':
+      step = needsDomainSetup ? 'TLS' : 'HEALTH_CHECK';
+      break;
+    case 'READY':
+      step = 'READY';
+      break;
+    case 'FAILED': {
+      // INSTALL failures locate the step from the snapshot first (the most
+      // truthful answer to "what was it doing"); only when no snapshot can
+      // say does the failure's classified component stand in. A failed
+      // job of any OTHER type (DEPLOY_RELEASE, RESTART, ...) never touched
+      // provisioning at all, so it is attributed to APPLICATION uniformly.
+      if (latestFailed?.type === 'INSTALL') {
+        const ladderStep =
+          failedCategoryStep ?? (snapshotRollingBack ? null : provisioningLadderStep(snapshot, application));
+        if (ladderStep) {
+          step = ladderStep;
+        } else {
+          const component = failureEntry?.component ?? null;
+          step =
+            component === 'database'
+              ? 'DATABASE_STORAGE'
+              : component === 'redis'
+                ? 'REDIS'
+                : component === 'runtime'
+                  ? 'APPLICATION'
+                  : 'PREPARING';
+        }
+      } else {
+        step = 'APPLICATION';
+      }
+      break;
+    }
+  }
+
+  const steps = applicableSteps(application);
+  if (!steps.includes(step)) {
+    // The failure-component fallback above can name a step the application's
+    // current flags exclude (a REDIS_* failure code after redisRequired was
+    // turned off, say). A step outside the applicable list would leave both
+    // progress lists with nothing to highlight, so fall back to the broadest
+    // truthful in-stage step instead.
+    step = 'PREPARING';
+  }
+  const stepStartedAt = resolveStepStartedAt(step, { persisted: deployment.stepTimings, deployment, jobs, application, snapshot });
+  const typicalDurationSeconds = TYPICAL_STEP_DURATION_SECONDS[step];
+  // A silent relay cannot support "AWS is still working" — statusUpdatesUnavailable
+  // suppresses the flag exactly like it suppresses every other live signal.
+  // A rolling-back stack is not "still working" toward the step completing,
+  // so the reassuring slow-step nudge is suppressed there too.
+  const takingLongerThanUsual =
+    typicalDurationSeconds !== null &&
+    stepStartedAt !== null &&
+    now.getTime() - new Date(stepStartedAt).getTime() > typicalDurationSeconds.max * 1000 &&
+    stage !== 'READY' &&
+    stage !== 'FAILED' &&
+    !snapshotRollingBack &&
+    !statusUpdatesUnavailable;
+  const stepTimings = buildStepTimings(deployment.stepTimings);
+  const stepSnapshotCompletedAt: Partial<Record<DeploymentStep, string>> = {};
+  for (const snapshotStep of ['NETWORK', 'DATABASE_STORAGE', 'REDIS', 'APPLICATION'] as const) {
+    const completedAt = snapshotCompletedAt(snapshot, snapshotStep, application);
+    if (completedAt) stepSnapshotCompletedAt[snapshotStep] = completedAt;
+  }
+
   const components = buildComponents({
     stage,
     observedState: deployment.observedState,
@@ -570,6 +936,13 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     stage,
     updatedAt: updatedAt.toISOString(),
     currentActivity,
+    step,
+    steps,
+    stepStartedAt,
+    typicalDurationSeconds,
+    takingLongerThanUsual,
+    stepTimings,
+    stepSnapshotCompletedAt,
     ...(REMOVED_STATES.has(deployment.state) ? { removed: { state: deployment.state as 'DELETING' | 'DELETED' } } : {}),
     statusUpdatesUnavailable,
     needsDomainSetup,
@@ -582,7 +955,13 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       lastSeenAt: deployment.lastHealthAt?.toISOString() ?? null,
     },
     job: latest ? { type: latest.type, status: latest.state } : null,
-    aws: { stackStatus: extractStackStatus(latestStackJob?.result) },
+    // A settled INSTALL/DESTROY result is the definitive answer; while one is
+    // still running its result is null, and the relay snapshot's live status
+    // (CREATE_IN_PROGRESS et al.) is the only stack-status signal there is.
+    aws: {
+      stackStatus:
+        extractStackStatus(latestStackJob?.result) ?? readSnapshotStackStatus(deployment.observedState),
+    },
     health: { status: deployment.healthStatus },
     result: stage === 'READY' && appUrl ? { url: appUrl } : null,
     failure: stage === 'FAILED' ? buildFailure(latestFailed, failureEntry!) : null,
@@ -613,6 +992,10 @@ export function toCustomerDeploymentStatus(derived: DerivedDeploymentStatus): Cu
     stage: derived.stage,
     updatedAt: derived.updatedAt,
     currentActivity: derived.currentActivity,
+    step: derived.step,
+    steps: derived.steps,
+    typicalDurationSeconds: derived.typicalDurationSeconds,
+    takingLongerThanUsual: derived.takingLongerThanUsual,
     removed: derived.removed !== undefined,
     statusUpdatesUnavailable: derived.statusUpdatesUnavailable,
     needsDomainSetup: derived.needsDomainSetup,
@@ -645,6 +1028,12 @@ export function toVendorDeploymentStatus(derived: DerivedDeploymentStatus): Vend
     stage: derived.stage,
     updatedAt: derived.updatedAt,
     currentActivity: derived.currentActivity,
+    step: derived.step,
+    steps: derived.steps,
+    typicalDurationSeconds: derived.typicalDurationSeconds,
+    takingLongerThanUsual: derived.takingLongerThanUsual,
+    stepStartedAt: derived.stepStartedAt,
+    stepTimings: derived.stepTimings,
     statusUpdatesUnavailable: derived.statusUpdatesUnavailable,
     needsDomainSetup: derived.needsDomainSetup,
     components: derived.components,

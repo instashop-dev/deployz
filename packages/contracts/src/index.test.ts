@@ -33,6 +33,9 @@ import {
   deploymentSchema,
   deploymentStageSchema,
   deploymentStateSchema,
+  deploymentStepSchema,
+  DEPLOYMENT_STEP_ORDER,
+  TYPICAL_STEP_DURATION_SECONDS,
   errorEnvelopeSchema,
   eventLogSchema,
   failureCodeSchema,
@@ -212,6 +215,7 @@ describe('core-object round-trip (db row -> JSON -> schema.parse -> wire)', () =
         healthStatus: 'HEALTHY',
         desiredState: { image: 'shop:1.4.2' },
         observedState: null,
+        stepTimings: null,
         infraVersion: 'runtime-v1',
         installationId: 'inst_01JABC',
         isTestDeployment: false,
@@ -473,11 +477,51 @@ describe('componentProgressStatusSchema', () => {
   });
 });
 
+describe('deploymentStepSchema', () => {
+  it('is exactly the ten documented steps', () => {
+    expect([...deploymentStepSchema.options].sort()).toEqual(
+      [
+        'AWS_SETUP',
+        'RELAY_CONNECT',
+        'PREPARING',
+        'NETWORK',
+        'DATABASE_STORAGE',
+        'REDIS',
+        'APPLICATION',
+        'HEALTH_CHECK',
+        'TLS',
+        'READY',
+      ].sort(),
+    );
+  });
+
+  it('DEPLOYMENT_STEP_ORDER carries every step exactly once, TLS after HEALTH_CHECK', () => {
+    expect([...DEPLOYMENT_STEP_ORDER].sort()).toEqual([...deploymentStepSchema.options].sort());
+    expect(DEPLOYMENT_STEP_ORDER.indexOf('TLS')).toBeGreaterThan(DEPLOYMENT_STEP_ORDER.indexOf('HEALTH_CHECK'));
+  });
+
+  it('TYPICAL_STEP_DURATION_SECONDS covers every step, null only for TLS/READY', () => {
+    for (const step of DEPLOYMENT_STEP_ORDER) {
+      const range = TYPICAL_STEP_DURATION_SECONDS[step];
+      if (step === 'TLS' || step === 'READY') {
+        expect(range).toBeNull();
+      } else {
+        expect(range).not.toBeNull();
+        expect(range!.min).toBeLessThanOrEqual(range!.max);
+      }
+    }
+  });
+});
+
 describe('customerDeploymentStatusSchema', () => {
   const minimal = {
     stage: 'WAITING_FOR_AWS',
     updatedAt: '2026-08-31T12:00:00.000Z',
     currentActivity: 'Waiting for AWS setup to start.',
+    step: 'AWS_SETUP',
+    steps: ['AWS_SETUP', 'RELAY_CONNECT', 'PREPARING', 'NETWORK', 'APPLICATION', 'HEALTH_CHECK', 'TLS', 'READY'],
+    typicalDurationSeconds: { min: 60, max: 300 },
+    takingLongerThanUsual: false,
     removed: false,
     statusUpdatesUnavailable: false,
     needsDomainSetup: false,
@@ -510,6 +554,11 @@ describe('customerDeploymentStatusSchema', () => {
     );
     expect(() => customerDeploymentStatusSchema.parse({ ...minimal, job: null })).toThrow(ZodError);
   });
+
+  it('rejects stepStartedAt/stepTimings leaking onto the customer shape', () => {
+    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, stepStartedAt: null })).toThrow(ZodError);
+    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, stepTimings: [] })).toThrow(ZodError);
+  });
 });
 
 describe('vendorDeploymentStatusSchema', () => {
@@ -518,6 +567,15 @@ describe('vendorDeploymentStatusSchema', () => {
       stage: 'VERIFYING',
       updatedAt: '2026-08-31T12:00:00.000Z',
       currentActivity: 'Running health checks.',
+      step: 'HEALTH_CHECK',
+      steps: ['AWS_SETUP', 'RELAY_CONNECT', 'PREPARING', 'NETWORK', 'APPLICATION', 'HEALTH_CHECK', 'TLS', 'READY'],
+      typicalDurationSeconds: { min: 60, max: 600 },
+      takingLongerThanUsual: false,
+      stepStartedAt: '2026-08-31T11:55:00.000Z',
+      stepTimings: [
+        { step: 'AWS_SETUP' as const, startedAt: '2026-08-31T11:00:00.000Z', completedAt: '2026-08-31T11:02:00.000Z', durationSeconds: 120 },
+        { step: 'HEALTH_CHECK' as const, startedAt: '2026-08-31T11:55:00.000Z', completedAt: null, durationSeconds: null },
+      ],
       statusUpdatesUnavailable: false,
       needsDomainSetup: false,
       components: [{ key: 'redis', label: 'Redis', status: 'NOT_REQUIRED' as const }],

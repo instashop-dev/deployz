@@ -1,9 +1,12 @@
-import type { CustomerDeploymentStatus, DeploymentStage } from '@deployz/contracts';
+import type { ReactNode } from 'react';
 
-// Client-side vocabulary for the server-derived deployment stage. The server
-// (deriveDeploymentStatus in the API) is the only place lifecycle state is
-// inferred; this module maps the received stage onto display steps and never
-// combines raw deployment/relay/health signals itself.
+import type { CustomerDeploymentStatus, DeploymentStage, DeploymentStep } from '@deployz/contracts';
+
+// Client-side vocabulary for the server-derived deployment stage/step. The
+// server (deriveDeploymentStatus in the API) is the only place lifecycle
+// state is inferred; this module only formats what it received — it never
+// combines raw deployment/relay/health signals itself, and never re-derives
+// the step order or which steps apply.
 
 export type ProgressStepState = 'done' | 'current' | 'waiting' | 'attention';
 
@@ -11,6 +14,11 @@ export interface ProgressStep {
   key: string;
   label: string;
   state: ProgressStepState;
+  /** Optional muted line rendered under the label — timing/slow-step context. */
+  detail?: string | undefined;
+  /** Optional right-aligned timing content (vendor card only — e.g. elapsed/duration;
+   *  a node rather than a string so a live-ticking elapsed counter can live here). */
+  meta?: ReactNode | undefined;
 }
 
 /** Order of the six stages along the install path. FAILED is deliberately
@@ -69,46 +77,112 @@ export const STAGE_HEADLINE: Record<DeploymentStage, { title: string; body: stri
 };
 
 /**
- * The customer's five-step path for a given stage. Labels shift tense as the
- * spec's copy does — "AWS setup started" while in flight collapses into a
- * single completed "AWS connected" once the connection is behind us.
+ * Copy per deployment step, keyed by the step's own state: `pending` (not
+ * reached yet), `active` (in progress, or the interrupted step on FAILED),
+ * `done` (behind us). The server decides WHICH step is active and which
+ * steps apply (`steps`/`step` on the status wire shapes) — this map only
+ * supplies the words.
  */
-export function customerSteps(stage: DeploymentStage): ProgressStep[] {
-  const rank = stageRank(stage);
-  const failed = stage === 'FAILED';
+export const STEP_LABEL: Record<DeploymentStep, { pending: string; active: string; done: string }> = {
+  AWS_SETUP: { pending: 'AWS setup', active: 'Setting up AWS connection', done: 'AWS connected' },
+  RELAY_CONNECT: { pending: 'Connect to Deployz', active: 'Connecting to Deployz', done: 'Connected to Deployz' },
+  PREPARING: { pending: 'Prepare deployment', active: 'Preparing deployment', done: 'Deployment prepared' },
+  NETWORK: { pending: 'Network', active: 'Creating network', done: 'Network created' },
+  DATABASE_STORAGE: {
+    pending: 'Database & storage',
+    active: 'Creating database & storage',
+    done: 'Database & storage created',
+  },
+  REDIS: { pending: 'Redis cache', active: 'Creating Redis cache', done: 'Redis cache created' },
+  APPLICATION: { pending: 'Start application', active: 'Starting application', done: 'Application started' },
+  HEALTH_CHECK: { pending: 'Check application', active: 'Checking application', done: 'Health checks passed' },
+  TLS: { pending: 'Set up HTTPS', active: 'Setting up HTTPS', done: 'HTTPS set up' },
+  READY: { pending: 'Ready', active: 'Ready', done: 'Ready' },
+};
 
-  if (rank <= 1 && !failed) {
-    // Before the relay is talking, AWS setup and the Deployz connection are
-    // two visibly distinct waits.
-    return [
-      { key: 'aws', label: 'AWS setup started', state: rank === 0 ? 'current' : 'done' },
-      { key: 'connect', label: 'Connecting to Deployz', state: rank === 1 ? 'current' : 'waiting' },
-      { key: 'infra', label: 'Creating infrastructure', state: 'waiting' },
-      { key: 'health', label: 'Running health checks', state: 'waiting' },
-      { key: 'ready', label: 'Ready', state: 'waiting' },
-    ];
+/**
+ * Renders the server-sent applicable `steps` list as display steps: steps
+ * before the active one are `done`, the active one is `current` (or
+ * `attention` while the deployment is FAILED), and later ones `waiting`.
+ * READY renders every step `done`. Uses `steps` verbatim — it is already
+ * ordered and filtered (REDIS/DATABASE_STORAGE only when required) by the
+ * server; this function never re-sorts or re-filters it.
+ */
+export function stepsFromStatus({
+  steps,
+  step,
+  stage,
+}: {
+  /** Undefined only when a mixed-version rollout serves an older API to a
+   *  newer client — render no step rows then rather than crash mid-poll. */
+  steps: DeploymentStep[] | undefined;
+  step: DeploymentStep | undefined;
+  stage: DeploymentStage;
+}): ProgressStep[] {
+  if (!steps || !step) return [];
+  const activeIndex = steps.indexOf(step);
+  return steps.map((candidate, index) => {
+    const state: ProgressStepState =
+      stage === 'READY'
+        ? 'done'
+        : index < activeIndex
+          ? 'done'
+          : index === activeIndex
+            ? stage === 'FAILED'
+              ? 'attention'
+              : 'current'
+            : 'waiting';
+    const labels = STEP_LABEL[candidate];
+    const label = state === 'waiting' ? labels.pending : state === 'done' ? labels.done : labels.active;
+    return { key: candidate, label, state };
+  });
+}
+
+/**
+ * '3–8 minutes' (en dash) for a genuine range, or 'about N minutes' once
+ * rounding collapses min and max to the same whole minute. The only place
+ * either projection may turn TYPICAL_STEP_DURATION_SECONDS into words.
+ */
+export function formatDurationRange({ min, max }: { min: number; max: number }): string {
+  const minMinutes = Math.max(1, Math.round(min / 60));
+  const maxMinutes = Math.max(1, Math.round(max / 60));
+  if (minMinutes === maxMinutes) {
+    return `about ${minMinutes} minute${minMinutes === 1 ? '' : 's'}`;
   }
+  return `${minMinutes}–${maxMinutes} minutes`;
+}
 
-  const infraState: ProgressStepState = failed ? 'attention' : rank === 2 ? 'current' : 'done';
-  const healthState: ProgressStepState = failed ? 'waiting' : rank === 3 ? 'current' : rank > 3 ? 'done' : 'waiting';
-  return [
-    { key: 'aws', label: 'AWS connected', state: 'done' },
-    {
-      key: 'infra',
-      label: infraState === 'done' ? 'Infrastructure created' : 'Creating infrastructure',
-      state: infraState,
-    },
-    {
-      key: 'health',
-      label: healthState === 'done' ? 'Health checks passed' : 'Running health checks',
-      state: healthState,
-    },
-    {
-      key: 'ready',
-      label: stage === 'READY' ? 'Application ready' : 'Ready',
-      state: stage === 'READY' ? 'done' : 'waiting',
-    },
-  ];
+/** '18s' | '4m 32s' | '1h 4m' — elapsed time, formatted at whatever
+ *  granularity is still useful (seconds drop away once we reach an hour). */
+export function formatElapsedSeconds(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+/**
+ * The active step's muted detail line, shared by the customer and vendor
+ * cards: a slow-step nudge takes priority over the plain typical-duration
+ * line, and no detail renders at all once neither applies (e.g. TLS/READY,
+ * whose typicalDurationSeconds is null).
+ */
+export function stepDetailLine({
+  takingLongerThanUsual,
+  typicalDurationSeconds,
+  longerMessage,
+  typicalLabel,
+}: {
+  takingLongerThanUsual: boolean;
+  typicalDurationSeconds: { min: number; max: number } | null;
+  longerMessage: string;
+  typicalLabel: (range: string) => string;
+}): string | undefined {
+  if (takingLongerThanUsual) return longerMessage;
+  if (typicalDurationSeconds) return typicalLabel(formatDurationRange(typicalDurationSeconds));
+  return undefined;
 }
 
 /** True once the stage can no longer advance on its own — polling slows down

@@ -24,6 +24,10 @@ interface CustomerStatus {
   stage: string;
   updatedAt: string;
   currentActivity: string;
+  step: string;
+  steps: string[];
+  typicalDurationSeconds: { min: number; max: number } | null;
+  takingLongerThanUsual: boolean;
   removed: boolean;
   statusUpdatesUnavailable: boolean;
   needsDomainSetup: boolean;
@@ -65,6 +69,9 @@ async function seedDeployment(
       repoFullName: `deployz-demo/progress-${suffix}`,
       repoUrl: `https://github.com/deployz-demo/progress-${suffix}`,
       defaultBranch: 'main',
+      // A database-requiring app exercises the DATABASE_STORAGE step (see
+      // the provisioning-snapshot round trip in the happy-path test below).
+      databaseRequired: true,
     },
   });
   expect(appResponse.ok()).toBeTruthy();
@@ -228,9 +235,60 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     customerHeading: 'Creating application infrastructure',
     vendorLabel: 'Creating infrastructure',
   });
+
+  // ── 3b. A relay heartbeat reports a mid-PROVISIONING snapshot: the network
+  // has finished, the database is still being created. The step derivation
+  // (apps/api/src/deployment-status.ts) reads this straight off
+  // observedState.infraHealth.provisioning — the richer-steps feature under
+  // test — and advances the step from PREPARING to DATABASE_STORAGE.
+  const provisioningObservedAt = Date.now();
+  const networkStartedAt = new Date(provisioningObservedAt - 5 * 60_000).toISOString();
+  const networkCompletedAt = new Date(provisioningObservedAt - 3 * 60_000).toISOString();
+  const databaseStartedAt = new Date(provisioningObservedAt - 60_000).toISOString();
+  const provisioningSnapshotResponse = await page.request.post(`${API_URL}/api/relay/health`, {
+    headers: relayAuth,
+    data: {
+      installationId,
+      observedState: {
+        infraHealth: {
+          provisioning: {
+            stackStatus: 'CREATE_IN_PROGRESS',
+            observedAt: new Date(provisioningObservedAt).toISOString(),
+            categories: {
+              network: { status: 'COMPLETE', startedAt: networkStartedAt, completedAt: networkCompletedAt },
+              database: { status: 'IN_PROGRESS', startedAt: databaseStartedAt },
+            },
+          },
+        },
+      },
+    },
+  });
+  expect(provisioningSnapshotResponse.ok()).toBeTruthy();
+
+  await expect
+    .poll(async () => (await fetchStatus(page, installLinkId)).step, {
+      timeout: 15_000,
+      message: 'waiting for the derived step to advance to DATABASE_STORAGE',
+    })
+    .toBe('DATABASE_STORAGE');
+
+  // Customer and vendor agree on the same active-step label, and the
+  // customer sees the step's typical-duration nudge — never a percentage or
+  // a countdown.
   await page.goto(`/install/${installLinkId}`);
-  await expect(page.getByRole('heading', { name: 'Components' })).toBeVisible();
-  await expect(page.getByText('Application runtime', { exact: false })).toBeVisible();
+  await expect(page.getByText('Creating database & storage')).toBeVisible();
+  await expect(page.getByText(/Usually takes/)).toBeVisible();
+  const installPageText = await page.locator('body').innerText();
+  expect(installPageText).not.toContain('%');
+  expect(installPageText.toLowerCase()).not.toContain('remaining');
+
+  await page.goto(`/dashboard/deployments/${deploymentId}`);
+  const stepProgressCard = page.locator('section[aria-labelledby="deployment-progress"]');
+  await expect(stepProgressCard.getByText('Creating database & storage')).toBeVisible();
+
+  // A reload re-derives the same step from the same persisted signals.
+  await page.reload();
+  await expect(stepProgressCard.getByText('Creating database & storage')).toBeVisible();
 
   // ── 4. Relay reports the INSTALL a success, with the ALB endpoint output
   // that resolveAppUrl uses for the (still HTTP-only) app URL.

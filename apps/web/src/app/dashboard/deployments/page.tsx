@@ -35,7 +35,7 @@ import type { VendorDeploymentStatus } from '@deployz/contracts';
 
 import { fetchDeployments, type FleetDeployment } from '@/lib/deployments';
 import { DEPLOYMENT_STATES, deploymentStateLabel } from '@/lib/deployment-vocabulary';
-import { STAGE_LABEL } from '@/lib/deployment-progress';
+import { STAGE_LABEL, STEP_LABEL } from '@/lib/deployment-progress';
 import { relativeTime } from '@/lib/diagnostics';
 import { attentionReason } from '@/lib/home-state';
 import { useStatusPoll } from '@/lib/use-status-poll';
@@ -71,13 +71,14 @@ function isSettled(status: VendorDeploymentStatus): boolean {
 }
 
 /** The compact detail shown next to the stage on the fleet list: the
- *  component actively being created during PROVISIONING (more specific than
- *  the stage-level activity sentence), otherwise the server's own
- *  currentActivity sentence. */
+ *  server-derived step during PROVISIONING (more specific than the
+ *  stage-level activity sentence), falling back to the component actively
+ *  being created, then to the server's own currentActivity sentence. */
 function progressDetail(status: VendorDeploymentStatus): string {
-  if (status.stage === 'PROVISIONING') {
-    const inProgress = status.components.find((component) => component.status === 'IN_PROGRESS');
-    if (inProgress) return inProgress.label;
+  // The step lookup tolerates an older API without `step` (a mixed-version
+  // rollout window) by falling through to the activity sentence.
+  if (status.stage === 'PROVISIONING' && status.step && STEP_LABEL[status.step]) {
+    return STEP_LABEL[status.step].pending;
   }
   return status.currentActivity;
 }
