@@ -1,15 +1,16 @@
 import { eq } from 'drizzle-orm';
 
-import type { AiGateway, AnalysisResult, CompatibilityResult, FileTree, RepositoryAiInput } from '@deployz/analysis';
+import type { AiGateway, AnalysisResult, FileTree, ReadinessReport, RepositoryAiInput } from '@deployz/analysis';
 import {
   REPO_AI_TIMEOUT_MS,
   analyseRepo,
   analyseRepositoryWithAi,
+  buildReadinessReport,
   collectScripts,
   collectUnresolvedQuestions,
-  evaluateCompatibility,
   mergeAiAnalysis,
   selectAiContextFiles,
+  verdictFromReadiness,
 } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -45,8 +46,9 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // changes materially, so a repository whose head commit hasn't moved but
 // whose analysis LOGIC has still gets a fresh run instead of a stale cache
 // hit. Version 1 is the pre-AI implicit version (no `analysisVersion` field
-// on the row at all).
-export const ANALYSIS_VERSION = 2;
+// on the row at all). Version 3 introduced the semantic readiness report
+// (`detected_metadata.readiness`).
+export const ANALYSIS_VERSION = 3;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -126,8 +128,6 @@ export async function runApplicationAnalysis(
 
     const tree = await fetchTreeForApplication(deps, application, realModeToken);
     const analysis = analyseRepo(tree);
-    const compatibility = evaluateCompatibility(analysis);
-    const checks = buildChecks(analysis, compatibility, tree);
     // The vendor-owned field list lives on detected_metadata, which this
     // write replaces wholesale — carry it across or every re-analysis would
     // forget which fields the vendor edited.
@@ -140,15 +140,22 @@ export async function runApplicationAnalysis(
     const mergedAnalysis: AnalysisResult = { ...analysis, metadata };
     const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, mergedAnalysis, aiResolved);
 
+    // The semantic readiness report is built from the MERGED metadata, so a
+    // start/migration command the AI resolved counts as resolved here too.
+    // The persisted verdict is derived from the report — one source of truth.
+    const readiness: ReadinessReport = buildReadinessReport(mergedAnalysis, {
+      workerCommandResolved: resolveWorkerCommand(tree) !== undefined,
+    });
+
     await deps.db
       .update(schema.applications)
       .set({
         analysisStatus: 'COMPLETE',
-        compatibilityStatus: compatibility.verdict,
-        compatibilityReason: compatibility.reason,
+        compatibilityStatus: verdictFromReadiness(readiness.state),
+        compatibilityReason: readiness.summary,
         detectedMetadata: {
           ...metadata,
-          checks,
+          readiness,
           vendorOverrides,
           analysisVersion: ANALYSIS_VERSION,
           ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
@@ -322,7 +329,10 @@ async function applyAiFallback(
   }
 }
 
-// ── §19 checks shape (shared with computeReadiness in server.ts) ────────────
+// ── Legacy §19 checks shape ─────────────────────────────────────────────────
+// No longer written — analyses persist `detected_metadata.readiness` instead.
+// Kept only so computeReadiness (server.ts) can degrade gracefully when it
+// reads a row analysed before the semantic-readiness report existed.
 
 export interface ReadyCheck {
   label: string;
@@ -335,144 +345,6 @@ export interface AttentionCheck {
 export interface UnsupportedCheck {
   title: string;
   reason: string;
-}
-
-// Friendly, §65 jargon-reduced titles for the §18 detectors that are
-// positive/informational signals. Falls back to the detector's own `details`
-// string (already human-readable) for anything not in this map, so a future
-// detector never silently drops out of the ready list.
-const READY_LABELS: Partial<Record<string, string>> = {
-  dockerfile: 'Dockerfile found',
-  framework: 'Framework detected',
-  port: 'Application port detected',
-  'health-endpoint': 'Health check endpoint found',
-  'env-vars': 'Environment variables detected',
-  postgresql: 'PostgreSQL database configured',
-  redis: 'Redis detected — provisioned automatically on install',
-  worker: 'Background worker detected',
-  s3: 'Object storage usage detected',
-  'migration-command': 'Database migration command found',
-  'startup-command': 'Startup command found',
-  'external-services': 'External service integrations detected',
-  'package-manager': 'Package manager detected',
-  'build-command': 'Build command found',
-};
-
-// Detectors whose `detected: true` is a NEGATIVE signal (they only ever fire
-// alongside a NOT_COMPATIBLE verdict — see evaluateCompatibility) and must
-// never be surfaced in the "ready" list.
-const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem']);
-
-// `worker` is handled separately from the generic detector -> ready-check
-// mapping: worker-like code being present is not, on its own, evidence that
-// a worker will actually run — see `buildChecks`.
-const SEPARATELY_HANDLED_DETECTORS = new Set<string>(['worker']);
-
-function buildReadyChecks(analysis: AnalysisResult, workerCommand: string | undefined): ReadyCheck[] {
-  const checks = analysis.findings
-    .filter((f) => f.detected && !NEGATIVE_SIGNAL_DETECTORS.has(f.detector) && !SEPARATELY_HANDLED_DETECTORS.has(f.detector))
-    .map((f) => ({ label: READY_LABELS[f.detector] ?? f.details ?? f.detector }));
-
-  // "Background worker detected" is a ready-check, not a mere presence
-  // flag: it must only appear when a worker command actually resolved, or
-  // it promises a worker service application-stack never provisions.
-  const workerFinding = analysis.findings.find((f) => f.detector === 'worker');
-  if (workerFinding?.detected && workerCommand) {
-    checks.push({ label: READY_LABELS['worker']! });
-  }
-
-  return checks;
-}
-
-function humanizeCode(code: string): string {
-  return code
-    .toLowerCase()
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-// Per-issue-code title + suggested fix for the §19 ATTENTION rules
-// (packages/analysis/src/rules.ts). Each needs its OWN suggested fix per
-// §19 — never a generic "fix your app" message.
-const ATTENTION_META: Partial<Record<string, { title: string; suggestedFix: string }>> = {
-  MISSING_DOCKERFILE: {
-    title: 'Add a Dockerfile',
-    suggestedFix:
-      'Add a Dockerfile to the repository root so Deployz knows how to build and run your application.',
-  },
-  MISSING_HEALTH_ENDPOINT: {
-    title: 'Add a health check endpoint',
-    suggestedFix:
-      'Expose a /health route (or a Dockerfile HEALTHCHECK instruction) that returns success once the app is ready to serve traffic.',
-  },
-  MISSING_MIGRATION_COMMAND: {
-    title: 'Add a database migration command',
-    suggestedFix:
-      'Add a migration script (for example a "db:migrate" entry in package.json) so Deployz can run your schema migrations automatically during deploys.',
-  },
-};
-
-function buildNeedsAttentionChecks(compatibility: CompatibilityResult): AttentionCheck[] {
-  if (compatibility.verdict !== 'NEEDS_ATTENTION') return [];
-  return compatibility.issues.map((issue) => {
-    const meta = ATTENTION_META[issue.code];
-    return {
-      title: meta?.title ?? humanizeCode(issue.code),
-      detail: issue.message,
-      suggestedFix: meta?.suggestedFix ?? null,
-    };
-  });
-}
-
-// Worker-like code detected (bull/agenda/bullmq/worker_threads) but no
-// runnable start command resolved — application-stack silently provisions
-// no worker service in that case, so this must never surface as a green
-// ready-check (see `buildReadyChecks`). Independent of the §19 compatibility
-// verdict — a repo can be READY overall and still have this gap.
-function buildWorkerAttentionCheck(analysis: AnalysisResult, workerCommand: string | undefined): AttentionCheck[] {
-  const workerFinding = analysis.findings.find((f) => f.detector === 'worker');
-  if (!workerFinding?.detected || workerCommand) return [];
-  return [
-    {
-      title: 'Add a worker start command',
-      detail: 'Worker-like code detected but no start command found — background jobs will not run.',
-      suggestedFix:
-        'Add a worker start script (for example a "worker" or "worker:start" entry in package.json) so Deployz can run your background job processor.',
-    },
-  ];
-}
-
-// Per-issue-code title for the §19/§10 REJECT rules.
-const UNSUPPORTED_META: Partial<Record<string, string>> = {
-  REDIS_UNSUPPORTED: 'This Redis setup is not supported',
-  MYSQL_DEPENDENCY: 'MySQL is not supported',
-  MONGO_DEPENDENCY: 'MongoDB is not supported',
-  ELASTICSEARCH_DEPENDENCY: 'Elasticsearch / OpenSearch is not supported',
-  UNSUPPORTED_DATABASE: 'Unsupported database',
-  UNSUPPORTED_DEPENDENCY: 'Unsupported dependency',
-  LOCAL_FILESYSTEM_USAGE: 'Persistent local storage is not supported',
-};
-
-function buildUnsupportedChecks(compatibility: CompatibilityResult): UnsupportedCheck[] {
-  if (compatibility.verdict !== 'NOT_COMPATIBLE') return [];
-  return compatibility.issues.map((issue) => ({
-    title: UNSUPPORTED_META[issue.code] ?? humanizeCode(issue.code),
-    reason: issue.message,
-  }));
-}
-
-function buildChecks(
-  analysis: AnalysisResult,
-  compatibility: CompatibilityResult,
-  tree: FileTree,
-): { ready: ReadyCheck[]; needsAttention: AttentionCheck[]; unsupported: UnsupportedCheck[] } {
-  const workerCommand = resolveWorkerCommand(tree);
-  return {
-    ready: buildReadyChecks(analysis, workerCommand),
-    needsAttention: [...buildNeedsAttentionChecks(compatibility), ...buildWorkerAttentionCheck(analysis, workerCommand)],
-    unsupported: buildUnsupportedChecks(compatibility),
-  };
 }
 
 // ── §35 contract field backfill ─────────────────────────────────────────────

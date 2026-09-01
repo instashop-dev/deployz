@@ -12,9 +12,14 @@ import Fastify, {
 import { z } from 'zod';
 
 import {
+  FIX_INSTRUCTIONS_TIMEOUT_MS,
   createAiGateway,
+  generateFixInstructions,
   normalizeErrorText,
   type AiGateway,
+  type PassedCheck,
+  type ReadinessFinding,
+  type ReadinessState,
   type StructuredEvent,
 } from '@deployz/analysis';
 import {
@@ -33,6 +38,7 @@ import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
 import { resolveExplanation } from './ai-explanation.js';
+import { createFixtureAiGateway } from './ai-fixture.js';
 import {
   createAnalysisRunner,
   readVendorOverrides,
@@ -41,6 +47,7 @@ import {
   type ReadyCheck,
   type UnsupportedCheck,
 } from './analysis.js';
+import { buildFixInstructionsContext, readReadinessReport } from './fix-instructions.js';
 import {
   createCheckoutSession,
   createStripe,
@@ -565,74 +572,123 @@ function maskAwsAccountId(awsAccountId: string | null): string | null {
 }
 
 
-// §19 readiness derivation. The analyser (out of scope here) is expected to
-// persist its findings on `applications.detected_metadata` as:
-//   { checks: { ready: [{label}], needsAttention: [{title,detail,suggestedFix?}], unsupported: [{title,reason}] } }
-// Score is the ratio of satisfied checks (ready / total), never a hardcoded
-// constant. Older/partial rows (compatibilityStatus set, no detectedMetadata
-// checks yet) degrade gracefully into a single derived check bucket.
+// §19 semantic readiness derivation. Analyses persist the full semantic
+// report on `applications.detected_metadata.readiness` (analysis.ts) — this
+// puts it on the wire, adding the state derived from `analysisStatus`
+// (ANALYSIS_INCOMPLETE while pending/failed — never a fabricated result).
+// Rows analysed before the report existed degrade into equivalent findings
+// built from the legacy `checks` shape. No percentages, ever.
+
+/** The `GET /api/applications/:id/readiness` wire shape. */
+interface ReadinessResponse {
+  analysisStatus: string;
+  state: ReadinessState;
+  requiredCount: number;
+  recommendedCount: number;
+  /** One short explanation of the state. Null while analysis is incomplete. */
+  summary: string | null;
+  /** Why a FAILED analysis failed. Null in every other state. */
+  failureReason: string | null;
+  findings: ReadinessFinding[];
+  passed: PassedCheck[];
+  /** The commit the analysis ran against, when known. */
+  analyzedCommitSha: string | null;
+}
+
+/** Legacy-row bridge: rebuild findings from the pre-report `checks` shape. */
+function legacyReadiness(app: {
+  compatibilityStatus: string | null;
+  compatibilityReason: string | null;
+  detectedMetadata: Record<string, unknown> | null;
+}): Pick<ReadinessResponse, 'state' | 'requiredCount' | 'recommendedCount' | 'summary' | 'findings' | 'passed'> {
+  const rawChecks = app.detectedMetadata?.checks as
+    | { ready?: ReadyCheck[]; needsAttention?: AttentionCheck[]; unsupported?: UnsupportedCheck[] }
+    | undefined;
+
+  const toFinding = (
+    entry: { title: string; detail?: string; reason?: string; suggestedFix?: string | null },
+    blocking: boolean,
+    index: number,
+  ): ReadinessFinding => ({
+    id: `legacy-${blocking ? 'blocking' : 'required'}-${index}`,
+    category: 'legacy',
+    title: entry.title,
+    severity: 'required',
+    blocking,
+    plainEnglishExplanation: entry.detail ?? entry.reason ?? entry.title,
+    whyItMatters: '',
+    technicalEvidence: entry.detail ?? entry.reason ?? '',
+    suggestedOutcome: entry.suggestedFix ?? '',
+    confidence: 'confirmed',
+  });
+
+  const unsupported = (rawChecks?.unsupported ?? []).map((entry, i) => toFinding(entry, true, i));
+  const attention = (rawChecks?.needsAttention ?? []).map((entry, i) => toFinding(entry, false, i));
+  const findings = [...unsupported, ...attention];
+  // A COMPLETE row with no verdict at all is treated like NEEDS_ATTENTION
+  // (the old endpoint's fallback) — never READY by omission.
+  const state: ReadinessState =
+    app.compatibilityStatus === 'NOT_COMPATIBLE'
+      ? 'NEEDS_CHANGES'
+      : app.compatibilityStatus === 'READY'
+        ? 'READY'
+        : 'ALMOST_READY';
+
+  return {
+    state,
+    requiredCount: findings.length,
+    recommendedCount: 0,
+    summary: app.compatibilityReason,
+    findings,
+    passed: (rawChecks?.ready ?? []).map((entry, i) => ({ id: `legacy-passed-${i}`, label: entry.label })),
+  };
+}
+
 function computeReadiness(app: {
   analysisStatus: string;
   compatibilityStatus: string | null;
   compatibilityReason: string | null;
   detectedMetadata: Record<string, unknown> | null;
-}): {
-  analysisStatus: string;
-  verdict: string | null;
-  score: number | null;
-  changesRequired: number | null;
-  /** Why a FAILED analysis failed. Null in every other state. */
-  failureReason: string | null;
-  ready: ReadyCheck[];
-  needsAttention: AttentionCheck[];
-  unsupported: UnsupportedCheck[];
-} {
+}): ReadinessResponse {
   if (app.analysisStatus !== 'COMPLETE') {
     return {
       analysisStatus: app.analysisStatus,
-      verdict: null,
-      score: null,
-      changesRequired: null,
+      state: 'ANALYSIS_INCOMPLETE',
+      requiredCount: 0,
+      recommendedCount: 0,
+      summary: null,
       // A FAILED analysis used to look exactly like a still-running one on
       // the wire, so the page showed "Analysing your app" for ever and
       // Re-analyse appeared to do nothing. The reason is on the row either
       // way (analysis.ts persists it) — it just was never sent.
       failureReason: app.analysisStatus === 'FAILED' ? app.compatibilityReason : null,
-      ready: [],
-      needsAttention: [],
-      unsupported: [],
+      findings: [],
+      passed: [],
+      analyzedCommitSha: null,
     };
   }
 
-  const rawChecks = app.detectedMetadata?.checks as
-    | { ready?: ReadyCheck[]; needsAttention?: AttentionCheck[]; unsupported?: UnsupportedCheck[] }
-    | undefined;
-
-  const ready = rawChecks?.ready ?? [];
-  const needsAttention =
-    rawChecks?.needsAttention ??
-    (app.compatibilityStatus === 'NEEDS_ATTENTION' && app.compatibilityReason
-      ? [{ title: 'Attention required', detail: app.compatibilityReason, suggestedFix: null }]
-      : []);
-  const unsupported =
-    rawChecks?.unsupported ??
-    (app.compatibilityStatus === 'NOT_COMPATIBLE' && app.compatibilityReason
-      ? [{ title: 'Not compatible', reason: app.compatibilityReason }]
-      : []);
-
-  const total = ready.length + needsAttention.length + unsupported.length;
-  const score =
-    total > 0 ? Math.round((ready.length / total) * 100) : app.compatibilityStatus === 'READY' ? 100 : 0;
+  const analyzedCommitSha =
+    typeof app.detectedMetadata?.['analysisCommitSha'] === 'string'
+      ? (app.detectedMetadata['analysisCommitSha'] as string)
+      : null;
+  const report = readReadinessReport(app.detectedMetadata);
+  const body = report
+    ? {
+        state: report.state as ReadinessState,
+        requiredCount: report.requiredCount,
+        recommendedCount: report.recommendedCount,
+        summary: report.summary,
+        findings: report.findings,
+        passed: report.passed,
+      }
+    : legacyReadiness(app);
 
   return {
     analysisStatus: app.analysisStatus,
-    verdict: app.compatibilityStatus ?? 'NEEDS_ATTENTION',
-    score,
-    changesRequired: needsAttention.length,
+    ...body,
     failureReason: null,
-    ready,
-    needsAttention,
-    unsupported,
+    analyzedCommitSha,
   };
 }
 
@@ -795,7 +851,7 @@ export async function buildServer({
   githubFetch: injectedGithubFetch,
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
-  aiGateway = createAiGateway(env.aiGateway),
+  aiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.aiGateway),
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
   loggerInstance,
 }: ServerDeps): Promise<FastifyInstance> {
@@ -1929,6 +1985,57 @@ export async function buildServer({
     const app = await loadOwnedApplication(db, id, organizationId);
     return computeReadiness(app);
   });
+
+  // POST /api/applications/:id/fix-instructions — Generate the consolidated
+  // coding-agent prompt for the unresolved readiness findings. Read-only with
+  // respect to the analysis: generation never changes findings, readiness
+  // state, or the repository. Any AI failure maps to a retryable 503 — the
+  // analysis stays fully usable without it.
+  app.post(
+    '/api/applications/:id/fix-instructions',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const application = await loadOwnedApplication(db, id, organizationId);
+
+      if (application.analysisStatus !== 'COMPLETE') {
+        throw new ApiError(
+          409,
+          'ANALYSIS_NOT_COMPLETE',
+          'Run the analysis before generating fix instructions.',
+        );
+      }
+      const context = buildFixInstructionsContext(application);
+      if (!context) {
+        throw new ApiError(
+          409,
+          'NO_UNRESOLVED_FINDINGS',
+          'There are no unresolved findings to generate instructions for.',
+        );
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FIX_INSTRUCTIONS_TIMEOUT_MS);
+      try {
+        const instructions = await generateFixInstructions(context, aiGateway, {
+          abortSignal: controller.signal,
+        });
+        return { instructions, generatedAt: new Date().toISOString() };
+      } catch (error) {
+        // Every AI failure (unconfigured gateway, timeout, malformed output,
+        // spend limit) is the same retryable condition to the vendor.
+        request.log.warn({ err: error }, 'fix-instructions generation failed');
+        throw new ApiError(
+          503,
+          'FIX_INSTRUCTIONS_UNAVAILABLE',
+          "We couldn't generate the instructions right now. Try again in a moment.",
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
 
   // ── Customers (§37) ─────────────────────────────────────────────────────
 

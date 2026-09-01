@@ -558,24 +558,61 @@ export const COMPATIBILITY_VERDICTS = [
 
 export type CompatibilityVerdict = (typeof COMPATIBILITY_VERDICTS)[number];
 
-export interface VerdictPresentation {
-  /** The verdict headline (§65 copy). */
+// ── Semantic readiness states ───────────────────────────────────────────────
+
+/**
+ * The semantic readiness vocabulary the UI shows — never a percentage.
+ * READY: all required checks pass. ALMOST_READY: only fixable required
+ * findings remain. NEEDS_CHANGES: an architectural incompatibility.
+ * ANALYSIS_INCOMPLETE: analysis has not completed (pending or failed).
+ */
+export const READINESS_STATES = [
+  'READY',
+  'ALMOST_READY',
+  'NEEDS_CHANGES',
+  'ANALYSIS_INCOMPLETE',
+] as const;
+
+export type ReadinessState = (typeof READINESS_STATES)[number];
+
+export interface ReadinessStatePresentation {
+  /** The state headline (§65 copy). */
   heading: string;
   /** Short badge label. */
   label: string;
   /** Visual tone — READY is green (§19). */
-  tone: 'ready' | 'attention' | 'incompatible';
+  tone: 'ready' | 'attention' | 'incompatible' | 'pending';
 }
 
-export const VERDICT_PRESENTATION: Record<CompatibilityVerdict, VerdictPresentation> = {
-  READY: { heading: 'Your app is ready to deploy.', label: 'Ready', tone: 'ready' },
-  NEEDS_ATTENTION: { heading: 'Needs attention', label: 'Needs attention', tone: 'attention' },
-  NOT_COMPATIBLE: {
-    heading: 'Not currently compatible',
-    label: 'Not currently compatible',
-    tone: 'incompatible',
+export const READINESS_STATE_PRESENTATION: Record<ReadinessState, ReadinessStatePresentation> = {
+  READY: { heading: 'Ready to deploy', label: 'Ready', tone: 'ready' },
+  ALMOST_READY: { heading: 'Almost ready', label: 'Almost ready', tone: 'attention' },
+  NEEDS_CHANGES: { heading: 'Needs changes', label: 'Needs changes', tone: 'incompatible' },
+  ANALYSIS_INCOMPLETE: {
+    heading: 'Analysis incomplete',
+    label: 'Analysis incomplete',
+    tone: 'pending',
   },
 };
+
+/** Map a persisted §19 verdict onto the semantic readiness state. */
+export function readinessStateFromVerdict(verdict: CompatibilityVerdict): ReadinessState {
+  if (verdict === 'READY') return 'READY';
+  if (verdict === 'NEEDS_ATTENTION') return 'ALMOST_READY';
+  return 'NEEDS_CHANGES';
+}
+
+/** "2 required changes · 1 recommendation" — never a percentage. */
+export function readinessCountsLabel(requiredCount: number, recommendedCount: number): string {
+  const parts: string[] = [];
+  if (requiredCount > 0) {
+    parts.push(`${requiredCount} required ${requiredCount === 1 ? 'change' : 'changes'}`);
+  }
+  if (recommendedCount > 0) {
+    parts.push(`${recommendedCount} ${recommendedCount === 1 ? 'recommendation' : 'recommendations'}`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : 'All checks passed';
+}
 
 // ── §42 onboarding steps ────────────────────────────────────────────────────
 

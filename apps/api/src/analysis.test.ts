@@ -3,7 +3,13 @@ import crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { analyseRepo, collectUnresolvedQuestions, createAiGateway, type AiGateway } from '@deployz/analysis';
+import {
+  analyseRepo,
+  collectUnresolvedQuestions,
+  createAiGateway,
+  type AiGateway,
+  type ReadinessReport,
+} from '@deployz/analysis';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -142,14 +148,13 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
     expect(row.compatibilityStatus).toBe('READY');
-    expect(row.compatibilityReason).toBe('Compatible with Deployz');
+    expect(row.compatibilityReason).toBe('This app can be deployed through Deployz.');
 
-    const checks = (row.detectedMetadata as { checks: { ready: unknown[]; needsAttention: unknown[]; unsupported: unknown[] } })
-      .checks;
-    expect(checks.ready.length).toBeGreaterThan(0);
-    expect(checks.needsAttention).toEqual([]);
-    expect(checks.unsupported).toEqual([]);
-    expect(checks.ready).toContainEqual({ label: 'Dockerfile found' });
+    const readiness = (row.detectedMetadata as { readiness: ReadinessReport }).readiness;
+    expect(readiness.state).toBe('READY');
+    expect(readiness.findings).toEqual([]);
+    expect(readiness.passed.length).toBeGreaterThan(0);
+    expect(readiness.passed).toContainEqual({ id: 'dockerfile', label: 'Container setup found' });
 
     // §35 contract fields backfilled from the analysis (were null/false).
     expect(row.containerPort).toBe(3000);
@@ -158,7 +163,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(row.databaseRequired).toBe(true);
   });
 
-  it('analyses the legacy-redis fixture repo to COMPLETE/NOT_COMPATIBLE with an unsupported check', async () => {
+  it('analyses the legacy-redis fixture repo to COMPLETE/NOT_COMPATIBLE with a blocking finding', async () => {
     const application = await insertApplication(db, orgId, {
       repoFullName: 'deployz-demo/legacy-redis',
     });
@@ -169,10 +174,13 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(row.analysisStatus).toBe('COMPLETE');
     expect(row.compatibilityStatus).toBe('NOT_COMPATIBLE');
 
-    const checks = (row.detectedMetadata as { checks: { unsupported: Array<{ title: string; reason: string }> } })
-      .checks;
-    expect(checks.unsupported.length).toBeGreaterThan(0);
-    expect(checks.unsupported.some((c) => c.title === 'This Redis setup is not supported')).toBe(true);
+    const readiness = (row.detectedMetadata as { readiness: ReadinessReport }).readiness;
+    expect(readiness.state).toBe('NEEDS_CHANGES');
+    // No Dockerfile, no health endpoint, plus the blocking Redis rejection.
+    expect(readiness.requiredCount).toBe(3);
+    expect(readiness.findings.some((f) => f.id === 'unsupported-redis-setup' && f.blocking)).toBe(true);
+    expect(readiness.findings.some((f) => f.id === 'container-setup')).toBe(true);
+    expect(readiness.findings.some((f) => f.id === 'health-check')).toBe(true);
   });
 
   it('analyses the static-api fixture (no database) to COMPLETE/READY with databaseRequired false', async () => {
@@ -185,15 +193,15 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
     expect(row.compatibilityStatus).toBe('READY');
-    expect(row.compatibilityReason).toBe('Compatible with Deployz');
+    expect(row.compatibilityReason).toBe('This app can be deployed through Deployz.');
     // No database → databaseRequired stays false, databaseState 'none'.
     expect(row.databaseRequired).toBe(false);
 
-    const metadata = row.detectedMetadata as { databaseState?: string; checks: { ready: Array<{ label: string }>; unsupported: unknown[] } };
+    const metadata = row.detectedMetadata as { databaseState?: string; readiness: ReadinessReport };
     expect(metadata.databaseState).toBe('none');
-    // The ready list must NOT advertise a PostgreSQL database.
-    expect(metadata.checks.ready.some((c) => c.label === 'PostgreSQL database configured')).toBe(false);
-    expect(metadata.checks.unsupported).toEqual([]);
+    // No database at all → no migration finding, regardless of the missing driver.
+    expect(metadata.readiness.findings.some((f) => f.id === 'database-migrations')).toBe(false);
+    expect(metadata.readiness.state).toBe('READY');
   });
 
   it('analyses the bullmq-worker fixture repo to a supported, high-confidence Redis requirement', async () => {
@@ -209,24 +217,22 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(row.databaseRequired).toBe(true);
     expect(row.redisRequired).toBe(true);
 
-    const checks = (
-      row.detectedMetadata as {
-        checks: { ready: Array<{ label: string }>; needsAttention: Array<{ title: string; detail: string }> };
-      }
-    ).checks;
-    expect(checks.ready).toContainEqual({ label: 'Redis detected — provisioned automatically on install' });
+    const readiness = (row.detectedMetadata as { readiness: ReadinessReport }).readiness;
+    expect(readiness.passed).toContainEqual({
+      id: 'redis',
+      label: 'Redis detected — provisioned automatically on install',
+    });
 
     // This fixture has a `bullmq` dependency (worker-like code) but no
     // "worker"/"worker:start" script — no worker command resolves, so
     // application-stack provisions no worker service. "Background worker
-    // detected" must NOT appear as a green ready-check for that; it must
-    // surface as a needsAttention item instead.
-    expect(checks.ready).not.toContainEqual({ label: 'Background worker detected' });
-    expect(checks.needsAttention).toContainEqual(
-      expect.objectContaining({
-        detail: 'Worker-like code detected but no start command found — background jobs will not run.',
-      }),
-    );
+    // detected" must NOT appear as a passed check for that; it must surface
+    // as a recommended finding instead, and must never block READY.
+    expect(readiness.passed).not.toContainEqual({ id: 'worker', label: 'Background worker detected' });
+    expect(readiness.state).toBe('READY');
+    expect(readiness.findings).toEqual([
+      expect.objectContaining({ id: 'worker-command', severity: 'recommended' }),
+    ]);
     expect(row.workerCommand).toBeNull();
   });
 
@@ -240,7 +246,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
     expect(row.compatibilityStatus).toBe('READY');
-    expect(row.compatibilityReason).toBe('Compatible with Deployz');
+    expect(row.compatibilityReason).toBe('This app can be deployed through Deployz.');
     expect(row.databaseRequired).toBe(true);
     expect(row.migrationCommand).toBe('prisma migrate deploy');
     // The only health-check evidence in this fixture is the app-router
@@ -276,15 +282,22 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
-    expect(row.compatibilityStatus).not.toBe('NOT_COMPATIBLE');
+    // The nested Dockerfile satisfies container setup, but there is no
+    // health endpoint or HEALTHCHECK anywhere in this fixture.
+    expect(row.compatibilityStatus).toBe('NEEDS_ATTENTION');
 
     const metadata = row.detectedMetadata as {
       dockerfilePath?: string;
       aiAnalysis?: { unresolved: string[]; warnings: string[] };
+      readiness: ReadinessReport;
     };
     expect(metadata.dockerfilePath).toBe('apps/api/Dockerfile');
     expect(metadata.aiAnalysis?.unresolved).toContain('monorepo-target');
     expect(metadata.aiAnalysis?.warnings).toContain('AI analysis unavailable');
+    expect(metadata.readiness.state).toBe('ALMOST_READY');
+    expect(metadata.readiness.findings).toEqual([
+      expect.objectContaining({ id: 'health-check', severity: 'required', blocking: false }),
+    ]);
   });
 
   it('refreshes a previously auto-detected contract field when the repo has changed', async () => {
@@ -490,8 +503,8 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
     expect(row.workerCommand).toBe('node worker.js');
-    const checks = (row.detectedMetadata as { checks: { ready: Array<{ label: string }> } }).checks;
-    expect(checks.ready).toContainEqual({ label: 'Background worker detected' });
+    const readiness = (row.detectedMetadata as { readiness: ReadinessReport }).readiness;
+    expect(readiness.passed).toContainEqual({ id: 'worker', label: 'Background worker detected' });
   });
 });
 
@@ -1170,7 +1183,7 @@ describe('analysis — commit-SHA cache (Task 6)', () => {
     const second = await loadApplication(db, application.id);
     expect(second.analysisStatus).toBe('COMPLETE');
     expect(second.compatibilityStatus).toBe('READY');
-    expect(second.compatibilityReason).toBe('Compatible with Deployz');
+    expect(second.compatibilityReason).toBe('This app can be deployed through Deployz.');
   });
 
   // The head-sha lookup and the tree/blob fetch used to mint their OWN

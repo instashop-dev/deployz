@@ -60,6 +60,34 @@ export type {
 } from './rules.js';
 export { evaluateCompatibility, persistVerdict } from './rules.js';
 
+export type {
+  ReadinessState,
+  FindingSeverity,
+  FindingConfidence,
+  ReadinessFinding,
+  PassedCheck,
+  ReadinessReport,
+  ReadinessReportContext,
+} from './readiness-report.js';
+export { buildReadinessReport, verdictFromReadiness } from './readiness-report.js';
+
+export type {
+  FixInstructionsFacts,
+  FixInstructionsContext,
+  FixInstructionsAiOutput,
+} from './fix-instructions.js';
+export {
+  FIX_INSTRUCTIONS_GUARDRAIL,
+  FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS,
+  FIX_INSTRUCTIONS_MAX_PROMPT_TOKENS,
+  FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS,
+  FIX_INSTRUCTIONS_TIMEOUT_MS,
+  buildFixInstructionsAiPrompt,
+  assembleFixInstructions,
+  fixInstructionsAiSchema,
+  generateFixInstructions,
+} from './fix-instructions.js';
+
 export type { FailureCode, StructuredEvent } from './failure-codes.js';
 export { FAILURE_CODES } from './failure-codes.js';
 
