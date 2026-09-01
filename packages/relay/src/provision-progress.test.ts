@@ -67,7 +67,7 @@ describe('summarizeProvisioning', () => {
     expect(snapshot.categories).toEqual({});
   });
 
-  it('marks a category FAILED when any resource in it ended in _FAILED', () => {
+  it('marks a category FAILED when any resource in it failed to CREATE', () => {
     const resources: StackResource[] = [
       { logicalId: 'Vpc', type: 'AWS::EC2::VPC', status: 'CREATE_COMPLETE' },
       { logicalId: 'Subnet', type: 'AWS::EC2::Subnet', status: 'CREATE_FAILED' },
@@ -76,6 +76,17 @@ describe('summarizeProvisioning', () => {
     const snapshot = summarizeProvisioning('ROLLBACK_IN_PROGRESS', resources, 'now');
 
     expect(snapshot.categories.network?.status).toBe('FAILED');
+  });
+
+  it('DELETE_FAILED rollback debris does not mark a category FAILED', () => {
+    const resources: StackResource[] = [
+      { logicalId: 'Vpc', type: 'AWS::EC2::VPC', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Subnet', type: 'AWS::EC2::Subnet', status: 'DELETE_FAILED' },
+    ];
+
+    const snapshot = summarizeProvisioning('ROLLBACK_FAILED', resources, 'now');
+
+    expect(snapshot.categories.network?.status).toBe('IN_PROGRESS');
   });
 
   it('marks a category COMPLETE only when every resource is CREATE_COMPLETE or UPDATE_COMPLETE', () => {

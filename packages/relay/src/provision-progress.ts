@@ -119,7 +119,13 @@ export function summarizeProvisioning(
 }
 
 function summarizeCategory(resources: readonly StackResource[]): CategoryProgress {
-  const failed = resources.some((resource) => resource.status.endsWith('_FAILED'));
+  // Only CREATION failures mark a category FAILED. A DELETE_FAILED resource
+  // is rollback debris (observed live: retained-RDS network interfaces
+  // blocking subnet deletion), and counting it misattributed the failure to
+  // the networking step when the create actually stopped at the application.
+  const failed = resources.some(
+    (resource) => resource.status === 'CREATE_FAILED' || resource.status === 'UPDATE_FAILED',
+  );
   const complete = !failed && resources.every((resource) => COMPLETE_STATUSES.has(resource.status));
   const status: CategoryProgress['status'] = failed ? 'FAILED' : complete ? 'COMPLETE' : 'IN_PROGRESS';
 
