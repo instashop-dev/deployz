@@ -1,0 +1,234 @@
+/**
+ * Phase 1 simulated-infrastructure E2E: proves that simulated CloudFormation
+ * events flow through the REAL production pipeline — relay collector ->
+ * POST /api/relay/commands/:id/progress -> summarizeStackEvents -> DB ->
+ * status derivation -> UI-facing wire shapes — and that the resource
+ * inventory is populated through the production persistence path (relay
+ * listAllStackResources -> POST /api/relay/health -> persistDeploymentResourceSnapshot).
+ * See docs/testing/discovery/phase1-design-decisions.md.
+ *
+ * Every assertion here goes through the real HTTP API (no UI yet — that is a
+ * later phase). Test titles carry `@scenario:<id>` so a parallel runner can
+ * map `--scenario=X` to `--grep "@scenario:X"`. Each scenario gets its own
+ * `test.describe` block so `test.use({ deployzScenario })` (an option
+ * fixture — see e2e/simulation/fixtures.ts) scopes correctly.
+ */
+
+import { expect, test } from './simulation/fixtures.js';
+
+interface StackEventRow {
+  logicalResourceId: string;
+  resourceType: string;
+  resourceStatus: string;
+  resourceStatusReason: string | null;
+}
+
+interface InfrastructureResponse {
+  stackStatus: string | null;
+  summary: { status: string; componentCount: number; technicalResourceCount: number };
+}
+
+interface VendorDeploymentStatus {
+  stage: string;
+  step: string;
+  failure: {
+    code: string | null;
+    component: string | null;
+    reference: string;
+    message: string;
+    awsStatus: string | null;
+  } | null;
+}
+
+interface DeploymentResponse {
+  state: string;
+  healthStatus: string;
+  stepTimings: Record<string, { startedAt: string; completedAt?: string }> | null;
+  deploymentStatus: VendorDeploymentStatus;
+}
+
+test.describe.configure({ mode: 'parallel' });
+
+test.describe('happy-path', () => {
+  test.use({ deployzScenario: 'happy-path' });
+
+  test('@scenario:happy-path install reaches READY through the real pipeline', async ({ deployzInstall }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    // The lifecycle state the production `/result` route writes on a
+    // successful INSTALL job.
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for deployment.state to reach HEALTHY',
+      })
+      .toBe('HEALTHY');
+
+    const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(deployment.healthStatus).toBe('HEALTHY');
+    // No custom domain is configured in this phase, so the base install
+    // stays HTTP-only — production's real ladder
+    // (apps/api/src/deployment-status.ts's `everInstalled` branch) requires
+    // an https:// URL for the customer-facing READY stage, so an
+    // installed-and-healthy deployment with no domain legitimately holds at
+    // VERIFYING/TLS ("Waiting for secure domain setup.") rather than READY.
+    // See docs/testing/discovery/deployment-lifecycle.md §5.
+    expect(deployment.deploymentStatus.stage).toBe('VERIFYING');
+    expect(deployment.deploymentStatus.step).toBe('TLS');
+
+    // Stack events came from the ingest route (persisted rows), not
+    // fabricated by the test — every resource in the scenario's timeline
+    // shows up, including the ones the collector only reported mid-install.
+    const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
+    const logicalIds = new Set(events.map((event) => event.logicalResourceId));
+    for (const expected of ['ApplicationVpc', 'ApplicationDatabase', 'ApplicationBucket', 'ApplicationService']) {
+      expect(logicalIds.has(expected), `expected a stack event for ${expected}`).toBe(true);
+    }
+    expect(events.every((event) => event.resourceStatus !== 'CREATE_FAILED')).toBe(true);
+
+    // Resource inventory populated via the production persistence path.
+    await expect
+      .poll(
+        async () => {
+          const infra = (await api.getInfrastructure(deploymentId)) as unknown as InfrastructureResponse;
+          return infra.summary.technicalResourceCount;
+        },
+        { timeout: 15_000, message: 'waiting for the resource inventory to be persisted' },
+      )
+      .toBeGreaterThan(0);
+    const infra = (await api.getInfrastructure(deploymentId)) as unknown as InfrastructureResponse;
+    // Honest, observed production behaviour (not forced): `stackStatus` on
+    // this endpoint reads `observedState.infraHealth.provisioning.stackStatus`,
+    // which only the progress-ingest route and the mid-build heartbeat ever
+    // set. `POST /api/relay/health` overwrites `observedState` WHOLESALE with
+    // its own payload every poll — including the terminal heartbeat that
+    // rides the very same poll cycle a fast install settles in — and a
+    // heartbeat taken after `verifyInstallation` passes never re-attaches a
+    // provisioning snapshot (see `createObserveHook`'s stack-complete guard
+    // in packages/relay/src/index.ts). So once HEALTHY, this field reverts to
+    // null rather than freezing at its last in-progress value.
+    expect(infra.stackStatus).toBeNull();
+    expect(infra.summary.componentCount).toBeGreaterThan(0);
+
+    // Step timings advanced — never a percentage, always semantic steps.
+    expect(Object.keys(deployment.stepTimings ?? {}).length).toBeGreaterThan(0);
+  });
+});
+
+test.describe('cloudformation-rollback', () => {
+  test.use({ deployzScenario: 'cloudformation-rollback' });
+
+  test('@scenario:cloudformation-rollback terminal FAILED, not a stuck install', async ({ deployzInstall }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for deployment.state to reach FAILED',
+      })
+      .toBe('FAILED');
+
+    const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(deployment.deploymentStatus.stage).toBe('FAILED');
+    expect(deployment.deploymentStatus.failure).not.toBeNull();
+    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
+
+    // The stack events show the rollback via the real ingest path.
+    const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
+    const dbEvent = events.find(
+      (event) => event.logicalResourceId === 'ApplicationDatabase' && event.resourceStatus === 'CREATE_FAILED',
+    );
+    expect(dbEvent).toBeDefined();
+    expect(dbEvent!.resourceStatusReason).toContain('not supported in this Availability Zone');
+  });
+});
+
+test.describe('ecs-failure', () => {
+  test.use({ deployzScenario: 'ecs-failure' });
+
+  test('@scenario:ecs-failure terminal FAILED with the ECS failure surfaced', async ({ deployzInstall }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for deployment.state to reach FAILED',
+      })
+      .toBe('FAILED');
+
+    const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(deployment.deploymentStatus.stage).toBe('FAILED');
+    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
+
+    const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
+    const serviceEvent = events.find(
+      (event) => event.logicalResourceId === 'ApplicationService' && event.resourceStatus === 'CREATE_FAILED',
+    );
+    expect(serviceEvent).toBeDefined();
+    expect(serviceEvent!.resourceStatusReason).toBe('Service failed health checks');
+
+    // Infra up to the ECS service completed fine — the failure is specific
+    // to the application component, not a network/database problem.
+    const dbEvent = events.find((event) => event.logicalResourceId === 'ApplicationDatabase');
+    expect(dbEvent?.resourceStatus).toBe('CREATE_COMPLETE');
+  });
+});
+
+test.describe('healthcheck-failure', () => {
+  test.use({ deployzScenario: 'healthcheck-failure' });
+
+  test('@scenario:healthcheck-failure install succeeds; runtime health honestly reports UNHEALTHY', async ({
+    deployzInstall,
+  }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    // The REAL, observed production behaviour (not forced): CloudFormation
+    // reports the stack complete and verifyInstallation independently
+    // confirms every required resource is present, so the INSTALL job
+    // succeeds and deployment.state reaches HEALTHY — lifecycle state and
+    // runtime health are two separate signals
+    // (docs/testing/discovery/deployment-lifecycle.md §7). The separately
+    // reported runtime healthStatus below is UNHEALTHY because every ALB
+    // target fails its health check, which the customer-facing ladder in
+    // apps/api/src/deployment-status.ts reflects by holding at VERIFYING
+    // ("Running health checks.") — never FAILED and never READY.
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for deployment.state to reach HEALTHY',
+      })
+      .toBe('HEALTHY');
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).healthStatus, {
+        timeout: 15_000,
+        message: 'waiting for the runtime health heartbeat to report UNHEALTHY',
+      })
+      .toBe('UNHEALTHY');
+
+    const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(deployment.state).toBe('HEALTHY');
+    expect(deployment.deploymentStatus.stage).toBe('VERIFYING');
+    expect(deployment.deploymentStatus.step).toBe('HEALTH_CHECK');
+    expect(deployment.deploymentStatus.failure).toBeNull();
+
+    const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
+    expect(events.every((event) => event.resourceStatus !== 'CREATE_FAILED')).toBe(true);
+
+    await expect
+      .poll(
+        async () => {
+          const infra = (await api.getInfrastructure(deploymentId)) as unknown as InfrastructureResponse;
+          return infra.summary.technicalResourceCount;
+        },
+        { timeout: 15_000, message: 'waiting for the resource inventory to be persisted' },
+      )
+      .toBeGreaterThan(0);
+  });
+});
