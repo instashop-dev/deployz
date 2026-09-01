@@ -1197,6 +1197,11 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     // createDefaultInstallDeps's `recover`).
     rds: getRdsCleanupClient(),
     cache: getCacheCleanupClient(),
+    // Same collector factory INSTALL uses — identical arg shape, so it is
+    // reused as-is rather than built a second time.
+    ...(installDeps.createStackEventCollector
+      ? { createStackEventCollector: installDeps.createStackEventCollector }
+      : {}),
   };
 
   const purgeDeps: PurgeDeps = {
@@ -1450,6 +1455,9 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             stackName: relayApplicationStackName(),
             rds: getRdsCleanupClient(),
             cache: getCacheCleanupClient(),
+            ...(installDeps.createStackEventCollector
+              ? { createStackEventCollector: installDeps.createStackEventCollector }
+              : {}),
           })();
           if (destroyResults.length > 0) return destroyResults;
           return createPurgeResumer({

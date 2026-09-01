@@ -24,6 +24,7 @@ import {
   type RdsCleanupClient,
   type WaitOptions,
 } from './recover.js';
+import type { StackEventCollector } from './stack-events.js';
 import type { CloudFormationReader } from './verify.js';
 
 /** The CloudFormation delete surface this module needs. */
@@ -52,6 +53,22 @@ export interface DestroyDeps {
   readonly rds?: RdsCleanupClient;
   readonly cache?: CacheCleanupClient;
   readonly wait?: WaitOptions;
+  /**
+   * Builds a stack-event collector for one DESTROY invocation. Optional —
+   * absent (older wiring, or a test that doesn't care about progress
+   * reporting), the executor and resumer behave exactly as they did before
+   * this existed: no collector, no poll, no cursor.
+   *
+   * Unlike INSTALL, DESTROY has no intra-invocation wait loop, so `poll` is
+   * called at most once per invocation — once per five-minute resume tick —
+   * right after `settleDestroy` observes or issues the delete.
+   */
+  readonly createStackEventCollector?: (args: {
+    commandId: string;
+    operationStartedAt: string;
+    stackName: string;
+    resumeAfter?: string;
+  }) => StackEventCollector;
 }
 
 type DestroyOutcome =
@@ -187,6 +204,13 @@ export function createDestroyExecutor(deps: DestroyDeps): CommandExecutor {
       }),
     );
 
+    const startedAt = (deps.now ?? (() => new Date().toISOString()))();
+    const collector = deps.createStackEventCollector?.({
+      commandId: command.id,
+      operationStartedAt: startedAt,
+      stackName: deps.stackName,
+    });
+
     let outcome: DestroyOutcome;
     try {
       outcome = await settleDestroy(deps, readDataDeletionAuthorized(command.payload));
@@ -196,6 +220,11 @@ export function createDestroyExecutor(deps: DestroyDeps): CommandExecutor {
         failureCode: 'AWS_PERMISSION_DENIED',
       });
     }
+
+    // Best-effort, once per invocation — DESTROY has no intra-invocation wait
+    // loop, so this is the only chance to collect progress before the
+    // resumer's next five-minute tick. `poll` never throws.
+    await collector?.poll(deps.stackName);
 
     if (outcome.state === 'failed') {
       console.log(
@@ -231,13 +260,15 @@ export function createDestroyExecutor(deps: DestroyDeps): CommandExecutor {
 
     // Deletion is in progress and will outlive this invocation — record the
     // debt so the resumer picks it up on a later poll.
+    const lastEventAt = collector?.lastEventAt() ?? null;
     const recorded = await deps.pending.write({
       commandId: command.id,
       idempotencyKey: command.idempotencyKey,
       type: command.type,
       stackName: deps.stackName,
-      startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+      startedAt,
       payload: command.payload,
+      ...(lastEventAt !== null ? { stackEventsCursor: { lastEventAt } } : {}),
     });
     if (!recorded) {
       return result(command, false, {
@@ -277,8 +308,26 @@ export function createDestroyResumer(deps: DestroyDeps): () => Promise<RelayComm
     const pending = await deps.pending.read();
     if (pending === null || pending.type !== 'DESTROY') return [];
 
+    const resumeAfter = pending.stackEventsCursor?.lastEventAt;
+    const collector = deps.createStackEventCollector?.({
+      commandId: pending.commandId,
+      operationStartedAt: pending.startedAt,
+      stackName: pending.stackName,
+      ...(resumeAfter !== undefined ? { resumeAfter } : {}),
+    });
+
     const outcome = await settleDestroy(deps, readDataDeletionAuthorized(pending.payload));
+
+    // Best-effort, once per resume tick — same rule as the executor above.
+    await collector?.poll(pending.stackName);
+
     if (outcome.state === 'deleting') {
+      // Re-defer: carry forward whatever new events this tick collected so
+      // the next resume does not re-walk history it already reported.
+      const lastEventAt = collector?.lastEventAt() ?? null;
+      if (lastEventAt !== null) {
+        await deps.pending.write({ ...pending, stackEventsCursor: { lastEventAt } });
+      }
       console.log(
         JSON.stringify({
           event: 'relay:command-still-pending',
