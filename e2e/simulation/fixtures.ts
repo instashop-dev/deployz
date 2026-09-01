@@ -21,6 +21,13 @@ export const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 export interface DeployzApi {
   getDeployment(deploymentId: string): Promise<Record<string, unknown>>;
+  /** GET /api/install/:installLinkId — the pre-install public page payload
+   *  (resourcesCreated, quickCreateUrl, ...), distinct from `getInstallStatus`
+   *  below (the lifecycle-derived `/status` projection). Added for the
+   *  redis-failure scenario: `resourcesCreated` reflects `applications.
+   *  redisRequired` directly, independent of the deployment's current stage —
+   *  see e2e/redis.spec.ts's equivalent "will create" assertion. */
+  getInstallInfo(installLinkId: string): Promise<Record<string, unknown>>;
   getInstallStatus(installLinkId: string): Promise<Record<string, unknown>>;
   getStackEvents(deploymentId: string): Promise<unknown[]>;
   getInfrastructure(deploymentId: string): Promise<Record<string, unknown>>;
@@ -31,7 +38,9 @@ export interface DeployzInstall {
   readonly installLinkId: string;
   readonly installationId: string;
   readonly enrollmentCode: string;
-  readonly relay: SimulatedRelayHandle;
+  /** Absent when the test opted out via `deployzStartRelay: false`
+   *  (bootstrap-failure — the relay never registers at all). */
+  readonly relay: SimulatedRelayHandle | undefined;
   readonly api: DeployzApi;
 }
 
@@ -41,6 +50,13 @@ function buildApi(request: APIRequestContext): DeployzApi {
       const response = await request.get(`${API_URL}/api/deployments/${deploymentId}`);
       if (!response.ok()) {
         throw new Error(`GET /api/deployments/${deploymentId} -> ${response.status()}`);
+      }
+      return (await response.json()) as Record<string, unknown>;
+    },
+    async getInstallInfo(installLinkId) {
+      const response = await request.get(`${API_URL}/api/install/${installLinkId}`);
+      if (!response.ok()) {
+        throw new Error(`GET /api/install/${installLinkId} -> ${response.status()}`);
       }
       return (await response.json()) as Record<string, unknown>;
     },
@@ -82,17 +98,28 @@ async function signUp(request: APIRequestContext, suffix: string): Promise<void>
 /** Seeds one real application + customer + deployment for the signed-up
  *  org, then performs the customer's "Deploy to AWS" launch signal — mirrors
  *  seedDeployment in e2e/deployment-progress.spec.ts plus the `/launched`
- *  step from e2e/install.spec.ts. */
+ *  step from e2e/install.spec.ts.
+ *
+ *  `repoFullName` is an additive option for the redis-failure scenario: when
+ *  given, it also drives the REAL analyser (`POST /api/applications/:id/
+ *  analyse`) against that GITHUB_FIXTURE_MODE repo — mirroring
+ *  e2e/redis.spec.ts's seedAnalysedApplication — so `redisRequired` (and any
+ *  other detected metadata) reflects production analysis instead of a
+ *  hand-set flag. The analyse call runs inline (no queue configured
+ *  locally), so `analysisStatus` is already COMPLETE by the time it
+ *  resolves. */
 async function seedAndLaunch(
   request: APIRequestContext,
   suffix: string,
+  options: { repoFullName?: string } = {},
 ): Promise<{ deploymentId: string; installLinkId: string; enrollmentCode: string }> {
+  const repoFullName = options.repoFullName ?? `deployz-demo/scenario-${suffix}`;
   const appResponse = await request.post(`${API_URL}/api/applications`, {
     data: {
       name: `Scenario App ${suffix}`,
       githubInstallationId: 'e2e-installation',
-      repoFullName: `deployz-demo/scenario-${suffix}`,
-      repoUrl: `https://github.com/deployz-demo/scenario-${suffix}`,
+      repoFullName,
+      repoUrl: `https://github.com/${repoFullName}`,
       defaultBranch: 'main',
       databaseRequired: true,
     },
@@ -101,6 +128,13 @@ async function seedAndLaunch(
     throw new Error(`create application failed: ${appResponse.status()} ${await appResponse.text()}`);
   }
   const application = (await appResponse.json()) as { id: string };
+
+  if (options.repoFullName) {
+    const analyseResponse = await request.post(`${API_URL}/api/applications/${application.id}/analyse`);
+    if (!analyseResponse.ok()) {
+      throw new Error(`analyse failed: ${analyseResponse.status()} ${await analyseResponse.text()}`);
+    }
+  }
 
   const customerResponse = await request.post(`${API_URL}/api/customers`, {
     data: {
@@ -140,24 +174,55 @@ async function seedAndLaunch(
   };
 }
 
-export const test = base.extend<{ deployzScenario: string; deployzInstall: DeployzInstall }>({
+export interface DeployzRelayOptions {
+  /** See relay-harness.ts's `StartSimulatedRelayOptions.stopAfterFirstProgress`. */
+  readonly stopAfterFirstProgress?: boolean;
+}
+
+export const test = base.extend<{
+  deployzScenario: string;
+  /** Additive option (bootstrap-failure): when false, no relay is ever
+   *  started — the deployment never gets past WAITING_FOR_RELAY. */
+  deployzStartRelay: boolean;
+  /** Additive option (relay-disconnect): extra knobs forwarded verbatim to
+   *  `startSimulatedRelay`. */
+  deployzRelayOptions: DeployzRelayOptions;
+  /** Additive option (redis-failure): when set, the seeded application uses
+   *  this GITHUB_FIXTURE_MODE repo and is run through the real analyser
+   *  instead of the default synthetic repo name — see `seedAndLaunch`. */
+  deployzRepoFullName: string | undefined;
+  deployzInstall: DeployzInstall;
+}>({
   // Playwright "option" fixture — settable per file/describe/test with
   // `test.use({ deployzScenario: '...' })`; defaults to the happy path.
   deployzScenario: ['happy-path', { option: true }],
+  deployzStartRelay: [true, { option: true }],
+  deployzRelayOptions: [{}, { option: true }],
+  deployzRepoFullName: [undefined, { option: true }],
 
-  deployzInstall: async ({ request, deployzScenario }, use) => {
+  deployzInstall: async (
+    { request, deployzScenario, deployzStartRelay, deployzRelayOptions, deployzRepoFullName },
+    use,
+  ) => {
     const suffix = crypto.randomUUID().slice(0, 8);
     await signUp(request, suffix);
-    const { deploymentId, installLinkId, enrollmentCode } = await seedAndLaunch(request, suffix);
+    const { deploymentId, installLinkId, enrollmentCode } = await seedAndLaunch(
+      request,
+      suffix,
+      deployzRepoFullName ? { repoFullName: deployzRepoFullName } : {},
+    );
 
     const installationId = `inst-${suffix}`;
-    const relay = startSimulatedRelay({
-      scenario: getScenario(deployzScenario),
-      apiUrl: API_URL,
-      installationId,
-      enrollmentCode,
-      relayToken: `e2e-scenario-relay-${suffix}`,
-    });
+    const relay = deployzStartRelay
+      ? startSimulatedRelay({
+          scenario: getScenario(deployzScenario),
+          apiUrl: API_URL,
+          installationId,
+          enrollmentCode,
+          relayToken: `e2e-scenario-relay-${suffix}`,
+          ...deployzRelayOptions,
+        })
+      : undefined;
 
     try {
       await use({
@@ -169,7 +234,7 @@ export const test = base.extend<{ deployzScenario: string; deployzInstall: Deplo
         api: buildApi(request),
       });
     } finally {
-      relay.stop();
+      relay?.stop();
     }
   },
 });

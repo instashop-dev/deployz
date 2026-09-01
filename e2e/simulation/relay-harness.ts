@@ -53,6 +53,22 @@ export interface StartSimulatedRelayOptions {
   /** Real milliseconds between poll cycles — stands in for the 5-minute
    *  EventBridge schedule, sped way up. Defaults to 100ms. */
   readonly pollTickMs?: number;
+  /**
+   * Additive knob for the relay-disconnect scenario
+   * (./scenarios/relay-disconnect.ts): once the stack-event collector's
+   * `report` callback has been called once with a non-empty batch (i.e. the
+   * relay has genuinely reported some progress), every subsequent call —
+   * including the one that would eventually report the INSTALL job's
+   * result — hangs forever instead of completing. This mirrors a relay
+   * Lambda whose network died mid-invocation: `installApplicationStack`'s
+   * wait loop (packages/relay/src/install.ts) awaits `onPoll` with no
+   * timeout, so the whole in-flight `pollOnce()` call simply never resolves,
+   * and — because the poll harness below only schedules its next tick after
+   * the previous one resolves — no further poll cycle ever runs either.
+   * Never resolves/rejects by design; safe because nothing in this harness
+   * ever awaits that hung promise except the one poll cycle it belongs to.
+   */
+  readonly stopAfterFirstProgress?: boolean;
 }
 
 export interface InstallSettlement {
@@ -82,6 +98,10 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
 
   const stackNameOrDefault = (): string => account.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
 
+  // See `stopAfterFirstProgress` doc comment above.
+  let hasReportedProgress = false;
+  let silenced = false;
+
   const installDeps: InstallExecutorDeps = {
     installationId,
     // Never resolved for real — only its shape (ending in the published
@@ -106,13 +126,23 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     createStackEventCollector: ({ commandId, operationStartedAt, stackName, resumeAfter }) =>
       createStackEventCollector({
         reader: account.stackEventsReader(),
-        report: (events) =>
-          reportCommandProgress(fetchFn, apiUrl, buildAuthHeaders(authState), {
+        report: (events) => {
+          if (silenced) {
+            // Gone silent — never resolves. See `stopAfterFirstProgress`.
+            return new Promise<boolean>(() => {});
+          }
+          const reported = reportCommandProgress(fetchFn, apiUrl, buildAuthHeaders(authState), {
             commandId,
             installationId,
             stackName,
             events: [...events],
-          }),
+          });
+          if (options.stopAfterFirstProgress && !hasReportedProgress) {
+            hasReportedProgress = true;
+            silenced = true;
+          }
+          return reported;
+        },
         operationStartedAt,
         ...(resumeAfter !== undefined ? { resumeAfter } : {}),
       }),
