@@ -26,6 +26,11 @@ Run from the repo root:
 - `pnpm lint` — lint every package via Turborepo (ESLint flat config at root)
 - `pnpm dev` — run every package's persistent dev script (`tsc --watch`)
 
+End-to-end tests run against a simulated AWS account by default
+(`pnpm e2e`) — no credentials required. See
+[`docs/testing/README.md`](docs/testing/README.md) for the full test
+hierarchy, including the real-AWS canary/fresh escalation modes.
+
 ## Deploying the control plane
 
 **Deploys run in CI, not from a laptop.** `.github/workflows/deploy-api.yml`
