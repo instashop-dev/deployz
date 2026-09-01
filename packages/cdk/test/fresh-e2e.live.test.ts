@@ -193,6 +193,12 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
   const runId = mintRunId();
   const stackName = freshStackName(runId);
   const aws = createAwsClients();
+  // Per-run synth output directory: the CDK CLI refuses to run while another
+  // CLI is reading the shared cdk.out ("Other CLIs are currently reading from
+  // cdk.out") — an aborted earlier run's lingering process would otherwise
+  // block every later fresh run on this machine. Nested under cdk.out/ so it
+  // stays gitignored; the CLI's reader lock is per output directory.
+  const outDir = `cdk.out/fresh-${runId}`;
 
   it('preflight: the minted stack name does not already exist', async () => {
     console.log(`[fresh-e2e] run id ${runId} — stack name "${stackName}" — region ${REGION}`);
@@ -210,6 +216,8 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
             'deploy',
             '--app',
             APP_CMD,
+            '--output',
+            outDir,
             '--require-approval',
             'never',
             '--tags',
@@ -224,7 +232,9 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
         // assertion below still tears it down via runWithTeardown's finally
         // — cleanup here never targets anything but this exact stack name.
         registry.register('cloudformation-stack', stackName, async () => {
-          cdk(['destroy', '--app', APP_CMD, '--force'], { [STACK_NAME_ENV]: stackName });
+          cdk(['destroy', '--app', APP_CMD, '--output', outDir, '--force'], {
+            [STACK_NAME_ENV]: stackName,
+          });
           const gone = await waitForStackGone(aws.cloudFormation, stackName, REGION);
           if (!gone) {
             throw new Error(`fresh-e2e: stack "${stackName}" did not reach DELETE_COMPLETE during teardown`);
