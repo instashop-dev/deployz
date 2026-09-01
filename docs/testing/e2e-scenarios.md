@@ -30,6 +30,12 @@ real HTTP API only — no browser is involved yet.
 | `delete-failure` | Install reaches HEALTHY; DESTROY hits a stack-level `DELETE_FAILED` with no attributable resource-level blocker | `state: FAILED` (**never** `DELETED`); `failure.code: STACK_DELETE_FAILED` | Never claims the deployment was removed | Event log contains `destroy.failed`, never `destroy.completed` | `e2e/scenario-lifecycle.spec.ts` |
 | `retained-resources` | Install reaches HEALTHY; DESTROY completes cleanly (`DELETE_COMPLETE`) | `state: DELETED` | Infrastructure section shows database/storage as retained, application as removed | `infra.components`: `database`/`storage` status `retained`, `application` status `removed`; event log contains `destroy.completed` | `e2e/scenario-lifecycle.spec.ts` |
 
+Browser-level coverage: `e2e/scenario-ui.spec.ts` drives four of these
+scenarios (`happy-path`, `slow-provision`, `cloudformation-rollback`, and
+`update-failure` → `rollback-success`) through a real Chromium browser against
+both the customer install page and the vendor deployment detail page — the API
+specs above prove the pipeline; this file proves both UIs render it honestly.
+
 ## How to add a scenario
 
 1. **Fixture file** — add `e2e/simulation/scenarios/<id>.ts` exporting a
