@@ -183,11 +183,12 @@ real-AWS opt-in to *see* the refusal).
   (`[WebServer]`-prefixed lines in the same terminal), so application-level
   errors (e.g. a missing env var, an unhandled route error) show up inline
   with the test output.
-- **A single timeout in `e2e/scenario-ui.spec.ts` during a full local run is
-  usually load, not a regression.** The browser tests compete with the rest
-  of the suite for the dev server's route compilation and CPU (the file runs
-  serially and uses widened timeouts for exactly this reason). Before
-  chasing it, rerun the one scenario in isolation —
+- **A lone timeout during a full local run — in `e2e/scenario-ui.spec.ts`
+  or in another spec's browser sign-up step — is usually load, not a
+  regression.** Browser tests compete with the rest of the suite for the dev
+  server's route compilation and CPU (the scenario-ui file runs serially and
+  uses widened timeouts for exactly this reason). Before chasing it, rerun
+  the failing spec in isolation — `pnpm e2e e2e/<file>.spec.ts` or
   `pnpm e2e --scenario=<id>` — and treat it as real only if it fails there
   too.
 
