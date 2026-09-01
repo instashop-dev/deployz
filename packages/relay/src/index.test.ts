@@ -556,6 +556,62 @@ describe('createObserveHook', () => {
 
     await expect(hook()).rejects.toThrow('verification could not run');
   });
+
+  it('attaches the raw inventory when the inventory fetch succeeds', async () => {
+    const inventory: VerificationResult['inventory'] = {
+      stackId: 'arn:aws:cloudformation:us-east-1:1:stack/deployz-app/abc',
+      resources: [{ logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' }],
+      observedAt: '2026-01-01T00:05:00.000Z',
+    };
+
+    const hook = createObserveHook(
+      async () => COMPLETE,
+      async () => SNAPSHOT,
+      async () => inventory,
+    );
+
+    expect(await hook()).toEqual({ ...COMPLETE, inventory });
+  });
+
+  it('attaches the inventory even during provisioning, alongside the snapshot', async () => {
+    const inventory: VerificationResult['inventory'] = {
+      stackId: 'arn:aws:cloudformation:us-east-1:1:stack/deployz-app/abc',
+      resources: [],
+      observedAt: '2026-01-01T00:05:00.000Z',
+    };
+
+    const hook = createObserveHook(
+      async () => MID_CREATE,
+      async () => SNAPSHOT,
+      async () => inventory,
+    );
+
+    expect(await hook()).toEqual({ ...MID_CREATE, provisioning: SNAPSHOT, inventory });
+  });
+
+  it('omits the inventory when the inventory fetch returns null', async () => {
+    const hook = createObserveHook(
+      async () => COMPLETE,
+      async () => SNAPSHOT,
+      async () => null,
+    );
+
+    expect(await hook()).toEqual(COMPLETE);
+  });
+
+  it('omits the inventory when the inventory fetch throws', async () => {
+    const hook = createObserveHook(
+      async () => COMPLETE,
+      async () => SNAPSHOT,
+      async () => {
+        throw new Error('ListStackResources threw despite its no-throw contract');
+      },
+    );
+
+    const result = await hook();
+    expect(result).toEqual(COMPLETE);
+    expect(result).not.toHaveProperty('inventory');
+  });
 });
 
 describe('readVerifyOptionsFromPayload', () => {

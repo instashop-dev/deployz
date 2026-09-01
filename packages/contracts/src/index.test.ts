@@ -2,32 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
 
 import {
-  analysisStatusEnum,
-  cleanupStateEnum,
-  compatibilityStatusEnum,
-  deploymentStateEnum,
-  failureCodeEnum,
-  jobStateEnum,
-  jobTypeEnum,
-  regionEnum,
-  releaseStatusEnum,
-  subscriptionStatusEnum,
-} from '@deployz/db';
-
-import {
   DEFAULT_APPLICATION_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME,
   DESTROY_PENDING_STALE_AFTER_MS,
   PACKAGE_NAME,
   REGION_LABELS,
   SUPPORTED_AWS_REGIONS,
-  analysisStatusSchema,
   applicationSchema,
   applicationStackNameForInstallation,
   bootstrapStackName,
   bootstrapTemplateBucketName,
-  cleanupStateSchema,
-  compatibilityStatusSchema,
   componentProgressStatusSchema,
   customDomainStatusSchema,
   customerDeploymentStatusSchema,
@@ -35,7 +19,6 @@ import {
   deploymentJobSchema,
   deploymentSchema,
   deploymentStageSchema,
-  deploymentStateSchema,
   deploymentStepSchema,
   DEPLOYMENT_STEP_ORDER,
   TYPICAL_STEP_DURATION_SECONDS,
@@ -44,16 +27,12 @@ import {
   failureCodeSchema,
   healthComponentsSchema,
   isSupportedRegion,
-  jobStateSchema,
-  jobTypeSchema,
   organizationSchema,
   redisApplicationTemplateUrl,
   regionSchema,
   releaseSchema,
-  releaseStatusSchema,
   resolveBootstrapTemplate,
   subscriptionSchema,
-  subscriptionStatusSchema,
   usageRecordSchema,
   userSchema,
   vendorDeploymentStatusSchema,
@@ -65,29 +44,11 @@ describe('@deployz/contracts scaffold', () => {
   });
 });
 
-// Parity law: every contracts enum is EXACTLY the live db pgEnum vocabulary —
-// sorted comparison so ordering drift in either source is visible but never
-// silently absorbed.
-describe('enum parity with @deployz/db pgEnums', () => {
-  const pairs = [
-    ['analysisStatus', analysisStatusSchema, analysisStatusEnum.enumValues],
-    ['compatibilityStatus', compatibilityStatusSchema, compatibilityStatusEnum.enumValues],
-    ['releaseStatus', releaseStatusSchema, releaseStatusEnum.enumValues],
-    ['region', regionSchema, regionEnum.enumValues],
-    ['deploymentState', deploymentStateSchema, deploymentStateEnum.enumValues],
-    ['jobType', jobTypeSchema, jobTypeEnum.enumValues],
-    ['jobState', jobStateSchema, jobStateEnum.enumValues],
-    ['failureCode', failureCodeSchema, failureCodeEnum.enumValues],
-    ['cleanupState', cleanupStateSchema, cleanupStateEnum.enumValues],
-    ['subscriptionStatus', subscriptionStatusSchema, subscriptionStatusEnum.enumValues],
-  ] as const;
-
-  for (const [name, contractsEnum, dbValues] of pairs) {
-    it(`${name}: contracts options === db enumValues (sorted)`, () => {
-      expect([...contractsEnum.options].sort()).toEqual([...dbValues].sort());
-    });
-  }
-});
+// Parity law: every contracts enum is EXACTLY the live db pgEnum vocabulary.
+// The parity test lives in packages/db/src/contracts-parity.test.ts with the
+// reverse orientation (db enums vs contracts schemas), so the two packages
+// keep a single dependency direction (db -> contracts) and the task graph
+// stays acyclic.
 
 describe('failureCodeSchema (§61 stable taxonomy)', () => {
   it('rejects a code outside the taxonomy', () => {
@@ -95,7 +56,7 @@ describe('failureCodeSchema (§61 stable taxonomy)', () => {
   });
 
   it('parses every real §61 code', () => {
-    for (const code of failureCodeEnum.enumValues) {
+    for (const code of failureCodeSchema.options) {
       expect(failureCodeSchema.parse(code)).toBe(code);
     }
   });

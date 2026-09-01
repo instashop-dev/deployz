@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export * from './infrastructure.js';
+
 // Shared Zod contracts between api and web. Shapes mirror the Drizzle schema
 // in @deployz/db (packages/db/src/schema/*.ts) exactly — the db stays the
 // source of truth; these are the WIRE forms (timestamptz -> ISO datetime

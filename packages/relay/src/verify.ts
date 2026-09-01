@@ -27,6 +27,7 @@ import {
   CloudFormationClient,
   DescribeStackResourcesCommand,
   DescribeStacksCommand,
+  ListStackResourcesCommand,
 } from '@aws-sdk/client-cloudformation';
 import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
 import type { ProvisioningSnapshot } from './provision-progress.js';
@@ -37,6 +38,8 @@ export interface StackSummary {
   readonly stackName: string;
   readonly status: string;
   readonly tags: Readonly<Record<string, string>>;
+  /** CloudFormation's stack ARN. */
+  readonly stackId?: string;
 }
 
 export interface StackResource {
@@ -47,6 +50,15 @@ export interface StackResource {
   readonly physicalId?: string;
   /** ISO 8601 — CloudFormation's last-status-change time for this resource. */
   readonly timestamp?: string;
+  /** CloudFormation's sanitized reason for the current status. */
+  readonly statusReason?: string;
+}
+
+/** One page of ListStackResources output. */
+export interface StackResourcePage {
+  readonly resources: readonly StackResource[];
+  /** Present when more pages follow; absent on the last page. */
+  readonly nextToken?: string;
 }
 
 /**
@@ -63,6 +75,13 @@ export type StackLookup =
 export interface CloudFormationReader {
   describeStack(stackName: string): Promise<StackLookup>;
   describeStackResources(stackName: string): Promise<StackResource[]>;
+  /**
+   * One page of the stack's resource list. Returns null when the read failed
+   * — a partial inventory must never be taken for a complete one. Optional
+   * so readers built before pagination existed (and test fakes) still
+   * compile; `listAllStackResources` treats an absent method as a failed read.
+   */
+  listStackResources?(stackName: string, nextToken?: string): Promise<StackResourcePage | null>;
 }
 
 // ── Verification ────────────────────────────────────────────────────────────
@@ -89,6 +108,14 @@ export interface VerificationCheck {
   readonly required?: boolean;
 }
 
+/** The raw resource inventory the §59 observe hook attaches to a heartbeat. */
+export interface ResourceInventory {
+  readonly stackId: string;
+  readonly resources: readonly StackResource[];
+  /** ISO 8601 — when this inventory was read. */
+  readonly observedAt: string;
+}
+
 export interface VerificationResult {
   readonly verified: boolean;
   readonly checks: readonly VerificationCheck[];
@@ -100,6 +127,12 @@ export interface VerificationResult {
    * mid-update. `verifyInstallation` itself never sets this field.
    */
   readonly provisioning?: ProvisioningSnapshot;
+  /**
+   * The stack's complete resource inventory, present when the §59 observe
+   * hook could page through it entirely. Absent means "not observed this
+   * heartbeat" — never a partial read.
+   */
+  readonly inventory?: ResourceInventory;
 }
 
 const INSTALLATION_TAG = 'deployz:installation';
@@ -254,7 +287,7 @@ export function toReader(client: SendsCommands): CloudFormationReader {
       try {
         const response = (await client.send(
           new DescribeStacksCommand({ StackName: stackName }),
-        )) as { Stacks?: { StackName?: string; StackStatus?: string; Tags?: { Key?: string; Value?: string }[] }[] };
+        )) as { Stacks?: { StackName?: string; StackId?: string; StackStatus?: string; Tags?: { Key?: string; Value?: string }[] }[] };
 
         const stack = response.Stacks?.[0];
         if (!stack?.StackName || !stack.StackStatus) return { found: false };
@@ -266,7 +299,12 @@ export function toReader(client: SendsCommands): CloudFormationReader {
 
         return {
           found: true,
-          stack: { stackName: stack.StackName, status: stack.StackStatus, tags },
+          stack: {
+            stackName: stack.StackName,
+            status: stack.StackStatus,
+            tags,
+            ...(stack.StackId ? { stackId: stack.StackId } : {}),
+          },
         };
       } catch (err) {
         const errorCode = err instanceof Error ? err.name : undefined;
@@ -278,7 +316,7 @@ export function toReader(client: SendsCommands): CloudFormationReader {
       try {
         const response = (await client.send(
           new DescribeStackResourcesCommand({ StackName: stackName }),
-        )) as { StackResources?: { LogicalResourceId?: string; ResourceType?: string; ResourceStatus?: string; PhysicalResourceId?: string; Timestamp?: Date }[] };
+        )) as { StackResources?: { LogicalResourceId?: string; ResourceType?: string; ResourceStatus?: string; PhysicalResourceId?: string; ResourceStatusReason?: string; Timestamp?: Date }[] };
 
         return (response.StackResources ?? []).flatMap((resource) =>
           resource.LogicalResourceId && resource.ResourceType && resource.ResourceStatus
@@ -288,11 +326,46 @@ export function toReader(client: SendsCommands): CloudFormationReader {
                 status: resource.ResourceStatus,
                 ...(resource.PhysicalResourceId ? { physicalId: resource.PhysicalResourceId } : {}),
                 ...(resource.Timestamp ? { timestamp: resource.Timestamp.toISOString() } : {}),
+                ...(resource.ResourceStatusReason ? { statusReason: resource.ResourceStatusReason } : {}),
               }]
             : [],
         );
       } catch {
         return [];
+      }
+    },
+
+    async listStackResources(
+      stackName: string,
+      nextToken?: string,
+    ): Promise<StackResourcePage | null> {
+      try {
+        const response = (await client.send(
+          new ListStackResourcesCommand({
+            StackName: stackName,
+            ...(nextToken === undefined ? {} : { NextToken: nextToken }),
+          }),
+        )) as { StackResourceSummaries?: { LogicalResourceId?: string; ResourceType?: string; ResourceStatus?: string; PhysicalResourceId?: string; ResourceStatusReason?: string; LastUpdatedTimestamp?: Date }[]; NextToken?: string };
+
+        const resources = (response.StackResourceSummaries ?? []).flatMap((resource) =>
+          resource.LogicalResourceId && resource.ResourceType && resource.ResourceStatus
+            ? [{
+                logicalId: resource.LogicalResourceId,
+                type: resource.ResourceType,
+                status: resource.ResourceStatus,
+                ...(resource.PhysicalResourceId ? { physicalId: resource.PhysicalResourceId } : {}),
+                ...(resource.LastUpdatedTimestamp ? { timestamp: resource.LastUpdatedTimestamp.toISOString() } : {}),
+                ...(resource.ResourceStatusReason ? { statusReason: resource.ResourceStatusReason } : {}),
+              }]
+            : [],
+        );
+
+        return {
+          resources,
+          ...(response.NextToken ? { nextToken: response.NextToken } : {}),
+        };
+      } catch {
+        return null;
       }
     },
   };

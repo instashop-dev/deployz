@@ -1,0 +1,1 @@
+ALTER TABLE "deployment_resources" ADD COLUMN "raw_resource_status" text;

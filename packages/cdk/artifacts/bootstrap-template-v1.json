@@ -358,7 +358,8 @@
                 "cloudformation:DeleteChangeSet",
                 "cloudformation:DescribeStacks",
                 "cloudformation:DescribeStackEvents",
-                "cloudformation:DescribeStackResources"
+                "cloudformation:DescribeStackResources",
+                "cloudformation:ListStackResources"
               ],
               "Condition": {
                 "StringEquals": {
@@ -633,7 +634,8 @@
                 "cloudformation:DeleteChangeSet",
                 "cloudformation:DescribeStacks",
                 "cloudformation:DescribeStackEvents",
-                "cloudformation:DescribeStackResources"
+                "cloudformation:DescribeStackResources",
+                "cloudformation:ListStackResources"
               ],
               "Condition": {
                 "StringEquals": {
@@ -946,7 +948,8 @@
             {
               "Action": [
                 "cloudformation:DescribeStacks",
-                "cloudformation:DescribeStackResources"
+                "cloudformation:DescribeStackResources",
+                "cloudformation:ListStackResources"
               ],
               "Condition": {
                 "StringEquals": {
@@ -1357,7 +1360,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "013431d63028655630ede8b38c3cd2028392b6756aa89abfe15b34c9817eb714.zip"
+          "S3Key": "930d57891eea0ce17dc58af40136faedd8be72ced649d97a5383335f8816ed25.zip"
         },
         "Environment": {
           "Variables": {
