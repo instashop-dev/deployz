@@ -141,6 +141,13 @@
       "when": 1788228384178,
       "tag": "0019_happy_retro_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788257391358,
+      "tag": "0020_unknown_sage",
+      "breakpoints": true
     }
   ]
 }
