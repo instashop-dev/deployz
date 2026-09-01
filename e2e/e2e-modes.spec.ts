@@ -32,11 +32,24 @@ test('fresh mode refuses without the real-AWS opt-in', () => {
   expect(result.stdout + result.stderr).toContain(REFUSAL);
 });
 
-test('canary mode with the opt-in set does not print the refusal', () => {
+test('canary mode with the opt-in set reports the vitest command', () => {
   const result = runCli(['--mode=canary', '--dry-run'], { DEPLOYZ_E2E_ALLOW_REAL_AWS: '1' });
-  // The real canary suite is not wired up yet (later phase) — this asserts
-  // only that the guard itself did not fire.
   expect(result.stdout + result.stderr).not.toContain(REFUSAL);
+  expect(result.status).toBe(0);
+  const parsed = JSON.parse(result.stdout);
+  expect(parsed.mode).toBe('canary');
+  expect(parsed.command).toBe('pnpm');
+  expect(parsed.args).toContain('test/canary-e2e.live.test.ts');
+});
+
+test('fresh mode with the opt-in set reports the vitest command', () => {
+  const result = runCli(['--mode=fresh', '--dry-run'], { DEPLOYZ_E2E_ALLOW_REAL_AWS: '1' });
+  expect(result.stdout + result.stderr).not.toContain(REFUSAL);
+  expect(result.status).toBe(0);
+  const parsed = JSON.parse(result.stdout);
+  expect(parsed.mode).toBe('fresh');
+  expect(parsed.command).toBe('pnpm');
+  expect(parsed.args).toContain('test/fresh-e2e.live.test.ts');
 });
 
 test('default (simulated) mode dry-run reports mode simulated', () => {

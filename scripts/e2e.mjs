@@ -50,45 +50,66 @@ if ((mode === 'canary' || mode === 'fresh') && process.env.DEPLOYZ_E2E_ALLOW_REA
   process.exit(1);
 }
 
-const playwrightArgs = [...passthrough];
-if (scenario) {
-  playwrightArgs.push('--grep', `@scenario:${scenario}\\b`);
-} else if (scenarios) {
-  playwrightArgs.push('--grep', '@scenario');
-}
-
 if (mode === 'canary' || mode === 'fresh') {
-  // Guard already satisfied above. The real canary/fresh suites (D5: wrapping
-  // packages/cdk/test/golden-path-live-aws.test.ts + audit-deployment.mjs)
-  // arrive in a later phase — this branch is a deliberately obvious
-  // placeholder to replace then.
-  console.error(`"${mode}" mode's suite is not wired up yet — it arrives in a later phase.`);
-  process.exit(1);
+  // Guard already satisfied above. D5: canary/fresh wrap
+  // packages/cdk/test/{canary,fresh}-e2e.live.test.ts — real-AWS vitest
+  // suites, not Playwright — so they run through `pnpm --filter @deployz/cdk
+  // exec vitest run <file>` instead of the simulated mode's Playwright path
+  // below. AWS credentials/region are passed through unchanged: these modes
+  // are the whole point of NOT scrubbing them (unlike simulated mode).
+  const testFile = mode === 'canary' ? 'test/canary-e2e.live.test.ts' : 'test/fresh-e2e.live.test.ts';
+  const vitestArgs = ['--filter', '@deployz/cdk', 'exec', 'vitest', 'run', testFile];
+  const addedEnv = { DEPLOYZ_E2E_MODE: mode };
+
+  if (dryRun) {
+    console.log(JSON.stringify({ mode, command: 'pnpm', args: vitestArgs, envKeys: Object.keys(addedEnv) }));
+    process.exit(0);
+  }
+
+  const childEnv = { ...process.env, ...addedEnv };
+  // shell: true so Windows resolves the pnpm.cmd shim (same pattern as
+  // packages/cdk/test/golden-path-live-aws.test.ts's spawnSync `cdk` helper).
+  const child = spawn('pnpm', vitestArgs, { env: childEnv, stdio: 'inherit', shell: true });
+
+  child.on('exit', (code, signal) => {
+    process.exit(code ?? (signal ? 1 : 0));
+  });
+  child.on('error', (err) => {
+    console.error(err);
+    process.exit(1);
+  });
+} else {
+  const playwrightArgs = [...passthrough];
+  if (scenario) {
+    playwrightArgs.push('--grep', `@scenario:${scenario}\\b`);
+  } else if (scenarios) {
+    playwrightArgs.push('--grep', '@scenario');
+  }
+
+  const { env: childEnv, scrubbed } = scrubEnv(process.env);
+  childEnv.DEPLOYZ_E2E_MODE = 'simulated';
+  if (scenario) childEnv.DEPLOYZ_E2E_SCENARIO = scenario;
+
+  if (dryRun) {
+    console.log(
+      JSON.stringify({ mode, scenario: scenario ?? null, playwrightArgs, scrubbedVars: scrubbed }),
+    );
+    process.exit(0);
+  }
+
+  // shell: true so Windows resolves the pnpm.cmd shim (same pattern as
+  // packages/cdk/test/golden-path-live-aws.test.ts's spawnSync `cdk` helper).
+  const child = spawn('pnpm', ['exec', 'playwright', 'test', ...playwrightArgs], {
+    env: childEnv,
+    stdio: 'inherit',
+    shell: true,
+  });
+
+  child.on('exit', (code, signal) => {
+    process.exit(code ?? (signal ? 1 : 0));
+  });
+  child.on('error', (err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }
-
-const { env: childEnv, scrubbed } = scrubEnv(process.env);
-childEnv.DEPLOYZ_E2E_MODE = 'simulated';
-if (scenario) childEnv.DEPLOYZ_E2E_SCENARIO = scenario;
-
-if (dryRun) {
-  console.log(
-    JSON.stringify({ mode, scenario: scenario ?? null, playwrightArgs, scrubbedVars: scrubbed }),
-  );
-  process.exit(0);
-}
-
-// shell: true so Windows resolves the pnpm.cmd shim (same pattern as
-// packages/cdk/test/golden-path-live-aws.test.ts's spawnSync `cdk` helper).
-const child = spawn('pnpm', ['exec', 'playwright', 'test', ...playwrightArgs], {
-  env: childEnv,
-  stdio: 'inherit',
-  shell: true,
-});
-
-child.on('exit', (code, signal) => {
-  process.exit(code ?? (signal ? 1 : 0));
-});
-child.on('error', (err) => {
-  console.error(err);
-  process.exit(1);
-});

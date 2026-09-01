@@ -29,7 +29,6 @@
  * see that describe block's doc comment for scope, cost/time, and required
  * image env vars (DEPLOYZ_LIVE_IMAGE_REPOSITORY / DEPLOYZ_LIVE_IMAGE_DIGEST).
  */
-import { spawnSync } from 'node:child_process';
 import { App } from 'aws-cdk-lib';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -37,9 +36,9 @@ import { createCloudFormationReader, verifyInstallation } from '@deployz/relay/v
 
 import { createAwsClients, type CacheClusterInfo, type ElastiCacheClient } from '../src/integration/aws-clients.js';
 import { ApplicationStack } from '../src/application/application-stack.js';
+import { REGION, STANDING_INSTALLATION_ID, awsCli, cdk, waitForStackGone } from './live-aws-helpers.js';
 
 const STACK_NAME = 'DeployzBootstrap';
-const REGION = process.env.AWS_REGION ?? 'us-east-1';
 const APP_CMD = 'tsx bin/bootstrap.ts';
 
 /**
@@ -54,24 +53,6 @@ const APP_CMD = 'tsx bin/bootstrap.ts';
  * limitations").
  */
 const REDIS_STACK_NAME = 'DeployzApplicationRedisLive';
-
-function run(cmd: string): string {
-  const result = spawnSync(cmd, { cwd: process.cwd(), encoding: 'utf8', timeout: 600_000, shell: true, env: process.env });
-  if (result.status !== 0) throw new Error(`${cmd} exited ${result.status}\n${result.stderr}`);
-  return result.stdout;
-}
-
-function cdk(args: string[]): string {
-  // The --app value "tsx bin/bootstrap.ts" contains a space; under
-  // shell:true it would split into two tokens. Quote it so CDK receives the
-  // full string as one argument.
-  const quoted = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
-  return run(`pnpm --filter @deployz/cdk exec cdk ${quoted}`);
-}
-
-function awsCli(args: string): string {
-  return run(`aws ${args} --region ${REGION} --output json`);
-}
 
 // ── Redis MVP: cache-lifecycle helpers ──────────────────────────────────
 
@@ -174,26 +155,6 @@ async function waitForCacheAvailable(
   throw new Error(
     `Timed out waiting for ElastiCache cluster to become available (last status: ${last?.status ?? 'not found'})`,
   );
-}
-
-/** Polls a CloudFormation stack until `describeStacks` throws (deleted) or attempts run out. */
-async function waitForStackGone(
-  cfn: { describeStacks: (p: { stackName: string; region: string }) => Promise<{ status: string }> },
-  stackName: string,
-  region: string,
-  maxAttempts = 60,
-  pollIntervalMs = 10_000,
-): Promise<boolean> {
-  for (let i = 0; i < maxAttempts; i++) {
-    try {
-      const s = await cfn.describeStacks({ stackName, region });
-      if (s.status === 'DELETE_COMPLETE') return true;
-    } catch {
-      return true;
-    }
-    if (pollIntervalMs > 0) await new Promise((r) => setTimeout(r, pollIntervalMs));
-  }
-  return false;
 }
 
 // ── Fake-path unit tests (always run — no AWS credentials required) ─────
@@ -476,7 +437,7 @@ liveAws('§67 Phase 4 — live AWS Redis cache provisioning (redisRequired: true
  * not still does not.
  */
 liveAws('installation verification (live)', () => {
-  const INSTALLATION = process.env.DEPLOYZ_LIVE_INSTALLATION_ID ?? 'c2dca2bb-a733-470d-8ef0-8e96bc889442';
+  const INSTALLATION = process.env.DEPLOYZ_LIVE_INSTALLATION_ID ?? STANDING_INSTALLATION_ID;
 
   it('verifies a provisioned installation', async () => {
     const result = await verifyInstallation({
