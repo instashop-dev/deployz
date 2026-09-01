@@ -78,6 +78,32 @@ them behind `pnpm e2e:canary` / `pnpm e2e:fresh` with the opt-in guard, unique
 test identifiers, `deployz:` tag-based isolation, and best-effort cleanup —
 rather than inventing a parallel real-AWS harness.
 
+Concrete scope frozen 2026-09-02 (after
+[live-aws-machinery.md](live-aws-machinery.md)):
+
+- **Canary is read-only verification of a persistent installation.** A vitest
+  suite in `packages/cdk/test/` verifies the standing canary installation
+  (`DEPLOYZ_E2E_CANARY_INSTALLATION_ID`, defaulting to the same standing
+  installation `DEPLOYZ_LIVE_INSTALLATION_ID` uses) via the relay's own
+  `verifyInstallation` check ladder, live runtime health
+  (`observeRuntimeHealth` over real ECS/ELB reads), and a non-null resource
+  inventory (`listAllStackResources`). It creates and deletes nothing, fails
+  fast with a clear message when credentials are absent, and refuses to look
+  past a failed `stack-tagged` check. Driving a real update/rollback through
+  canary requires the full live-install workflow against a control plane and
+  stays a documented manual escalation in Phase 1.
+- **Fresh wraps the existing create/destroy golden path.** `pnpm e2e:fresh`
+  runs the bootstrap lifecycle (deploy → verify relay Active + tags →
+  destroy → verify gone), hardened with: a per-run unique bootstrap stack
+  name (env-var override consumed by `bin/bootstrap.ts`, `deployz-fresh-<id>`),
+  a pre-existing-stack refusal instead of a collision, try/finally best-effort
+  teardown, and test-identifying tags at create time. The application/Redis
+  provisioning block stays opt-in via its existing
+  `DEPLOYZ_LIVE_IMAGE_REPOSITORY`/`DIGEST` requirement. The full product-flow
+  fresh install (install link → customer account → HEALTHY → update → delete)
+  remains the documented manual live-install workflow in Phase 1 — wrapping,
+  not redesigning, the existing capability.
+
 ## D6. Explicit non-goals honoured
 
 No record/replay, no diff-based escalation, no LocalStack, no multi-cloud
