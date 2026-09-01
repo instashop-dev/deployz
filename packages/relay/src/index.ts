@@ -546,6 +546,7 @@ export interface InstallExecutorDeps {
   readonly createStackEventCollector?: (args: {
     commandId: string;
     operationStartedAt: string;
+    stackName: string;
     resumeAfter?: string;
   }) => StackEventCollector;
 }
@@ -745,6 +746,7 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
     const collector = deps.createStackEventCollector?.({
       commandId: command.id,
       operationStartedAt: startedAt,
+      stackName,
     });
     const recoveryReport = await runRequestedRecovery(deps, command, stackName);
     const settled = await settleInstall(deps, { stackName, payload: command.payload }, collector);
@@ -834,6 +836,7 @@ export function createInstallResumer(
     const collector = deps.createStackEventCollector?.({
       commandId: pending.commandId,
       operationStartedAt: pending.startedAt,
+      stackName: pending.stackName,
       ...(resumeAfter !== undefined ? { resumeAfter } : {}),
     });
 
@@ -1096,6 +1099,7 @@ function createDefaultInstallDeps(
           createStackEventCollector: (args: {
             commandId: string;
             operationStartedAt: string;
+            stackName: string;
             resumeAfter?: string;
           }) =>
             createStackEventCollector({
@@ -1108,7 +1112,7 @@ function createDefaultInstallDeps(
                   {
                     commandId: args.commandId,
                     installationId,
-                    stackName: relayApplicationStackName(),
+                    stackName: args.stackName,
                     events: [...events],
                   },
                 ),

@@ -834,8 +834,29 @@ describe('createInstallExecutor', () => {
     expect(createStackEventCollector).toHaveBeenCalledWith({
       commandId: 'cmd-1',
       operationStartedAt: '2026-08-26T12:00:00.000Z',
+      stackName: 'deployz-app',
     });
     expect(fakeCollector.poll).toHaveBeenCalledWith('deployz-app');
+  });
+
+  it('threads a payload stack-name override into the collector factory args', async () => {
+    const fakeCollector = { poll: vi.fn(async () => {}), lastEventAt: () => null };
+    const createStackEventCollector = vi.fn(() => fakeCollector);
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(
+      makeInstallDeps({ install, createStackEventCollector }),
+    )({ ...command, payload: { stackName: 'deployz-app-staging' } });
+
+    expect(createStackEventCollector).toHaveBeenCalledWith({
+      commandId: 'cmd-1',
+      operationStartedAt: '2026-08-26T12:00:00.000Z',
+      stackName: 'deployz-app-staging',
+    });
   });
 
   it('writes the stack-events cursor into the pending marker when deferring, if the collector reported anything', async () => {
@@ -1092,6 +1113,7 @@ describe('createInstallResumer', () => {
     expect(createStackEventCollector).toHaveBeenCalledWith({
       commandId: 'cmd-1',
       operationStartedAt: pendingRecord.startedAt,
+      stackName: pendingRecord.stackName,
       resumeAfter: '2026-08-26T12:01:00.000Z',
     });
   });
@@ -1109,6 +1131,24 @@ describe('createInstallResumer', () => {
     expect(createStackEventCollector).toHaveBeenCalledWith({
       commandId: 'cmd-1',
       operationStartedAt: pendingRecord.startedAt,
+      stackName: pendingRecord.stackName,
+    });
+  });
+
+  it('resumes the collector against the overridden stack name the original command targeted', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({ ...pendingRecord, stackName: 'deployz-app-staging' });
+    const createStackEventCollector = vi.fn(() => ({
+      poll: async () => {},
+      lastEventAt: () => null,
+    }));
+
+    await createInstallResumer(makeResumeDeps({ pending, createStackEventCollector }))();
+
+    expect(createStackEventCollector).toHaveBeenCalledWith({
+      commandId: 'cmd-1',
+      operationStartedAt: pendingRecord.startedAt,
+      stackName: 'deployz-app-staging',
     });
   });
 
