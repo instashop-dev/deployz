@@ -15,6 +15,7 @@ description of the E2E architecture lives in `../e2e-testing.md`.
 | [aws-boundary.md](aws-boundary.md) | Every AWS SDK call site (relay vs control plane), the relay protocol and command paths, bootstrap/publish operations, stack polling, resource-inventory persistence, health probing, and the existing fixture-mode/injection seams. |
 | [deployment-lifecycle.md](deployment-lifecycle.md) | DB schema, the persisted deployment state machine and derived 6-stage status model, jobs/background processing, progress/step/ETA derivation, install/update/rollback/destroy/purge flows, and clock injection points. |
 | [test-infrastructure.md](test-infrastructure.md) | How the existing Playwright suite drives the real API+DB, PGlite wiring, fixture env flags, the `packages/fixture` app, CI workflows, and the pre-existing `DEPLOYZ_LIVE_AWS=1` live-AWS suite. |
+| [live-aws-machinery.md](live-aws-machinery.md) | (2026-09-02, for canary/fresh design) The `golden-path-live-aws` suite in detail, the unused `runSuite` integration harness, `audit-deployment.mjs`, tagging/isolation primitives, the publish flow, credentials/fail-fast points, and the standing verify-only installation. |
 
 ## Findings that shaped the Phase 1 design
 
