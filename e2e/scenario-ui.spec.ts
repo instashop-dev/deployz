@@ -80,12 +80,24 @@ async function getDeployment(page: Page, deploymentId: string): Promise<Deployme
 // Unlike the API-only scenario specs (which set `mode: 'parallel'` since
 // they're cheap), these four tests each drive a real Chromium page against a
 // `next dev` server — running them concurrently competes for the same dev
-// server's on-demand route compilation and CPU, which is a real source of
-// flakiness on a modest local machine. They stay independent/isolated (each
-// seeds its own org and deployment) so a higher-concurrency CI project could
-// still choose to parallelize this file; this file itself just doesn't ask
-// for that by default.
-test.describe('happy-path (browser)', () => {
+// server's on-demand route compilation and CPU, a real source of flakiness
+// on a modest local machine (observed directly: Playwright's default
+// scheduler still ran multiple of these tests — including repeats from
+// `--repeat-each` — concurrently even with no `mode: 'parallel'` requested,
+// since that only opts IN to parallelism and its absence doesn't force
+// workers=1). `mode: 'serial'` on this wrapping describe is what actually
+// pins the whole file to one worker, one test at a time, regardless of the
+// runner's default worker count or `--repeat-each`. The four tests stay
+// independent/isolated (each seeds its own org and deployment) — 'serial'
+// mode's "skip the rest after a failure" behavior is accepted here as the
+// trade-off for eliminating shared-dev-server contention, which is what
+// actually caused every timeout-flavored failure seen while developing this
+// file (fixture-setup navigations and the slow-provision timing window are
+// the most sensitive to it).
+test.describe('scenario-ui browser suite', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test.describe('happy-path (browser)', () => {
   test.use({ deployzScenario: 'happy-path' });
   // A generous ceiling, not the usual 30s — and set at the describe level
   // (not `test.setTimeout()` inside the body) specifically because it must
@@ -388,8 +400,12 @@ test.describe('update-failure then rollback-success (browser)', () => {
     // breaker trips per this scenario's `updateRollouts`.
     const v2ReleaseId = await createRelease(request, applicationId, '2.0.0');
     await page.reload();
+    // 30s, not the usual 15s: when the whole scenario suite runs in one local
+    // pass, this reload competes with every other test for the dev server's
+    // route compilation and CPU, and this re-enable was the one observed
+    // local-flake point in the suite.
     await expect(actionsSection.getByRole('button', { name: 'Deploy Update' })).toBeEnabled({
-      timeout: 15_000,
+      timeout: 30_000,
     });
     await actionsSection.getByRole('button', { name: 'Deploy Update' }).click();
     await expect(deployPanel).toBeVisible();
@@ -467,5 +483,6 @@ test.describe('update-failure then rollback-success (browser)', () => {
     const afterRollback = await getDeployment(page, deploymentId);
     expect(afterRollback.state).toBe('HEALTHY');
     expect(afterRollback.currentReleaseId).toBe(v1ReleaseId);
+  });
   });
 });
