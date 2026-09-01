@@ -85,7 +85,12 @@ import {
   pendingParameterName,
   type PendingStore,
 } from './pending.js';
-import { pollOnce, type PollDependencies } from './poll.js';
+import { pollOnce, reportCommandProgress, type PollDependencies } from './poll.js';
+import {
+  createStackEventCollector,
+  createStackEventsReader,
+  type StackEventCollector,
+} from './stack-events.js';
 import {
   createRealCacheCleanupClient,
   createRealRdsCleanupClient,
@@ -532,6 +537,17 @@ export interface InstallExecutorDeps {
   readonly executionRoleArn?: string;
   /** Clock for the pending marker's `startedAt`. */
   readonly now?: () => string;
+  /**
+   * Builds a stack-event collector for one INSTALL attempt. Optional: when
+   * absent (older wiring, or a test that doesn't care about progress
+   * reporting), the executor and resumer behave exactly as they did before
+   * this existed — no collector, no `onPoll`, no cursor.
+   */
+  readonly createStackEventCollector?: (args: {
+    commandId: string;
+    operationStartedAt: string;
+    resumeAfter?: string;
+  }) => StackEventCollector;
 }
 
 /** What `install` is asked for — `InstallOptions` minus the client seam. */
@@ -556,6 +572,7 @@ export type VerifyRequest = Omit<VerifyOptions, 'cfn'>;
 async function settleInstall(
   deps: InstallExecutorDeps,
   request: { stackName: string; payload: Record<string, unknown> },
+  collector?: StackEventCollector,
 ): Promise<
   | { readonly deferred: true; readonly status: string }
   | {
@@ -596,6 +613,7 @@ async function settleInstall(
     stackName: request.stackName,
     parameters: readInstallParametersFromPayload(request.payload),
     ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),
+    ...(collector ? { onPoll: (stackName: string) => collector.poll(stackName) } : {}),
   });
 
   if (outcome.state === 'in-progress') {
@@ -723,8 +741,13 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
     }
 
     const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? relayApplicationStackName();
+    const startedAt = (deps.now ?? (() => new Date().toISOString()))();
+    const collector = deps.createStackEventCollector?.({
+      commandId: command.id,
+      operationStartedAt: startedAt,
+    });
     const recoveryReport = await runRequestedRecovery(deps, command, stackName);
-    const settled = await settleInstall(deps, { stackName, payload: command.payload });
+    const settled = await settleInstall(deps, { stackName, payload: command.payload }, collector);
 
     if (!settled.deferred) {
       logInstall(command, stackName, settled.success, settled.error);
@@ -752,13 +775,15 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
     // The stack outlived this invocation. Record what we owe an answer to
     // BEFORE deferring — a deferral the next poll cannot find is a job that
     // sits in RUNNING forever, which is worse than an honest failure.
+    const lastEventAt = collector?.lastEventAt() ?? null;
     const recorded = await deps.pending.write({
       commandId: command.id,
       idempotencyKey: command.idempotencyKey,
       type: command.type,
       stackName,
-      startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+      startedAt,
       payload: command.payload,
+      ...(lastEventAt !== null ? { stackEventsCursor: { lastEventAt } } : {}),
     });
 
     if (!recorded) {
@@ -805,12 +830,26 @@ export function createInstallResumer(
     // settles its own, so a deferred deploy is never answered as an install.
     if (pending.type !== 'INSTALL') return [];
 
-    const settled = await settleInstall(deps, {
-      stackName: pending.stackName,
-      payload: pending.payload,
+    const resumeAfter = pending.stackEventsCursor?.lastEventAt;
+    const collector = deps.createStackEventCollector?.({
+      commandId: pending.commandId,
+      operationStartedAt: pending.startedAt,
+      ...(resumeAfter !== undefined ? { resumeAfter } : {}),
     });
 
+    const settled = await settleInstall(
+      deps,
+      { stackName: pending.stackName, payload: pending.payload },
+      collector,
+    );
+
     if (settled.deferred) {
+      // Re-defer: carry forward whatever new events this attempt collected
+      // so the next resume does not re-walk history it already reported.
+      const lastEventAt = collector?.lastEventAt() ?? null;
+      if (lastEventAt !== null) {
+        await deps.pending.write({ ...pending, stackEventsCursor: { lastEventAt } });
+      }
       console.log(
         JSON.stringify({
           event: 'relay:command-still-pending',
@@ -1011,8 +1050,22 @@ export function readVerifyOptionsFromPayload(
  * invocation reports nothing at all, which is the one outcome the deferral
  * machinery cannot recover from, because the pending marker is written
  * on the way out.
+ *
+ * `reportContext` is optional so this stays usable without a control-plane
+ * connection (e.g. a future caller that only wants the AWS-facing half).
+ * When it is supplied, `createRelayHandler` passes exactly the fetch/URL/
+ * auth context the poll loop already reports results with — `getAuthHeaders`
+ * reads the CURRENT auth state, because a stack event can be collected long
+ * after a token has rotated.
  */
-function createDefaultInstallDeps(installationId: string): InstallExecutorDeps {
+function createDefaultInstallDeps(
+  installationId: string,
+  reportContext?: {
+    fetchFn: FetchFn;
+    controlPlaneUrl: string;
+    getAuthHeaders: () => Record<string, string>;
+  },
+): InstallExecutorDeps {
   const budget = Number(process.env['DEPLOYZ_INSTALL_BUDGET_MS'] ?? '');
   const budgetMs = Number.isFinite(budget) && budget > 0 ? budget : undefined;
   const executionRoleArn = process.env['DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN'];
@@ -1038,6 +1091,32 @@ function createDefaultInstallDeps(installationId: string): InstallExecutorDeps {
         },
         { stackName },
       ),
+    ...(reportContext
+      ? {
+          createStackEventCollector: (args: {
+            commandId: string;
+            operationStartedAt: string;
+            resumeAfter?: string;
+          }) =>
+            createStackEventCollector({
+              reader: createStackEventsReader(),
+              report: (events) =>
+                reportCommandProgress(
+                  reportContext.fetchFn,
+                  reportContext.controlPlaneUrl,
+                  reportContext.getAuthHeaders(),
+                  {
+                    commandId: args.commandId,
+                    installationId,
+                    stackName: relayApplicationStackName(),
+                    events: [...events],
+                  },
+                ),
+              operationStartedAt: args.operationStartedAt,
+              ...(args.resumeAfter !== undefined ? { resumeAfter: args.resumeAfter } : {}),
+            }),
+        }
+      : {}),
   };
 }
 
@@ -1237,7 +1316,22 @@ export interface RelayHandlerDeps {
  * directly as the CDK NodejsFunction handler.
  */
 export function createRelayHandler(deps: RelayHandlerDeps) {
-  const installDeps = createDefaultInstallDeps(process.env['DEPLOYZ_INSTALLATION_ID'] ?? '');
+  // Auth state persists across invocations within the same warm Lambda
+  // container. On cold start it's re-created from Secrets Manager. Declared
+  // before `installDeps` so the stack-events report closure below can close
+  // over it — the collector reports long after this is first assigned, and
+  // must always see whatever token rotation has left it holding.
+  let authState: ReturnType<typeof createAuthState> | undefined;
+
+  // Same env var `relayHandler` re-reads per invocation below — read once
+  // here too, matching how `DEPLOYZ_INSTALLATION_ID` is already read at both
+  // scopes, so the stack-events report closure has a base URL to POST to.
+  const controlPlaneUrlForInstall = process.env['DEPLOYZ_CONTROL_PLANE_URL'] ?? '';
+  const installDeps = createDefaultInstallDeps(process.env['DEPLOYZ_INSTALLATION_ID'] ?? '', {
+    fetchFn: deps.fetchFn,
+    controlPlaneUrl: controlPlaneUrlForInstall,
+    getAuthHeaders: () => (authState ? buildAuthHeaders(authState) : {}),
+  });
   const executors = deps.executors ?? createDefaultExecutors(installDeps);
   const idempotency = deps.idempotency ?? new IdempotencyStore();
 
@@ -1247,10 +1341,6 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   // cache — without this, a redis-required deployment's heartbeats verify
   // against the cache-less expectation and never report the cache check.
   const deploymentMeta: { redisRequired: boolean } = { redisRequired: false };
-
-  // Auth state persists across invocations within the same warm Lambda
-  // container. On cold start it's re-created from Secrets Manager.
-  let authState: ReturnType<typeof createAuthState> | undefined;
 
   return async function relayHandler(
     event: ScheduledEvent,

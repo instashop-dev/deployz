@@ -146,10 +146,19 @@ export interface InstallOptions {
   readonly executionRoleArn?: string;
   /** How long to watch before answering `in-progress`. Defaults to 3 minutes. */
   readonly budgetMs?: number;
-  /** Gap between `DescribeStacks` calls. Defaults to 15 seconds. */
+  /** Gap between `DescribeStacks` calls. Defaults to 5 seconds. */
   readonly pollIntervalMs?: number;
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * Called once per wait-loop tick, and once more after the loop reaches a
+   * terminal state, with the stack name being watched. Wired to the
+   * stack-event collector so CloudFormation events reach the control plane
+   * on the same cadence as the wait loop already polls with — never a
+   * second timer. Guarded: a rejection here can never change the install
+   * outcome.
+   */
+  readonly onPoll?: (stackName: string) => Promise<void>;
 }
 
 export type InstallOutcome =
@@ -167,7 +176,7 @@ export type InstallOutcome =
   | { readonly state: 'in-progress'; readonly status: string };
 
 const DEFAULT_BUDGET_MS = 180_000;
-const DEFAULT_POLL_INTERVAL_MS = 15_000;
+const DEFAULT_POLL_INTERVAL_MS = 5_000;
 
 /**
  * How many consecutive unreadable polls mean the stack is really gone.
@@ -212,6 +221,7 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     now = () => Date.now(),
     sleep = defaultSleep,
+    onPoll,
   } = options;
 
   const deadline = now() + budgetMs;
@@ -261,6 +271,12 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
       return { state: 'in-progress', status: last?.status ?? 'CREATE_IN_PROGRESS' };
     }
 
+    try {
+      await onPoll?.(stackName);
+    } catch {
+      // Event collection is enrichment, never a reason the wait loop stops.
+    }
+
     const state = await installer.describeStack(stackName);
     if (state === null) {
       // An adopted DELETE_IN_PROGRESS finishing is not a loss of access —
@@ -296,7 +312,17 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
     unreadable = 0;
     last = state;
     const settled = await settle(state, stackName, installer);
-    if (settled) return settled;
+    if (settled) {
+      // One more collection pass now that the stack has a verdict, so the
+      // tail events between the last tick and the terminal state are not
+      // lost to the invocation ending.
+      try {
+        await onPoll?.(stackName);
+      } catch {
+        // Same rule as above — never the reason the outcome is lost.
+      }
+      return settled;
+    }
   }
 }
 

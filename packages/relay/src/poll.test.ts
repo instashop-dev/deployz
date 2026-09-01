@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import type { RelayCommandProgress } from '@deployz/contracts';
 
 import { createAuthState, type FetchFn } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
-import { pollOnce, type PollDependencies } from './poll.js';
+import { pollOnce, reportCommandProgress, type PollDependencies } from './poll.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -539,6 +541,91 @@ describe('pollOnce — deferred commands', () => {
 
     expect(result.ok).toBe(true);
     expect(result.resumed).toBe(0);
+  });
+});
+
+// ── Stack-event progress reporting ───────────────────────────────────────────
+
+describe('reportCommandProgress', () => {
+  const progress: RelayCommandProgress = {
+    commandId: 'cmd-1',
+    installationId: 'inst-test',
+    stackName: 'deployz-app',
+    events: [
+      {
+        eventId: 'evt-1',
+        timestamp: '2026-08-30T10:00:00.000Z',
+        logicalResourceId: 'WebServerService',
+        resourceType: 'AWS::ECS::Service',
+        resourceStatus: 'CREATE_IN_PROGRESS',
+      },
+    ],
+  };
+
+  it('posts the events to the progress endpoint with auth headers', async () => {
+    const requests: Array<{ url: string; method?: string; headers?: Record<string, string>; body?: string }> = [];
+    const fetchFn: FetchFn = async (url, init) => {
+      requests.push({ url, method: init?.method, headers: init?.headers, body: init?.body });
+      return { status: 200, headers: { get: () => null }, json: async () => ({ accepted: true }) };
+    };
+
+    const accepted = await reportCommandProgress(
+      fetchFn,
+      'https://api.deployz.dev',
+      { Authorization: 'Bearer tok-1' },
+      progress,
+    );
+
+    expect(accepted).toBe(true);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe('https://api.deployz.dev/api/relay/commands/cmd-1/progress');
+    expect(requests[0]?.method).toBe('POST');
+    expect(requests[0]?.headers).toMatchObject({
+      Authorization: 'Bearer tok-1',
+      'Content-Type': 'application/json',
+    });
+    expect(JSON.parse(requests[0]?.body ?? '{}')).toEqual(progress);
+  });
+
+  it('returns false without throwing on a 404 from an older control plane', async () => {
+    const fetchFn: FetchFn = async () => ({
+      status: 404,
+      headers: { get: () => null },
+      json: async () => ({}),
+    });
+
+    await expect(
+      reportCommandProgress(fetchFn, 'https://api.deployz.dev', {}, progress),
+    ).resolves.toBe(false);
+  });
+
+  it('returns false without throwing when the fetch itself fails', async () => {
+    const fetchFn: FetchFn = async () => {
+      throw new Error('network down');
+    };
+
+    await expect(
+      reportCommandProgress(fetchFn, 'https://api.deployz.dev', {}, progress),
+    ).resolves.toBe(false);
+  });
+
+  it('logs the failure status only once for repeated failures at that status', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchFn: FetchFn = async () => ({
+      status: 503,
+      headers: { get: () => null },
+      json: async () => ({}),
+    });
+
+    await reportCommandProgress(fetchFn, 'https://api.deployz.dev', {}, progress);
+    await reportCommandProgress(fetchFn, 'https://api.deployz.dev', {}, progress);
+
+    const statusLogs = consoleSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('relay:stack-events-report-failed') && String(call[0]).includes('503'),
+    );
+    expect(statusLogs).toHaveLength(1);
+
+    consoleSpy.mockRestore();
   });
 });
 

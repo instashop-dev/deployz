@@ -807,6 +807,68 @@ describe('createInstallExecutor', () => {
     expect(result.failureCode).toBe('STACK_CREATE_FAILED');
     expect(result.error).toMatch(/template/i);
   });
+
+  it('works exactly as before when no stack-event collector factory is configured', async () => {
+    const install = vi.fn(async (options: { onPoll?: unknown }) => {
+      expect(options.onPoll).toBeUndefined();
+      return { state: 'succeeded' as const, status: 'CREATE_COMPLETE', outputs: {} };
+    });
+
+    const result = await createInstallExecutor(makeInstallDeps({ install }))(command);
+
+    expect(result.success).toBe(true);
+  });
+
+  it('builds a collector at command start and threads it into install as onPoll', async () => {
+    const fakeCollector = { poll: vi.fn(async () => {}), lastEventAt: () => null };
+    const createStackEventCollector = vi.fn(() => fakeCollector);
+    const install = vi.fn(async (options: { onPoll?: (stackName: string) => Promise<void> }) => {
+      await options.onPoll?.('deployz-app');
+      return { state: 'succeeded' as const, status: 'CREATE_COMPLETE', outputs: {} };
+    });
+
+    await createInstallExecutor(
+      makeInstallDeps({ install, createStackEventCollector }),
+    )(command);
+
+    expect(createStackEventCollector).toHaveBeenCalledWith({
+      commandId: 'cmd-1',
+      operationStartedAt: '2026-08-26T12:00:00.000Z',
+    });
+    expect(fakeCollector.poll).toHaveBeenCalledWith('deployz-app');
+  });
+
+  it('writes the stack-events cursor into the pending marker when deferring, if the collector reported anything', async () => {
+    const pending = memoryPendingStore();
+    const fakeCollector = { poll: async () => {}, lastEventAt: () => '2026-08-26T12:00:03.000Z' };
+
+    await createInstallExecutor(
+      makeInstallDeps({
+        pending,
+        createStackEventCollector: () => fakeCollector,
+        install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }),
+      }),
+    )(command);
+
+    expect(await pending.read()).toMatchObject({
+      stackEventsCursor: { lastEventAt: '2026-08-26T12:00:03.000Z' },
+    });
+  });
+
+  it('omits the stack-events cursor on defer when the collector reported nothing', async () => {
+    const pending = memoryPendingStore();
+    const fakeCollector = { poll: async () => {}, lastEventAt: () => null };
+
+    await createInstallExecutor(
+      makeInstallDeps({
+        pending,
+        createStackEventCollector: () => fakeCollector,
+        install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }),
+      }),
+    )(command);
+
+    expect(await pending.read()).not.toHaveProperty('stackEventsCursor');
+  });
 });
 
 describe('createInstallResumer', () => {
@@ -1012,6 +1074,63 @@ describe('createInstallResumer', () => {
       failureCode: 'STACK_CREATE_FAILED',
     });
     expect(await pending.read()).toBeNull();
+  });
+
+  it('resumes the collector from the pending startedAt and cursor', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({
+      ...pendingRecord,
+      stackEventsCursor: { lastEventAt: '2026-08-26T12:01:00.000Z' },
+    });
+    const createStackEventCollector = vi.fn(() => ({
+      poll: async () => {},
+      lastEventAt: () => null,
+    }));
+
+    await createInstallResumer(makeResumeDeps({ pending, createStackEventCollector }))();
+
+    expect(createStackEventCollector).toHaveBeenCalledWith({
+      commandId: 'cmd-1',
+      operationStartedAt: pendingRecord.startedAt,
+      resumeAfter: '2026-08-26T12:01:00.000Z',
+    });
+  });
+
+  it('resumes the collector with no resumeAfter when the pending marker predates the cursor field', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord); // no stackEventsCursor — legacy marker
+    const createStackEventCollector = vi.fn(() => ({
+      poll: async () => {},
+      lastEventAt: () => null,
+    }));
+
+    await createInstallResumer(makeResumeDeps({ pending, createStackEventCollector }))();
+
+    expect(createStackEventCollector).toHaveBeenCalledWith({
+      commandId: 'cmd-1',
+      operationStartedAt: pendingRecord.startedAt,
+    });
+  });
+
+  it('rewrites the pending marker with the updated cursor when re-deferring', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+    const createStackEventCollector = vi.fn(() => ({
+      poll: async () => {},
+      lastEventAt: () => '2026-08-26T12:07:00.000Z',
+    }));
+
+    await createInstallResumer(
+      makeResumeDeps({
+        pending,
+        createStackEventCollector,
+        install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }),
+      }),
+    )();
+
+    expect(await pending.read()).toMatchObject({
+      stackEventsCursor: { lastEventAt: '2026-08-26T12:07:00.000Z' },
+    });
   });
 });
 
