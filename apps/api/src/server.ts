@@ -33,6 +33,7 @@ import {
   healthStatusSchema,
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
+  type VendorStackEvent,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
 import type { RuntimeDb } from '@deployz/db';
@@ -3188,6 +3189,30 @@ export async function buildServer({
       .limit(take)
       .offset(skip);
     return { events: rows };
+  });
+
+  // GET /api/deployments/:id/stack-events — vendor CloudFormation diagnostics
+  app.get('/api/deployments/:id/stack-events', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedDeployment(db, id, organizationId);
+    const { limit } = request.query as { limit?: string };
+    const take = Math.min(Number(limit ?? 100), 200);
+    const rows = await db
+      .select()
+      .from(schema.deploymentStackEvents)
+      .where(eq(schema.deploymentStackEvents.deploymentId, id))
+      .orderBy(desc(schema.deploymentStackEvents.eventAt), desc(schema.deploymentStackEvents.id))
+      .limit(take);
+    const events: VendorStackEvent[] = rows.map((row) => ({
+      id: row.id,
+      eventAt: row.eventAt.toISOString(),
+      logicalResourceId: row.logicalResourceId,
+      resourceType: row.resourceType,
+      resourceStatus: row.resourceStatus,
+      resourceStatusReason: row.resourceStatusReason,
+    }));
+    return { events };
   });
 
   // GET /api/deployments/:id/diagnostics — Diagnostics (§29)

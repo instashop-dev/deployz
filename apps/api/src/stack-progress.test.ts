@@ -422,3 +422,151 @@ describe('POST /api/relay/commands/:id/progress', () => {
     expect(body.currentActivity).not.toMatch(/ROLLBACK|CloudFormation|AWS::/i);
   });
 });
+
+// Task 5: GET /api/deployments/:id/stack-events — the vendor diagnostics read
+// endpoint. Org-scoped exactly like GET /api/deployments/:id/events.
+describe('GET /api/deployments/:id/stack-events', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let ownerCookie: string;
+  let deployment: typeof schema.deployments.$inferSelect;
+
+  async function signUpAndSignIn(email: string): Promise<string> {
+    const password = 'super-secret-1';
+    await auth.api.signUpEmail({ body: { email, password, name: email.split('@')[0]! } });
+    const signin = await auth.api.signInEmail({ body: { email, password }, asResponse: true });
+    const setCookie = signin.headers.get('set-cookie');
+    if (!setCookie) {
+      throw new Error('sign-in did not set a session cookie');
+    }
+    return setCookie;
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db });
+
+    ownerCookie = await signUpAndSignIn('stack-events-owner@example.com');
+    const memberships = await db
+      .select({ organizationId: schema.member.organizationId })
+      .from(schema.member)
+      .limit(1);
+    const organizationId = memberships[0]!.organizationId;
+
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Stack Events App',
+        repoFullName: `acme/stack-events-app-${crypto.randomUUID().slice(0, 8)}`,
+        repoUrl: 'https://github.com/acme/stack-events-app',
+        defaultBranch: 'main',
+      })
+      .returning();
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({
+        organizationId,
+        name: 'Stack Events Customer',
+        email: `stack-events-cust-${crypto.randomUUID()}@example.com`,
+      })
+      .returning();
+    [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId: customer!.id,
+        region: 'us-east-1',
+        state: 'NOT_INSTALLED',
+        installationId: `inst-${crypto.randomUUID()}`,
+        enrollmentCode: crypto.randomUUID(),
+      })
+      .returning();
+
+    const t0 = new Date();
+    await db.insert(schema.deploymentStackEvents).values([
+      {
+        deploymentId: deployment.id,
+        providerEventId: 'evt-vpc',
+        eventAt: t0,
+        logicalResourceId: 'Vpc',
+        resourceType: 'AWS::EC2::VPC',
+        resourceStatus: 'CREATE_IN_PROGRESS',
+      },
+      {
+        deploymentId: deployment.id,
+        providerEventId: 'evt-subnet',
+        eventAt: new Date(t0.getTime() + 1000),
+        logicalResourceId: 'Subnet',
+        resourceType: 'AWS::EC2::Subnet',
+        resourceStatus: 'CREATE_COMPLETE',
+        resourceStatusReason: 'resource creation completed',
+      },
+      {
+        deploymentId: deployment.id,
+        providerEventId: 'evt-stack',
+        eventAt: new Date(t0.getTime() + 2000),
+        logicalResourceId: 'Stack',
+        resourceType: 'AWS::CloudFormation::Stack',
+        resourceStatus: 'CREATE_COMPLETE',
+      },
+    ]);
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('returns the owner rows newest-first with raw vendor fields', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/stack-events`,
+      headers: { cookie: ownerCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { events: Array<Record<string, unknown>> };
+    expect(body.events.map((e) => e.logicalResourceId)).toEqual(['Stack', 'Subnet', 'Vpc']);
+    expect(body.events[1]).toMatchObject({
+      resourceType: 'AWS::EC2::Subnet',
+      resourceStatus: 'CREATE_COMPLETE',
+      resourceStatusReason: 'resource creation completed',
+    });
+    expect(typeof body.events[0]!.eventAt).toBe('string');
+  });
+
+  it('404s for a user from another org', async () => {
+    const otherCookie = await signUpAndSignIn('stack-events-outsider@example.com');
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/stack-events`,
+      headers: { cookie: otherCookie },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('401s when unauthenticated', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/stack-events`,
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('respects the limit query param', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/stack-events?limit=2`,
+      headers: { cookie: ownerCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { events: unknown[] };
+    expect(body.events).toHaveLength(2);
+  });
+});
