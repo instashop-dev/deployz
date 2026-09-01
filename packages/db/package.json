@@ -13,6 +13,10 @@
     "./schema": {
       "types": "./dist/schema/index.d.ts",
       "import": "./dist/schema/index.js"
+    },
+    "./deployment-resources-persist": {
+      "types": "./dist/deployment-resources-persist.d.ts",
+      "import": "./dist/deployment-resources-persist.js"
     }
   },
   "scripts": {
