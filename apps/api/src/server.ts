@@ -41,7 +41,13 @@ import {
   type InfrastructureSummaryStatus,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
-import { persistDeploymentResourceSnapshot, type ObservedStackResource } from '@deployz/db';
+// Deep import so the Lambda bundle never touches @deployz/db's package root:
+// the root re-exports client.ts, whose PGlite dev fallback is external in the
+// Lambda bundle and crashes cold start with Runtime.ImportModuleError.
+import {
+  persistDeploymentResourceSnapshot,
+  type ObservedStackResource,
+} from '@deployz/db/deployment-resources-persist';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
