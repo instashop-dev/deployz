@@ -70,8 +70,11 @@ const CATEGORY_PREFIXES: ReadonlyArray<readonly [prefix: string, category: Provi
   ['AWS::ElastiCache::', 'redis'],
   ['AWS::ECS::', 'application'],
   ['AWS::ElasticLoadBalancingV2::', 'application'],
-  ['AWS::IAM::', 'application'],
-  ['AWS::Logs::', 'application'],
+  // IAM roles and log groups deliberately stay uncategorized: CloudFormation
+  // creates them at the very start of the stack, so counting them as
+  // `application` backdated that category's startedAt to stack creation and
+  // inflated the "Starting application" elapsed time by several minutes
+  // (observed live on the first documenso E2E of this feature).
 ];
 
 function categoryFor(resourceType: string): ProvisioningCategory | undefined {

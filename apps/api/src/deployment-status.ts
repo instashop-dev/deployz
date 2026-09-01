@@ -516,6 +516,16 @@ interface ProvisioningCategory {
 }
 type ProvisioningSnapshot = Partial<Record<ProvisioningCategoryKey, ProvisioningCategory>>;
 
+/** The live CloudFormation stack status the snapshot carries, if any — the
+ *  only stack-status signal that exists while the INSTALL job has no result
+ *  yet (see `aws.stackStatus` below). */
+function readSnapshotStackStatus(observedState: Record<string, unknown> | null | undefined): string | null {
+  const infraHealth = (observedState as { infraHealth?: unknown } | null | undefined)?.infraHealth;
+  const provisioning = (infraHealth as { provisioning?: unknown } | null | undefined)?.provisioning;
+  const stackStatus = (provisioning as { stackStatus?: unknown } | null | undefined)?.stackStatus;
+  return typeof stackStatus === 'string' ? stackStatus : null;
+}
+
 function readProvisioningSnapshot(observedState: Record<string, unknown> | null | undefined): ProvisioningSnapshot | null {
   const infraHealth = (observedState as { infraHealth?: unknown } | null | undefined)?.infraHealth;
   const provisioning = (infraHealth as { provisioning?: unknown } | null | undefined)?.provisioning;
@@ -910,7 +920,13 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       lastSeenAt: deployment.lastHealthAt?.toISOString() ?? null,
     },
     job: latest ? { type: latest.type, status: latest.state } : null,
-    aws: { stackStatus: extractStackStatus(latestStackJob?.result) },
+    // A settled INSTALL/DESTROY result is the definitive answer; while one is
+    // still running its result is null, and the relay snapshot's live status
+    // (CREATE_IN_PROGRESS et al.) is the only stack-status signal there is.
+    aws: {
+      stackStatus:
+        extractStackStatus(latestStackJob?.result) ?? readSnapshotStackStatus(deployment.observedState),
+    },
     health: { status: deployment.healthStatus },
     result: stage === 'READY' && appUrl ? { url: appUrl } : null,
     failure: stage === 'FAILED' ? buildFailure(latestFailed, failureEntry!) : null,

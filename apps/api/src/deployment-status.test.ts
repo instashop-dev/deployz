@@ -68,8 +68,9 @@ function makeDomain(overrides: Partial<DerivationDomain> = {}): DerivationDomain
 // deployment-status.ts's readProvisioningSnapshot parses.
 function snapshotObservedState(
   categories: Record<string, { status: 'IN_PROGRESS' | 'COMPLETE' | 'FAILED'; startedAt?: string; completedAt?: string }>,
+  stackStatus?: string,
 ): Record<string, unknown> {
-  return { infraHealth: { provisioning: { categories } } };
+  return { infraHealth: { provisioning: { categories, ...(stackStatus ? { stackStatus } : {}) } } };
 }
 
 function derive(input: Partial<DeriveDeploymentStatusInput> = {}) {
@@ -674,6 +675,33 @@ describe('step derivation — one per stage', () => {
     // The snapshot says NETWORK never completed — more truthful than the
     // failure code's own component guess.
     expect(status.step).toBe('NETWORK');
+  });
+});
+
+describe('aws.stackStatus from the live snapshot', () => {
+  it('falls back to the snapshot stack status while the INSTALL result is still null', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'INSTALLING',
+        observedState: snapshotObservedState({ network: { status: 'IN_PROGRESS' } }, 'CREATE_IN_PROGRESS'),
+      }),
+      jobs: [makeJob({ state: 'RUNNING', result: null })],
+    });
+    expect(status.aws.stackStatus).toBe('CREATE_IN_PROGRESS');
+  });
+
+  it('a settled stack job result still wins over a stale snapshot status', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        observedState: snapshotObservedState({ network: { status: 'IN_PROGRESS' } }, 'CREATE_IN_PROGRESS'),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED', result: { output: { stackStatus: 'CREATE_COMPLETE' } } })],
+      appUrl: 'https://app.example.com',
+      domain: makeDomain(),
+    });
+    expect(status.aws.stackStatus).toBe('CREATE_COMPLETE');
   });
 });
 

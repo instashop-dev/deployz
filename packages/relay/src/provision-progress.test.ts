@@ -20,8 +20,6 @@ describe('summarizeProvisioning', () => {
       { logicalId: 'Cache', type: 'AWS::ElastiCache::ReplicationGroup', status: 'CREATE_COMPLETE', timestamp: '2026-01-01T00:00:00.000Z' },
       { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', timestamp: '2026-01-01T00:00:00.000Z' },
       { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE', timestamp: '2026-01-01T00:00:00.000Z' },
-      { logicalId: 'Role', type: 'AWS::IAM::Role', status: 'CREATE_COMPLETE', timestamp: '2026-01-01T00:00:00.000Z' },
-      { logicalId: 'LogGroup', type: 'AWS::Logs::LogGroup', status: 'CREATE_COMPLETE', timestamp: '2026-01-01T00:00:00.000Z' },
     ];
 
     const snapshot = summarizeProvisioning('CREATE_IN_PROGRESS', resources, '2026-01-01T00:05:00.000Z');
@@ -45,6 +43,23 @@ describe('summarizeProvisioning', () => {
     const snapshot = summarizeProvisioning('CREATE_IN_PROGRESS', resources, 'now');
 
     expect(snapshot.categories).toEqual({});
+  });
+
+  it('keeps early IAM/log-group resources out of the application category timing', () => {
+    // CloudFormation creates roles and log groups at stack start; counting
+    // them as `application` backdated that step's startedAt by minutes.
+    const resources: StackResource[] = [
+      { logicalId: 'Role', type: 'AWS::IAM::Role', status: 'CREATE_COMPLETE', timestamp: '2026-01-01T00:00:10.000Z' },
+      { logicalId: 'LogGroup', type: 'AWS::Logs::LogGroup', status: 'CREATE_COMPLETE', timestamp: '2026-01-01T00:00:12.000Z' },
+      { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_IN_PROGRESS', timestamp: '2026-01-01T00:12:00.000Z' },
+    ];
+
+    const snapshot = summarizeProvisioning('CREATE_IN_PROGRESS', resources, 'now');
+
+    expect(snapshot.categories.application).toMatchObject({
+      status: 'IN_PROGRESS',
+      startedAt: '2026-01-01T00:12:00.000Z',
+    });
   });
 
   it('returns an empty categories map for no resources', () => {
