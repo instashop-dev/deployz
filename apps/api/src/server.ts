@@ -418,6 +418,16 @@ interface DeployPayload {
   [key: string]: unknown;
 }
 
+// BUILD_FIXTURE_MODE: a deterministic fake `repository@sha256:…` digest so
+// the E2E lifecycle scenarios can drive deploy/rollback without a live
+// CodeBuild/ECR — same shape any real IMAGE_DIGEST has (see the regex below).
+// Reuses hashRelayToken's sha256-hex helper rather than adding a new one;
+// different release ids (one per version) hash to different digests.
+const FIXTURE_IMAGE_REPOSITORY = '123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture';
+function fixtureImageDigest(releaseId: string): string {
+  return `${FIXTURE_IMAGE_REPOSITORY}@sha256:${hashRelayToken(releaseId)}`;
+}
+
 async function requireDeployableRelease(
   db: RuntimeDb,
   releaseId: string,
@@ -2415,7 +2425,23 @@ export async function buildServer({
     // §21 image digest only exists once CodeBuild has pushed the image.
     // The worker fetches the repository source and starts that build.
     if (row) {
-      await enqueue({ type: 'BUILD_RELEASE', releaseId: row.id });
+      if (env.buildFixtureMode) {
+        // BUILD_FIXTURE_MODE: locally JOB_QUEUE_URL is never configured, so
+        // enqueue() no-ops and the release could never reach READY — every
+        // deploy/rollback would 409 forever. Skip the queue and mark the
+        // release built immediately, so E2E lifecycle scenarios can exercise
+        // the real deploy/rollback/destroy routes end-to-end.
+        await db
+          .update(schema.releases)
+          .set({
+            imageDigest: fixtureImageDigest(row.id),
+            buildStatus: 'SUCCEEDED',
+            releaseStatus: 'READY',
+          })
+          .where(eq(schema.releases.id, row.id));
+      } else {
+        await enqueue({ type: 'BUILD_RELEASE', releaseId: row.id });
+      }
     }
 
     // §22/§25: every live deployment of this application is now behind. The

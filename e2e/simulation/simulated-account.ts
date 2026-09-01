@@ -39,11 +39,25 @@ import type {
   StackEventsReader,
 } from '@deployz/relay/stack-events';
 import type { EcsServiceReader, TargetHealthReader } from '@deployz/relay/ecs-health';
+import type { EcsDeployClient, EcsTaskDefinition, RegisterTaskDefinitionInput } from '@deployz/relay/deploy';
+import type { EcsTaskReader } from '@deployz/relay/ecs-observe';
+import type { StackDeleter } from '@deployz/relay/destroy';
 
-import type { ScenarioDefinition, TimelineEvent } from './types.js';
+import type { ScenarioDefinition, TimelineEvent, UpdateRolloutOutcome } from './types.js';
 
 const STACK_EVENT_RESOURCE_TYPE = 'AWS::CloudFormation::Stack';
 const SUCCESS_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
+
+/**
+ * Mirrors apps/api/src/server.ts's BUILD_FIXTURE_MODE fixture image
+ * repository — every fixture release digest is minted under this same
+ * repository (see `fixtureImageDigest` there), so the account's bootstrap
+ * task definition below already references it, exactly like a real service
+ * already running an earlier image from the same ECR repository before its
+ * first Deployz-driven deploy.
+ */
+const FIXTURE_IMAGE_REPOSITORY = '123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture';
+const BOOTSTRAP_IMAGE_DIGEST = `sha256:${'0'.repeat(64)}`;
 
 function isStackLevel(event: TimelineEvent): boolean {
   return event.resourceType === STACK_EVENT_RESOURCE_TYPE;
@@ -76,6 +90,33 @@ export class SimulatedCustomerAccount {
   private readonly stackIdValue: string;
   private installStartRealMs: number | null = null;
   private stackNameValue: string | null = null;
+
+  // ── Deploy/rollback state (D2) ─────────────────────────────────────────
+  private ecsDeployInitialized = false;
+  private readonly taskDefinitions = new Map<string, EcsTaskDefinition>();
+  private currentTaskDefinitionArn = '';
+  private taskDefinitionRevision = 1;
+  private runningImageDigest: string | null = null;
+  // One-shot: consumed (and reset) the first time `ecsDeployClient()`'s own
+  // `describeServices` reads it as 'failed' — this is what settleEcsDeploy's
+  // `rolloutFailed()` gate checks BEFORE issuing a new UpdateService, so a
+  // LATER, unrelated deploy/rollback must not see a stale failure it did not
+  // cause (see `ecsDeployClient`'s doc comment).
+  private jobRolloutState: 'stable' | 'failed' = 'stable';
+  // NOT one-shot: reflects the outcome of the most recently COMPLETED
+  // UpdateService call, read by `ecsServiceReader()`/the runtime-health
+  // heartbeat for as long as it stays true. Identity consistency: without
+  // this, the heartbeat kept reporting the scenario's static `ecsBehavior`
+  // ('healthy') even while a deploy had just failed, and server.ts's
+  // self-healing rule (a HEALTHY heartbeat recovers a FAILED deployment)
+  // raced the failure back to HEALTHY before a test could ever observe it.
+  private healthRolloutFailed = false;
+  private updateServiceCallIndex = 0;
+  private readonly desiredCount = 2;
+  private readonly runningCount = 2;
+
+  // ── Destroy state (D2) ──────────────────────────────────────────────────
+  private deleteStartRealMs: number | null = null;
 
   constructor(scenario: ScenarioDefinition) {
     this.scenario = scenario;
@@ -183,6 +224,7 @@ export class SimulatedCustomerAccount {
         if (this.stackNameValue === null || stackName !== this.stackNameValue) {
           return { found: false };
         }
+        if (this.deleteStartRealMs !== null) return this.describeStackDuringDestroy();
         return {
           found: true,
           stack: {
@@ -195,11 +237,66 @@ export class SimulatedCustomerAccount {
       },
       describeStackResources: async (stackName: string): Promise<StackResource[]> => {
         if (this.stackNameValue === null || stackName !== this.stackNameValue) return [];
+        if (
+          this.deleteStartRealMs !== null &&
+          this.destroyAllRevealed() &&
+          this.scenario.destroy?.outcome === 'delete-failed'
+        ) {
+          // Only the resources CloudFormation itself reports DELETE_FAILED
+          // for — `settleDestroy` filters exactly this status to find its
+          // blockers. Empty (the scenario default) means no blocker is
+          // identifiable, matching its honest permanent-failure branch.
+          return (this.scenario.destroy.blockedResources ?? []).map((resource) => ({
+            logicalId: resource.logicalId,
+            type: resource.resourceType,
+            status: 'DELETE_FAILED',
+            physicalId: physicalIdFor(resource.resourceType, resource.logicalId, this.stackNameValue!),
+            statusReason: resource.reason,
+          }));
+        }
         return this.currentResourceStates();
       },
       listStackResources: async (stackName: string) => {
         if (this.stackNameValue === null || stackName !== this.stackNameValue) return null;
         return { resources: this.currentResourceStates() };
+      },
+    };
+  }
+
+  /**
+   * `describeStack` once a DESTROY has been requested (`stackDeleter()`'s
+   * `deleteStack` was called at least once). Reveals the scenario's
+   * `destroy.timeline` on the same real/virtual two-clock scheme as the
+   * install timeline, anchored to when the delete was first requested —
+   * see `DestroyScenario` in ./types.ts.
+   */
+  private describeStackDuringDestroy(): StackLookup {
+    const destroy = this.scenario.destroy;
+    if (!destroy || !this.destroyAllRevealed()) {
+      // No destroy scenario configured (deleteStack called anyway — should
+      // not happen in a lifecycle scenario) defaults to an immediate, clean
+      // delete. A configured scenario still mid-timeline reports the stack
+      // as deleting, same as real CloudFormation between CreateStack's
+      // terminal state and DeleteStack's.
+      if (!destroy) return { found: false };
+      return {
+        found: true,
+        stack: {
+          stackName: this.stackNameValue!,
+          status: 'DELETE_IN_PROGRESS',
+          tags: { 'deployz:installation': this.installationTag },
+          stackId: this.stackIdValue,
+        },
+      };
+    }
+    if (destroy.outcome === 'complete') return { found: false };
+    return {
+      found: true,
+      stack: {
+        stackName: this.stackNameValue!,
+        status: 'DELETE_FAILED',
+        tags: { 'deployz:installation': this.installationTag },
+        stackId: this.stackIdValue,
       },
     };
   }
@@ -234,11 +331,30 @@ export class SimulatedCustomerAccount {
   }
 
   /** `StackEventsReader` (stack-events.ts) — feeds the progress collector
-   *  that reports batches to `POST /api/relay/commands/:id/progress`. */
+   *  that reports batches to `POST /api/relay/commands/:id/progress`, for
+   *  both the INSTALL and the DESTROY collector (see `describeStackEventsPage`
+   *  below for the DESTROY branch). */
   stackEventsReader(): StackEventsReader {
     return {
       describeStackEventsPage: async (stackName: string): Promise<StackEventsPage | null> => {
         if (this.stackNameValue === null || stackName !== this.stackNameValue) return { events: [] };
+        if (this.deleteStartRealMs !== null) {
+          // A DESTROY collector's own `operationStartedAt` boundary is
+          // anchored at/after `destroyAnchorMs()`, strictly after every
+          // create-timeline event's timestamp, so returning only the destroy
+          // timeline here (rather than merging with the create one) produces
+          // the same collected result the boundary filter would anyway.
+          const records: StackEventRecord[] = this.destroyRevealedIndexed().map(({ event, index }) => ({
+            eventId: `destroy-evt-${index}`,
+            timestamp: this.destroyEventTimestampIso(event),
+            logicalResourceId: isStackLevel(event) ? this.stackNameValue! : event.logicalResourceId,
+            resourceType: event.resourceType,
+            resourceStatus: event.status,
+            ...(event.statusReason !== undefined ? { resourceStatusReason: event.statusReason } : {}),
+          }));
+          records.reverse();
+          return { events: records };
+        }
         const records: StackEventRecord[] = this.revealedIndexed().map(({ event, index }) => ({
           eventId: `evt-${index}`,
           timestamp: this.eventTimestampIso(event),
@@ -254,10 +370,30 @@ export class SimulatedCustomerAccount {
     };
   }
 
-  /** `EcsServiceReader` (ecs-health.ts) — scenario-controlled rollout state. */
+  /** `EcsServiceReader` (ecs-health.ts) — scenario-controlled rollout state,
+   *  feeding the §59 runtime-health heartbeat. Once a DEPLOY_RELEASE/ROLLBACK
+   *  has actually run (`ecsDeployInitialized`), this reads `healthRolloutFailed`
+   *  instead of the static `ecsBehavior` knob — identity consistency with
+   *  `ecsDeployClient`'s own view of the service, and what keeps a genuinely
+   *  failed rollout from self-healing back to HEALTHY on the next heartbeat
+   *  (server.ts's `stateRecovered` rule). Before any deploy has run, this is
+   *  unchanged from Phase 1: purely `ecsBehavior`-driven. */
   ecsServiceReader(): EcsServiceReader {
     return {
       describeServices: async () => {
+        if (this.ecsDeployInitialized) {
+          return {
+            services: [
+              {
+                desiredCount: this.desiredCount,
+                runningCount: this.healthRolloutFailed ? 0 : this.runningCount,
+                deployments: [
+                  { status: 'PRIMARY', rolloutState: this.healthRolloutFailed ? 'FAILED' : 'COMPLETED' },
+                ],
+              },
+            ],
+          };
+        }
         const behavior = this.scenario.ecsBehavior ?? { kind: 'healthy', desiredCount: 1, runningCount: 1 };
         if (behavior.kind === 'rollout-failed') {
           return {
@@ -299,6 +435,207 @@ export class SimulatedCustomerAccount {
           return { targets: Array.from({ length: behavior.runningCount }, () => ({ state: 'healthy' })) };
         }
         return { targets: [] };
+      },
+    };
+  }
+
+  // ── Deploy/rollback (D2) ─────────────────────────────────────────────────
+
+  private ensureEcsDeployInitialized(): void {
+    if (this.ecsDeployInitialized) return;
+    this.ecsDeployInitialized = true;
+    const family = `${this.stackNameValue ?? 'simulated-app'}-app`;
+    const arn = `arn:aws:ecs:us-east-1:123456789012:task-definition/${family}:1`;
+    this.currentTaskDefinitionArn = arn;
+    this.taskDefinitions.set(arn, {
+      family,
+      cpu: '256',
+      memory: '512',
+      networkMode: 'awsvpc',
+      requiresCompatibilities: ['FARGATE'],
+      containerDefinitions: [{ name: 'app', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}` }],
+    });
+  }
+
+  private nextUpdateRolloutOutcome(): UpdateRolloutOutcome {
+    const outcomes = this.scenario.updateRollouts ?? [];
+    const outcome = outcomes[this.updateServiceCallIndex] ?? 'succeed';
+    this.updateServiceCallIndex += 1;
+    return outcome;
+  }
+
+  private async listSimulatedTasks(): Promise<{ taskArns: string[] }> {
+    return {
+      taskArns:
+        this.runningImageDigest !== null
+          ? ['arn:aws:ecs:us-east-1:123456789012:task/simulated/task-1']
+          : [],
+    };
+  }
+
+  private async describeSimulatedTasks(): Promise<{
+    tasks: { containers?: { imageDigest?: string }[] }[];
+  }> {
+    return {
+      tasks:
+        this.runningImageDigest !== null
+          ? [{ containers: [{ imageDigest: this.runningImageDigest }] }]
+          : [],
+    };
+  }
+
+  /**
+   * `EcsDeployClient` (deploy.ts) — the DEPLOY_RELEASE/ROLLBACK write seam.
+   * A simplified but behaviourally faithful single-service ECS: one task
+   * definition family, `updateService` resolves instantly per the scenario's
+   * `updateRollouts` knob rather than modelling a real rollout's duration.
+   *
+   * `rolloutState` is one-shot: `describeServices` reports 'FAILED' exactly
+   * once, then resets to stable — mirroring how a finished ECS deployment
+   * (successful or not) drops out of the service's active `deployments` list
+   * once observed, so a LATER, unrelated deploy/rollback attempt is never
+   * blocked by a stale failure it did not cause.
+   */
+  ecsDeployClient(): EcsDeployClient {
+    return {
+      describeServices: async () => {
+        this.ensureEcsDeployInitialized();
+        const failed = this.jobRolloutState === 'failed';
+        if (failed) this.jobRolloutState = 'stable';
+        return {
+          services: [
+            {
+              desiredCount: this.desiredCount,
+              runningCount: this.runningCount,
+              taskDefinition: this.currentTaskDefinitionArn,
+              deployments: [{ status: 'PRIMARY', rolloutState: failed ? 'FAILED' : 'COMPLETED' }],
+            },
+          ],
+        };
+      },
+      describeTaskDefinition: async ({ taskDefinition }) => {
+        this.ensureEcsDeployInitialized();
+        const found =
+          this.taskDefinitions.get(taskDefinition) ?? this.taskDefinitions.get(this.currentTaskDefinitionArn)!;
+        return {
+          taskDefinition: { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
+        };
+      },
+      registerTaskDefinition: async (input: RegisterTaskDefinitionInput) => {
+        this.ensureEcsDeployInitialized();
+        this.taskDefinitionRevision += 1;
+        const family = input.family ?? `${this.stackNameValue ?? 'simulated-app'}-app`;
+        const arn = `arn:aws:ecs:us-east-1:123456789012:task-definition/${family}:${this.taskDefinitionRevision}`;
+        this.taskDefinitions.set(arn, {
+          family: input.family,
+          cpu: input.cpu,
+          memory: input.memory,
+          networkMode: input.networkMode,
+          requiresCompatibilities: input.requiresCompatibilities,
+          executionRoleArn: input.executionRoleArn,
+          taskRoleArn: input.taskRoleArn,
+          containerDefinitions: input.containerDefinitions as unknown as EcsTaskDefinition['containerDefinitions'],
+          ...(input.volumes ? { volumes: input.volumes } : {}),
+        });
+        return { taskDefinitionArn: arn };
+      },
+      updateService: async (input) => {
+        this.ensureEcsDeployInitialized();
+        const outcome = this.nextUpdateRolloutOutcome();
+        if (input.taskDefinition !== undefined) this.currentTaskDefinitionArn = input.taskDefinition;
+        if (outcome === 'fail') {
+          // Circuit breaker aborts the rollout — what is actually running is
+          // left unresolved (no task cleanly answers for a digest) rather
+          // than pinned back to the old one. This matters for a LATER
+          // deploy/rollback that targets the same digest the service was
+          // already running before this failure: settleEcsDeploy's own
+          // idempotent "already running" short-circuit compares against
+          // `observeRunningDigest`, and a resolved-but-stale answer would
+          // let that later attempt report success without ever calling
+          // UpdateService — silently skipping the very rollout a
+          // rollback-also-fails scenario needs to exercise.
+          this.runningImageDigest = null;
+          this.jobRolloutState = 'failed';
+          this.healthRolloutFailed = true;
+          return;
+        }
+        this.jobRolloutState = 'stable';
+        this.healthRolloutFailed = false;
+        const definition = this.taskDefinitions.get(this.currentTaskDefinitionArn);
+        const image = definition?.containerDefinitions.find((c) => typeof c.image === 'string')?.image;
+        const at = image?.lastIndexOf('@') ?? -1;
+        if (image !== undefined && at > 0) this.runningImageDigest = image.slice(at + 1);
+      },
+      listTasks: () => this.listSimulatedTasks(),
+      describeTasks: () => this.describeSimulatedTasks(),
+    };
+  }
+
+  /** `EcsTaskReader` (ecs-observe.ts) — the §59 heartbeat's running-digest
+   *  observation, sharing the exact same running-task state `ecsDeployClient`
+   *  writes, so a heartbeat taken right after a deploy/rollback settles
+   *  always agrees with what that deploy just did (identity consistency). */
+  ecsTaskReader(): EcsTaskReader {
+    return {
+      listTasks: () => this.listSimulatedTasks(),
+      describeTasks: () => this.describeSimulatedTasks(),
+    };
+  }
+
+  // ── Destroy (D2) ─────────────────────────────────────────────────────────
+
+  private ensureDestroyStarted(): number {
+    if (this.deleteStartRealMs === null) this.deleteStartRealMs = Date.now();
+    return this.deleteStartRealMs;
+  }
+
+  private destroyTimeline(): readonly TimelineEvent[] {
+    return this.scenario.destroy?.timeline ?? [];
+  }
+
+  private destroyTotalVirtualDurationMs(): number {
+    return this.destroyTimeline().reduce((max, event) => Math.max(max, event.atVirtualMs), 0);
+  }
+
+  private destroyAnchorMs(): number {
+    return (this.deleteStartRealMs ?? Date.now()) - this.destroyTotalVirtualDurationMs();
+  }
+
+  private destroyEventTimestampIso(event: TimelineEvent): string {
+    return new Date(this.destroyAnchorMs() + event.atVirtualMs).toISOString();
+  }
+
+  /** ISO instant for the DESTROY collector's `operationStartedAt` boundary. */
+  destroyStartedAtIso(): string {
+    this.ensureDestroyStarted();
+    return new Date(this.destroyAnchorMs()).toISOString();
+  }
+
+  private destroyElapsedRealMs(): number {
+    if (this.deleteStartRealMs === null) return Number.NEGATIVE_INFINITY;
+    return Date.now() - this.deleteStartRealMs;
+  }
+
+  private destroyRevealedIndexed(): ReadonlyArray<{ readonly event: TimelineEvent; readonly index: number }> {
+    const elapsed = this.destroyElapsedRealMs();
+    return this.destroyTimeline()
+      .map((event, index) => ({ event, index }))
+      .filter(({ event }) => elapsed >= event.afterMs);
+  }
+
+  private destroyAllRevealed(): boolean {
+    return this.destroyRevealedIndexed().length === this.destroyTimeline().length;
+  }
+
+  /** `StackDeleter` (destroy.ts) — the DESTROY write seam. Only records that
+   *  deletion was requested and anchors the destroy timeline's clock;
+   *  `describeStack`/`describeStackResources` above report the scenario's
+   *  configured outcome once that timeline fully reveals. Idempotent — a
+   *  retried/resumed DeleteStack call does not re-anchor the clock. */
+  stackDeleter(): StackDeleter {
+    return {
+      deleteStack: async () => {
+        this.ensureDestroyStarted();
       },
     };
   }

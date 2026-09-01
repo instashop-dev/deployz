@@ -177,4 +177,9 @@ export const env = {
   // AI fixture mode — canned gateway responses so the E2E suite can drive
   // the fix-instructions flow without a live model. Mirrors githubFixtureMode.
   aiFixtureMode: process.env.AI_FIXTURE_MODE === 'true',
+  // Build fixture mode — locally a release can never reach READY (BUILD_RELEASE
+  // enqueues without JOB_QUEUE_URL configured and no-ops), so deploy/rollback
+  // always 409. Marks a new release built immediately with a deterministic
+  // fixture digest instead of enqueuing. Mirrors githubFixtureMode.
+  buildFixtureMode: process.env.BUILD_FIXTURE_MODE === 'true',
 } as const;

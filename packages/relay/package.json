@@ -49,6 +49,18 @@
     "./pending": {
       "types": "./dist/pending.d.ts",
       "import": "./dist/pending.js"
+    },
+    "./deploy": {
+      "types": "./dist/deploy.d.ts",
+      "import": "./dist/deploy.js"
+    },
+    "./destroy": {
+      "types": "./dist/destroy.d.ts",
+      "import": "./dist/destroy.js"
+    },
+    "./ecs-observe": {
+      "types": "./dist/ecs-observe.d.ts",
+      "import": "./dist/ecs-observe.js"
     }
   },
   "scripts": {

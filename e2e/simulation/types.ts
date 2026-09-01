@@ -12,6 +12,10 @@
  * cloudformation-rollback, ecs-failure, healthcheck-failure — see
  * ./scenarios/index.ts), but every field here is shaped for the full Phase 1
  * list so later scenarios never need this file reshaped.
+ *
+ * Phase D2 (lifecycle: update/rollback/destroy) adds `updateRollouts` (ECS
+ * UpdateService outcomes for DEPLOY_RELEASE/ROLLBACK, see deploy.ts) and
+ * `destroy` (DeleteStack outcome, see destroy.ts) below.
  */
 
 /** One CloudFormation stack event in the scenario's timeline. */
@@ -70,6 +74,42 @@ export type EcsRolloutBehavior =
       readonly unhealthyTargetCount: number;
     };
 
+/** Scenario-controlled ECS UpdateService rollout outcome (deploy.ts's
+ *  `settleEcsDeploy`), one consumed per UpdateService call — so a single
+ *  scenario can express e.g. "the initial deploy succeeds, then a later
+ *  deploy or rollback fails". Calls past the end of the list default to
+ *  'succeed'. */
+export type UpdateRolloutOutcome = 'succeed' | 'fail';
+
+/** A resource CloudFormation reports DELETE_FAILED for — the blocker
+ *  destroy.ts's `settleDestroy` looks for on a DELETE_FAILED stack. */
+export interface DestroyBlockedResource {
+  readonly logicalId: string;
+  readonly resourceType: string;
+  readonly reason: string;
+}
+
+/**
+ * Scenario-controlled DeleteStack outcome (destroy.ts's `settleDestroy`).
+ * `timeline` is the DELETE_* CloudFormation event history revealed once
+ * `deleteStack()` is first called — the same real/virtual two-clock shape as
+ * `ScenarioDefinition.timeline` above, anchored to the destroy's own start
+ * (whenever `StackDeleter.deleteStack` is first invoked) rather than the
+ * install's.
+ */
+export interface DestroyScenario {
+  readonly timeline: readonly TimelineEvent[];
+  readonly outcome: 'complete' | 'delete-failed';
+  /**
+   * Only meaningful when `outcome` is `'delete-failed'`. Empty (the default)
+   * simulates CloudFormation reporting a stack-level DELETE_FAILED with no
+   * resource-level DELETE_FAILED status to point at — `settleDestroy`'s
+   * permanent-failure branch, since it can only retry with
+   * `RetainResources` for blockers it can name.
+   */
+  readonly blockedResources?: readonly DestroyBlockedResource[];
+}
+
 export interface ScenarioDefinition {
   readonly id: string;
   readonly description: string;
@@ -94,4 +134,11 @@ export interface ScenarioDefinition {
   /** ECS/target-health behaviour observed by `ecs-health.ts`'s heartbeat
    *  probe, once the ECS service + target group resources are complete. */
   readonly ecsBehavior?: EcsRolloutBehavior;
+  /** ECS UpdateService rollout outcomes for DEPLOY_RELEASE/ROLLBACK,
+   *  consumed in order, one per UpdateService call. Absent or exhausted
+   *  defaults to 'succeed'. */
+  readonly updateRollouts?: readonly UpdateRolloutOutcome[];
+  /** DESTROY behaviour. Absent means no lifecycle scenario in this test ever
+   *  calls DeleteStack against this account. */
+  readonly destroy?: DestroyScenario;
 }

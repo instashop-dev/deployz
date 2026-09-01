@@ -18,14 +18,29 @@
  * Two differences from production wiring, both required for injection:
  *  - no lazy real-AWS-SDK singletons (`getCloudFormationReader()` etc.) — the
  *    simulated account's adapters are passed directly;
- *  - only the INSTALL executor is wired (Phase 1 scope; DEPLOY_RELEASE/
- *    ROLLBACK/RESTART/DESTROY/etc. are left for a later phase, per the task).
+ *  - RESTART is not wired (not exercised by any Phase 1/D2 scenario). INSTALL,
+ *    DEPLOY_RELEASE, ROLLBACK and DESTROY are all real, composed the same way
+ *    `createDefaultExecutors`/`relayHandler` compose them in
+ *    packages/relay/src/index.ts — real factories, simulated clients, one
+ *    shared `PendingStore` across all four command types.
  */
 
-import { createInstallExecutor, createObserveHook, type InstallExecutorDeps } from '@deployz/relay';
+import {
+  createInstallExecutor,
+  createInstallResumer,
+  createObserveHook,
+  type InstallExecutorDeps,
+} from '@deployz/relay';
 import { buildAuthHeaders, createAuthState, type AuthState, type FetchFn } from '@deployz/relay/auth';
 import { type CommandExecutor, IdempotencyStore } from '@deployz/relay/commands';
+import {
+  createEcsDeployExecutor,
+  createEcsDeployResumer,
+  type EcsDeployDeps,
+} from '@deployz/relay/deploy';
+import { createDestroyExecutor, createDestroyResumer, type DestroyDeps } from '@deployz/relay/destroy';
 import { observeRuntimeHealth } from '@deployz/relay/ecs-health';
+import { observeRunningImageDigest } from '@deployz/relay/ecs-observe';
 import { installApplicationStack } from '@deployz/relay/install';
 import { memoryPendingStore } from '@deployz/relay/pending';
 import { pollOnce, reportCommandProgress, type PollDependencies } from '@deployz/relay/poll';
@@ -75,12 +90,29 @@ export interface InstallSettlement {
   readonly succeeded: boolean;
 }
 
+/** The outcome of whichever relay job (INSTALL/DEPLOY_RELEASE/ROLLBACK/
+ *  DESTROY) most recently settled — additive to `InstallSettlement`/
+ *  `waitForResult` (kept INSTALL-only for e2e/scenario-install.spec.ts and
+ *  e2e/scenario-provisioning.spec.ts). Latches on the single most-recently
+ *  settled job: a caller that lets more than one job run before awaiting may
+ *  see an earlier job's result if it hasn't yet awaited since triggering the
+ *  one it actually wants — polling `deployment.state` via the real API (as
+ *  the existing scenario specs do) sidesteps that ambiguity and is usually
+ *  the safer choice for a multi-job lifecycle test. */
+export interface JobSettlement {
+  readonly type: string;
+  readonly succeeded: boolean;
+}
+
 export interface SimulatedRelayHandle {
   readonly account: SimulatedCustomerAccount;
   /** Stops the poll-cycle timer. Safe to call more than once. */
   stop(): void;
   /** Resolves once a poll cycle has reported a non-deferred INSTALL result. */
   waitForResult(): Promise<InstallSettlement>;
+  /** Resolves with the most recently settled job of ANY type — see
+   *  `JobSettlement`'s doc comment above for its latching caveat. */
+  waitForLatestResult(): Promise<JobSettlement>;
 }
 
 export function startSimulatedRelay(options: StartSimulatedRelayOptions): SimulatedRelayHandle {
@@ -102,6 +134,13 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   let hasReportedProgress = false;
   let silenced = false;
 
+  // One shared PendingStore across INSTALL/DEPLOY_RELEASE/ROLLBACK/DESTROY —
+  // mirrors production's single installationId-keyed store
+  // (packages/relay/src/index.ts's `getPendingStore`), and is what lets the
+  // `resume` composition below peek a still-pending command's `type` before
+  // its own resumer clears it.
+  const pending = memoryPendingStore();
+
   const installDeps: InstallExecutorDeps = {
     installationId,
     // Never resolved for real — only its shape (ending in the published
@@ -122,7 +161,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
         budgetMs: 30_000,
       }),
     verify: (request) => verifyInstallation({ ...request, cfn: account.cloudFormationReader() }),
-    pending: memoryPendingStore(),
+    pending,
     createStackEventCollector: ({ commandId, operationStartedAt, stackName, resumeAfter }) =>
       createStackEventCollector({
         reader: account.stackEventsReader(),
@@ -148,6 +187,52 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       }),
   };
 
+  // The DEPLOY_RELEASE/ROLLBACK write seam — `createEcsDeployExecutor` is
+  // shared between the two command types exactly like production's
+  // `createDefaultExecutors` (packages/relay/src/index.ts): "the only
+  // difference is which release the control plane derived the payload from."
+  // `stackName` is a getter so it always reads whatever `account.stackName`
+  // ends up being once INSTALL creates the stack, even though `deployDeps` is
+  // built before that happens.
+  const deployDeps: EcsDeployDeps = {
+    cfn: account.cloudFormationReader(),
+    ecs: account.ecsDeployClient(),
+    pending,
+    installationId,
+    get stackName() {
+      return stackNameOrDefault();
+    },
+  };
+
+  // The DESTROY write seam. `rds`/`cache` are omitted: every D2 lifecycle
+  // scenario destroys a deployment that completed a real install, so the
+  // control plane always sends `dataDeletionAuthorized: false`
+  // (server.ts's destroy route) — the data-preserving DELETE_FAILED path
+  // that needs them is never reached.
+  const destroyDeps: DestroyDeps = {
+    cfn: account.cloudFormationReader(),
+    deleter: account.stackDeleter(),
+    pending,
+    installationId,
+    get stackName() {
+      return stackNameOrDefault();
+    },
+    now: () => account.destroyStartedAtIso(),
+    createStackEventCollector: ({ commandId, operationStartedAt, stackName, resumeAfter }) =>
+      createStackEventCollector({
+        reader: account.stackEventsReader(),
+        report: (events) =>
+          reportCommandProgress(fetchFn, apiUrl, buildAuthHeaders(authState), {
+            commandId,
+            installationId,
+            stackName,
+            events: [...events],
+          }),
+        operationStartedAt,
+        ...(resumeAfter !== undefined ? { resumeAfter } : {}),
+      }),
+  };
+
   let settlement: InstallSettlement | null = null;
   let waiters: Array<(result: InstallSettlement) => void> = [];
 
@@ -156,19 +241,49 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     const result = await baseInstallExecutor(command);
     if (!result.deferred && settlement === null) {
       settlement = { succeeded: result.success };
-      const pending = waiters;
+      const pendingWaiters = waiters;
       waiters = [];
-      for (const waiter of pending) waiter(settlement);
+      for (const waiter of pendingWaiters) waiter(settlement);
     }
     return result;
   };
+
+  // Additive, ANY-job settlement tracking — see `JobSettlement`'s doc
+  // comment on `SimulatedRelayHandle`. Wraps every executor (uniform, since
+  // `command.type` is always known regardless of the result's shape) and the
+  // `resume` composition below (peeking the shared `pending` record's `type`
+  // BEFORE its own resumer clears it, since a resumed result carries no
+  // `type` of its own).
+  let latestSettlement: JobSettlement | null = null;
+  let latestWaiters: Array<(result: JobSettlement) => void> = [];
+  function recordLatestSettlement(type: string, succeeded: boolean): void {
+    latestSettlement = { type, succeeded };
+    const pendingWaiters = latestWaiters;
+    latestWaiters = [];
+    for (const waiter of pendingWaiters) waiter(latestSettlement);
+  }
+  function trackLatest(executor: CommandExecutor): CommandExecutor {
+    return async (command) => {
+      const result = await executor(command);
+      if (!result.deferred) recordLatestSettlement(command.type, result.success);
+      return result;
+    };
+  }
+
+  const deployExecutor = createEcsDeployExecutor(deployDeps);
+  const destroyExecutor = createDestroyExecutor(destroyDeps);
 
   const pollDeps: PollDependencies = {
     fetchFn,
     controlPlaneUrl: apiUrl,
     installationId,
     enrollmentCode,
-    executors: { INSTALL: installExecutor },
+    executors: {
+      INSTALL: trackLatest(installExecutor),
+      DEPLOY_RELEASE: trackLatest(deployExecutor),
+      ROLLBACK: trackLatest(deployExecutor),
+      DESTROY: trackLatest(destroyExecutor),
+    },
     idempotency,
     // Mirrors createRelayHandler's default observe hook, over the simulated
     // reader instead of the real CloudFormationReader singleton.
@@ -186,6 +301,15 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
           inventory ? { ...inventory, observedAt: new Date().toISOString() } : null,
         ),
     ),
+    // Mirrors createRelayHandler's default observeImage — reads through the
+    // exact same running-task state `ecsDeployClient()` writes, so a
+    // heartbeat taken right after a deploy/rollback settles always agrees
+    // with what that deploy just did (identity consistency).
+    observeImage: () =>
+      observeRunningImageDigest(
+        { cfn: account.cloudFormationReader(), ecs: account.ecsTaskReader(), installationId },
+        stackNameOrDefault(),
+      ),
     observeHealth: () =>
       observeRuntimeHealth(
         {
@@ -197,6 +321,21 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       ),
     onDeploymentMeta: (meta) => {
       redisRequired = meta.redisRequired;
+    },
+    // Chained the same way `relayHandler`'s default `resume` composes its
+    // resumers (packages/relay/src/index.ts): one shared pending store, each
+    // resumer only settling its own command type, first non-empty result
+    // wins. `pendingBefore` is read BEFORE any resumer runs so its `type` is
+    // available even after a resumer clears the record on settling.
+    resume: async () => {
+      const pendingBefore = await pending.read();
+      let results = await createInstallResumer(installDeps)();
+      if (results.length === 0) results = await createEcsDeployResumer(deployDeps)();
+      if (results.length === 0) results = await createDestroyResumer(destroyDeps)();
+      if (results.length > 0 && pendingBefore) {
+        recordLatestSettlement(pendingBefore.type, results[0]!.success);
+      }
+      return results;
     },
   };
 
@@ -227,6 +366,12 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       if (settlement !== null) return Promise.resolve(settlement);
       return new Promise((resolve) => {
         waiters.push(resolve);
+      });
+    },
+    waitForLatestResult(): Promise<JobSettlement> {
+      if (latestSettlement !== null) return Promise.resolve(latestSettlement);
+      return new Promise((resolve) => {
+        latestWaiters.push(resolve);
       });
     },
   };

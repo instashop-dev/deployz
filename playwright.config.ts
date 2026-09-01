@@ -51,6 +51,9 @@ export default defineConfig({
         // Fixture mode: a canned AI gateway so fix-instructions generation
         // succeeds deterministically in E2E, without a live model.
         AI_FIXTURE_MODE: 'true',
+        // Fixture mode: a new release is marked built (READY, fixture digest)
+        // immediately instead of enqueuing BUILD_RELEASE, which no-ops locally.
+        BUILD_FIXTURE_MODE: 'true',
         // Fixture mode: DNS/HTTPS domain checks pass only for
         // *.deployz-fixture.test names, with no check throttle — lets the
         // custom-domain E2E drive the state machine without real DNS/network.
