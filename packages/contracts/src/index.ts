@@ -249,6 +249,72 @@ export const deploymentStageSchema = z.enum([
 export type DeploymentStage = z.infer<typeof deploymentStageSchema>;
 
 /**
+ * A read-time DERIVED sub-step of the six stages above (apps/api/src/
+ * deployment-status.ts) — NOT a new persisted lifecycle; `state` and
+ * `stage` remain the only source of truth. Mainly distinguishes what
+ * PROVISIONING is actually doing (PREPARING/NETWORK/DATABASE_STORAGE/
+ * REDIS/APPLICATION), but also covers WAITING_FOR_AWS (AWS_SETUP),
+ * CONNECTING (RELAY_CONNECT), VERIFYING (HEALTH_CHECK/TLS), and READY.
+ * TLS deliberately comes AFTER HEALTH_CHECK, not before: in Deployz, HTTPS
+ * (custom domain) setup only starts once health passes (`needsDomainSetup`),
+ * so an earlier position in the order would misstate what happens next.
+ */
+export const deploymentStepSchema = z.enum([
+  'AWS_SETUP',
+  'RELAY_CONNECT',
+  'PREPARING',
+  'NETWORK',
+  'DATABASE_STORAGE',
+  'REDIS',
+  'APPLICATION',
+  'HEALTH_CHECK',
+  'TLS',
+  'READY',
+]);
+export type DeploymentStep = z.infer<typeof deploymentStepSchema>;
+
+/**
+ * Canonical step order. The one place the API's applicable-steps filter and
+ * the UI's progress list both read from, so the two can never disagree
+ * about sequence.
+ */
+export const DEPLOYMENT_STEP_ORDER: readonly DeploymentStep[] = [
+  'AWS_SETUP',
+  'RELAY_CONNECT',
+  'PREPARING',
+  'NETWORK',
+  'DATABASE_STORAGE',
+  'REDIS',
+  'APPLICATION',
+  'HEALTH_CHECK',
+  'TLS',
+  'READY',
+];
+
+/**
+ * How long each step typically takes, in seconds — the ONLY source either
+ * projection may cite for "usually takes N minutes" or a slow-step nudge;
+ * nothing else hardcodes a duration. `null` means no honest range exists:
+ * TLS is customer-DNS-dependent (the customer's own action, not AWS's), and
+ * READY has no duration at all. These are wide, deliberately-forgiving
+ * envelopes, not a promise — `takingLongerThanUsual` (apps/api/src/
+ * deployment-status.ts) only fires once the active step's elapsed time
+ * passes `max`.
+ */
+export const TYPICAL_STEP_DURATION_SECONDS: Record<DeploymentStep, { min: number; max: number } | null> = {
+  AWS_SETUP: { min: 60, max: 300 },
+  RELAY_CONNECT: { min: 60, max: 420 }, // relay polls every 5 min
+  PREPARING: { min: 30, max: 360 },
+  NETWORK: { min: 120, max: 360 },
+  DATABASE_STORAGE: { min: 180, max: 720 }, // RDS dominates
+  REDIS: { min: 480, max: 1200 }, // ElastiCache replication group
+  APPLICATION: { min: 180, max: 600 }, // ECS stabilization behind CFN
+  HEALTH_CHECK: { min: 60, max: 600 }, // bounded by heartbeat cadence
+  TLS: null,
+  READY: null,
+};
+
+/**
  * Per-component progress status. Deliberately NOT the same vocabulary as
  * healthStatusSchema: a component can be "not required" or "pending" before
  * it has ever reported health at all, states healthStatusSchema has no room
@@ -279,13 +345,22 @@ export type ComponentProgress = z.infer<typeof componentProgressSchema>;
  * progress reaches an anonymous caller — no relay identity, no job payloads,
  * no raw AWS/CFN status beyond the single word failure.technical.awsStatus
  * allows, no NOT_REQUIRED components (nothing to show for a component the
- * app never asked for).
+ * app never asked for). Deliberately no `stepStartedAt`/`stepTimings`
+ * either — those give elapsed-time precision the anonymous surface has no
+ * business exposing; the vendor projection below carries both.
  */
 export const customerDeploymentStatusSchema = z
   .object({
     stage: deploymentStageSchema,
     updatedAt: z.iso.datetime(),
     currentActivity: z.string(),
+    step: deploymentStepSchema,
+    // Applicable steps for THIS deployment, in order (REDIS present only
+    // when the application requires it) — what a progress list renders.
+    steps: z.array(deploymentStepSchema),
+    // The active step's typical range, or null when none exists (TLS/READY).
+    typicalDurationSeconds: z.object({ min: z.number().int(), max: z.number().int() }).strict().nullable(),
+    takingLongerThanUsual: z.boolean(),
     removed: z.boolean(),
     statusUpdatesUnavailable: z.boolean(),
     needsDomainSetup: z.boolean(),
@@ -324,6 +399,26 @@ export const vendorDeploymentStatusSchema = z
     stage: deploymentStageSchema,
     updatedAt: z.iso.datetime(),
     currentActivity: z.string(),
+    step: deploymentStepSchema,
+    steps: z.array(deploymentStepSchema),
+    typicalDurationSeconds: z.object({ min: z.number().int(), max: z.number().int() }).strict().nullable(),
+    takingLongerThanUsual: z.boolean(),
+    // When the active step started, per the resolution ladder in
+    // apps/api/src/deployment-status.ts — null when nothing authoritative is
+    // known yet.
+    stepStartedAt: z.iso.datetime().nullable(),
+    // Completed + active steps only, in order. durationSeconds is null until
+    // both ends of a step are known.
+    stepTimings: z.array(
+      z
+        .object({
+          step: deploymentStepSchema,
+          startedAt: z.iso.datetime(),
+          completedAt: z.iso.datetime().nullable(),
+          durationSeconds: z.number().int().nullable(),
+        })
+        .strict(),
+    ),
     statusUpdatesUnavailable: z.boolean(),
     needsDomainSetup: z.boolean(),
     components: z.array(componentProgressSchema),
@@ -508,6 +603,9 @@ export const deploymentSchema = z.object({
   healthStatus: healthStatusSchema,
   desiredState: jsonRecord,
   observedState: jsonRecord.nullable(),
+  // Write-once observational timestamps for the derived deployment `step`
+  // (apps/api/src/deployment-status.ts) — NOT a persisted lifecycle.
+  stepTimings: jsonRecord.nullable(),
   infraVersion: z.string(),
   installationId: z.string(),
   isTestDeployment: z.boolean(),

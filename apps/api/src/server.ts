@@ -123,6 +123,7 @@ import {
   toCustomerDeploymentStatus,
   toVendorDeploymentStatus,
 } from './deployment-status.js';
+import { advanceStepTimings } from './step-timings.js';
 import { deriveHealthStatus } from './relay-liveness.js';
 import {
   hashRelayToken,
@@ -742,6 +743,77 @@ function resolveAppUrl(
   const endpoint = albEndpointFromResult(installs[installs.length - 1]?.result ?? null);
   if (!endpoint) return null;
   return endpoint.startsWith('http://') || endpoint.startsWith('https://') ? endpoint : `http://${endpoint}`;
+}
+
+/**
+ * Step-timings follow-up shared by both relay-authenticated write paths
+ * (POST /api/relay/health and the job-result handler below): re-derive the
+ * deployment's status from the values THEY just wrote (not the stale
+ * pre-transaction row — deriveDeploymentStatus is read-time, so a stale row
+ * would compute yesterday's step), advance the persisted `step_timings`
+ * against it, and record one `deployment.step_completed` event per step that
+ * newly finished.
+ *
+ * Best-effort by design, same idiom as reconcileRunningDigest's call site
+ * below: a relay heartbeat or job result must never fail because this
+ * observational side channel had a bad day. Callers wrap this in try/catch
+ * and log rather than propagate.
+ *
+ * `knownDomain` lets a caller that already looked up the active domain this
+ * request (the health handler does, further down, for its own DNS
+ * auto-check) hand it over instead of paying for a second identical query;
+ * omit it and this fetches its own.
+ */
+async function advanceStepTimingsAfterWrite(
+  db: RuntimeDb,
+  freshDeployment: DeploymentRow,
+  knownDomain?: CustomDomainRow | null,
+): Promise<void> {
+  const applicationRows = await db
+    .select({
+      databaseRequired: schema.applications.databaseRequired,
+      storageRequired: schema.applications.storageRequired,
+      redisRequired: schema.applications.redisRequired,
+    })
+    .from(schema.applications)
+    .where(eq(schema.applications.id, freshDeployment.applicationId))
+    .limit(1);
+  const application = applicationRows[0] ?? {};
+
+  const jobs = await db
+    .select()
+    .from(schema.deploymentJobs)
+    .where(eq(schema.deploymentJobs.deploymentId, freshDeployment.id))
+    .orderBy(schema.deploymentJobs.createdAt);
+  const domain = knownDomain !== undefined ? knownDomain : await findActiveDomain(db, freshDeployment.id);
+  const appUrl = resolveAppUrl(jobs, domain);
+
+  const derived = deriveDeploymentStatus({ deployment: freshDeployment, application, jobs, domain, appUrl });
+  const { next, changed, completedSteps } = advanceStepTimings(freshDeployment.stepTimings, derived, new Date());
+  if (!changed) return;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.deployments)
+      .set({ stepTimings: next })
+      .where(eq(schema.deployments.id, freshDeployment.id));
+    for (const completed of completedSteps) {
+      await recordEvent(tx, {
+        organizationId: freshDeployment.organizationId,
+        eventType: 'deployment.step_completed',
+        actorType: 'relay',
+        actorId: freshDeployment.installationId ?? freshDeployment.id,
+        deploymentId: freshDeployment.id,
+        customerId: freshDeployment.customerId,
+        payload: {
+          step: completed.step,
+          startedAt: completed.startedAt,
+          completedAt: completed.completedAt,
+          durationSeconds: completed.durationSeconds,
+        },
+      });
+    }
+  });
 }
 
 /**
@@ -3695,6 +3767,19 @@ export async function buildServer({
       }
     });
 
+    // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
+    // derived from the values THIS request just wrote, not the stale
+    // pre-transaction `deployment`.
+    try {
+      await advanceStepTimingsAfterWrite(db, {
+        ...deployment,
+        ...(nextState ? { state: nextState } : {}),
+        ...(releaseId ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId } : {}),
+      });
+    } catch (error) {
+      request.log.warn({ err: error }, 'step-timings advance failed');
+    }
+
     return reply.code(200).send({ received: true });
   });
 
@@ -3871,6 +3956,27 @@ export async function buildServer({
       } catch {
         // swallowed — heartbeat must succeed regardless
       }
+    }
+
+    // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
+    // derived from the values THIS heartbeat just wrote, not the stale
+    // pre-transaction `deployment`. Reuses `activeDomain` above instead of
+    // looking it up again.
+    try {
+      await advanceStepTimingsAfterWrite(
+        db,
+        {
+          ...deployment,
+          observedState: observedState as Record<string, unknown> | null,
+          relayStatus: 'CONNECTED',
+          lastHealthAt: new Date(),
+          ...(stateRecovered ? { state: 'HEALTHY' as const } : {}),
+          ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
+        },
+        activeDomain,
+      );
+    } catch (error) {
+      request.log.warn({ err: error }, 'step-timings advance failed');
     }
 
     return reply.code(200).send({ received: true });

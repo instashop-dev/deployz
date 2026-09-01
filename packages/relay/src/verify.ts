@@ -29,6 +29,7 @@ import {
   DescribeStacksCommand,
 } from '@aws-sdk/client-cloudformation';
 import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
+import type { ProvisioningSnapshot } from './provision-progress.js';
 
 // ── Observed shapes ─────────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ export interface StackResource {
   readonly status: string;
   /** Physical id (e.g. an ECS service ARN); absent for some resource states. */
   readonly physicalId?: string;
+  /** ISO 8601 — CloudFormation's last-status-change time for this resource. */
+  readonly timestamp?: string;
 }
 
 /**
@@ -91,6 +94,12 @@ export interface VerificationResult {
   readonly checks: readonly VerificationCheck[];
   /** Present when `verified` is false — the first failing check's detail. */
   readonly reason?: string;
+  /**
+   * Per-category provisioning progress, present only when the caller (the
+   * §59 observe hook) fetched one for a stack that is mid-create or
+   * mid-update. `verifyInstallation` itself never sets this field.
+   */
+  readonly provisioning?: ProvisioningSnapshot;
 }
 
 const INSTALLATION_TAG = 'deployz:installation';
@@ -269,7 +278,7 @@ export function toReader(client: SendsCommands): CloudFormationReader {
       try {
         const response = (await client.send(
           new DescribeStackResourcesCommand({ StackName: stackName }),
-        )) as { StackResources?: { LogicalResourceId?: string; ResourceType?: string; ResourceStatus?: string; PhysicalResourceId?: string }[] };
+        )) as { StackResources?: { LogicalResourceId?: string; ResourceType?: string; ResourceStatus?: string; PhysicalResourceId?: string; Timestamp?: Date }[] };
 
         return (response.StackResources ?? []).flatMap((resource) =>
           resource.LogicalResourceId && resource.ResourceType && resource.ResourceStatus
@@ -278,6 +287,7 @@ export function toReader(client: SendsCommands): CloudFormationReader {
                 type: resource.ResourceType,
                 status: resource.ResourceStatus,
                 ...(resource.PhysicalResourceId ? { physicalId: resource.PhysicalResourceId } : {}),
+                ...(resource.Timestamp ? { timestamp: resource.Timestamp.toISOString() } : {}),
               }]
             : [],
         );

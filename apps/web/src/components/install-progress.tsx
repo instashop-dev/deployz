@@ -15,34 +15,34 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CustomDomainView } from '@/lib/domains';
 import {
-  COMPONENT_PROGRESS_LABEL,
-  customerSteps,
   isTerminalStage,
   STAGE_HEADLINE,
-  type ProgressStep,
-  type ProgressStepState,
+  stepDetailLine,
+  stepsFromStatus,
 } from '@/lib/deployment-progress';
 import { fetchInstallStatus } from '@/lib/install-status';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
-type Component = CustomerDeploymentStatus['components'][number];
-
-const COMPONENT_STEP_STATE: Record<Component['status'], ProgressStepState> = {
-  PENDING: 'waiting',
-  IN_PROGRESS: 'current',
-  READY: 'done',
-  FAILED: 'attention',
-  // The customer projection never sends NOT_REQUIRED components (see
-  // customerDeploymentStatusSchema), but the map must stay total.
-  NOT_REQUIRED: 'waiting',
-};
-
-function componentStep(component: Component): ProgressStep {
-  return {
-    key: component.key,
-    label: `${component.label} — ${COMPONENT_PROGRESS_LABEL[component.status]}`,
-    state: COMPONENT_STEP_STATE[component.status],
-  };
+/**
+ * The customer's step list with a compact detail line on the active step
+ * only: a slow-step nudge when the install is running long, otherwise the
+ * step's typical duration when one exists. Completed and upcoming steps
+ * never carry a detail — no percentages, no countdowns, no per-step ETAs.
+ */
+function activeStepDetail(status: CustomerDeploymentStatus) {
+  return stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) =>
+    step.state === 'current'
+      ? {
+          ...step,
+          detail: stepDetailLine({
+            takingLongerThanUsual: status.takingLongerThanUsual,
+            typicalDurationSeconds: status.typicalDurationSeconds,
+            longerMessage: 'Taking longer than usual, but AWS is still working.',
+            typicalLabel: (range) => `Usually takes ${range}`,
+          }),
+        }
+      : step,
+  );
 }
 
 /**
@@ -142,7 +142,7 @@ export function InstallProgress({
             <FailureDetails failure={status.failure} />
           ) : (
             <>
-              <DeploymentProgressSteps steps={customerSteps(status.stage)} />
+              <DeploymentProgressSteps steps={activeStepDetail(status)} />
 
               {status.stage === 'WAITING_FOR_AWS' && quickCreateUrl ? (
                 <Button asChild variant="outline" size="sm" className="self-start">
@@ -150,15 +150,6 @@ export function InstallProgress({
                     Open AWS setup
                   </a>
                 </Button>
-              ) : null}
-
-              {status.stage === 'PROVISIONING' && status.components.length > 0 ? (
-                <div className="flex flex-col gap-2 border-t pt-3">
-                  <h3 className="text-xs font-medium uppercase text-muted-foreground">
-                    Components
-                  </h3>
-                  <DeploymentProgressSteps steps={status.components.map(componentStep)} />
-                </div>
               ) : null}
 
               {status.stage === 'VERIFYING' && status.needsDomainSetup ? (

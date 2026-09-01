@@ -86,6 +86,12 @@ function vendorStatus(overrides: Record<string, unknown>): Record<string, unknow
     stage: 'READY',
     updatedAt: UPDATED_AT,
     currentActivity: 'Live and healthy.',
+    step: 'READY',
+    steps: ['AWS_SETUP', 'RELAY_CONNECT', 'PREPARING', 'NETWORK', 'DATABASE_STORAGE', 'APPLICATION', 'HEALTH_CHECK', 'TLS', 'READY'],
+    typicalDurationSeconds: null,
+    takingLongerThanUsual: false,
+    stepStartedAt: null,
+    stepTimings: [],
     statusUpdatesUnavailable: false,
     needsDomainSetup: false,
     components: [
@@ -108,6 +114,7 @@ function vendorStatus(overrides: Record<string, unknown>): Record<string, unknow
 const FAILED_STATUS = {
   stage: 'FAILED',
   currentActivity: 'The PostgreSQL database could not be created.',
+  step: 'DATABASE_STORAGE',
   components: [
     { key: 'runtime', label: 'Application runtime', status: 'PENDING' },
     { key: 'database', label: 'PostgreSQL database', status: 'FAILED' },

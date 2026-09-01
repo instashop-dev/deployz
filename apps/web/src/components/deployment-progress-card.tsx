@@ -1,12 +1,60 @@
-import type { ComponentProgressStatus, VendorDeploymentStatus } from '@deployz/contracts';
+'use client';
+
+import { useEffect, useState } from 'react';
+
+import type { ComponentProgressStatus, DeploymentStep, VendorDeploymentStatus } from '@deployz/contracts';
 import { AlertTriangle } from 'lucide-react';
 
 import { DeploymentProgressSteps } from '@/components/deployment-progress-steps';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { relativeTime } from '@/lib/diagnostics';
-import { COMPONENT_PROGRESS_LABEL, customerSteps, STAGE_LABEL } from '@/lib/deployment-progress';
+import {
+  COMPONENT_PROGRESS_LABEL,
+  formatElapsedSeconds,
+  stepDetailLine,
+  stepsFromStatus,
+  STAGE_LABEL,
+} from '@/lib/deployment-progress';
 import { JOB_STATE_LABEL, JOB_TYPE_LABEL } from '@/lib/deployment-vocabulary';
+
+/** Live elapsed time since `startedAt`, ticking every second — isolated here
+ *  so only this small counter re-renders on each tick, not the whole card. */
+function ElapsedTime({ startedAt }: { startedAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const elapsedSeconds = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000));
+  return <>{formatElapsedSeconds(elapsedSeconds)}</>;
+}
+
+/**
+ * The vendor step list with per-step timing: completed steps show their
+ * recorded duration, the active step shows a live elapsed counter plus a
+ * muted detail line (typical duration, or a slow-step nudge with the raw AWS
+ * stack status — vendors may see it, customers never do).
+ */
+function timedSteps(status: VendorDeploymentStatus) {
+  const timingByStep = new Map(status.stepTimings.map((timing) => [timing.step, timing]));
+  return stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) => {
+    if (step.state === 'current') {
+      return {
+        ...step,
+        detail: stepDetailLine({
+          takingLongerThanUsual: status.takingLongerThanUsual,
+          typicalDurationSeconds: status.typicalDurationSeconds,
+          longerMessage: `Taking longer than usual${status.aws.stackStatus ? ` · AWS: ${status.aws.stackStatus}` : ''}`,
+          typicalLabel: (range) => `Typical: ${range}`,
+        }),
+        meta: status.stepStartedAt ? <ElapsedTime startedAt={status.stepStartedAt} /> : undefined,
+      };
+    }
+    const durationSeconds = timingByStep.get(step.key as DeploymentStep)?.durationSeconds;
+    return durationSeconds != null ? { ...step, meta: formatElapsedSeconds(durationSeconds) } : step;
+  });
+}
 
 /** Dot color per component-progress status — semantic tokens only (opacity
  *  modifiers, not a raw palette), paired with COMPONENT_PROGRESS_LABEL text
@@ -83,7 +131,7 @@ export function DeploymentProgressCard({ status }: { status: VendorDeploymentSta
           </Alert>
         ) : null}
 
-        <DeploymentProgressSteps steps={customerSteps(status.stage)} />
+        <DeploymentProgressSteps steps={timedSteps(status)} />
 
         <ul className="flex flex-col gap-2">
           {status.components.map((component) => (
