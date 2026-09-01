@@ -15,7 +15,13 @@ import { join } from 'node:path';
 import {
   S3Client as SdkS3Client,
   PutObjectCommand,
+  GetBucketLocationCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
+import {
+  CloudFormationClient as SdkCloudFormationClient,
+  ValidateTemplateCommand,
+} from '@aws-sdk/client-cloudformation';
 
 import { ApplicationStack } from '../application/application-stack.js';
 import { DOCUMENSO_APPLICATION_PROPS } from '../application/documenso.js';
@@ -23,6 +29,9 @@ import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
 import {
   APPLICATION_TEMPLATE_KEY,
   APPLICATION_TEMPLATE_REDIS_KEY,
+  BOOTSTRAP_TEMPLATE_KEY,
+  SUPPORTED_AWS_REGIONS,
+  bootstrapTemplateBucketName,
   buildBootstrapQuickCreateUrl,
 } from '@deployz/contracts';
 import { requireWithinLimits } from './limits.js';
@@ -43,17 +52,21 @@ export interface S3Client {
 
 let sdkS3: SdkS3Client | undefined;
 
-function getSdkS3(): SdkS3Client {
+function getSdkS3(region?: string): SdkS3Client {
+  // A per-region client is only ever constructed for the regional fan-out;
+  // the default (no region) keeps the original single-region behaviour.
+  if (region !== undefined) return new SdkS3Client({ region });
   if (!sdkS3) {
     sdkS3 = new SdkS3Client({});
   }
   return sdkS3;
 }
 
-export function createRealS3Client(): S3Client {
+export function createRealS3Client(region?: string): S3Client {
+  const client = getSdkS3(region);
   return {
     async putObject(params) {
-      await getSdkS3().send(
+      await client.send(
         new PutObjectCommand({
           Bucket: params.bucket,
           Key: params.key,
@@ -299,6 +312,241 @@ await this.s3.putObject({
   private publicUrl(key: string): string {
     return `https://${this.options.bucket}.s3.${this.options.region}.amazonaws.com/${key}`;
   }
+}
+
+// ── Regional fan-out ─────────────────────────────────────────────────────────
+//
+// A bootstrap stack must read its Lambda code from a bucket in ITS OWN region
+// — a cross-region bucket fails Lambda creation with `PermanentRedirect`
+// (verified in production: a us-east-2 stack referencing the us-east-1
+// template bucket rolled back on exactly that error). The publisher therefore
+// fans identical artifacts out to `deployz-templates-<region>` per region and
+// repacks a separate template for each, so every `Code.S3Bucket` points at
+// that region's bucket. This is the deterministic naming convention from
+// @deployz/contracts (`bootstrapTemplateBucketName`); assets are built once
+// (synth + zip) and their identical bytes uploaded to every regional bucket.
+
+/** Read-side verification of a published region, injectable for tests. */
+export interface RegionVerifier {
+  /** S3 region of a bucket. `undefined` means us-east-1 (LocationConstraint is empty). */
+  getBucketLocation(bucket: string): Promise<string | undefined>;
+  headObject(bucket: string, key: string): Promise<boolean>;
+  /** HTTP status of a HEAD/GET against a public object URL. */
+  fetchUrl(url: string): Promise<number>;
+  validateTemplate(templateBody: string): Promise<{ valid: boolean; error?: string }>;
+}
+
+/** Real S3 + CloudFormation verification clients, bound to one region. */
+export function createRealRegionVerifier(region: string): RegionVerifier {
+  const s3 = new SdkS3Client({ region });
+  const cfn = new SdkCloudFormationClient({ region });
+  return {
+    async getBucketLocation(bucket) {
+      const response = await s3.send(new GetBucketLocationCommand({ Bucket: bucket }));
+      return response.LocationConstraint ?? undefined;
+    },
+    async headObject(bucket, key) {
+      try {
+        await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async fetchUrl(url) {
+      const response = await fetch(url, { method: 'HEAD' });
+      return response.status;
+    },
+    async validateTemplate(templateBody) {
+      try {
+        await cfn.send(new ValidateTemplateCommand({ TemplateBody: templateBody }));
+        return { valid: true };
+      } catch (err) {
+        return { valid: false, error: String(err) };
+      }
+    },
+  };
+}
+
+/** One region's publish + verification outcome. */
+export interface RegionalPublishResult extends PublishResult {
+  readonly region: string;
+  readonly bucket: string;
+}
+
+export interface PublishAllRegionsOptions {
+  /** Key prefix under each regional bucket (e.g. `bootstrap/v1`). */
+  readonly keyPrefix: string;
+  /** Control-plane URL carried in every Quick Create link. */
+  readonly controlPlaneUrl: string;
+  /** CloudFormation stack name in the Quick Create links. */
+  readonly stackName?: string;
+  /** Regions to publish to. Defaults to the canonical supported set. */
+  readonly regions?: readonly string[];
+}
+
+/**
+ * Publishes a synthesized bootstrap stack to EVERY supported region:
+ *
+ *   1. Builds each Lambda asset's bytes once (zip once, reuse everywhere).
+ *   2. For each region: repacks the template so every `Code.S3Bucket` points
+ *      at `deployz-templates-<region>`, uploads the identical asset bytes +
+ *      the regional template, and verifies the region end to end.
+ *
+ * Publishing THROWS if any region fails verification — a partially published
+ * set would silently leave some regions broken, which is exactly the failure
+ * this exists to prevent.
+ */
+export async function publishBootstrapToAllRegions(
+  s3For: (region: string) => S3Client,
+  verifierFor: (region: string) => RegionVerifier,
+  synth: SynthOutput,
+  options: PublishAllRegionsOptions,
+  readAsset: AssetReader = readBundledIndexMjs,
+): Promise<RegionalPublishResult[]> {
+  const regions = options.regions ?? [...SUPPORTED_AWS_REGIONS];
+
+  // Assets are built ONCE and their identical bytes reused across regions.
+  const assetBodies = new Map<string, Uint8Array>();
+  for (const asset of synth.assets) {
+    assetBodies.set(asset.sourceHash, await readAsset(asset));
+  }
+
+  const results: RegionalPublishResult[] = [];
+  for (const region of regions) {
+    const bucket = bootstrapTemplateBucketName(region);
+    const keyPrefix = options.keyPrefix;
+    const s3 = s3For(region);
+
+    const { template: repacked } = repackTemplate(synth.template, { bucket, keyPrefix });
+    const limits = requireWithinLimits(repacked);
+
+    const assetKeys: string[] = [];
+    for (const asset of synth.assets) {
+      const key = `${keyPrefix}/${asset.objectKey}`;
+      await s3.putObject({
+        bucket,
+        key,
+        body: assetBodies.get(asset.sourceHash) ?? new Uint8Array(),
+        contentType: 'application/zip',
+      });
+      assetKeys.push(key);
+    }
+
+    const templateKey = `${keyPrefix}/${BOOTSTRAP_TEMPLATE_KEY}`;
+    await s3.putObject({
+      bucket,
+      key: templateKey,
+      body: JSON.stringify(repacked, null, 2),
+      contentType: 'application/json',
+    });
+
+    const templateUrl = `https://${bucket}.s3.${region}.amazonaws.com/${templateKey}`;
+    const quickCreateUrl = buildBootstrapQuickCreateUrl({
+      region,
+      templateUrl,
+      controlPlaneUrl: options.controlPlaneUrl,
+      ...(options.stackName !== undefined ? { stackName: options.stackName } : {}),
+    });
+
+    const verification = await verifyPublishedRegion(verifierFor(region), {
+      region,
+      bucket,
+      templateKey,
+      templateUrl,
+      repackedTemplate: repacked,
+      assetKeys,
+    });
+    if (verification.ok !== true) {
+      throw new Error(
+        `Bootstrap publishing failed for ${region}: ${verification.reasons.join('; ')}`,
+      );
+    }
+
+    results.push({
+      region,
+      bucket,
+      templateKey,
+      templateUrl,
+      quickCreateUrl,
+      assetKeys,
+      templateBytes: limits.bytes,
+      parameterCount: limits.parameterCount,
+    });
+  }
+
+  return results;
+}
+
+export interface VerifyPublishedRegionOptions {
+  readonly region: string;
+  readonly bucket: string;
+  readonly templateKey: string;
+  readonly templateUrl: string;
+  readonly repackedTemplate: JsonObject;
+  readonly assetKeys: readonly string[];
+}
+
+/**
+ * Verifies one published region, fail closed:
+ *
+ *   - bucket exists in the intended region;
+ *   - regional template object exists;
+ *   - every Lambda asset key exists in that same bucket;
+ *   - every Lambda `Code.S3Bucket` in the template equals the regional bucket;
+ *   - the template URL is reachable;
+ *   - `CloudFormation ValidateTemplate` succeeds.
+ *
+ * Returns `{ ok: true }` or `{ ok: false, reasons }` — never throws for a
+ * failed check, so the caller can report every region's problems at once.
+ */
+export async function verifyPublishedRegion(
+  verifier: RegionVerifier,
+  options: VerifyPublishedRegionOptions,
+): Promise<{ ok: true } | { ok: false; reasons: string[] }> {
+  const reasons: string[] = [];
+
+  const location = await verifier.getBucketLocation(options.bucket);
+  const actualRegion = location ?? 'us-east-1';
+  if (actualRegion !== options.region) {
+    reasons.push(`bucket ${options.bucket} is in ${actualRegion}, not ${options.region}`);
+  }
+
+  if (!(await verifier.headObject(options.bucket, options.templateKey))) {
+    reasons.push(`template ${options.templateKey} missing in ${options.bucket}`);
+  }
+
+  for (const key of options.assetKeys) {
+    if (!(await verifier.headObject(options.bucket, key))) {
+      reasons.push(`asset ${key} missing in ${options.bucket}`);
+    }
+  }
+
+  const resources = (options.repackedTemplate['Resources'] ?? {}) as Record<
+    string,
+    { Type?: unknown; Properties?: { Code?: { S3Bucket?: unknown } } }
+  >;
+  for (const [logicalId, resource] of Object.entries(resources)) {
+    if (resource.Type !== 'AWS::Lambda::Function') continue;
+    const s3Bucket = resource.Properties?.Code?.S3Bucket;
+    if (s3Bucket !== options.bucket) {
+      reasons.push(
+        `${logicalId} Code.S3Bucket is ${String(s3Bucket)}, not the regional bucket ${options.bucket}`,
+      );
+    }
+  }
+
+  const status = await verifier.fetchUrl(options.templateUrl);
+  if (status < 200 || status >= 300) {
+    reasons.push(`template URL ${options.templateUrl} returned HTTP ${status}`);
+  }
+
+  const validation = await verifier.validateTemplate(JSON.stringify(options.repackedTemplate));
+  if (validation.valid !== true) {
+    reasons.push(`ValidateTemplate: ${validation.error ?? 'invalid template'}`);
+  }
+
+  return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
 }
 
 // ── Application template ────────────────────────────────────────────────────

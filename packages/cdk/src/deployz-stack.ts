@@ -160,6 +160,13 @@ export class DeployzStack extends Stack {
       (this.node.tryGetContext('bootstrapTemplateUrl') as string | undefined) ??
       process.env.BOOTSTRAP_TEMPLATE_URL;
 
+    // Regions whose regional bootstrap artifacts are confirmed published
+    // (see @deployz/contracts resolveBootstrapTemplate). Unset → the API
+    // fail-closes to us-east-1 only. The publisher prints the exact value.
+    const deployableAwsRegions =
+      (this.node.tryGetContext('deployableAwsRegions') as string | undefined) ??
+      process.env.DEPLOYABLE_AWS_REGIONS;
+
     const apiLambda = new ApiLambda(this, 'ApiLambda', {
       vpc: vpcResource,
       dbSecurityGroup,
@@ -171,6 +178,10 @@ export class DeployzStack extends Stack {
         // from. The API builds every install link off this value, so an
         // unpublished template yields no link rather than a broken one.
         ...(bootstrapTemplateUrl ? { BOOTSTRAP_TEMPLATE_URL: bootstrapTemplateUrl } : {}),
+        // The API rejects deployment creation in regions whose regional
+        // artifacts are not confirmed published (fail closed). The publisher
+        // prints this value after verifying every region.
+        ...(deployableAwsRegions ? { DEPLOYABLE_AWS_REGIONS: deployableAwsRegions } : {}),
       },
     });
 

@@ -24,8 +24,12 @@ import {
   APPLICATION_TEMPLATE_REDIS_KEY,
   ApplicationPublisher,
   BootstrapPublisher,
+  publishBootstrapToAllRegions,
   synthesizeApplicationStack,
   synthesizeBootstrapStack,
+  verifyPublishedRegion,
+  type RegionVerifier,
+  type S3Client,
 } from '../src/quick-create/publish.js';
 import {
   APPLICATION_TEMPLATE_KEY as CONTRACTS_APPLICATION_TEMPLATE_KEY,
@@ -489,6 +493,251 @@ describe('quick-create', () => {
       await expect(
         publisher.publish({ template: oversized, assets: [] }, async () => new Uint8Array()),
       ).rejects.toThrow(/exceeds CloudFormation limits/);
+    });
+  });
+
+  describe('regional bootstrap publishing (mock S3 + verifier)', () => {
+    const keyPrefix = 'bootstrap/v1';
+    const controlPlaneUrl = 'https://api.deployz.dev';
+
+    const syntheticTemplate = {
+      Parameters: {
+        ControlPlaneUrl: { Type: 'String' },
+        BootstrapVersion: { Type: 'String' },
+      },
+      Rules: { CheckBootstrapVersion: { Assertions: [] } },
+      Resources: {
+        RelayFn: {
+          Type: 'AWS::Lambda::Function',
+          Properties: {
+            Code: {
+              S3Bucket: { 'Fn::Sub': 'cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}' },
+              S3Key: 'abc123def456.zip',
+            },
+          },
+        },
+      },
+    };
+
+    const synth = {
+      template: syntheticTemplate,
+      assets: [
+        {
+          sourceHash: 'abc123def456',
+          objectKey: 'abc123def456.zip',
+          sourcePath: '/fake/asset',
+        },
+      ],
+    };
+
+    function makeS3Harness(): {
+      s3For: (region: string) => S3Client;
+      uploads: Map<string, Array<{ key: string; body: unknown; contentType?: string }>>;
+    } {
+      const uploads = new Map<
+        string,
+        Array<{ key: string; body: unknown; contentType?: string }>
+      >();
+      const s3 = (region: string): S3Client => ({
+        async putObject(params) {
+          const list = uploads.get(region) ?? [];
+          list.push({ key: params.key, body: params.body, contentType: params.contentType });
+          uploads.set(region, list);
+        },
+      });
+      return { s3For: s3, uploads };
+    }
+
+    function passingVerifier(): RegionVerifier {
+      return {
+        // The deterministic bucket name embeds the region; report it back so
+        // the region check passes for every supported bucket.
+        getBucketLocation: async (bucket) => bucket.replace('deployz-templates-', ''),
+        headObject: async () => true,
+        fetchUrl: async () => 200,
+        validateTemplate: async () => ({ valid: true }),
+      };
+    }
+
+    it('publishes a repacked template + assets to every supported region bucket', async () => {
+      const { s3For, uploads } = makeS3Harness();
+      const verifierFor = () => passingVerifier();
+
+      const results = await publishBootstrapToAllRegions(
+        s3For,
+        verifierFor,
+        synth,
+        { keyPrefix, controlPlaneUrl },
+        async () => new Uint8Array([0x1f, 0x8b]),
+      );
+
+      // 17 supported regions, each with 1 asset + 1 template.
+      expect(results).toHaveLength(17);
+      for (const result of results) {
+        expect(uploads.get(result.region)).toHaveLength(2);
+        expect(result.templateUrl).toContain(`deployz-templates-${result.region}.s3.${result.region}`);
+      }
+    });
+
+    it('rewrites the us-east-2 template to reference ONLY the us-east-2 bucket', async () => {
+      const { s3For, uploads } = makeS3Harness();
+      const verifierFor = () => passingVerifier();
+
+      await publishBootstrapToAllRegions(
+        s3For,
+        verifierFor,
+        synth,
+        { keyPrefix, controlPlaneUrl },
+        async () => new Uint8Array([0x1f, 0x8b]),
+      );
+
+      const usEast2Template = uploads
+        .get('us-east-2')
+        ?.find((u) => u.key === `${keyPrefix}/bootstrap-template-v1.json`);
+      const published = JSON.parse(String(usEast2Template?.body)) as {
+        Resources: Record<string, { Properties: { Code: Record<string, unknown> } }>;
+      };
+      // The critical regression this fix prevents: a us-east-2 stack must never
+      // reference the us-east-1 bucket (S3 PermanentRedirect on Lambda create).
+      expect(published.Resources['RelayFn'].Properties.Code.S3Bucket).toBe(
+        'deployz-templates-us-east-2',
+      );
+      expect(published.Resources['RelayFn'].Properties.Code.S3Bucket).not.toBe(
+        'deployz-templates-us-east-1',
+      );
+      expect(published.Resources['RelayFn'].Properties.Code.S3Key).toBe(
+        `${keyPrefix}/abc123def456.zip`,
+      );
+    });
+
+    it('reuses identical asset bytes across every region (built once)', async () => {
+      const { s3For, uploads } = makeS3Harness();
+      const verifierFor = () => passingVerifier();
+
+      await publishBootstrapToAllRegions(
+        s3For,
+        verifierFor,
+        synth,
+        { keyPrefix, controlPlaneUrl },
+        async () => new Uint8Array([0x1f, 0x8b, 0x08]),
+      );
+
+      const bodies = new Set<string>();
+      for (const [, list] of uploads) {
+        for (const upload of list) {
+          if (upload.contentType === 'application/zip') {
+            bodies.add(String(upload.body));
+          }
+        }
+      }
+      expect(bodies.size).toBe(1);
+    });
+
+    it('fails publishing when any region fails verification', async () => {
+      const { s3For } = makeS3Harness();
+      const verifierFor = () => ({
+        getBucketLocation: async () => 'us-east-1',
+        headObject: async () => true,
+        fetchUrl: async () => 200,
+        validateTemplate: async () => ({ valid: true }),
+      });
+
+      await expect(
+        publishBootstrapToAllRegions(
+          s3For,
+          verifierFor,
+          synth,
+          { keyPrefix, controlPlaneUrl },
+          async () => new Uint8Array([0x1f, 0x8b]),
+        ),
+      ).rejects.toThrow(/Bootstrap publishing failed for us-east-2/);
+    });
+  });
+
+  describe('verifyPublishedRegion (fail closed)', () => {
+    const bucket = 'deployz-templates-us-east-2';
+    const keyPrefix = 'bootstrap/v1';
+    const templateKey = `${keyPrefix}/bootstrap-template-v1.json`;
+    const templateUrl = `https://${bucket}.s3.us-east-2.amazonaws.com/${templateKey}`;
+    const assetKeys = [`${keyPrefix}/abc123def456.zip`];
+    const repackedTemplate = {
+      Resources: {
+        RelayFn: {
+          Type: 'AWS::Lambda::Function',
+          Properties: { Code: { S3Bucket: bucket, S3Key: `${keyPrefix}/abc123def456.zip` } },
+        },
+      },
+    };
+
+    function passingVerifier(): RegionVerifier {
+      return {
+        getBucketLocation: async () => 'us-east-2',
+        headObject: async () => true,
+        fetchUrl: async () => 200,
+        validateTemplate: async () => ({ valid: true }),
+      };
+    }
+
+    it('passes a correctly-published region', async () => {
+      const result = await verifyPublishedRegion(passingVerifier(), {
+        region: 'us-east-2',
+        bucket,
+        templateKey,
+        templateUrl,
+        repackedTemplate,
+        assetKeys,
+      });
+      expect(result).toEqual({ ok: true });
+    });
+
+    it('fails when the bucket is in the wrong region', async () => {
+      const verifier = passingVerifier();
+      const result = await verifyPublishedRegion(
+        { ...verifier, getBucketLocation: async () => 'us-east-1' },
+        { region: 'us-east-2', bucket, templateKey, templateUrl, repackedTemplate, assetKeys },
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok === false) {
+        expect(result.reasons.join('; ')).toContain('not us-east-2');
+      }
+    });
+
+    it('fails when a referenced Lambda asset is missing', async () => {
+      const verifier = passingVerifier();
+      const result = await verifyPublishedRegion(
+        { ...verifier, headObject: async (_bucket, key) => key === templateKey },
+        { region: 'us-east-2', bucket, templateKey, templateUrl, repackedTemplate, assetKeys },
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok === false) {
+        expect(result.reasons.join('; ')).toContain('missing');
+      }
+    });
+
+    it('fails when Code.S3Bucket does not match the regional bucket', async () => {
+      const verifier = passingVerifier();
+      const wrongTemplate = {
+        Resources: {
+          RelayFn: {
+            Type: 'AWS::Lambda::Function',
+            Properties: {
+              Code: { S3Bucket: 'deployz-templates-us-east-1', S3Key: `${keyPrefix}/abc123def456.zip` },
+            },
+          },
+        },
+      };
+      const result = await verifyPublishedRegion(verifier, {
+        region: 'us-east-2',
+        bucket,
+        templateKey,
+        templateUrl,
+        repackedTemplate: wrongTemplate,
+        assetKeys,
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok === false) {
+        expect(result.reasons.join('; ')).toContain('Code.S3Bucket');
+      }
     });
   });
 

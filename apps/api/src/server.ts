@@ -24,13 +24,17 @@ import {
 } from '@deployz/analysis';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
+  REGION_LABELS,
   RELAY_STALE_AFTER_MS,
+  SUPPORTED_AWS_REGIONS,
   bootstrapStackName,
   buildBootstrapQuickCreateUrl,
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
+  regionSchema,
   relayCapabilitiesSchema,
+  resolveBootstrapTemplate,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
 import type { RuntimeDb } from '@deployz/db';
@@ -1422,15 +1426,33 @@ export async function buildServer({
       // Spent codes get no link. The page renders its "already set up" state
       // in that case and never follows the URL, so building one only hands
       // the enrollment code to whoever replays the link out of a mailbox.
+      //
+      // The template is resolved for THIS deployment's region, never for a
+      // bucket in another region: a Lambda must read its code from a bucket
+      // in the function's own region, and a cross-region reference fails
+      // stack creation with an S3 PermanentRedirect (verified in
+      // production). resolveBootstrapTemplate fails closed — an unsupported
+      // or unpublished region yields no URL, and no cross-region link is
+      // ever generated.
       quickCreateUrl:
-        env.bootstrapTemplateUrl && !alreadyInstalled
-          ? buildBootstrapQuickCreateUrl({
-              region: row.region,
-              templateUrl: env.bootstrapTemplateUrl,
-              controlPlaneUrl: env.apiUrl,
-              enrollmentCode: row.enrollmentCode,
-              stackName,
-            })
+        !alreadyInstalled
+          ? (() => {
+              const templateUrl = resolveBootstrapTemplate(row.region, {
+                ...(env.bootstrapTemplateUrl
+                  ? { legacyUrl: env.bootstrapTemplateUrl }
+                  : {}),
+                deployableRegions: env.deployableAwsRegions,
+              });
+              return templateUrl
+                ? buildBootstrapQuickCreateUrl({
+                    region: row.region,
+                    templateUrl,
+                    controlPlaneUrl: env.apiUrl,
+                    enrollmentCode: row.enrollmentCode,
+                    stackName,
+                  })
+                : null;
+            })()
           : null,
       alreadyInstalled,
     };
@@ -1826,13 +1848,9 @@ export async function buildServer({
     applicationId: z.string().uuid(),
     customerId: z.string().uuid(),
     organizationId: z.string().min(1).optional(),
-    region: z.enum([
-      'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
-      'ca-central-1', 'sa-east-1',
-      'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-central-1', 'eu-north-1',
-      'ap-northeast-1', 'ap-northeast-2', 'ap-northeast-3',
-      'ap-south-1', 'ap-southeast-1', 'ap-southeast-2',
-    ]),
+    // The canonical supported set from @deployz/contracts — never a
+    // hand-maintained duplicate.
+    region: regionSchema,
     isTestDeployment: z.boolean().nullish(),
   });
 
@@ -2146,6 +2164,19 @@ export async function buildServer({
   // legitimately exist before any relay has ever called home.
   app.post('/api/deployments', { preHandler: requireAuth }, async (request, reply) => {
     const body = createDeploymentBodySchema.parse(request.body);
+    // Fail closed: a deployment may only target a region whose bootstrap
+    // artifacts are CONFIRMED published. Selecting a supported-but-unpublished
+    // region would produce an install link whose Lambda code cannot be fetched
+    // in that region — the exact PermanentRedirect failure this guard exists
+    // to prevent. The region must be in the canonical deployable set, not just
+    // the supported enum.
+    if (!env.deployableAwsRegions.includes(body.region)) {
+      throw new ApiError(
+        422,
+        'REGION_NOT_SUPPORTED',
+        `Region ${body.region} is not available for installation yet.`,
+      );
+    }
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
     // 404 on a non-existent/other-org applicationId or customerId — otherwise
     // the INSERT below hits a foreign-key violation and surfaces as a 500.
@@ -2171,6 +2202,21 @@ export async function buildServer({
       })
       .returning();
     return reply.code(201).send(row);
+  });
+
+  // GET /api/regions — the region options for the "Create customer
+  // deployment" screen. Served by the control plane (not hardcoded in the
+  // web app) so the UI can never offer a region that is not actually
+  // deployable: only regions whose regional bootstrap artifacts are confirmed
+  // published appear here. Derived from the canonical SUPPORTED_AWS_REGIONS /
+  // REGION_LABELS in @deployz/contracts, intersected with
+  // env.deployableAwsRegions.
+  app.get('/api/regions', { preHandler: requireAuth }, async () => {
+    return {
+      regions: SUPPORTED_AWS_REGIONS.filter((region) => env.deployableAwsRegions.includes(region)).map(
+        (region) => ({ value: region, label: REGION_LABELS[region] }),
+      ),
+    };
   });
 
   // GET /api/deployments — Fleet dashboard (§23). Joined with customers +
