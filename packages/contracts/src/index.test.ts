@@ -45,6 +45,8 @@ import {
   organizationSchema,
   redisApplicationTemplateUrl,
   regionSchema,
+  relayCommandProgressSchema,
+  relayStackEventSchema,
   releaseSchema,
   releaseStatusSchema,
   subscriptionSchema,
@@ -52,6 +54,7 @@ import {
   usageRecordSchema,
   userSchema,
   vendorDeploymentStatusSchema,
+  vendorStackEventSchema,
 } from './index.js';
 
 describe('@deployz/contracts scaffold', () => {
@@ -591,6 +594,51 @@ describe('vendorDeploymentStatusSchema', () => {
 
   it('has no removed field — vendor screens read removal from the surrounding row state instead', () => {
     expect('removed' in vendorDeploymentStatusSchema.shape).toBe(false);
+  });
+});
+
+describe('relayCommandProgressSchema', () => {
+  const event = {
+    eventId: 'evt-1',
+    timestamp: '2026-08-31T12:00:00.000Z',
+    logicalResourceId: 'AppDatabase',
+    resourceType: 'AWS::RDS::DBInstance',
+    resourceStatus: 'CREATE_IN_PROGRESS',
+    resourceStatusReason: 'Resource creation Initiated',
+  };
+  const progress = {
+    commandId: 'cmd-1',
+    installationId: 'inst-1',
+    stackName: 'deployz-app-abcd1234',
+    events: [event],
+  };
+
+  it('parses a valid payload', () => {
+    expect(relayCommandProgressSchema.parse(progress)).toStrictEqual(progress);
+  });
+
+  it('rejects more than 50 events', () => {
+    const tooMany = { ...progress, events: Array.from({ length: 51 }, () => event) };
+    expect(() => relayCommandProgressSchema.parse(tooMany)).toThrow(ZodError);
+  });
+
+  it('rejects a resourceStatus longer than 64 characters', () => {
+    const longStatus = { ...event, resourceStatus: 'A'.repeat(65) };
+    expect(() => relayStackEventSchema.parse(longStatus)).toThrow(ZodError);
+  });
+});
+
+describe('vendorStackEventSchema', () => {
+  it('round-trips a deployment_stack_events row shape', () => {
+    const row = {
+      id: 1,
+      eventAt: '2026-08-31T12:00:00.000Z',
+      logicalResourceId: 'AppDatabase',
+      resourceType: 'AWS::RDS::DBInstance',
+      resourceStatus: 'CREATE_IN_PROGRESS',
+      resourceStatusReason: null,
+    };
+    expect(vendorStackEventSchema.parse(row)).toStrictEqual(row);
   });
 });
 

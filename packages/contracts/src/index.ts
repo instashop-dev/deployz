@@ -461,6 +461,45 @@ export type VendorDeploymentStatus = z.infer<typeof vendorDeploymentStatusSchema
 export const RELAY_STALE_AFTER_MS = 15 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
+// Relay stack-event progress — raw CloudFormation events the relay reports
+// while it waits for a stack operation (packages/db/src/schema/
+// stack-events.ts). Progress/diagnostics only, never an input to lifecycle
+// decisions. relayCommandProgressSchema is the ingest payload for the future
+// POST /api/relay/commands/:id/progress; vendorStackEventSchema is the read
+// shape a `deployment_stack_events` row takes on the vendor endpoint / web
+// fetcher. Plain z.object (no .strict()) — matches how other relay ingest
+// payloads are validated in apps/api/src/server.ts.
+// ---------------------------------------------------------------------------
+
+export const relayStackEventSchema = z.object({
+  eventId: z.string().min(1).max(255),
+  timestamp: z.string().datetime({ offset: true }),
+  logicalResourceId: z.string().min(1).max(255),
+  resourceType: z.string().min(1).max(255),
+  resourceStatus: z.string().min(1).max(64),
+  resourceStatusReason: z.string().min(1).max(2000).optional(),
+});
+export type RelayStackEvent = z.infer<typeof relayStackEventSchema>;
+
+export const relayCommandProgressSchema = z.object({
+  commandId: z.string().min(1),
+  installationId: z.string().min(1),
+  stackName: z.string().min(1).max(255),
+  events: z.array(relayStackEventSchema).min(1).max(50),
+});
+export type RelayCommandProgress = z.infer<typeof relayCommandProgressSchema>;
+
+export const vendorStackEventSchema = z.object({
+  id: z.number(),
+  eventAt: z.string(),
+  logicalResourceId: z.string(),
+  resourceType: z.string(),
+  resourceStatus: z.string(),
+  resourceStatusReason: z.string().nullable(),
+});
+export type VendorStackEvent = z.infer<typeof vendorStackEventSchema>;
+
+// ---------------------------------------------------------------------------
 // Shared column groups
 // ---------------------------------------------------------------------------
 
