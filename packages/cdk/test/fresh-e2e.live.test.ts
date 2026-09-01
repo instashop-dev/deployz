@@ -109,16 +109,27 @@ describe('bin/bootstrap.ts — DEPLOYZ_BOOTSTRAP_STACK_NAME override (fake path 
   // Synth-level, in the style of bootstrap-stack.test.ts's own synth tests:
   // proves the actual mechanism fresh mode relies on (bin/bootstrap.ts
   // reading the env var at synth time), not a copy of its logic.
+  //
+  // The whole environment is snapshotted and restored, not just the one key:
+  // importing bin/bootstrap.ts executes its top-level dotenv load, whose
+  // findEnvFile walks ABOVE a git worktree into the main checkout's .env and
+  // injects that file's values (including AWS access keys for a
+  // least-privilege IAM user) into this test process — after which the live
+  // suite's spawned `aws` CLI calls silently stop using the developer's own
+  // credential chain and start failing on missing IAM actions
+  // (tag:GetResources was the observed casualty).
   const ENV_KEY = 'DEPLOYZ_BOOTSTRAP_STACK_NAME';
-  let saved: string | undefined;
+  let saved: NodeJS.ProcessEnv;
 
   beforeEach(() => {
-    saved = process.env[ENV_KEY];
+    saved = { ...process.env };
   });
 
   afterEach(() => {
-    if (saved === undefined) delete process.env[ENV_KEY];
-    else process.env[ENV_KEY] = saved;
+    for (const key of Object.keys(process.env)) {
+      if (!(key in saved)) delete process.env[key];
+    }
+    Object.assign(process.env, saved);
   });
 
   it('defaults to DeployzBootstrap when unset', async () => {
