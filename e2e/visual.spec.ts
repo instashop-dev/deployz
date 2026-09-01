@@ -181,6 +181,99 @@ const RELEASES = [
   { id: 'vis-rel-1', version: '1.14.1', gitSha: '41bd7c200000000000000000000000deadbeef', createdAt: CREATED_AT },
 ];
 
+// The §59 resource inventory GET /api/deployments/:id/infrastructure returns
+// (packages/contracts/src/infrastructure.ts's infrastructureResponseSchema).
+// A few realistic components — the detail page fetches this unconditionally,
+// so every deployment detail screenshot needs it mocked.
+const INFRASTRUCTURE = {
+  provider: 'aws',
+  region: 'us-east-1',
+  stackStatus: 'CREATE_COMPLETE',
+  connectionState: 'connected',
+  snapshotState: 'fresh',
+  summary: { status: 'healthy', componentCount: 3, technicalResourceCount: 3 },
+  components: [
+    {
+      kind: 'application',
+      name: 'Application',
+      purpose: 'Runs your application',
+      status: 'ready',
+      awsService: 'ECS',
+      region: 'us-east-1',
+      lifecycle: 'delete',
+      resources: [
+        {
+          logicalId: 'Service',
+          physicalId: 'arn:aws:ecs:us-east-1:123456789012:service/vis-service',
+          type: 'AWS::ECS::Service',
+          status: 'CREATE_COMPLETE',
+          statusReason: null,
+        },
+      ],
+    },
+    {
+      kind: 'database',
+      name: 'Database',
+      purpose: 'Stores persistent application data',
+      status: 'ready',
+      awsService: 'RDS',
+      region: 'us-east-1',
+      lifecycle: 'retain',
+      resources: [
+        {
+          logicalId: 'Database',
+          physicalId: 'vis-db-instance',
+          type: 'AWS::RDS::DBInstance',
+          status: 'CREATE_COMPLETE',
+          statusReason: null,
+        },
+      ],
+    },
+    {
+      kind: 'endpoint',
+      name: 'Secure endpoint',
+      purpose: 'Provides HTTPS access',
+      status: 'ready',
+      awsService: 'ELB',
+      region: 'us-east-1',
+      lifecycle: 'delete',
+      resources: [
+        {
+          logicalId: 'LoadBalancer',
+          physicalId: 'vis-alb',
+          type: 'AWS::ElasticLoadBalancingV2::LoadBalancer',
+          status: 'CREATE_COMPLETE',
+          statusReason: null,
+        },
+      ],
+    },
+  ],
+  lastUpdatedAt: UPDATED_AT,
+  disconnectWarning: null,
+};
+
+// GET /api/deployments/:id/stack-events returns (vendorStackEventSchema in
+// packages/contracts/src/index.ts). Rendered inside a default-collapsed
+// disclosure (InfrastructureEvents), so this only affects the trigger row.
+const STACK_EVENTS = [
+  {
+    id: 1,
+    eventAt: CREATED_AT,
+    logicalResourceId: 'Service',
+    resourceType: 'AWS::ECS::Service',
+    resourceStatus: 'CREATE_COMPLETE',
+    resourceStatusReason: null,
+  },
+  {
+    id: 2,
+    eventAt: UPDATED_AT,
+    logicalResourceId: 'Database',
+    resourceType: 'AWS::RDS::DBInstance',
+    resourceStatus: 'CREATE_COMPLETE',
+    resourceStatusReason: null,
+  },
+];
+
 async function signUp(page: Page): Promise<void> {
   const email = `visual-${crypto.randomUUID().slice(0, 8)}@example.com`;
   await page.goto('/sign-up');
@@ -219,6 +312,12 @@ async function mockDetail(page: Page, detail: DeploymentFixture): Promise<void> 
   );
   await page.route(`${API_URL}/api/applications/${detail.applicationId}/releases`, (route) =>
     route.fulfill({ json: { releases: RELEASES } }),
+  );
+  await page.route(`${API_URL}/api/deployments/${detail.id}/infrastructure`, (route) =>
+    route.fulfill({ json: INFRASTRUCTURE }),
+  );
+  await page.route(`${API_URL}/api/deployments/${detail.id}/stack-events`, (route) =>
+    route.fulfill({ json: { events: STACK_EVENTS } }),
   );
 }
 

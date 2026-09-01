@@ -188,30 +188,63 @@ test('infrastructure rows appear only for the components the relay reports', asy
   const { deploymentId, installationId, enrollmentCode } = await seedDeployment(page);
   await driveDeploymentToHealthy(page, installationId, enrollmentCode);
 
-  // This application has no storage, so the relay reports on three components
-  // and the page must not invent a fourth.
+  // The Infrastructure section (apps/web/src/components/infrastructure-section.tsx)
+  // renders from the persisted resource inventory (§59), not from the
+  // `components` health map — a resource only becomes a row once the relay's
+  // ListStackResources read is persisted via persistDeploymentResourceSnapshot
+  // (packages/db/src/deployment-resources-persist.ts). This application has
+  // no storage and no Redis cache, so the inventory covers only
+  // application/database/load-balancer resources and the page must not
+  // invent a fourth or fifth row.
   const health = await page.request.post(`${API_URL}/api/relay/health`, {
     headers: { Authorization: `Bearer ${installationId}` },
     data: {
       installationId,
       healthStatus: 'HEALTHY',
-      components: { application: 'HEALTHY', database: 'DEGRADED', loadBalancer: 'HEALTHY' },
+      components: { application: 'HEALTHY', database: 'HEALTHY', loadBalancer: 'HEALTHY' },
+      observedState: {
+        infraHealth: {
+          inventory: {
+            stackId: `arn:aws:cloudformation:us-east-1:123456789012:stack/e2e-${crypto.randomUUID().slice(0, 8)}/${crypto.randomUUID()}`,
+            observedAt: new Date().toISOString(),
+            resources: [
+              {
+                logicalId: 'Service',
+                type: 'AWS::ECS::Service',
+                status: 'CREATE_COMPLETE',
+                physicalId: 'arn:aws:ecs:us-east-1:123456789012:service/e2e-app',
+              },
+              {
+                logicalId: 'Database',
+                type: 'AWS::RDS::DBInstance',
+                status: 'CREATE_COMPLETE',
+                physicalId: 'e2e-db-instance',
+              },
+              {
+                logicalId: 'LoadBalancer',
+                type: 'AWS::ElasticLoadBalancingV2::LoadBalancer',
+                status: 'CREATE_COMPLETE',
+                physicalId: 'e2e-alb',
+              },
+            ],
+          },
+        },
+      },
     },
   });
   expect(health.ok()).toBeTruthy();
 
   await page.goto(`/dashboard/deployments/${deploymentId}`);
-  await expect(page.getByText('Application', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Database', { exact: true })).toBeVisible();
-  await expect(page.getByText('Load Balancer', { exact: true })).toBeVisible();
-  // Scoped to the Infrastructure rows list: the vendor deployment-progress
-  // card (Phase 4) legitimately shows a "Storage" row with "Not required"
-  // for every deployment regardless of the app's requirements, so an
-  // unscoped page-wide assertion would no longer hold.
-  await expect(
-    page.getByTestId('infrastructure-list').getByText('Storage', { exact: true }),
-  ).toHaveCount(0);
-  await expect(page.getByText('Degraded', { exact: true })).toBeVisible();
+  // Scoped to the Infrastructure section — the deployment-progress card
+  // elsewhere on the page renders its own derived component list and must
+  // not be conflated with the inventory-backed rows asserted here.
+  const infraSection = page.locator('section[aria-labelledby="infrastructure"]');
+  await expect(infraSection.getByText('Application', { exact: true })).toBeVisible();
+  await expect(infraSection.getByText('Database', { exact: true })).toBeVisible();
+  await expect(infraSection.getByText('Secure endpoint', { exact: true })).toBeVisible();
+  // No storage or cache resource was reported, so neither row is invented.
+  await expect(infraSection.getByText('Storage', { exact: true })).toHaveCount(0);
+  await expect(infraSection.getByText('Cache', { exact: true })).toHaveCount(0);
 });
 
 test('deployment detail top-level copy is jargon-free', async ({ page }) => {
