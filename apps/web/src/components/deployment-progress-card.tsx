@@ -37,7 +37,10 @@ function ElapsedTime({ startedAt }: { startedAt: string }) {
  * stack status — vendors may see it, customers never do).
  */
 function timedSteps(status: VendorDeploymentStatus) {
-  const timingByStep = new Map(status.stepTimings.map((timing) => [timing.step, timing]));
+  // `?? []` covers the mixed-version rollout window where an older API
+  // (without stepTimings) still serves a newer client bundle — see
+  // stepsFromStatus, which degrades the same way.
+  const timingByStep = new Map((status.stepTimings ?? []).map((timing) => [timing.step, timing]));
   return stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) => {
     if (step.state === 'current') {
       return {

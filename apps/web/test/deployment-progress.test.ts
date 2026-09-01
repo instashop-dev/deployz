@@ -66,6 +66,11 @@ describe('isTerminalStage', () => {
 });
 
 describe('stepsFromStatus', () => {
+  it('renders no rows (instead of throwing) when an older API omits steps/step — the mixed-version rollout window', () => {
+    expect(stepsFromStatus({ steps: undefined, step: undefined, stage: 'PROVISIONING' })).toEqual([]);
+    expect(stepsFromStatus({ steps: FULL_STEPS, step: undefined, stage: 'PROVISIONING' })).toEqual([]);
+  });
+
   it('uses the server-sent `steps` list verbatim, in order, without re-sorting or re-filtering', () => {
     const rendered = stepsFromStatus({ steps: NO_REDIS_STEPS, step: 'NETWORK', stage: 'PROVISIONING' });
     expect(rendered.map((step) => step.key)).toEqual(NO_REDIS_STEPS);

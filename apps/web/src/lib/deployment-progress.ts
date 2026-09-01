@@ -113,10 +113,13 @@ export function stepsFromStatus({
   step,
   stage,
 }: {
-  steps: DeploymentStep[];
-  step: DeploymentStep;
+  /** Undefined only when a mixed-version rollout serves an older API to a
+   *  newer client — render no step rows then rather than crash mid-poll. */
+  steps: DeploymentStep[] | undefined;
+  step: DeploymentStep | undefined;
   stage: DeploymentStage;
 }): ProgressStep[] {
+  if (!steps || !step) return [];
   const activeIndex = steps.indexOf(step);
   return steps.map((candidate, index) => {
     const state: ProgressStepState =

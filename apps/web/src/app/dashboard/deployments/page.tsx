@@ -75,7 +75,9 @@ function isSettled(status: VendorDeploymentStatus): boolean {
  *  stage-level activity sentence), falling back to the component actively
  *  being created, then to the server's own currentActivity sentence. */
 function progressDetail(status: VendorDeploymentStatus): string {
-  if (status.stage === 'PROVISIONING') {
+  // The step lookup tolerates an older API without `step` (a mixed-version
+  // rollout window) by falling through to the activity sentence.
+  if (status.stage === 'PROVISIONING' && status.step && STEP_LABEL[status.step]) {
     return STEP_LABEL[status.step].pending;
   }
   return status.currentActivity;
