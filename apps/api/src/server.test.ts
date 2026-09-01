@@ -2255,6 +2255,102 @@ describe('server — organization settings, public install page, and bulk deploy
     }
   });
 
+  it('GET /api/install/:installationId resolves the template for the deployment\'s OWN region', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Regional App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    // us-east-2 deployment: the link must point at the us-east-2 regional
+    // template, never the us-east-1 legacy bucket (S3 PermanentRedirect).
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      region: 'us-east-2',
+    });
+
+    const mutableEnv = env as {
+      bootstrapTemplateUrl: string | undefined;
+      deployableAwsRegions: readonly string[];
+    };
+    const prevUrl = mutableEnv.bootstrapTemplateUrl;
+    const prevRegions = mutableEnv.deployableAwsRegions;
+    // A legacy us-east-1 URL is configured — it must NOT leak to us-east-2.
+    mutableEnv.bootstrapTemplateUrl = 'https://legacy-bucket.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json';
+    mutableEnv.deployableAwsRegions = ['us-east-1', 'us-east-2'];
+    try {
+      const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      const body = response.json() as Record<string, unknown>;
+      expect(response.statusCode).toBe(200);
+      const url = String(body['quickCreateUrl']);
+      expect(url).toContain('region=us-east-2');
+      expect(url).toContain('deployz-templates-us-east-2.s3.us-east-2.amazonaws.com');
+      // The legacy us-east-1 URL must never be used for a us-east-2 deployment.
+      expect(url).not.toContain('legacy-bucket');
+    } finally {
+      mutableEnv.bootstrapTemplateUrl = prevUrl;
+      mutableEnv.deployableAwsRegions = prevRegions;
+    }
+  });
+
+  it('GET /api/install/:installationId fails closed (no link) for an unpublished region', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Unpublished App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    // us-east-2 is supported but not in the default deployable set → no link.
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      region: 'us-east-2',
+    });
+
+    const mutableEnv = env as { bootstrapTemplateUrl: string | undefined };
+    const prev = mutableEnv.bootstrapTemplateUrl;
+    mutableEnv.bootstrapTemplateUrl = 'https://legacy-bucket.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json';
+    try {
+      const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      const body = response.json() as Record<string, unknown>;
+      expect(body['quickCreateUrl']).toBeNull();
+    } finally {
+      mutableEnv.bootstrapTemplateUrl = prev;
+    }
+  });
+
+  it('GET /api/regions returns only deployable regions (auth)', async () => {
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const prev = mutableEnv.deployableAwsRegions;
+    mutableEnv.deployableAwsRegions = ['us-east-1', 'us-east-2'];
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/regions', headers: { cookie: org.cookie } });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { regions: Array<{ value: string; label: string }> };
+      expect(body.regions).toEqual([
+        { value: 'us-east-1', label: 'US East (N. Virginia)' },
+        { value: 'us-east-2', label: 'US East (Ohio)' },
+      ]);
+    } finally {
+      mutableEnv.deployableAwsRegions = prev;
+    }
+  });
+
+  it('GET /api/regions requires auth', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/regions' });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('POST /api/deployments rejects a supported-but-unpublished region', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Guard App' });
+    const customer = await insertCustomer(db, org.organizationId);
+
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const prev = mutableEnv.deployableAwsRegions;
+    mutableEnv.deployableAwsRegions = ['us-east-1']; // us-east-2 not deployable
+    try {
+      const response = await postJson(
+        app,
+        '/api/deployments',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-2' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(422);
+      expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('REGION_NOT_SUPPORTED');
+    } finally {
+      mutableEnv.deployableAwsRegions = prev;
+    }
+  });
+
   it('GET /api/install/:installationId 404s for an unknown installation', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/install/does-not-exist' });
     expect(response.statusCode).toBe(404);

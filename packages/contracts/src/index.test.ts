@@ -19,8 +19,11 @@ import {
   DEFAULT_BOOTSTRAP_STACK_NAME,
   DESTROY_PENDING_STALE_AFTER_MS,
   PACKAGE_NAME,
+  REGION_LABELS,
+  SUPPORTED_AWS_REGIONS,
   analysisStatusSchema,
   applicationSchema,
+  bootstrapTemplateBucketName,
   cleanupStateSchema,
   compatibilityStatusSchema,
   customerSchema,
@@ -31,6 +34,7 @@ import {
   eventLogSchema,
   failureCodeSchema,
   healthComponentsSchema,
+  isSupportedRegion,
   jobStateSchema,
   jobTypeSchema,
   organizationSchema,
@@ -38,6 +42,7 @@ import {
   regionSchema,
   releaseSchema,
   releaseStatusSchema,
+  resolveBootstrapTemplate,
   subscriptionSchema,
   subscriptionStatusSchema,
   usageRecordSchema,
@@ -324,6 +329,88 @@ describe('stack name constants', () => {
 
   it('does not collide with the bootstrap stack name', () => {
     expect(DEFAULT_APPLICATION_STACK_NAME).not.toBe(DEFAULT_BOOTSTRAP_STACK_NAME);
+  });
+});
+
+// The §32 supported-region source is the SINGLE canonical list every consumer
+// derives from — API/UI validation, bootstrap publishing and the install-link
+// resolver. It must stay exactly the 17-region allowlist the db enum already
+// locks (regionSchema parity is asserted above); these tests lock the derived
+// behavior on top of it.
+describe('SUPPORTED_AWS_REGIONS / REGION_LABELS / isSupportedRegion', () => {
+  it('keeps the 17-region allowlist', () => {
+    expect(SUPPORTED_AWS_REGIONS).toHaveLength(17);
+    expect(SUPPORTED_AWS_REGIONS).toContain('us-east-1');
+    expect(SUPPORTED_AWS_REGIONS).toContain('us-east-2');
+  });
+
+  it('regionSchema is derived from the canonical list (no drift)', () => {
+    expect([...regionSchema.options].sort()).toEqual([...SUPPORTED_AWS_REGIONS].sort());
+  });
+
+  it('labels every supported region', () => {
+    for (const region of SUPPORTED_AWS_REGIONS) {
+      expect(REGION_LABELS[region]).toBeDefined();
+      expect(REGION_LABELS[region].length).toBeGreaterThan(0);
+    }
+  });
+
+  it('isSupportedRegion accepts only allowlisted regions', () => {
+    expect(isSupportedRegion('us-east-2')).toBe(true);
+    expect(isSupportedRegion('eu-west-1')).toBe(true);
+    expect(isSupportedRegion('mars-1')).toBe(false);
+    expect(isSupportedRegion('')).toBe(false);
+  });
+});
+
+describe('bootstrapTemplateBucketName', () => {
+  it('derives the deterministic regional bucket name', () => {
+    expect(bootstrapTemplateBucketName('us-east-1')).toBe('deployz-templates-us-east-1');
+    expect(bootstrapTemplateBucketName('us-east-2')).toBe('deployz-templates-us-east-2');
+  });
+});
+
+describe('resolveBootstrapTemplate', () => {
+  it('resolves the regional template URL for a supported region', () => {
+    const url = resolveBootstrapTemplate('us-east-2');
+    expect(url).toBe(
+      'https://deployz-templates-us-east-2.s3.us-east-2.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json',
+    );
+  });
+
+  it('never resolves an unsupported region (fails closed)', () => {
+    expect(resolveBootstrapTemplate('mars-1')).toBeUndefined();
+    expect(resolveBootstrapTemplate('us-gov-west-1')).toBeUndefined();
+  });
+
+  it('does not resolve a supported-but-unpublished region (fails closed)', () => {
+    expect(resolveBootstrapTemplate('us-east-2', { deployableRegions: ['us-east-1'] })).toBeUndefined();
+  });
+
+  it('honors the legacy URL for us-east-1 only', () => {
+    const legacy = 'https://legacy-bucket.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json';
+    expect(resolveBootstrapTemplate('us-east-1', { legacyUrl: legacy })).toBe(legacy);
+  });
+
+  it('never lets the legacy URL fall back across regions (no cross-region link)', () => {
+    const legacy = 'https://legacy-bucket.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json';
+    // us-east-2 must resolve to ITS OWN bucket, not the legacy us-east-1 one.
+    expect(resolveBootstrapTemplate('us-east-2', { legacyUrl: legacy })).toBe(
+      'https://deployz-templates-us-east-2.s3.us-east-2.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json',
+    );
+  });
+
+  it('does not fall back to a legacy URL for us-east-1 when the legacy URL is absent', () => {
+    expect(resolveBootstrapTemplate('us-east-1')).toBe(
+      'https://deployz-templates-us-east-1.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json',
+    );
+  });
+
+  it('resolves a legacy URL for us-east-1 even when the deployable set is empty', () => {
+    // The legacy URL IS the confirmation that us-east-1 is published, so it
+    // must not be gated behind the deployable set.
+    const legacy = 'https://legacy-bucket.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json';
+    expect(resolveBootstrapTemplate('us-east-1', { legacyUrl: legacy, deployableRegions: [] })).toBe(legacy);
   });
 });
 

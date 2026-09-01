@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 
+import { SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
 import type { AiGatewayConfig } from '@deployz/analysis';
 
 import { describeAiGatewayConfig } from './ai-config.js';
@@ -34,6 +35,22 @@ const webPort = Number(process.env.WEB_PORT ?? 3000);
 function origin(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed.replace(/\/+$/, '') : undefined;
+}
+
+/**
+ * Parses a comma-separated region list (e.g. `DEPLOYABLE_AWS_REGIONS`),
+ * keeping only regions in the canonical supported set. An empty result for
+ * an explicitly-set var means "nothing deployable" — fail closed. The
+ * default is applied only when the var is unset.
+ */
+function parseRegionList(value: string | undefined, fallback: readonly string[]): readonly string[] {
+  if (value === undefined || value.trim() === '') return fallback;
+  const allowed = new Set<string>(SUPPORTED_AWS_REGIONS);
+  const regions = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && allowed.has(entry));
+  return regions;
 }
 
 // The auth server's own origin. In production this is the API's public
@@ -140,6 +157,17 @@ export const env = {
   // and the install page says so, instead of pointing the customer at a
   // template that does not exist.
   bootstrapTemplateUrl: process.env.BOOTSTRAP_TEMPLATE_URL,
+  // Regions whose regional bootstrap artifacts are CONFIRMED published (the
+  // publisher fans identical assets into `deployz-templates-<region>` per
+  // region and verifies each before reporting success). Comma-separated.
+  //
+  // Fail-closed default: only `us-east-1` — the single region the legacy
+  // single-bucket flow ever actually published. Until an operator runs the
+  // per-region publisher and records the verified list here, every other
+  // supported region is treated as unavailable: deployment creation rejects
+  // it and the install link resolver never hands out a template for it.
+  // See SUPPORTED_AWS_REGIONS + resolveBootstrapTemplate in @deployz/contracts.
+  deployableAwsRegions: parseRegionList(process.env.DEPLOYABLE_AWS_REGIONS, ['us-east-1']),
   awsRegion: process.env.AWS_REGION ?? 'us-east-1',
   githubFixtureMode:
     process.env.GITHUB_FIXTURE_MODE === 'true' || process.env.GITHUB_FIXTURE_MODE === '1',

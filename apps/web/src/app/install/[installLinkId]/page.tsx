@@ -86,8 +86,8 @@ export default async function InstallPage({
               Installation failed
             </h2>
             <p className="text-sm text-muted-foreground">
-              The installation did not finish. {data.publisherName} has been notified. Contact{' '}
-              {data.publisherName} for help.
+              Bootstrap installation failed. No application resources were created. You can safely
+              retry. {data.publisherName} can restart the installation for you.
             </p>
           </section>
         ) : removed ? (
