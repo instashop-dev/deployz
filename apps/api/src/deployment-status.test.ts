@@ -678,6 +678,55 @@ describe('step derivation — one per stage', () => {
   });
 });
 
+describe('rollback-window snapshots', () => {
+  it('does not regress the step from a rolling-back snapshot — broader PREPARING instead', () => {
+    // Observed live: mid-rollback the categories describe teardown, and the
+    // forward ladder read them as "network not complete → Creating network".
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'INSTALLING',
+        observedState: snapshotObservedState(
+          { network: { status: 'IN_PROGRESS' }, database: { status: 'IN_PROGRESS' } },
+          'ROLLBACK_IN_PROGRESS',
+        ),
+      }),
+      application: makeApplication({ databaseRequired: true }),
+      jobs: [makeJob({ state: 'RUNNING' })],
+    });
+    expect(status.stage).toBe('PROVISIONING');
+    expect(status.step).toBe('PREPARING');
+  });
+
+  it('a FAILED category still names the step where the attempt stopped, even mid-rollback', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'INSTALLING',
+        observedState: snapshotObservedState(
+          { network: { status: 'IN_PROGRESS' }, application: { status: 'FAILED' } },
+          'ROLLBACK_IN_PROGRESS',
+        ),
+      }),
+      jobs: [makeJob({ state: 'RUNNING' })],
+    });
+    expect(status.step).toBe('APPLICATION');
+  });
+
+  it('suppresses takingLongerThanUsual while the stack rolls back', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'INSTALLING',
+        observedState: snapshotObservedState(
+          { application: { status: 'FAILED', startedAt: '2026-08-31T10:00:00.000Z' } },
+          'ROLLBACK_IN_PROGRESS',
+        ),
+      }),
+      jobs: [makeJob({ state: 'RUNNING' })],
+      now: new Date('2026-08-31T11:00:00.000Z'),
+    });
+    expect(status.takingLongerThanUsual).toBe(false);
+  });
+});
+
 describe('aws.stackStatus from the live snapshot', () => {
   it('falls back to the snapshot stack status while the INSTALL result is still null', () => {
     const status = derive({

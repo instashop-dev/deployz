@@ -624,6 +624,25 @@ function provisioningLadderStep(
   return 'APPLICATION';
 }
 
+/**
+ * The step whose backing category the snapshot marks FAILED, if any — in
+ * canonical order, so a multi-category failure names the earliest step.
+ * The only ladder question that stays answerable while a stack rolls back.
+ */
+function snapshotFailedStep(
+  snapshot: ProvisioningSnapshot | null,
+  application: DerivationApplication,
+): DeploymentStep | null {
+  if (!snapshot) return null;
+  for (const step of ['NETWORK', 'DATABASE_STORAGE', 'REDIS', 'APPLICATION'] as const) {
+    const failed = categoryKeysForStep(step, application).some(
+      (key) => snapshot[key]?.status === 'FAILED',
+    );
+    if (failed) return step;
+  }
+  return null;
+}
+
 /** Applicable steps for this deployment, in canonical order — REDIS/DATABASE_STORAGE only when required. */
 function applicableSteps(application: DerivationApplication): DeploymentStep[] {
   const databaseStorageRequired = (application.databaseRequired ?? false) || (application.storageRequired ?? false);
@@ -803,6 +822,16 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
 
   // ── Step derivation (a read-time sub-step of `stage`, never persisted) ──
   const snapshot = readProvisioningSnapshot(deployment.observedState);
+  const snapshotStackStatus = readSnapshotStackStatus(deployment.observedState);
+  // A rolling-back (or deleting) stack still reports a snapshot, but its
+  // categories describe resources being torn down, not created — feeding
+  // them to the forward ladder made the step visibly REGRESS mid-rollback
+  // (observed live: "Creating the network" while CloudFormation deleted it).
+  // The one snapshot fact that stays truthful through a rollback is a
+  // category that FAILED — that is where the attempt actually stopped.
+  const snapshotRollingBack =
+    snapshotStackStatus !== null && /ROLLBACK|DELETE/.test(snapshotStackStatus);
+  const failedCategoryStep = snapshotFailedStep(snapshot, application);
   let step: DeploymentStep;
   switch (stage) {
     case 'WAITING_FOR_AWS':
@@ -812,7 +841,9 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       step = 'RELAY_CONNECT';
       break;
     case 'PROVISIONING':
-      step = provisioningLadderStep(snapshot, application) ?? 'PREPARING';
+      step =
+        failedCategoryStep ??
+        (snapshotRollingBack ? 'PREPARING' : (provisioningLadderStep(snapshot, application) ?? 'PREPARING'));
       currentActivity = PROVISIONING_STEP_ACTIVITY[step as keyof typeof PROVISIONING_STEP_ACTIVITY];
       break;
     case 'VERIFYING':
@@ -823,12 +854,13 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       break;
     case 'FAILED': {
       // INSTALL failures locate the step from the snapshot first (the most
-      // truthful answer to "what was it doing"); only when no snapshot ever
-      // arrived does the failure's classified component stand in. A failed
+      // truthful answer to "what was it doing"); only when no snapshot can
+      // say does the failure's classified component stand in. A failed
       // job of any OTHER type (DEPLOY_RELEASE, RESTART, ...) never touched
       // provisioning at all, so it is attributed to APPLICATION uniformly.
       if (latestFailed?.type === 'INSTALL') {
-        const ladderStep = provisioningLadderStep(snapshot, application);
+        const ladderStep =
+          failedCategoryStep ?? (snapshotRollingBack ? null : provisioningLadderStep(snapshot, application));
         if (ladderStep) {
           step = ladderStep;
         } else {
@@ -862,12 +894,15 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
   const typicalDurationSeconds = TYPICAL_STEP_DURATION_SECONDS[step];
   // A silent relay cannot support "AWS is still working" — statusUpdatesUnavailable
   // suppresses the flag exactly like it suppresses every other live signal.
+  // A rolling-back stack is not "still working" toward the step completing,
+  // so the reassuring slow-step nudge is suppressed there too.
   const takingLongerThanUsual =
     typicalDurationSeconds !== null &&
     stepStartedAt !== null &&
     now.getTime() - new Date(stepStartedAt).getTime() > typicalDurationSeconds.max * 1000 &&
     stage !== 'READY' &&
     stage !== 'FAILED' &&
+    !snapshotRollingBack &&
     !statusUpdatesUnavailable;
   const stepTimings = buildStepTimings(deployment.stepTimings);
   const stepSnapshotCompletedAt: Partial<Record<DeploymentStep, string>> = {};
