@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { ActivityFeed } from '@/components/activity-feed';
 import { DeploymentProgressCard } from '@/components/deployment-progress-card';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { InfrastructureEvents } from '@/components/infrastructure-events';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -314,6 +315,8 @@ function DetailBody({
         </h2>
         <DeploymentProgressCard status={detail.deploymentStatus} />
       </section>
+
+      <InfrastructureEvents deploymentId={detail.id} stage={detail.deploymentStatus.stage} />
 
       {detail.state === 'DELETING' ? (
         <DisconnectStatusPanel detail={detail} onChanged={onChanged} />
