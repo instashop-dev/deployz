@@ -175,9 +175,20 @@ function ReadinessBody({
 }) {
   const currentStep = deriveOnboardingStep({
     analysisStatus: readiness.analysisStatus,
-    verdict: readiness.verdict,
+    state: readiness.state,
     testDeploymentCreated,
   });
+
+  // The fix-instructions dialog's "Re-analyse application" CTA runs the same
+  // forced re-analysis as the details section's Re-analyse button; the page's
+  // polling picks up the ANALYZING status from the refresh.
+  function handleReanalyseFromFindings(): void {
+    void triggerAnalysis(application.id, { force: true })
+      .then(onReanalyseTriggered)
+      .catch(() => {
+        /* The analysis can be retried from either button. */
+      });
+  }
 
   return (
     <>
@@ -210,9 +221,13 @@ function ReadinessBody({
         <OnboardingFlow currentStep={currentStep} />
       </section>
 
-      <ReadinessResult readiness={readiness} />
+      <ReadinessResult
+        readiness={readiness}
+        applicationId={application.id}
+        onReanalyse={handleReanalyseFromFindings}
+      />
 
-      {readiness.verdict === 'READY' && !testDeploymentCreated ? (
+      {readiness.state === 'READY' && !testDeploymentCreated ? (
         <TestDeploymentCard applicationId={application.id} />
       ) : null}
 

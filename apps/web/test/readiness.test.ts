@@ -2,20 +2,21 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ONBOARDING_STEPS,
-  VERDICT_PRESENTATION,
+  READINESS_STATE_PRESENTATION,
   deriveOnboardingStep,
+  readinessCountsLabel,
   readinessFailure,
-  readinessSummaryLabel,
   type ApplicationReadiness,
 } from '../src/lib/readiness';
 
 // Locks the §42 onboarding vocabulary and the §19 readiness presentation:
-// the six steps are verbatim and in order, every verdict label is §65
-// jargon-free, and the §19 summary line + result shape render correctly for
-// each real (non-fixture) verdict state returned by
-// GET /api/applications/:id/readiness.
+// the six steps are verbatim and in order, every readiness state's
+// presentation is §65 jargon-free and never a percentage, and the
+// ApplicationReadiness shape renders correctly for each real (non-fixture)
+// state returned by GET /api/applications/:id/readiness.
 
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/i;
+const PERCENT = /%/;
 
 describe('§42 onboarding steps', () => {
   it('is exactly the six steps, verbatim and in order', () => {
@@ -30,17 +31,51 @@ describe('§42 onboarding steps', () => {
   });
 });
 
-describe('§19 verdict presentation', () => {
+describe('§19 readiness state presentation', () => {
   it('READY uses the §42 success wording', () => {
-    expect(VERDICT_PRESENTATION.READY.heading).toBe('Your app is ready to deploy.');
-    expect(VERDICT_PRESENTATION.READY.tone).toBe('ready');
+    expect(READINESS_STATE_PRESENTATION.READY.heading).toBe('Ready to deploy');
+    expect(READINESS_STATE_PRESENTATION.READY.tone).toBe('ready');
   });
 
-  it('every presentation heading and label is jargon-free (§65)', () => {
-    for (const presentation of Object.values(VERDICT_PRESENTATION)) {
+  it('assigns the correct tone per state', () => {
+    expect(READINESS_STATE_PRESENTATION.READY.tone).toBe('ready');
+    expect(READINESS_STATE_PRESENTATION.ALMOST_READY.tone).toBe('attention');
+    expect(READINESS_STATE_PRESENTATION.NEEDS_CHANGES.tone).toBe('incompatible');
+    expect(READINESS_STATE_PRESENTATION.ANALYSIS_INCOMPLETE.tone).toBe('pending');
+  });
+
+  it('every presentation heading and label is jargon-free and never a percentage (§65)', () => {
+    for (const presentation of Object.values(READINESS_STATE_PRESENTATION)) {
       expect(presentation.heading).not.toMatch(JARGON);
       expect(presentation.label).not.toMatch(JARGON);
+      expect(presentation.heading).not.toMatch(PERCENT);
+      expect(presentation.label).not.toMatch(PERCENT);
     }
+  });
+});
+
+describe('readinessCountsLabel', () => {
+  it('formats the exact example: "2 required changes · 1 recommendation"', () => {
+    expect(readinessCountsLabel(2, 1)).toBe('2 required changes · 1 recommendation');
+  });
+
+  it('singularizes "change" and "recommendation" for exactly one', () => {
+    expect(readinessCountsLabel(1, 0)).toBe('1 required change');
+    expect(readinessCountsLabel(0, 1)).toBe('1 recommendation');
+  });
+
+  it('pluralizes for more than one', () => {
+    expect(readinessCountsLabel(2, 0)).toBe('2 required changes');
+    expect(readinessCountsLabel(0, 2)).toBe('2 recommendations');
+  });
+
+  it('reports "All checks passed" when both counts are zero', () => {
+    expect(readinessCountsLabel(0, 0)).toBe('All checks passed');
+  });
+
+  it('never contains a percentage sign', () => {
+    expect(readinessCountsLabel(2, 1)).not.toMatch(PERCENT);
+    expect(readinessCountsLabel(0, 0)).not.toMatch(PERCENT);
   });
 });
 
@@ -49,24 +84,34 @@ describe('deriveOnboardingStep', () => {
     expect(
       deriveOnboardingStep({
         analysisStatus: 'ANALYZING',
-        verdict: null,
+        state: 'ANALYSIS_INCOMPLETE',
         testDeploymentCreated: false,
       }),
     ).toBe(3);
   });
 
-  it('sends non-ready verdicts to fix compatibility issues (step 4)', () => {
+  it('is analysing (step 3) when analysis failed', () => {
+    expect(
+      deriveOnboardingStep({
+        analysisStatus: 'FAILED',
+        state: 'ANALYSIS_INCOMPLETE',
+        testDeploymentCreated: false,
+      }),
+    ).toBe(3);
+  });
+
+  it('sends non-ready complete states to fix compatibility issues (step 4)', () => {
     expect(
       deriveOnboardingStep({
         analysisStatus: 'COMPLETE',
-        verdict: 'NEEDS_ATTENTION',
+        state: 'ALMOST_READY',
         testDeploymentCreated: false,
       }),
     ).toBe(4);
     expect(
       deriveOnboardingStep({
         analysisStatus: 'COMPLETE',
-        verdict: 'NOT_COMPATIBLE',
+        state: 'NEEDS_CHANGES',
         testDeploymentCreated: false,
       }),
     ).toBe(4);
@@ -76,7 +121,7 @@ describe('deriveOnboardingStep', () => {
     expect(
       deriveOnboardingStep({
         analysisStatus: 'COMPLETE',
-        verdict: 'READY',
+        state: 'READY',
         testDeploymentCreated: false,
       }),
     ).toBe(5);
@@ -86,86 +131,131 @@ describe('deriveOnboardingStep', () => {
     expect(
       deriveOnboardingStep({
         analysisStatus: 'COMPLETE',
-        verdict: 'READY',
+        state: 'READY',
         testDeploymentCreated: true,
       }),
     ).toBe(6);
   });
 });
 
-describe('readinessSummaryLabel (§19 "82% — 2 changes required")', () => {
-  it('formats the exact §19 example', () => {
-    expect(readinessSummaryLabel(82, 2)).toBe('82% — 2 changes required');
-  });
-
-  it('singularizes "change" for exactly one', () => {
-    expect(readinessSummaryLabel(90, 1)).toBe('90% — 1 change required');
-  });
-
-  it('handles zero changes required', () => {
-    expect(readinessSummaryLabel(100, 0)).toBe('100% — 0 changes required');
-  });
-});
-
-describe('§19 readiness result shape (GET /api/applications/:id/readiness)', () => {
-  it('a pending (non-COMPLETE) analysis carries null verdict/score and empty groups', () => {
+describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)', () => {
+  it('a pending (non-COMPLETE) analysis carries ANALYSIS_INCOMPLETE and empty lists', () => {
     const pending: ApplicationReadiness = {
       analysisStatus: 'ANALYZING',
-      verdict: null,
-      score: null,
-      changesRequired: null,
+      state: 'ANALYSIS_INCOMPLETE',
+      requiredCount: 0,
+      recommendedCount: 0,
+      summary: null,
       failureReason: null,
-      ready: [],
-      needsAttention: [],
-      unsupported: [],
+      findings: [],
+      passed: [],
+      analyzedCommitSha: null,
     };
-    expect(pending.verdict).toBeNull();
-    expect(pending.score).toBeNull();
-    expect(pending.ready).toEqual([]);
+    expect(pending.state).toBe('ANALYSIS_INCOMPLETE');
+    expect(pending.findings).toEqual([]);
+    expect(pending.passed).toEqual([]);
   });
 
-  it('a NEEDS_ATTENTION result carries per-issue title/detail/suggestedFix', () => {
+  it('a FAILED analysis carries ANALYSIS_INCOMPLETE and a failureReason', () => {
+    const failed: ApplicationReadiness = {
+      analysisStatus: 'FAILED',
+      state: 'ANALYSIS_INCOMPLETE',
+      requiredCount: 0,
+      recommendedCount: 0,
+      summary: null,
+      failureReason: 'Failed to mint a GitHub installation token',
+      findings: [],
+      passed: [],
+      analyzedCommitSha: null,
+    };
+    expect(failed.state).toBe('ANALYSIS_INCOMPLETE');
+    expect(failed.failureReason).toBe('Failed to mint a GitHub installation token');
+  });
+
+  it('an ALMOST_READY result splits findings into required and recommended', () => {
     const readiness: ApplicationReadiness = {
       analysisStatus: 'COMPLETE',
-      verdict: 'NEEDS_ATTENTION',
-      score: 82,
-      changesRequired: 2,
+      state: 'ALMOST_READY',
+      requiredCount: 1,
+      recommendedCount: 1,
+      summary: 'One required change and one recommendation.',
       failureReason: null,
-      ready: [{ label: 'Docker container detected' }],
-      needsAttention: [
+      findings: [
         {
+          id: 'health-endpoint',
+          category: 'health',
           title: 'Health endpoint missing',
-          detail: 'Deployz requires an HTTP health endpoint.',
-          suggestedFix: 'GET /health → HTTP 200',
+          severity: 'required',
+          blocking: true,
+          plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
+          whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
+          technicalEvidence: 'No route responded on /health.',
+          suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
+          confidence: 'confirmed',
+        },
+        {
+          id: 'logging',
+          category: 'observability',
+          title: 'Structured logging recommended',
+          severity: 'recommended',
+          blocking: false,
+          plainEnglishExplanation: 'Logs are not structured as JSON.',
+          whyItMatters: 'Structured logs are easier to search.',
+          technicalEvidence: 'Log lines are plain text.',
+          suggestedOutcome: 'Emit logs as JSON.',
+          confidence: 'likely',
         },
       ],
-      unsupported: [],
+      passed: [{ id: 'docker', label: 'Docker container detected' }],
+      analyzedCommitSha: 'abc1234',
     };
-    expect(readiness.needsAttention[0]).toMatchObject({
+    const required = readiness.findings.filter((f) => f.severity === 'required');
+    const recommended = readiness.findings.filter((f) => f.severity === 'recommended');
+    expect(required).toHaveLength(1);
+    expect(recommended).toHaveLength(1);
+    expect(required[0]).toMatchObject({
       title: 'Health endpoint missing',
-      suggestedFix: 'GET /health → HTTP 200',
+      blocking: true,
+    });
+    expect(recommended[0]).toMatchObject({
+      title: 'Structured logging recommended',
+      blocking: false,
     });
     const text = [
-      readiness.ready[0]?.label ?? '',
-      readiness.needsAttention[0]?.title ?? '',
-      readiness.needsAttention[0]?.detail ?? '',
-      readiness.needsAttention[0]?.suggestedFix ?? '',
+      readiness.passed[0]?.label ?? '',
+      required[0]?.title ?? '',
+      required[0]?.plainEnglishExplanation ?? '',
+      required[0]?.suggestedOutcome ?? '',
     ].join(' ');
     expect(text).not.toMatch(JARGON);
   });
 
-  it('a NOT_COMPATIBLE result carries title/reason pairs, not a single message', () => {
+  it('a NEEDS_CHANGES result carries only required findings for the incompatibility', () => {
     const readiness: ApplicationReadiness = {
       analysisStatus: 'COMPLETE',
-      verdict: 'NOT_COMPATIBLE',
-      score: 0,
-      changesRequired: 0,
+      state: 'NEEDS_CHANGES',
+      requiredCount: 1,
+      recommendedCount: 0,
+      summary: 'One required change.',
       failureReason: null,
-      ready: [],
-      needsAttention: [],
-      unsupported: [{ title: 'Persistent Redis required', reason: 'Persistent Redis is required.' }],
+      findings: [
+        {
+          id: 'persistent-redis',
+          category: 'architecture',
+          title: 'Persistent Redis required',
+          severity: 'required',
+          blocking: true,
+          plainEnglishExplanation: 'Persistent Redis is required.',
+          whyItMatters: 'Session data would be lost without it.',
+          technicalEvidence: 'No Redis connection string found.',
+          suggestedOutcome: 'Configure a persistent Redis instance.',
+          confidence: 'confirmed',
+        },
+      ],
+      passed: [],
+      analyzedCommitSha: 'def5678',
     };
-    expect(readiness.unsupported[0]?.reason).toBe('Persistent Redis is required.');
+    expect(readiness.findings[0]?.plainEnglishExplanation).toBe('Persistent Redis is required.');
   });
 });
 
@@ -175,26 +265,28 @@ describe('§19 readiness result shape (GET /api/applications/:id/readiness)', ()
 describe('readinessFailure (FAILED analysis)', () => {
   const failed = (failureReason: string | null): ApplicationReadiness => ({
     analysisStatus: 'FAILED',
-    verdict: null,
-    score: null,
-    changesRequired: null,
+    state: 'ANALYSIS_INCOMPLETE',
+    requiredCount: 0,
+    recommendedCount: 0,
+    summary: null,
     failureReason,
-    ready: [],
-    needsAttention: [],
-    unsupported: [],
+    findings: [],
+    passed: [],
+    analyzedCommitSha: null,
   });
 
   it('is null while the analysis is still running', () => {
     expect(
       readinessFailure({
         analysisStatus: 'ANALYZING',
-        verdict: null,
-        score: null,
-        changesRequired: null,
+        state: 'ANALYSIS_INCOMPLETE',
+        requiredCount: 0,
+        recommendedCount: 0,
+        summary: null,
         failureReason: null,
-        ready: [],
-        needsAttention: [],
-        unsupported: [],
+        findings: [],
+        passed: [],
+        analyzedCommitSha: null,
       }),
     ).toBeNull();
   });

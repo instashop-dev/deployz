@@ -1671,7 +1671,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     ).toBe('NOT_PROVISIONED');
   });
 
-  it('readiness: analysis not COMPLETE returns analysisStatus instead of a fabricated score', async () => {
+  it('readiness: analysis not COMPLETE returns state ANALYSIS_INCOMPLETE with empty findings, never a fabricated result', async () => {
     const application = await insertApplication(db, org.organizationId, { analysisStatus: 'ANALYZING' });
     const response = await app.inject({
       method: 'GET',
@@ -1681,13 +1681,14 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toStrictEqual({
       analysisStatus: 'ANALYZING',
-      verdict: null,
-      score: null,
-      changesRequired: null,
+      state: 'ANALYSIS_INCOMPLETE',
+      requiredCount: 0,
+      recommendedCount: 0,
+      summary: null,
       failureReason: null,
-      ready: [],
-      needsAttention: [],
-      unsupported: [],
+      findings: [],
+      passed: [],
+      analyzedCommitSha: null,
     });
   });
 
@@ -1707,21 +1708,70 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       analysisStatus: 'FAILED',
-      verdict: null,
+      state: 'ANALYSIS_INCOMPLETE',
       failureReason: 'Failed to mint a GitHub installation token',
     });
   });
 
-  it('readiness: score is the ratio of satisfied checks, not a hardcoded constant', async () => {
+  it('readiness: a row with a stored semantic report returns it verbatim, plus the analyzed commit sha', async () => {
+    const finding = {
+      id: 'health-check',
+      category: 'health',
+      title: 'Deployment health check',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+      whyItMatters: 'During every deployment, Deployz waits for your app to report healthy.',
+      technicalEvidence: 'No health endpoint or container health check was found.',
+      suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+      confidence: 'likely',
+    };
+    const readiness = {
+      state: 'ALMOST_READY',
+      requiredCount: 1,
+      recommendedCount: 0,
+      summary: 'Deployz found a few things to address before this app can be deployed reliably.',
+      findings: [finding],
+      passed: [{ id: 'dockerfile', label: 'Container setup found' }],
+    };
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      compatibilityReason: readiness.summary,
+      detectedMetadata: { readiness, analysisCommitSha: 'deadbeef' },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toStrictEqual({
+      analysisStatus: 'COMPLETE',
+      state: 'ALMOST_READY',
+      requiredCount: 1,
+      recommendedCount: 0,
+      summary: readiness.summary,
+      failureReason: null,
+      findings: [finding],
+      passed: readiness.passed,
+      analyzedCommitSha: 'deadbeef',
+    });
+  });
+
+  // Legacy rows (analysed before the semantic readiness report existed) only
+  // carry `detected_metadata.checks` — computeReadiness must degrade these
+  // into equivalent findings rather than 500 or silently drop them.
+  it('readiness: a legacy row (checks only, no readiness report) degrades to equivalent findings', async () => {
     const application = await insertApplication(db, org.organizationId, {
       analysisStatus: 'COMPLETE',
       compatibilityStatus: 'NEEDS_ATTENTION',
       detectedMetadata: {
         checks: {
-          ready: [{ label: 'Docker container detected' }, { label: 'PostgreSQL detected' }, { label: 'Port 3000 detected' }],
+          ready: [{ label: 'Docker container detected' }, { label: 'PostgreSQL detected' }],
           needsAttention: [
             { title: 'Health endpoint missing', detail: 'Deployz requires an HTTP health endpoint.', suggestedFix: 'GET /health -> 200' },
-            { title: 'Local file storage detected', detail: 'Files written to /uploads will disappear on restart.', suggestedFix: null },
           ],
           unsupported: [],
         },
@@ -1734,24 +1784,29 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       headers: { cookie: org.cookie },
     });
     const body = response.json() as {
-      verdict: string;
-      score: number;
-      changesRequired: number;
-      ready: unknown[];
-      needsAttention: unknown[];
+      state: string;
+      findings: Array<{ id: string; severity: string; blocking: boolean; title: string }>;
+      passed: Array<{ id: string; label: string }>;
     };
-    expect(body.verdict).toBe('NEEDS_ATTENTION');
-    expect(body.score).toBe(60); // 3 ready / 5 total checks
-    expect(body.changesRequired).toBe(2);
-    expect(body.ready).toHaveLength(3);
-    expect(body.needsAttention).toHaveLength(2);
+    expect(body.state).toBe('ALMOST_READY');
+    expect(body.findings).toHaveLength(1);
+    expect(body.findings[0]).toMatchObject({ severity: 'required', blocking: false, title: 'Health endpoint missing' });
+    expect(body.passed).toHaveLength(2);
+    expect(body.passed).toContainEqual({ id: 'legacy-passed-0', label: 'Docker container detected' });
   });
 
-  it('readiness: NOT_COMPATIBLE with no persisted checks falls back to one unsupported entry from compatibilityReason', async () => {
+  it('readiness: a legacy NOT_COMPATIBLE row degrades its unsupported entries into blocking required findings', async () => {
     const application = await insertApplication(db, org.organizationId, {
       analysisStatus: 'COMPLETE',
       compatibilityStatus: 'NOT_COMPATIBLE',
       compatibilityReason: 'Persistent Redis is required.',
+      detectedMetadata: {
+        checks: {
+          ready: [],
+          needsAttention: [],
+          unsupported: [{ title: 'This Redis setup is not supported', reason: 'Redis Stack modules detected.' }],
+        },
+      },
     });
 
     const response = await app.inject({
@@ -1759,13 +1814,17 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       url: `/api/applications/${application.id}/readiness`,
       headers: { cookie: org.cookie },
     });
-    const body = response.json() as { verdict: string; score: number; unsupported: Array<{ title: string; reason: string }> };
-    expect(body.verdict).toBe('NOT_COMPATIBLE');
-    expect(body.score).toBe(0);
-    expect(body.unsupported).toEqual([{ title: 'Not compatible', reason: 'Persistent Redis is required.' }]);
+    const body = response.json() as {
+      state: string;
+      findings: Array<{ severity: string; blocking: boolean; title: string }>;
+    };
+    expect(body.state).toBe('NEEDS_CHANGES');
+    expect(body.findings).toEqual([
+      expect.objectContaining({ severity: 'required', blocking: true, title: 'This Redis setup is not supported' }),
+    ]);
   });
 
-  it('readiness: fully READY with no issues scores 100', async () => {
+  it('readiness: a legacy fully-READY row (no issues) has passed checks and no findings', async () => {
     const application = await insertApplication(db, org.organizationId, {
       analysisStatus: 'COMPLETE',
       compatibilityStatus: 'READY',
@@ -1777,10 +1836,241 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       url: `/api/applications/${application.id}/readiness`,
       headers: { cookie: org.cookie },
     });
-    const body = response.json() as { verdict: string; score: number; changesRequired: number };
-    expect(body.verdict).toBe('READY');
-    expect(body.score).toBe(100);
-    expect(body.changesRequired).toBe(0);
+    const body = response.json() as { state: string; findings: unknown[]; passed: unknown[] };
+    expect(body.state).toBe('READY');
+    expect(body.findings).toEqual([]);
+    expect(body.passed).toEqual([{ id: 'legacy-passed-0', label: 'Docker container detected' }]);
+  });
+});
+
+// ── POST /api/applications/:id/fix-instructions ─────────────────────────────
+// Generates the consolidated coding-agent prompt for the unresolved readiness
+// findings. Read-only with respect to the analysis: generation never changes
+// findings, readiness state, or the repository — success or failure.
+describe('server — POST /api/applications/:id/fix-instructions', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  const someFinding = {
+    id: 'health-check',
+    category: 'health',
+    title: 'Deployment health check',
+    severity: 'required',
+    blocking: false,
+    plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+    whyItMatters: 'During every deployment, Deployz waits for your app to report healthy.',
+    technicalEvidence: 'No health endpoint or container health check was found.',
+    suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+    confidence: 'likely',
+  };
+
+  async function insertAnalyzedApplication(
+    overrides: Partial<typeof schema.applications.$inferInsert> = {},
+  ): Promise<typeof schema.applications.$inferSelect> {
+    return insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      detectedMetadata: {
+        readiness: {
+          state: 'ALMOST_READY',
+          requiredCount: 1,
+          recommendedCount: 0,
+          summary: 'Deployz found a few things to address before this app can be deployed reliably.',
+          findings: [someFinding],
+          passed: [],
+        },
+      },
+      ...overrides,
+    });
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'fix-instructions@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('200s with an instructions document containing the guardrail sentence, the repo name, and a generatedAt', async () => {
+    const application = await insertAnalyzedApplication();
+    const stubApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          return {
+            object: { perFinding: [{ id: 'health-check', guidance: 'Add a /health route.' }], generalNotes: [] },
+            usage: { promptTokens: 100, completionTokens: 50 },
+          };
+        },
+      },
+    });
+
+    const response = await postJson(
+      stubApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { instructions: string; generatedAt: string };
+    expect(body.instructions).toContain(
+      'Do not assume Deployz findings are correct. Inspect the repository first.',
+    );
+    expect(body.instructions).toContain(application.repoFullName);
+    expect(body.generatedAt).toEqual(expect.any(String));
+    expect(Number.isNaN(Date.parse(body.generatedAt))).toBe(false);
+
+    await stubApp.close();
+  });
+
+  it('409s ANALYSIS_NOT_COMPLETE when the analysis has not finished', async () => {
+    const application = await insertApplication(db, org.organizationId, { analysisStatus: 'ANALYZING' });
+    const stubApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('must not be called');
+        },
+      },
+    });
+
+    const response = await postJson(
+      stubApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('ANALYSIS_NOT_COMPLETE');
+
+    await stubApp.close();
+  });
+
+  it('409s NO_UNRESOLVED_FINDINGS when the analysis is COMPLETE with a READY report and no findings', async () => {
+    const application = await insertAnalyzedApplication({
+      compatibilityStatus: 'READY',
+      detectedMetadata: {
+        readiness: {
+          state: 'READY',
+          requiredCount: 0,
+          recommendedCount: 0,
+          summary: 'This app can be deployed through Deployz.',
+          findings: [],
+          passed: [{ id: 'dockerfile', label: 'Container setup found' }],
+        },
+      },
+    });
+    const stubApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('must not be called');
+        },
+      },
+    });
+
+    const response = await postJson(
+      stubApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NO_UNRESOLVED_FINDINGS');
+
+    await stubApp.close();
+  });
+
+  it('503s FIX_INSTRUCTIONS_UNAVAILABLE (retryable) when the AI gateway fails', async () => {
+    const application = await insertAnalyzedApplication();
+    const failingApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('gateway unreachable');
+        },
+      },
+    });
+
+    const response = await postJson(
+      failingApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(503);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('FIX_INSTRUCTIONS_UNAVAILABLE');
+
+    await failingApp.close();
+  });
+
+  it('never modifies the application row — readiness is identical before and after, on success and on failure', async () => {
+    const application = await insertAnalyzedApplication();
+    const readOnlyApp = await buildServer({ auth, db });
+
+    const readinessBefore = await readOnlyApp.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+
+    const succeedingApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          return {
+            object: { perFinding: [], generalNotes: [] },
+            usage: { promptTokens: 10, completionTokens: 5 },
+          };
+        },
+      },
+    });
+    const success = await postJson(
+      succeedingApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(success.statusCode).toBe(200);
+    await succeedingApp.close();
+
+    const failingApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('gateway unreachable');
+        },
+      },
+    });
+    const failure = await postJson(
+      failingApp,
+      `/api/applications/${application.id}/fix-instructions`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(failure.statusCode).toBe(503);
+    await failingApp.close();
+
+    const readinessAfter = await readOnlyApp.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(readinessAfter.json()).toEqual(readinessBefore.json());
+    await readOnlyApp.close();
   });
 });
 

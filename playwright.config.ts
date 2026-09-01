@@ -29,6 +29,9 @@ export default defineConfig({
         // Fixture mode: the GitHub routes serve the fixture org/repos so the
         // repo-selection E2E renders without a real GitHub App.
         GITHUB_FIXTURE_MODE: 'true',
+        // Fixture mode: a canned AI gateway so fix-instructions generation
+        // succeeds deterministically in E2E, without a live model.
+        AI_FIXTURE_MODE: 'true',
         // Fixture mode: DNS/HTTPS domain checks pass only for
         // *.deployz-fixture.test names, with no check throttle — lets the
         // custom-domain E2E drive the state machine without real DNS/network.

@@ -5,12 +5,12 @@ import { expect, test, type Page } from '@playwright/test';
 // 5) ships two purpose-built fixture repos alongside the existing
 // deployz-demo/express-api: `bullmq-worker` (fixture-repo-3) is otherwise
 // READY-shaped with a direct BullMQ dependency — a supported, high-confidence
-// Redis requirement that should analyse as ready with the "Redis — managed
-// automatically" ready-item, then carry a Redis cache through
-// resourcesCreated and the deployment's Infrastructure section.
+// Redis requirement that should analyse as ready with the "Redis detected —
+// provisioned automatically on install" passed check, then carry a Redis
+// cache through resourcesCreated and the deployment's Infrastructure section.
 // `legacy-redis` (fixture-repo-2) depends on Redis Stack modules
 // (@redis/json), which fall outside Deployz's managed Redis profile and must
-// still hard-reject with "This Redis setup is not supported" (§10). Mirrors
+// still hard-reject with "Cache setup not supported" (§10). Mirrors
 // the signUp/seed-via-page.request conventions of custom-domain.spec.ts and
 // the real-analyser conventions of readiness.spec.ts (no fabricated verdicts
 // — analysis runs for real against GITHUB_FIXTURE_MODE's fixture file trees).
@@ -124,7 +124,7 @@ async function driveDeploymentToHealthy(
   expect(resultResponse.ok()).toBeTruthy();
 }
 
-test('bullmq-worker: analyses as ready with the managed Redis ready-item, then carries a Redis cache through install + deployment detail', async ({
+test('bullmq-worker: analyses as ready with the managed Redis passed check, then carries a Redis cache through install + deployment detail', async ({
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -138,17 +138,23 @@ test('bullmq-worker: analyses as ready with the managed Redis ready-item, then c
     suffix,
   );
 
-  // ── 2. Readiness UI: the app is deployable, and the Redis ready-item is
-  // visible in the Ready group — never a fabricated verdict, this is the
-  // real §18/§19 analyser run against the fixture file tree.
+  // ── 2. Readiness UI: the app is deployable, and the Redis check is visible
+  // in the collapsed Passed checks group — never a fabricated verdict, this
+  // is the real §18/§19 analyser run against the fixture file tree.
   await page.goto(`/dashboard/applications/${applicationId}`);
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
-  await expect(page.getByText('Your app is ready to deploy.')).toBeVisible();
-  const readyList = page.getByTestId('readiness-ready-list');
-  // Copy per apps/api/src/analysis.ts's REDIS_READY_LABEL (verified against
-  // analysis.test.ts's own assertion of the same string).
+  await expect(page.getByText('Ready to deploy')).toBeVisible();
+  // bullmq usage with no resolved worker start script is a recommended
+  // finding ("Background job runner") — recommended findings never block
+  // READY (packages/analysis/src/readiness-report.ts).
+  await expect(page.getByTestId('readiness-summary')).toHaveText('1 recommendation');
+  // Passed checks are collapsed by default — open the <details> first.
+  const passedDetails = page.getByTestId('readiness-passed');
+  await passedDetails.locator('summary').click();
+  const passedList = page.getByTestId('readiness-passed-list');
+  // Copy per packages/analysis/src/readiness-report.ts's PASSED_LABELS.redis.
   await expect(
-    readyList.getByText('Redis detected — provisioned automatically on install', { exact: true }),
+    passedList.getByText('Redis detected — provisioned automatically on install', { exact: true }),
   ).toBeVisible();
 
   // ── 3. Create a customer + deployment for this application, then open the
@@ -171,7 +177,7 @@ test('bullmq-worker: analyses as ready with the managed Redis ready-item, then c
   await expect(infraSection.getByText('Redis', { exact: true })).toBeVisible();
 });
 
-test('legacy-redis: analyses as unsupported — "This Redis setup is not supported"', async ({
+test('legacy-redis: analyses as unsupported — "Cache setup not supported"', async ({
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -185,9 +191,11 @@ test('legacy-redis: analyses as unsupported — "This Redis setup is not support
 
   await page.goto(`/dashboard/applications/${applicationId}`);
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
-  await expect(page.getByText('Not currently compatible')).toBeVisible();
-  const unsupportedList = page.getByTestId('readiness-unsupported-list');
+  // The unsupported Redis setup is a blocking rejection, so the state is
+  // NEEDS_CHANGES (packages/analysis/src/readiness-report.ts's REDIS_COPY).
+  await expect(page.getByRole('heading', { name: 'Needs changes' })).toBeVisible();
+  const requiredList = page.getByTestId('readiness-required-list');
   await expect(
-    unsupportedList.getByText('This Redis setup is not supported', { exact: true }),
+    requiredList.getByText('Cache setup not supported', { exact: true }),
   ).toBeVisible();
 });

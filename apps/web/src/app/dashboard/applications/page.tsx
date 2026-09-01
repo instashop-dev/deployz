@@ -30,7 +30,7 @@ import {
 } from '@/lib/github';
 import { loadGithubState, type GithubState } from '@/lib/github-state';
 import { errorMessage } from '@/lib/api-client';
-import { VERDICT_PRESENTATION } from '@/lib/readiness';
+import { READINESS_STATE_PRESENTATION, readinessStateFromVerdict } from '@/lib/readiness';
 
 type AppsState =
   | { status: 'loading' }
@@ -267,7 +267,7 @@ function ApplicationRow({ application }: { application: Application }) {
 
 function applicationBadgeLabel(app: Application): string {
   if (app.compatibilityStatus) {
-    return VERDICT_PRESENTATION[app.compatibilityStatus].label;
+    return READINESS_STATE_PRESENTATION[readinessStateFromVerdict(app.compatibilityStatus)].label;
   }
   if (app.analysisStatus === 'FAILED') return 'Analysis failed';
   return 'Analysing';
