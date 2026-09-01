@@ -278,6 +278,29 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     controlPlaneUrl: apiUrl,
     installationId,
     enrollmentCode,
+    // Reported at enrollment and on every heartbeat, exactly like a real
+    // relay's `readRelayIdentity()` (packages/relay/src/identity.ts) — this
+    // harness has no Lambda invocation context to read an account id/region
+    // from, but the capabilities are what the control plane gates the
+    // vendor dashboard's day-2 action buttons on (deploy/rollback/restart/
+    // configUpdate/destroy), so leaving this out entirely (unlike every
+    // other real-relay composition point above) silently left every one of
+    // those buttons permanently disabled for a simulated install — this
+    // mirrors identity.ts's own `RELAY_CAPABILITIES` (all true: this harness
+    // runs the real executors for all four, so it genuinely can execute
+    // them) rather than importing it, since `@deployz/relay` does not
+    // publish an `./identity` subpath.
+    identity: {
+      relayVersion: '0.2.0',
+      capabilities: {
+        deployRelease: true,
+        rollback: true,
+        restart: true,
+        configUpdate: true,
+        destroy: true,
+        domainManagement: true,
+      },
+    },
     executors: {
       INSTALL: trackLatest(installExecutor),
       DEPLOY_RELEASE: trackLatest(deployExecutor),

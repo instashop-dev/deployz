@@ -12,7 +12,7 @@
  * `request` (APIRequestContext), never `page`.
  */
 
-import { test as base, type APIRequestContext } from '@playwright/test';
+import { test as base, type APIRequestContext, type Page } from '@playwright/test';
 
 import { startSimulatedRelay, type SimulatedRelayHandle } from './relay-harness.js';
 import { getScenario } from './scenarios/index.js';
@@ -174,6 +174,23 @@ async function seedAndLaunch(
   };
 }
 
+/**
+ * Browser-driven sign-up for the page-based fixture below — mirrors
+ * e2e/deployment-progress.spec.ts's and e2e/fleet.spec.ts's own `signUp(page)`
+ * helpers exactly (same fields/labels/flow), rather than the API-only
+ * `signUp` above, so the vendor's session cookie is the one the browser
+ * actually holds.
+ */
+async function signUpViaBrowser(page: Page, suffix: string): Promise<void> {
+  const email = `e2e-scenario-ui-${suffix}@example.com`;
+  await page.goto('/sign-up');
+  await page.getByLabel('Name').fill(`E2E Scenario UI Vendor ${suffix}`);
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Password').fill('super-secret-1');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.waitForURL('/dashboard');
+}
+
 export interface DeployzRelayOptions {
   /** See relay-harness.ts's `StartSimulatedRelayOptions.stopAfterFirstProgress`. */
   readonly stopAfterFirstProgress?: boolean;
@@ -192,6 +209,21 @@ export const test = base.extend<{
    *  instead of the default synthetic repo name — see `seedAndLaunch`. */
   deployzRepoFullName: string | undefined;
   deployzInstall: DeployzInstall;
+  /**
+   * Page-based variant of `deployzInstall` for e2e/scenario-ui.spec.ts (Phase
+   * E — browser-level UI coverage). Signs the vendor up through the real
+   * browser UI (`signUpViaBrowser`, mirroring deployment-progress.spec.ts's
+   * `signUp(page)`) instead of the raw API, then seeds the
+   * application/customer/deployment and performs launched+register via
+   * `page.request` rather than the bare `request` fixture — `seedAndLaunch`
+   * and `buildApi` above already take a plain `APIRequestContext`, which
+   * `page.request` also is, so no refactor was needed for them to accept it.
+   * Using `page.request` (not `request`) is what makes the seeding calls ride
+   * the SAME session cookie the browser holds, so the signed-up-in-the-browser
+   * org is the one that owns the seeded deployment. Purely additive: the
+   * request-based `deployzInstall` above is untouched.
+   */
+  deployzBrowserInstall: DeployzInstall;
 }>({
   // Playwright "option" fixture — settable per file/describe/test with
   // `test.use({ deployzScenario: '...' })`; defaults to the happy path.
@@ -232,6 +264,57 @@ export const test = base.extend<{
         enrollmentCode,
         relay,
         api: buildApi(request),
+      });
+    } finally {
+      relay?.stop();
+    }
+  },
+
+  deployzBrowserInstall: async (
+    { page, deployzScenario, deployzStartRelay, deployzRelayOptions, deployzRepoFullName },
+    use,
+  ) => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    await signUpViaBrowser(page, suffix);
+    const { deploymentId, installLinkId, enrollmentCode } = await seedAndLaunch(
+      page.request,
+      suffix,
+      deployzRepoFullName ? { repoFullName: deployzRepoFullName } : {},
+    );
+
+    // Warm the two routes every scenario-ui.spec.ts test hits (the customer
+    // install page and the vendor detail page — plus its diagnostics tab)
+    // BEFORE starting the timed simulated relay below: Next.js dev compiles
+    // each route lazily on first request, which can take several real
+    // seconds — long enough to blow through a scenario's whole timeline
+    // (e.g. slow-provision's ~3.5s DATABASE_STORAGE window) if that
+    // first-ever compile happened to land inside it. Doing it here, before
+    // the relay's clock starts, costs fixture setup time but never the
+    // scenario's own timing budget.
+    await page.goto(`/install/${installLinkId}`);
+    await page.goto(`/dashboard/deployments/${deploymentId}`);
+    await page.goto(`/dashboard/deployments/${deploymentId}/diagnostics`);
+
+    const installationId = `inst-${suffix}`;
+    const relay = deployzStartRelay
+      ? startSimulatedRelay({
+          scenario: getScenario(deployzScenario),
+          apiUrl: API_URL,
+          installationId,
+          enrollmentCode,
+          relayToken: `e2e-scenario-ui-relay-${suffix}`,
+          ...deployzRelayOptions,
+        })
+      : undefined;
+
+    try {
+      await use({
+        deploymentId,
+        installLinkId,
+        installationId,
+        enrollmentCode,
+        relay,
+        api: buildApi(page.request),
       });
     } finally {
       relay?.stop();
