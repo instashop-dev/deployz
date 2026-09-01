@@ -11,14 +11,17 @@ import {
   FAILURE_SEVERITY_BADGE as COPY_MAP_FAILURE_SEVERITY_BADGE,
   FAILURE_SEVERITY_DOT as COPY_MAP_FAILURE_SEVERITY_DOT,
   ONBOARDING_STEPS as COPY_MAP_ONBOARDING_STEPS,
+  READINESS_STATES,
+  READINESS_STATE_PRESENTATION as COPY_MAP_READINESS_STATE_PRESENTATION,
   SECRET_MASK,
-  VERDICT_PRESENTATION as COPY_MAP_VERDICT_PRESENTATION,
   JARGON_PATTERN,
   deploymentStateLabel as copyMapDeploymentStateLabel,
   eventFamily as copyMapEventFamily,
   eventResultLabel as copyMapEventResultLabel,
   eventTypeLabel as copyMapEventTypeLabel,
   failureCodeCopy as copyMapFailureCodeCopy,
+  readinessCountsLabel as copyMapReadinessCountsLabel,
+  readinessStateFromVerdict as copyMapReadinessStateFromVerdict,
 } from '@deployz/copy-map';
 
 import {
@@ -41,7 +44,9 @@ import {
 
 import {
   ONBOARDING_STEPS as WEB_ONBOARDING_STEPS,
-  VERDICT_PRESENTATION as WEB_VERDICT_PRESENTATION,
+  READINESS_STATE_PRESENTATION as WEB_READINESS_STATE_PRESENTATION,
+  readinessCountsLabel as webReadinessCountsLabel,
+  readinessStateFromVerdict as webReadinessStateFromVerdict,
 } from '../src/lib/readiness';
 
 // Parity test: the web-side vocabulary modules must match the canonical
@@ -172,14 +177,37 @@ describe('§61 failure code vocabulary parity (web ↔ copy-map)', () => {
   });
 });
 
-describe('§19 readiness verdict parity (web ↔ copy-map)', () => {
-  it('verdict presentations match per verdict', () => {
+describe('§19 readiness state parity (web ↔ copy-map)', () => {
+  it('state presentations match per state', () => {
+    for (const state of READINESS_STATES) {
+      const copyMapPres = COPY_MAP_READINESS_STATE_PRESENTATION[state];
+      const webPres = WEB_READINESS_STATE_PRESENTATION[state];
+      expect(webPres.heading, `heading for ${state}`).toBe(copyMapPres.heading);
+      expect(webPres.label, `label for ${state}`).toBe(copyMapPres.label);
+      expect(webPres.tone, `tone for ${state}`).toBe(copyMapPres.tone);
+    }
+  });
+
+  it('readinessStateFromVerdict functions match for every §19 verdict', () => {
     for (const verdict of COMPATIBILITY_VERDICTS) {
-      const copyMapPres = COPY_MAP_VERDICT_PRESENTATION[verdict];
-      const webPres = WEB_VERDICT_PRESENTATION[verdict];
-      expect(webPres.heading, `heading for ${verdict}`).toBe(copyMapPres.heading);
-      expect(webPres.label, `label for ${verdict}`).toBe(copyMapPres.label);
-      expect(webPres.tone, `tone for ${verdict}`).toBe(copyMapPres.tone);
+      expect(webReadinessStateFromVerdict(verdict)).toBe(copyMapReadinessStateFromVerdict(verdict));
+    }
+  });
+
+  it('readinessCountsLabel functions match for a spot-check of (required, recommended) pairs', () => {
+    const pairs: Array<[number, number]> = [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [2, 1],
+      [1, 1],
+      [3, 5],
+    ];
+    for (const [required, recommended] of pairs) {
+      expect(
+        webReadinessCountsLabel(required, recommended),
+        `counts label for (${required}, ${recommended})`,
+      ).toBe(copyMapReadinessCountsLabel(required, recommended));
     }
   });
 });
@@ -205,9 +233,9 @@ describe('§65 jargon-free parity', () => {
       expect(WEB_FAILURE_CODE_COPY[code].label).not.toMatch(JARGON_PATTERN);
       expect(WEB_FAILURE_CODE_COPY[code].description).not.toMatch(JARGON_PATTERN);
     }
-    for (const verdict of COMPATIBILITY_VERDICTS) {
-      expect(WEB_VERDICT_PRESENTATION[verdict].heading).not.toMatch(JARGON_PATTERN);
-      expect(WEB_VERDICT_PRESENTATION[verdict].label).not.toMatch(JARGON_PATTERN);
+    for (const state of READINESS_STATES) {
+      expect(WEB_READINESS_STATE_PRESENTATION[state].heading).not.toMatch(JARGON_PATTERN);
+      expect(WEB_READINESS_STATE_PRESENTATION[state].label).not.toMatch(JARGON_PATTERN);
     }
   });
 });

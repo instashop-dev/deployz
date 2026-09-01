@@ -89,7 +89,7 @@ export interface WorkerDeps {
       }[];
     }[]
   >;
-  readonly runAnalysis: (applicationId: string) => Promise<void>;
+  readonly runAnalysis: (applicationId: string, options?: { force?: boolean }) => Promise<void>;
 }
 
 // ── Seams ────────────────────────────────────────────────────────────────
@@ -392,7 +392,10 @@ export async function handleMessage(
 ): Promise<void> {
   switch (message.type) {
     case 'ANALYSE_APPLICATION':
-      await deps.runAnalysis(message.applicationId);
+      // `force` must survive the queue hop: the vendor's explicit Re-analyse
+      // bypasses the commit-SHA cache, and dropping it here silently turned
+      // that into a cache hit whenever the head commit had not moved.
+      await deps.runAnalysis(message.applicationId, { force: message.force === true });
       return;
     case 'BUILD_RELEASE':
       await buildRelease(deps, message.releaseId);
