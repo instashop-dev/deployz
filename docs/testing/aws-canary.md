@@ -16,10 +16,23 @@ possible real-AWS check: it only ever reads.
 
 A **persistent, verify-only** real installation, not a resource created for
 the test run. It stays deployed indefinitely and is reused by every canary
-run. The standing installation id is
-`c2dca2bb-a733-470d-8ef0-8e96bc889442` (provisioned 2026-08-27), overridable
-with `DEPLOYZ_E2E_CANARY_INSTALLATION_ID` (falls back to
-`DEPLOYZ_LIVE_INSTALLATION_ID`, then the standing id, in that order).
+run. The installation id comes from `DEPLOYZ_E2E_CANARY_INSTALLATION_ID`
+(falls back to `DEPLOYZ_LIVE_INSTALLATION_ID`, then the historical standing
+id `c2dca2bb-a733-470d-8ef0-8e96bc889442`, in that order).
+
+**State of the world (2026-09-02):** no standing installation currently
+exists — the 2026-08-27 installation behind the historical default id, and
+every other `deployz-app`/bootstrap stack in the test account, was torn down
+by later E2E sessions. Until a persistent canary environment is deliberately
+provisioned (an ongoing-cost decision — an always-on ALB + RDS + ECS
+service), canary runs need a **transient target**: synthesize the production
+application template with the published fixture image
+(`synthesizeApplicationStack` — see `packages/cdk/scripts/synth-app.mjs` and
+`publish-application.mjs` for the pattern), `CreateStack` it as `deployz-app`
+with a fresh `deployz:installation` tag plus `DeployzEnvironment=e2e` /
+`DeployzTestMode=canary` tags, run the canary with
+`DEPLOYZ_E2E_CANARY_INSTALLATION_ID=<that id>`, then delete the stack and the
+`RemovalPolicy.RETAIN`-ed RDS instance it leaves behind.
 
 **Never repurpose customer deployments as canary infrastructure.**
 
