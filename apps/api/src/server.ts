@@ -3980,7 +3980,12 @@ export async function buildServer({
       const eventRows = await db
         .select()
         .from(schema.deploymentStackEvents)
-        .where(eq(schema.deploymentStackEvents.jobId, job.id))
+        .where(
+          and(
+            eq(schema.deploymentStackEvents.deploymentId, deployment.id),
+            eq(schema.deploymentStackEvents.jobId, job.id),
+          ),
+        )
         .orderBy(schema.deploymentStackEvents.eventAt, schema.deploymentStackEvents.id);
       const storedEvents: StoredStackEvent[] = eventRows.map((row) => ({
         eventAt: row.eventAt,

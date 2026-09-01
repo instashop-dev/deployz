@@ -183,6 +183,54 @@ describe('POST /api/relay/commands/:id/progress', () => {
     expect(body.step).toBe('NETWORK');
   });
 
+  it('the snapshot fold is scoped to the current job: a stray row from another job on the same deployment is not summarized', async () => {
+    const { deployment, token, installationId, job, stackName } = await setupInstallJob();
+
+    // A row left behind by a different job (e.g. a prior attempt) on the
+    // same deployment — categorized "database", which would flip the
+    // status derivation below if it leaked into this job's fold.
+    const [otherJob] = await db
+      .insert(schema.deploymentJobs)
+      .values({ deploymentId: deployment.id, type: 'HEALTH_CHECK', idempotencyKey: crypto.randomUUID() })
+      .returning();
+    await db.insert(schema.deploymentStackEvents).values({
+      deploymentId: deployment.id,
+      jobId: otherJob!.id,
+      providerEventId: 'evt-other-job-db',
+      eventAt: new Date(),
+      logicalResourceId: 'Db',
+      resourceType: 'AWS::RDS::DBInstance',
+      resourceStatus: 'CREATE_COMPLETE',
+    });
+
+    const t0 = new Date();
+    const response = await postJson(
+      app,
+      `/api/relay/commands/${job.id}/progress`,
+      {
+        commandId: job.id,
+        installationId,
+        stackName,
+        events: [
+          {
+            eventId: 'evt-scoped-vpc',
+            timestamp: t0.toISOString(),
+            logicalResourceId: 'Vpc',
+            resourceType: 'AWS::EC2::VPC',
+            resourceStatus: 'CREATE_IN_PROGRESS',
+          },
+        ],
+      },
+      { authorization: `Bearer ${token}` },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
+    const body = status.json() as { stage: string; step: string };
+    expect(body.stage).toBe('PROVISIONING');
+    expect(body.step).toBe('NETWORK');
+  });
+
   it('a duplicate batch is idempotent: second POST accepts 0, row count stays 1 per event', async () => {
     const { installationId, token, job, stackName } = await setupInstallJob();
     const payload = {

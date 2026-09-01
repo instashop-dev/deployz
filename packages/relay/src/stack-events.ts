@@ -29,6 +29,9 @@ export interface StackEventsPage {
   readonly nextToken?: string;
 }
 
+/** CloudFormation reasons can run past this; truncate so one oversized reason cannot 400 a whole report batch. */
+const MAX_RESOURCE_STATUS_REASON_LENGTH = 2000;
+
 export interface StackEventsReader {
   // null on any error — readers never throw (repo convention).
   describeStackEventsPage(stackName: string, nextToken?: string): Promise<StackEventsPage | null>;
@@ -182,7 +185,12 @@ export function toStackEventsReader(client: { send(command: unknown): Promise<un
             resourceType: stackEvent.ResourceType ?? '',
             resourceStatus: stackEvent.ResourceStatus,
             ...(stackEvent.ResourceStatusReason !== undefined
-              ? { resourceStatusReason: stackEvent.ResourceStatusReason }
+              ? {
+                  resourceStatusReason: stackEvent.ResourceStatusReason.slice(
+                    0,
+                    MAX_RESOURCE_STATUS_REASON_LENGTH,
+                  ),
+                }
               : {}),
           });
         }

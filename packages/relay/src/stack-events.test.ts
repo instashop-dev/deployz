@@ -90,6 +90,27 @@ describe('toStackEventsReader', () => {
 
     await expect(toStackEventsReader({ send }).describeStackEventsPage('deployz-app')).resolves.toBeNull();
   });
+
+  it('truncates an over-long ResourceStatusReason to 2000 chars so one giant reason cannot wedge the whole batch', async () => {
+    const longReason = 'x'.repeat(2500);
+    const send = vi.fn().mockResolvedValue({
+      StackEvents: [
+        {
+          EventId: 'evt-1',
+          Timestamp: new Date('2026-08-30T10:00:00.000Z'),
+          LogicalResourceId: 'WebServerService',
+          ResourceType: 'AWS::ECS::Service',
+          ResourceStatus: 'CREATE_FAILED',
+          ResourceStatusReason: longReason,
+        },
+      ],
+    });
+
+    const page = await toStackEventsReader({ send }).describeStackEventsPage('deployz-app');
+
+    expect(page?.events[0]?.resourceStatusReason).toHaveLength(2000);
+    expect(page?.events[0]?.resourceStatusReason).toBe(longReason.slice(0, 2000));
+  });
 });
 
 const EARLY = '2020-01-01T00:00:00.000Z';
@@ -315,5 +336,39 @@ describe('createStackEventCollector', () => {
     expect(reports[2]).toHaveLength(20);
     expect(reports.flat()).toEqual(events);
     expect(collector.lastEventAt()).toBe(events[events.length - 1]!.timestamp);
+  });
+
+  it('a partial chunk failure keeps the reported chunk and re-reports only the unreported remainder on the next poll', async () => {
+    const total = 70;
+    const events = Array.from({ length: total }, (_, i) =>
+      event(`e${i}`, `2026-08-30T10:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`),
+    );
+    // Reader returns newest-first, and (via scriptedReader's clamping) keeps
+    // returning the same full page on every poll — mirroring how a real
+    // stack's DescribeStackEvents window looks unchanged until it advances.
+    const reader = scriptedReader([{ events: [...events].reverse() }]);
+    const report = vi
+      .fn<(events: readonly StackEventRecord[]) => Promise<boolean>>()
+      .mockResolvedValueOnce(true) // batch 1 (first 50) accepted
+      .mockResolvedValueOnce(false) // batch 2 (last 20) rejected
+      .mockResolvedValueOnce(true); // batch 2, retried on the next poll
+    const collector = createStackEventCollector({
+      reader,
+      report,
+      operationStartedAt: EARLY,
+    });
+
+    await collector.poll('deployz-app');
+
+    expect(report).toHaveBeenCalledTimes(2);
+    expect(report).toHaveBeenNthCalledWith(1, events.slice(0, 50));
+    expect(report).toHaveBeenNthCalledWith(2, events.slice(50, 70));
+    expect(collector.lastEventAt()).toBe(events[49]!.timestamp);
+
+    await collector.poll('deployz-app');
+
+    expect(report).toHaveBeenCalledTimes(3);
+    expect(report).toHaveBeenNthCalledWith(3, events.slice(50, 70));
+    expect(collector.lastEventAt()).toBe(events[69]!.timestamp);
   });
 });
