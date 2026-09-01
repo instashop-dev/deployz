@@ -211,7 +211,7 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
       const registry = new CleanupRegistry();
 
       await runWithTeardown(registry, async () => {
-        cdk(
+        await cdk(
           [
             'deploy',
             '--app',
@@ -232,7 +232,7 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
         // assertion below still tears it down via runWithTeardown's finally
         // — cleanup here never targets anything but this exact stack name.
         registry.register('cloudformation-stack', stackName, async () => {
-          cdk(['destroy', '--app', APP_CMD, '--output', outDir, '--force'], {
+          await cdk(['destroy', '--app', APP_CMD, '--output', outDir, '--force'], {
             [STACK_NAME_ENV]: stackName,
           });
           const gone = await waitForStackGone(aws.cloudFormation, stackName, REGION);
@@ -246,14 +246,16 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
 
         const fnArn = stack.outputs.find((o) => o.outputKey.endsWith('RelayFunctionArn'))?.outputValue;
         expect(fnArn).toBeTruthy();
-        const cfg = JSON.parse(awsCli(`lambda get-function-configuration --function-name ${fnArn}`));
+        const cfg = JSON.parse(
+          await awsCli(`lambda get-function-configuration --function-name ${fnArn}`),
+        );
         expect(cfg.State).toBe('Active');
         expect(cfg.LastUpdateStatus).toBe('Successful');
 
         const installId = stack.outputs.find((o) => o.outputKey.endsWith('InstallationId'))?.outputValue;
         expect(installId).toBeTruthy();
         const tagRes = JSON.parse(
-          awsCli(
+          await awsCli(
             `resourcegroupstaggingapi get-resources --tag-filters Key=deployz:installation,Values=${installId}`,
           ),
         );

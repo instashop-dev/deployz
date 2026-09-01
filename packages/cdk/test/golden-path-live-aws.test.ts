@@ -280,7 +280,7 @@ liveAws('§67 Phase 4 — live AWS bootstrap golden path', () => {
   const aws = createAwsClients();
 
   it('step 13: cdk deploy reaches CREATE_COMPLETE', async () => {
-    cdk(['deploy', '--app', APP_CMD, '--require-approval', 'never']);
+    await cdk(['deploy', '--app', APP_CMD, '--require-approval', 'never']);
     const stack = await aws.cloudFormation.describeStacks({ stackName: STACK_NAME, region: REGION });
     expect(stack.status).toBe('CREATE_COMPLETE');
     expect(stack.stackName).toBe(STACK_NAME);
@@ -291,7 +291,7 @@ liveAws('§67 Phase 4 — live AWS bootstrap golden path', () => {
     const fnArn = stack.outputs.find((o) => o.outputKey.endsWith('RelayFunctionArn'))?.outputValue;
     expect(fnArn).toBeTruthy();
 
-    const cfg = JSON.parse(awsCli(`lambda get-function-configuration --function-name ${fnArn}`));
+    const cfg = JSON.parse(await awsCli(`lambda get-function-configuration --function-name ${fnArn}`));
     expect(cfg.State).toBe('Active');
     expect(cfg.LastUpdateStatus).toBe('Successful');
     expect(cfg.Environment.Variables.DEPLOYZ_INSTALLATION_ID).toMatch(
@@ -305,7 +305,9 @@ liveAws('§67 Phase 4 — live AWS bootstrap golden path', () => {
     expect(installId).toBeTruthy();
 
     const res = JSON.parse(
-      awsCli(`resourcegroupstaggingapi get-resources --tag-filters Key=deployz:installation,Values=${installId}`),
+      await awsCli(
+        `resourcegroupstaggingapi get-resources --tag-filters Key=deployz:installation,Values=${installId}`,
+      ),
     );
     const arns = (res.ResourceTagMappingList ?? []).map((m: { ResourceARN: string }) => m.ResourceARN);
     expect(arns.length).toBeGreaterThanOrEqual(3);
@@ -315,7 +317,7 @@ liveAws('§67 Phase 4 — live AWS bootstrap golden path', () => {
   });
 
   it('teardown: cdk destroy removes the stack', async () => {
-    cdk(['destroy', '--app', APP_CMD, '--force']);
+    await cdk(['destroy', '--app', APP_CMD, '--force']);
     // describeStacks still resolves during DELETE_IN_PROGRESS; poll until
     // the stack is gone (CloudFormation returns ValidationError once
     // DELETE_COMPLETE resources are fully purged).

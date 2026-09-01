@@ -8,7 +8,7 @@
  *
  * Not a `.test.ts` file — vitest will not try to run it as a suite.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 export const REGION = process.env.AWS_REGION ?? 'us-east-1';
 
@@ -22,24 +22,39 @@ export const REGION = process.env.AWS_REGION ?? 'us-east-1';
 export const STANDING_INSTALLATION_ID = 'c2dca2bb-a733-470d-8ef0-8e96bc889442';
 
 /**
- * `shell: true` is required on Windows so spawnSync resolves the pnpm.cmd
- * shim. `extraEnv` is merged over `process.env` (not replacing it) — the
- * fresh suite uses this to set `DEPLOYZ_BOOTSTRAP_STACK_NAME` for one
- * invocation without mutating the real process environment.
+ * `shell: true` is required on Windows so spawn resolves the pnpm.cmd shim.
+ * `extraEnv` is merged over `process.env` (not replacing it) — the fresh
+ * suite uses this to set `DEPLOYZ_BOOTSTRAP_STACK_NAME` for one invocation
+ * without mutating the real process environment.
+ *
+ * Async on purpose: a multi-minute synchronous `spawnSync` (`cdk deploy`
+ * takes ~5 min) blocks the vitest worker's event loop, its RPC heartbeat to
+ * the main process starves, and the run dies with `write ECONNABORTED` /
+ * "Timeout calling onTaskUpdate" even though the AWS operation succeeded —
+ * observed on three consecutive fresh runs whose stacks all reached
+ * DELETE_COMPLETE.
  */
-export function run(cmd: string, extraEnv: Record<string, string> = {}): string {
-  const result = spawnSync(cmd, {
-    cwd: process.cwd(),
-    encoding: 'utf8',
-    timeout: 600_000,
-    shell: true,
-    env: { ...process.env, ...extraEnv },
+export function run(cmd: string, extraEnv: Record<string, string> = {}): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, {
+      cwd: process.cwd(),
+      timeout: 600_000,
+      shell: true,
+      env: { ...process.env, ...extraEnv },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')));
+    child.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf8')));
+    child.on('error', (err) => reject(new Error(`${cmd} failed to spawn: ${err.message}`)));
+    child.on('close', (status) => {
+      if (status !== 0) reject(new Error(`${cmd} exited ${status}\n${stderr}`));
+      else resolve(stdout);
+    });
   });
-  if (result.status !== 0) throw new Error(`${cmd} exited ${result.status}\n${result.stderr}`);
-  return result.stdout;
 }
 
-export function cdk(args: string[], extraEnv: Record<string, string> = {}): string {
+export function cdk(args: string[], extraEnv: Record<string, string> = {}): Promise<string> {
   // The --app value "tsx bin/bootstrap.ts" contains a space; under
   // shell:true it would split into two tokens. Quote it so CDK receives the
   // full string as one argument.
@@ -47,7 +62,7 @@ export function cdk(args: string[], extraEnv: Record<string, string> = {}): stri
   return run(`pnpm --filter @deployz/cdk exec cdk ${quoted}`, extraEnv);
 }
 
-export function awsCli(args: string, region: string = REGION): string {
+export function awsCli(args: string, region: string = REGION): Promise<string> {
   return run(`aws ${args} --region ${region} --output json`);
 }
 
