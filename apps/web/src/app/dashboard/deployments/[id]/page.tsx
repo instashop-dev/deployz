@@ -269,15 +269,27 @@ function DetailBody({
         )}
       </div>
 
-      {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED' ? (
+      {detail.state === 'DELETED' && detail.cleanupState !== 'COMPLETE' ? (
         <div className="flex flex-col gap-3">
           <Alert>
             <AlertTriangle aria-hidden />
-            <AlertTitle>Resources may remain in the customer AWS account</AlertTitle>
-            <AlertDescription>
-              AWS resources may still exist because the Deployz Relay was offline during
-              disconnect.
-            </AlertDescription>
+            {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED' ? (
+              <>
+                <AlertTitle>Resources may remain in the customer AWS account</AlertTitle>
+                <AlertDescription>
+                  AWS resources may still exist because the Deployz Relay was offline during
+                  disconnect.
+                </AlertDescription>
+              </>
+            ) : (
+              <>
+                <AlertTitle>Retained resources remain in the customer AWS account</AlertTitle>
+                <AlertDescription>
+                  The database, its credentials, the stored files and the Deployz connector stay
+                  until you purge them, and may continue to generate AWS charges.
+                </AlertDescription>
+              </>
+            )}
           </Alert>
           <PurgeRetainedResources
             deploymentId={detail.id}

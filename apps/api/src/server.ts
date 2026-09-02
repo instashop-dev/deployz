@@ -3320,14 +3320,16 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
 
-    if (
-      deployment.state !== 'DELETED' ||
-      (deployment.cleanupState !== 'SKIPPED_RELAY_OFFLINE' && deployment.cleanupState !== 'PURGE_FAILED')
-    ) {
+    // Purge is the second step of every removal, not only the force-complete
+    // escape hatch: a normal Disconnect retains the database, its credential
+    // secrets, the stored files and the relay stack (docs/deployment-resilience.md),
+    // so a DELETED deployment stays purgeable until a purge has COMPLETEd
+    // (CANARY-013).
+    if (deployment.state !== 'DELETED' || deployment.cleanupState === 'COMPLETE') {
       throw new ApiError(
         409,
         'NOT_PURGE_ELIGIBLE',
-        'Only a disconnected deployment with retained resources can be purged.',
+        'Only a disconnected deployment whose retained resources have not been purged can be purged.',
       );
     }
     // One mutating operation per deployment: a purge already in flight must
