@@ -1125,4 +1125,25 @@ describe('GET /api/deployments/:id appUrl', () => {
     });
     expect(await getAppUrl(deployment.id)).toBe('http://alb.us-east-1.elb.amazonaws.com');
   });
+
+  it('hides the stale ALB endpoint once the domain is CONFIGURING (redirect is live)', async () => {
+    // CONFIGURE_DOMAIN sets the ALB's port-80 redirect once the certificate
+    // is issued — the ALB endpoint no longer serves the app, so presenting it
+    // would be stale. The pending custom-domain URL is the only honest address.
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    const hostname = `configuring-${crypto.randomUUID().slice(0, 8)}.customer.com`;
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname,
+      status: 'CONFIGURING',
+      createdBy: org.userId,
+    });
+    expect(await getAppUrl(deployment.id)).toBe(`https://${hostname}`);
+  });
 });

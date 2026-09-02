@@ -71,7 +71,7 @@ describe('toPendingStore', () => {
     const input = (send.mock.calls[0]![0] as { input: Record<string, unknown> }).input;
     expect(input).toMatchObject({
       Name: '/deployz/inst-1/pending-command',
-      Type: 'String',
+      Type: 'SecureString',
       Overwrite: true,
       Value: JSON.stringify(PENDING),
     });

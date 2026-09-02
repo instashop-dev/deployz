@@ -25,8 +25,15 @@ export type QueueMessage =
   | {
       readonly type: 'CONFIG_UPDATE';
       readonly customerId: string;
-      /** Keys whose values changed — NEVER the values themselves. */
+      /** Keys whose values changed — never the values themselves. */
       readonly changedKeys?: readonly string[] | undefined;
+      /**
+       * Secret values entered in this save. Transient transport ONLY: the
+       * relay persists them into the customer's Secrets Manager; the durable
+       * job payload is scrubbed of them at claim time (server.ts) and the
+       * control-plane DB never stores them.
+       */
+      readonly secrets?: readonly { key: string; value: string }[] | undefined;
       /** Keys to delete from the customer's secret store. */
       readonly removedKeys?: readonly string[] | undefined;
     };

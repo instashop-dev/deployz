@@ -179,12 +179,25 @@ export function InstallProgress({
               Access
             </h2>
             {status.url ? (
-              <p className="text-sm">
-                Your deployment is available at{' '}
-                <a className="font-medium underline underline-offset-4" href={status.url}>
-                  {status.url}
-                </a>
-              </p>
+              status.url.startsWith('https://') ? (
+                <p className="text-sm">
+                  Your deployment is available securely at{' '}
+                  <a className="font-medium underline underline-offset-4" href={status.url}>
+                    {status.url}
+                  </a>
+                </p>
+              ) : (
+                // A bare ALB endpoint serves over plain HTTP — reachable, but
+                // temporary and explicitly not secure. Never label it otherwise.
+                <p className="text-sm">
+                  Your deployment is temporarily available at{' '}
+                  <a className="font-medium underline underline-offset-4" href={status.url}>
+                    {status.url}
+                  </a>
+                  {' '}
+                  — not secure, and this address may change.
+                </p>
+              )
             ) : (
               <p className="text-sm text-muted-foreground">
                 {routingTarget

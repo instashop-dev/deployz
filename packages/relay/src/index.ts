@@ -70,6 +70,7 @@ import {
 } from './purge.js';
 import {
   createConfigUpdateExecutor,
+  createRealConfigSecretsWriter,
   type EffectiveConfigEntry,
 } from './config-update.js';
 import {
@@ -1416,6 +1417,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
     const configExecutor = createConfigUpdateExecutor({
       cfn: getCloudFormationReader(),
       ecs: getEcsDeployClient(),
+      secrets: createRealConfigSecretsWriter(),
       fetchEffectiveConfig: async () => {
         const headers = buildAuthHeaders(state);
         const response = await deps.fetchFn(

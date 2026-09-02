@@ -36,6 +36,10 @@
       "types": "./dist/jobs.d.ts",
       "import": "./dist/jobs.js"
     },
+    "./ecr-grants": {
+      "types": "./dist/ecr-grants.d.ts",
+      "import": "./dist/ecr-grants.js"
+    },
     "./events": {
       "types": "./dist/events.d.ts",
       "import": "./dist/events.js"
@@ -51,6 +55,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-ecr": "^3.1115.0",
     "@aws-sdk/client-ses": "^3.1115.0",
     "@aws-sdk/client-sqs": "^3.1115.0",
     "@deployz/analysis": "workspace:*",
@@ -68,7 +73,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@aws-sdk/client-ecr": "^3.1115.0",
     "@electric-sql/pglite": "^0.5.5",
     "tsx": "^4.19.0"
   }

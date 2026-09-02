@@ -190,7 +190,7 @@ describe('deriveDeploymentStatus — the seven spec scenarios', () => {
     expect(status.result).toEqual({ url: 'https://app.example.com' });
   });
 
-  it('healthy + http-only → VERIFYING + needsDomainSetup', () => {
+  it('healthy + http-only → VERIFYING + needsDomainSetup, with the temporary HTTP address exposed', () => {
     const status = derive({
       deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
       jobs: [makeJob({ state: 'SUCCEEDED' })],
@@ -200,6 +200,20 @@ describe('deriveDeploymentStatus — the seven spec scenarios', () => {
     expect(status.stage).toBe('VERIFYING');
     expect(status.needsDomainSetup).toBe(true);
     expect(status.currentActivity).toBe('Waiting for secure domain setup.');
+    // Run-time health confirmed the app is reachable over HTTP — the
+    // temporary ALB address is real and must be shown, never "no address".
+    expect(status.result).toEqual({ url: 'http://alb-123.us-east-1.elb.amazonaws.com' });
+  });
+
+  it('an HTTP appUrl is NOT exposed while health is still unverified', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'UNKNOWN' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      appUrl: 'http://alb-123.us-east-1.elb.amazonaws.com',
+      domain: null,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.needsDomainSetup).toBe(false);
     expect(status.result).toBeNull();
   });
 
@@ -273,6 +287,30 @@ describe('CloudFormation-complete-but-unverified', () => {
       domain: makeDomain(),
     });
     expect(status.stage).toBe('VERIFYING');
+  });
+
+  it('a successful INSTALL that left the persisted state INSTALLING derives VERIFYING the same way (runtime verification is the gate)', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'INSTALLING', healthStatus: 'UNKNOWN', currentReleaseId: null }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      appUrl: 'http://alb.example.com',
+      domain: null,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    // App not confirmed reachable yet — no address is displayed.
+    expect(status.result).toBeNull();
+  });
+
+  it('the same INSTALLING persisted state with confirmed health exposes the http address but stays VERIFYING (no https)', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'INSTALLING', healthStatus: 'HEALTHY', currentReleaseId: null }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      appUrl: 'http://alb.example.com',
+      domain: null,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.needsDomainSetup).toBe(true);
+    expect(toCustomerDeploymentStatus(status).url).toBe('http://alb.example.com');
   });
 
   it('a SUCCESS (legacy) INSTALL job counts as installed the same as SUCCEEDED', () => {

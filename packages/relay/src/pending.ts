@@ -10,11 +10,11 @@
  * therefore keeps the one fact it needs to finish the job later — which
  * command it owes an answer to — somewhere that outlives the container.
  *
- * SSM Parameter Store, rather than a second secret: there is no value here
- * worth protecting (a job id and a stack name, both of which the control
- * plane already knows), no resource to create in the bootstrap template, and
- * the parameter name carries the installation id, so IAM scopes it by ARN
- * without needing a tag condition.
+ * SSM Parameter Store, rather than a second Secret: there is no extra
+ * resource to create in the bootstrap template, and the parameter name
+ * carries the installation id, so IAM scopes it by ARN without needing a
+ * tag condition. The value can carry install-time secret parameter values
+ * (an INSTALL payload), so it is written as a SecureString parameter.
  *
  * Nothing here throws. A store that cannot be read reports "nothing
  * pending"; a write or clear that fails says so in its return value, so the
@@ -122,7 +122,10 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
         await client.send(
           new PutParameterCommand({
             Name: parameterName,
-            Type: 'String',
+            // SecureString: the pending payload can carry install-time
+            // secret parameter values; the marker itself is never worth
+            // forfeiting if the parameter leaks out of the account's SSM.
+            Type: 'SecureString',
             Value: JSON.stringify(pending),
             Overwrite: true,
           }),

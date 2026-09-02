@@ -188,22 +188,19 @@ test.describe('healthcheck-failure', () => {
     test.setTimeout(30_000);
     const { deploymentId, api } = deployzInstall;
 
-    // The REAL, observed production behaviour (not forced): CloudFormation
-    // reports the stack complete and verifyInstallation independently
-    // confirms every required resource is present, so the INSTALL job
-    // succeeds and deployment.state reaches HEALTHY — lifecycle state and
-    // runtime health are two separate signals
-    // (docs/testing/discovery/deployment-lifecycle.md §7). The separately
-    // reported runtime healthStatus below is UNHEALTHY because every ALB
-    // target fails its health check, which the customer-facing ladder in
-    // apps/api/src/deployment-status.ts reflects by holding at VERIFYING
-    // ("Running health checks.") — never FAILED and never READY.
+    // CloudFormation reports the stack complete and verifyInstallation
+    // independently confirms every required resource is present, so the
+    // INSTALL job succeeds. After Phase 1.3 the persisted lifecycle state
+    // stays INSTALLING until the relay's runtime health heartbeat reports
+    // HEALTHY. In this scenario every ALB target fails its health check, so
+    // healthStatus becomes UNHEALTHY while the customer-facing ladder holds
+    // at VERIFYING ("Running health checks.") — never FAILED and never READY.
     await expect
-      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+      .poll(async () => (await api.getDeployment(deploymentId)).deploymentStatus.stage, {
         timeout: 15_000,
-        message: 'waiting for deployment.state to reach HEALTHY',
+        message: 'waiting for install to complete and runtime verification to begin',
       })
-      .toBe('HEALTHY');
+      .toBe('VERIFYING');
 
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).healthStatus, {
@@ -213,7 +210,7 @@ test.describe('healthcheck-failure', () => {
       .toBe('UNHEALTHY');
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(deployment.state).toBe('HEALTHY');
+    expect(deployment.state).toBe('INSTALLING');
     expect(deployment.deploymentStatus.stage).toBe('VERIFYING');
     expect(deployment.deploymentStatus.step).toBe('HEALTH_CHECK');
     expect(deployment.deploymentStatus.failure).toBeNull();

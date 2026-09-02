@@ -726,6 +726,8 @@ describe('pollOnce — identity reporting', () => {
         desiredCount: 2,
         runningCount: 2,
         unhealthyTargetCount: 1,
+        pendingTargetCount: 0,
+        unknownTargetCount: 0,
         deploymentRolloutState: 'COMPLETED',
       }),
     });
@@ -744,6 +746,8 @@ describe('pollOnce — identity reporting', () => {
     expect(body.components).toEqual({ application: 'HEALTHY', loadBalancer: 'DEGRADED' });
     expect(body.observedState?.['desiredCount']).toBe(2);
     expect(body.observedState?.['unhealthyTargetCount']).toBe(1);
+    expect(body.observedState?.['pendingTargetCount']).toBe(0);
+    expect(body.observedState?.['unknownTargetCount']).toBe(0);
     expect(body.observedState?.['deploymentRolloutState']).toBe('COMPLETED');
   });
 });

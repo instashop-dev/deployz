@@ -233,7 +233,10 @@ describe('worker handler', () => {
     const message = {
       type: 'CONFIG_UPDATE' as const,
       customerId,
-      changedKeys: ['API_KEY'],
+      changedKeys: ['API_KEY', 'DATABASE_URL'],
+      // Newly-entered secret values ride the job payload transiently so the
+      // relay can persist them into the customer's Secrets Manager.
+      secrets: [{ key: 'DATABASE_URL', value: 'postgres://relay-transport-only' }],
     };
     await handleMessage(deps(), message, 'msg-4');
     // A redelivery of the same message must not create a second job.
@@ -245,9 +248,13 @@ describe('worker handler', () => {
       .where(eq(schema.deploymentJobs.deploymentId, deployment!.id));
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.type).toBe('CONFIG_UPDATE');
-    // The durable payload carries keys only — a plaintext secret value must
-    // never persist in the control plane.
-    expect(jobs[0]?.payload).toEqual({ changedKeys: ['API_KEY'] });
+    // The durable payload carries the transport values exactly once here;
+    // `GET /api/relay/commands` serves them to the relay and scrubs the
+    // stored row in the same request (see `redactClaimedPayload`).
+    expect(jobs[0]?.payload).toEqual({
+      changedKeys: ['API_KEY', 'DATABASE_URL'],
+      secrets: [{ key: 'DATABASE_URL', value: 'postgres://relay-transport-only' }],
+    });
   });
 
   function buildEvent(
