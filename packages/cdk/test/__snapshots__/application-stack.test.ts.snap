@@ -86,6 +86,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
       },
       "Type": "AWS::SecretsManager::Secret",
@@ -99,6 +107,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
       },
@@ -127,6 +143,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
         "VersioningConfiguration": {
@@ -190,6 +214,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
       },
       "Type": "AWS::ECS::Cluster",
@@ -232,6 +264,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
         "VPCSecurityGroups": [
           {
@@ -259,6 +299,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
       },
@@ -294,6 +342,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
       },
       "Type": "AWS::RDS::DBSubnetGroup",
@@ -327,6 +383,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
         "VpcId": {
@@ -371,6 +435,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
         "Type": "application",
       },
@@ -396,6 +468,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
       },
       "Type": "AWS::ElasticLoadBalancingV2::Listener",
@@ -411,6 +491,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
         "TargetGroupAttributes": [
@@ -449,6 +537,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
         "VpcId": {
@@ -544,6 +640,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
         "TaskDefinition": {
           "Ref": "TaskDefinitionB36D86D9",
@@ -569,6 +673,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
         "VpcId": {
@@ -753,6 +865,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
         "TaskRoleArn": {
           "Fn::GetAtt": [
@@ -797,6 +917,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
       },
@@ -871,6 +999,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
       },
@@ -1025,6 +1161,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Key": "deployz:component",
             "Value": "application",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
         "Threshold": 1,
         "TreatMissingData": "notBreaching",
@@ -1043,6 +1187,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Value": "application",
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+          {
             "Key": "Name",
             "Value": "ApplicationTest/Vpc",
           },
@@ -1056,6 +1208,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
           {
             "Key": "Name",
@@ -1096,6 +1256,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Value": "application",
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+          {
             "Key": "Name",
             "Value": "ApplicationTest/Vpc/PrivateSubnet1",
           },
@@ -1132,6 +1300,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Value": "application",
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+          {
             "Key": "Name",
             "Value": "ApplicationTest/Vpc/PrivateSubnet1",
           },
@@ -1160,6 +1336,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
           {
             "Key": "Name",
@@ -1209,6 +1393,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Value": "application",
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+          {
             "Key": "Name",
             "Value": "ApplicationTest/Vpc/PrivateSubnet2",
           },
@@ -1243,6 +1435,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Value": "application",
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+          {
             "Key": "Name",
             "Value": "ApplicationTest/Vpc/PublicSubnet1",
           },
@@ -1271,6 +1471,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Value": "application",
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+          {
             "Key": "Name",
             "Value": "ApplicationTest/Vpc/PublicSubnet1",
           },
@@ -1284,6 +1492,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
           {
             "Key": "Name",
@@ -1333,6 +1549,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Value": "application",
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+          {
             "Key": "Name",
             "Value": "ApplicationTest/Vpc/PublicSubnet1",
           },
@@ -1364,6 +1588,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
           {
             "Key": "Name",
@@ -1411,6 +1643,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           {
             "Key": "deployz:component",
             "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
           {
             "Key": "Name",

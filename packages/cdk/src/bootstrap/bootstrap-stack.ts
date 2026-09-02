@@ -1161,6 +1161,8 @@ export class BootstrapStack extends Stack {
     // resource, including the install-id custom-resource Lambda/role that
     // mint the identifier.
     Tags.of(this).add('deployz:component', 'bootstrap');
+    Tags.of(this).add('deployz:managed', 'true');
+    Tags.of(this).add('deployz:scope', 'customer');
 
     // deployz:installation is a deploy-time token (Fn::GetAtt on the minted
     // id). It is applied to the DOWNSTREAM resources that consume the id. The
@@ -1174,6 +1176,9 @@ export class BootstrapStack extends Stack {
       relaySchedule,
     ]) {
       Tags.of(target).add('deployz:installation', this.installationId);
+      if (props.applicationId !== undefined) {
+        Tags.of(target).add('deployz:application-id', props.applicationId);
+      }
     }
 
     if (props.applicationId !== undefined) {

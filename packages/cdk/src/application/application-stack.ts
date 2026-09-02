@@ -1117,6 +1117,8 @@ const dbEnv =
     // applied the same way, in-construct, from the corresponding optional
     // props — §15 requires all three for predictable resource identification.
     Tags.of(this).add('deployz:component', 'application');
+    Tags.of(this).add('deployz:managed', 'true');
+    Tags.of(this).add('deployz:scope', 'customer');
 
     if (props.applicationId !== undefined) {
       for (const c of [
@@ -1201,6 +1203,9 @@ const dbEnv =
       ]) {
         if (c !== undefined) {
           Tags.of(c).add('deployz:installation', props.installationId);
+          if (props.applicationId !== undefined) {
+            Tags.of(c).add('deployz:application-id', props.applicationId);
+          }
         }
       }
     }
