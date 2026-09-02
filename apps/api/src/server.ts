@@ -163,8 +163,14 @@ import {
   toCustomerDeploymentStatus,
   toVendorDeploymentStatus,
 } from './deployment-status.js';
+import {
+  albEndpointFromResult,
+  resolveAppUrl,
+  toFleetRow,
+  type DeploymentJobRow,
+  type DeploymentRow,
+} from './fleet-row.js';
 import { advanceStepTimings } from './step-timings.js';
-import { deriveHealthStatus } from './relay-liveness.js';
 import {
   hashRelayToken,
   mintEnrollmentCode,
@@ -173,6 +179,8 @@ import {
 } from './relay-store.js';
 import { summarizeStackEvents, type StoredStackEvent } from './stack-event-progress.js';
 import { createRequireAuth, requireRole, type OrganizationRow } from './require-auth.js';
+import { createRequireTeamAdmin, isTeamAdmin } from './admin/auth.js';
+import { registerAdminRoutes } from './admin/routes.js';
 
 export interface ServerDeps {
   auth: Auth;
@@ -212,6 +220,10 @@ export interface ServerDeps {
   // Defaults to env.domainFixtureMode's real-vs-fixture split; tests inject a
   // fake so no real DNS lookup or HTTPS probe ever leaves the machine.
   domainCheckDeps?: DomainCheckDeps | undefined;
+  // Injectable Team Admin identity (docs/admin/team-admin.md). Defaults to
+  // env; tests override to enable env-grants without a Lambda-shaped env.
+  teamAdminEmails?: string[] | undefined;
+  teamAdminEnvGrantsEnabled?: boolean | undefined;
   // Injectable ECR repository-policy seam for the Phase 1.1 install-grant /
   // destroy-revoke lifecycle. Defaults to the real SDK client; tests inject a
   // recorder so no ECR call ever leaves the machine.
@@ -363,10 +375,8 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
 // resource exists at all must not leak to a caller who cannot see it.
 
 type ApplicationRow = typeof schema.applications.$inferSelect;
-type DeploymentRow = typeof schema.deployments.$inferSelect;
 type CustomerRow = typeof schema.customers.$inferSelect;
 type JobType = (typeof schema.deploymentJobs.$inferSelect)['type'];
-type DeploymentJobRow = typeof schema.deploymentJobs.$inferSelect;
 
 async function loadOwnedApplication(
   db: RuntimeDb,
@@ -601,58 +611,9 @@ async function retryAwareIdempotencyKey(
   return newest?.state === 'FAILED' ? `${baseKey}:RETRY:${attempts.length}` : baseKey;
 }
 
-// §24 AWS accounts are shown, never in full — the control plane still stores
-// the real id, but nothing outside it should ever see more than a hint of it.
-function maskAwsAccountId(awsAccountId: string | null): string | null {
-  if (!awsAccountId) return null;
-  if (awsAccountId.length <= 4) return '•'.repeat(awsAccountId.length);
-  return `${awsAccountId.slice(0, 4)}${'•'.repeat(awsAccountId.length - 4)}`;
-}
-
-  // §23/§24 fleet row shape: the raw deployments row plus the display fields
-  // the UI needs (customer/application name, current version) that only exist
-  // via a join.
-  function toFleetRow(row: {
-    deployment: DeploymentRow;
-    customerName: string;
-    applicationName: string;
-    version: string | null;
-    /** Whether the application requires a managed database. */
-    databaseRequired?: boolean | null;
-    /** Whether the application requires object storage. */
-    storageRequired?: boolean | null;
-    /** Whether the application requires a managed Redis cache. */
-    redisRequired?: boolean | null;
-  }) {
-    // §28 liveness is the persisted column: the heartbeat writes CONNECTED,
-    // the worker's scheduled sweep writes DISCONNECTED — every screen that
-    // renders a deployment reads the same value with no per-read derivation
-    // that could disagree with what the sweep last persisted.
-    const relayStatus = row.deployment.relayStatus;
-  // §24 per-component state, merged from the relay's heartbeat and
-  // verification checks — shared with the deployment-status stage
-  // derivation (apps/api/src/deployment-status.ts) so the two can never
-  // disagree about a component's merged state.
-  const componentView = mergeComponentState(row.deployment.observedState, row);
-  // Relay enrollment material never crosses into a dashboard response: the
-  // enrollment code re-opens enrollment and the token hash is a credential.
-  const { enrollmentCode: _enrollmentCode, relayTokenHash: _relayTokenHash, ...deployment } = row.deployment;
-  return {
-    ...deployment,
-    awsAccountId: maskAwsAccountId(row.deployment.awsAccountId),
-    relayStatus,
-    healthStatus: deriveHealthStatus(row.deployment.healthStatus, relayStatus),
-    components: componentView,
-    // The digest the relay last observed running in ECS, raw. Null when the
-    // relay could not observe it — never a guess from the release pointer.
-    runningImageDigest:
-      (row.deployment.observedState as { runningImageDigest?: string | null } | null)
-        ?.runningImageDigest ?? null,
-    customerName: row.customerName,
-    applicationName: row.applicationName,
-    version: row.version,
-  };
-}
+// maskAwsAccountId/toFleetRow live in ./fleet-row.js — shared with Team
+// Admin's cross-tenant deployment queries (apps/api/src/admin/queries.ts)
+// without admin code importing this file (which registers admin routes).
 
 
 // §19 semantic readiness derivation. Analyses persist the full semantic
@@ -872,44 +833,7 @@ async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise
   return installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
 }
 
-/** The hostname a completed INSTALL job's CDK output reports the ALB at. */
-function albEndpointFromResult(result: DeploymentJobRow['result']): string | null {
-  if (!result || typeof result !== 'object') return null;
-  const output = (result as Record<string, unknown>).output;
-  if (!output || typeof output !== 'object') return null;
-  const outputs = (output as Record<string, unknown>).outputs;
-  if (!outputs || typeof outputs !== 'object') return null;
-  // The output key is CDK-generated from the application stack's construct
-  // name (`Export<StackName>PublicEndpoint`), so a stack rename renames it —
-  // as the Redis stack already did. Match the stable suffix instead of one
-  // literal name.
-  const key = Object.keys(outputs).find((k) => k.endsWith('PublicEndpoint'));
-  const endpoint = key === undefined ? undefined : (outputs as Record<string, unknown>)[key];
-  return typeof endpoint === 'string' && endpoint.length > 0 ? endpoint : null;
-}
-
-/**
- * The deployment-detail page's first-class application URL. An active custom
- * domain always wins; once the relay starts CONFIGURING it (DNS verified,
- * certificate issued, ALB port-80 redirect live), the ALB endpoint no longer
- * serves the app, so the pending domain URL replaces it and the stale ALB
- * endpoint stays hidden; otherwise the latest successful INSTALL job's ALB
- * endpoint; otherwise null. `jobs` must be ascending by createdAt.
- */
-function resolveAppUrl(
-  jobs: DeploymentJobRow[],
-  domain: Pick<CustomDomainRow, 'hostname' | 'status'> | null,
-): string | null {
-  if (domain?.status === 'ACTIVE' || domain?.status === 'CONFIGURING') {
-    return `https://${domain.hostname}`;
-  }
-  const installs = jobs.filter(
-    (j) => j.type === 'INSTALL' && (j.state === 'SUCCEEDED' || j.state === 'SUCCESS'),
-  );
-  const endpoint = albEndpointFromResult(installs[installs.length - 1]?.result ?? null);
-  if (!endpoint) return null;
-  return endpoint.startsWith('http://') || endpoint.startsWith('https://') ? endpoint : `http://${endpoint}`;
-}
+// resolveAppUrl now lives in ./fleet-row.js, alongside toFleetRow.
 
 /** The health path the application template checks by default. */
 const DEFAULT_HEALTH_PATH = '/health';
@@ -1130,6 +1054,8 @@ export async function buildServer({
   githubAppPrivateKey: injectedGithubAppPrivateKey,
   aiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.aiGateway),
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
+  teamAdminEmails = env.teamAdminEmails,
+  teamAdminEnvGrantsEnabled = env.teamAdminEnvGrantsEnabled,
   loggerInstance,
 }: ServerDeps): Promise<FastifyInstance> {
   // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
@@ -1279,7 +1205,17 @@ export async function buildServer({
     return reply.code(200).send({ received: true, handled });
   });
 
-  const requireAuth = createRequireAuth({ auth, db });
+  const requireAuth = createRequireAuth({
+    auth,
+    db,
+    teamAdminEmails,
+    envGrantsEnabled: teamAdminEnvGrantsEnabled,
+  });
+  const requireTeamAdmin = createRequireTeamAdmin({
+    requireAuth,
+    teamAdminEmails,
+    envGrantsEnabled: teamAdminEnvGrantsEnabled,
+  });
 
   const organizationDeps: OrganizationDeps = {
     db,
@@ -1292,7 +1228,23 @@ export async function buildServer({
     organization: request.organization ?? null,
     role: request.member?.role ?? null,
     organizations: request.user ? await listOrganizations(db, request.user.id) : [],
+    isTeamAdmin: request.user
+      ? isTeamAdmin(request.user, teamAdminEmails, teamAdminEnvGrantsEnabled)
+      : false,
+    supportMode:
+      request.supportMode && request.organization
+        ? { organizationId: request.organization.id, organizationName: request.organization.name }
+        : null,
   }));
+
+  registerAdminRoutes(app, {
+    db,
+    requireTeamAdmin,
+    performRetryInstall,
+    performRollback,
+    performForceCompleteDestroy,
+    performRelayReset,
+  });
 
   // ── Organizations ───────────────────────────────────────────────
 
@@ -3009,21 +2961,24 @@ export async function buildServer({
     return { results };
   });
 
-  // POST /api/deployments/:id/rollback — Trigger (or reuse) a ROLLBACK job
-  app.post('/api/deployments/:id/rollback', { preHandler: requireAuth }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const organizationId = requireSessionOrganizationId(request);
-    const deployment = await loadOwnedDeployment(db, id, organizationId);
-    const body = rollbackBodySchema.parse(request.body);
+  // Trigger (or reuse) a ROLLBACK job for an already-loaded, already-owned
+  // deployment. Shared by the vendor rollback route and the admin recovery
+  // action — never mutate state independently of this.
+  async function performRollback(
+    deployment: DeploymentRow,
+    actorId: string | null,
+    releaseId: string,
+    idempotencyKeyHeader: string | undefined,
+  ): Promise<{ job: DeploymentJobRow; created: boolean }> {
     await requireDeployableState(db, deployment);
-    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
+    const payload = await requireDeployableRelease(db, releaseId, deployment.applicationId);
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ??
+      idempotencyKeyHeader ??
       (await retryAwareIdempotencyKey(
         db,
         deployment.id,
         'ROLLBACK',
-        `${deployment.id}:ROLLBACK:${body.releaseId}`,
+        `${deployment.id}:ROLLBACK:${releaseId}`,
       ));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
@@ -3031,7 +2986,7 @@ export async function buildServer({
       type: 'ROLLBACK',
       idempotencyKey,
       payload,
-      requestedBy: request.user?.id ?? null,
+      requestedBy: actorId,
     });
     if (created) {
       await markJobRequested({
@@ -3039,10 +2994,25 @@ export async function buildServer({
         jobId: job.id,
         inFlightState: BULK_DEPLOYABLE_STATES.has(deployment.state) ? 'UPDATING' : null,
         eventType: 'rollback.requested',
-        actorId: request.user?.id ?? null,
-        releaseId: body.releaseId,
+        actorId,
+        releaseId,
       });
     }
+    return { job, created };
+  }
+
+  // POST /api/deployments/:id/rollback — Trigger (or reuse) a ROLLBACK job
+  app.post('/api/deployments/:id/rollback', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const body = rollbackBodySchema.parse(request.body);
+    const { job, created } = await performRollback(
+      deployment,
+      request.user?.id ?? null,
+      body.releaseId,
+      firstHeaderValue(request.headers['idempotency-key']),
+    );
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
@@ -3162,15 +3132,164 @@ export async function buildServer({
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
-  // POST /api/deployments/:id/disconnect/force-complete — settle a DESTROY
-  // whose relay went offline mid-delete, OR whose delete keeps FAILING on a
-  // relay that is still online.
+  // Settle a DESTROY whose relay went offline mid-delete, OR whose delete
+  // keeps FAILING on a relay that is still online, for an already-loaded,
+  // already-owned deployment. Shared by the vendor disconnect/force-complete
+  // route and the admin recovery action.
   //
   // This completes the CONTROL-PLANE disconnect only. It never claims the
   // customer's AWS resources were removed: cleanupState records
   // SKIPPED_RELAY_OFFLINE, the warning stays visible until a PURGE runs, and
   // the stuck DESTROY job is cancelled rather than failed so the deployment
   // does not land in FAILED with no way out.
+  async function performForceCompleteDestroy(
+    deployment: DeploymentRow,
+    actorId: string | null,
+  ): Promise<{ state: 'DELETED'; cleanupState: 'SKIPPED_RELAY_OFFLINE'; jobId: string }> {
+    // Two escape paths, discriminated by whether a DESTROY is still in
+    // flight:
+    //   1. DELETING + a pending (REQUESTED..RUNNING) DESTROY — the relay
+    //      went offline mid-delete (relayStatus DISCONNECTED required).
+    //   2. DELETING or FAILED + NO pending DESTROY, but REPEATED FAILED
+    //      DESTROY jobs whose latest is the deployment's newest job — the
+    //      delete itself is wedged on a relay that keeps reporting failure
+    //      (even while technically connected).
+    const destroys = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'DESTROY'),
+        ),
+      )
+      .orderBy(desc(schema.deploymentJobs.createdAt))
+      .limit(10);
+    const job = destroys.find((j) =>
+      ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'].includes(j.state),
+    );
+
+    if (job) {
+      // Path 1 — offline relay mid-delete.
+      if (deployment.state !== 'DELETING') {
+        throw new ApiError(
+          409,
+          'NOT_DELETING',
+          'Only a disconnect that is still in progress can be completed this way.',
+        );
+      }
+      // Persisted liveness is the gate: the worker sweep only writes
+      // DISCONNECTED after the relay missed its check-in window, so this
+      // cannot fire on a relay that is merely between polls.
+      if (deployment.relayStatus !== 'DISCONNECTED') {
+        throw new ApiError(
+          409,
+          'RELAY_NOT_OFFLINE',
+          'The relay for this deployment is not confirmed offline.',
+        );
+      }
+      const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
+      if (Date.now() - lastSignal.getTime() < DESTROY_PENDING_STALE_AFTER_MS) {
+        throw new ApiError(
+          409,
+          'DESTROY_NOT_STALE',
+          'The disconnect has not been pending long enough to complete it this way.',
+        );
+      }
+    } else {
+      // Path 2 — repeated FAILED destroys, no job in flight.
+      const latestAny = await db
+        .select({ type: schema.deploymentJobs.type, state: schema.deploymentJobs.state })
+        .from(schema.deploymentJobs)
+        .where(eq(schema.deploymentJobs.deploymentId, deployment.id))
+        .orderBy(desc(schema.deploymentJobs.createdAt))
+        .limit(1);
+      if (
+        deployment.state !== 'DELETING' &&
+        deployment.state !== 'FAILED'
+      ) {
+        throw new ApiError(
+          409,
+          'NOT_DELETING',
+          'Only a disconnect that is still in progress can be completed this way.',
+        );
+      }
+      const failedDestroys = destroys.filter((d) => d.state === 'FAILED');
+      if (
+        failedDestroys.length < REPEATED_DESTROY_FAILURES_REQUIRED ||
+        latestAny[0]?.type !== 'DESTROY' ||
+        latestAny[0]?.state !== 'FAILED'
+      ) {
+        throw new ApiError(409, 'NO_PENDING_DESTROY', 'No disconnect is waiting on this deployment.');
+      }
+      const lastFailedAt = destroys[0]!.finishedAt ?? destroys[0]!.updatedAt ?? destroys[0]!.createdAt;
+      if (Date.now() - lastFailedAt.getTime() < DESTROY_PENDING_STALE_AFTER_MS) {
+        throw new ApiError(
+          409,
+          'DESTROY_NOT_STALE',
+          'The disconnect has not been pending long enough to complete it this way.',
+        );
+      }
+    }
+
+    const reason = job ? 'RELAY_OFFLINE' : 'REPEATED_DESTROY_FAILURE';
+    const settleJobId = job?.id ?? destroys[0]!.id;
+
+    await db.transaction(async (tx) => {
+      if (job) {
+        await tx
+          .update(schema.deploymentJobs)
+          .set({
+            state: 'CANCELLED',
+            finishedAt: new Date(),
+            result: { forceCompleted: true, reason },
+          })
+          .where(eq(schema.deploymentJobs.id, job.id));
+      }
+      await tx
+        .update(schema.deployments)
+        .set({
+          state: 'DELETED',
+          deletedAt: new Date(),
+          cleanupState: 'SKIPPED_RELAY_OFFLINE',
+          updatedBy: actorId,
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      // Same safety net as a DESTROY success: the row must not linger as a
+      // phantom "removing" domain for a deployment that no longer exists.
+      const danglingDomain = await findActiveDomain(tx, deployment.id);
+      if (danglingDomain) {
+        await tx
+          .update(schema.customDomains)
+          .set({ removedAt: new Date() })
+          .where(eq(schema.customDomains.id, danglingDomain.id));
+      }
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'destroy.force_completed',
+        actorType: 'user',
+        actorId: actorId ?? 'system',
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        jobId: settleJobId,
+        previousState: deployment.state,
+        requestedState: 'DELETED',
+        result: 'success',
+        payload: {
+          relayStatus: deployment.relayStatus,
+          reason,
+          awsResourcesRemoved: false,
+          cleanupState: 'SKIPPED_RELAY_OFFLINE',
+        },
+      });
+    });
+
+    return { state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE', jobId: settleJobId };
+  }
+
+  // POST /api/deployments/:id/disconnect/force-complete — settle a DESTROY
+  // whose relay went offline mid-delete, OR whose delete keeps FAILING on a
+  // relay that is still online.
   app.post(
     '/api/deployments/:id/disconnect/force-complete',
     { preHandler: requireAuth },
@@ -3179,146 +3298,8 @@ export async function buildServer({
       requireUuidId(id);
       const organizationId = requireSessionOrganizationId(request);
       const deployment = await loadOwnedDeployment(db, id, organizationId);
-
-      // Two escape paths, discriminated by whether a DESTROY is still in
-      // flight:
-      //   1. DELETING + a pending (REQUESTED..RUNNING) DESTROY — the relay
-      //      went offline mid-delete (relayStatus DISCONNECTED required).
-      //   2. DELETING or FAILED + NO pending DESTROY, but REPEATED FAILED
-      //      DESTROY jobs whose latest is the deployment's newest job — the
-      //      delete itself is wedged on a relay that keeps reporting failure
-      //      (even while technically connected).
-      const destroys = await db
-        .select()
-        .from(schema.deploymentJobs)
-        .where(
-          and(
-            eq(schema.deploymentJobs.deploymentId, deployment.id),
-            eq(schema.deploymentJobs.type, 'DESTROY'),
-          ),
-        )
-        .orderBy(desc(schema.deploymentJobs.createdAt))
-        .limit(10);
-      const job = destroys.find((j) =>
-        ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'].includes(j.state),
-      );
-
-      if (job) {
-        // Path 1 — offline relay mid-delete.
-        if (deployment.state !== 'DELETING') {
-          throw new ApiError(
-            409,
-            'NOT_DELETING',
-            'Only a disconnect that is still in progress can be completed this way.',
-          );
-        }
-        // Persisted liveness is the gate: the worker sweep only writes
-        // DISCONNECTED after the relay missed its check-in window, so this
-        // cannot fire on a relay that is merely between polls.
-        if (deployment.relayStatus !== 'DISCONNECTED') {
-          throw new ApiError(
-            409,
-            'RELAY_NOT_OFFLINE',
-            'The relay for this deployment is not confirmed offline.',
-          );
-        }
-        const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
-        if (Date.now() - lastSignal.getTime() < DESTROY_PENDING_STALE_AFTER_MS) {
-          throw new ApiError(
-            409,
-            'DESTROY_NOT_STALE',
-            'The disconnect has not been pending long enough to complete it this way.',
-          );
-        }
-      } else {
-        // Path 2 — repeated FAILED destroys, no job in flight.
-        const latestAny = await db
-          .select({ type: schema.deploymentJobs.type, state: schema.deploymentJobs.state })
-          .from(schema.deploymentJobs)
-          .where(eq(schema.deploymentJobs.deploymentId, deployment.id))
-          .orderBy(desc(schema.deploymentJobs.createdAt))
-          .limit(1);
-        if (
-          deployment.state !== 'DELETING' &&
-          deployment.state !== 'FAILED'
-        ) {
-          throw new ApiError(
-            409,
-            'NOT_DELETING',
-            'Only a disconnect that is still in progress can be completed this way.',
-          );
-        }
-        const failedDestroys = destroys.filter((d) => d.state === 'FAILED');
-        if (
-          failedDestroys.length < REPEATED_DESTROY_FAILURES_REQUIRED ||
-          latestAny[0]?.type !== 'DESTROY' ||
-          latestAny[0]?.state !== 'FAILED'
-        ) {
-          throw new ApiError(409, 'NO_PENDING_DESTROY', 'No disconnect is waiting on this deployment.');
-        }
-        const lastFailedAt = destroys[0]!.finishedAt ?? destroys[0]!.updatedAt ?? destroys[0]!.createdAt;
-        if (Date.now() - lastFailedAt.getTime() < DESTROY_PENDING_STALE_AFTER_MS) {
-          throw new ApiError(
-            409,
-            'DESTROY_NOT_STALE',
-            'The disconnect has not been pending long enough to complete it this way.',
-          );
-        }
-      }
-
-      const reason = job ? 'RELAY_OFFLINE' : 'REPEATED_DESTROY_FAILURE';
-      const settleJobId = job?.id ?? destroys[0]!.id;
-
-      await db.transaction(async (tx) => {
-        if (job) {
-          await tx
-            .update(schema.deploymentJobs)
-            .set({
-              state: 'CANCELLED',
-              finishedAt: new Date(),
-              result: { forceCompleted: true, reason },
-            })
-            .where(eq(schema.deploymentJobs.id, job.id));
-        }
-        await tx
-          .update(schema.deployments)
-          .set({
-            state: 'DELETED',
-            deletedAt: new Date(),
-            cleanupState: 'SKIPPED_RELAY_OFFLINE',
-            updatedBy: request.user?.id ?? null,
-          })
-          .where(eq(schema.deployments.id, deployment.id));
-        // Same safety net as a DESTROY success: the row must not linger as a
-        // phantom "removing" domain for a deployment that no longer exists.
-        const danglingDomain = await findActiveDomain(tx, deployment.id);
-        if (danglingDomain) {
-          await tx
-            .update(schema.customDomains)
-            .set({ removedAt: new Date() })
-            .where(eq(schema.customDomains.id, danglingDomain.id));
-        }
-        await recordEvent(tx, {
-          organizationId: deployment.organizationId,
-          eventType: 'destroy.force_completed',
-          actorType: 'user',
-          actorId: request.user?.id ?? 'system',
-          deploymentId: deployment.id,
-          customerId: deployment.customerId,
-          jobId: settleJobId,
-          previousState: deployment.state,
-          requestedState: 'DELETED',
-          result: 'success',
-          payload: {
-            relayStatus: deployment.relayStatus,
-            reason,
-            awsResourcesRemoved: false,
-            cleanupState: 'SKIPPED_RELAY_OFFLINE',
-          },
-        });
-      });
-
-      return { state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE' as const };
+      const result = await performForceCompleteDestroy(deployment, request.user?.id ?? null);
+      return { state: result.state, cleanupState: result.cleanupState };
     },
   );
 
@@ -3384,7 +3365,8 @@ export async function buildServer({
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
-  // POST /api/deployments/:id/relay/reset — §14 re-enrollment.
+  // §14 re-enrollment, for an already-loaded, already-owned deployment.
+  // Shared by the vendor relay/reset route and the admin recovery action.
   //
   // The recovery path for a lost credential, a rebuilt bootstrap stack, or a
   // rejected enrollment. Without it a 409 from /api/relay/register would be
@@ -3399,10 +3381,10 @@ export async function buildServer({
   // FAILED), and the deployment returns to NOT_INSTALLED so the dashboard
   // offers the install link again. A deployment that was ever healthy keeps
   // its state — its reset only rotates the credential.
-  app.post('/api/deployments/:id/relay/reset', { preHandler: requireAuth }, async (request) => {
-    const { id } = request.params as { id: string };
-    const organizationId = requireSessionOrganizationId(request);
-    const deployment = await loadOwnedDeployment(db, id, organizationId);
+  async function performRelayReset(
+    deployment: DeploymentRow,
+    actorId: string | null,
+  ): Promise<{ installLinkId: string | null; attemptNumber: number }> {
     const enrollmentCode = mintEnrollmentCode();
     const [application] = await db
       .select({ name: schema.applications.name })
@@ -3451,7 +3433,7 @@ export async function buildServer({
           attemptNumber: nextAttempt,
           bootstrapStackName: neverInstalled ? stackName : deployment.bootstrapStackName,
           installStartedAt: null,
-          updatedBy: request.user?.id ?? null,
+          updatedBy: actorId,
           ...(neverInstalled ? { state: 'NOT_INSTALLED' as const } : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
@@ -3459,7 +3441,7 @@ export async function buildServer({
         organizationId: deployment.organizationId,
         eventType: 'relay.reenrollment.requested',
         actorType: 'user',
-        actorId: request.user?.id ?? 'system',
+        actorId: actorId ?? 'system',
         deploymentId: deployment.id,
         customerId: deployment.customerId,
         previousState: deployment.state,
@@ -3477,11 +3459,21 @@ export async function buildServer({
       });
     });
 
-    return { installLinkId: deployment.installLinkId };
+    return { installLinkId: deployment.installLinkId, attemptNumber: nextAttempt };
+  }
+
+  // POST /api/deployments/:id/relay/reset — §14 re-enrollment.
+  app.post('/api/deployments/:id/relay/reset', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const result = await performRelayReset(deployment, request.user?.id ?? null);
+    return { installLinkId: result.installLinkId };
   });
 
-  // POST /api/deployments/:id/retry-install — recovery for a failed FIRST
-  // install.
+  // Recovery for a failed FIRST install, for an already-loaded,
+  // already-owned deployment. Shared by the vendor retry-install route and
+  // the admin recovery action.
   //
   // A terminal-failed application stack (ROLLBACK_COMPLETE, DELETE_FAILED…)
   // cannot be updated, and its retained RDS/S3 resources block manual
@@ -3491,11 +3483,18 @@ export async function buildServer({
   // deployment never installed successfully, authorizing it to delete the
   // failed stack and its orphaned blockers before recreating (recovery runs
   // inside the command; one vendor action, no separate cleanup step).
-  app.post('/api/deployments/:id/retry-install', { preHandler: requireAuth }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const organizationId = requireSessionOrganizationId(request);
-    const deployment = await loadOwnedDeployment(db, id, organizationId);
-
+  //
+  // The idempotent-replay path (a double-click on a live retry) returns the
+  // existing job rather than creating one; callers must map that
+  // discriminated result to a 200, and the created-a-new-job path to
+  // 202/200 exactly as createOrReuseJob reports.
+  async function performRetryInstall(
+    deployment: DeploymentRow,
+    actorId: string | null,
+  ): Promise<
+    | { replayed: true; job: DeploymentJobRow }
+    | { replayed: false; created: boolean; job: DeploymentJobRow }
+  > {
     const installJobs = await db
       .select()
       .from(schema.deploymentJobs)
@@ -3528,7 +3527,7 @@ export async function buildServer({
       // A double-click on a live retry is an idempotent replay, not a new
       // attempt — return the queued job rather than a 409.
       if (inFlight.idempotencyKey.startsWith(retryKeyPrefix)) {
-        return reply.code(200).send({ jobId: inFlight.id, state: inFlight.state });
+        return { replayed: true, job: inFlight };
       }
       throw new ApiError(
         409,
@@ -3594,20 +3593,20 @@ export async function buildServer({
         // derives port/health/binding parameters from it (Phase 2).
         manifest: readStoredManifest(deployment.desiredState),
       },
-      requestedBy: request.user?.id ?? null,
+      requestedBy: actorId,
     });
 
     if (created) {
       await db.transaction(async (tx) => {
         await tx
           .update(schema.deployments)
-          .set({ state: 'INSTALLING', updatedBy: request.user?.id ?? null })
+          .set({ state: 'INSTALLING', updatedBy: actorId })
           .where(eq(schema.deployments.id, deployment.id));
         await recordEvent(tx, {
           organizationId: deployment.organizationId,
           eventType: 'install.retry.requested',
           actorType: 'user',
-          actorId: request.user?.id ?? 'system',
+          actorId: actorId ?? 'system',
           deploymentId: deployment.id,
           customerId: deployment.customerId,
           jobId: job.id,
@@ -3629,7 +3628,20 @@ export async function buildServer({
       );
     }
 
-    return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
+    return { replayed: false, created, job };
+  }
+
+  // POST /api/deployments/:id/retry-install — recovery for a failed FIRST
+  // install.
+  app.post('/api/deployments/:id/retry-install', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const result = await performRetryInstall(deployment, request.user?.id ?? null);
+    if (result.replayed) {
+      return reply.code(200).send({ jobId: result.job.id, state: result.job.state });
+    }
+    return reply.code(result.created ? 202 : 200).send({ jobId: result.job.id, state: result.job.state });
   });
 
   // ── Custom domain (custom-domains MVP) ────────────────────────────────

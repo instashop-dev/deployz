@@ -53,6 +53,17 @@ export function createAuth(db: RuntimeDb) {
         // the session hook below and POST /api/organizations/:id/activate are
         // the only writers.
         activeOrganizationId: { type: 'string', required: false, input: false },
+        // Team Admin "View as Vendor" support target. `input: false` — only
+        // POST /api/admin/vendors/:id/support-session and DELETE
+        // /api/admin/support-session write it. See require-auth.ts.
+        supportOrganizationId: { type: 'string', required: false, input: false },
+      },
+    },
+    user: {
+      additionalFields: {
+        // Team Admin platform role ('ADMIN' or unset). `input: false` — no
+        // client-writable path exists; granted via SQL/ops tooling only.
+        platformRole: { type: 'string', required: false, input: false },
       },
     },
     databaseHooks: {

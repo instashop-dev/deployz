@@ -64,6 +64,10 @@ export default defineConfig({
         // asserts the shape of the link built from it.
         BOOTSTRAP_TEMPLATE_URL:
           'https://deployz-templates.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json',
+        // Team Admin env-grant allowlist (docs/admin/team-admin.md): any
+        // signed-up account under this test-only domain is a team admin, so
+        // e2e/admin.spec.ts can mint admin accounts by email alone.
+        TEAM_ADMIN_EMAILS: '*@admin-e2e.deployz.test',
       },
     },
     {

@@ -138,6 +138,18 @@ real-AWS opt-in to *see* the refusal).
 | `AI_FIXTURE_MODE` | `true` | A canned AI gateway response set, for deterministic fix-instructions generation. Always set by `playwright.config.ts`. |
 | `BUILD_FIXTURE_MODE` | `true` | A new release is marked built (READY, fixture digest) immediately instead of enqueuing `BUILD_RELEASE` (which no-ops locally anyway). Always set by `playwright.config.ts`. |
 | `DOMAIN_FIXTURE_MODE` | `true` | DNS/HTTPS domain checks pass only for `*.deployz-fixture.test` hostnames, with no throttle. Always set by `playwright.config.ts`. |
+| `TEAM_ADMIN_EMAILS` | `*@admin-e2e.deployz.test` | Team Admin env-grant allowlist (`docs/admin/team-admin.md`). Always set by `playwright.config.ts`'s API `webServer` env, so `e2e/admin.spec.ts` can mint an admin account by simply signing up with a matching email — no DB seeding needed. |
+
+## Team Admin coverage
+
+`e2e/admin.spec.ts` covers the Team Admin console (`docs/admin/team-admin.md`):
+authorization (a normal vendor is redirected away and the admin API rejects
+them; a `*@admin-e2e.deployz.test` account reaches `/admin`), global search
+into the vendor 360° page, View as Vendor (banner, read-only enforcement,
+exit, and both audit events), and diagnosing + retrying a failed install
+seeded through the `cloudformation-rollback` simulated scenario. It follows
+the same house conventions as every other browser spec (`uniqueEmail`,
+`fillControlled`, data-testid assertions) — see `e2e/organization.spec.ts`.
 
 ## Local execution
 

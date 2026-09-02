@@ -609,6 +609,67 @@ export type VendorDeploymentStatus = z.infer<typeof vendorDeploymentStatusSchema
 export const RELAY_STALE_AFTER_MS = 15 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
+// STUCK jobs — shared by the worker's stuck-job watchdog
+// (packages/cdk/src/lambda/worker.ts's sweepStuckJobs) and Team Admin's
+// read-only STUCK flag (docs/admin/team-admin.md). Kept as ONE map and ONE
+// pure predicate so the sweeper and the admin view can never disagree about
+// which jobs are stuck.
+// ---------------------------------------------------------------------------
+
+/** Per mutating job type timeout, in milliseconds. DESTROY is deliberately
+ *  absent: while the relay lives, its heartbeats refresh lastProgressAt, so a
+ *  DESTROY only ever trips a timeout when the relay is dead — and failing it
+ *  here would strand the deployment in FAILED with no disconnect path left.
+ *  That case is settled by the force-complete escape hatch instead, gated on
+ *  the same staleness. */
+export const JOB_TIMEOUTS_MS: Partial<Record<JobType, number>> = {
+  INSTALL: 60 * 60 * 1000,
+  DEPLOY_RELEASE: 20 * 60 * 1000,
+  ROLLBACK: 20 * 60 * 1000,
+  RESTART: 20 * 60 * 1000,
+  CONFIG_UPDATE: 20 * 60 * 1000,
+  PURGE: 60 * 60 * 1000,
+  // Phase 5 §9.3: domain operations ride the same relay channel, so a stuck
+  // CONFIGURE_DOMAIN/REMOVE_DOMAIN must not idle forever — generous window
+  // (cert issuance + ALB listener work is a single invocation) then fail.
+  CONFIGURE_DOMAIN: 60 * 60 * 1000,
+  REMOVE_DOMAIN: 60 * 60 * 1000,
+};
+
+/** Job states the STUCK definition (and the worker's sweep) ever consider. */
+export const ACTIVE_JOB_STATES: readonly JobState[] = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'];
+
+/** The minimal job shape `isJobStuck`/`jobStuckAt` need. */
+export interface StuckJobInput {
+  type: JobType;
+  state: JobState;
+  createdAt: Date;
+  startedAt: Date | null;
+  lastProgressAt: Date | null;
+}
+
+/**
+ * The moment a job became stuck, or null if it is not (not an active state,
+ * its type has no timeout, or it has not yet exceeded one). Pure — same
+ * inputs always give the same answer, and the caller supplies `now`.
+ * `lastProgressAt ?? startedAt ?? createdAt` is the last genuine progress
+ * signal (docs/admin/team-admin.md's STUCK jobs section).
+ */
+export function jobStuckAt(job: StuckJobInput, now: Date = new Date()): Date | null {
+  if (!ACTIVE_JOB_STATES.includes(job.state)) return null;
+  const timeout = JOB_TIMEOUTS_MS[job.type];
+  if (timeout === undefined) return null;
+  const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
+  if (now.getTime() - lastSignal.getTime() <= timeout) return null;
+  return new Date(lastSignal.getTime() + timeout);
+}
+
+/** Whether a job is currently STUCK. Convenience wrapper over `jobStuckAt`. */
+export function isJobStuck(job: StuckJobInput, now: Date = new Date()): boolean {
+  return jobStuckAt(job, now) !== null;
+}
+
+// ---------------------------------------------------------------------------
 // Relay stack-event progress — raw CloudFormation events the relay reports
 // while it waits for a stack operation (packages/db/src/schema/
 // stack-events.ts). Progress/diagnostics only, never an input to lifecycle

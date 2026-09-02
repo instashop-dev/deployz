@@ -52,6 +52,7 @@ import migration0022 from '../../../db/drizzle/0022_faithful_krista_starr.sql';
 import migration0023 from '../../../db/drizzle/0023_equal_ozymandias.sql';
 import migration0024 from '../../../db/drizzle/0024_marvelous_nehzno.sql';
 import migration0025 from '../../../db/drizzle/0025_wet_mordo.sql';
+import migration0026 from '../../../db/drizzle/0026_colorful_madame_web.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -91,6 +92,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0023_equal_ozymandias': migration0023,
   '0024_marvelous_nehzno': migration0024,
   '0025_wet_mordo': migration0025,
+  '0026_colorful_madame_web': migration0026,
 };
 
 interface RdsSecret {

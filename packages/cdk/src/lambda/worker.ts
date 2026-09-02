@@ -20,7 +20,7 @@ import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or } from 'drizzle
 import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob, newerReadyReleaseExists } from '@deployz/api/jobs';
 import type { QueueMessage } from '@deployz/api/queue';
-import { RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
+import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -431,30 +431,14 @@ export async function handleMessage(
 
 // ── Stuck-job watchdog / reconciler (reconcile-before-fail) ──────────────
 
-/**
- * Staleness bound per job type: how long with NO signal at all (no claim, no
- * heartbeat, no progress, no result) before the relay is presumed gone for
- * this job. Heartbeats refresh lastProgressAt on every active job, so
- * tripping this means the relay itself has gone quiet — never that a live
- * operation is merely slow.
- *
- * DESTROY is deliberately absent: a dead-relay DESTROY is settled by the
- * vendor's force-complete escape hatch (with the honest SKIPPED_RELAY_OFFLINE
- * outcome), never failed by the watchdog.
- */
-const JOB_TIMEOUTS_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect)['type'], number>> = {
-  INSTALL: 60 * 60 * 1000,
-  DEPLOY_RELEASE: 20 * 60 * 1000,
-  ROLLBACK: 20 * 60 * 1000,
-  RESTART: 20 * 60 * 1000,
-  CONFIG_UPDATE: 20 * 60 * 1000,
-  PURGE: 60 * 60 * 1000,
-  // Phase 5 §9.3: domain operations ride the same relay channel, so a stuck
-  // CONFIGURE_DOMAIN/REMOVE_DOMAIN must not idle forever — generous window
-  // (cert issuance + ALB listener work is a single invocation) then fail.
-  CONFIGURE_DOMAIN: 60 * 60 * 1000,
-  REMOVE_DOMAIN: 60 * 60 * 1000,
-};
+// Staleness bound per job type (how long with NO signal before the relay is
+// presumed gone for this job): JOB_TIMEOUTS_MS lives in @deployz/contracts —
+// shared with Team Admin's STUCK flag (docs/admin/team-admin.md) so the
+// sweep and the admin view can never disagree. Heartbeats refresh
+// lastProgressAt on every active job, so tripping it means the relay itself
+// has gone quiet — never that a live operation is merely slow. DESTROY is
+// deliberately absent: a dead-relay DESTROY is settled by the vendor's
+// force-complete escape hatch, never failed by the watchdog.
 
 /**
  * Runtime bound per attempt with a LIVE relay. Heartbeats keep

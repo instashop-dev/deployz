@@ -45,7 +45,10 @@ export function middleware(request: NextRequest) {
   // present — the cookie cannot be validated in the edge runtime, so redirecting
   // to /dashboard on a stale-but-present cookie would loop forever against the
   // layout's redirect-to-/sign-in on an invalid session.
-  if (pathname.startsWith('/dashboard') && !getSessionCookie(request)) {
+  if (
+    (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) &&
+    !getSessionCookie(request)
+  ) {
     const signIn = request.nextUrl.clone();
     signIn.pathname = '/sign-in';
     // Carry the destination so signing in lands where the visitor was going.
@@ -77,6 +80,7 @@ export const config = {
     '/sign-in',
     '/sign-up',
     '/dashboard/:path*',
+    '/admin/:path*',
     '/organizations/:path*',
     '/install/:path*',
     '/accept-invitation/:path*',

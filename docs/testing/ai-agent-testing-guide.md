@@ -74,3 +74,15 @@ regression becomes permanent and free to re-check.
 See [`e2e-testing.md`](e2e-testing.md) for the commands and environment
 variables this policy refers to, and [`e2e-scenarios.md`](e2e-scenarios.md)
 for the existing scenario catalogue to extend rather than duplicate.
+
+## Validating Team Admin changes
+
+Team Admin (`docs/admin/team-admin.md`) is simulated-mode only — it never
+needs real AWS, since it reads/acts on the same DB and domain workflows the
+vendor surfaces already exercise. Validate a change with `apps/api/src/admin/
+*.test.ts` (Vitest) for the API layer plus `pnpm e2e e2e/admin.spec.ts` for
+browser coverage (authorization, search, View as Vendor, failed-deployment
+diagnosis/recovery). Escalate past simulated E2E only if the change also
+touches the underlying domain workflow's real AWS behaviour — the escalation
+ladder above still applies to that workflow, not to the admin wrapper around
+it.

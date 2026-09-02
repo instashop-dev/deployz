@@ -4,6 +4,7 @@ import { SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
 import type { AiGatewayConfig } from '@deployz/analysis';
 
 import { describeAiGatewayConfig } from './ai-config.js';
+import { parseTeamAdminEmails } from './admin/auth.js';
 
 import { findEnvFile } from './find-env-file.js';
 
@@ -186,4 +187,13 @@ export const env = {
   // always 409. Marks a new release built immediately with a deterministic
   // fixture digest instead of enqueuing. Mirrors githubFixtureMode.
   buildFixtureMode: process.env.BUILD_FIXTURE_MODE === 'true',
+  // Team Admin env-grant allowlist (comma-separated exact emails or
+  // `*@domain` wildcards) — see apps/api/src/admin/auth.ts. Local dev/E2E
+  // only; teamAdminEnvGrantsEnabled below shuts this off in production.
+  teamAdminEmails: parseTeamAdminEmails(process.env.TEAM_ADMIN_EMAILS),
+  // False whenever the process is the deployed Lambda, so env-based admin
+  // grants can never take effect in production — only user.platform_role
+  // can. Resolved once here (not read at call time) so it stays
+  // test-injectable.
+  teamAdminEnvGrantsEnabled: !process.env.AWS_LAMBDA_FUNCTION_NAME,
 } as const;
