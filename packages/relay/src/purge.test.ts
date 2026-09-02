@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createPurgeExecutor,
   createPurgeResumer,
+  isAccessDenied,
   settlePurge,
   type CachePurgeClient,
   type PurgeDeps,
@@ -312,18 +313,24 @@ describe('settlePurge — bootstrap stack, last', () => {
     expect(calls).toEqual([]);
   });
 
-  it('refuses a bootstrap stack that does not carry this installation tag', async () => {
+  it('deletes the bootstrap stack by its known name even when it carries no installation tag', async () => {
+    // Phase 5 §9.1: the bootstrap stack is created BEFORE the installation
+    // id exists, so it can never carry a readable `deployz:installation`
+    // tag. Refusing on that impossible tag made the bootstrap removal never
+    // run in production; ownership is the NAME baked into the relay's env.
     const calls: string[] = [];
-    const deps = depsWith(cfnSweptClean(bootstrapStack('CREATE_COMPLETE', 'someone-else')), calls);
+    const untagged = depsWith(cfnSweptClean(bootstrapStack('CREATE_COMPLETE')), calls);
 
-    const outcome = await settlePurge(deps);
-    expect(outcome).toEqual({
-      state: 'failed',
-      reason:
-        `Bootstrap stack "${BOOTSTRAP_STACK}" does not carry this installation's tag — ` +
-        'resources purged, but the bootstrap stack must be removed manually',
-    });
-    expect(calls).toEqual([]);
+    const outcome = await settlePurge(untagged);
+    expect(outcome).toEqual({ state: 'succeeded' });
+    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
+
+    // A mismatched tag is equally impossible in practice and equally ignored:
+    // the deciding fact is the trusted stack name, not a tag that cannot be.
+    const mismatched = depsWith(cfnSweptClean(bootstrapStack('CREATE_COMPLETE', 'someone-else')), calls);
+    calls.length = 0;
+    expect(await settlePurge(mismatched)).toEqual({ state: 'succeeded' });
+    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
   });
 });
 
@@ -539,6 +546,48 @@ describe('createPurgeExecutor', () => {
     expect(result).toMatchObject({
       success: false,
       failureCode: 'STACK_DELETE_FAILED',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('classifies a permission failure on an orphan tag read as retryable AWS_PERMISSION_DENIED, never as purge success', async () => {
+    // Phase 5 §9.1: an AccessDenied while READING ownership must fail the
+    // purge retryably. Swallowing it (the old behavior) reported
+    // `purged: true` while every retained resource still existed — the
+    // control plane then cleared the retained-resources warning.
+    const accessDenied = Object.assign(new Error('Access denied'), {
+      name: 'AccessDenied',
+      code: 'AccessDenied',
+    });
+    const calls: string[] = [];
+    const deps = depsWith(
+      {
+        async describeStack() {
+          return { found: false };
+        },
+        async describeStackResources() {
+          return [];
+        },
+      },
+      calls,
+      {
+        rds: {
+          async listOwnedInstances() {
+            throw accessDenied;
+          },
+          async disableDeletionProtection() {},
+          async deleteInstance() {},
+        },
+      },
+    );
+    // isAccessDenied itself distinguishes the two error classes.
+    expect(isAccessDenied(accessDenied)).toBe(true);
+    expect(isAccessDenied(Object.assign(new Error('gone'), { name: 'NoSuchTagSet' }))).toBe(false);
+
+    const result = await createPurgeExecutor(deps)(command());
+    expect(result).toMatchObject({
+      success: false,
+      failureCode: 'AWS_PERMISSION_DENIED',
     });
     expect(calls).toEqual([]);
   });

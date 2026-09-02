@@ -197,6 +197,7 @@ export const failureCodeSchema = z.enum([
   'UNKNOWN',
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
+  'DOMAIN_OPERATION_TIMEOUT',
 ]);
 export type FailureCode = z.infer<typeof failureCodeSchema>;
 
@@ -280,7 +281,7 @@ export const customDomainStatusSchema = z.enum([
 ]);
 export type CustomDomainStatus = z.infer<typeof customDomainStatusSchema>;
 
-export const cleanupStateSchema = z.enum(['SKIPPED_RELAY_OFFLINE', 'COMPLETE']);
+export const cleanupStateSchema = z.enum(['SKIPPED_RELAY_OFFLINE', 'PURGE_FAILED', 'COMPLETE']);
 export type CleanupState = z.infer<typeof cleanupStateSchema>;
 
 // ---------------------------------------------------------------------------

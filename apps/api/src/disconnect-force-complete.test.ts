@@ -264,6 +264,98 @@ describe('disconnect force-complete + persisted liveness', () => {
     expect(response.json().error.code).toBe('DESTROY_NOT_STALE');
   });
 
+  // Phase 5 §9.4: a relay that keeps REPORTING DESTROY failure (still
+  // online) leaves the vendor in FAILED with a stack that will not go away.
+  // The escape hatch must open here too — with the same honest
+  // "resources may remain" cleanupState — never queued forever.
+  it('force-completes a live relay whose DESTROY keeps failing repeatedly', async () => {
+    const token = 'tok-' + crypto.randomUUID();
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'FAILED',
+        installationId: 'inst-' + crypto.randomUUID(),
+        enrollmentCode: crypto.randomUUID(),
+        relayTokenHash: hashRelayToken(token),
+        relayStatus: 'CONNECTED',
+      })
+      .returning();
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const older = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    for (const [at, key] of [
+      [older, `${deployment!.id}:DESTROY:1`],
+      [old, `${deployment!.id}:DESTROY:2`],
+    ] as const) {
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: deployment!.id,
+        type: 'DESTROY',
+        state: 'FAILED',
+        idempotencyKey: key,
+        payload: {},
+        startedAt: at,
+        finishedAt: at,
+      });
+    }
+
+    const response = await forceComplete(deployment!.id);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toStrictEqual({ state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE' });
+
+    const [row] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment!.id));
+    expect(row?.state).toBe('DELETED');
+    expect(row?.cleanupState).toBe('SKIPPED_RELAY_OFFLINE');
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment!.id));
+    // The FAILED records stay FAILED; nothing is cancelled or resurrected.
+    expect(jobs.every((job) => job.state === 'FAILED')).toBe(true);
+
+    const events = await db
+      .select({ eventType: schema.eventLogs.eventType, payload: schema.eventLogs.payload })
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, deployment!.id));
+    const completed = events.find((e) => e.eventType === 'destroy.force_completed');
+    expect(completed).toBeDefined();
+    expect(completed?.payload).toMatchObject({ reason: 'REPEATED_DESTROY_FAILURE', awsResourcesRemoved: false });
+  });
+
+  it('refuses repeated-DESTROY-failure force-complete after only ONE failure', async () => {
+    const token = 'tok-' + crypto.randomUUID();
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'FAILED',
+        installationId: 'inst-' + crypto.randomUUID(),
+        enrollmentCode: crypto.randomUUID(),
+        relayTokenHash: hashRelayToken(token),
+        relayStatus: 'CONNECTED',
+      })
+      .returning();
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment!.id,
+      type: 'DESTROY',
+      state: 'FAILED',
+      idempotencyKey: `${deployment!.id}:DESTROY:1`,
+      payload: {},
+      startedAt: old,
+      finishedAt: old,
+    });
+    const response = await forceComplete(deployment!.id);
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe('NO_PENDING_DESTROY');
+  });
+
   it('refuses unauthenticated callers', async () => {
     const id = await seedDisconnectingDeployment({
       relayStatus: 'DISCONNECTED',
@@ -388,6 +480,43 @@ describe('disconnect force-complete + persisted liveness', () => {
       .from(schema.eventLogs)
       .where(eq(schema.eventLogs.deploymentId, eligible.id));
     expect(events.map((event) => event.eventType)).toContain('purge.completed');
+  });
+
+  it('purge: a relay failure stays DELETED with PURGE_FAILED and stays retryable', async () => {
+    // Phase 5 §9.2 route-level: lifecycle and cleanup are separate — the
+    // failed purge must not resurrect the deployment, and the vendor must
+    // be able to issue the purge again from the failed cleanup state.
+    const eligible = await seedPurgeEligibleDeployment();
+    const first = await purge(eligible.id);
+    expect(first.statusCode, first.body).toBe(202);
+    const { jobId } = first.json() as { jobId: string };
+
+    const failed = await app.inject({
+      method: 'POST',
+      url: `/api/relay/commands/${jobId}/result`,
+      headers: {
+        authorization: `Bearer ${eligible.token}`,
+        'content-type': 'application/json',
+      },
+      payload: JSON.stringify({ success: false, error: 'denied', failureCode: 'AWS_PERMISSION_DENIED' }),
+    });
+    expect(failed.statusCode, failed.body).toBe(200);
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, eligible.id));
+    expect(deployment?.state).toBe('DELETED');
+    expect(deployment?.cleanupState).toBe('PURGE_FAILED');
+
+    const retried = await purge(eligible.id);
+    expect(retried.statusCode, retried.body).toBe(202);
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, eligible.id))
+      .orderBy(schema.deploymentJobs.createdAt);
+    // Two attempts now: the failed one (still FAILED) and the fresh retry.
+    expect(jobs).toHaveLength(2);
+    expect(jobs.some((job) => job.state === 'REQUESTED')).toBe(true);
+    expect(jobs.some((job) => job.state === 'FAILED')).toBe(true);
   });
 
   it('purge: refuses unauthenticated callers', async () => {

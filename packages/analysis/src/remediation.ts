@@ -353,6 +353,19 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
     requiresManual: true,
     automatic: false,
   },
+
+  // 21. DOMAIN_OPERATION_TIMEOUT
+  DOMAIN_OPERATION_TIMEOUT: {
+    summary: 'A custom domain change did not finish in time.',
+    steps: [
+      'Wait for the next automatic domain check to retry.',
+      'Press Check now on the custom domain card to retry immediately.',
+      'The deployment itself is unaffected — only the domain change stalled.',
+    ],
+    technicalDetail: [],
+    requiresManual: true,
+    automatic: false,
+  },
 };
 
 // ── The engine ───────────────────────────────────────────────────────────────

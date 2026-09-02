@@ -229,7 +229,7 @@ describe('failure semantics, duplicate results and operation exclusivity', () =>
     expect(row.state).toBe('HEALTHY');
   });
 
-  it('never resurrects a DELETED deployment when a PURGE fails', async () => {
+  it('never resurrects a DELETED deployment when a PURGE fails — cleanupState carries the failure', async () => {
     const deployment = await seedDeployment({
       state: 'DELETED',
       cleanupState: 'SKIPPED_RELAY_OFFLINE',
@@ -241,8 +241,17 @@ describe('failure semantics, duplicate results and operation exclusivity', () =>
     expect(response.statusCode, response.body).toBe(200);
 
     const row = await getDeploymentRow(deployment.id);
+    // Lifecycle and cleanup are separate concepts (Phase 5 §9.2): the
+    // deployment stays DELETED, and the failed purge records itself on
+    // cleanupState — never resurrecting into a deployment-failure state.
     expect(row.state).toBe('DELETED');
-    expect(row.cleanupState).toBe('SKIPPED_RELAY_OFFLINE');
+    expect(row.cleanupState).toBe('PURGE_FAILED');
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('FAILED');
   });
 
   it('ignores a duplicate result for a settled job (no state flip, no second event)', async () => {

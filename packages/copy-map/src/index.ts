@@ -261,6 +261,7 @@ export const FAILURE_CODES = [
   'UNKNOWN',
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
+  'DOMAIN_OPERATION_TIMEOUT',
 ] as const;
 
 /** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */
@@ -311,6 +312,7 @@ export const FAILURE_RECOVERABILITY: Record<FailureCode, FailureRecoverability> 
   UNKNOWN: 'RECONCILE_FIRST',
   REDIS_PROVISIONING_FAILED: 'DEPLOYZ_ACTION',
   REDIS_CONNECTION_FAILED: 'RECONCILE_FIRST',
+  DOMAIN_OPERATION_TIMEOUT: 'RECONCILE_FIRST',
 };
 
 /** §65 one-liner per recoverability class, shown on the diagnostic card. */
@@ -441,6 +443,11 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     label: "App can't reach its cache",
     description: "The app started, but it can't reach its cache.",
     severity: 'critical',
+  },
+  DOMAIN_OPERATION_TIMEOUT: {
+    label: 'Custom domain update timed out',
+    description: 'The custom domain change did not finish in time. It can be retried.',
+    severity: 'warning',
   },
 };
 
@@ -573,6 +580,11 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
     what: 'The application started but could not reach its cache.',
     why: 'The connection was refused or timed out.',
     fix: 'Redeploy the application. If it keeps failing, contact Deployz support.',
+  },
+  DOMAIN_OPERATION_TIMEOUT: {
+    what: 'A custom domain change stopped responding and was timed out.',
+    why: 'The helper did not finish the domain update within the allowed window.',
+    fix: 'Wait for the next automatic check, or press Check now on the custom domain card, to retry. The deployment itself is unaffected.',
   },
 };
 

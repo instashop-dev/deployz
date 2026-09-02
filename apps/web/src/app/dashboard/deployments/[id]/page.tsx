@@ -269,7 +269,7 @@ function DetailBody({
         )}
       </div>
 
-      {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' ? (
+      {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED' ? (
         <div className="flex flex-col gap-3">
           <Alert>
             <AlertTriangle aria-hidden />

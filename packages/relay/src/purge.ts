@@ -10,11 +10,15 @@
  * SKIPPED_RELAY_OFFLINE leftovers).
  *
  * Safety: every resource is touched only after it verifies as THIS
- * installation's — the application and bootstrap stacks by their
- * `deployz:installation` stack tag, orphaned RDS/ElastiCache/S3 resources by
- * their resource tags. An untagged or mismatched resource is refused, never
- * deleted; the ownership check lives inside the clients (`listOwned*`
- * returns only verified resources) and the stack checks here.
+ * installation's — the APPLICATION stack by its `deployz:installation`
+ * stack tag, orphaned RDS/ElastiCache/S3 resources by their resource tags
+ * (the ownership check lives inside the clients: `listOwned*` returns only
+ * verified resources). The bootstrap/relay stack is deleted by its KNOWN
+ * NAME (baked into this relay's environment by the stack itself) — it is
+ * created before the installation id exists and so can never carry a
+ * readable installation tag; a name-based ownership proof is the only
+ * feasible one. An untagged or mismatched resource is refused, never
+ * deleted.
  *
  * Idempotent by construction: a pass only deletes what a fresh read shows
  * still present, and a resource already deleting is waited on, not
@@ -98,6 +102,29 @@ type PurgeOutcome =
   | { readonly state: 'purging' };
 
 const INSTALLATION_TAG = 'deployz:installation';
+
+/**
+ * Whether an AWS error is a permission rejection (AccessDenied /
+ * UnauthorizedOperation / 403). Distinct from "resource does not exist":
+ * only an ACCESS-DENIED error may be rethrown to fail the purge retryably —
+ * a missing resource genuinely means "nothing to purge here".
+ */
+export function isAccessDenied(error: unknown): boolean {
+  const name = typeof (error as { name?: unknown } | undefined)?.name === 'string'
+    ? (error as { name: string }).name
+    : '';
+  const code = typeof (error as { Code?: unknown } | undefined)?.Code === 'string'
+    ? (error as { Code: string }).Code
+    : '';
+  const statusCode = (error as { $metadata?: { httpStatusCode?: unknown } } | undefined)
+    ?.$metadata?.httpStatusCode;
+  return (
+    statusCode === 403 ||
+    name.includes('AccessDenied') ||
+    code.includes('AccessDenied') ||
+    code.includes('UnauthorizedOperation')
+  );
+}
 
 /**
  * Runs the purge to whatever conclusion is available right now. Reads
@@ -194,16 +221,19 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
   // awaited: the teardown takes minutes while the result of this very
   // command is reported sub-second after the executor returns, and the
   // relay cannot outlive its own stack to watch it go.
+  //
+  // Ownership is NOT verified by tag here: the bootstrap stack is created
+  // by the customer's Quick Create BEFORE the installation id is minted
+  // inside it, so it can never carry a readable `deployz:installation` tag
+  // equal to ours (the id is a deploy-time GetAtt token on our own
+  // resources, not a static stack tag). The ownership evidence is the
+  // NAME: `bootstrapStackName` is baked into this relay's environment as
+  // `Ref AWS::StackName` of the very stack we are deleting — the control
+  // plane's `deployments.bootstrap_stack_name` metadata. Deleting a
+  // same-named foreign stack in our own account is out of scope; refusing
+  // on the impossible tag would make the bootstrap removal never run.
   const bootstrap = await deps.cfn.describeStack(deps.bootstrapStackName);
   if (bootstrap.found) {
-    if (bootstrap.stack.tags[INSTALLATION_TAG] !== deps.installationId) {
-      return {
-        state: 'failed',
-        reason:
-          `Bootstrap stack "${deps.bootstrapStackName}" does not carry this installation's tag — ` +
-          'resources purged, but the bootstrap stack must be removed manually',
-      };
-    }
     if (bootstrap.stack.status !== 'DELETE_IN_PROGRESS') {
       await deps.deleter.deleteStack(deps.bootstrapStackName);
     }
@@ -396,8 +426,14 @@ export function createRealPurgeClients(installationId: string): {
                 status: instance.DBInstanceStatus ?? '',
               });
             }
-          } catch {
-            // Unreadable tags are not verifiably ours — omitted.
+          } catch (error) {
+            // A permission failure is NOT "not ours" — it is a retryable
+            // operation failure. Rethrowing sends the whole purge to
+            // AWS_PERMISSION_DENIED; swallowing would report purged=true
+            // while the instance still exists. Only a genuinely unreadable
+            // tag (no such tag set, resource gone) means "not verifiably
+            // ours" and is omitted.
+            if (isAccessDenied(error)) throw error;
           }
         }
         return owned;
@@ -417,8 +453,8 @@ export function createRealPurgeClients(installationId: string): {
             if (owns(tags.TagList ?? [])) {
               owned.push({ identifier: group.ReplicationGroupId, status: group.Status ?? '' });
             }
-          } catch {
-            // Unreadable tags are not verifiably ours — omitted.
+          } catch (error) {
+            if (isAccessDenied(error)) throw error;
           }
         }
         return owned;
@@ -433,8 +469,9 @@ export function createRealPurgeClients(installationId: string): {
           try {
             const tagging = await s3.send(new GetBucketTaggingCommand({ Bucket: bucket.Name }));
             if (owns(tagging.TagSet ?? [])) owned.push(bucket.Name);
-          } catch {
-            // An untaggable/unreadable bucket is not verifiably ours.
+          } catch (error) {
+            // Same rule: AccessDenied must fail the purge, not vanish it.
+            if (isAccessDenied(error)) throw error;
           }
         }
         return owned;

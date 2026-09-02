@@ -724,6 +724,22 @@ describe('server — config scope resolution (§31,§65)', () => {
     expect(body.customerOverrides).toContainEqual({ key: 'LOG_LEVEL', value: 'debug', isSecret: false });
   });
 
+  it('PUT config refuses 409 RELAY_DISCONNECTED when a customer deployment relay is dead (§9.5)', async () => {
+    await insertDeployment(db, orgA.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      relayStatus: 'DISCONNECTED',
+    });
+    const response = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/config`,
+      { customerId: customer.id, entries: [{ key: 'LOG_LEVEL', value: 'warn', isSecret: false }] },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'RELAY_DISCONNECTED' } });
+  });
+
   it('a customer of another organization 404s on read and on write (§2)', async () => {
     const read = await app.inject({
       method: 'GET',
@@ -1595,6 +1611,43 @@ describe('server — idempotent job creation (§5)', () => {
       .from(schema.deploymentJobs)
       .where(eq(schema.deploymentJobs.idempotencyKey, `${deployment.id}:DEPLOY_RELEASE:${releaseId}`));
     expect(jobs).toHaveLength(1);
+  });
+
+  // Phase 5 §9.5: a dead relay must be REFUSED up front (mirroring
+  // retry-install's RELAY_DISCONNECTED), not handed a job it never claims —
+  // deploy/rollback/restart all share requireDeployableState.
+  it('POST .../deploy refuses 409 RELAY_DISCONNECTED when the relay is dead and no job is queued', async () => {
+    const deployment = await insertDeployment(db, org.organizationId, applicationId, customerId, {
+      state: 'HEALTHY',
+      relayStatus: 'DISCONNECTED',
+      lastHealthAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    });
+    const releaseId = await deployableRelease();
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId }, { cookie: org.cookie });
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'RELAY_DISCONNECTED' } });
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('POST .../deploy refuses 409 RELAY_NOT_CONNECTED when no relay was ever bound', async () => {
+    const deployment = await insertDeployment(db, org.organizationId, applicationId, customerId, {
+      state: 'HEALTHY',
+      installationId: null,
+    });
+    const response = await postJson(
+      app,
+      `/api/deployments/${deployment.id}/rollback`,
+      { releaseId: await deployableRelease() },
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'RELAY_NOT_CONNECTED' } });
   });
 
   it('a different releaseId produces a different job once the first settles', async () => {
@@ -3198,6 +3251,50 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(dep!.attemptNumber).toBe(1);
     expect(dep!.installationId).toBeNull();
     expect(dep!.enrollmentCode).not.toBe(deployment.enrollmentCode);
+  });
+
+  it('relay/reset records the PREVIOUS installationId/bootstrapStackName for a later purge (§9.6)', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Reset Tracking App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const oldInstallationId = 'inst-orphan-candidate';
+    const oldBootstrapStack = 'deployz-bootstrap-old-attempt';
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+      installationId: oldInstallationId,
+      bootstrapStackName: oldBootstrapStack,
+      relayStatus: 'DISCONNECTED',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'REQUESTED',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/relay/reset`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.installationId).toBeNull();
+    expect(dep!.previousInstallationId).toBe(oldInstallationId);
+    expect(dep!.previousBootstrapStackName).toBe(oldBootstrapStack);
+
+    // The reset's event payload carries the same attribution for the audit trail.
+    const events = await db
+      .select({ payload: schema.eventLogs.payload })
+      .from(schema.eventLogs)
+      .where(
+        and(
+          eq(schema.eventLogs.deploymentId, deployment.id),
+          eq(schema.eventLogs.eventType, 'relay.reenrollment.requested'),
+        ),
+      );
+    expect(events[0]?.payload).toMatchObject({
+      previousInstallationId: oldInstallationId,
+      previousBootstrapStackName: oldBootstrapStack,
+    });
   });
 
   it('serves the same §24 component view on the install page as the fleet row', async () => {
