@@ -124,6 +124,9 @@ export const failureCodeEnum = pgEnum('failure_code', [
   // its generous window is marked FAILED with this code; the domain row's
   // lastError keeps the visible record and the next cycle retries.
   'DOMAIN_OPERATION_TIMEOUT',
+  // CANARY-006: the relay's own failure to persist its deferral marker —
+  // a Deployz-side fault, distinct from any customer resource failure.
+  'RELAY_STATE_WRITE_FAILED',
 ]);
 
 // subscriptions.status — Stripe subscription lifecycle subset we persist.

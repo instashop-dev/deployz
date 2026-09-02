@@ -37,6 +37,15 @@ const REFINABLE_CODES: ReadonlySet<string> = new Set([
 /** CloudFormation's own cancellation noise — never the root cause. */
 const CANCELLATION_NOISE = /resource creation cancelled|resource update cancelled/i;
 
+/**
+ * The relay's own state-persistence failure phrases (its `failure()` helper
+ * and deferral-marker write path). These come from relay code, not from AWS
+ * — when they appear, nothing was necessarily wrong with the customer's
+ * resources; the relay itself failed to record its own progress. That fault
+ * is on Deployz's side of the trust boundary, not the customer's.
+ */
+const RELAY_STATE_WRITE_FAILURE = /could not record that it must report back|install could not run:/;
+
 function isFailedEvent(event: FailureStackEvent): boolean {
   return (
     /(_FAILED)$/.test(event.resourceStatus) &&
@@ -99,6 +108,15 @@ export function refineFailureCode(input: {
   if (failedType.startsWith('AWS::ElastiCache::')) return 'REDIS_PROVISIONING_FAILED';
   if (failedType.startsWith('AWS::ECS::')) {
     return /health check/.test(failedReason) ? 'IMAGE_HEALTH_CHECK_FAILED' : 'CONTAINER_START_FAILED';
+  }
+
+  // 6. The relay's own state-persistence failure — checked after every
+  //    AWS-side signal above so a genuine resource failure always wins, and
+  //    only for the two coarse codes the relay's INSTALL executor actually
+  //    reports before this evidence would apply: nothing rolled back here,
+  //    the relay just failed to record that it had to report back.
+  if ((reported === 'STACK_CREATE_FAILED' || reported === 'UNKNOWN') && RELAY_STATE_WRITE_FAILURE.test(text)) {
+    return 'RELAY_STATE_WRITE_FAILED';
   }
 
   return reported;

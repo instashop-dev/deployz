@@ -1,0 +1,1 @@
+ALTER TYPE "public"."failure_code" ADD VALUE 'RELAY_STATE_WRITE_FAILED';
