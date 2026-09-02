@@ -263,6 +263,7 @@ const FAILURE_COMPONENT: Record<FailureCode, string | null> = {
   UNKNOWN: null,
   REDIS_PROVISIONING_FAILED: 'redis',
   REDIS_CONNECTION_FAILED: 'redis',
+  DOMAIN_OPERATION_TIMEOUT: 'domain',
 };
 
 interface FailureEntry {

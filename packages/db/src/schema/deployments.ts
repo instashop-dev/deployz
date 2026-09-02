@@ -61,6 +61,12 @@ export const deployments = pgTable('deployments', {
   attemptNumber: integer('attempt_number').notNull().default(0),
   bootstrapStackName: text('bootstrap_stack_name'),
   installStartedAt: timestamp('install_started_at', { withTimezone: true }),
+  // Phase 5 §9.6: the identifiers a relay/reset REPLACED. A reset nulls
+  // installationId and may rename the bootstrap stack, so the previous
+  // stack's retained resources stay attributable to this deployment — a
+  // later purge carries these to find them instead of silently orphaning.
+  previousInstallationId: text('previous_installation_id'),
+  previousBootstrapStackName: text('previous_bootstrap_stack_name'),
   // sha256 of the relay's bearer token. Stored (not the plaintext) and in
   // Postgres (not in memory) so a restart cannot reopen the enrollment.
   relayTokenHash: text('relay_token_hash'),

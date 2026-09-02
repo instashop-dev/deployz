@@ -2,7 +2,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, notInArray } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -798,6 +798,12 @@ const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
 // container). Only then may retry-install supersede the job.
 const INSTALL_JOB_STALE_AFTER_MS = 30 * 60 * 1000;
 
+// §9.4 force-complete on a LIVE relay: how many consecutive FAILED DESTROY
+// jobs must accumulate before the escape hatch opens even though the relay
+// still reads online. One failure is retryable by the vendor; two failures
+// on a connected relay mean the delete itself is wedged.
+const REPEATED_DESTROY_FAILURES_REQUIRED = 2;
+
 /** 409s a deploy/rollback/restart aimed at a deployment that has nothing to
  *  deploy into — the single-deployment mirror of the skip reason deploy-bulk
  *  gives. A FAILED deployment that never completed a first successful
@@ -817,6 +823,25 @@ async function requireDeployableState(db: RuntimeDb, deployment: DeploymentRow):
       409,
       'DEPLOYMENT_NOT_DEPLOYABLE',
       'This deployment never completed its first install; use Retry install instead.',
+    );
+  }
+  // §9.5 relay-liveness gates, mirroring retry-install's refusals: a job
+  // queued for a relay that is not (or no longer) connected would sit
+  // REQUESTED until the watchdog fails it an hour later, which the vendor
+  // just watched happen. The fix for a dead relay is re-enrollment
+  // (relay/reset), not another doomed job — refuse so the UI points there.
+  if (!deployment.installationId) {
+    throw new ApiError(
+      409,
+      'RELAY_NOT_CONNECTED',
+      'No relay is connected to this deployment. Reconnect it before deploying.',
+    );
+  }
+  if (deployment.relayStatus === 'DISCONNECTED') {
+    throw new ApiError(
+      409,
+      'RELAY_DISCONNECTED',
+      'The relay for this deployment is disconnected. Reconnect it before deploying.',
     );
   }
 }
@@ -1822,6 +1847,38 @@ export async function buildServer({
     await loadOwnedApplication(db, id, organizationId); // 404s on cross-org access
     const body = setConfigBodySchema.parse(request.body);
     const scope = await resolveConfigScope(db, body.customerId, organizationId);
+    // §9.5 relay-liveness gate for config-update, mirroring the deploy gate:
+    // the worker fans CONFIG_UPDATE jobs out to this app's deployments, and a
+    // disconnected relay never claims its share. Refuse the whole write so the
+    // vendor reconnects first instead of watching doomed jobs accumulate.
+    // Scope matches the worker's fan-out exactly (customer-scoped; a null
+    // customer fan-out is empty and needs no gate).
+    if (scope.customerId !== null) {
+      const deadRelay = await db
+        .select({ id: schema.deployments.id })
+        .from(schema.deployments)
+        .where(
+          and(
+            eq(schema.deployments.applicationId, id),
+            eq(schema.deployments.customerId, scope.customerId),
+            notInArray(schema.deployments.state, [
+              'NOT_INSTALLED',
+              'WAITING_FOR_RELAY',
+              'DELETING',
+              'DELETED',
+            ]),
+            eq(schema.deployments.relayStatus, 'DISCONNECTED'),
+          ),
+        )
+        .limit(1);
+      if (deadRelay.length > 0) {
+        throw new ApiError(
+          409,
+          'RELAY_DISCONNECTED',
+          'A deployment relay for this configuration is disconnected. Reconnect it before changing configuration.',
+        );
+      }
+    }
     const view = await setConfig(
       id,
       scope.customerId,
@@ -2845,6 +2902,16 @@ export async function buildServer({
         });
         continue;
       }
+      // Same §9.5 gate as the single-deploy route: a dead relay never claims
+      // the job, and the watchdog would fail it later — skip with a reason.
+      if (deployment.relayStatus === 'DISCONNECTED') {
+        results.push({
+          deploymentId: deployment.id,
+          status: 'SKIPPED',
+          reason: 'The relay for this deployment is disconnected — reconnect it before deploying.',
+        });
+        continue;
+      }
       const idempotencyKey = await retryAwareIdempotencyKey(
         db,
         deployment.id,
@@ -3061,7 +3128,8 @@ export async function buildServer({
   });
 
   // POST /api/deployments/:id/disconnect/force-complete — settle a DESTROY
-  // whose relay went offline mid-delete.
+  // whose relay went offline mid-delete, OR whose delete keeps FAILING on a
+  // relay that is still online.
   //
   // This completes the CONTROL-PLANE disconnect only. It never claims the
   // customer's AWS resources were removed: cleanupState records
@@ -3077,59 +3145,106 @@ export async function buildServer({
       const organizationId = requireSessionOrganizationId(request);
       const deployment = await loadOwnedDeployment(db, id, organizationId);
 
-      if (deployment.state !== 'DELETING') {
-        throw new ApiError(
-          409,
-          'NOT_DELETING',
-          'Only a disconnect that is still in progress can be completed this way.',
-        );
-      }
-      // Persisted liveness is the gate: the worker sweep only writes
-      // DISCONNECTED after the relay missed its check-in window, so this
-      // cannot fire on a relay that is merely between polls.
-      if (deployment.relayStatus !== 'DISCONNECTED') {
-        throw new ApiError(
-          409,
-          'RELAY_NOT_OFFLINE',
-          'The relay for this deployment is not confirmed offline.',
-        );
-      }
-
-      const pendingDestroy = await db
+      // Two escape paths, discriminated by whether a DESTROY is still in
+      // flight:
+      //   1. DELETING + a pending (REQUESTED..RUNNING) DESTROY — the relay
+      //      went offline mid-delete (relayStatus DISCONNECTED required).
+      //   2. DELETING or FAILED + NO pending DESTROY, but REPEATED FAILED
+      //      DESTROY jobs whose latest is the deployment's newest job — the
+      //      delete itself is wedged on a relay that keeps reporting failure
+      //      (even while technically connected).
+      const destroys = await db
         .select()
         .from(schema.deploymentJobs)
         .where(
           and(
             eq(schema.deploymentJobs.deploymentId, deployment.id),
             eq(schema.deploymentJobs.type, 'DESTROY'),
-            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
           ),
         )
         .orderBy(desc(schema.deploymentJobs.createdAt))
-        .limit(1);
-      const job = pendingDestroy[0];
-      if (!job) {
-        throw new ApiError(409, 'NO_PENDING_DESTROY', 'No disconnect is waiting on this deployment.');
-      }
-      const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
-      const pendingMs = Date.now() - lastSignal.getTime();
-      if (pendingMs < DESTROY_PENDING_STALE_AFTER_MS) {
-        throw new ApiError(
-          409,
-          'DESTROY_NOT_STALE',
-          'The disconnect has not been pending long enough to complete it this way.',
-        );
+        .limit(10);
+      const job = destroys.find((j) =>
+        ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'].includes(j.state),
+      );
+
+      if (job) {
+        // Path 1 — offline relay mid-delete.
+        if (deployment.state !== 'DELETING') {
+          throw new ApiError(
+            409,
+            'NOT_DELETING',
+            'Only a disconnect that is still in progress can be completed this way.',
+          );
+        }
+        // Persisted liveness is the gate: the worker sweep only writes
+        // DISCONNECTED after the relay missed its check-in window, so this
+        // cannot fire on a relay that is merely between polls.
+        if (deployment.relayStatus !== 'DISCONNECTED') {
+          throw new ApiError(
+            409,
+            'RELAY_NOT_OFFLINE',
+            'The relay for this deployment is not confirmed offline.',
+          );
+        }
+        const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
+        if (Date.now() - lastSignal.getTime() < DESTROY_PENDING_STALE_AFTER_MS) {
+          throw new ApiError(
+            409,
+            'DESTROY_NOT_STALE',
+            'The disconnect has not been pending long enough to complete it this way.',
+          );
+        }
+      } else {
+        // Path 2 — repeated FAILED destroys, no job in flight.
+        const latestAny = await db
+          .select({ type: schema.deploymentJobs.type, state: schema.deploymentJobs.state })
+          .from(schema.deploymentJobs)
+          .where(eq(schema.deploymentJobs.deploymentId, deployment.id))
+          .orderBy(desc(schema.deploymentJobs.createdAt))
+          .limit(1);
+        if (
+          deployment.state !== 'DELETING' &&
+          deployment.state !== 'FAILED'
+        ) {
+          throw new ApiError(
+            409,
+            'NOT_DELETING',
+            'Only a disconnect that is still in progress can be completed this way.',
+          );
+        }
+        const failedDestroys = destroys.filter((d) => d.state === 'FAILED');
+        if (
+          failedDestroys.length < REPEATED_DESTROY_FAILURES_REQUIRED ||
+          latestAny[0]?.type !== 'DESTROY' ||
+          latestAny[0]?.state !== 'FAILED'
+        ) {
+          throw new ApiError(409, 'NO_PENDING_DESTROY', 'No disconnect is waiting on this deployment.');
+        }
+        const lastFailedAt = destroys[0]!.finishedAt ?? destroys[0]!.updatedAt ?? destroys[0]!.createdAt;
+        if (Date.now() - lastFailedAt.getTime() < DESTROY_PENDING_STALE_AFTER_MS) {
+          throw new ApiError(
+            409,
+            'DESTROY_NOT_STALE',
+            'The disconnect has not been pending long enough to complete it this way.',
+          );
+        }
       }
 
+      const reason = job ? 'RELAY_OFFLINE' : 'REPEATED_DESTROY_FAILURE';
+      const settleJobId = job?.id ?? destroys[0]!.id;
+
       await db.transaction(async (tx) => {
-        await tx
-          .update(schema.deploymentJobs)
-          .set({
-            state: 'CANCELLED',
-            finishedAt: new Date(),
-            result: { forceCompleted: true, reason: 'RELAY_OFFLINE' },
-          })
-          .where(eq(schema.deploymentJobs.id, job.id));
+        if (job) {
+          await tx
+            .update(schema.deploymentJobs)
+            .set({
+              state: 'CANCELLED',
+              finishedAt: new Date(),
+              result: { forceCompleted: true, reason },
+            })
+            .where(eq(schema.deploymentJobs.id, job.id));
+        }
         await tx
           .update(schema.deployments)
           .set({
@@ -3155,13 +3270,13 @@ export async function buildServer({
           actorId: request.user?.id ?? 'system',
           deploymentId: deployment.id,
           customerId: deployment.customerId,
-          jobId: job.id,
+          jobId: settleJobId,
           previousState: deployment.state,
           requestedState: 'DELETED',
           result: 'success',
           payload: {
-            relayStatus: 'DISCONNECTED',
-            pendingMs,
+            relayStatus: deployment.relayStatus,
+            reason,
             awsResourcesRemoved: false,
             cleanupState: 'SKIPPED_RELAY_OFFLINE',
           },
@@ -3183,7 +3298,10 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
 
-    if (deployment.state !== 'DELETED' || deployment.cleanupState !== 'SKIPPED_RELAY_OFFLINE') {
+    if (
+      deployment.state !== 'DELETED' ||
+      (deployment.cleanupState !== 'SKIPPED_RELAY_OFFLINE' && deployment.cleanupState !== 'PURGE_FAILED')
+    ) {
       throw new ApiError(
         409,
         'NOT_PURGE_ELIGIBLE',
@@ -3200,7 +3318,18 @@ export async function buildServer({
       deploymentId: deployment.id,
       type: 'PURGE',
       idempotencyKey,
-      payload: {},
+      // Phase 5 §9.6: a reset may have LEFT an older installation behind
+      // (previous stack/install ids recorded on the row). Carry them so the
+      // purge can find and account for that stack's retained resources
+      // instead of silently orphaning them.
+      payload: {
+        ...(deployment.previousInstallationId
+          ? { previousInstallationId: deployment.previousInstallationId }
+          : {}),
+        ...(deployment.previousBootstrapStackName
+          ? { previousBootstrapStackName: deployment.previousBootstrapStackName }
+          : {}),
+      },
       requestedBy: request.user?.id ?? null,
     });
     if (created) {
@@ -3272,6 +3401,15 @@ export async function buildServer({
           enrollmentCode,
           enrollmentUsedAt: null,
           installationId: null,
+          // Phase 5 §9.6: the identifiers this reset replaces stay recorded so
+          // a later purge can still find the PREVIOUS stack's retained
+          // resources — re-enrollment must not silently orphan them.
+          ...(deployment.installationId
+            ? { previousInstallationId: deployment.installationId }
+            : {}),
+          ...(deployment.bootstrapStackName
+            ? { previousBootstrapStackName: deployment.bootstrapStackName }
+            : {}),
           relayTokenHash: null,
           relayBoundAt: null,
           relayStatus: 'UNKNOWN',
@@ -3291,7 +3429,16 @@ export async function buildServer({
         customerId: deployment.customerId,
         previousState: deployment.state,
         requestedState: neverInstalled ? 'NOT_INSTALLED' : deployment.state,
-        payload: { attempt: nextAttempt, bootstrapStackName: neverInstalled ? stackName : null },
+        payload: {
+          attempt: nextAttempt,
+          bootstrapStackName: neverInstalled ? stackName : null,
+          ...(deployment.installationId
+            ? { previousInstallationId: deployment.installationId }
+            : {}),
+          ...(deployment.bootstrapStackName
+            ? { previousBootstrapStackName: deployment.bootstrapStackName }
+            : {}),
+        },
       });
     });
 
@@ -4415,6 +4562,17 @@ export async function buildServer({
         await tx
           .update(schema.deployments)
           .set({ cleanupState: 'COMPLETE' })
+          .where(eq(schema.deployments.id, deployment.id));
+      }
+      // A failed PURGE must NOT resurrect the deployment (never back to
+      // FAILED — deploymentStateAfterFailedJob already returns null for it):
+      // the cleanup lifecycle is separate, so the failure records itself on
+      // cleanupState instead, keeping the deployment DELETED and the purge
+      // retryable from the PURGE_FAILED state.
+      if (job.type === 'PURGE' && state === 'FAILED') {
+        await tx
+          .update(schema.deployments)
+          .set({ cleanupState: 'PURGE_FAILED' })
           .where(eq(schema.deployments.id, deployment.id));
       }
 

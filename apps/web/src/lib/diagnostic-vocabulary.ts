@@ -37,6 +37,7 @@ export const FAILURE_CODES = [
   'UNKNOWN',
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
+  'DOMAIN_OPERATION_TIMEOUT',
 ] as const;
 
 /** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */
@@ -169,6 +170,11 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     description: "The app started, but it can't reach its cache.",
     severity: 'critical',
   },
+  DOMAIN_OPERATION_TIMEOUT: {
+    label: 'Custom domain update timed out',
+    description: 'The custom domain change did not finish in time. It can be retried.',
+    severity: 'warning',
+  },
 };
 
 /**
@@ -233,6 +239,7 @@ export const FAILURE_RECOVERABILITY: Record<FailureCode, FailureRecoverability> 
   UNKNOWN: 'RECONCILE_FIRST',
   REDIS_PROVISIONING_FAILED: 'DEPLOYZ_ACTION',
   REDIS_CONNECTION_FAILED: 'RECONCILE_FIRST',
+  DOMAIN_OPERATION_TIMEOUT: 'RECONCILE_FIRST',
 };
 
 /** §65 one-liner per recoverability class (mirrors @deployz/copy-map verbatim). */

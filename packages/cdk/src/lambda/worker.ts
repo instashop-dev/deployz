@@ -449,6 +449,11 @@ const JOB_TIMEOUTS_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect
   RESTART: 20 * 60 * 1000,
   CONFIG_UPDATE: 20 * 60 * 1000,
   PURGE: 60 * 60 * 1000,
+  // Phase 5 §9.3: domain operations ride the same relay channel, so a stuck
+  // CONFIGURE_DOMAIN/REMOVE_DOMAIN must not idle forever — generous window
+  // (cert issuance + ALB listener work is a single invocation) then fail.
+  CONFIGURE_DOMAIN: 60 * 60 * 1000,
+  REMOVE_DOMAIN: 60 * 60 * 1000,
 };
 
 /**
@@ -470,6 +475,8 @@ const JOB_MAX_RUNTIME_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSel
   CONFIG_UPDATE: 30 * 60 * 1000,
   DESTROY: 90 * 60 * 1000,
   PURGE: 90 * 60 * 1000,
+  CONFIGURE_DOMAIN: 90 * 60 * 1000,
+  REMOVE_DOMAIN: 90 * 60 * 1000,
 };
 
 /** Re-offers per job before the watchdog concludes the operation is wedged. */
@@ -563,7 +570,16 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
       // Re-offers exhausted (or the relay never claims what it is offered).
       // DESTROY still never fails from here — force-complete owns it.
       if (timeout === undefined) continue;
-      await failStuckJob(db, job, deployment, now, 'UNKNOWN', evidence);
+      await failStuckJob(
+        db,
+        job,
+        deployment,
+        now,
+        job.type === 'CONFIGURE_DOMAIN' || job.type === 'REMOVE_DOMAIN'
+          ? 'DOMAIN_OPERATION_TIMEOUT'
+          : 'UNKNOWN',
+        evidence,
+      );
       settled += 1;
       continue;
     }
@@ -611,21 +627,29 @@ async function failStuckJob(
   job: typeof schema.deploymentJobs.$inferSelect,
   deployment: typeof schema.deployments.$inferSelect,
   now: Date,
-  failureCode: 'UNKNOWN' | 'RELAY_DISCONNECTED',
+  failureCode: 'UNKNOWN' | 'RELAY_DISCONNECTED' | 'DOMAIN_OPERATION_TIMEOUT',
   evidence: Record<string, unknown>,
 ): Promise<void> {
+  // Phase 5 §9.3: a domain job timeout must never fail the DEPLOYMENT —
+  // the domain is a separate lifecycle (same rule as the relay result
+  // route's isDomainJobType guard). Its failure surfaces on the
+  // custom_domains row instead, and the next heartbeat nudge opens a fresh
+  // retry cycle.
+  const isDomainJob = job.type === 'CONFIGURE_DOMAIN' || job.type === 'REMOVE_DOMAIN';
   // Same settlement rule as the relay result route: a timed-out day-2
   // operation on a deployment with a running release must not mark the
   // whole deployment FAILED — the previous release is still serving.
-  const nextState = deploymentStateAfterFailedJob({
-    jobType: job.type,
-    hasCurrentRelease: deployment.currentReleaseId !== null,
-    newerReadyReleaseExists: await newerReadyReleaseExists(
-      db,
-      deployment.applicationId,
-      deployment.currentReleaseId,
-    ),
-  });
+  const nextState = isDomainJob
+    ? null
+    : deploymentStateAfterFailedJob({
+        jobType: job.type,
+        hasCurrentRelease: deployment.currentReleaseId !== null,
+        newerReadyReleaseExists: await newerReadyReleaseExists(
+          db,
+          deployment.applicationId,
+          deployment.currentReleaseId,
+        ),
+      });
 
   await db.transaction(async (tx) => {
     await tx
@@ -642,6 +666,29 @@ async function failStuckJob(
       await tx
         .update(schema.deployments)
         .set({ state: nextState })
+        .where(eq(schema.deployments.id, deployment.id));
+    }
+
+    if (isDomainJob) {
+      await tx
+        .update(schema.customDomains)
+        .set({ lastError: failureCode })
+        .where(
+          and(
+            eq(schema.customDomains.deploymentId, deployment.id),
+            isNull(schema.customDomains.removedAt),
+          ),
+        );
+    }
+
+    // Phase 5 §9.2: a timed-out PURGE keeps the deployment DELETED (the
+    // cleanup lifecycle is separate) — the failure lands on cleanupState so
+    // the purge stays retryable from PURGE_FAILED instead of resurrecting
+    // the deployment into a deployment-failure state.
+    if (job.type === 'PURGE') {
+      await tx
+        .update(schema.deployments)
+        .set({ cleanupState: 'PURGE_FAILED' })
         .where(eq(schema.deployments.id, deployment.id));
     }
 

@@ -325,3 +325,105 @@ service update. Without a command, the deploy is exactly as before.
   update, non-zero exit fails with MIGRATION_FAILED leaving pointers and
   the service untouched, no-command deploys behave as before, rollback
   never runs migrations, and the ladder includes Migration.
+
+## Phase 5 — Delete, purge, and disconnect lifecycle correctness (2026-09-02)
+
+Phase 5 closes the remaining lifecycle gaps around delete (DESTROY), purge
+(PURGE), the disconnect force-complete escape hatch, relay-reset tracking,
+and the relay-liveness gates. It adds behavior ONLY where the plan (§9)
+identified gaps; everything already correct was audited and left in place.
+
+### Already existed (audited, not reimplemented)
+
+- Tag-checked DESTROY with DELETE_FAILED recovery and the destroy resumer
+  (`packages/relay/src/destroy.ts`).
+- PURGE with the tag-refusal guard, retained-resource cleanup (RDS /
+  ElastiCache / S3), pending debt, and the purge resumer
+  (`packages/relay/src/purge.ts`).
+- Force-complete for a stale DESTROY on a relay confirmed DISCONNECTED,
+  and purge eligibility (`SKIPPED_RELAY_OFFLINE`), in
+  `apps/api/src/disconnect-force-complete.test.ts`.
+- `POST /api/deployments/:id/relay/reset` (re-enrollment flow).
+- Custom-domain jobs (`CONFIGURE_DOMAIN` / `REMOVE_DOMAIN`) in
+  `apps/api/src/domains.ts`.
+- The watchdog (`sweepStuckJobs` in `packages/cdk/src/lambda/worker.ts`)
+  already covered INSTALL, DEPLOY_RELEASE, ROLLBACK, RESTART, CONFIG_UPDATE,
+  DESTROY and PURGE timeouts.
+- `deploymentStateAfterFailedJob` already returned `null` for a failed
+  PURGE, so a DELETED deployment was never resurrected to FAILED by the
+  relay-result path.
+
+### Added
+
+1. **Purge ownership (§9.1)** — the bootstrap/relay stack never carries a
+   `deployz:installation` tag (the id is minted inside it after creation),
+   so the old tag-refusal guard made the bootstrap removal never run. The
+   purge now deletes the bootstrap stack by its KNOWN NAME (baked into the
+   relay environment as `Ref AWS::StackName`). The application stack and
+   orphan resources still verify the tag. A permission failure
+   (AccessDenied / UnauthorizedOperation / 403) while reading orphan tags
+   is now classed as a retryable `AWS_PERMISSION_DENIED` failure — it is
+   NEVER silently treated as "resource does not exist" (the old behavior
+   reported `purged: true` while resources remained).
+
+2. **Cleanup state separation (§9.2)** — new `cleanup_state` value
+   `PURGE_FAILED` (migration `0025`). A failed PURGE keeps the deployment
+   `DELETED` and records the failure on `cleanupState` (both on the relay
+   result route and the watchdog). The purge route now accepts
+   `PURGE_FAILED` as retryable. The web banner "resources may remain" now
+   also shows for `PURGE_FAILED`.
+
+3. **Watchdogs (§9.3)** — `CONFIGURE_DOMAIN` and `REMOVE_DOMAIN` now have
+   the generous 60-minute staleness / 90-minute runtime bounds. A stuck
+   domain job is failed with the new `DOMAIN_OPERATION_TIMEOUT` code
+   (live relay) or `RELAY_DISCONNECTED` (dead relay after grace), the
+   deployment state is never touched (domain lifecycle is separate), and
+   the custom-domain row records the failure on `lastError` so the next
+   heartbeat nudge opens a fresh retry cycle.
+
+4. **Force-complete (§9.4)** — the escape hatch now also covers repeated
+   DESTROY failures on a relay still online: two or more FAILED DESTROY
+   jobs whose newest is the deployment's newest job, with the latest
+   failure older than `DESTROY_PENDING_STALE_AFTER_MS`, settle to `DELETED`
+   + `SKIPPED_RELAY_OFFLINE` with event reason
+   `REPEATED_DESTROY_FAILURE` (honest "resources may remain").
+
+5. **Relay liveness gates (§9.5)** — deploy, rollback and restart now
+   refuse `409 RELAY_NOT_CONNECTED` (no relay bound) or
+   `409 RELAY_DISCONNECTED` (bound but dead) before queuing a job,
+   mirroring retry-install. Bulk deploy skips DISCONNECTED targets with a
+   reason. `PUT /api/applications/:id/config` with a customer scope whose
+   deployment relay is DISCONNECTED refuses `409 RELAY_DISCONNECTED`.
+
+6. **Relay reset tracking (§9.6)** — new columns
+   `previous_installation_id` and `previous_bootstrap_stack_name`
+   (migration `0025`). `relay/reset` records the identifiers it replaces,
+   the re-enrollment event carries them, and the purge job payload passes
+   them so the old stack's retained resources stay attributable to the
+   deployment instead of being silently orphaned. (The relay's IAM cannot
+   delete old-stack resources by design, so this is a control-plane
+   attribution record, not a new relay capability.)
+
+### Tests
+
+One focused test per gap, all vitest fakes (no real AWS):
+
+- `packages/relay/src/purge.test.ts` — permission failure → retryable
+  `AWS_PERMISSION_DENIED` (never success); bootstrap stack deleted by name
+  even untagged / mismatched-tag.
+- `apps/api/src/failure-semantics.test.ts` — failed PURGE via relay result
+  → deployment stays `DELETED`, `cleanupState` becomes `PURGE_FAILED`.
+- `apps/api/src/disconnect-force-complete.test.ts` — failed PURGE retry
+  (route-level 202) and force-complete on repeated DESTROY failures (live
+  relay) + single-failure refusal.
+- `packages/cdk/test/worker.test.ts` — stuck CONFIGURE_DOMAIN →
+  `DOMAIN_OPERATION_TIMEOUT`, deployment unchanged, domain `lastError` set.
+- `apps/api/src/server.test.ts` — deploy/rollback refuse on
+  disconnected / unbound relays; config PUT refuses on a dead relay;
+  `relay/reset` records previous identifiers (+ event payload).
+- `apps/web/test/diagnostic-vocabulary.test.ts` +
+  `packages/copy-map/test/copy-map.test.ts` — failure-code list widened to
+  22 with the new code.
+
+Full build (`pnpm build`) and the full vitest suite pass (93 files; one
+known Windows `onTaskUpdate` timeout flake, no real failure).

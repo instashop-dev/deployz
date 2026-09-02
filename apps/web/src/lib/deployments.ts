@@ -70,7 +70,7 @@ export interface FleetDeployment {
   lastHealthAt: string | null;
   deletedAt: string | null;
   /** What the control plane knows about AWS leftovers at disconnect. */
-  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'COMPLETE' | null;
+  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'PURGE_FAILED' | 'COMPLETE' | null;
   createdAt: string;
   updatedAt: string;
   createdBy: string | null;

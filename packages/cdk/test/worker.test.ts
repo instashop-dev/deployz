@@ -808,6 +808,67 @@ describe('sweepStuckJobs', () => {
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
     expect(job?.state).toBe('RUNNING');
   });
+
+  // Phase 5 §9.3: CONFIGURE_DOMAIN/REMOVE_DOMAIN previously had no watchdog
+  // entry, so a stuck domain job idled in RUNNING forever. Now it is failed
+  // with a clear code, the DEPLOYMENT is untouched (separate lifecycle),
+  // and the domain row carries the error so the next cycle can retry.
+  it('fails a CONFIGURE_DOMAIN stuck past the window with DOMAIN_OPERATION_TIMEOUT, leaving the deployment alone', async () => {
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'HEALTHY',
+        relayStatus: 'CONNECTED',
+        installationId: `inst-${randomUUID()}`,
+        enrollmentCode: randomUUID(),
+      })
+      .returning();
+    const [domain] = await db
+      .insert(schema.customDomains)
+      .values({
+        deploymentId: deployment!.id,
+        organizationId,
+        hostname: 'example.com',
+        status: 'CONFIGURING',
+        createdBy: 'system',
+      })
+      .returning();
+
+    const started = new Date(Date.now() - 95 * 60 * 1000);
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment!.id,
+        type: 'CONFIGURE_DOMAIN',
+        state: 'RUNNING',
+        idempotencyKey: `domain:${randomUUID()}`,
+        payload: { hostname: 'example.com', domainId: domain!.id },
+        startedAt: started,
+        lastProgressAt: new Date(Date.now() - 65 * 60 * 1000),
+        reconcileCount: 3,
+      })
+      .returning();
+
+    await sweepStuckJobs(db);
+
+    const [jobRow] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job!.id));
+    expect(jobRow?.state).toBe('FAILED');
+    expect(jobRow?.failureCode).toBe('DOMAIN_OPERATION_TIMEOUT');
+    expect(jobRow?.result).toMatchObject({ timeout: true });
+
+    const [deploymentRow] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deployment!.id));
+    expect(deploymentRow?.state).toBe('HEALTHY');
+
+    const [domainRow] = await db.select().from(schema.customDomains).where(eq(schema.customDomains.id, domain!.id));
+    expect(domainRow?.lastError).toBe('DOMAIN_OPERATION_TIMEOUT');
+  });
 });
 
 // ── Relay-liveness sweep (persisted DISCONNECTED) ─────────────────────────
