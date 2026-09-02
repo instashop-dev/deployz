@@ -39,7 +39,15 @@ import {
   DescribeStacksCommand,
   type Capability,
 } from '@aws-sdk/client-cloudformation';
-import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
+import {
+  DEFAULT_APPLICATION_STACK_NAME,
+  type DeploymentManifest,
+} from '@deployz/contracts';
+
+/** CFN logical id of the template's container-port parameter (CDK strips the underscore from `param_ContainerPort`). */
+export const CONTAINER_PORT_PARAMETER = 'paramContainerPort';
+/** CFN logical id of the template's health-check-path parameter (CDK strips the underscore from `param_HealthCheckPath`). */
+export const HEALTH_CHECK_PATH_PARAMETER = 'paramHealthCheckPath';
 
 /** The stack tag both the relay's IAM condition and the verifier read. */
 export const INSTALLATION_TAG = 'deployz:installation';
@@ -177,6 +185,31 @@ export type InstallOutcome =
 
 const DEFAULT_BUDGET_MS = 180_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * Translate the canonical deployment manifest into the application template's
+ * per-install CloudFormation parameters. Phase 2: the manifest — never the
+ * ad-hoc detector columns — is the source for the values the template's
+ * `param_ContainerPort` / `param_HealthCheckPath` parameters carry.
+ *
+ * `web.port` and `health.path` are the only manifest fields the application
+ * template can parameterize; the remaining manifest fields (build context,
+ * worker command, dependency requirements) shape infrastructure that is fixed
+ * at template-publish time. Values the control plane supplies as secret
+ * parameters are merged by the caller, with the manifest winning conflicts.
+ */
+export function buildInstallParametersFromManifest(
+  manifest: DeploymentManifest,
+): Record<string, string> {
+  const parameters: Record<string, string> = {};
+  if (manifest.web.port !== null) {
+    parameters[CONTAINER_PORT_PARAMETER] = String(manifest.web.port);
+  }
+  if (manifest.health.path.length > 0) {
+    parameters[HEALTH_CHECK_PATH_PARAMETER] = manifest.health.path;
+  }
+  return parameters;
+}
 
 /**
  * How many consecutive unreadable polls mean the stack is really gone.

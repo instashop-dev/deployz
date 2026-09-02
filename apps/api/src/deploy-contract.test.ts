@@ -24,7 +24,11 @@ describe('deploy contract, busy gate and restart', () => {
   let customerId: string;
 
   const REPO = '151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images';
-  const DIGEST = 'sha256:' + 'a'.repeat(64);
+
+  /** Every build produces its own digest — releases of the same repo differ by version. */
+  function digestFor(version: string): string {
+    return `${REPO}@sha256:${hashRelayToken(version)}`;
+  }
 
   async function seedDeployment(
     overrides: Partial<typeof schema.deployments.$inferInsert> = {},
@@ -74,6 +78,7 @@ describe('deploy contract, busy gate and restart', () => {
     options: {
       releaseStatus?: 'BUILDING' | 'READY' | 'FAILED';
       imageDigest?: string | null;
+      migrationCommand?: string | null;
     } = {},
   ): Promise<string> {
     const [row] = await db
@@ -83,9 +88,10 @@ describe('deploy contract, busy gate and restart', () => {
         version,
         gitSha: 'abc123',
         imageDigest:
-          'imageDigest' in options ? options.imageDigest! : `${REPO}@${DIGEST}`,
+          'imageDigest' in options ? options.imageDigest! : digestFor(version),
         buildStatus: options.releaseStatus === 'READY' ? 'SUCCEEDED' : 'BUILDING',
         releaseStatus: options.releaseStatus ?? 'READY',
+        ...('migrationCommand' in options ? { migrationCommand: options.migrationCommand } : {}),
       })
       .returning();
     return row!.id;
@@ -166,8 +172,53 @@ describe('deploy contract, busy gate and restart', () => {
       releaseId,
       version: 'v1.0.0',
       imageRepository: REPO,
-      imageDigest: DIGEST,
+      imageDigest: digestFor('v1.0.0').split('@')[1],
     });
+  });
+
+  it('threads the migration command into the DEPLOY_RELEASE payload (release override)', async () => {
+    const deployment = await seedDeployment();
+    const releaseId = await seedRelease('v1.1.0', { migrationCommand: 'node migrate.js up' });
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job?.payload).toMatchObject({ migrationCommand: 'node migrate.js up' });
+  });
+
+  it('prefers the stored manifest migration.command over the release row', async () => {
+    const deployment = await seedDeployment({
+      desiredState: {
+        manifest: {
+          application: { root: '.', runtime: 'node', framework: null, dockerfilePath: null },
+          build: { command: null, context: '.' },
+          web: { command: null, port: 3000 },
+          health: { path: '/health' },
+          database: { postgres: true },
+          redis: { required: false, envBindings: [] },
+          storage: { required: false, envBindings: [] },
+          migration: { command: 'npm run db:migrate' },
+          worker: { command: null },
+          environment: { variables: [] },
+          externalServices: [],
+          unsupported: [],
+        },
+      },
+    });
+    const releaseId = await seedRelease('v1.2.0', { migrationCommand: 'npm run release:migrate' });
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job?.payload).toMatchObject({ migrationCommand: 'npm run db:migrate' });
   });
 
   it.each(['BUILDING', 'FAILED'] as const)(
@@ -335,12 +386,22 @@ describe('deploy contract, busy gate and restart', () => {
     expect(secondJobId).not.toBe(firstJobId);
   });
 
-  it('advances pointers v1 → v2 → v3 → rollback → v2 through job results', async () => {
+  it('advances pointers v1 → v2 → v3 → rollback → v2 only after each rollout passes the promotion gate', async () => {
     const deployment = await seedDeployment();
     const v1 = await seedRelease('v4.0.0');
     const v2 = await seedRelease('v4.1.0');
     const v3 = await seedRelease('v4.2.0');
 
+    const releaseDigest = async (releaseId: string): Promise<string> => {
+      const [row] = await db
+        .select({ imageDigest: schema.releases.imageDigest })
+        .from(schema.releases)
+        .where(eq(schema.releases.id, releaseId));
+      return row?.imageDigest ?? '';
+    };
+
+    // Reports the job's success, then the heartbeat that observes the release
+    // running behind every gate (§10.3) — the only thing that promotes it.
     const reportSuccess = async (releaseId: string, type: string): Promise<void> => {
       const jobs = await db
         .select()
@@ -362,6 +423,35 @@ describe('deploy contract, busy gate and restart', () => {
         payload: JSON.stringify({ success: true }),
       });
       expect(response.statusCode, response.body).toBe(200);
+
+      const heartbeat = await app.inject({
+        method: 'POST',
+        url: '/api/relay/health',
+        headers: {
+          authorization: `Bearer ${deployment.token}`,
+          'content-type': 'application/json',
+        },
+        payload: JSON.stringify({
+          installationId: deployment.installationId,
+          healthStatus: 'HEALTHY',
+          runningImageDigest: await releaseDigest(releaseId),
+          observedState: {
+            deploymentRolloutState: 'COMPLETED',
+            desiredCount: 2,
+            runningCount: 2,
+            unhealthyTargetCount: 0,
+            pendingTargetCount: 0,
+            unknownTargetCount: 0,
+            httpProbe: {
+              ok: true,
+              statusCode: 200,
+              latencyMs: 9,
+              checkedAt: new Date().toISOString(),
+            },
+          },
+        }),
+      });
+      expect(heartbeat.statusCode, heartbeat.body).toBe(200);
     };
 
     const pointers = async () => {

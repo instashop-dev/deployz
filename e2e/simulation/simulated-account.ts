@@ -97,6 +97,8 @@ export class SimulatedCustomerAccount {
   private currentTaskDefinitionArn = '';
   private taskDefinitionRevision = 1;
   private runningImageDigest: string | null = null;
+  /** The one-off migration task, when a deploy started one (Phase 4 stage). */
+  private migrationTaskArn: string | null = null;
   // One-shot: consumed (and reset) the first time `ecsDeployClient()`'s own
   // `describeServices` reads it as 'failed' — this is what settleEcsDeploy's
   // `rolloutFailed()` gate checks BEFORE issuing a new UpdateService, so a
@@ -118,10 +120,14 @@ export class SimulatedCustomerAccount {
   // ── Destroy state (D2) ──────────────────────────────────────────────────
   private deleteStartRealMs: number | null = null;
 
+  // ── Transient-fault injection ──────────────────────────────────────────
+  private transientDescribeRemaining: number;
+
   constructor(scenario: ScenarioDefinition) {
     this.scenario = scenario;
     this.indexedTimeline = scenario.timeline.map((event, index) => ({ event, index }));
     this.stackIdValue = `arn:aws:cloudformation:us-east-1:123456789012:stack/simulated-${crypto.randomUUID().slice(0, 8)}/${crypto.randomUUID()}`;
+    this.transientDescribeRemaining = scenario.transientDescribeFailures ?? 0;
   }
 
   get stackName(): string | null {
@@ -307,6 +313,13 @@ export class SimulatedCustomerAccount {
       createStack: (input: CreateStackInput) => this.createStack(input),
       describeStack: async (stackName: string): Promise<StackState | null> => {
         if (this.stackNameValue === null || stackName !== this.stackNameValue) return null;
+        // Transient fault: the real relay client maps a throttled/timed-out
+        // describe to `null` (unreadable) — the wait loop must ride these
+        // out, not fail a live install.
+        if (this.transientDescribeRemaining > 0) {
+          this.transientDescribeRemaining -= 1;
+          return null;
+        }
         const status = this.currentStackStatus();
         const outputs = SUCCESS_STATUSES.has(status) ? { ...(this.scenario.outputs ?? {}) } : {};
         const statusReason = this.latestStackStatusReason();
@@ -474,13 +487,30 @@ export class SimulatedCustomerAccount {
   }
 
   private async describeSimulatedTasks(): Promise<{
-    tasks: { containers?: { imageDigest?: string }[] }[];
+    tasks: {
+      lastStatus?: string;
+      stopCode?: string;
+      containers?: { imageDigest?: string; exitCode?: number }[];
+    }[];
   }> {
+    // The one-off migration task answers STOPPED + exit 0 immediately, so a
+    // scenario that carries a migration command resolves the migration stage
+    // the same way the rollout resolves: on the next poll.
     return {
-      tasks:
-        this.runningImageDigest !== null
+      tasks: [
+        ...(this.migrationTaskArn !== null
+          ? [
+              {
+                lastStatus: 'STOPPED',
+                stopCode: 'EssentialContainerExited',
+                containers: [{ exitCode: 0 }],
+              },
+            ]
+          : []),
+        ...(this.runningImageDigest !== null
           ? [{ containers: [{ imageDigest: this.runningImageDigest }] }]
-          : [],
+          : []),
+      ],
     };
   }
 
@@ -509,6 +539,13 @@ export class SimulatedCustomerAccount {
               runningCount: this.runningCount,
               taskDefinition: this.currentTaskDefinitionArn,
               deployments: [{ status: 'PRIMARY', rolloutState: failed ? 'FAILED' : 'COMPLETED' }],
+              networkConfiguration: {
+                awsvpcConfiguration: {
+                  subnets: ['subnet-11111aaa'],
+                  securityGroups: ['sg-22222bbb'],
+                  assignPublicIp: 'DISABLED',
+                },
+              },
             },
           ],
         };
@@ -568,6 +605,13 @@ export class SimulatedCustomerAccount {
       },
       listTasks: () => this.listSimulatedTasks(),
       describeTasks: () => this.describeSimulatedTasks(),
+      runTask: async () => {
+        this.ensureEcsDeployInitialized();
+        // Simulated migrations succeed instantly: the task answers STOPPED
+        // with exit code 0 on the next poll (see describeSimulatedTasks).
+        this.migrationTaskArn = 'arn:aws:ecs:us-east-1:123456789012:task/simulated/migration-1';
+        return { taskArns: [this.migrationTaskArn] };
+      },
     };
   }
 

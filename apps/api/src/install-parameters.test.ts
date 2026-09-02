@@ -77,6 +77,22 @@ async function insertCustomer(
   return row!;
 }
 
+/** A READY manifest — Phase 3 readiness gates re-evaluate it at relay register. */
+const READY_MANIFEST = {
+  application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+  build: { command: 'npm run build', context: '.' },
+  web: { command: 'npm start', port: 3000 },
+  health: { path: '/health' },
+  database: { postgres: true },
+  redis: { required: false, envBindings: [] },
+  storage: { required: false, envBindings: [] },
+  migration: { command: 'npm run db:migrate' },
+  worker: { command: null },
+  environment: { variables: [] },
+  externalServices: [],
+  unsupported: [],
+} as const;
+
 async function insertDeployment(
   db: Db,
   organizationId: string,
@@ -94,6 +110,7 @@ async function insertDeployment(
       state: 'NOT_INSTALLED',
       installationId: `inst-${crypto.randomUUID()}`,
       enrollmentCode: crypto.randomUUID(),
+      desiredState: { manifest: READY_MANIFEST },
       ...overrides,
     })
     .returning();
@@ -296,6 +313,44 @@ describe('INSTALL job payload.parameters wiring', () => {
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
     expect((job!.payload as { redisRequired?: boolean }).redisRequired).toBe(false);
+  });
+
+  it('POST /api/relay/register carries the canonical manifest from desired_state.manifest', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const manifest = {
+      application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+      build: { command: 'npm run build', context: '.' },
+      web: { command: 'node server.js', port: 8080 },
+      health: { path: '/api/health' },
+      database: { postgres: true },
+      redis: { required: true, envBindings: [{ name: 'REDIS_URL', kind: 'url' }] },
+      storage: { required: true, envBindings: [{ name: 'AWS_S3_BUCKET', kind: 'bucket' }] },
+      migration: { command: 'npm run migrate' },
+      worker: { command: null },
+      environment: { variables: ['LOG_LEVEL'] },
+      externalServices: [],
+      unsupported: [],
+    };
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+      desiredState: { manifest },
+    });
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId: `inst-${crypto.randomUUID()}` },
+      { authorization: 'Bearer relay-token-install-params-manifest' },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect((job!.payload as { manifest?: typeof manifest }).manifest).toEqual(manifest);
   });
 
   it('POST /api/deployments/:id/retry-install keeps recovery.neverInstalled AND adds parameters', async () => {

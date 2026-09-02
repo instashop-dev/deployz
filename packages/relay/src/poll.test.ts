@@ -225,9 +225,12 @@ describe('pollOnce — command fetching', () => {
 
   it('hands the deployment meta to the observe hook before the health report', async () => {
     const { fetchFn } = makeMockFetch({
-      commandsBody: { commands: [], deployment: { redisRequired: true } },
+      commandsBody: {
+        commands: [],
+        deployment: { redisRequired: true, probeUrl: 'http://alb.example/health' },
+      },
     });
-    const meta: { redisRequired: boolean }[] = [];
+    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
     const deps = makeDeps({
       fetchFn,
       onDeploymentMeta: (m) => meta.push(m),
@@ -237,14 +240,34 @@ describe('pollOnce — command fetching', () => {
 
     await pollOnce(deps, authState);
 
-    expect(meta).toEqual([{ redisRequired: true }]);
+    expect(meta).toEqual([{ redisRequired: true, probeUrl: 'http://alb.example/health' }]);
+  });
+
+  it('treats a malformed probeUrl in the deployment meta as none', async () => {
+    const { fetchFn } = makeMockFetch({
+      commandsBody: {
+        commands: [],
+        deployment: { redisRequired: false, probeUrl: 'not-a-url' },
+      },
+    });
+    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
+    const deps = makeDeps({
+      fetchFn,
+      onDeploymentMeta: (m) => meta.push(m),
+    });
+    const authState = createAuthState('inst-test', 'tok-123');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    expect(meta).toEqual([{ redisRequired: false, probeUrl: null }]);
   });
 
   it('ignores a deployment meta that is missing or wrongly typed', async () => {
     const { fetchFn } = makeMockFetch({
       commandsBody: { commands: [], deployment: { redisRequired: 'yes' } },
     });
-    const meta: { redisRequired: boolean }[] = [];
+    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
     const deps = makeDeps({
       fetchFn,
       onDeploymentMeta: (m) => meta.push(m),
@@ -726,6 +749,8 @@ describe('pollOnce — identity reporting', () => {
         desiredCount: 2,
         runningCount: 2,
         unhealthyTargetCount: 1,
+        pendingTargetCount: 0,
+        unknownTargetCount: 0,
         deploymentRolloutState: 'COMPLETED',
       }),
     });
@@ -744,6 +769,71 @@ describe('pollOnce — identity reporting', () => {
     expect(body.components).toEqual({ application: 'HEALTHY', loadBalancer: 'DEGRADED' });
     expect(body.observedState?.['desiredCount']).toBe(2);
     expect(body.observedState?.['unhealthyTargetCount']).toBe(1);
+    expect(body.observedState?.['pendingTargetCount']).toBe(0);
+    expect(body.observedState?.['unknownTargetCount']).toBe(0);
     expect(body.observedState?.['deploymentRolloutState']).toBe('COMPLETED');
+  });
+
+  it('reports the HTTP probe record (status/latency/timestamps) in observedState', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      observeProbe: async () => ({
+        ok: true,
+        statusCode: 200,
+        latencyMs: 42,
+        checkedAt: '2026-09-02T00:00:00.000Z',
+      }),
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as { observedState?: Record<string, unknown> };
+    expect(body.observedState?.['httpProbe']).toEqual({
+      ok: true,
+      statusCode: 200,
+      latencyMs: 42,
+      checkedAt: '2026-09-02T00:00:00.000Z',
+    });
+  });
+
+  it('omits httpProbe entirely when no probe ran this poll', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      observeProbe: async () => null,
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as { observedState?: Record<string, unknown> };
+    expect(body.observedState).not.toHaveProperty('httpProbe');
+  });
+
+  it('a failing probe is reported as a failed check, never dropped', async () => {
+    const { fetchFn, getRequests } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      observeProbe: async () => ({
+        ok: false,
+        statusCode: 503,
+        latencyMs: 7,
+        checkedAt: '2026-09-02T00:00:00.000Z',
+      }),
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    const healthReq = getRequests().find((r) => r.url.includes('/api/relay/health'));
+    const body = JSON.parse(healthReq?.body ?? '{}') as { observedState?: Record<string, unknown> };
+    expect(body.observedState?.['httpProbe']).toMatchObject({ ok: false, statusCode: 503 });
   });
 });

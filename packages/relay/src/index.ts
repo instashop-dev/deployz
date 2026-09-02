@@ -27,8 +27,10 @@ import {
   ECSClient,
   ListTasksCommand,
   RegisterTaskDefinitionCommand,
+  RunTaskCommand,
   UpdateServiceCommand,
   type RegisterTaskDefinitionCommandInput,
+  type RunTaskCommandInput,
 } from '@aws-sdk/client-ecs';
 import {
   DescribeTargetHealthCommand,
@@ -53,6 +55,7 @@ import {
 } from './deploy.js';
 import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
 import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
+import { probeHealthUrl } from './http-probe.js';
 import { readRelayIdentity } from './identity.js';
 import {
   createDestroyExecutor,
@@ -70,9 +73,11 @@ import {
 } from './purge.js';
 import {
   createConfigUpdateExecutor,
+  createRealConfigSecretsWriter,
   type EffectiveConfigEntry,
 } from './config-update.js';
 import {
+  buildInstallParametersFromManifest,
   createStackInstaller,
   installApplicationStack,
   type InstallOptions,
@@ -115,7 +120,9 @@ import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
   applicationStackNameForInstallation,
+  deploymentManifestSchema,
   redisApplicationTemplateUrl,
+  type DeploymentManifest,
 } from '@deployz/contracts';
 
 /**
@@ -305,6 +312,19 @@ function getEcsDeployClient(): EcsDeployClient {
               status: deployment.status ?? undefined,
               rolloutState: deployment.rolloutState ?? undefined,
             })),
+            networkConfiguration: service.networkConfiguration
+              ? {
+                  awsvpcConfiguration: service.networkConfiguration.awsvpcConfiguration
+                    ? {
+                        subnets: service.networkConfiguration.awsvpcConfiguration.subnets ?? undefined,
+                        securityGroups:
+                          service.networkConfiguration.awsvpcConfiguration.securityGroups ?? undefined,
+                        assignPublicIp:
+                          service.networkConfiguration.awsvpcConfiguration.assignPublicIp ?? undefined,
+                      }
+                    : undefined,
+                }
+              : undefined,
           })),
         };
       },
@@ -368,10 +388,31 @@ function getEcsDeployClient(): EcsDeployClient {
         );
         return {
           tasks: (response.tasks ?? []).map((task) => ({
+            lastStatus: task.lastStatus ?? undefined,
+            stopCode: task.stopCode ?? undefined,
+            stoppedReason: task.stoppedReason ?? undefined,
             containers: (task.containers ?? []).map((container) => ({
               imageDigest: container.imageDigest ?? undefined,
+              exitCode: container.exitCode ?? undefined,
             })),
           })),
+        };
+      },
+      async runTask(input) {
+        const response = await client.send(
+          new RunTaskCommand({
+            cluster: input.cluster,
+            taskDefinition: input.taskDefinition,
+            count: input.count,
+            launchType: input.launchType as 'FARGATE',
+            networkConfiguration: input.networkConfiguration,
+            overrides: input.overrides,
+          } as RunTaskCommandInput),
+        );
+        return {
+          taskArns: (response.tasks ?? [])
+            .map((task) => task.taskArn)
+            .filter((arn): arn is string => typeof arn === 'string'),
         };
       },
     };
@@ -586,9 +627,14 @@ async function settleInstall(
     }
 > {
   const verifyOptions = readVerifyOptionsFromPayload(request.payload);
+  const manifest = readDeploymentManifest(request.payload);
 
   let templateUrl = deps.templateUrl;
-  if (verifyOptions.redisRequired === true) {
+  // The canonical manifest's redis requirement is the source of truth when
+  // the payload carries it; the legacy top-level flag remains the fallback
+  // for control planes that have not shipped the manifest yet.
+  const redisRequired = verifyOptions.redisRequired ?? manifest?.redis.required ?? false;
+  if (redisRequired) {
     const redisTemplateUrl = redisApplicationTemplateUrl(deps.templateUrl);
     if (redisTemplateUrl === undefined) {
       // Provisioning the base template here would build a stack with no
@@ -614,7 +660,14 @@ async function settleInstall(
     installationId: deps.installationId,
     templateUrl,
     stackName: request.stackName,
-    parameters: readInstallParametersFromPayload(request.payload),
+    // Manifest-derived template parameters win over whatever the control
+    // plane resolved ad-hoc (health path / port columns); the control plane's
+    // secret parameters (paramAppApiKey, Documenso secrets) still flow through
+    // unchanged underneath them.
+    parameters: {
+      ...readInstallParametersFromPayload(request.payload),
+      ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
+    },
     ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),
     ...(collector ? { onPoll: (stackName: string) => collector.poll(stackName) } : {}),
   });
@@ -1016,6 +1069,20 @@ export function readInstallParametersFromPayload(
 }
 
 /**
+ * Extract the canonical deployment manifest from a command's payload.
+ *
+ * The manifest is the Phase 2 replacement for ad-hoc detector columns: it is
+ * persisted on `deployments.desired_state.manifest` at deployment creation and
+ * shipped in the INSTALL payload. Validated against the contracts schema at
+ * the payload boundary — an invalid or absent manifest reads as `null`, so a
+ * control plane that has not shipped one yet keeps the legacy behavior.
+ */
+export function readDeploymentManifest(payload: Record<string, unknown>): DeploymentManifest | null {
+  const parsed = deploymentManifestSchema.safeParse(payload['manifest']);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
  * Extract verification overrides from a command's payload.
  *
  * `command.payload` is `Record<string, unknown>` — shaped by the control
@@ -1131,6 +1198,7 @@ function deployResumerDeps(installationId: string): EcsDeployDeps {
   return {
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
+    elb: getTargetHealthReader(),
     pending: getPendingStore(installationId),
     stackName: relayApplicationStackName(),
     installationId,
@@ -1180,10 +1248,12 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
   });
 
   // The deploy executors share the ECS write seam behind a lazy SDK client
-  // (same construct-on-first-use rule as the readers above).
+  // (same construct-on-first-use rule as the readers above). The target
+  // health reader is the settle gate's second half.
   const deployDeps: EcsDeployDeps = {
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
+    elb: getTargetHealthReader(),
     pending: getPendingStore(installDeps.installationId),
     stackName: relayApplicationStackName(),
     installationId: installDeps.installationId,
@@ -1330,6 +1400,12 @@ export interface RelayHandlerDeps {
    * rollout state) wired into every health report.
    */
   observeHealth?: PollDependencies['observeHealth'];
+  /**
+   * Overrides the HTTP health-path probe (status code, latency, timestamps)
+   * wired into every health report. When omitted, probes the application URL
+   * the control plane passes in each poll's deployment meta.
+   */
+  observeProbe?: PollDependencies['observeProbe'];
 }
 
 /**
@@ -1362,9 +1438,13 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   // Deployment facts the commands response refreshes every poll. The §59
   // observe hook runs outside any command, so the poll response is the only
   // channel that can tell it whether the installation should include a
-  // cache — without this, a redis-required deployment's heartbeats verify
-  // against the cache-less expectation and never report the cache check.
-  const deploymentMeta: { redisRequired: boolean } = { redisRequired: false };
+  // cache and which application URL to probe — without this, a redis-required
+  // deployment's heartbeats verify against the cache-less expectation and
+  // never report the cache check, and no probe would ever run.
+  const deploymentMeta: { redisRequired: boolean; probeUrl: string | null } = {
+    redisRequired: false,
+    probeUrl: null,
+  };
 
   return async function relayHandler(
     event: ScheduledEvent,
@@ -1416,6 +1496,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
     const configExecutor = createConfigUpdateExecutor({
       cfn: getCloudFormationReader(),
       ecs: getEcsDeployClient(),
+      secrets: createRealConfigSecretsWriter(),
       fetchEffectiveConfig: async () => {
         const headers = buildAuthHeaders(state);
         const response = await deps.fetchFn(
@@ -1513,8 +1594,15 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             },
             relayApplicationStackName(),
           )),
+      observeProbe:
+        deps.observeProbe ??
+        (async () =>
+          deploymentMeta.probeUrl === null
+            ? null
+            : probeHealthUrl(deps.fetchFn, deploymentMeta.probeUrl)),
       onDeploymentMeta: (meta) => {
         deploymentMeta.redisRequired = meta.redisRequired;
+        deploymentMeta.probeUrl = meta.probeUrl;
       },
     };
 

@@ -67,7 +67,7 @@ export function toFleetRow(row: {
 }
 
 /** The hostname a completed INSTALL job's CDK output reports the ALB at. */
-function albEndpointFromResult(result: DeploymentJobRow['result']): string | null {
+export function albEndpointFromResult(result: DeploymentJobRow['result']): string | null {
   if (!result || typeof result !== 'object') return null;
   const output = (result as Record<string, unknown>).output;
   if (!output || typeof output !== 'object') return null;
@@ -84,14 +84,17 @@ function albEndpointFromResult(result: DeploymentJobRow['result']): string | nul
 
 /**
  * The deployment-detail page's first-class application URL. An active custom
- * domain always wins; otherwise the latest successful INSTALL job's ALB
+ * domain always wins; once the relay starts CONFIGURING it (DNS verified,
+ * certificate issued, ALB port-80 redirect live), the ALB endpoint no longer
+ * serves the app, so the pending domain URL replaces it and the stale ALB
+ * endpoint stays hidden; otherwise the latest successful INSTALL job's ALB
  * endpoint; otherwise null. `jobs` must be ascending by createdAt.
  */
 export function resolveAppUrl(
   jobs: DeploymentJobRow[],
   domain: Pick<CustomDomainRow, 'hostname' | 'status'> | null,
 ): string | null {
-  if (domain?.status === 'ACTIVE') {
+  if (domain?.status === 'ACTIVE' || domain?.status === 'CONFIGURING') {
     return `https://${domain.hostname}`;
   }
   const installs = jobs.filter(

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export * from './infrastructure.js';
+export * from './manifest.js';
 
 // Shared Zod contracts between api and web. Shapes mirror the Drizzle schema
 // in @deployz/db (packages/db/src/schema/*.ts) exactly — the db stays the
@@ -135,6 +136,43 @@ export const jobStateSchema = z.enum([
 ]);
 export type JobState = z.infer<typeof jobStateSchema>;
 
+/**
+ * §46 deployment state a FAILED job leaves behind — shared by the relay
+ * result route and the stuck-job watchdog so both settle a failure the same
+ * way. A failed day-2 operation (deploy/rollback/restart) on a deployment
+ * that has a running release must NOT mark the whole deployment FAILED: the
+ * previous release keeps serving (the ECS circuit breaker restores it), so
+ * the deployment stays in a live state and the FAILED job itself carries the
+ * failure. Only a first install (nothing ever ran) or a destroy failure
+ * represents the deployment itself being broken.
+ *
+ * Returns `null` when the failure must not touch the deployment state at
+ * all: CONFIG_UPDATE is non-disruptive in both directions, and a failed
+ * PURGE happens on an already-DELETED deployment (flipping it to FAILED
+ * would resurrect it).
+ */
+export function deploymentStateAfterFailedJob(input: {
+  jobType: JobType;
+  hasCurrentRelease: boolean;
+  newerReadyReleaseExists: boolean;
+}): 'FAILED' | 'HEALTHY' | 'UPDATE_AVAILABLE' | null {
+  switch (input.jobType) {
+    case 'DEPLOY_RELEASE':
+    case 'ROLLBACK':
+    case 'RESTART':
+      if (!input.hasCurrentRelease) return 'FAILED';
+      // The state the deployment held before the operation started: a READY
+      // release newer than the one running is exactly what UPDATE_AVAILABLE
+      // means (the failed candidate itself qualifies).
+      return input.newerReadyReleaseExists ? 'UPDATE_AVAILABLE' : 'HEALTHY';
+    case 'CONFIG_UPDATE':
+    case 'PURGE':
+      return null;
+    default:
+      return 'FAILED';
+  }
+}
+
 // §61 failure codes — stable taxonomy from day one. Todo 27 (classifier
 // pipeline) may extend this set; nothing else may invent codes.
 export const failureCodeSchema = z.enum([
@@ -159,6 +197,7 @@ export const failureCodeSchema = z.enum([
   'UNKNOWN',
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
+  'DOMAIN_OPERATION_TIMEOUT',
 ]);
 export type FailureCode = z.infer<typeof failureCodeSchema>;
 
@@ -216,6 +255,66 @@ export const healthComponentsSchema = z
 export type HealthComponents = z.infer<typeof healthComponentsSchema>;
 export type HealthStatus = z.infer<typeof healthStatusSchema>;
 
+/**
+ * §10.2 one HTTP health-path probe. The relay measures status code, latency
+ * and the check time, and NEVER a response body; the control plane maintains
+ * `lastSuccessAt`/`lastFailedAt` across heartbeats. `error` is a short
+ * transport reason (timeout / unreachable) — never application output.
+ */
+export const httpProbeSchema = z
+  .object({
+    /** A 2xx response — the only outcome that counts as a successful check. */
+    ok: z.boolean(),
+    /** HTTP status code; null when the request failed before one arrived. */
+    statusCode: z.number().int().nullable(),
+    /** Round-trip latency in milliseconds. */
+    latencyMs: z.number().int().nullable(),
+    /** ISO 8601 — when this probe ran. */
+    checkedAt: z.string().datetime({ offset: true }),
+    error: z.string().max(500).optional(),
+    /** ISO 8601 — the most recent successful check, maintained by the control plane. */
+    lastSuccessAt: z.string().datetime({ offset: true }).nullable().optional(),
+    /** ISO 8601 — the most recent failed check, maintained by the control plane. */
+    lastFailedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  })
+  .strict();
+export type HttpProbe = z.infer<typeof httpProbeSchema>;
+
+/** The ALB target-count half of the runtime-health layers (§10.1). */
+export const healthTargetsSchema = z
+  .object({
+    desiredCount: z.number().int().nullable(),
+    runningCount: z.number().int().nullable(),
+    unhealthyTargetCount: z.number().int().nullable(),
+    pendingTargetCount: z.number().int().nullable(),
+    unknownTargetCount: z.number().int().nullable(),
+  })
+  .strict();
+export type HealthTargets = z.infer<typeof healthTargetsSchema>;
+
+/**
+ * §10.1 layered runtime health — the five layers that must never be
+ * collapsed into one number: infrastructure status (verification), ECS
+ * rollout state, ALB target health, HTTP application health, and relay
+ * connectivity. Each layer reports what its own source observed; one broken
+ * layer never masquerades as another.
+ */
+export const runtimeHealthLayersSchema = z
+  .object({
+    /** Verification's verdict on the stack — HEALTHY/UNHEALTHY/UNKNOWN. */
+    infrastructure: healthStatusSchema.nullable(),
+    /** The ECS PRIMARY deployment's rollout state, when ECS reported one. */
+    rollout: z.enum(['COMPLETED', 'IN_PROGRESS', 'FAILED']).nullable(),
+    /** ECS + ALB counts, when the runtime-health observation reported them. */
+    targets: healthTargetsSchema.nullable(),
+    /** The latest HTTP probe of the application's health path, when one ran. */
+    http: httpProbeSchema.nullable(),
+    /** Relay connectivity, persisted by the liveness sweep / heartbeat. */
+    relay: z.enum(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']),
+  })
+  .strict();
+export type RuntimeHealthLayers = z.infer<typeof runtimeHealthLayersSchema>;
+
 export const orgPlanSchema = z.enum(['FREE', 'STARTER', 'PRO']);
 export type OrgPlan = z.infer<typeof orgPlanSchema>;
 
@@ -242,7 +341,7 @@ export const customDomainStatusSchema = z.enum([
 ]);
 export type CustomDomainStatus = z.infer<typeof customDomainStatusSchema>;
 
-export const cleanupStateSchema = z.enum(['SKIPPED_RELAY_OFFLINE', 'COMPLETE']);
+export const cleanupStateSchema = z.enum(['SKIPPED_RELAY_OFFLINE', 'PURGE_FAILED', 'COMPLETE']);
 export type CleanupState = z.infer<typeof cleanupStateSchema>;
 
 // ---------------------------------------------------------------------------
@@ -289,8 +388,11 @@ export type DeploymentStage = z.infer<typeof deploymentStageSchema>;
  * deployment-status.ts) — NOT a new persisted lifecycle; `state` and
  * `stage` remain the only source of truth. Mainly distinguishes what
  * PROVISIONING is actually doing (PREPARING/NETWORK/DATABASE_STORAGE/
- * REDIS/APPLICATION), but also covers WAITING_FOR_AWS (AWS_SETUP),
+ * REDIS/MIGRATION/APPLICATION), but also covers WAITING_FOR_AWS (AWS_SETUP),
  * CONNECTING (RELAY_CONNECT), VERIFYING (HEALTH_CHECK/TLS), and READY.
+ * MIGRATION sits between the cache and the application: a deploy with a
+ * migration command runs that command as a one-off ECS task before the
+ * service update, while cache provisioning is a create-time step.
  * TLS deliberately comes AFTER HEALTH_CHECK, not before: in Deployz, HTTPS
  * (custom domain) setup only starts once health passes (`needsDomainSetup`),
  * so an earlier position in the order would misstate what happens next.
@@ -302,6 +404,7 @@ export const deploymentStepSchema = z.enum([
   'NETWORK',
   'DATABASE_STORAGE',
   'REDIS',
+  'MIGRATION',
   'APPLICATION',
   'HEALTH_CHECK',
   'TLS',
@@ -321,6 +424,7 @@ export const DEPLOYMENT_STEP_ORDER: readonly DeploymentStep[] = [
   'NETWORK',
   'DATABASE_STORAGE',
   'REDIS',
+  'MIGRATION',
   'APPLICATION',
   'HEALTH_CHECK',
   'TLS',
@@ -344,6 +448,7 @@ export const TYPICAL_STEP_DURATION_SECONDS: Record<DeploymentStep, { min: number
   NETWORK: { min: 120, max: 360 },
   DATABASE_STORAGE: { min: 180, max: 720 }, // RDS dominates
   REDIS: { min: 480, max: 1200 }, // ElastiCache replication group
+  MIGRATION: { min: 60, max: 600 }, // one-off ECS task before the service update
   APPLICATION: { min: 180, max: 600 }, // ECS stabilization behind CFN
   HEALTH_CHECK: { min: 60, max: 600 }, // bounded by heartbeat cadence
   TLS: null,
@@ -472,7 +577,14 @@ export const vendorDeploymentStatusSchema = z
       .strict()
       .nullable(),
     aws: z.object({ stackStatus: z.string().nullable() }).strict(),
-    health: z.object({ status: healthStatusSchema }).strict(),
+    health: z
+      .object({
+        status: healthStatusSchema,
+        // §10.1 layered runtime health — see runtimeHealthLayersSchema. Never
+        // collapsed into the scalar `status` above.
+        layers: runtimeHealthLayersSchema,
+      })
+      .strict(),
     url: z.string().nullable(),
     failure: z
       .object({
@@ -516,6 +628,12 @@ export const JOB_TIMEOUTS_MS: Partial<Record<JobType, number>> = {
   ROLLBACK: 20 * 60 * 1000,
   RESTART: 20 * 60 * 1000,
   CONFIG_UPDATE: 20 * 60 * 1000,
+  PURGE: 60 * 60 * 1000,
+  // Phase 5 §9.3: domain operations ride the same relay channel, so a stuck
+  // CONFIGURE_DOMAIN/REMOVE_DOMAIN must not idle forever — generous window
+  // (cert issuance + ALB listener work is a single invocation) then fail.
+  CONFIGURE_DOMAIN: 60 * 60 * 1000,
+  REMOVE_DOMAIN: 60 * 60 * 1000,
 };
 
 /** Job states the STUCK definition (and the worker's sweep) ever consider. */

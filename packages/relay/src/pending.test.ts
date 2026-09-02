@@ -41,6 +41,27 @@ describe('stackEventsCursor', () => {
     await expect(store.read()).resolves.toEqual(withCursor);
   });
 
+  it('round-trips a marker that carries deploy migration state', async () => {
+    let stored: string | undefined;
+    const send = vi.fn().mockImplementation((command: { input: { Value?: string } }) => {
+      if (command.input.Value !== undefined) stored = command.input.Value;
+      return Promise.resolve({ Parameter: { Value: stored } });
+    });
+    const withMigration: PendingCommand = {
+      ...PENDING,
+      migration: {
+        taskArn: 'arn:aws:ecs:us-east-1:151955775369:task/app-cluster/migration-1',
+        registeredArn: 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:1',
+        completedAt: '2026-08-26T12:05:00.000Z',
+      },
+    };
+
+    const store = toPendingStore({ send }, '/p');
+    await store.write(withMigration);
+
+    await expect(store.read()).resolves.toEqual(withMigration);
+  });
+
   it('tolerates a legacy marker JSON with no stackEventsCursor field', async () => {
     const send = vi.fn().mockResolvedValue({ Parameter: { Value: JSON.stringify(PENDING) } });
 
@@ -71,7 +92,7 @@ describe('toPendingStore', () => {
     const input = (send.mock.calls[0]![0] as { input: Record<string, unknown> }).input;
     expect(input).toMatchObject({
       Name: '/deployz/inst-1/pending-command',
-      Type: 'String',
+      Type: 'SecureString',
       Overwrite: true,
       Value: JSON.stringify(PENDING),
     });

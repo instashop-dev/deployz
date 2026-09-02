@@ -190,7 +190,7 @@ describe('deriveDeploymentStatus — the seven spec scenarios', () => {
     expect(status.result).toEqual({ url: 'https://app.example.com' });
   });
 
-  it('healthy + http-only → VERIFYING + needsDomainSetup', () => {
+  it('healthy + http-only → VERIFYING + needsDomainSetup, with the temporary HTTP address exposed', () => {
     const status = derive({
       deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
       jobs: [makeJob({ state: 'SUCCEEDED' })],
@@ -200,6 +200,20 @@ describe('deriveDeploymentStatus — the seven spec scenarios', () => {
     expect(status.stage).toBe('VERIFYING');
     expect(status.needsDomainSetup).toBe(true);
     expect(status.currentActivity).toBe('Waiting for secure domain setup.');
+    // Run-time health confirmed the app is reachable over HTTP — the
+    // temporary ALB address is real and must be shown, never "no address".
+    expect(status.result).toEqual({ url: 'http://alb-123.us-east-1.elb.amazonaws.com' });
+  });
+
+  it('an HTTP appUrl is NOT exposed while health is still unverified', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'UNKNOWN' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      appUrl: 'http://alb-123.us-east-1.elb.amazonaws.com',
+      domain: null,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.needsDomainSetup).toBe(false);
     expect(status.result).toBeNull();
   });
 
@@ -273,6 +287,30 @@ describe('CloudFormation-complete-but-unverified', () => {
       domain: makeDomain(),
     });
     expect(status.stage).toBe('VERIFYING');
+  });
+
+  it('a successful INSTALL that left the persisted state INSTALLING derives VERIFYING the same way (runtime verification is the gate)', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'INSTALLING', healthStatus: 'UNKNOWN', currentReleaseId: null }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      appUrl: 'http://alb.example.com',
+      domain: null,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    // App not confirmed reachable yet — no address is displayed.
+    expect(status.result).toBeNull();
+  });
+
+  it('the same INSTALLING persisted state with confirmed health exposes the http address but stays VERIFYING (no https)', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'INSTALLING', healthStatus: 'HEALTHY', currentReleaseId: null }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      appUrl: 'http://alb.example.com',
+      domain: null,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.needsDomainSetup).toBe(true);
+    expect(toCustomerDeploymentStatus(status).url).toBe('http://alb.example.com');
   });
 
   it('a SUCCESS (legacy) INSTALL job counts as installed the same as SUCCEEDED', () => {
@@ -358,12 +396,15 @@ describe('customer projection sanitization', () => {
     expect(JSON.stringify(customer)).not.toContain('vendorMessage');
   });
 
-  it('the one allowed AWS status word lives only inside failure.technical', () => {
+  it('the stack status reaches failure.technical only as a jargon-free phrase', () => {
     const customer = toCustomerDeploymentStatus(sensitiveScenario());
-    expect(customer.failure?.technical?.awsStatus).toBe('CREATE_FAILED');
+    // §65: never the raw CloudFormation enum value on the customer surface —
+    // customerStackStatusLabel maps it to plain language.
+    expect(customer.failure?.technical?.awsStatus).toBe('Setup did not complete');
     // "stackStatus" as a KEY name never appears — it is carried under
     // technical.awsStatus instead.
     expect(JSON.stringify(customer)).not.toContain('stackStatus');
+    expect(JSON.stringify(customer)).not.toContain('CREATE_FAILED');
   });
 
   it('the vendor projection, by contrast, does carry the full operational detail', () => {
@@ -633,6 +674,16 @@ describe('step derivation — one per stage', () => {
     expect(status.step).toBe('APPLICATION');
   });
 
+  it('FAILED DEPLOY_RELEASE with MIGRATION_FAILED names the MIGRATION step', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'FAILED', currentReleaseId: 'rel-1' }),
+      application: makeApplication({ migrationCommand: 'npm run db:migrate' }),
+      jobs: [makeJob({ type: 'DEPLOY_RELEASE', state: 'FAILED', failureCode: 'MIGRATION_FAILED' })],
+    });
+    expect(status.steps).toContain('MIGRATION');
+    expect(status.step).toBe('MIGRATION');
+  });
+
   it('FAILED INSTALL with no snapshot falls back to the FAILURE_COMPONENT map (database)', () => {
     const status = derive({
       deployment: makeDeployment({ state: 'FAILED' }),
@@ -855,7 +906,13 @@ describe('applicable steps list', () => {
   });
 
   it('is always in canonical order', () => {
-    const status = derive({ application: makeApplication({ databaseRequired: true, redisRequired: true }) });
+    const status = derive({
+      application: makeApplication({
+        databaseRequired: true,
+        redisRequired: true,
+        migrationCommand: 'npm run db:migrate',
+      }),
+    });
     expect(status.steps).toEqual([
       'AWS_SETUP',
       'RELAY_CONNECT',
@@ -863,11 +920,20 @@ describe('applicable steps list', () => {
       'NETWORK',
       'DATABASE_STORAGE',
       'REDIS',
+      'MIGRATION',
       'APPLICATION',
       'HEALTH_CHECK',
       'TLS',
       'READY',
     ]);
+  });
+
+  it('MIGRATION is present only when the application has a migration command', () => {
+    expect(derive({ application: makeApplication({ migrationCommand: 'npm run db:migrate' }) }).steps).toContain(
+      'MIGRATION',
+    );
+    expect(derive({ application: makeApplication({ migrationCommand: null }) }).steps).not.toContain('MIGRATION');
+    expect(derive({ application: makeApplication() }).steps).not.toContain('MIGRATION');
   });
 });
 
@@ -1104,5 +1170,129 @@ describe('vendor stepTimings projection', () => {
       { step: 'AWS_SETUP', startedAt: '2026-08-31T10:00:00.000Z', completedAt: '2026-08-31T10:02:00.000Z', durationSeconds: 120 },
       { step: 'RELAY_CONNECT', startedAt: '2026-08-31T10:02:00.000Z', completedAt: null, durationSeconds: null },
     ]);
+  });
+});
+
+// §10.1 layered runtime health — each layer reports what ITS source observed,
+// never collapsed into the scalar health status.
+describe('layered runtime health (health.layers)', () => {
+  function observed(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      infraHealth: { verified: true, checks: [] },
+      deploymentRolloutState: 'COMPLETED',
+      desiredCount: 2,
+      runningCount: 2,
+      unhealthyTargetCount: 0,
+      pendingTargetCount: 0,
+      unknownTargetCount: 0,
+      httpProbe: {
+        ok: true,
+        statusCode: 200,
+        latencyMs: 41,
+        checkedAt: '2026-09-02T00:00:00.000Z',
+        lastSuccessAt: '2026-09-02T00:00:00.000Z',
+        lastFailedAt: null,
+      },
+      ...overrides,
+    };
+  }
+
+  it('exposes every layer separately when every source reported', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        relayStatus: 'CONNECTED',
+        observedState: observed(),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+    });
+    expect(status.health.layers).toEqual({
+      infrastructure: 'HEALTHY',
+      rollout: 'COMPLETED',
+      targets: {
+        desiredCount: 2,
+        runningCount: 2,
+        unhealthyTargetCount: 0,
+        pendingTargetCount: 0,
+        unknownTargetCount: 0,
+      },
+      http: {
+        ok: true,
+        statusCode: 200,
+        latencyMs: 41,
+        checkedAt: '2026-09-02T00:00:00.000Z',
+        lastSuccessAt: '2026-09-02T00:00:00.000Z',
+        lastFailedAt: null,
+      },
+      relay: 'CONNECTED',
+    });
+    // And the vendor projection carries them verbatim.
+    expect(toVendorDeploymentStatus(status).health.layers).toEqual(status.health.layers);
+  });
+
+  it('a failing HTTP probe stays a separate layer from healthy ECS/ALB layers', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        relayStatus: 'CONNECTED',
+        observedState: observed({
+          httpProbe: {
+            ok: false,
+            statusCode: 503,
+            latencyMs: 12,
+            checkedAt: '2026-09-02T00:00:01.000Z',
+            lastSuccessAt: null,
+            lastFailedAt: '2026-09-02T00:00:01.000Z',
+          },
+        }),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+    });
+    // ECS still reports every target healthy and the rollout completed — the
+    // app-level failure is visible only in the http layer, not smeared over
+    // the others.
+    expect(status.health.layers.rollout).toBe('COMPLETED');
+    expect(status.health.layers.targets).toMatchObject({ unhealthyTargetCount: 0 });
+    expect(status.health.layers.http).toMatchObject({ ok: false, statusCode: 503 });
+    expect(status.health.status).toBe('HEALTHY');
+  });
+
+  it('an in-progress rollout is visible even while counts and probe look fine', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'DEGRADED',
+        observedState: observed({ deploymentRolloutState: 'IN_PROGRESS' }),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+    });
+    expect(status.health.layers.rollout).toBe('IN_PROGRESS');
+  });
+
+  it('absent observations are honest UNKNOWNs, never healthy-looking zeros', () => {
+    const status = derive({
+      deployment: makeDeployment({ relayStatus: 'UNKNOWN' }),
+    });
+    expect(status.health.layers).toEqual({
+      infrastructure: 'UNKNOWN',
+      rollout: null,
+      targets: null,
+      http: null,
+      relay: 'UNKNOWN',
+    });
+  });
+
+  it('verification failure surfaces as an unhealthy infrastructure layer', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        observedState: observed({ infraHealth: { verified: false, checks: [] } }),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+    });
+    expect(status.health.layers.infrastructure).toBe('UNHEALTHY');
   });
 });

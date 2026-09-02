@@ -51,6 +51,7 @@ import { errorMessage } from '@/lib/api-client';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
   DeploymentActionError,
+  actionErrorMessage,
   deployRelease,
   destroyDeployment,
   fetchDeployment,
@@ -268,7 +269,7 @@ function DetailBody({
         )}
       </div>
 
-      {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' ? (
+      {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED' ? (
         <div className="flex flex-col gap-3">
           <Alert>
             <AlertTriangle aria-hidden />
@@ -647,8 +648,8 @@ function DeployUpdateDialog({
       await deployRelease(deploymentId, releaseId);
       toast.success('Update requested');
       onDone();
-    } catch {
-      setError("We couldn't start this update. Try again in a moment.");
+    } catch (caught) {
+      setError(actionErrorMessage(caught, "We couldn't start this update. Try again in a moment."));
       setPending(false);
     }
   }
@@ -743,8 +744,8 @@ function RollbackDialog({
       await rollbackDeployment(deploymentId, previousReleaseId);
       toast.success('Rollback requested');
       onDone();
-    } catch {
-      setError("We couldn't start the rollback. Try again in a moment.");
+    } catch (caught) {
+      setError(actionErrorMessage(caught, "We couldn't start the rollback. Try again in a moment."));
       setPending(false);
     }
   }
@@ -881,7 +882,7 @@ function RetryInstallDialog({
       if (caught instanceof DeploymentActionError && caught.code === 'RELAY_DISCONNECTED') {
         setRelayDisconnected(true);
       } else {
-        setError("We couldn't start the retry. Try again in a moment.");
+        setError(actionErrorMessage(caught, "We couldn't start the retry. Try again in a moment."));
       }
       setPending(false);
     }
@@ -1078,8 +1079,8 @@ function PurgeRetainedResources({
       setOpen(false);
       setConfirmText('');
       onChanged();
-    } catch {
-      setError("We couldn't start the purge. Try again in a moment.");
+    } catch (caught) {
+      setError(actionErrorMessage(caught, "We couldn't start the purge. Try again in a moment."));
       setPending(false);
     }
   }

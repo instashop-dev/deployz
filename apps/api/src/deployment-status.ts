@@ -1,4 +1,4 @@
-import { FAILURE_REMEDIATION, failureCodeCopy, type FailureCode } from '@deployz/copy-map';
+import { FAILURE_REMEDIATION, customerStackStatusLabel, failureCodeCopy, type FailureCode } from '@deployz/copy-map';
 import {
   DEPLOYMENT_STEP_ORDER,
   TYPICAL_STEP_DURATION_SECONDS,
@@ -10,9 +10,12 @@ import {
   type DeploymentState,
   type DeploymentStep,
   type HealthStatus,
+  type HealthTargets,
+  type HttpProbe,
   type JobState,
   type JobType,
   type RelayStatus,
+  type RuntimeHealthLayers,
   type VendorDeploymentStatus,
 } from '@deployz/contracts';
 
@@ -127,6 +130,8 @@ export interface DerivationApplication {
   databaseRequired?: boolean | null;
   storageRequired?: boolean | null;
   redisRequired?: boolean | null;
+  /** When set, the deploy ladder carries the MIGRATION step (before the application). */
+  migrationCommand?: string | null;
 }
 
 export interface DerivationJob {
@@ -152,7 +157,13 @@ export interface DeriveDeploymentStatusInput {
   /** This deployment's jobs — at minimum every INSTALL job, the latest job overall, and the latest FAILED job. */
   jobs: DerivationJob[];
   domain: DerivationDomain | null;
-  /** resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE, else http for a bare ALB, else null. */
+  /**
+   * resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE or
+   * CONFIGURING, else http for a bare ALB, else null. Exposed to the
+   * customer only once runtime health confirms the app is reachable (READY,
+   * or VERIFYING with healthStatus HEALTHY) — never from a stack that merely
+   * finished creating.
+   */
   appUrl: string | null;
   /**
    * The second (and only other) documented clock exception, alongside the
@@ -218,7 +229,7 @@ export interface DerivedDeploymentStatus {
   relay: { connected: boolean; lastSeenAt: string | null };
   job: { type: JobType; status: JobState } | null;
   aws: { stackStatus: string | null };
-  health: { status: HealthStatus };
+  health: { status: HealthStatus; layers: RuntimeHealthLayers };
   result: { url: string } | null;
   failure: DerivedFailure | null;
 }
@@ -255,6 +266,7 @@ const FAILURE_COMPONENT: Record<FailureCode, string | null> = {
   UNKNOWN: null,
   REDIS_PROVISIONING_FAILED: 'redis',
   REDIS_CONNECTION_FAILED: 'redis',
+  DOMAIN_OPERATION_TIMEOUT: 'domain',
 };
 
 interface FailureEntry {
@@ -643,12 +655,14 @@ function snapshotFailedStep(
   return null;
 }
 
-/** Applicable steps for this deployment, in canonical order — REDIS/DATABASE_STORAGE only when required. */
+/** Applicable steps for this deployment, in canonical order — REDIS/DATABASE_STORAGE only when required, MIGRATION only for apps with a migration command. */
 function applicableSteps(application: DerivationApplication): DeploymentStep[] {
   const databaseStorageRequired = (application.databaseRequired ?? false) || (application.storageRequired ?? false);
+  const migrationConfigured = typeof application.migrationCommand === 'string' && application.migrationCommand.length > 0;
   return DEPLOYMENT_STEP_ORDER.filter((step) => {
     if (step === 'DATABASE_STORAGE') return databaseStorageRequired;
     if (step === 'REDIS') return application.redisRequired ?? false;
+    if (step === 'MIGRATION') return migrationConfigured;
     return true;
   });
 }
@@ -689,6 +703,7 @@ function resolveStepStartedAt(
       return snapshotStartedAt(params.snapshot, step, params.application);
     case 'HEALTH_CHECK':
       return latestOfType(params.jobs, 'INSTALL')?.finishedAt?.toISOString() ?? null;
+    case 'MIGRATION':
     case 'TLS':
     case 'READY':
       return null;
@@ -740,6 +755,87 @@ const EVER_INSTALLED_STATES = new Set<DeploymentState>(['HEALTHY', 'UPDATING', '
 const REMOVED_STATES = new Set<DeploymentState>(['DELETING', 'DELETED']);
 const PROVISIONING_JOB_STATES = new Set<JobState>(['RUNNING', 'WAITING']);
 const SUCCEEDED_JOB_STATES = new Set<JobState>(['SUCCEEDED', 'SUCCESS']);
+
+// ---------------------------------------------------------------------------
+// §10.1 layered runtime health — read from the SAME observedState the relay's
+// heartbeat persists, with each layer derived from its own source. The five
+// layers deliberately stay apart: verification says whether the STACK is
+// right, rollout state what ECS is doing, target counts what the ALB sees,
+// httpProbe what the APPLICATION answers, and relayStatus whether the relay
+// is even connected. A failing app must never be reported through the ALB
+// layer, and vice versa.
+// ---------------------------------------------------------------------------
+
+const ROLLOUT_STATES: ReadonlySet<string> = new Set(['COMPLETED', 'IN_PROGRESS', 'FAILED']);
+const RELAY_STATUSES: ReadonlySet<string> = new Set(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']);
+
+/** The ALB/ECS counts the heartbeat reported, or null when it reported none. */
+function readHealthTargets(observedState: Record<string, unknown> | null): HealthTargets | null {
+  if (!observedState) return null;
+  const o = observedState;
+  const hasRuntimeHealth =
+    'desiredCount' in o || 'runningCount' in o || 'unhealthyTargetCount' in o;
+  if (!hasRuntimeHealth) return null;
+  const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+  return {
+    desiredCount: numberOrNull(o['desiredCount']),
+    runningCount: numberOrNull(o['runningCount']),
+    unhealthyTargetCount: numberOrNull(o['unhealthyTargetCount']),
+    pendingTargetCount: numberOrNull(o['pendingTargetCount']),
+    unknownTargetCount: numberOrNull(o['unknownTargetCount']),
+  };
+}
+
+/** The relay's HTTP probe record, defensively narrowed to the wire shape. */
+function readHttpProbe(observedState: Record<string, unknown> | null): HttpProbe | null {
+  const raw = observedState?.['httpProbe'];
+  if (raw === null || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  if (typeof record['ok'] !== 'boolean' || typeof record['checkedAt'] !== 'string') return null;
+  const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+  const stringOrNullish = (value: unknown): string | null | undefined =>
+    typeof value === 'string' ? value : value === null ? null : undefined;
+  return {
+    ok: record['ok'],
+    statusCode: numberOrNull(record['statusCode']),
+    latencyMs: numberOrNull(record['latencyMs']),
+    checkedAt: record['checkedAt'],
+    ...(stringOrNullish(record['error']) !== undefined ? { error: record['error'] as string } : {}),
+    ...(stringOrNullish(record['lastSuccessAt']) !== undefined
+      ? { lastSuccessAt: stringOrNullish(record['lastSuccessAt']) }
+      : {}),
+    ...(stringOrNullish(record['lastFailedAt']) !== undefined
+      ? { lastFailedAt: stringOrNullish(record['lastFailedAt']) }
+      : {}),
+  };
+}
+
+/**
+ * Builds the five §10.1 layers from the persisted heartbeat's observedState
+ * plus the persisted relay liveness column. Always returns a complete object
+ * — every layer has an honest "unknown" answer when its source said nothing.
+ */
+function buildHealthLayers(
+  relayStatus: RelayStatus,
+  observedState: Record<string, unknown> | null,
+): RuntimeHealthLayers {
+  const infraHealth = observedState?.['infraHealth'];
+  const verified =
+    infraHealth !== null && typeof infraHealth === 'object'
+      ? (infraHealth as Record<string, unknown>)['verified']
+      : undefined;
+  const rawRollout = observedState?.['deploymentRolloutState'];
+  return {
+    infrastructure:
+      typeof verified === 'boolean' ? (verified ? 'HEALTHY' : 'UNHEALTHY') : 'UNKNOWN',
+    rollout: typeof rawRollout === 'string' && ROLLOUT_STATES.has(rawRollout)
+      ? (rawRollout as RuntimeHealthLayers['rollout'])
+      : null,
+    targets: readHealthTargets(observedState),
+    http: readHttpProbe(observedState),
+    relay: RELAY_STATUSES.has(relayStatus) ? (relayStatus as RuntimeHealthLayers['relay']) : 'UNKNOWN',
+  };
+}
 
 /**
  * The pure read-time derivation. Precedence (exact, first match wins):
@@ -875,7 +971,10 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
                   : 'PREPARING';
         }
       } else {
-        step = 'APPLICATION';
+        // A failed job of any other type (DEPLOY_RELEASE, RESTART, ...)
+        // never touched provisioning; a MIGRATION_FAILED deploy names the
+        // migration step, everything else is attributed to APPLICATION.
+        step = latestFailed?.failureCode === 'MIGRATION_FAILED' ? 'MIGRATION' : 'APPLICATION';
       }
       break;
     }
@@ -929,6 +1028,21 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     (job) => job.createdAt,
   );
 
+  // A failed day-2 operation (deploy/rollback/restart) leaves the deployment
+  // in a live state — the previous release keeps serving — so the stage is
+  // READY/VERIFYING, not FAILED. The failure still has to reach the screen:
+  // surface it while the most recent day-2 attempt is the failed one (a
+  // running retry or a later success clears it, and a removed deployment has
+  // no update to report on).
+  const latestDayTwo = latestBy(
+    jobs.filter((job) => job.type === 'DEPLOY_RELEASE' || job.type === 'ROLLBACK' || job.type === 'RESTART'),
+    (job) => job.createdAt,
+  );
+  const dayTwoFailure =
+    stage !== 'FAILED' && everInstalled && !REMOVED_STATES.has(deployment.state) && latestDayTwo?.state === 'FAILED'
+      ? latestDayTwo
+      : undefined;
+
   const updatedAt =
     maxDate(deployment.updatedAt, deployment.lastHealthAt, latest?.lastProgressAt, latest?.finishedAt) ?? new Date();
 
@@ -962,9 +1076,29 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       stackStatus:
         extractStackStatus(latestStackJob?.result) ?? readSnapshotStackStatus(deployment.observedState),
     },
-    health: { status: deployment.healthStatus },
-    result: stage === 'READY' && appUrl ? { url: appUrl } : null,
-    failure: stage === 'FAILED' ? buildFailure(latestFailed, failureEntry!) : null,
+    health: {
+      status: deployment.healthStatus,
+      // §10.1: the five layers, each from its own source — never collapsed
+      // into the scalar `status` above.
+      layers: buildHealthLayers(deployment.relayStatus, deployment.observedState),
+    },
+    // Runtime-verified reachability is the gate for exposing an address:
+    // READY's https URL always, and the temporary HTTP ALB endpoint once a
+    // VERIFYING deployment's health status confirms the app is actually
+    // serving. An appUrl that merely EXISTS (stack complete, health still
+    // UNKNOWN) is never presented as a working address.
+    result:
+      stage === 'READY' && appUrl
+        ? { url: appUrl }
+        : stage === 'VERIFYING' && deployment.healthStatus === 'HEALTHY' && appUrl
+          ? { url: appUrl }
+          : null,
+    failure:
+      stage === 'FAILED'
+        ? buildFailure(latestFailed, failureEntry!)
+        : dayTwoFailure
+          ? buildFailure(dayTwoFailure, failureEntryFor(dayTwoFailure.failureCode ?? null))
+          : null,
   };
 }
 
@@ -1015,7 +1149,12 @@ export function toCustomerDeploymentStatus(derived: DerivedDeploymentStatus): Cu
             // not relabel the failure.
             stage: derived.failure.jobType ?? 'UNKNOWN',
             component: derived.failure.component,
-            awsStatus: derived.failure.awsStatus,
+            // §65: never the raw CloudFormation status on the unauthenticated
+            // customer surface — a jargon-free phrase instead. The vendor
+            // projection keeps the raw status.
+            awsStatus: derived.failure.awsStatus
+              ? customerStackStatusLabel(derived.failure.awsStatus)
+              : null,
           },
         }
       : null,

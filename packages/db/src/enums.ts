@@ -120,6 +120,10 @@ export const failureCodeEnum = pgEnum('failure_code', [
   // vs. the app failing to reach an already-provisioned cache at runtime.
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
+  // Watchdog (Phase 5): a CONFIGURE_DOMAIN/REMOVE_DOMAIN job that outlived
+  // its generous window is marked FAILED with this code; the domain row's
+  // lastError keeps the visible record and the next cycle retries.
+  'DOMAIN_OPERATION_TIMEOUT',
 ]);
 
 // subscriptions.status — Stripe subscription lifecycle subset we persist.
@@ -187,10 +191,14 @@ export const customDomainStatusEnum = pgEnum('custom_domain_status', [
 // deployments.cleanup_state — what happened to AWS resources at disconnect.
 //   SKIPPED_RELAY_OFFLINE — force-completed while the relay was offline; the
 //                          customer account may still hold Deployz resources.
+//   PURGE_FAILED          — a PURGE attempt failed (permission, wedge); the
+//                          deployment stays DELETED, the retained resources
+//                          remain, and the purge is retryable from here.
 //   COMPLETE              — a later PURGE removed every retained resource.
 // Null on every normal disconnect: the relay deleted the resources itself.
 export const cleanupStateEnum = pgEnum('cleanup_state', [
   'SKIPPED_RELAY_OFFLINE',
+  'PURGE_FAILED',
   'COMPLETE',
 ]);
 

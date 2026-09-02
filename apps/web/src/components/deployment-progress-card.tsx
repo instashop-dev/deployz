@@ -85,7 +85,10 @@ const PROGRESS_DOT: Record<ComponentProgressStatus, string> = {
 export function DeploymentProgressCard({ status }: { status: VendorDeploymentStatus }) {
   const lastSeen = relativeTime(status.relay.lastSeenAt);
   const lastUpdate = relativeTime(status.updatedAt);
-  const failure = status.stage === 'FAILED' ? status.failure : null;
+  // Rendered whenever the API surfaces one — the FAILED stage, but also a
+  // failed day-2 operation on a deployment whose previous release keeps
+  // serving (stage READY/VERIFYING with a non-null failure).
+  const failure = status.failure;
   const failureComponentLabel = failure?.component
     ? (status.components.find((component) => component.key === failure.component)?.label ??
       failure.component)
@@ -115,6 +118,11 @@ export function DeploymentProgressCard({ status }: { status: VendorDeploymentSta
             <AlertTriangle aria-hidden />
             <AlertTitle>{failure.message}</AlertTitle>
             <AlertDescription className="flex flex-col gap-1">
+              {status.stage !== 'FAILED' ? (
+                // A failure surfaced on a live stage is a failed day-2
+                // operation: the deployment itself is not down.
+                <span>The previous version is still running.</span>
+              ) : null}
               {failureComponentLabel ? <span>Component: {failureComponentLabel}</span> : null}
               {failure.awsStatus ? (
                 <span>

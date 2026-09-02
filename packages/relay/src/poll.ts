@@ -31,6 +31,7 @@ import {
   type FetchFn,
 } from './auth.js';
 import type { RuntimeHealth } from './ecs-health.js';
+import type { HttpProbeRecord } from './http-probe.js';
 import type { VerificationResult } from './verify.js';
 
 // ── Control-plane API shapes ─────────────────────────────────────────────────
@@ -38,8 +39,11 @@ import type { VerificationResult } from './verify.js';
 /** Response from GET /api/relay/commands */
 interface PendingCommandsResponse {
   commands: RelayCommand[];
-  /** Deployment facts the control plane passes along every poll. */
-  deployment?: { redisRequired?: boolean };
+  /**
+   * Deployment facts the control plane passes along every poll — the only
+   * channel that reaches the observe hooks, which run outside any command.
+   */
+  deployment?: { redisRequired?: boolean; probeUrl?: string | null };
 }
 
 /** Payload for POST /api/relay/commands/:id/result */
@@ -101,11 +105,19 @@ export interface PollDependencies {
   /** Measures runtime health (ECS counts, target health, rollout state). */
   observeHealth?: () => Promise<RuntimeHealth>;
   /**
-   * Receives the deployment facts the commands response carries, before the
-   * cycle's health observation runs — the observe hook reads them to know
-   * whether the installation should include a cache.
+   * Probes the application's configured health path over HTTP once per poll,
+   * recording status code/latency/timestamps — never a response body (see
+   * ./http-probe.ts). Null means "no probe was possible this poll" (no
+   * endpoint configured), which omits httpProbe from the heartbeat rather
+   * than reporting a healthy-looking absence of information.
    */
-  onDeploymentMeta?: (meta: { redisRequired: boolean }) => void;
+  observeProbe?: () => Promise<HttpProbeRecord | null>;
+  /**
+   * Receives the deployment facts the commands response carries, before the
+   * cycle's health observation runs — the observe hooks read them to know
+   * whether the installation should include a cache and what URL to probe.
+   */
+  onDeploymentMeta?: (meta: { redisRequired: boolean; probeUrl: string | null }) => void;
 }
 
 /** Result of a single poll cycle. */
@@ -142,7 +154,7 @@ export async function pollOnce(
   deps: PollDependencies,
   authState: AuthState,
 ): Promise<PollResult> {
-  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity, observeImage, observeHealth } =
+  const { fetchFn, controlPlaneUrl, installationId, enrollmentCode, executors, idempotency, observe, resume, identity, observeImage, observeHealth, observeProbe } =
     deps;
 
   // ── 1. Enroll on first contact ────────────────────────────────────────
@@ -240,13 +252,21 @@ export async function pollOnce(
   const body = (await commandsResponse.json()) as PendingCommandsResponse;
   const commands = body.commands;
   if (body.deployment && typeof body.deployment.redisRequired === 'boolean') {
-    deps.onDeploymentMeta?.({ redisRequired: body.deployment.redisRequired });
+    const rawProbeUrl = body.deployment.probeUrl;
+    deps.onDeploymentMeta?.({
+      redisRequired: body.deployment.redisRequired,
+      probeUrl:
+        typeof rawProbeUrl === 'string' &&
+        (rawProbeUrl.startsWith('http://') || rawProbeUrl.startsWith('https://'))
+          ? rawProbeUrl
+          : null,
+    });
   }
 
   if (!Array.isArray(commands) || commands.length === 0) {
     // Still report observed state (§59) on an idle poll — most polls have no
     // commands, and that is exactly when infrastructure drift needs catching.
-    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth);
+    await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth, observeProbe);
     decrementGrace(authState);
     return { fetched: 0, executed: 0, succeeded: 0, failed: 0, deferred: 0, resumed, ok: true };
   }
@@ -279,7 +299,7 @@ export async function pollOnce(
   }
 
   // ── 6. Report observed state (§59) ────────────────────────────────────
-  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth);
+  await reportHealth(fetchFn, controlPlaneUrl, authHeaders, installationId, idempotency, observe, identity, observeImage, observeHealth, observeProbe);
 
   decrementGrace(authState);
 
@@ -385,6 +405,7 @@ async function reportHealth(
   identity?: Record<string, unknown>,
   observeImage?: PollDependencies['observeImage'],
   observeHealth?: PollDependencies['observeHealth'],
+  observeProbe?: PollDependencies['observeProbe'],
 ): Promise<void> {
   let infraHealth: VerificationResult | null = null;
   if (observe) {
@@ -419,6 +440,17 @@ async function reportHealth(
     }
   }
 
+  // A probe that could not run is omitted, never reported healthy — the
+  // control plane only ever sees the probe the relay actually took.
+  let httpProbe: HttpProbeRecord | null = null;
+  if (observeProbe) {
+    try {
+      httpProbe = await observeProbe();
+    } catch {
+      httpProbe = null;
+    }
+  }
+
   const observedState: Record<string, unknown> = {
     idempotencyKeysTracked: idempotency.size,
     lastPoll: new Date().toISOString(),
@@ -430,9 +462,12 @@ async function reportHealth(
           desiredCount: runtimeHealth.desiredCount,
           runningCount: runtimeHealth.runningCount,
           unhealthyTargetCount: runtimeHealth.unhealthyTargetCount,
+          pendingTargetCount: runtimeHealth.pendingTargetCount,
+          unknownTargetCount: runtimeHealth.unknownTargetCount,
           deploymentRolloutState: runtimeHealth.deploymentRolloutState,
         }
       : {}),
+    ...(httpProbe ? { httpProbe } : {}),
   };
 
   const payload: HealthReportPayload = {

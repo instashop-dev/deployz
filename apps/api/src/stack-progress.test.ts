@@ -38,6 +38,22 @@ describe('POST /api/relay/commands/:id/progress', () => {
   let applicationId: string;
   let customerId: string;
 
+  /** A READY manifest — the Phase 3 relay-register gate re-evaluates it. */
+  const READY_MANIFEST = {
+    application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+    build: { command: 'npm run build', context: '.' },
+    web: { command: 'npm start', port: 3000 },
+    health: { path: '/health' },
+    database: { postgres: true },
+    redis: { required: false, envBindings: [] },
+    storage: { required: false, envBindings: [] },
+    migration: { command: 'npm run db:migrate' },
+    worker: { command: null },
+    environment: { variables: [] },
+    externalServices: [],
+    unsupported: [],
+  } as const;
+
   async function insertDeployment(
     overrides: Partial<typeof schema.deployments.$inferInsert> = {},
   ): Promise<typeof schema.deployments.$inferSelect> {
@@ -51,6 +67,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
         state: 'NOT_INSTALLED',
         installationId: `inst-${crypto.randomUUID()}`,
         enrollmentCode: crypto.randomUUID(),
+        desiredState: { manifest: READY_MANIFEST },
         ...overrides,
       })
       .returning();

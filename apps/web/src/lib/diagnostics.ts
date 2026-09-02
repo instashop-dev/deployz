@@ -1,4 +1,4 @@
-import type { FailureCode } from './diagnostic-vocabulary';
+import type { FailureCode, FailureRecoverability } from './diagnostic-vocabulary';
 
 // Diagnostics data access. Wired to the real
 // `GET /api/deployments/:id/diagnostics` endpoint, which returns a single
@@ -39,6 +39,8 @@ export interface DiagnosticExplanation {
  */
 export interface Diagnostic {
   failureCode: FailureCode;
+  /** §61 recoverability class — which affordance the card leads with. */
+  recoverability: FailureRecoverability | null;
   event: DiagnosticEvent;
   explanation: DiagnosticExplanation | null;
   occurredAt: string;
@@ -46,6 +48,7 @@ export interface Diagnostic {
 
 interface DiagnosticsApiResponse {
   failureCode: string | null;
+  recoverability?: string | null;
   what: string | null;
   why: string | null;
   fix: string | null;
@@ -77,6 +80,7 @@ export async function fetchDiagnostics(id: string): Promise<Diagnostic[]> {
   return [
     {
       failureCode: body.failureCode as FailureCode,
+      recoverability: (body.recoverability as FailureRecoverability | undefined) ?? null,
       occurredAt: latestEvent?.occurredAt ?? new Date().toISOString(),
       event: latestEvent
         ? { source: 'deployment', action: latestEvent.eventType }

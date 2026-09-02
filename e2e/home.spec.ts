@@ -6,6 +6,8 @@ import { expect, test, type Page } from '@playwright/test';
 // seeding real rows through the API with the browser's session cookie —
 // nothing here asserts against fabricated data.
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in rendered top-level copy.
@@ -47,6 +49,7 @@ async function seedDeployment(
   expect(customerResponse.ok()).toBeTruthy();
   const customer = (await customerResponse.json()) as { id: string; name: string };
 
+  await makeApplicationDeployable(page.request, applicationId);
   const deploymentResponse = await page.request.post(`${API_URL}/api/deployments`, {
     data: { applicationId, customerId: customer.id, region: 'us-east-1' },
   });

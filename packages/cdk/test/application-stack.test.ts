@@ -244,10 +244,15 @@ describe('ApplicationStack', () => {
     const params = appParameters(template);
     const names = Object.keys(params);
 
-    // The only application parameters are the two app-env secrets and the
-    // health path override.
+    // The only application parameters are the two app-env secrets, the
+    // container-port override and the health path override.
     expect(names.sort()).toEqual(
-      ['paramAppApiKey', 'paramAppSigningSecret', 'paramHealthCheckPath'].sort(),
+      [
+        'paramAppApiKey',
+        'paramAppSigningSecret',
+        'paramContainerPort',
+        'paramHealthCheckPath',
+      ].sort(),
     );
 
     for (const [name, param] of Object.entries(params)) {
@@ -690,19 +695,52 @@ describe('ApplicationStack', () => {
   });
 
   describe('Configurable container contract', () => {
+    it('injects the S3 bindings (STORAGE_BUCKET/S3_BUCKET/AWS_S3_BUCKET/AWS_REGION) by default', () => {
+      const { template } = synth();
+      const [taskDef] = Object.values(
+        template.findResources('AWS::ECS::TaskDefinition'),
+      ) as Array<{ Properties: { ContainerDefinitions: Array<{ Environment: Array<{ Name: string; Value: unknown }> }> } }>;
+      const appContainer = taskDef.Properties.ContainerDefinitions.find((c) => true)!;
+      const byName = Object.fromEntries(appContainer.Environment.map((e) => [e.Name, e.Value]));
+      expect(Object.keys(byName)).toEqual(
+        expect.arrayContaining(['STORAGE_BUCKET', 'S3_BUCKET', 'AWS_S3_BUCKET', 'AWS_REGION']),
+      );
+      // Bucket-name bindings resolve to the bucket name token, and the region
+      // binding to the stack region.
+      expect(JSON.stringify(byName['S3_BUCKET'])).toContain('AppStorage');
+      expect(JSON.stringify(byName['AWS_S3_BUCKET'])).toContain('AppStorage');
+    });
+
+    it('omits the S3 binding env vars when storage is not required', () => {
+      const { template } = synth(false, { storageRequired: false });
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toContain('S3_BUCKET');
+      expect(json).not.toContain('AWS_S3_BUCKET');
+      // The bucket itself is still provisioned — only the env injection gates.
+      template.resourceCountIs('AWS::S3::Bucket', 1);
+    });
+
     it('applies containerPort/healthCheckPath to the task definition and target group (HTTP branch)', () => {
       const { template } = synth(false, { containerPort: 4000, healthCheckPath: '/api/health' });
 
+      // The port is a per-install parameter now: the prop fixes its default,
+      // and the ALB target group reads the parameter.
+      expect(appParameters(template)['paramContainerPort']).toMatchObject({
+        NoEcho: true,
+        Default: '4000',
+      });
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
         HealthCheckPath: { Ref: 'paramHealthCheckPath' },
-        Port: 4000,
+        Port: { Ref: 'paramContainerPort' },
       });
-      // The curl command interpolates the parameter, so CDK renders it as a
-      // Join over the Ref rather than a plain string.
+      // The curl command interpolates the parameters, so CDK renders it as a
+      // Join over the two Refs rather than a plain string.
       const taskDefs = template.findResources('AWS::ECS::TaskDefinition');
       const serialized = JSON.stringify(taskDefs);
       expect(serialized).toContain('"Ref":"paramHealthCheckPath"');
-      expect(serialized).toContain('http://localhost:4000');
+      expect(serialized).toContain('"Ref":"paramContainerPort"');
+      expect(serialized).toContain('http://localhost:');
+      expect(serialized).not.toContain('http://localhost:4000');
     });
 
     it('applies containerPort/healthCheckPath to the target group in the HTTPS branch too', () => {
@@ -714,7 +752,7 @@ describe('ApplicationStack', () => {
 
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
         HealthCheckPath: { Ref: 'paramHealthCheckPath' },
-        Port: 4000,
+        Port: { Ref: 'paramContainerPort' },
       });
     });
 
@@ -873,11 +911,24 @@ describe('ApplicationStack', () => {
   });
 
   describe('Secret-backed database URL', () => {
-    it('creates no second secret when databaseUrlEnvNames is unset', () => {
+    it('injects the generic DATABASE_URL by default (Phase 2 manifest default)', () => {
       const { template } = synth();
-      // Just the DB master-credential secret and the app config secret —
-      // byte-identical to a stack without this feature.
-      template.resourceCountIs('AWS::SecretsManager::Secret', 2);
+      // Postgres deployments get three secrets now: DB master credentials, the
+      // app config secret, and the DatabaseUrlSecret backing DATABASE_URL.
+      template.resourceCountIs('AWS::SecretsManager::Secret', 3);
+      expect(findUrlSecret(template)[0]).toBeDefined();
+      // The App container binds DATABASE_URL as an ECS secret from the URL
+      // secret — no plaintext anywhere.
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Secrets: Match.arrayWith([
+              Match.objectLike({ Name: 'DATABASE_URL' }),
+            ]),
+          }),
+        ]),
+      });
     });
 
     function findUrlSecret(template: Template): [string, TemplateResource] {
@@ -998,6 +1049,7 @@ describe('ApplicationStack', () => {
         [
           'paramAppApiKey',
           'paramAppSigningSecret',
+          'paramContainerPort',
           'paramHealthCheckPath',
           ...Object.values(DOCUMENSO_PARAMETERS),
         ].sort(),
@@ -1018,7 +1070,7 @@ describe('ApplicationStack', () => {
       });
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
         HealthCheckPath: { Ref: 'paramHealthCheckPath' },
-        Port: 3000,
+        Port: { Ref: 'paramContainerPort' },
       });
       template.hasResourceProperties('AWS::ECS::TaskDefinition', {
         ContainerDefinitions: Match.arrayWith([
@@ -1040,7 +1092,7 @@ describe('ApplicationStack', () => {
 
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
         HealthCheckPath: { Ref: 'paramHealthCheckPath' },
-        Port: 3000,
+        Port: { Ref: 'paramContainerPort' },
       });
     });
 

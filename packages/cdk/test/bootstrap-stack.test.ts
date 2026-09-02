@@ -479,6 +479,25 @@ describe('BootstrapStack', () => {
     expect(all).not.toContain('logs:FilterLogEvents');
   });
 
+  it('grants the relay ecs:RunTask for the deploy-time migration one-off', () => {
+    const { stack } = synth();
+    const statements = stack.provisionerPolicy.document.toJSON()[
+      'Statement'
+    ] as Array<Record<string, unknown>>;
+
+    const run = statements.find((s) => collectActions([s]).includes('ecs:RunTask'));
+    expect(run).toBeDefined();
+    // RunTask is evaluated against the cluster AND the task definition AND
+    // further untagged resource ARNs in some configurations — the same
+    // multi-resource auth shape ecs:DeregisterTaskDefinition documents — so
+    // no tag condition could reliably match (condition-free by design).
+    expect(run?.['Condition']).toBeUndefined();
+
+    // The permissions boundary (the ceiling) covers it too.
+    const boundary = collectActions(stack.permissionsBoundary.document.toJSON()['Statement']);
+    expect(boundary).toContain('ecs:RunTask');
+  });
+
   it('carries no secret template parameters', () => {
     const { template } = synth();
     const json = template.toJSON();

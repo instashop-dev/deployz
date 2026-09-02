@@ -17,7 +17,7 @@ import {
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)\b/i;
 
 describe('§61 failure codes', () => {
-  it('defines exactly the twenty-one §61 taxonomy codes', () => {
+  it('defines exactly the twenty-two §61 taxonomy codes', () => {
     expect(FAILURE_CODES).toEqual([
       'AWS_SCP_BLOCKED',
       'PORT_MISMATCH',
@@ -40,6 +40,7 @@ describe('§61 failure codes', () => {
       'UNKNOWN',
       'REDIS_PROVISIONING_FAILED',
       'REDIS_CONNECTION_FAILED',
+      'DOMAIN_OPERATION_TIMEOUT',
     ]);
   });
 

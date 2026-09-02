@@ -260,7 +260,7 @@ export interface AdminConnectionDiagnostics {
   bootstrapStackName: string | null;
   installationId: string | null;
   attemptNumber: number;
-  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'COMPLETE' | null;
+  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'PURGE_FAILED' | 'COMPLETE' | null;
   state: DeploymentState;
   /** True only when the relay is CONNECTED and its last heartbeat is fresh —
    *  the plain-language "can Deployz reach this account right now" signal. */
@@ -299,7 +299,7 @@ export interface AdminDeploymentDetail {
   isTestDeployment: boolean;
   lastHealthAt: string | null;
   deletedAt: string | null;
-  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'COMPLETE' | null;
+  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'PURGE_FAILED' | 'COMPLETE' | null;
   createdAt: string;
   updatedAt: string;
   customerName: string;

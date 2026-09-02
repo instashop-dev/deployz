@@ -179,12 +179,25 @@ export function InstallProgress({
               Access
             </h2>
             {status.url ? (
-              <p className="text-sm">
-                Your deployment is available at{' '}
-                <a className="font-medium underline underline-offset-4" href={status.url}>
-                  {status.url}
-                </a>
-              </p>
+              status.url.startsWith('https://') ? (
+                <p className="text-sm">
+                  Your deployment is available securely at{' '}
+                  <a className="font-medium underline underline-offset-4" href={status.url}>
+                    {status.url}
+                  </a>
+                </p>
+              ) : (
+                // A bare ALB endpoint serves over plain HTTP — reachable, but
+                // temporary and explicitly not secure. Never label it otherwise.
+                <p className="text-sm">
+                  Your deployment is temporarily available at{' '}
+                  <a className="font-medium underline underline-offset-4" href={status.url}>
+                    {status.url}
+                  </a>
+                  {' '}
+                  — not secure, and this address may change.
+                </p>
+              )
             ) : (
               <p className="text-sm text-muted-foreground">
                 {routingTarget
@@ -234,7 +247,9 @@ function FailureDetails({ failure }: { failure: CustomerDeploymentStatus['failur
         <CollapsibleContent className="flex flex-col gap-1.5 pt-2 text-sm">
           {technical ? <DetailRow label="Stage" value={technical.stage} /> : null}
           {technical?.component ? <DetailRow label="Component" value={technical.component} /> : null}
-          {technical?.awsStatus ? <DetailRow label="AWS status" value={technical.awsStatus} /> : null}
+          {/* The API maps the raw CloudFormation status to a jargon-free
+              phrase before it reaches this projection (§65). */}
+          {technical?.awsStatus ? <DetailRow label="Infrastructure" value={technical.awsStatus} /> : null}
           <DetailRow label="Reference" value={failure.reference} />
         </CollapsibleContent>
       </Collapsible>

@@ -70,7 +70,7 @@ export interface FleetDeployment {
   lastHealthAt: string | null;
   deletedAt: string | null;
   /** What the control plane knows about AWS leftovers at disconnect. */
-  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'COMPLETE' | null;
+  cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'PURGE_FAILED' | 'COMPLETE' | null;
   createdAt: string;
   updatedAt: string;
   createdBy: string | null;
@@ -292,6 +292,18 @@ export class DeploymentActionError extends Error {
     super(`Deployment action failed (${status})`);
     this.name = 'DeploymentActionError';
   }
+}
+
+/**
+ * User-facing message for a failed action. A DEPLOYMENT_BUSY 409 is not a
+ * transient fault — "try again in a moment" sent people into a retry loop
+ * against the busy gate; say what is actually happening instead.
+ */
+export function actionErrorMessage(caught: unknown, fallback: string): string {
+  if (caught instanceof DeploymentActionError && caught.code === 'DEPLOYMENT_BUSY') {
+    return 'Another operation is already running on this deployment. Wait for it to finish, then try again.';
+  }
+  return fallback;
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {

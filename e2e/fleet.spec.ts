@@ -8,6 +8,8 @@ import { expect, test, type Page } from '@playwright/test';
 // §46 vocabulary: the top-level copy uses the 9 product-language states,
 // never raw AWS/CFN/ECS/ALB terms (M14: deployment health only).
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in rendered top-level copy.
@@ -45,6 +47,7 @@ async function seedDeployment(page: Page): Promise<{
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string; name: string };
+  await makeApplicationDeployable(page.request, application.id);
 
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Acme Corp ${suffix}`, email: `acme-${suffix}@example.com` },
@@ -112,6 +115,21 @@ async function driveDeploymentToHealthy(
     { headers: authHeaders, data: { success: true } },
   );
   expect(resultResponse.ok()).toBeTruthy();
+
+  // Phase 1.3 honesty gate: a successful INSTALL alone keeps the deployment
+  // at INSTALLING — only the relay's runtime-health heartbeat (which is what
+  // a real relay sends every poll) earns HEALTHY. Send that heartbeat here,
+  // exactly as the real relay would.
+  const healthResponse = await page.request.post(`${API_URL}/api/relay/health`, {
+    headers: authHeaders,
+    data: {
+      installationId,
+      observedState: {},
+      healthStatus: 'HEALTHY',
+      components: { application: 'HEALTHY' },
+    },
+  });
+  expect(healthResponse.ok()).toBeTruthy();
 }
 
 test('fleet dashboard shows the §43 empty state for a fresh org', async ({ page }) => {

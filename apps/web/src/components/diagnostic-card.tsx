@@ -7,8 +7,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { Diagnostic, DiagnosticEvent } from '@/lib/diagnostics';
 import {
   EXPLANATION_FALLBACK,
+  FAILURE_RECOVERABILITY,
   FAILURE_SEVERITY_BADGE,
   FAILURE_SEVERITY_DOT,
+  RECOVERABILITY_COPY,
   failureCodeCopy,
 } from '@/lib/diagnostic-vocabulary';
 
@@ -45,6 +47,14 @@ export function DiagnosticCard({ diagnostic }: { diagnostic: Diagnostic }) {
           <ExplanationRow title="Why it happened" text={why} />
           <ExplanationRow title="How to fix it" text={fix} />
         </dl>
+
+        {/* §61 recoverability — sets the retry expectation per failure class
+            instead of a one-size-fits-all "try again". */}
+        <p className="text-sm text-muted-foreground">
+          {RECOVERABILITY_COPY[
+            diagnostic.recoverability ?? FAILURE_RECOVERABILITY[diagnostic.failureCode]
+          ]}
+        </p>
 
         <details className="group rounded-lg border">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">

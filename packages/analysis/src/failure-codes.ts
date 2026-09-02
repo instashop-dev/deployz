@@ -44,6 +44,7 @@ export const FAILURE_CODES = [
   'UNKNOWN',
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
+  'DOMAIN_OPERATION_TIMEOUT',
 ] as const;
 
 /** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */

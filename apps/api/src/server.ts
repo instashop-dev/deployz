@@ -2,7 +2,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, notInArray } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -14,7 +14,9 @@ import { z } from 'zod';
 import {
   FIX_INSTRUCTIONS_TIMEOUT_MS,
   createAiGateway,
+  evaluateManifestReadiness,
   generateFixInstructions,
+  normalizeDeploymentManifest,
   normalizeErrorText,
   redactSecrets,
   type AiGateway,
@@ -25,15 +27,18 @@ import {
 } from '@deployz/analysis';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
+  DOCUMENSO_PARAMETERS,
   REGION_LABELS,
   RELAY_STALE_AFTER_MS,
   SUPPORTED_AWS_REGIONS,
   aggregateInfrastructureComponents,
   bootstrapStackName,
   buildBootstrapQuickCreateUrl,
+  deploymentStateAfterFailedJob,
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
+  httpProbeSchema,
   infrastructureResponseSchema,
   regionSchema,
   relayCapabilitiesSchema,
@@ -43,7 +48,7 @@ import {
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
 } from '@deployz/contracts';
-import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
+import { FAILURE_REMEDIATION, failureRecoverability, type FailureCode } from '@deployz/copy-map';
 // Deep import so the Lambda bundle never touches @deployz/db's package root:
 // the root re-exports client.ts, whose PGlite dev fallback is external in the
 // Lambda bundle and crashes cold start with Runtime.ImportModuleError.
@@ -79,6 +84,7 @@ import {
   createConfigStore,
   createRelaySecretWriter,
   getConfig,
+  SECRET_MASK,
   setConfig,
   setConfigBodySchema,
 } from './config.js';
@@ -97,8 +103,17 @@ import {
   type GithubWebhookEvent,
 } from './github.js';
 import { createEmailSender, type EmailSender } from './email.js';
+import type { EcrClient } from './ecr-grants.js';
+import {
+  createEcrPullGrantDeps,
+  grantPullToCustomer,
+  revokePullFromCustomer,
+  type EcrPullGrantDeps,
+} from './ecr-pull-grants.js';
+import { refineFailureCode } from './failure-classification.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
-import { createOrReuseJob } from './jobs.js';
+import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
+import { applicationToManifestOverrides, readStoredManifest, requireReadyManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
   acceptInvitation,
@@ -149,6 +164,7 @@ import {
   toVendorDeploymentStatus,
 } from './deployment-status.js';
 import {
+  albEndpointFromResult,
   resolveAppUrl,
   toFleetRow,
   type DeploymentJobRow,
@@ -208,6 +224,10 @@ export interface ServerDeps {
   // env; tests override to enable env-grants without a Lambda-shaped env.
   teamAdminEmails?: string[] | undefined;
   teamAdminEnvGrantsEnabled?: boolean | undefined;
+  // Injectable ECR repository-policy seam for the Phase 1.1 install-grant /
+  // destroy-revoke lifecycle. Defaults to the real SDK client; tests inject a
+  // recorder so no ECR call ever leaves the machine.
+  ecrClient?: EcrClient | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -240,6 +260,21 @@ const CONTRACT_FIELDS = [
   'workerCommand',
   'databaseRequired',
   'storageRequired',
+  'redisRequired',
+] as const;
+
+/**
+ * The manifest-only vendor overrides (Phase 2) — no applications column backs
+ * them, so they live on `detected_metadata.manifestOverrides` instead of being
+ * recorded as claimed column fields. `redisRequired` IS column-backed and stays
+ * in CONTRACT_FIELDS above.
+ */
+const MANIFEST_OVERRIDE_FIELDS = [
+  'appRoot',
+  'dockerfilePath',
+  'buildContext',
+  'buildCommand',
+  'startCommand',
 ] as const;
 
 function requireUuidId(id: string): void {
@@ -424,6 +459,8 @@ interface DeployPayload {
   version: string;
   imageRepository: string;
   imageDigest: string;
+  /** Present only when a migration command resolves — see requireDeployableRelease. */
+  migrationCommand?: string;
   [key: string]: unknown;
 }
 
@@ -441,6 +478,7 @@ async function requireDeployableRelease(
   db: RuntimeDb,
   releaseId: string,
   applicationId: string,
+  deployment?: DeploymentRow,
 ): Promise<DeployPayload> {
   requireUuidId(releaseId);
   const rows = await db
@@ -470,7 +508,23 @@ async function requireDeployableRelease(
       `Version ${release.version} has no deployable image yet. Wait for the build to finish or pick another release.`,
     );
   }
-  return { releaseId: release.id, version: release.version, imageRepository, imageDigest };
+  const payload: DeployPayload = {
+    releaseId: release.id,
+    version: release.version,
+    imageRepository,
+    imageDigest,
+  };
+  // Phase 4: the migration command, stored-manifest first (the canonical
+  // snapshot the deployment was created with), else the release's own
+  // override. Absent → the key is omitted so a no-migration deploy carries
+  // byte-for-byte the payload it always did. A bulk deploy resolves the
+  // manifest half per target (each target has its own stored manifest).
+  const manifestCommand = deployment ? (readStoredManifest(deployment.desiredState)?.migration.command ?? null) : null;
+  const migrationCommand = manifestCommand ?? release.migrationCommand ?? null;
+  if (migrationCommand !== null && migrationCommand.trim().length > 0) {
+    payload.migrationCommand = migrationCommand.trim();
+  }
+  return payload;
 }
 
 /**
@@ -706,6 +760,12 @@ const UNDEPLOYABLE_STATES = new Set<DeploymentRow['state']>([
 // container). Only then may retry-install supersede the job.
 const INSTALL_JOB_STALE_AFTER_MS = 30 * 60 * 1000;
 
+// §9.4 force-complete on a LIVE relay: how many consecutive FAILED DESTROY
+// jobs must accumulate before the escape hatch opens even though the relay
+// still reads online. One failure is retryable by the vendor; two failures
+// on a connected relay mean the delete itself is wedged.
+const REPEATED_DESTROY_FAILURES_REQUIRED = 2;
+
 /** 409s a deploy/rollback/restart aimed at a deployment that has nothing to
  *  deploy into — the single-deployment mirror of the skip reason deploy-bulk
  *  gives. A FAILED deployment that never completed a first successful
@@ -725,6 +785,25 @@ async function requireDeployableState(db: RuntimeDb, deployment: DeploymentRow):
       409,
       'DEPLOYMENT_NOT_DEPLOYABLE',
       'This deployment never completed its first install; use Retry install instead.',
+    );
+  }
+  // §9.5 relay-liveness gates, mirroring retry-install's refusals: a job
+  // queued for a relay that is not (or no longer) connected would sit
+  // REQUESTED until the watchdog fails it an hour later, which the vendor
+  // just watched happen. The fix for a dead relay is re-enrollment
+  // (relay/reset), not another doomed job — refuse so the UI points there.
+  if (!deployment.installationId) {
+    throw new ApiError(
+      409,
+      'RELAY_NOT_CONNECTED',
+      'No relay is connected to this deployment. Reconnect it before deploying.',
+    );
+  }
+  if (deployment.relayStatus === 'DISCONNECTED') {
+    throw new ApiError(
+      409,
+      'RELAY_DISCONNECTED',
+      'The relay for this deployment is disconnected. Reconnect it before deploying.',
     );
   }
 }
@@ -756,6 +835,35 @@ async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise
 
 // resolveAppUrl now lives in ./fleet-row.js, alongside toFleetRow.
 
+/** The health path the application template checks by default. */
+const DEFAULT_HEALTH_PATH = '/health';
+
+/**
+ * §10.2 the URL the relay probes once per poll: the latest successful
+ * INSTALL's ALB endpoint plus the application's configured health path. The
+ * control plane knows both (the stack's outputs and the manifest-derived
+ * path) and hands the full URL to the relay in each poll's deployment meta,
+ * so the relay never has to resolve either inside the customer account. Null
+ * until an INSTALL produced an endpoint — the relay then omits the probe.
+ * `jobs` must be ascending by createdAt.
+ */
+function resolveProbeUrl(
+  jobs: ReadonlyArray<Pick<DeploymentJobRow, 'type' | 'state' | 'result'>>,
+  healthPath: string | null,
+): string | null {
+  const installs = jobs.filter(
+    (j) => j.type === 'INSTALL' && (j.state === 'SUCCEEDED' || j.state === 'SUCCESS'),
+  );
+  const endpoint = albEndpointFromResult(installs[installs.length - 1]?.result ?? null);
+  if (!endpoint) return null;
+  const base = endpoint.startsWith('http://') || endpoint.startsWith('https://')
+    ? endpoint.replace(/\/+$/, '')
+    : `http://${endpoint.replace(/\/+$/, '')}`;
+  const trimmed = healthPath?.trim() ?? '';
+  const path = trimmed.length > 0 ? trimmed : DEFAULT_HEALTH_PATH;
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 /**
  * Step-timings follow-up shared by both relay-authenticated write paths
  * (POST /api/relay/health and the job-result handler below): re-derive the
@@ -785,6 +893,7 @@ async function advanceStepTimingsAfterWrite(
       databaseRequired: schema.applications.databaseRequired,
       storageRequired: schema.applications.storageRequired,
       redisRequired: schema.applications.redisRequired,
+      migrationCommand: schema.applications.migrationCommand,
     })
     .from(schema.applications)
     .where(eq(schema.applications.id, freshDeployment.applicationId))
@@ -837,17 +946,81 @@ async function advanceStepTimingsAfterWrite(
  * Mirrors the transitions the packages/cdk job workflows already model. A job
  * type absent from this map leaves the state alone — CONFIG_UPDATE is
  * non-disruptive (§31), so a config write must not disturb the lifecycle.
+ *
+ * INSTALL is deliberately absent: a CloudFormation CREATE_COMPLETE does not
+ * prove the application is running. The deployment stays in INSTALLING until
+ * the relay's runtime health verification reports HEALTHY (see the
+ * /api/relay/health handler, which advances INSTALLING → HEALTHY), so a
+ * "healthy" state always means observed-healthy, never just stack-complete.
  */
 const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
-  INSTALL: 'HEALTHY',
   DEPLOY_RELEASE: 'HEALTHY',
   ROLLBACK: 'HEALTHY',
   RESTART: 'HEALTHY',
   DESTROY: 'DELETED',
 };
 
-/** Job types that carry a release pointer forward on success (§38). */
+/**
+ * Job types whose SUCCESS names a release in the audit event. §10.3: these no
+ * longer advance the release pointer at result time — the heartbeat's digest
+ * reconciliation does, once the HTTP probe and every ECS/ALB gate pass. This
+ * set now only decides which jobs carry a releaseId on their event.
+ */
 const RELEASE_ADVANCING_JOBS = new Set<JobType>(['DEPLOY_RELEASE', 'ROLLBACK']);
+
+/**
+ * Documenso preset parameters the control plane GENERATES at install time
+ * (or that carry SMTP credentials) — their values are secrets. `redactClaimedPayload`
+ * scrubs these from the INSTALL job payload once the relay has claimed it,
+ * so generated install secrets do not sit in `deployment_jobs.payload`
+ * indefinitely (§31 "stop storing generated install secrets unnecessarily
+ * in job payloads").
+ */
+const INSTALL_SECRET_PARAMETER_IDS = new Set<string>([
+  DOCUMENSO_PARAMETERS.nextauthSecret,
+  DOCUMENSO_PARAMETERS.encryptionKey,
+  DOCUMENSO_PARAMETERS.encryptionSecondaryKey,
+  DOCUMENSO_PARAMETERS.smtpUsername,
+  DOCUMENSO_PARAMETERS.smtpPassword,
+]);
+
+/**
+ * The relay receives a command's payload exactly once, at claim time
+ * (`GET /api/relay/commands`). After that response the stored row never
+ * needs the plaintext again, so the claim handler scrubs it in the same
+ * request that serves it:
+ *  - CONFIG_UPDATE: newly-entered secret VALUES (transport-only) become
+ *    key stubs — the DB keeps key names, never values.
+ *  - INSTALL: generated secret parameter values become SECRET_MASK; plain
+ *    parameters (publicUrl, healthPath) survive untouched.
+ */
+export function redactClaimedPayload(job: {
+  readonly type: string;
+  readonly payload: Record<string, unknown> | null;
+}): Record<string, unknown> | null {
+  const payload = job.payload;
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+
+  if (job.type === 'CONFIG_UPDATE' && Array.isArray(payload['secrets'])) {
+    return {
+      ...payload,
+      secrets: (payload['secrets'] as { key?: unknown }[]).map((entry) => ({
+        key: typeof entry.key === 'string' ? entry.key : '',
+      })),
+    };
+  }
+
+  if (job.type === 'INSTALL' && typeof payload['parameters'] === 'object' && payload['parameters'] !== null) {
+    const parameters = payload['parameters'] as Record<string, unknown>;
+    const redacted: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parameters)) {
+      redacted[key] = INSTALL_SECRET_PARAMETER_IDS.has(key) ? SECRET_MASK : value;
+    }
+    return { ...payload, parameters: redacted };
+  }
+
+  return payload;
+}
 
 /** §40 event type per job outcome. Job types with no vendor-visible event are absent. */
   const JOB_RESULT_EVENT: Partial<
@@ -875,6 +1048,7 @@ export async function buildServer({
   githubAppInstallUrl,
   analysisRunner,
   emailSender,
+  ecrClient,
   githubFetch: injectedGithubFetch,
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
@@ -884,6 +1058,9 @@ export async function buildServer({
   teamAdminEnvGrantsEnabled = env.teamAdminEnvGrantsEnabled,
   loggerInstance,
 }: ServerDeps): Promise<FastifyInstance> {
+  // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
+  // grant must not fail the install request that owns it (see ecr-pull-grants.ts).
+  const ecrGrantDeps: EcrPullGrantDeps = createEcrPullGrantDeps(ecrClient);
   // `logger: false` meant a 500 left NO trace anywhere: not in CloudWatch, not
   // in the response (the envelope is deliberately generic), nowhere. Three
   // production failures in a row could only be diagnosed by reading
@@ -1456,6 +1633,7 @@ export async function buildServer({
           databaseRequired: schema.applications.databaseRequired,
           storageRequired: schema.applications.storageRequired,
           redisRequired: schema.applications.redisRequired,
+          migrationCommand: schema.applications.migrationCommand,
         })
         .from(schema.deployments)
         .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
@@ -1505,6 +1683,9 @@ export async function buildServer({
       throw new NotFoundError('Installation not found');
     }
     const { deployment, applicationName } = rows[0]!;
+    // Phase 3 readiness gate: the install link is a second boundary where a
+    // non-READY manifest must be stopped before any AWS provisioning.
+    requireReadyManifest(deployment.desiredState);
     if (deployment.state !== 'NOT_INSTALLED') {
       return reply.code(200).send({ state: deployment.state });
     }
@@ -1653,6 +1834,38 @@ export async function buildServer({
     await loadOwnedApplication(db, id, organizationId); // 404s on cross-org access
     const body = setConfigBodySchema.parse(request.body);
     const scope = await resolveConfigScope(db, body.customerId, organizationId);
+    // §9.5 relay-liveness gate for config-update, mirroring the deploy gate:
+    // the worker fans CONFIG_UPDATE jobs out to this app's deployments, and a
+    // disconnected relay never claims its share. Refuse the whole write so the
+    // vendor reconnects first instead of watching doomed jobs accumulate.
+    // Scope matches the worker's fan-out exactly (customer-scoped; a null
+    // customer fan-out is empty and needs no gate).
+    if (scope.customerId !== null) {
+      const deadRelay = await db
+        .select({ id: schema.deployments.id })
+        .from(schema.deployments)
+        .where(
+          and(
+            eq(schema.deployments.applicationId, id),
+            eq(schema.deployments.customerId, scope.customerId),
+            notInArray(schema.deployments.state, [
+              'NOT_INSTALLED',
+              'WAITING_FOR_RELAY',
+              'DELETING',
+              'DELETED',
+            ]),
+            eq(schema.deployments.relayStatus, 'DISCONNECTED'),
+          ),
+        )
+        .limit(1);
+      if (deadRelay.length > 0) {
+        throw new ApiError(
+          409,
+          'RELAY_DISCONNECTED',
+          'A deployment relay for this configuration is disconnected. Reconnect it before changing configuration.',
+        );
+      }
+    }
     const view = await setConfig(
       id,
       scope.customerId,
@@ -1800,6 +2013,7 @@ export async function buildServer({
     workerCommand: z.string().nullish(),
     databaseRequired: z.boolean().nullish(),
     storageRequired: z.boolean().nullish(),
+    redisRequired: z.boolean().nullish(),
   });
 
   // §36 PATCH-only — mirrors POST but all-optional. `nullish` fields let the
@@ -1813,6 +2027,13 @@ export async function buildServer({
     workerCommand: z.string().nullish(),
     databaseRequired: z.boolean().optional(),
     storageRequired: z.boolean().optional(),
+    redisRequired: z.boolean().optional(),
+    // Phase 2 manifest overrides — stored on detected_metadata.manifestOverrides.
+    appRoot: z.string().nullish(),
+    dockerfilePath: z.string().nullish(),
+    buildContext: z.string().nullish(),
+    buildCommand: z.string().nullish(),
+    startCommand: z.string().nullish(),
   });
 
   const createCustomerBodySchema = z.object({
@@ -1916,6 +2137,7 @@ export async function buildServer({
         workerCommand: body.workerCommand ?? null,
         databaseRequired: body.databaseRequired ?? false,
         storageRequired: body.storageRequired ?? false,
+        redisRequired: body.redisRequired ?? false,
         analysisStatus: 'PENDING',
         createdBy: request.user?.id ?? null,
         updatedBy: request.user?.id ?? null,
@@ -1963,15 +2185,41 @@ export async function buildServer({
     if (body.workerCommand !== undefined) set.workerCommand = body.workerCommand ?? null;
     if (body.databaseRequired !== undefined) set.databaseRequired = body.databaseRequired;
     if (body.storageRequired !== undefined) set.storageRequired = body.storageRequired;
-    if (Object.keys(set).length === 0) return existing;
+    if (body.redisRequired !== undefined) set.redisRequired = body.redisRequired;
+
+    // Phase 2 manifest-only overrides (app root, Dockerfile, build
+    // context/command, start command) have no applications column; they live
+    // on detected_metadata.manifestOverrides. A null clears that key.
+    let nextMetadata = existing.detectedMetadata ?? {};
+    const storedManifestOverrides = (nextMetadata['manifestOverrides'] ?? {}) as Record<string, unknown>;
+    const nextManifestOverrides = { ...storedManifestOverrides };
+    let manifestOnlyChanged = false;
+    for (const field of MANIFEST_OVERRIDE_FIELDS) {
+      const value = body[field];
+      if (value === undefined) continue;
+      manifestOnlyChanged = true;
+      if (value === null) {
+        delete nextManifestOverrides[field];
+      } else {
+        nextManifestOverrides[field] = value;
+      }
+    }
+    if (manifestOnlyChanged) {
+      nextMetadata = { ...nextMetadata, manifestOverrides: nextManifestOverrides };
+    }
+
+    if (Object.keys(set).length === 0 && !manifestOnlyChanged) return existing;
     // The details form re-submits every field on every save, so only a value
     // that actually differs counts as the vendor claiming that field.
     const claimed = CONTRACT_FIELDS.filter(
       (field) => set[field] !== undefined && set[field] !== existing[field],
     );
-    if (claimed.length > 0) {
-      const overrides = new Set([...readVendorOverrides(existing.detectedMetadata), ...claimed]);
-      set.detectedMetadata = { ...(existing.detectedMetadata ?? {}), vendorOverrides: [...overrides] };
+    if (claimed.length > 0 || manifestOnlyChanged) {
+      if (claimed.length > 0) {
+        const overrides = new Set([...readVendorOverrides(existing.detectedMetadata), ...claimed]);
+        nextMetadata = { ...nextMetadata, vendorOverrides: [...overrides] };
+      }
+      set.detectedMetadata = nextMetadata;
     }
     set.updatedBy = request.user?.id ?? null;
     const [row] = await db
@@ -2159,8 +2407,33 @@ export async function buildServer({
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
     // 404 on a non-existent/other-org applicationId or customerId — otherwise
     // the INSERT below hits a foreign-key violation and surfaces as a 500.
-    await loadOwnedApplication(db, body.applicationId, organizationId);
+    const application = await loadOwnedApplication(db, body.applicationId, organizationId);
     await loadOwnedCustomer(db, body.customerId, organizationId);
+    // Phase 2 readiness gate — block incompatible/missing-config deployments
+    // BEFORE any AWS provisioning can start. The evaluator runs from the FINAL
+    // manifest (detector output + vendor overrides), so a vendor-corrected
+    // config passes even when the stored analysis report is stale.
+    const manifest = normalizeDeploymentManifest(
+      { metadata: application.detectedMetadata ?? {} },
+      applicationToManifestOverrides(application),
+    );
+    const readiness = evaluateManifestReadiness(manifest);
+    if (readiness.state === 'NOT_COMPATIBLE') {
+      throw new ApiError(
+        422,
+        'MANIFEST_NOT_COMPATIBLE',
+        'This application cannot be deployed with Deployz as configured.',
+        { findings: readiness.findings },
+      );
+    }
+    if (readiness.state === 'NEEDS_CONFIGURATION') {
+      throw new ApiError(
+        422,
+        'MANIFEST_NEEDS_CONFIGURATION',
+        'This application is missing configuration required for deployment. Run analysis or correct it in the application settings first.',
+        { findings: readiness.findings },
+      );
+    }
     // The relay mints its own installationId inside the customer's account, so
     // it is unknown until enrollment. What the control plane mints here is the
     // single-use enrollment code the bootstrap stack carries, plus the public
@@ -2174,6 +2447,10 @@ export async function buildServer({
         organizationId,
         region: body.region,
         state: 'NOT_INSTALLED',
+        // The final manifest is the deployment's desired state — the canonical
+        // config this deployment was created with, kept for rollback/deploy
+        // even if application analysis or overrides change afterwards.
+        desiredState: { manifest },
         enrollmentCode: mintEnrollmentCode(),
         isTestDeployment: body.isTestDeployment ?? false,
         createdBy: request.user?.id ?? null,
@@ -2235,6 +2512,7 @@ export async function buildServer({
         databaseRequired: schema.applications.databaseRequired,
         storageRequired: schema.applications.storageRequired,
         redisRequired: schema.applications.redisRequired,
+        migrationCommand: schema.applications.migrationCommand,
       })
       .from(schema.deployments)
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
@@ -2301,6 +2579,7 @@ export async function buildServer({
         databaseRequired: schema.applications.databaseRequired,
         storageRequired: schema.applications.storageRequired,
         redisRequired: schema.applications.redisRequired,
+        migrationCommand: schema.applications.migrationCommand,
       })
       .from(schema.deployments)
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
@@ -2479,6 +2758,57 @@ export async function buildServer({
     });
   }
 
+  /**
+   * Phase 1.1: after a successful INSTALL the stack runs the template's pinned
+   * image — roll the newest READY release of the application immediately so a
+   * fresh installation serves real traffic without a manual deploy step.
+   *
+   * Best-effort: no READY release (nothing built yet) or a payload that stops
+   * validating simply skips. The job uses the SAME idempotency key as the
+   * manual deploy route (`${deployment.id}:DEPLOY_RELEASE:<releaseId>`), so a
+   * vendor-driven deploy of the same release reuses it instead of racing it.
+   *
+   * The deployment state is deliberately NOT advanced (`inFlightState: null`):
+   * the INSTALLING → HEALTHY transition belongs to the relay's runtime-health
+   * verification, and an auto-queued deploy must not make the deployment look
+   * healthier than it is. The relay picks the job up on its next poll and the
+   * DEPLOY_RELEASE result handler settles the state as usual.
+   */
+  async function autoDeploySelectedRelease(deployment: DeploymentRow): Promise<void> {
+    const newestReady = await db
+      .select({ id: schema.releases.id })
+      .from(schema.releases)
+      .where(
+        and(
+          eq(schema.releases.applicationId, deployment.applicationId),
+          eq(schema.releases.releaseStatus, 'READY'),
+        ),
+      )
+      .orderBy(desc(schema.releases.createdAt))
+      .limit(1);
+    const release = newestReady[0];
+    if (!release) return;
+
+    const payload = await requireDeployableRelease(db, release.id, deployment.applicationId, deployment);
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'DEPLOY_RELEASE',
+      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:${release.id}`,
+      payload,
+      requestedBy: null,
+    });
+    if (created) {
+      await markJobRequested({
+        deployment,
+        jobId: job.id,
+        inFlightState: null,
+        eventType: 'deploy.requested',
+        actorId: null,
+        releaseId: release.id,
+      });
+    }
+  }
+
 
   // POST /api/deployments/:id/deploy — Trigger (or reuse) a DEPLOY_RELEASE job
   app.post('/api/deployments/:id/deploy', { preHandler: requireAuth }, async (request, reply) => {
@@ -2486,7 +2816,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
-    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
+    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId, deployment);
     // The same rule deploy-bulk applies. Without it this route accepted a
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
@@ -2559,6 +2889,16 @@ export async function buildServer({
         });
         continue;
       }
+      // Same §9.5 gate as the single-deploy route: a dead relay never claims
+      // the job, and the watchdog would fail it later — skip with a reason.
+      if (deployment.relayStatus === 'DISCONNECTED') {
+        results.push({
+          deploymentId: deployment.id,
+          status: 'SKIPPED',
+          reason: 'The relay for this deployment is disconnected — reconnect it before deploying.',
+        });
+        continue;
+      }
       const idempotencyKey = await retryAwareIdempotencyKey(
         db,
         deployment.id,
@@ -2596,11 +2936,19 @@ export async function buildServer({
         });
         continue;
       }
+      // Phase 4: each target resolves its own migration command — the shared
+      // `payload` carries the release-level command; a target's stored
+      // manifest command overrides it (same precedence as single deploys).
+      let targetPayload = payload;
+      const manifestCommand = readStoredManifest(deployment.desiredState)?.migration.command ?? null;
+      if (manifestCommand !== null && manifestCommand !== payload['migrationCommand']) {
+        targetPayload = { ...payload, migrationCommand: manifestCommand };
+      }
       const { job, created } = await createOrReuseJob(db, {
         deploymentId: deployment.id,
         type: 'DEPLOY_RELEASE',
         idempotencyKey,
-        payload,
+        payload: targetPayload,
         requestedBy: request.user?.id ?? null,
       });
       results.push({
@@ -2784,9 +3132,10 @@ export async function buildServer({
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
-  // Settle a DESTROY whose relay went offline mid-delete, for an
-  // already-loaded, already-owned deployment. Shared by the vendor
-  // disconnect/force-complete route and the admin recovery action.
+  // Settle a DESTROY whose relay went offline mid-delete, OR whose delete
+  // keeps FAILING on a relay that is still online, for an already-loaded,
+  // already-owned deployment. Shared by the vendor disconnect/force-complete
+  // route and the admin recovery action.
   //
   // This completes the CONTROL-PLANE disconnect only. It never claims the
   // customer's AWS resources were removed: cleanupState records
@@ -2797,59 +3146,106 @@ export async function buildServer({
     deployment: DeploymentRow,
     actorId: string | null,
   ): Promise<{ state: 'DELETED'; cleanupState: 'SKIPPED_RELAY_OFFLINE'; jobId: string }> {
-    if (deployment.state !== 'DELETING') {
-      throw new ApiError(
-        409,
-        'NOT_DELETING',
-        'Only a disconnect that is still in progress can be completed this way.',
-      );
-    }
-    // Persisted liveness is the gate: the worker sweep only writes
-    // DISCONNECTED after the relay missed its check-in window, so this
-    // cannot fire on a relay that is merely between polls.
-    if (deployment.relayStatus !== 'DISCONNECTED') {
-      throw new ApiError(
-        409,
-        'RELAY_NOT_OFFLINE',
-        'The relay for this deployment is not confirmed offline.',
-      );
-    }
-
-    const pendingDestroy = await db
+    // Two escape paths, discriminated by whether a DESTROY is still in
+    // flight:
+    //   1. DELETING + a pending (REQUESTED..RUNNING) DESTROY — the relay
+    //      went offline mid-delete (relayStatus DISCONNECTED required).
+    //   2. DELETING or FAILED + NO pending DESTROY, but REPEATED FAILED
+    //      DESTROY jobs whose latest is the deployment's newest job — the
+    //      delete itself is wedged on a relay that keeps reporting failure
+    //      (even while technically connected).
+    const destroys = await db
       .select()
       .from(schema.deploymentJobs)
       .where(
         and(
           eq(schema.deploymentJobs.deploymentId, deployment.id),
           eq(schema.deploymentJobs.type, 'DESTROY'),
-          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
         ),
       )
       .orderBy(desc(schema.deploymentJobs.createdAt))
-      .limit(1);
-    const job = pendingDestroy[0];
-    if (!job) {
-      throw new ApiError(409, 'NO_PENDING_DESTROY', 'No disconnect is waiting on this deployment.');
-    }
-    const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
-    const pendingMs = Date.now() - lastSignal.getTime();
-    if (pendingMs < DESTROY_PENDING_STALE_AFTER_MS) {
-      throw new ApiError(
-        409,
-        'DESTROY_NOT_STALE',
-        'The disconnect has not been pending long enough to complete it this way.',
-      );
+      .limit(10);
+    const job = destroys.find((j) =>
+      ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'].includes(j.state),
+    );
+
+    if (job) {
+      // Path 1 — offline relay mid-delete.
+      if (deployment.state !== 'DELETING') {
+        throw new ApiError(
+          409,
+          'NOT_DELETING',
+          'Only a disconnect that is still in progress can be completed this way.',
+        );
+      }
+      // Persisted liveness is the gate: the worker sweep only writes
+      // DISCONNECTED after the relay missed its check-in window, so this
+      // cannot fire on a relay that is merely between polls.
+      if (deployment.relayStatus !== 'DISCONNECTED') {
+        throw new ApiError(
+          409,
+          'RELAY_NOT_OFFLINE',
+          'The relay for this deployment is not confirmed offline.',
+        );
+      }
+      const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
+      if (Date.now() - lastSignal.getTime() < DESTROY_PENDING_STALE_AFTER_MS) {
+        throw new ApiError(
+          409,
+          'DESTROY_NOT_STALE',
+          'The disconnect has not been pending long enough to complete it this way.',
+        );
+      }
+    } else {
+      // Path 2 — repeated FAILED destroys, no job in flight.
+      const latestAny = await db
+        .select({ type: schema.deploymentJobs.type, state: schema.deploymentJobs.state })
+        .from(schema.deploymentJobs)
+        .where(eq(schema.deploymentJobs.deploymentId, deployment.id))
+        .orderBy(desc(schema.deploymentJobs.createdAt))
+        .limit(1);
+      if (
+        deployment.state !== 'DELETING' &&
+        deployment.state !== 'FAILED'
+      ) {
+        throw new ApiError(
+          409,
+          'NOT_DELETING',
+          'Only a disconnect that is still in progress can be completed this way.',
+        );
+      }
+      const failedDestroys = destroys.filter((d) => d.state === 'FAILED');
+      if (
+        failedDestroys.length < REPEATED_DESTROY_FAILURES_REQUIRED ||
+        latestAny[0]?.type !== 'DESTROY' ||
+        latestAny[0]?.state !== 'FAILED'
+      ) {
+        throw new ApiError(409, 'NO_PENDING_DESTROY', 'No disconnect is waiting on this deployment.');
+      }
+      const lastFailedAt = destroys[0]!.finishedAt ?? destroys[0]!.updatedAt ?? destroys[0]!.createdAt;
+      if (Date.now() - lastFailedAt.getTime() < DESTROY_PENDING_STALE_AFTER_MS) {
+        throw new ApiError(
+          409,
+          'DESTROY_NOT_STALE',
+          'The disconnect has not been pending long enough to complete it this way.',
+        );
+      }
     }
 
+    const reason = job ? 'RELAY_OFFLINE' : 'REPEATED_DESTROY_FAILURE';
+    const settleJobId = job?.id ?? destroys[0]!.id;
+
     await db.transaction(async (tx) => {
-      await tx
-        .update(schema.deploymentJobs)
-        .set({
-          state: 'CANCELLED',
-          finishedAt: new Date(),
-          result: { forceCompleted: true, reason: 'RELAY_OFFLINE' },
-        })
-        .where(eq(schema.deploymentJobs.id, job.id));
+      if (job) {
+        await tx
+          .update(schema.deploymentJobs)
+          .set({
+            state: 'CANCELLED',
+            finishedAt: new Date(),
+            result: { forceCompleted: true, reason },
+          })
+          .where(eq(schema.deploymentJobs.id, job.id));
+      }
       await tx
         .update(schema.deployments)
         .set({
@@ -2875,24 +3271,25 @@ export async function buildServer({
         actorId: actorId ?? 'system',
         deploymentId: deployment.id,
         customerId: deployment.customerId,
-        jobId: job.id,
+        jobId: settleJobId,
         previousState: deployment.state,
         requestedState: 'DELETED',
         result: 'success',
         payload: {
-          relayStatus: 'DISCONNECTED',
-          pendingMs,
+          relayStatus: deployment.relayStatus,
+          reason,
           awsResourcesRemoved: false,
           cleanupState: 'SKIPPED_RELAY_OFFLINE',
         },
       });
     });
 
-    return { state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE', jobId: job.id };
+    return { state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE', jobId: settleJobId };
   }
 
   // POST /api/deployments/:id/disconnect/force-complete — settle a DESTROY
-  // whose relay went offline mid-delete.
+  // whose relay went offline mid-delete, OR whose delete keeps FAILING on a
+  // relay that is still online.
   app.post(
     '/api/deployments/:id/disconnect/force-complete',
     { preHandler: requireAuth },
@@ -2917,7 +3314,10 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
 
-    if (deployment.state !== 'DELETED' || deployment.cleanupState !== 'SKIPPED_RELAY_OFFLINE') {
+    if (
+      deployment.state !== 'DELETED' ||
+      (deployment.cleanupState !== 'SKIPPED_RELAY_OFFLINE' && deployment.cleanupState !== 'PURGE_FAILED')
+    ) {
       throw new ApiError(
         409,
         'NOT_PURGE_ELIGIBLE',
@@ -2934,7 +3334,18 @@ export async function buildServer({
       deploymentId: deployment.id,
       type: 'PURGE',
       idempotencyKey,
-      payload: {},
+      // Phase 5 §9.6: a reset may have LEFT an older installation behind
+      // (previous stack/install ids recorded on the row). Carry them so the
+      // purge can find and account for that stack's retained resources
+      // instead of silently orphaning them.
+      payload: {
+        ...(deployment.previousInstallationId
+          ? { previousInstallationId: deployment.previousInstallationId }
+          : {}),
+        ...(deployment.previousBootstrapStackName
+          ? { previousBootstrapStackName: deployment.previousBootstrapStackName }
+          : {}),
+      },
       requestedBy: request.user?.id ?? null,
     });
     if (created) {
@@ -3007,6 +3418,15 @@ export async function buildServer({
           enrollmentCode,
           enrollmentUsedAt: null,
           installationId: null,
+          // Phase 5 §9.6: the identifiers this reset replaces stay recorded so
+          // a later purge can still find the PREVIOUS stack's retained
+          // resources — re-enrollment must not silently orphan them.
+          ...(deployment.installationId
+            ? { previousInstallationId: deployment.installationId }
+            : {}),
+          ...(deployment.bootstrapStackName
+            ? { previousBootstrapStackName: deployment.bootstrapStackName }
+            : {}),
           relayTokenHash: null,
           relayBoundAt: null,
           relayStatus: 'UNKNOWN',
@@ -3026,7 +3446,16 @@ export async function buildServer({
         customerId: deployment.customerId,
         previousState: deployment.state,
         requestedState: neverInstalled ? 'NOT_INSTALLED' : deployment.state,
-        payload: { attempt: nextAttempt, bootstrapStackName: neverInstalled ? stackName : null },
+        payload: {
+          attempt: nextAttempt,
+          bootstrapStackName: neverInstalled ? stackName : null,
+          ...(deployment.installationId
+            ? { previousInstallationId: deployment.installationId }
+            : {}),
+          ...(deployment.bootstrapStackName
+            ? { previousBootstrapStackName: deployment.bootstrapStackName }
+            : {}),
+        },
       });
     });
 
@@ -3137,6 +3566,16 @@ export async function buildServer({
       );
     }
 
+    // Superseded stale attempt (a dead relay invocation's RUNNING job, or a
+    // queued job the FAILED state outran) is closed BEFORE the new insert —
+    // the one-active-job index refuses a second active INSTALL otherwise.
+    if (inFlight) {
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'CANCELLED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.id, inFlight.id));
+    }
+
     // Attempt-scoped key: the original `${deployment.id}:INSTALL` row is
     // FAILED and createOrReuseJob would keep returning it. Counting prior
     // attempts keeps the key deterministic, so a double-click reuses the
@@ -3150,21 +3589,15 @@ export async function buildServer({
         recovery: { neverInstalled: true },
         parameters: await buildInstallParameters(db, deployment.id),
         redisRequired: await readRedisRequired(db, deployment.applicationId),
+        // The canonical manifest this deployment was created with — the relay
+        // derives port/health/binding parameters from it (Phase 2).
+        manifest: readStoredManifest(deployment.desiredState),
       },
       requestedBy: actorId,
     });
 
     if (created) {
       await db.transaction(async (tx) => {
-        if (inFlight) {
-          // Superseded (stale RUNNING from a dead relay invocation, or a
-          // queued job the FAILED state outran) — close it so the job list
-          // does not show two live installs.
-          await tx
-            .update(schema.deploymentJobs)
-            .set({ state: 'CANCELLED', finishedAt: new Date() })
-            .where(eq(schema.deploymentJobs.id, inFlight.id));
-        }
         await tx
           .update(schema.deployments)
           .set({ state: 'INSTALLING', updatedBy: actorId })
@@ -3183,6 +3616,16 @@ export async function buildServer({
           payload: { supersededJobId: inFlight?.id ?? null },
         });
       });
+    }
+
+    if (created && deployment.installationId && deployment.awsAccountId) {
+      // Phase 1.1: a fresh install attempt re-grants pull access. Idempotent —
+      // a replay or an already-granted installation is a no-op policy write.
+      await grantPullToCustomer(
+        ecrGrantDeps,
+        deployment.installationId,
+        deployment.awsAccountId,
+      );
     }
 
     return { replayed: false, created, job };
@@ -3316,8 +3759,31 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
-    if (deployment.state !== 'FAILED') {
-      return { failureCode: null, what: null, why: null, fix: null, events: [] };
+    // A failed day-2 operation no longer marks the deployment itself FAILED
+    // (the previous release keeps serving), but its diagnostics must stay
+    // reachable — gate on "the most recent mutating attempt failed", with
+    // the deployment state as the legacy fast path.
+    const [latestMutating] = await db
+      .select({ state: schema.deploymentJobs.state })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, id),
+          inArray(schema.deploymentJobs.type, [
+            'INSTALL',
+            'DEPLOY_RELEASE',
+            'ROLLBACK',
+            'RESTART',
+            'CONFIG_UPDATE',
+            'DESTROY',
+            'PURGE',
+          ]),
+        ),
+      )
+      .orderBy(desc(schema.deploymentJobs.createdAt))
+      .limit(1);
+    if (deployment.state !== 'FAILED' && latestMutating?.state !== 'FAILED') {
+      return { failureCode: null, recoverability: null, what: null, why: null, fix: null, events: [] };
     }
     const events = await db
       .select()
@@ -3385,6 +3851,9 @@ export async function buildServer({
 
     return {
       failureCode,
+      // §61 recoverability — which affordance the UI should lead with
+      // (wait/reconcile, fix-then-retry, contact support, or none).
+      recoverability: failureRecoverability(failureCode),
       what: explanation.what,
       why: explanation.why,
       fix: explanation.fix,
@@ -3700,9 +4169,41 @@ export async function buildServer({
   ];
   const ACTIVE_JOB_STATES: readonly JobStateValue[] = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'];
 
+  /**
+   * §10.3 the promotion gate's observational half: whether ONE heartbeat's
+   * observedState shows a fully rolled-out, healthy release. Every layer the
+   * relay reported must pass — ECS rollout COMPLETED, expected task count up,
+   * no unhealthy/pending/unclassified ALB targets, and a successful HTTP
+   * probe. A signal the relay did not report (older relay, unreadable AWS)
+   * is not an obstacle, but a reported failure in any layer blocks promotion:
+   * a partially-rolled-out service must never become current.
+   */
+  function releasePromotionGatesPass(observedState: Record<string, unknown> | null | undefined): boolean {
+    if (!observedState || typeof observedState !== 'object') return false;
+
+    const rollout = observedState['deploymentRolloutState'];
+    if (rollout !== undefined && rollout !== null && rollout !== 'COMPLETED') return false;
+
+    // HTTP probe: when one was taken this poll, only a successful one passes.
+    const probe = observedState['httpProbe'] as { ok?: unknown } | null | undefined;
+    if (probe !== undefined && probe !== null && probe.ok !== true) return false;
+
+    const desired = observedState['desiredCount'];
+    const running = observedState['runningCount'];
+    if (typeof desired === 'number' && typeof running === 'number' && desired > 0 && running < desired) {
+      return false;
+    }
+    for (const key of ['unhealthyTargetCount', 'pendingTargetCount', 'unknownTargetCount']) {
+      const count = observedState[key];
+      if (typeof count === 'number' && count > 0) return false;
+    }
+    return true;
+  }
+
   async function reconcileRunningDigest(
     deployment: DeploymentRow,
     runningImageDigest: string | null,
+    observedState: Record<string, unknown> | null,
   ): Promise<void> {
     const digest = digestSuffix(runningImageDigest);
     if (!digest) return;
@@ -3742,6 +4243,13 @@ export async function buildServer({
     if (matches.length !== 1) return;
     const reconciled = matches[0]!;
     if (reconciled.id === deployment.currentReleaseId) return;
+
+    // §10.3 promotion gate: a release only becomes current on the strength of
+    // THIS heartbeat's observations, and only when every one of them passes —
+    // the ECS rollout completed, the expected task count is up, no ALB target
+    // is unhealthy/pending/unknown, and the HTTP probe succeeded. A
+    // partially-rolled-out or failing application is never promoted.
+    if (!releasePromotionGatesPass(observedState)) return;
 
     await db.transaction(async (tx) => {
       await tx
@@ -3846,6 +4354,11 @@ export async function buildServer({
     // called home, and this is the first point where we know the relay is
     // alive. WAITING_FOR_RELAY is the same first-install case with the
     // launch signal already recorded.
+    // Phase 3 readiness gate: the relay registering is the final boundary
+    // before an INSTALL job is minted. Re-evaluate the stored manifest in case
+    // application overrides changed after the deployment was created.
+    requireReadyManifest(deployment.desiredState);
+
     const firstInstall =
       deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY';
     const installJob =
@@ -3858,6 +4371,9 @@ export async function buildServer({
               payload: {
                 parameters: await buildInstallParameters(db, deployment.id),
                 redisRequired: await readRedisRequired(db, deployment.applicationId),
+                // The canonical manifest this deployment was created with — the
+                // relay derives port/health/binding parameters from it (Phase 2).
+                manifest: readStoredManifest(deployment.desiredState),
               },
               requestedBy: null,
             })
@@ -3901,6 +4417,15 @@ export async function buildServer({
       }
     });
 
+    // Phase 1.1: a just-enrolled relay's customer account needs pull access to
+    // the vendor ECR before the INSTALL job queued above can ever start a task
+    // that pulls the image. Idempotent + best-effort: an already-granted
+    // installation (replay) is a no-op policy write, and a grant failure logs
+    // and surfaces later as the customer task's IMAGE_PULL_FAILED.
+    if (installJob && typeof body.awsAccountId === 'string' && body.awsAccountId.length > 0) {
+      await grantPullToCustomer(ecrGrantDeps, body.installationId!, body.awsAccountId);
+    }
+
     return reply.code(200).send({ registered: true });
   });
 
@@ -3913,37 +4438,54 @@ export async function buildServer({
     const { installationId } = request.query as { installationId?: string };
     const deployment = await requireRelayDeployment(installationId, token);
 
-    const jobs = await db
-      .select()
-      .from(schema.deploymentJobs)
-      .where(
-        and(
-          eq(schema.deploymentJobs.deploymentId, deployment.id),
-          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED']),
-        ),
-      )
-      .orderBy(schema.deploymentJobs.createdAt);
-
-    if (jobs.length > 0) {
+    // Atomic claim: transition and read in one statement, so two overlapping
+    // polls (a client retry racing the original) can never both receive the
+    // same command — the second poll's UPDATE matches zero rows. WAITING jobs
+    // are claimed back too: the watchdog parks a job there when the relay
+    // goes quiet mid-operation, and this poll IS the relay returning.
+    const jobs = (
       await db
         .update(schema.deploymentJobs)
         .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
         .where(
-          inArray(
-            schema.deploymentJobs.id,
-            jobs.map((job) => job.id),
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING']),
           ),
-        );
+        )
+        .returning()
+    ).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    // Payload redaction rides the claim: the relay reads the value ONCE from
+    // this response (built from the pre-redaction rows below); the stored row
+    // keeps only the shape without plaintext (see `redactClaimedPayload`).
+    for (const job of jobs) {
+      await db
+        .update(schema.deploymentJobs)
+        .set({
+          // The payload column is NOT NULL; a null redaction (defensive
+          // only — the column never stores null) falls back to {}.
+          payload: redactClaimedPayload(job) ?? {},
+        })
+        .where(eq(schema.deploymentJobs.id, job.id));
     }
 
     // Deployment facts the observe hook needs but no command carries: the
     // heartbeat runs outside any command, so this poll response is the only
     // channel that reaches it.
     const appRows = await db
-      .select({ redisRequired: schema.applications.redisRequired })
+      .select({ redisRequired: schema.applications.redisRequired, healthPath: schema.applications.healthPath })
       .from(schema.applications)
       .where(eq(schema.applications.id, deployment.applicationId))
       .limit(1);
+
+    // §10.2: the probe URL is built from the stack's PublicEndpoint output
+    // (the successful INSTALL's result) plus the configured health path.
+    const installJobs = await db
+      .select({ result: schema.deploymentJobs.result, state: schema.deploymentJobs.state, type: schema.deploymentJobs.type })
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id))
+      .orderBy(schema.deploymentJobs.createdAt);
 
     return {
       commands: jobs.map((job) => ({
@@ -3953,7 +4495,10 @@ export async function buildServer({
         idempotencyKey: job.idempotencyKey,
         payload: job.payload,
       })),
-      deployment: { redisRequired: appRows[0]?.redisRequired ?? false },
+      deployment: {
+        redisRequired: appRows[0]?.redisRequired ?? false,
+        probeUrl: resolveProbeUrl(installJobs, appRows[0]?.healthPath ?? null),
+      },
     };
   });
 
@@ -3981,6 +4526,14 @@ export async function buildServer({
       throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
     }
 
+    // A settled job never reprocesses: a late duplicate result (the relay's
+    // earlier report timed out and it retried, or the job was already
+    // force-completed/cancelled) must not flip the deployment state again or
+    // recompute release pointers against a since-changed deployment row.
+    if (!['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'].includes(job.state)) {
+      return reply.code(200).send({ received: true, alreadySettled: true });
+    }
+
     const body = request.body as {
       success?: boolean;
       error?: string;
@@ -3998,14 +4551,65 @@ export async function buildServer({
         ? body.failureCode
         : undefined;
 
+    // §61 server-side refinement: the relay hardcodes coarse defaults (every
+    // INSTALL failure is STACK_CREATE_FAILED, most thrown exceptions become
+    // AWS_PERMISSION_DENIED). Sharpen those using the error text and the
+    // persisted CloudFormation events for this job, so remediation copy
+    // matches the real cause — for every installation, old relays included.
+    const reportedFailureCode = failureCodeParsed?.success ? failureCodeParsed.data : null;
+    let effectiveFailureCode = reportedFailureCode;
+    if (state === 'FAILED') {
+      const stackEvents =
+        job.type === 'INSTALL' || job.type === 'DESTROY'
+          ? await db
+              .select({
+                resourceType: schema.deploymentStackEvents.resourceType,
+                resourceStatus: schema.deploymentStackEvents.resourceStatus,
+                resourceStatusReason: schema.deploymentStackEvents.resourceStatusReason,
+              })
+              .from(schema.deploymentStackEvents)
+              .where(
+                and(
+                  eq(schema.deploymentStackEvents.deploymentId, deployment.id),
+                  eq(schema.deploymentStackEvents.jobId, job.id),
+                ),
+              )
+              .orderBy(schema.deploymentStackEvents.eventAt)
+          : [];
+      effectiveFailureCode = refineFailureCode({
+        reported: reportedFailureCode,
+        errorText: body.error ?? null,
+        stackEvents,
+      });
+    }
+
     // A finished job is what advances the deployment's own §46 state.
     // Domain jobs manage the custom_domains row, never the deployment
     // lifecycle — a failed cert request must not mark the deployment FAILED.
+    // A failed day-2 operation on a deployment with a running release keeps
+    // the deployment in a live state (deploymentStateAfterFailedJob): the
+    // previous release is still serving, and the FAILED job itself carries
+    // the failure for the status derivation to surface.
     const nextState = isDomainJobType(job.type)
       ? undefined
       : state === 'FAILED'
-        ? 'FAILED'
+        ? (deploymentStateAfterFailedJob({
+            jobType: job.type,
+            hasCurrentRelease: deployment.currentReleaseId !== null,
+            newerReadyReleaseExists: await newerReadyReleaseExists(
+              db,
+              deployment.applicationId,
+              deployment.currentReleaseId,
+            ),
+          }) ?? undefined)
         : JOB_SUCCESS_STATE[job.type];
+    // The release this job rolled out, for the audit event only. §10.3: a
+    // DEPLOY_RELEASE/ROLLBACK success must NOT advance the release pointers
+    // here — the relay has settled ECS (rollout + targets), but promotion
+    // also needs the observed HTTP probe healthy, which only arrives on the
+    // heartbeat. The heartbeat's digest reconciliation advances the pointer
+    // once every gate passes, so a partially-rolled-out service is never
+    // promoted on the relay's word alone.
     const releaseId =
       state === 'SUCCEEDED' && RELEASE_ADVANCING_JOBS.has(job.type)
         ? ((job.payload as { releaseId?: string } | null)?.releaseId ?? null)
@@ -4019,7 +4623,7 @@ export async function buildServer({
           result: body as Record<string, unknown>,
           finishedAt: new Date(),
           lastProgressAt: new Date(),
-          ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
+          ...(effectiveFailureCode ? { failureCode: effectiveFailureCode } : {}),
         })
         .where(eq(schema.deploymentJobs.id, id));
 
@@ -4032,8 +4636,13 @@ export async function buildServer({
           .update(schema.deployments)
           .set({
             state: nextState,
-            ...(releaseId
-              ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId }
+            // §10.3 keeps CURRENT-release promotion gated on the heartbeat's
+            // digest reconciliation, but the rollback's own bookkeeping is
+            // job truth: the release this rollback replaced is the pointer
+            // the deployment carried into it. currentReleaseId itself still
+            // only moves via the gated reconciliation.
+            ...(state === 'SUCCEEDED' && job.type === 'ROLLBACK'
+              ? { previousReleaseId: deployment.currentReleaseId }
               : {}),
             ...(nextState === 'DELETED' ? { deletedAt: new Date() } : {}),
           })
@@ -4064,6 +4673,17 @@ export async function buildServer({
           .set({ cleanupState: 'COMPLETE' })
           .where(eq(schema.deployments.id, deployment.id));
       }
+      // A failed PURGE must NOT resurrect the deployment (never back to
+      // FAILED — deploymentStateAfterFailedJob already returns null for it):
+      // the cleanup lifecycle is separate, so the failure records itself on
+      // cleanupState instead, keeping the deployment DELETED and the purge
+      // retryable from the PURGE_FAILED state.
+      if (job.type === 'PURGE' && state === 'FAILED') {
+        await tx
+          .update(schema.deployments)
+          .set({ cleanupState: 'PURGE_FAILED' })
+          .where(eq(schema.deployments.id, deployment.id));
+      }
 
       const eventType = JOB_RESULT_EVENT[job.type]?.[state === 'FAILED' ? 'failed' : 'completed'];
       if (eventType) {
@@ -4081,7 +4701,12 @@ export async function buildServer({
           result: state === 'FAILED' ? 'failure' : 'success',
           payload: {
             ...(body.error ? { error: body.error } : {}),
-            ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
+            ...(effectiveFailureCode ? { failureCode: effectiveFailureCode } : {}),
+            // Audit trail: what the relay itself said, when refinement
+            // changed it — the classification decision stays traceable.
+            ...(reportedFailureCode && reportedFailureCode !== effectiveFailureCode
+              ? { reportedFailureCode }
+              : {}),
             ...(unrecognisedFailureCode ? { unrecognisedFailureCode } : {}),
           },
         });
@@ -4090,15 +4715,36 @@ export async function buildServer({
 
     // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
     // derived from the values THIS request just wrote, not the stale
-    // pre-transaction `deployment`.
+    // pre-transaction `deployment`. The release pointers are deliberately
+    // absent: promotion happens on the heartbeat (§10.3).
     try {
       await advanceStepTimingsAfterWrite(db, {
         ...deployment,
         ...(nextState ? { state: nextState } : {}),
-        ...(releaseId ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId } : {}),
       });
     } catch (error) {
       request.log.warn({ err: error }, 'step-timings advance failed');
+    }
+
+    // Phase 1.1 side effects, best-effort after the transaction — neither may
+    // fail the /result response:
+    //  - INSTALL success auto-queues the deploy of the newest READY release.
+    //  - DESTROY/PURGE success revokes the customer's ECR pull grant (both
+    //    revocations are idempotent, whichever lands first).
+    // A replay of an already-reported result re-runs both: the deploy enqueue
+    // reuses its idempotency key and the revoke is a no-op policy read.
+    if (job.type === 'INSTALL' && state === 'SUCCEEDED') {
+      try {
+        await autoDeploySelectedRelease(deployment);
+      } catch (error) {
+        request.log.warn({ err: error }, 'auto-deploy after install failed');
+      }
+    }
+    if ((job.type === 'DESTROY' || job.type === 'PURGE') && state === 'SUCCEEDED') {
+      const installationId = deployment.installationId;
+      if (installationId) {
+        await revokePullFromCustomer(ecrGrantDeps, installationId);
+      }
     }
 
     return reply.code(200).send({ received: true });
@@ -4260,6 +4906,36 @@ export async function buildServer({
       (observedState as Record<string, unknown>)['runningImageDigest'] = body.runningImageDigest;
     }
 
+    // §10.2 HTTP probe ingest: the relay reports what it measured this poll
+    // (status/latency/time — never a body); the control plane maintains the
+    // last-success / last-failed timestamps across heartbeats so the record
+    // always answers "when did this app last answer?" as well as "what did it
+    // answer just now?". A malformed probe is dropped untouched — an old relay
+    // sending none keeps whatever was already stored.
+    const rawProbe = (observedState as Record<string, unknown> | null)?.['httpProbe'];
+    const probeParsed = rawProbe === undefined ? undefined : httpProbeSchema.safeParse(rawProbe);
+    if (probeParsed?.success === true) {
+      const previousProbe = (deployment.observedState as { httpProbe?: Record<string, unknown> } | null)
+        ?.httpProbe;
+      const previousLastSuccessAt =
+        typeof previousProbe?.['lastSuccessAt'] === 'string'
+          ? (previousProbe['lastSuccessAt'] as string)
+          : null;
+      const previousLastFailedAt =
+        typeof previousProbe?.['lastFailedAt'] === 'string'
+          ? (previousProbe['lastFailedAt'] as string)
+          : null;
+      (observedState as Record<string, unknown>)['httpProbe'] = {
+        ok: probeParsed.data.ok,
+        statusCode: probeParsed.data.statusCode,
+        latencyMs: probeParsed.data.latencyMs,
+        checkedAt: probeParsed.data.checkedAt,
+        ...(probeParsed.data.error !== undefined ? { error: probeParsed.data.error } : {}),
+        lastSuccessAt: probeParsed.data.ok ? probeParsed.data.checkedAt : previousLastSuccessAt,
+        lastFailedAt: probeParsed.data.ok ? previousLastFailedAt : probeParsed.data.checkedAt,
+      };
+    }
+
     const previousHealth = deployment.healthStatus;
     const nextHealth = healthStatusParsed.success ? healthStatusParsed.data : previousHealth;
     // Edge-triggered: the rollout failure is recorded once per observed
@@ -4272,11 +4948,13 @@ export async function buildServer({
     ];
     const rolloutNewlyFailed =
       nextRolloutState === 'FAILED' && previousRolloutState !== 'FAILED';
-    // Observed state wins over a stale FAILED: a failed day-2 operation
-    // marks the deployment FAILED, but the previously installed application
-    // keeps serving — a healthy heartbeat from it is the ground truth that
-    // the deployment is running. A failed FIRST install (no release ever
-    // deployed) has nothing running and stays FAILED until retried.
+    // Observed state wins over a stale FAILED: a failed day-2 operation no
+    // longer marks the deployment FAILED (deploymentStateAfterFailedJob
+    // restores a live state), but rows written before that rule — or any
+    // edge path that still lands on FAILED with a running release — self-heal
+    // here: a healthy heartbeat is the ground truth that the deployment is
+    // running. A failed FIRST install (no release ever deployed) has nothing
+    // running and stays FAILED until retried.
     // ...but not when what failed was a DESTROY: the app still serving is
     // exactly the problem then, and flipping back to HEALTHY would hide the
     // stuck teardown the vendor explicitly asked for.
@@ -4285,6 +4963,15 @@ export async function buildServer({
       deployment.state === 'FAILED' &&
       deployment.currentReleaseId !== null &&
       !(await latestJobIsDestroy(db, deployment.id));
+    // INSTALL succeeded (CFN stack complete) but the deployment is still
+    // INSTALLING: runtime verification is what earns HEALTHY, and this is the
+    // only place it can land. Guarded by the INSTALL job actually having
+    // finished — a healthy-looking heartbeat racing ahead of the INSTALL
+    // result must not bill or label the deployment before the install settled.
+    const installVerifiedHealthy =
+      deployment.state === 'INSTALLING' &&
+      nextHealth === 'HEALTHY' &&
+      (await hasSucceededInstall(db, deployment.id));
 
     await db.transaction(async (tx) => {
       await tx
@@ -4294,6 +4981,7 @@ export async function buildServer({
           relayStatus: 'CONNECTED',
           lastHealthAt: new Date(),
           ...(stateRecovered ? { state: 'HEALTHY' as const } : {}),
+          ...(installVerifiedHealthy ? { state: 'HEALTHY' as const } : {}),
           ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
           ...(identity?.awsAccountId ? { awsAccountId: identity.awsAccountId } : {}),
           ...(typeof identity?.relayVersion === 'string' ? { relayVersion: identity.relayVersion } : {}),
@@ -4373,10 +5061,16 @@ export async function buildServer({
     }
 
     // Runtime truth wins: reconcile the deployment's release pointer to
-    // whatever the relay observed actually running. Failures here must not
+    // whatever the relay observed actually running — but ONLY once §10.3's
+    // promotion gates pass in this very heartbeat (rollout complete, counts
+    // full, targets healthy, HTTP probe successful). Failures here must not
     // fail the heartbeat itself.
     try {
-      await reconcileRunningDigest(deployment, body?.runningImageDigest ?? null);
+      await reconcileRunningDigest(
+        deployment,
+        body?.runningImageDigest ?? null,
+        observedState as Record<string, unknown> | null,
+      );
     } catch (error) {
       request.log.warn({ err: error }, 'runtime digest reconciliation failed');
     }
@@ -4423,6 +5117,7 @@ export async function buildServer({
           relayStatus: 'CONNECTED',
           lastHealthAt: new Date(),
           ...(stateRecovered ? { state: 'HEALTHY' as const } : {}),
+          ...(installVerifiedHealthy ? { state: 'HEALTHY' as const } : {}),
           ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
         },
         activeDomain,

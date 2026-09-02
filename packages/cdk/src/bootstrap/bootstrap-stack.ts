@@ -252,6 +252,17 @@ const PHASE_4_DEPLOY_OBSERVE_ACTIONS = [
 ] as const;
 
 /**
+ * Phase 4 — the deploy-time migration one-off (RunTask). ECS evaluates
+ * RunTask against the task definition AND the cluster, plus further
+ * untagged resource ARNs in some configurations — the same multi-resource
+ * auth shape `DeregisterTaskDefinition` documents — so a tag condition
+ * could never reliably match. Condition-free like the Describe* precedent;
+ * containment rests on the one-installation-per-region invariant and the
+ * execution role's trust policy.
+ */
+const PHASE_4_MIGRATION_RUN_ACTIONS = ['ecs:RunTask'] as const;
+
+/**
  * Phase 4 — registering a task-definition copy names a resource that does
  * not exist yet, so (like stack create / cache create) it is scoped by the
  * REQUEST tag the relay stamps on every register. ECS authorizes the tags
@@ -854,6 +865,13 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    const phase4MigrationRun = new PolicyStatement({
+      sid: 'RelayMigrationRun',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_4_MIGRATION_RUN_ACTIONS],
+      resources: ['*'],
+    });
+
     // Phase 4 — PassRole strictly to the application's own task/execution
     // roles, only when handed to ECS. Deliberately NOT the wildcard-resource
     // form the plan calls out. Two shapes: role/deployz/* is the contract
@@ -898,6 +916,7 @@ export class BootstrapStack extends Stack {
       phase2CacheCreate,
       phase4DeployObserve,
       phase4DeployCreate,
+      phase4MigrationRun,
       phase4DeployPassRole,
       phase2CacheManage,
       phase2CacheDescribe,
@@ -1161,6 +1180,8 @@ export class BootstrapStack extends Stack {
     // resource, including the install-id custom-resource Lambda/role that
     // mint the identifier.
     Tags.of(this).add('deployz:component', 'bootstrap');
+    Tags.of(this).add('deployz:managed', 'true');
+    Tags.of(this).add('deployz:scope', 'customer');
 
     // deployz:installation is a deploy-time token (Fn::GetAtt on the minted
     // id). It is applied to the DOWNSTREAM resources that consume the id. The
@@ -1174,6 +1195,9 @@ export class BootstrapStack extends Stack {
       relaySchedule,
     ]) {
       Tags.of(target).add('deployz:installation', this.installationId);
+      if (props.applicationId !== undefined) {
+        Tags.of(target).add('deployz:application-id', props.applicationId);
+      }
     }
 
     if (props.applicationId !== undefined) {

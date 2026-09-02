@@ -15,6 +15,8 @@ function observation(overrides: Partial<Parameters<typeof deriveHealthStatus>[0]
     runningCount: 1,
     targetCount: 1,
     unhealthyTargetCount: 0,
+    pendingTargetCount: 0,
+    unknownTargetCount: 0,
     rolloutFailed: false,
     ...overrides,
   };
@@ -45,6 +47,36 @@ describe('deriveHealthStatus', () => {
     ).toBe('UNHEALTHY');
   });
 
+  it('DEGRADED while targets are still registering (initial) — never HEALTHY before a probe passes', () => {
+    expect(deriveHealthStatus(observation({ targetCount: 2, pendingTargetCount: 2 }))).toBe(
+      'DEGRADED',
+    );
+  });
+
+  it('DEGRADED while targets are draining', () => {
+    expect(deriveHealthStatus(observation({ targetCount: 1, pendingTargetCount: 1 }))).toBe(
+      'DEGRADED',
+    );
+  });
+
+  it('DEGRADED when some targets are healthy and some pending', () => {
+    expect(
+      deriveHealthStatus(observation({ targetCount: 2, pendingTargetCount: 1 })),
+    ).toBe('DEGRADED');
+  });
+
+  it('UNKNOWN when every target state is unclassified', () => {
+    expect(deriveHealthStatus(observation({ targetCount: 2, unknownTargetCount: 2 }))).toBe(
+      'UNKNOWN',
+    );
+  });
+
+  it('DEGRADED when unclassified targets mix with a healthy verdict', () => {
+    expect(
+      deriveHealthStatus(observation({ targetCount: 2, unknownTargetCount: 1 })),
+    ).toBe('DEGRADED');
+  });
+
   it('UNHEALTHY when the ECS rollout failed', () => {
     expect(deriveHealthStatus(observation({ rolloutFailed: true }))).toBe('UNHEALTHY');
   });
@@ -67,6 +99,16 @@ describe('deriveComponents', () => {
       loadBalancer: 'DEGRADED',
     });
     expect(deriveComponents(observation({ targetCount: 0 }))).toEqual({
+      application: 'HEALTHY',
+      loadBalancer: 'UNKNOWN',
+    });
+    // initial/draining targets keep the ALB from claiming healthy.
+    expect(deriveComponents(observation({ targetCount: 2, pendingTargetCount: 2 }))).toEqual({
+      application: 'HEALTHY',
+      loadBalancer: 'DEGRADED',
+    });
+    // unclassified targets leave the ALB verdict unknown, not healthy.
+    expect(deriveComponents(observation({ targetCount: 1, unknownTargetCount: 1 }))).toEqual({
       application: 'HEALTHY',
       loadBalancer: 'UNKNOWN',
     });
@@ -284,6 +326,39 @@ describe('observeRuntimeHealth', () => {
     );
     expect(health.healthStatus).toBe('HEALTHY');
     expect(health.unhealthyTargetCount).toBe(0);
+    expect(health.components.loadBalancer).toBe('UNKNOWN');
+  });
+
+  it('maps initial/draining targets to pending, unknown to unknown, and never reports HEALTHY while pending', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([...STACK]),
+        ecs: ecsWith({ desiredCount: 2, runningCount: 2, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['healthy', 'initial', 'draining', 'unknown']),
+      },
+      'deployz-app',
+    );
+    // Serving (ECS full) but not fully healthy: pending targets + an
+    // unclassified one. The overall verdict stays DEGRADED...
+    expect(health.healthStatus).toBe('DEGRADED');
+    expect(health.unhealthyTargetCount).toBe(0);
+    expect(health.pendingTargetCount).toBe(2);
+    expect(health.unknownTargetCount).toBe(1);
+    // ...while the loadBalancer component cannot be told healthy or
+    // degraded because one target's state is unknown.
+    expect(health.components.loadBalancer).toBe('UNKNOWN');
+  });
+
+  it('reports UNKNOWN when every target is unclassified', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([...STACK]),
+        ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+        elb: elbWith(['unknown']),
+      },
+      'deployz-app',
+    );
+    expect(health.healthStatus).toBe('UNKNOWN');
     expect(health.components.loadBalancer).toBe('UNKNOWN');
   });
 });

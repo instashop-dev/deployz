@@ -198,6 +198,11 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'redis.provision.started': 'Setting up cache',
   'redis.provision.succeeded': 'Cache ready',
   'redis.provision.failed': 'Cache setup failed',
+
+  // Watchdog/reconciler events (§65: never raw state names).
+  'operation.timeout': 'Operation took too long',
+  'operation.waiting_for_relay': 'Waiting for AWS connection',
+  'operation.requeued': 'Operation resumed after an interruption',
 };
 
 /** Human-readable label for an event type (§65). */
@@ -256,6 +261,7 @@ export const FAILURE_CODES = [
   'UNKNOWN',
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
+  'DOMAIN_OPERATION_TIMEOUT',
 ] as const;
 
 /** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */
@@ -263,6 +269,59 @@ export type FailureCode = (typeof FAILURE_CODES)[number];
 
 /** Severity drives the color-coded badge: critical (destructive) vs warning. */
 export type FailureSeverity = 'critical' | 'warning';
+
+/**
+ * §61 recoverability — what kind of intervention (if any) a failure needs.
+ * Drives which affordance the diagnostics UI leads with, instead of the
+ * one-size-fits-all "retry" hint every code used to get.
+ *
+ *  - RECONCILE_FIRST: the state may repair itself (relay returning, watchdog
+ *    re-offer, transient AWS condition) — wait/check before acting.
+ *  - USER_ACTION: the vendor or their customer must change something
+ *    (permissions, quota, app configuration) before a retry can succeed.
+ *  - DEPLOYZ_ACTION: the fault is on Deployz's side of the boundary —
+ *    contact support rather than retrying in a loop.
+ *  - TERMINAL: retrying can never succeed as-is (unsupported input).
+ */
+export type FailureRecoverability =
+  | 'RECONCILE_FIRST'
+  | 'USER_ACTION'
+  | 'DEPLOYZ_ACTION'
+  | 'TERMINAL';
+
+/** Recoverability per §61 code. */
+export const FAILURE_RECOVERABILITY: Record<FailureCode, FailureRecoverability> = {
+  AWS_SCP_BLOCKED: 'USER_ACTION',
+  PORT_MISMATCH: 'USER_ACTION',
+  REGION_NOT_SUPPORTED: 'TERMINAL',
+  QUOTA_EXCEEDED: 'USER_ACTION',
+  IMAGE_HEALTH_CHECK_FAILED: 'USER_ACTION',
+  MIGRATION_FAILED: 'USER_ACTION',
+  RELAY_DISCONNECTED: 'RECONCILE_FIRST',
+  ECS_DEPLOYMENT_FAILED: 'USER_ACTION',
+  RDS_UNAVAILABLE: 'RECONCILE_FIRST',
+  AWS_PERMISSION_DENIED: 'USER_ACTION',
+  STACK_CREATE_FAILED: 'USER_ACTION',
+  STACK_DELETE_FAILED: 'USER_ACTION',
+  DATABASE_CREATE_FAILED: 'USER_ACTION',
+  DATABASE_CONNECTION_FAILED: 'RECONCILE_FIRST',
+  IMAGE_PULL_FAILED: 'DEPLOYZ_ACTION',
+  CONTAINER_START_FAILED: 'USER_ACTION',
+  MISSING_SECRET: 'USER_ACTION',
+  UNSUPPORTED_ARCHITECTURE: 'TERMINAL',
+  UNKNOWN: 'RECONCILE_FIRST',
+  REDIS_PROVISIONING_FAILED: 'DEPLOYZ_ACTION',
+  REDIS_CONNECTION_FAILED: 'RECONCILE_FIRST',
+  DOMAIN_OPERATION_TIMEOUT: 'RECONCILE_FIRST',
+};
+
+/** §65 one-liner per recoverability class, shown on the diagnostic card. */
+export const RECOVERABILITY_COPY: Record<FailureRecoverability, string> = {
+  RECONCILE_FIRST: 'This can recover on its own — Deployz keeps checking. Retry only if it persists.',
+  USER_ACTION: 'Needs a change before a retry can succeed — see the fix above.',
+  DEPLOYZ_ACTION: 'This needs a fix on the Deployz side — contact support rather than retrying.',
+  TERMINAL: 'Retrying will not help until the underlying requirement changes.',
+};
 
 /** The §65 top-level copy for one failure code. */
 export interface FailureCopy {
@@ -384,6 +443,11 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     label: "App can't reach its cache",
     description: "The app started, but it can't reach its cache.",
     severity: 'critical',
+  },
+  DOMAIN_OPERATION_TIMEOUT: {
+    label: 'Custom domain update timed out',
+    description: 'The custom domain change did not finish in time. It can be retried.',
+    severity: 'warning',
   },
 };
 
@@ -517,6 +581,11 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
     why: 'The connection was refused or timed out.',
     fix: 'Redeploy the application. If it keeps failing, contact Deployz support.',
   },
+  DOMAIN_OPERATION_TIMEOUT: {
+    what: 'A custom domain change stopped responding and was timed out.',
+    why: 'The helper did not finish the domain update within the allowed window.',
+    fix: 'Wait for the next automatic check, or press Check now on the custom domain card, to retry. The deployment itself is unaffected.',
+  },
 };
 
 /** Badge variant for a severity (maps to shadcn/ui Badge variants). */
@@ -545,6 +614,28 @@ export const EXPLANATION_FALLBACK = {
 /** §65 lookup for a failure code — falls back safely to UNKNOWN copy. */
 export function failureCodeCopy(code: string): FailureCopy {
   return FAILURE_CODE_COPY[code as FailureCode] ?? FAILURE_CODE_COPY.UNKNOWN;
+}
+
+/** §61 recoverability lookup — falls back to UNKNOWN's class. */
+export function failureRecoverability(code: string): FailureRecoverability {
+  return FAILURE_RECOVERABILITY[code as FailureCode] ?? FAILURE_RECOVERABILITY.UNKNOWN;
+}
+
+/**
+ * §65 jargon-free phrase for a raw CloudFormation stack status, for the ONE
+ * place a stack status reaches the unauthenticated customer surface
+ * (failure.technical on the install page). Vendors keep the raw status;
+ * customers get this instead of `ROLLBACK_COMPLETE`.
+ */
+export function customerStackStatusLabel(rawStatus: string): string {
+  if (/^DELETE_FAILED$/.test(rawStatus)) return 'Removal was blocked';
+  if (/^UPDATE_ROLLBACK/.test(rawStatus)) return 'Update was rolled back';
+  if (/ROLLBACK/.test(rawStatus)) return 'Setup was rolled back';
+  if (/FAILED/.test(rawStatus)) return 'Setup did not complete';
+  if (/DELETE/.test(rawStatus)) return 'Removal in progress';
+  if (/IN_PROGRESS/.test(rawStatus)) return 'Still in progress';
+  if (/COMPLETE/.test(rawStatus)) return 'Completed';
+  return 'State unavailable';
 }
 
 // ── §19 readiness verdicts ──────────────────────────────────────────────────

@@ -10,6 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 // the vendor-only "Infrastructure events" disclosure
 // (apps/web/src/components/infrastructure-events.tsx).
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in customer-facing copy.
@@ -69,6 +71,7 @@ async function seedDeployment(
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string };
+  await makeApplicationDeployable(page.request, application.id);
 
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Stack Events Customer ${suffix}`, email: `stack-events-customer-${suffix}@example.com` },
@@ -337,9 +340,12 @@ test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while 
   const html = await page.content();
   expect(html).not.toContain(rawReason);
 
-  // Technical details are collapsed by default, then reveal the AWS status.
+  // Technical details are collapsed by default. §65 keeps the raw
+  // CloudFormation enum off the customer surface even when expanded — the
+  // panel shows the jargon-free phrase (customerStackStatusLabel) instead.
   await page.getByRole('button', { name: 'Technical details' }).click();
-  await expect(page.getByText('ROLLBACK_COMPLETE', { exact: true })).toBeVisible();
+  await expect(page.getByText('Setup was rolled back', { exact: true })).toBeVisible();
+  await expect(page.getByText('ROLLBACK_COMPLETE', { exact: true })).toHaveCount(0);
 
   // Vendor: the raw reason lives in the Infrastructure events disclosure.
   await page.goto(`/dashboard/deployments/${deploymentId}`);

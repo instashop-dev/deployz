@@ -239,6 +239,16 @@ export interface ApplicationStackProps extends StackProps {
    */
   readonly databaseRequired?: boolean;
   /**
+   * Whether the application uses the provisioned S3 object storage.
+   *
+   * The bucket itself is ALWAYS provisioned (removalPolicy RETAIN, and the
+   * published template ships with it) — this flag only gates the S3 binding
+   * environment variables injected into the containers (`STORAGE_BUCKET`,
+   * `S3_BUCKET`, `AWS_S3_BUCKET`, `AWS_REGION`). Defaults to `true` — the
+   * existing behavior, byte-identical synth.
+   */
+  readonly storageRequired?: boolean;
+  /**
    * Container port the application listens on.
    *
    * Drives the ECS container port mapping, the `PORT` env var, the container
@@ -387,7 +397,21 @@ export class ApplicationStack extends Stack {
     const desiredCount = props.desiredCount ?? 1;
     const imageReference = `${imageRepository}@${imageDigest}`;
     const databaseRequired = props.databaseRequired ?? true;
-    const containerPort = props.containerPort ?? APP_PORT;
+    // Per-install container port. A parameter (defaulting to the synth-time
+    // prop) rather than a baked constant: the published template is shared by
+    // every install, and the relay's INSTALL carries the manifest's web.port
+    // in as `param_ContainerPort`. Every consumer below — PORT env, container
+    // port mapping, ALB target-group port, container health-check URL — reads
+    // the parameter, so a non-default port flows through the whole deployment.
+    const containerPortParam = new CfnParameter(this, 'param_ContainerPort', {
+      type: 'Number',
+      noEcho: true,
+      default: String(props.containerPort ?? APP_PORT),
+      description:
+        'TCP port the application container listens on. Overrides the synth-time default per install.',
+    });
+    const containerPort = containerPortParam.valueAsNumber;
+    const containerPortString = containerPortParam.valueAsString;
     // One canonical health path per install. The parameter lets CreateStack
     // carry the application's stored, analysis-resolved path (a router
     // `/health` mounted at `/api` serves `/api/health`); the default keeps
@@ -623,7 +647,11 @@ export class ApplicationStack extends Stack {
     // Complete PostgreSQL connection URL, assembled at deploy time from the
     // generated master credentials via a CloudFormation dynamic reference —
     // the password never appears in the template or task definition.
-    if (databaseRequired && (props.databaseUrlEnvNames?.length ?? 0) > 0) {
+    // Phase 2 default: every Postgres deployment gets the generic DATABASE_URL
+    // (whole postgresql:// connection URL as an ECS secret). A caller that
+    // pins its own URL env names (the Documenso preset) keeps exactly those.
+    const databaseUrlEnvNames = props.databaseUrlEnvNames ?? (databaseRequired ? ['DATABASE_URL'] : []);
+    if (databaseRequired && databaseUrlEnvNames.length > 0) {
       this.databaseUrlSecret = new Secret(this, 'DatabaseUrlSecret', {
         description:
           'Complete PostgreSQL connection URL for the customer application. ' +
@@ -718,11 +746,24 @@ export class ApplicationStack extends Stack {
           )
         : [];
 
+    const storageRequired = props.storageRequired ?? true;
+    // S3 bindings injected when storage is required — the manifest's storage
+    // requirement surfaces as the bucket name under each of the names the
+    // application and its SDKs typically read. The bucket is still always
+    // provisioned; this gates only the environment injection. Empty when
+    // storageRequired is false — no STORAGE_*/S3_* env vars anywhere.
+    const storageEnvEntries: Array<[string, string]> = storageRequired
+      ? [
+          ['STORAGE_BUCKET', this.storageBucket.bucketName],
+          ['S3_BUCKET', this.storageBucket.bucketName],
+          ['AWS_S3_BUCKET', this.storageBucket.bucketName],
+          ['AWS_REGION', this.region],
+        ]
+      : [];
+
     // databaseUrlEnvNames ECS secrets: the whole DatabaseUrlSecret value
     // (no JSON key suffix) injected under each configured env name into
-    // every container (app + worker, both expressMode branches). Empty
-    // when databaseUrlEnvNames is unset — no extra secrets in that case.
-    const databaseUrlEnvNames = props.databaseUrlEnvNames ?? [];
+    // every container (app + worker, both expressMode branches).
     const databaseUrlSecrets = Object.fromEntries(
       databaseUrlEnvNames.map((envName) => [
         envName,
@@ -841,7 +882,7 @@ export class ApplicationStack extends Stack {
           containerPort,
           environment: [
             { name: 'NODE_ENV', value: 'production' },
-            { name: 'PORT', value: String(containerPort) },
+            { name: 'PORT', value: containerPortString },
             ...(databaseRequired
               ? [
                   { name: 'DATABASE_HOST', value: this.database!.instanceEndpoint.hostname },
@@ -850,7 +891,7 @@ export class ApplicationStack extends Stack {
                   { name: 'DATABASE_USER', value: DB_USER },
                 ]
               : []),
-            { name: 'STORAGE_BUCKET', value: this.storageBucket.bucketName },
+            ...storageEnvEntries.map(([name, value]) => ({ name, value })),
             ...redisEnvEntries.map(([name, value]) => ({ name, value })),
             ...containerEnvEntries.map(([name, value]) => ({ name, value })),
           ],
@@ -930,9 +971,9 @@ const dbEnv =
           logging: LogDriver.awsLogs({ streamPrefix: 'deployz-app', logGroup }),
           environment: {
             NODE_ENV: 'production',
-            PORT: String(containerPort),
+            PORT: containerPortString,
             ...dbEnv,
-            STORAGE_BUCKET: this.storageBucket.bucketName,
+            ...Object.fromEntries(storageEnvEntries),
             ...Object.fromEntries(redisEnvEntries),
             ...Object.fromEntries(containerEnvEntries),
           },
@@ -953,7 +994,7 @@ const dbEnv =
           command: [
             'CMD-SHELL',
             props.healthCheckShellCommand ??
-              `curl -f http://localhost:${containerPort}${healthCheckPath} || exit 1`,
+              `curl -f http://localhost:${containerPortString}${healthCheckPath} || exit 1`,
           ],
           interval: Duration.seconds(30),
           timeout: Duration.seconds(5),
@@ -1079,7 +1120,7 @@ const dbEnv =
           environment: {
             NODE_ENV: 'production',
             ...dbEnv,
-            STORAGE_BUCKET: this.storageBucket.bucketName,
+            ...Object.fromEntries(storageEnvEntries),
             ...Object.fromEntries(redisEnvEntries),
             ...Object.fromEntries(containerEnvEntries),
           },
@@ -1117,6 +1158,8 @@ const dbEnv =
     // applied the same way, in-construct, from the corresponding optional
     // props — §15 requires all three for predictable resource identification.
     Tags.of(this).add('deployz:component', 'application');
+    Tags.of(this).add('deployz:managed', 'true');
+    Tags.of(this).add('deployz:scope', 'customer');
 
     if (props.applicationId !== undefined) {
       for (const c of [
@@ -1201,6 +1244,9 @@ const dbEnv =
       ]) {
         if (c !== undefined) {
           Tags.of(c).add('deployz:installation', props.installationId);
+          if (props.applicationId !== undefined) {
+            Tags.of(c).add('deployz:application-id', props.applicationId);
+          }
         }
       }
     }

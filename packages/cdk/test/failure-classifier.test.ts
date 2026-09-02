@@ -540,6 +540,8 @@ describe('classifyFailure — purity invariant (§20)', () => {
       { source: 'cloudformation', context: { resourceType: 'AWS::ElastiCache::ReplicationGroup' } },
       // REDIS_CONNECTION_FAILED
       { source: 'relay', context: { target: 'redis' }, error: { code: 'ECONNREFUSED' } },
+      // DOMAIN_OPERATION_TIMEOUT
+      { source: 'relay', signal: 'domain-operation-timeout' },
       // UNKNOWN
       { source: 'unknown-source' },
     ];
@@ -551,7 +553,7 @@ describe('classifyFailure — purity invariant (§20)', () => {
       expect(b).toBe(a);
       codes.push(a);
     }
-    // The loop covered all twenty codes exactly once.
+    // The loop covered every code in FAILURE_CODES exactly once.
     expect([...codes].sort()).toEqual([...FAILURE_CODES].sort());
   });
 });

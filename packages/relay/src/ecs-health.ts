@@ -55,6 +55,10 @@ export interface RuntimeHealth {
   readonly desiredCount: number | null;
   readonly runningCount: number | null;
   readonly unhealthyTargetCount: number | null;
+  /** Targets still registering or draining — `initial`/`draining` (serving, but pending). */
+  readonly pendingTargetCount: number | null;
+  /** Targets whose ELB state the API did not classify — `unknown`, `unused`, `unavailable`. */
+  readonly unknownTargetCount: number | null;
   readonly deploymentRolloutState: string | null;
 }
 
@@ -64,23 +68,34 @@ export interface HealthObservation {
   readonly runningCount: number | null;
   readonly targetCount: number;
   readonly unhealthyTargetCount: number;
+  /** Targets in `initial`/`draining` — the ALB is not fully ready, but not failing either. */
+  readonly pendingTargetCount: number;
+  /** Targets ELB reports in an unclassified state — the ALB verdict cannot be told. */
+  readonly unknownTargetCount: number;
   readonly rolloutFailed: boolean;
 }
 
 /**
  * HEALTHY   — full running count, every target healthy, no failed rollout.
- * DEGRADED  — still serving (runningCount > 0) but one or more targets unhealthy.
+ * DEGRADED  — still serving (runningCount > 0), but with unhealthy, pending
+ *             (`initial`/`draining`) or unclassified targets: reachable but not
+ *             fully healthy. `initial` is the ALB's "registering" state — it
+ *             must never count as healthy, or the first POST-install heartbeat
+ *             would claim HEALTHY before a single target answered a probe.
  * UNHEALTHY — nothing serving, or every target unhealthy, or a failed rollout.
- * UNKNOWN   — not derivable from what was observed.
+ * UNKNOWN   — not derivable from what was observed (no counts, or every target
+ *             unclassified).
  */
 export function deriveHealthStatus(o: HealthObservation): RuntimeHealthStatus {
   if (o.rolloutFailed) return 'UNHEALTHY';
   if (o.runningCount === null || o.desiredCount === null) return 'UNKNOWN';
   const allTargetsUnhealthy = o.targetCount > 0 && o.unhealthyTargetCount >= o.targetCount;
   if (o.runningCount === 0 || allTargetsUnhealthy) return 'UNHEALTHY';
+  const allTargetsUnknown = o.targetCount > 0 && o.unknownTargetCount >= o.targetCount;
+  if (allTargetsUnknown) return 'UNKNOWN';
   const fullyRunning = o.runningCount >= o.desiredCount && o.desiredCount > 0;
-  if (fullyRunning && o.unhealthyTargetCount === 0) return 'HEALTHY';
   if (o.unhealthyTargetCount > 0) return 'DEGRADED';
+  if (o.pendingTargetCount > 0 || o.unknownTargetCount > 0) return 'DEGRADED';
   return fullyRunning ? 'HEALTHY' : 'DEGRADED';
 }
 
@@ -93,8 +108,20 @@ export function deriveComponents(o: HealthObservation): RuntimeHealth['component
         : o.runningCount >= o.desiredCount
           ? 'HEALTHY'
           : 'DEGRADED';
+  // Known-bad targets outrank the unknown signal; an unclassified target that
+  // is not known-bad leaves the ALB verdict UNKNOWN until ELB says more.
   const loadBalancer =
-    o.targetCount === 0 ? 'UNKNOWN' : allTargetsUnhealthy(o) ? 'UNHEALTHY' : o.unhealthyTargetCount > 0 ? 'DEGRADED' : 'HEALTHY';
+    o.targetCount === 0
+      ? 'UNKNOWN'
+      : allTargetsUnhealthy(o)
+        ? 'UNHEALTHY'
+        : o.unhealthyTargetCount > 0
+          ? 'DEGRADED'
+          : o.unknownTargetCount > 0
+            ? 'UNKNOWN'
+            : o.pendingTargetCount > 0
+              ? 'DEGRADED'
+              : 'HEALTHY';
   return { application, loadBalancer };
 }
 
@@ -166,11 +193,24 @@ export async function observeRuntimeHealth(
 
   let targetCount = 0;
   let unhealthyTargetCount = 0;
+  let pendingTargetCount = 0;
+  let unknownTargetCount = 0;
   if (targetGroupArn) {
     try {
       const { targets } = await deps.elb.describeTargetHealth({ targetGroupArn });
       targetCount = targets.length;
       unhealthyTargetCount = targets.filter((t) => t.state === 'unhealthy').length;
+      // 'initial' means the target is still registering (health checks have
+      // not passed yet); 'draining' marks a target being drained before
+      // deregistration. Both mean "not serving yet", never "healthy".
+      pendingTargetCount = targets.filter(
+        (t) => t.state === 'initial' || t.state === 'draining',
+      ).length;
+      // Everything ELB does not classify as healthy/unhealthy/pending
+      // (unknown, unused, unavailable) means the verdict cannot be told.
+      unknownTargetCount = targets.filter(
+        (t) => !['healthy', 'unhealthy', 'initial', 'draining'].includes(t.state ?? ''),
+      ).length;
     } catch {
       // Target health unreadable: derive from ECS counts alone.
     }
@@ -181,6 +221,8 @@ export async function observeRuntimeHealth(
     runningCount,
     targetCount,
     unhealthyTargetCount,
+    pendingTargetCount,
+    unknownTargetCount,
     rolloutFailed,
   };
   // The cache, database and storage have no runtime probe (no describe
@@ -207,6 +249,8 @@ export async function observeRuntimeHealth(
     desiredCount,
     runningCount,
     unhealthyTargetCount,
+    pendingTargetCount,
+    unknownTargetCount,
     deploymentRolloutState,
   };
 }

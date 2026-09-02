@@ -133,7 +133,10 @@ test.describe('cloudformation-rollback', () => {
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
     expect(deployment.deploymentStatus.failure).not.toBeNull();
-    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    // Server-side refinement (apps/api/src/failure-classification.ts):
+    // the failed resource is the RDS instance, so the honest classification
+    // is the database, not the generic stack bucket.
+    expect(deployment.deploymentStatus.failure!.code).toBe('DATABASE_CREATE_FAILED');
     expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
 
     // The stack events show the rollback via the real ingest path.
@@ -162,7 +165,9 @@ test.describe('ecs-failure', () => {
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
-    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    // Refinement: the ECS service failed its health checks — classified as
+    // the health check, not the generic stack bucket.
+    expect(deployment.deploymentStatus.failure!.code).toBe('IMAGE_HEALTH_CHECK_FAILED');
     expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
 
     const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
@@ -188,22 +193,19 @@ test.describe('healthcheck-failure', () => {
     test.setTimeout(30_000);
     const { deploymentId, api } = deployzInstall;
 
-    // The REAL, observed production behaviour (not forced): CloudFormation
-    // reports the stack complete and verifyInstallation independently
-    // confirms every required resource is present, so the INSTALL job
-    // succeeds and deployment.state reaches HEALTHY — lifecycle state and
-    // runtime health are two separate signals
-    // (docs/testing/discovery/deployment-lifecycle.md §7). The separately
-    // reported runtime healthStatus below is UNHEALTHY because every ALB
-    // target fails its health check, which the customer-facing ladder in
-    // apps/api/src/deployment-status.ts reflects by holding at VERIFYING
-    // ("Running health checks.") — never FAILED and never READY.
+    // CloudFormation reports the stack complete and verifyInstallation
+    // independently confirms every required resource is present, so the
+    // INSTALL job succeeds. After Phase 1.3 the persisted lifecycle state
+    // stays INSTALLING until the relay's runtime health heartbeat reports
+    // HEALTHY. In this scenario every ALB target fails its health check, so
+    // healthStatus becomes UNHEALTHY while the customer-facing ladder holds
+    // at VERIFYING ("Running health checks.") — never FAILED and never READY.
     await expect
-      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+      .poll(async () => (await api.getDeployment(deploymentId)).deploymentStatus.stage, {
         timeout: 15_000,
-        message: 'waiting for deployment.state to reach HEALTHY',
+        message: 'waiting for install to complete and runtime verification to begin',
       })
-      .toBe('HEALTHY');
+      .toBe('VERIFYING');
 
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).healthStatus, {
@@ -213,7 +215,7 @@ test.describe('healthcheck-failure', () => {
       .toBe('UNHEALTHY');
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(deployment.state).toBe('HEALTHY');
+    expect(deployment.state).toBe('INSTALLING');
     expect(deployment.deploymentStatus.stage).toBe('VERIFYING');
     expect(deployment.deploymentStatus.step).toBe('HEALTH_CHECK');
     expect(deployment.deploymentStatus.failure).toBeNull();

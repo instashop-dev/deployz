@@ -15,12 +15,12 @@
  * The Lambda entry point (worker-handler.ts) wires the real seams; this
  * module holds no AWS clients of its own, so the logic stays testable.
  */
-import { and, eq, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or } from 'drizzle-orm';
 
 import { mintInstallationToken } from '@deployz/api/github';
-import { createOrReuseJob } from '@deployz/api/jobs';
+import { createOrReuseJob, newerReadyReleaseExists } from '@deployz/api/jobs';
 import type { QueueMessage } from '@deployz/api/queue';
-import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS } from '@deployz/contracts';
+import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -227,19 +227,34 @@ type ConfigUpdateMessage = Extract<QueueMessage, { type: 'CONFIG_UPDATE' }>;
 
 /**
  * Turns a config write-through into per-deployment CONFIG_UPDATE jobs. The
- * durable payload carries KEYS ONLY — plaintext secret values never persist
- * in the control plane; the relay fetches the effective configuration over
- * its authenticated channel when it executes.
+ * durable payload carries newly-entered secret VALUES only long enough for
+ * the relay to claim them — `GET /api/relay/commands` serves the payload
+ * once and scrubs the values from the stored row in the same request (see
+ * `redactClaimedPayload` in server.ts). The control-plane DB never keeps
+ * plaintext secret values.
  */
 async function configUpdate(
   db: RuntimeDb,
   message: ConfigUpdateMessage,
   messageId: string,
 ): Promise<void> {
+  // Only deployments a relay can actually act on: nothing is enrolled before
+  // install, and nothing remains to configure during/after removal. A job
+  // created for those rows would sit REQUESTED until the watchdog failed it.
   const deployments = await db
     .select()
     .from(schema.deployments)
-    .where(eq(schema.deployments.customerId, message.customerId));
+    .where(
+      and(
+        eq(schema.deployments.customerId, message.customerId),
+        notInArray(schema.deployments.state, [
+          'NOT_INSTALLED',
+          'WAITING_FOR_RELAY',
+          'DELETING',
+          'DELETED',
+        ]),
+      ),
+    );
 
   console.log(
     JSON.stringify({
@@ -247,10 +262,17 @@ async function configUpdate(
       messageId,
       customerId: message.customerId,
       deployments: deployments.length,
+      // Values never leave the process in a log line — count only.
+      secretCount: message.secrets?.length ?? 0,
     }),
   );
 
   for (const deployment of deployments) {
+    // CONFIG_UPDATE sits outside the one-active-mutating-job index on
+    // purpose: the secret value rides this payload transiently (§31 phase
+    // 1.2) and skipping the fanout because an install/deploy is active
+    // would lose it. The relay executes its commands sequentially, so the
+    // config job simply runs after whatever is in flight.
     await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'CONFIG_UPDATE',
@@ -260,6 +282,7 @@ async function configUpdate(
       idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${messageId}`,
       payload: {
         ...(message.changedKeys ? { changedKeys: [...message.changedKeys] } : {}),
+        ...(message.secrets ? { secrets: message.secrets.map((s) => ({ ...s })) } : {}),
         ...(message.removedKeys ? { removedKeys: [...message.removedKeys] } : {}),
       },
       requestedBy: null,
@@ -406,18 +429,68 @@ export async function handleMessage(
   }
 }
 
-// ── Stuck-job watchdog (Phase 7) ─────────────────────────────────────────
-// JOB_TIMEOUTS_MS lives in @deployz/contracts — shared with Team Admin's
-// STUCK flag (docs/admin/team-admin.md) so the two can never disagree.
+// ── Stuck-job watchdog / reconciler (reconcile-before-fail) ──────────────
+
+// Staleness bound per job type (how long with NO signal before the relay is
+// presumed gone for this job): JOB_TIMEOUTS_MS lives in @deployz/contracts —
+// shared with Team Admin's STUCK flag (docs/admin/team-admin.md) so the
+// sweep and the admin view can never disagree. Heartbeats refresh
+// lastProgressAt on every active job, so tripping it means the relay itself
+// has gone quiet — never that a live operation is merely slow. DESTROY is
+// deliberately absent: a dead-relay DESTROY is settled by the vendor's
+// force-complete escape hatch, never failed by the watchdog.
+
+/**
+ * Runtime bound per attempt with a LIVE relay. Heartbeats keep
+ * lastProgressAt fresh whether or not the operation is actually moving, so a
+ * relay invocation that died between an AWS mutation and its checkpoint
+ * write leaves a RUNNING job no signal will ever settle — the staleness
+ * clock cannot see it. Past this bound the job is re-offered to the relay
+ * (state back to REQUESTED): every relay executor reads AWS state before
+ * acting (describe-before-create/delete, digest short-circuit), so a
+ * re-offer converges on what actually happened instead of repeating the
+ * mutation, and the result route ignores a late duplicate report.
+ */
+const JOB_MAX_RUNTIME_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect)['type'], number>> = {
+  INSTALL: 90 * 60 * 1000,
+  DEPLOY_RELEASE: 30 * 60 * 1000,
+  ROLLBACK: 30 * 60 * 1000,
+  RESTART: 30 * 60 * 1000,
+  CONFIG_UPDATE: 30 * 60 * 1000,
+  DESTROY: 90 * 60 * 1000,
+  PURGE: 90 * 60 * 1000,
+  CONFIGURE_DOMAIN: 90 * 60 * 1000,
+  REMOVE_DOMAIN: 90 * 60 * 1000,
+};
+
+/** Re-offers per job before the watchdog concludes the operation is wedged. */
+const MAX_RECONCILE_REQUEUES = 3;
+
+/**
+ * How long past its staleness bound a WAITING job may sit on a disconnected
+ * relay before the watchdog finally fails it. Long on purpose: a relay that
+ * comes back resumes from its checkpoint, and prematurely failing the job
+ * would misreport an operation that may have finished in AWS.
+ */
+const RELAY_WAIT_GRACE_MS = 24 * 60 * 60 * 1000;
 
 const ACTIVE_MUTATING_STATES = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'] as const;
 
 /**
- * Fails mutating jobs whose last genuine progress signal is older than the
- * job type's timeout. The signal is lastProgressAt — updated on relay
- * acknowledgement, heartbeat and result — falling back to startedAt, then
- * createdAt. A deployment row update says nothing about a job, so updatedAt
- * is deliberately not consulted.
+ * Reconciles stuck mutating jobs instead of blindly failing them.
+ *
+ * Live relay: a job past its runtime bound (or stale in flight) is re-offered
+ * to the relay (bounded by MAX_RECONCILE_REQUEUES), whose describe-first
+ * executors resolve the true AWS state; only exhausted re-offers fail.
+ *
+ * Dead relay: the job is parked WAITING (surfaced as "waiting for the
+ * customer's AWS connection", never a false FAILED); the relay's next command
+ * poll claims WAITING jobs back. Only after RELAY_WAIT_GRACE_MS does the
+ * watchdog fail it, classified RELAY_DISCONNECTED.
+ *
+ * Failure settlement matches the relay result route: a failed day-2
+ * operation on a deployment with a running release never marks the whole
+ * deployment FAILED.
  */
 export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Promise<number> {
   const rows = await db
@@ -428,50 +501,195 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
       inArray(schema.deploymentJobs.state, [...ACTIVE_MUTATING_STATES]),
     );
 
-  let failed = 0;
+  let settled = 0;
   for (const { job, deployment } of rows) {
     const timeout = JOB_TIMEOUTS_MS[job.type];
-    if (timeout === undefined) continue;
+    const maxRuntime = JOB_MAX_RUNTIME_MS[job.type];
     const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
-    if (now.getTime() - lastSignal.getTime() <= timeout) continue;
+    const runtimeStart = job.startedAt ?? job.createdAt;
+    const stale = timeout !== undefined && now.getTime() - lastSignal.getTime() > timeout;
+    const inFlight = job.state === 'RUNNING' || job.state === 'WAITING';
+    const overRuntime =
+      maxRuntime !== undefined && inFlight && now.getTime() - runtimeStart.getTime() > maxRuntime;
 
-    await db.transaction(async (tx) => {
-      await tx
-        .update(schema.deploymentJobs)
-        .set({
-          state: 'FAILED',
-          finishedAt: now,
-          result: { timeout: true },
-        })
-        .where(eq(schema.deploymentJobs.id, job.id));
+    const evidence = {
+      jobType: job.type,
+      startedAt: job.startedAt?.toISOString() ?? null,
+      lastProgressAt: job.lastProgressAt?.toISOString() ?? null,
+      relayStatus: deployment.relayStatus,
+      reconcileCount: job.reconcileCount,
+    };
 
+    if (deployment.relayStatus === 'CONNECTED') {
+      if (!stale && !overRuntime) continue;
+
+      if (inFlight && job.reconcileCount < MAX_RECONCILE_REQUEUES) {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(schema.deploymentJobs)
+            .set({
+              state: 'REQUESTED',
+              reconcileCount: job.reconcileCount + 1,
+              lastProgressAt: now,
+            })
+            .where(eq(schema.deploymentJobs.id, job.id));
+          await tx.insert(schema.eventLogs).values({
+            actorType: 'system',
+            actorId: 'watchdog',
+            organizationId: deployment.organizationId,
+            customerId: deployment.customerId,
+            deploymentId: deployment.id,
+            jobId: job.id,
+            eventType: 'operation.requeued',
+            previousState: deployment.state,
+            requestedState: null,
+            result: 'pending',
+            payload: evidence,
+          });
+        });
+        settled += 1;
+        continue;
+      }
+
+      // Re-offers exhausted (or the relay never claims what it is offered).
+      // DESTROY still never fails from here — force-complete owns it.
+      if (timeout === undefined) continue;
+      await failStuckJob(
+        db,
+        job,
+        deployment,
+        now,
+        job.type === 'CONFIGURE_DOMAIN' || job.type === 'REMOVE_DOMAIN'
+          ? 'DOMAIN_OPERATION_TIMEOUT'
+          : 'UNKNOWN',
+        evidence,
+      );
+      settled += 1;
+      continue;
+    }
+
+    // Relay not connected. DESTROY (no timeout entry) is force-complete's.
+    if (timeout === undefined || !stale) continue;
+
+    if (job.state !== 'WAITING') {
+      // Park, don't fail: the operation may have finished in AWS, and a
+      // returning relay resumes from its checkpoint. lastProgressAt is left
+      // alone so the grace clock keeps measuring real silence.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.deploymentJobs)
+          .set({ state: 'WAITING' })
+          .where(eq(schema.deploymentJobs.id, job.id));
+        await tx.insert(schema.eventLogs).values({
+          actorType: 'system',
+          actorId: 'watchdog',
+          organizationId: deployment.organizationId,
+          customerId: deployment.customerId,
+          deploymentId: deployment.id,
+          jobId: job.id,
+          eventType: 'operation.waiting_for_relay',
+          previousState: deployment.state,
+          requestedState: null,
+          result: 'pending',
+          payload: evidence,
+        });
+      });
+      settled += 1;
+      continue;
+    }
+
+    if (now.getTime() - lastSignal.getTime() > timeout + RELAY_WAIT_GRACE_MS) {
+      await failStuckJob(db, job, deployment, now, 'RELAY_DISCONNECTED', evidence);
+      settled += 1;
+    }
+  }
+  return settled;
+}
+
+async function failStuckJob(
+  db: RuntimeDb,
+  job: typeof schema.deploymentJobs.$inferSelect,
+  deployment: typeof schema.deployments.$inferSelect,
+  now: Date,
+  failureCode: 'UNKNOWN' | 'RELAY_DISCONNECTED' | 'DOMAIN_OPERATION_TIMEOUT',
+  evidence: Record<string, unknown>,
+): Promise<void> {
+  // Phase 5 §9.3: a domain job timeout must never fail the DEPLOYMENT —
+  // the domain is a separate lifecycle (same rule as the relay result
+  // route's isDomainJobType guard). Its failure surfaces on the
+  // custom_domains row instead, and the next heartbeat nudge opens a fresh
+  // retry cycle.
+  const isDomainJob = job.type === 'CONFIGURE_DOMAIN' || job.type === 'REMOVE_DOMAIN';
+  // Same settlement rule as the relay result route: a timed-out day-2
+  // operation on a deployment with a running release must not mark the
+  // whole deployment FAILED — the previous release is still serving.
+  const nextState = isDomainJob
+    ? null
+    : deploymentStateAfterFailedJob({
+        jobType: job.type,
+        hasCurrentRelease: deployment.currentReleaseId !== null,
+        newerReadyReleaseExists: await newerReadyReleaseExists(
+          db,
+          deployment.applicationId,
+          deployment.currentReleaseId,
+        ),
+      });
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.deploymentJobs)
+      .set({
+        state: 'FAILED',
+        finishedAt: now,
+        failureCode,
+        result: { timeout: true, reconcileAttempts: job.reconcileCount },
+      })
+      .where(eq(schema.deploymentJobs.id, job.id));
+
+    if (nextState !== null) {
       await tx
         .update(schema.deployments)
-        .set({ state: 'FAILED' })
+        .set({ state: nextState })
         .where(eq(schema.deployments.id, deployment.id));
+    }
 
-      await tx.insert(schema.eventLogs).values({
-        actorType: 'system',
-        actorId: 'watchdog',
-        organizationId: deployment.organizationId,
-        customerId: deployment.customerId,
-        deploymentId: deployment.id,
-        jobId: job.id,
-        eventType: 'operation.timeout',
-        previousState: deployment.state,
-        requestedState: 'FAILED',
-        result: 'failure',
-        payload: {
-          jobType: job.type,
-          startedAt: job.startedAt?.toISOString() ?? null,
-          lastProgressAt: job.lastProgressAt?.toISOString() ?? null,
-          relayStatus: deployment.relayStatus,
-        },
-      });
+    if (isDomainJob) {
+      await tx
+        .update(schema.customDomains)
+        .set({ lastError: failureCode })
+        .where(
+          and(
+            eq(schema.customDomains.deploymentId, deployment.id),
+            isNull(schema.customDomains.removedAt),
+          ),
+        );
+    }
+
+    // Phase 5 §9.2: a timed-out PURGE keeps the deployment DELETED (the
+    // cleanup lifecycle is separate) — the failure lands on cleanupState so
+    // the purge stays retryable from PURGE_FAILED instead of resurrecting
+    // the deployment into a deployment-failure state.
+    if (job.type === 'PURGE') {
+      await tx
+        .update(schema.deployments)
+        .set({ cleanupState: 'PURGE_FAILED' })
+        .where(eq(schema.deployments.id, deployment.id));
+    }
+
+    await tx.insert(schema.eventLogs).values({
+      actorType: 'system',
+      actorId: 'watchdog',
+      organizationId: deployment.organizationId,
+      customerId: deployment.customerId,
+      deploymentId: deployment.id,
+      jobId: job.id,
+      eventType: 'operation.timeout',
+      previousState: deployment.state,
+      requestedState: nextState,
+      result: 'failure',
+      payload: evidence,
     });
-    failed += 1;
-  }
-  return failed;
+  });
 }
 
 // ── Relay-liveness sweep ──────────────────────────────────────────────────

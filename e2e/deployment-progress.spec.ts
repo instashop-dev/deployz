@@ -10,6 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 // seed/relay conventions already established in custom-domain.spec.ts,
 // app-url.spec.ts and fleet.spec.ts.
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in customer-facing copy.
@@ -76,6 +78,7 @@ async function seedDeployment(
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string; name: string };
+  await makeApplicationDeployable(page.request, application.id);
 
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Progress Customer ${suffix}`, email: `progress-customer-${suffix}@example.com` },
@@ -439,15 +442,18 @@ test('failure path: a failed INSTALL shows a customer-safe message with no jargo
   const bodyText = await page.locator('body').innerText();
   expect(bodyText).not.toMatch(JARGON);
 
-  // Technical details are collapsed by default.
+  // Technical details are collapsed by default. §65 keeps the raw
+  // CloudFormation enum off the customer surface even when expanded — the
+  // panel shows the jargon-free phrase (customerStackStatusLabel) instead.
   const reference = page.getByText(/^DEP-[0-9A-F]{8}$/);
   await expect(reference).toHaveCount(0);
   await expect(page.getByText('CREATE_FAILED', { exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Technical details' }).click();
   await expect(reference).toBeVisible();
-  await expect(page.getByText('CREATE_FAILED', { exact: true })).toBeVisible();
-  await expect(page.getByText('AWS status', { exact: true })).toBeVisible();
+  await expect(page.getByText('Infrastructure', { exact: true })).toBeVisible();
+  await expect(page.getByText('Setup did not complete', { exact: true })).toBeVisible();
+  await expect(page.getByText('CREATE_FAILED', { exact: true })).toHaveCount(0);
 
   // No enrollment code, relay bearer token, or the leaked internal error
   // string ever reach the DOM — the customer projection strips all of it.
@@ -536,6 +542,7 @@ test('status API: 404s on unknown/malformed ids, and a live one matches the cust
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string };
+  await makeApplicationDeployable(request, application.id);
   const customerResponse = await request.post(`${API_URL}/api/customers`, {
     data: { name: `Progress API Customer ${suffix}`, email: `progress-api-customer-${suffix}@example.com` },
   });

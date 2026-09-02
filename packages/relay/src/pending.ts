@@ -10,11 +10,11 @@
  * therefore keeps the one fact it needs to finish the job later — which
  * command it owes an answer to — somewhere that outlives the container.
  *
- * SSM Parameter Store, rather than a second secret: there is no value here
- * worth protecting (a job id and a stack name, both of which the control
- * plane already knows), no resource to create in the bootstrap template, and
- * the parameter name carries the installation id, so IAM scopes it by ARN
- * without needing a tag condition.
+ * SSM Parameter Store, rather than a second Secret: there is no extra
+ * resource to create in the bootstrap template, and the parameter name
+ * carries the installation id, so IAM scopes it by ARN without needing a
+ * tag condition. The value can carry install-time secret parameter values
+ * (an INSTALL payload), so it is written as a SecureString parameter.
  *
  * Nothing here throws. A store that cannot be read reports "nothing
  * pending"; a write or clear that fails says so in its return value, so the
@@ -54,6 +54,14 @@ export interface PendingCommand {
    * from `startedAt` instead of a prior cursor.
    */
   readonly stackEventsCursor?: { readonly lastEventAt: string };
+  /**
+   * Deploy-time migration state (DEPLOY_RELEASE only). One-off ECS task that
+   * runs the migration command before the service update; written the moment
+   * `runTask` returns so a migration that outlives one invocation resumes by
+   * polling the SAME task instead of starting a second one. Optional so a
+   * marker written by an older relay version still parses.
+   */
+  readonly migration?: { readonly taskArn: string; readonly completedAt?: string };
 }
 
 export interface PendingStore {
@@ -122,7 +130,10 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
         await client.send(
           new PutParameterCommand({
             Name: parameterName,
-            Type: 'String',
+            // SecureString: the pending payload can carry install-time
+            // secret parameter values; the marker itself is never worth
+            // forfeiting if the parameter leaks out of the account's SSM.
+            Type: 'SecureString',
             Value: JSON.stringify(pending),
             Overwrite: true,
           }),
@@ -180,6 +191,22 @@ function parse(value: string): PendingCommand | null {
       ? { lastEventAt: (stackEventsCursorRaw as Record<string, unknown>)['lastEventAt'] as string }
       : undefined;
 
+  const migrationRaw = candidate['migration'];
+  const migration =
+    typeof migrationRaw === 'object' && migrationRaw !== null
+      ? (() => {
+          const record = migrationRaw as Record<string, unknown>;
+          if (typeof record['taskArn'] !== 'string') return undefined;
+          const completedAt = record['completedAt'];
+          const registeredArn = record['registeredArn'];
+          return {
+            taskArn: record['taskArn'] as string,
+            ...(typeof registeredArn === 'string' ? { registeredArn } : {}),
+            ...(typeof completedAt === 'string' ? { completedAt } : {}),
+          };
+        })()
+      : undefined;
+
   return {
     commandId: candidate['commandId'] as string,
     idempotencyKey: candidate['idempotencyKey'] as string,
@@ -191,5 +218,6 @@ function parse(value: string): PendingCommand | null {
         ? (payload as Record<string, unknown>)
         : {},
     ...(stackEventsCursor !== undefined ? { stackEventsCursor } : {}),
+    ...(migration !== undefined ? { migration } : {}),
   };
 }

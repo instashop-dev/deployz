@@ -493,6 +493,11 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'redis.provision.started': 'Setting up cache',
   'redis.provision.succeeded': 'Cache ready',
   'redis.provision.failed': 'Cache setup failed',
+
+  // Watchdog/reconciler events (§65: never raw state names).
+  'operation.timeout': 'Operation took too long',
+  'operation.waiting_for_relay': 'Waiting for AWS connection',
+  'operation.requeued': 'Operation resumed after an interruption',
 };
 
 /** Human-readable label for an event type (§65). */

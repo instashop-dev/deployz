@@ -1,5 +1,5 @@
 {
-  "id": "024c09cd-8aa2-48ed-85a0-868b7c621446",
+  "id": "7f3ea907-c470-4316-9074-e745bd5c9ef1",
   "prevId": "4bd368ff-564e-4899-9cea-5d4a3e65cf46",
   "version": "7",
   "dialect": "postgresql",
@@ -533,12 +533,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "support_organization_id": {
-          "name": "support_organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -637,12 +631,6 @@
         },
         "last_active_organization_id": {
           "name": "last_active_organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "platform_role": {
-          "name": "platform_role",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -2105,7 +2093,24 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "deployment_jobs_one_active_mutating_uidx": {
+          "name": "deployment_jobs_one_active_mutating_uidx",
+          "columns": [
+            {
+              "expression": "deployment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"deployment_jobs\".\"state\" IN ('REQUESTED', 'QUEUED', 'WAITING', 'RUNNING') AND \"deployment_jobs\".\"type\" IN ('INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'DESTROY', 'MIGRATION', 'INFRA_UPGRADE', 'PURGE')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "deployment_jobs_deployment_id_deployments_id_fk": {
           "name": "deployment_jobs_deployment_id_deployments_id_fk",

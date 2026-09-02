@@ -94,6 +94,7 @@ export const STEP_LABEL: Record<DeploymentStep, { pending: string; active: strin
     done: 'Database & storage created',
   },
   REDIS: { pending: 'Redis cache', active: 'Creating Redis cache', done: 'Redis cache created' },
+  MIGRATION: { pending: 'Run migrations', active: 'Running migrations', done: 'Migrations applied' },
   APPLICATION: { pending: 'Start application', active: 'Starting application', done: 'Application started' },
   HEALTH_CHECK: { pending: 'Check application', active: 'Checking application', done: 'Health checks passed' },
   TLS: { pending: 'Set up HTTPS', active: 'Setting up HTTPS', done: 'HTTPS set up' },

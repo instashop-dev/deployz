@@ -1,4 +1,4 @@
-import { Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { Duration, Stack, Tags, type StackProps } from 'aws-cdk-lib';
 import {
   InstanceType,
   InstanceClass,
@@ -60,6 +60,9 @@ import { WorkerLambda } from './worker-lambda.js';
 export class DeployzStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, { ...props, env: { region: 'us-east-1' } });
+
+    Tags.of(this).add('deployz:managed', 'true');
+    Tags.of(this).add('deployz:scope', 'control-plane');
 
     // ── VPC ──────────────────────────────────────────────────────────────
     const vpc = new Vpc(this, 'Vpc', {
@@ -182,10 +185,27 @@ export class DeployzStack extends Stack {
         // artifacts are not confirmed published (fail closed). The publisher
         // prints this value after verifying every region.
         ...(deployableAwsRegions ? { DEPLOYABLE_AWS_REGIONS: deployableAwsRegions } : {}),
+        // Phase 1.1 ECR pull-grant lifecycle: the repository whose policy the
+        // API mutates when an installation is granted/revoked.
+        DEPLOYZ_ECR_REPOSITORY_NAME: buildPipeline.repository.repositoryName,
       },
     });
 
     jobQueue.grantSendMessages(apiLambda.function);
+
+    // Phase 1.1: the API rewrites the ECR repository policy to grant/revoke
+    // per-installation cross-account pull access. Scoped to this repository,
+    // not ecr:* on everything.
+    apiLambda.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: [
+          'ecr:GetRepositoryPolicy',
+          'ecr:SetRepositoryPolicy',
+          'ecr:DeleteRepositoryPolicy',
+        ],
+        resources: [buildPipeline.repository.repositoryArn],
+      }),
+    );
 
     dbSecurityGroup.addIngressRule(
       apiLambda.function.connections.securityGroups[0] ?? Peer.anyIpv4(),
