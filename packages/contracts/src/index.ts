@@ -198,6 +198,7 @@ export const failureCodeSchema = z.enum([
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
   'DOMAIN_OPERATION_TIMEOUT',
+  'RELAY_STATE_WRITE_FAILED',
 ]);
 export type FailureCode = z.infer<typeof failureCodeSchema>;
 

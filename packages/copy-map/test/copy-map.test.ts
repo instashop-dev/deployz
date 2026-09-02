@@ -177,7 +177,7 @@ describe('§62 event result labels', () => {
 // ── §61 failure codes ───────────────────────────────────────────────────────
 
 describe('§61 failure codes', () => {
-  it('defines exactly the twenty-two §61 taxonomy codes', () => {
+  it('defines exactly the twenty-three §61 taxonomy codes', () => {
     expect(FAILURE_CODES).toEqual([
       'AWS_SCP_BLOCKED',
       'PORT_MISMATCH',
@@ -201,6 +201,7 @@ describe('§61 failure codes', () => {
       'REDIS_PROVISIONING_FAILED',
       'REDIS_CONNECTION_FAILED',
       'DOMAIN_OPERATION_TIMEOUT',
+      'RELAY_STATE_WRITE_FAILED',
     ]);
   });
 
