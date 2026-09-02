@@ -49,6 +49,7 @@ import migration0019 from '../../../db/drizzle/0019_happy_retro_girl.sql';
 import migration0020 from '../../../db/drizzle/0020_same_ultragirl.sql';
 import migration0021 from '../../../db/drizzle/0021_youthful_excalibur.sql';
 import migration0022 from '../../../db/drizzle/0022_faithful_krista_starr.sql';
+import migration0023 from '../../../db/drizzle/0023_wakeful_tomorrow_man.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -85,6 +86,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0020_same_ultragirl': migration0020,
   '0021_youthful_excalibur': migration0021,
   '0022_faithful_krista_starr': migration0022,
+  '0023_wakeful_tomorrow_man': migration0023,
 };
 
 interface RdsSecret {

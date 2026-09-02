@@ -25,6 +25,10 @@ export const user = pgTable('user', {
   // user's oldest membership every time they sign in. No foreign key: a
   // stale id is simply ignored once membership is re-checked.
   lastActiveOrganizationId: text('last_active_organization_id'),
+  // Deployz field: Team Admin platform role. 'ADMIN' grants cross-tenant
+  // admin access (see apps/api/src/admin/auth.ts); null for every ordinary
+  // vendor user. No role-management UI — granted via SQL/ops tooling only.
+  platformRole: text('platform_role'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
@@ -45,6 +49,11 @@ export const session = pgTable(
       .references(() => user.id, { onDelete: 'cascade' }),
     // Organization plugin session augmentation (active tenant context).
     activeOrganizationId: text('active_organization_id'),
+    // Deployz field: while set (and only for a platform admin), the Team
+    // Admin "View as Vendor" support session — requireAuth resolves
+    // request.organization to THIS org instead of the admin's own, with a
+    // synthetic lowest-privilege role. See docs/admin/team-admin.md.
+    supportOrganizationId: text('support_organization_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()

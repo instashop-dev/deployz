@@ -69,6 +69,9 @@ jobs:
       - name: Simulated scenario suite
         run: node scripts/e2e.mjs --scenarios
 
+      - name: Team Admin flows
+        run: node scripts/e2e.mjs e2e/admin.spec.ts
+
       - name: Upload traces on failure
         uses: actions/upload-artifact@v4
         if: failure()

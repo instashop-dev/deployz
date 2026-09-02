@@ -9,6 +9,12 @@ interface Me {
   role: OrgRole | null;
   /** Every organization the user belongs to — the tenant switcher's data. */
   organizations: OrganizationSummary[];
+  /** Platform-staff flag (docs/admin/team-admin.md) — gates /admin access. */
+  isTeamAdmin: boolean;
+  /** Non-null only while an admin's session is pointed at a vendor
+   *  organization via "View as Vendor". `organization` above is already the
+   *  vendor's in that case — this is only the banner's display data. */
+  supportMode: { organizationId: string; organizationName: string } | null;
 }
 
 import { serverApiUrl } from '@/lib/api-url';

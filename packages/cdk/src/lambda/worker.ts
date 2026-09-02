@@ -20,7 +20,7 @@ import { and, eq, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob } from '@deployz/api/jobs';
 import type { QueueMessage } from '@deployz/api/queue';
-import { RELAY_STALE_AFTER_MS } from '@deployz/contracts';
+import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -407,20 +407,8 @@ export async function handleMessage(
 }
 
 // ── Stuck-job watchdog (Phase 7) ─────────────────────────────────────────
-
-/** Suggested MVP timeouts per mutating job type. */
-const JOB_TIMEOUTS_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect)['type'], number>> = {
-  INSTALL: 60 * 60 * 1000,
-  DEPLOY_RELEASE: 20 * 60 * 1000,
-  ROLLBACK: 20 * 60 * 1000,
-  RESTART: 20 * 60 * 1000,
-  CONFIG_UPDATE: 20 * 60 * 1000,
-  // DESTROY is deliberately absent: while the relay lives, its heartbeats
-  // refresh lastProgressAt, so a DESTROY only ever trips a timeout when the
-  // relay is dead — and failing it here would strand the deployment in
-  // FAILED with no disconnect path left. That case is settled by the
-  // force-complete escape hatch instead, gated on the same staleness.
-};
+// JOB_TIMEOUTS_MS lives in @deployz/contracts — shared with Team Admin's
+// STUCK flag (docs/admin/team-admin.md) so the two can never disagree.
 
 const ACTIVE_MUTATING_STATES = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'] as const;
 
