@@ -215,8 +215,9 @@ export const REVOKE_STEPS = [
 /** §45 "how deletion works" — mirrors §63's distinctions. */
 export const DELETION_STEPS = [
   'From the Deployz dashboard, the vendor requests "Disconnect Deployment" for your installation.',
-  'Deployz instructs the relay to remove the application, database, storage, and networking it created — only resources tagged with your installation ID.',
-  'Your AWS-native RDS backups follow your account’s own backup/retention settings and are not deleted by Deployz unless you request a final snapshot.',
+  'Deployz instructs the relay to remove the application and the networking around it — only resources tagged with your installation ID.',
+  'Removal keeps your database, its stored files, and the credentials to reach them in your account. Your data stays reachable after a removal and is never deleted by it; only the separate, explicitly confirmed "permanently remove retained resources" step deletes them.',
+  'The database keeps its AWS-native automated backups for as long as it stays in your account; Deployz never takes or requests a final snapshot.',
   'The bootstrap stack and relay role are yours to remove at any time (see "How to revoke Deployz" above) — Deployz does not remove them for you.',
   'Deployz’s own operational metadata for the deployment (§16: IDs, state, timestamps — never your application data) is retained for your records and billing history.',
 ] as const;

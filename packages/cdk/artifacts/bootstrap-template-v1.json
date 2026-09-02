@@ -640,6 +640,40 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeStorage"
+            },
+            {
+              "Action": [
+                "rds:DescribeDBInstances",
+                "rds:ListTagsForResource"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeRdsDiscover"
+            },
+            {
+              "Action": [
+                "secretsmanager:ListSecrets",
+                "secretsmanager:DescribeSecret"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeSecretsList"
+            },
+            {
+              "Action": "secretsmanager:DeleteSecret",
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeSecretsDelete"
             }
           ],
           "Version": "2012-10-17"
@@ -922,6 +956,40 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeStorage"
+            },
+            {
+              "Action": [
+                "rds:DescribeDBInstances",
+                "rds:ListTagsForResource"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeRdsDiscover"
+            },
+            {
+              "Action": [
+                "secretsmanager:ListSecrets",
+                "secretsmanager:DescribeSecret"
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeSecretsList"
+            },
+            {
+              "Action": "secretsmanager:DeleteSecret",
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeSecretsDelete"
             }
           ],
           "Version": "2012-10-17"
@@ -1428,7 +1496,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "a7491b2e47680606536f04e21843863593fd5c75c70e85abfbe0f5ee6b39cebd.zip"
+          "S3Key": "8d7db820d669fea9144a267c4c534d9e40524277157126d0d2b996ee52b5514c.zip"
         },
         "Environment": {
           "Variables": {

@@ -91,12 +91,19 @@ function securityGroupClassification(logicalId: string): ResourceClassification 
 }
 
 // The seed grants for the application stack's database secret carry no
-// DATABASE_HINT, so they classify as 'other'. Lifecycle is 'delete' for both
-// branches: the synthesized template sets DeletionPolicy Delete on every
-// AWS::SecretsManager::Secret (DatabaseSecret + AppConfigSecret).
+// DATABASE_HINT, so they classify as 'other'. DB-scoped secrets (DatabaseSecret,
+// DatabaseUrlSecret) are RETAINED alongside the retained DB instance (Phase 9
+// lifecycle — their DeletionPolicy is Retain so a disconnect never strands a
+// retained database without its password), so they classify 'retain'. The
+// SecretTargetAttachment row is not a real secret — CloudFormation deletes it
+// with the stack — so it stays 'delete'. Everything else (AppConfigSecret)
+// still has DeletionPolicy Delete.
 function secretClassification(logicalId: string): ResourceClassification {
+  if (/SecretTargetAttachment/.test(logicalId)) {
+    return component('database', 'supporting', 'delete');
+  }
   return DATABASE_HINT.test(logicalId)
-    ? component('database', 'supporting', 'delete')
+    ? component('database', 'supporting', 'retain')
     : component('other', 'supporting', 'delete');
 }
 

@@ -498,6 +498,57 @@ describe('BootstrapStack', () => {
     expect(boundary).toContain('ecs:RunTask');
   });
 
+  it('grants the relay the Phase 9 purge discovery reads and tag-scoped retained-credential deletion', () => {
+    const { stack } = synth();
+    const statements = stack.provisionerPolicy.document.toJSON()[
+      'Statement'
+    ] as Array<Record<string, unknown>>;
+    const findBySid = (sid: string) => statements.find((s) => s['Sid'] === sid);
+    const actionsOf = (sid: string) => collectActions([findBySid(sid)]);
+
+    // RDS orphan discovery is condition-free (DescribeDBInstances has no
+    // resource-level permissions; ListTagsForResource does not evaluate tag
+    // conditions) — the purge code verifies ownership from the tags itself.
+    const rdsDiscover = findBySid('RelayPurgeRdsDiscover');
+    expect(actionsOf('RelayPurgeRdsDiscover')).toEqual([
+      'rds:DescribeDBInstances',
+      'rds:ListTagsForResource',
+    ]);
+    expect(rdsDiscover?.['Condition']).toBeUndefined();
+
+    // Secrets: ListSecrets + DescribeSecret are condition-free discovery
+    // reads (a tag condition on DescribeSecret would deny the ownership check
+    // for every foreign secret in the account); the destructive delete is
+    // scoped to the retained DB-credential secrets that already carry the
+    // installation tag.
+    const secretsList = findBySid('RelayPurgeSecretsList');
+    expect(actionsOf('RelayPurgeSecretsList')).toEqual([
+      'secretsmanager:ListSecrets',
+      'secretsmanager:DescribeSecret',
+    ]);
+    expect(secretsList?.['Condition']).toBeUndefined();
+
+    const secretsDelete = findBySid('RelayPurgeSecretsDelete');
+    expect(actionsOf('RelayPurgeSecretsDelete')).toEqual(['secretsmanager:DeleteSecret']);
+    expect(
+      (secretsDelete?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ]?.['aws:ResourceTag/deployz:installation'],
+    ).toBeDefined();
+
+    // Both statements sit inside the permissions boundary (the ceiling).
+    const boundary = stack.permissionsBoundary.document.toJSON()[
+      'Statement'
+    ] as Array<Record<string, unknown>>;
+    for (const sid of [
+      'RelayPurgeRdsDiscover',
+      'RelayPurgeSecretsList',
+      'RelayPurgeSecretsDelete',
+    ]) {
+      expect(boundary.some((s) => s['Sid'] === sid)).toBe(true);
+    }
+  });
+
   it('carries no secret template parameters', () => {
     const { template } = synth();
     const json = template.toJSON();

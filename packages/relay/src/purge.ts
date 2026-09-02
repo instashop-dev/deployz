@@ -3,11 +3,12 @@
  *
  * The destructive counterpart to Disconnect (Phase 6 boundary): Disconnect
  * removes the running application while RETAINING the database, stored
- * files, and backups; PURGE removes those retained leftovers too, plus the
- * bootstrap/relay stack itself. It only ever runs for a deployment whose
- * vendor typed its name to confirm, and only after the control plane
- * accepted the request (deployment already DELETED with
- * SKIPPED_RELAY_OFFLINE leftovers).
+ * files, and backups; PURGE removes those retained leftovers too — the
+ * database instance, the database's retained credential secrets (Phase 9),
+ * stored files, the cache, plus the bootstrap/relay stack itself. It only
+ * ever runs for a deployment whose vendor typed its name to confirm, and
+ * only after the control plane accepted the request (deployment already
+ * DELETED with SKIPPED_RELAY_OFFLINE leftovers).
  *
  * Safety: every resource is touched only after it verifies as THIS
  * installation's — the APPLICATION stack by its `deployz:installation`
@@ -43,6 +44,12 @@ import {
   ListObjectVersionsCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import {
+  DeleteSecretCommand,
+  DescribeSecretCommand,
+  ListSecretsCommand,
+  SecretsManagerClient,
+} from '@aws-sdk/client-secrets-manager';
 
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
@@ -82,6 +89,23 @@ export interface S3PurgeClient {
   deleteBucket(bucketName: string): Promise<void>;
 }
 
+/**
+ * Secrets Manager resources this installation's APPLICATION stack owns —
+ * the retained DB credentials (DatabaseSecret + DatabaseUrlSecret, Phase 9).
+ *
+ * Ownership is verified in code: a secret qualifies only when it carries
+ * BOTH the `deployz:installation` tag AND `deployz:component=application` —
+ * the bootstrap stack's own credential secret carries the installation tag
+ * too but is `deployz:component=bootstrap`, so the component check keeps the
+ * sweep from eating the relay's home before the bootstrap stack is deleted.
+ */
+export interface SecretsPurgeClient {
+  /** Owned (tag-verified) application secrets only, by name. */
+  listOwnedSecrets(): Promise<string[]>;
+  /** Deletes a secret permanently (no recovery window). */
+  deleteSecret(secretName: string): Promise<void>;
+}
+
 export interface PurgeDeps {
   readonly cfn: CloudFormationReader;
   readonly deleter: StackDeleter;
@@ -92,6 +116,7 @@ export interface PurgeDeps {
   readonly rds: RdsPurgeClient;
   readonly cache: CachePurgeClient;
   readonly s3: S3PurgeClient;
+  readonly secrets: SecretsPurgeClient;
   readonly now?: () => string;
   readonly wait?: WaitOptions;
 }
@@ -213,6 +238,19 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
     for (const bucket of buckets) {
       await deps.s3.emptyBucket(bucket);
       await deps.s3.deleteBucket(bucket);
+    }
+    return { state: 'purging' };
+  }
+
+  // Phase 2d — retained DB credentials (Phase 9). The application stack's
+  // DatabaseSecret and DatabaseUrlSecret are retained with the database, so
+  // a DELETE never strands a retained database without its password. A PURGE
+  // deletes the retained database above first, then these secrets — the
+  // credential to a deleted database is dead and must not linger.
+  const secrets = await deps.secrets.listOwnedSecrets();
+  if (secrets.length > 0) {
+    for (const secret of secrets) {
+      await deps.secrets.deleteSecret(secret);
     }
     return { state: 'purging' };
   }
@@ -398,15 +436,21 @@ export function createRealPurgeClients(installationId: string): {
   rds: RdsPurgeClient;
   cache: CachePurgeClient;
   s3: S3PurgeClient;
+  secrets: SecretsPurgeClient;
 } {
   const rdsBase = createRealRdsCleanupClient();
   const rds = new RDSClient({});
   const cacheBase = createRealCacheCleanupClient();
   const elasticache = new ElastiCacheClient({});
   const s3 = new S3Client({});
+  const secrets = new SecretsManagerClient({});
   const owns = (
     tags: readonly { readonly Key?: string | undefined; readonly Value?: string | undefined }[],
   ) => tags.some((tag) => tag.Key === INSTALLATION_TAG && tag.Value === installationId);
+  const ownsApplicationSecret = (
+    tags: readonly { readonly Key?: string | undefined; readonly Value?: string | undefined }[],
+  ) =>
+    owns(tags) && tags.some((tag) => tag.Key === 'deployz:component' && tag.Value === 'application');
 
   return {
     rds: {
@@ -521,6 +565,34 @@ export function createRealPurgeClients(installationId: string): {
       },
       async deleteBucket(bucketName) {
         await s3.send(new DeleteBucketCommand({ Bucket: bucketName }));
+      },
+    },
+    secrets: {
+      async listOwnedSecrets() {
+        const response = await secrets.send(new ListSecretsCommand({}));
+        const owned: string[] = [];
+        for (const secret of response.SecretList ?? []) {
+          if (!secret.Name || !secret.ARN) continue;
+          try {
+            const description = await secrets.send(
+              new DescribeSecretCommand({ SecretId: secret.ARN }),
+            );
+            if (ownsApplicationSecret(description.Tags ?? [])) owned.push(secret.Name);
+          } catch (error) {
+            // Same rule as every other orphan read: an access-denied while
+            // verifying ownership must fail the purge, not vanish it.
+            if (isAccessDenied(error)) throw error;
+          }
+        }
+        return owned;
+      },
+      async deleteSecret(secretName) {
+        // ForceDeleteWithoutRecovery: a purge is the explicitly authorized
+        // data-deletion path — no 30-day soft-delete window for a credential
+        // whose database is already gone.
+        await secrets.send(
+          new DeleteSecretCommand({ SecretId: secretName, ForceDeleteWithoutRecovery: true }),
+        );
       },
     },
   };

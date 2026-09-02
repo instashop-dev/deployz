@@ -789,6 +789,40 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Resource": "*",
               "Sid": "RelayPurgeStorage",
             },
+            {
+              "Action": [
+                "rds:DescribeDBInstances",
+                "rds:ListTagsForResource",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeRdsDiscover",
+            },
+            {
+              "Action": [
+                "secretsmanager:ListSecrets",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeSecretsList",
+            },
+            {
+              "Action": "secretsmanager:DeleteSecret",
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeSecretsDelete",
+            },
           ],
           "Version": "2012-10-17",
         },
@@ -1379,6 +1413,40 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeStorage",
+            },
+            {
+              "Action": [
+                "rds:DescribeDBInstances",
+                "rds:ListTagsForResource",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeRdsDiscover",
+            },
+            {
+              "Action": [
+                "secretsmanager:ListSecrets",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeSecretsList",
+            },
+            {
+              "Action": "secretsmanager:DeleteSecret",
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeSecretsDelete",
             },
           ],
           "Version": "2012-10-17",

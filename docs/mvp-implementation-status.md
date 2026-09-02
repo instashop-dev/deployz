@@ -660,3 +660,125 @@ command is declared, and no relay or CDK runtime file changed.
 Re-analysis is required for an app analysed before this phase: its stored
 metadata does not yet carry `resolvedWorkerCommand`, so the manifest falls
 back to the sticky column until the next analysis runs.
+
+## Phase 9 — PostgreSQL and S3 hardening (2026-09-02)
+
+Phase 9 makes the supported persistent services (RDS PostgreSQL + S3)
+predictable and safe across provision, use, disconnect, and purge. This is
+an audit-plus-close-gaps phase. Nothing was changed without a documented
+gap; everything already truthful stayed as it was.
+
+### Lifecycle decision: RETAIN (with evidence)
+
+The MVP data lifecycle is **RETAIN, not SNAPSHOT**. The evidence:
+
+- The application template sets `DeletionPolicy: Retain` on the RDS
+  `DBInstance`, the `DBSubnetGroup`, and the S3 `Bucket`. `PURGE` deletes
+  the retained orphans directly (RDS/ElastiCache/S3 sweep in
+  `packages/relay/src/purge.ts`). This is the RETAIN model.
+- A stack-header comment claimed "final-snapshot on delete". No code ever
+  took a final snapshot (`SkipFinalSnapshot: true` in the relay RDS delete).
+  The claim was false; it is removed.
+- The customer-facing copy (install security page, disconnect modal) already
+  said "retained"; the implementation now matches it.
+
+The documented behavior is now:
+
+- **Disconnect (DESTROY)**: removes the running application and networking.
+  The database, its 7-day automated backups, its generated credential
+  secrets, and the stored files stay in the customer account. RDS automated
+  backups continue while the instance lives. No final snapshot is taken.
+  Charges continue.
+- **Purge (PURGE)**: deletes the retained database, its credential secrets,
+  the stored files (every version), the cache, then the bootstrap stack.
+
+### Audited existing (verified, changed only where a gap was found)
+
+- `AWS_REGION` env binding for S3: already injected alongside
+  `STORAGE_BUCKET`/`S3_BUCKET`/`AWS_S3_BUCKET` in the published template and
+  asserted by a test. No change.
+- The retained-database purge sweep (RDS orphan discovery + delete with
+  `SkipFinalSnapshot`) existed. The relay IAM lacked the read grants its
+  discovery needs (`rds:DescribeDBInstances`, `rds:ListTagsForResource`);
+  they are added (condition-free read statement `RelayPurgeRdsDiscover`).
+- The versioned-bucket retained behavior (destroy retains, purge empties
+  then deletes every version and delete marker) existed and is unchanged —
+  the Phase 5 purge retained-resource handling is not regressed.
+- `DeletionPolicy: Retain` on the RDS instance + bucket was already the
+  implementation; the copy that claimed a final snapshot was the lie.
+
+### Added
+
+1. **Retained credentials (PostgreSQL gap)**: `DatabaseSecret` and
+   `DatabaseUrlSecret` had `DeletionPolicy: Delete` while the database they
+   authenticate was retained. A disconnect destroyed the password to a
+   database that stayed behind — a retained database nobody could reach.
+   Both secrets now use `removalPolicy: RETAIN` so the retained database
+   stays reachable with its retained credentials.
+2. **Purge credential sweep**: PURGE now deletes the retained DB-credential
+   secrets after the retained database is deleted (`SecretsPurgeClient`,
+   tag-verified: `deployz:installation` AND `deployz:component=application`).
+   The component check keeps the sweep from touching the bootstrap stack's
+   own credential secret. New relay IAM: `RelayPurgeSecretsList`
+   (condition-free `ListSecrets`/`DescribeSecret` read discovery — a tag
+   condition on the ownership read would deny it for every foreign secret in
+   the account) and `RelayPurgeSecretsDelete` (`DeleteSecret`,
+   resource-tag-conditioned).
+3. **SG-scoped database ingress**: the DB security group no longer opens
+   port 5432 to the whole VPC CIDR in plain-Fargate mode. A standalone
+   `AWS::EC2::SecurityGroupIngress` admits only the application service's
+   own security group (and the worker service's SG when a worker exists).
+   Express mode keeps the whole-VPC rule because ECS manages its task
+   security groups and the template cannot reference them — a documented
+   tradeoff, not a silent one. The rule is a standalone ingress resource so
+   the DB security group never depends on the app security group (an inline
+   source reference would close a deploy-time dependency cycle through the
+   task role's secret grants).
+4. **S3 lifecycle rules**: the versioned bucket expires non-current object
+   versions after 30 days and aborts multipart uploads incomplete after 7
+   days. Current versions are never expired. This is cost control on the
+   retained bucket.
+5. **Truthful classification**: the inventory classifier
+   (`packages/contracts/src/infrastructure.ts`) marks the DB credential
+   secrets as `retain` (matching their new deletion policy) while
+   `SecretTargetAttachment` rows stay `delete`.
+6. **Customer copy**: the install Security Details page's deletion steps no
+   longer claim the relay removes the database/storage or takes a final
+   snapshot; they state the retain-then-purge truth.
+
+### MVP tradeoffs (documented, deliberate)
+
+- **Unconditional PostgreSQL provisioning**: every published template
+  provisions the RDS instance; `databaseRequired` is a synth-time prop the
+  relay never toggles. Provisioning a database for an app that does not need
+  one is an explicit MVP tradeoff, not a silent behavior.
+- **Express-mode DB ingress**: whole-VPC CIDR (see above), because ECS
+  manages the task security groups.
+- **Failed-first-install retry**: recovery deletes the doomed RDS instance
+  but now leaves the retained empty credential secrets behind (they are
+  `Retain`). A follow-up cleanup can sweep them; they hold no customer data.
+
+### Tests (vitest fakes only, never real AWS)
+
+- `packages/cdk/test/application-stack.test.ts` — new Phase 9 block: RETAIN
+  policy on the RDS instance + both credential secrets (and `Delete` on the
+  app config secret), no final-snapshot anywhere, S3 lifecycle rules,
+  SG-scoped ingress shape in plain Fargate (standalone
+  `AWS::EC2::SecurityGroupIngress`), whole-VPC ingress in Express mode, and
+  the worker SG ingress.
+- `packages/cdk/test/bootstrap-stack.test.ts` — the new purge IAM statements
+  exist with the correct action sets, conditions, and inside the permissions
+  boundary.
+- `packages/cdk/test/artifacts.test.ts` — committed templates match a fresh
+  synth (artifacts regenerated via `synth:app` + `synth:bootstrap`).
+- `packages/relay/src/purge.test.ts` — the credential sweep deletes owned
+  secrets once RDS/bucket are gone, never on the same pass a retained
+  database still exists, orders bootstrap-last, and an access-denied while
+  reading owned secrets fails the purge retryably
+  (`AWS_PERMISSION_DENIED`).
+- Snapshot updates (application-stack + bootstrap-stack) eyeballed to the
+  intended diff only.
+
+Verification: `pnpm build` (relay, contracts, cdk) passes; the affected
+vitest suites pass. One documented Windows `onTaskUpdate` timeout flake
+appeared in the bootstrap suite; it is not a failure (CI is authoritative).
