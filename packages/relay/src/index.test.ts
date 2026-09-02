@@ -5,6 +5,7 @@ import type { ScheduledEvent } from 'aws-lambda';
 import { type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
 import {
+  compactPendingInstallPayload,
   createInstallExecutor,
   createInstallResumer,
   createObserveHook,
@@ -817,7 +818,7 @@ describe('createInstallExecutor', () => {
       type: 'INSTALL',
       stackName: 'deployz-app',
       startedAt: '2026-08-26T12:00:00.000Z',
-      payload: { redisRequired: true },
+      payload: { redisRequired: true, parameters: {} },
     });
   });
 
@@ -1485,6 +1486,138 @@ describe('settleInstall derives parameters and the Redis variant from the manife
         'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
       parameters: {},
     });
+  });
+});
+
+// A payload built with a manifest of production size (CANARY-005): the
+// canonical manifest measured 15,946 characters on a real AWS install, well
+// past SSM's 4096-character Standard-tier limit. `environment.variables` is
+// the field that scales with the app, so that is what is padded here.
+function bigManifestPayload() {
+  return manifestPayload({
+    environment: {
+      variables: Array.from({ length: 141 }, (_, i) => ({
+        key: `ENV_VARIABLE_NUMBER_${i}`,
+        required: false,
+        secret: false,
+        source: [`app/src/config/settings-${i}.ts`],
+      })),
+    },
+  });
+}
+
+describe('compactPendingInstallPayload', () => {
+  it('drops the manifest, merges the manifest-derived parameters over the payload parameters, and resolves redisRequired from the manifest', () => {
+    const manifest = bigManifestPayload();
+    const payload = {
+      parameters: { paramHealthCheckPath: '/legacy', paramAppApiKey: 'k' },
+      redisRequired: undefined,
+      manifest,
+    };
+    expect(JSON.stringify(payload).length).toBeGreaterThan(4096);
+
+    const compacted = compactPendingInstallPayload(payload);
+
+    expect(compacted).not.toHaveProperty('manifest');
+    expect(compacted['parameters']).toMatchObject({
+      paramAppApiKey: 'k',
+      paramContainerPort: '8080',
+      paramHealthCheckPath: '/api/health', // the manifest wins over the ad-hoc value
+    });
+    expect(compacted['redisRequired']).toBe(true);
+
+    const marker = {
+      commandId: 'cmd-1',
+      idempotencyKey: 'dep-1:INSTALL',
+      type: 'INSTALL',
+      stackName: 'deployz-app',
+      startedAt: '2026-09-02T12:00:00.000Z',
+      payload: compacted,
+    };
+    expect(JSON.stringify(marker).length).toBeLessThan(4096);
+  });
+
+  it('keeps every other payload field as-is', () => {
+    const compacted = compactPendingInstallPayload({
+      stackName: 'deployz-app-staging',
+      recovery: { neverInstalled: true },
+    });
+
+    expect(compacted).toMatchObject({
+      stackName: 'deployz-app-staging',
+      recovery: { neverInstalled: true },
+    });
+  });
+});
+
+describe('createInstallExecutor / createInstallResumer with a production-size manifest payload', () => {
+  const command = {
+    id: 'cmd-manifest-defer',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {},
+  };
+
+  function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: memoryPendingStore(),
+      now: () => '2026-09-02T12:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('defers past the watch budget without writing the manifest into the pending marker, then resumes to the same redis template and parameters', async () => {
+    const pending = memoryPendingStore();
+    const manifest = bigManifestPayload();
+    const bigPayload = {
+      parameters: { paramAppApiKey: 'k' },
+      manifest,
+    };
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    // First attempt: CloudFormation is still creating when the invocation's
+    // watch budget runs out — the fake installer stands in for that budget.
+    const install = vi.fn(async () => ({ state: 'in-progress' as const, status: 'CREATE_IN_PROGRESS' }));
+    const deferResult = await createInstallExecutor(makeInstallDeps({ pending, install }))({
+      ...command,
+      payload: bigPayload,
+    });
+
+    expect(deferResult.deferred).toBe(true);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"relay:command-deferred"'),
+    );
+
+    const marker = await pending.read();
+    expect(marker?.payload).not.toHaveProperty('manifest');
+    expect(JSON.stringify(marker).length).toBeLessThan(4096);
+
+    // Resume: the marker alone (no manifest) must resolve the same
+    // redis-variant template and the same merged parameters the first
+    // attempt sent to CloudFormation.
+    const resumeInstall = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+    await createInstallResumer(makeInstallDeps({ pending, install: resumeInstall }))();
+
+    expect(resumeInstall.mock.calls[0]![0]).toMatchObject({
+      templateUrl:
+        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      parameters: {
+        paramAppApiKey: 'k',
+        paramContainerPort: '8080',
+        paramHealthCheckPath: '/api/health',
+      },
+    });
+
+    logSpy.mockRestore();
   });
 });
 
