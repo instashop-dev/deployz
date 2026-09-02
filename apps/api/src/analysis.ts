@@ -50,7 +50,9 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // (`detected_metadata.readiness`). Version 4 introduced the Phase 7 §11
 // metadata (env-var model, external-service requirements, unsupported
 // architecture reasons), whose absence would silently keep old verdicts.
-export const ANALYSIS_VERSION = 4;
+// Version 5 fixed file-based health-route path derivation (CANARY-003), so
+// a stored `healthPath` computed under the old, buggy logic re-runs.
+export const ANALYSIS_VERSION = 5;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

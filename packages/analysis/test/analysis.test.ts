@@ -506,10 +506,42 @@ describe('§18 detectors', () => {
     });
 
     it('detects a file-based health route', () => {
-      const tree: FileTree = { 'apps/web/app/routes/api+/health.ts': 'export const loader = () => null;\n' };
+      // documenso shape: Remix flat-routes file under a monorepo app prefix.
+      const tree: FileTree = { 'apps/remix/app/routes/api+/health.ts': 'export const loader = () => null;\n' };
       const result = detectHealthEndpoint(tree);
       expect(result.detected).toBe(true);
       expect((result.value as string[]).some((v: string) => v.includes('health route file'))).toBe(true);
+      expect(result.path).toBe('/api/health');
+    });
+
+    it('normalizes a Remix v2 dot route to /api/health', () => {
+      const tree: FileTree = { 'app/routes/api.health.ts': 'export const loader = () => null;\n' };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/health');
+    });
+
+    it('normalizes a SvelteKit +server health route to /api/health', () => {
+      const tree: FileTree = { 'src/routes/api/health/+server.ts': 'export const GET = () => null;\n' };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/health');
+    });
+
+    it('drops a route group from a monorepo App Router health route path', () => {
+      const tree: FileTree = {
+        'apps/web/src/app/(internal)/api/healthz/route.ts': 'export function GET() {}\n',
+      };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/api/healthz');
+    });
+
+    it('detects a bare file-based health route with no api segment', () => {
+      const tree: FileTree = { 'app/routes/healthz.tsx': 'export const loader = () => null;\n' };
+      const result = detectHealthEndpoint(tree);
+      expect(result.detected).toBe(true);
+      expect(result.path).toBe('/healthz');
     });
 
     it('detects an App Router health route folder and normalizes its path to /api/health', () => {
