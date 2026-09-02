@@ -363,7 +363,7 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
       'The deployment itself is unaffected — only the domain change stalled.',
     ],
     technicalDetail: [],
-    requiresManual: false,
+    requiresManual: true,
     automatic: false,
   },
 };

@@ -468,6 +468,15 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
     return 'UNSUPPORTED_ARCHITECTURE';
   }
 
+  // 18b. DOMAIN_OPERATION_TIMEOUT — a custom-domain operation outlived its
+  // watchdog window (CONFIGURE_DOMAIN / REMOVE_DOMAIN; Phase 5 lifecycle).
+  if (
+    event.source === 'relay' &&
+    event.signal === 'domain-operation-timeout'
+  ) {
+    return 'DOMAIN_OPERATION_TIMEOUT';
+  }
+
   // 19. UNKNOWN — fallback when no rule matches.
   return 'UNKNOWN';
 }
