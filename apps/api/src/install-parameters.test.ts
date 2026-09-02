@@ -77,6 +77,22 @@ async function insertCustomer(
   return row!;
 }
 
+/** A READY manifest — Phase 3 readiness gates re-evaluate it at relay register. */
+const READY_MANIFEST = {
+  application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+  build: { command: 'npm run build', context: '.' },
+  web: { command: 'npm start', port: 3000 },
+  health: { path: '/health' },
+  database: { postgres: true },
+  redis: { required: false, envBindings: [] },
+  storage: { required: false, envBindings: [] },
+  migration: { command: 'npm run db:migrate' },
+  worker: { command: null },
+  environment: { variables: [] },
+  externalServices: [],
+  unsupported: [],
+} as const;
+
 async function insertDeployment(
   db: Db,
   organizationId: string,
@@ -94,6 +110,7 @@ async function insertDeployment(
       state: 'NOT_INSTALLED',
       installationId: `inst-${crypto.randomUUID()}`,
       enrollmentCode: crypto.randomUUID(),
+      desiredState: { manifest: READY_MANIFEST },
       ...overrides,
     })
     .returning();

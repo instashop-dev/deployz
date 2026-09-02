@@ -225,7 +225,7 @@ caller outside its own tests.
 5. **Test discipline**: always run `pnpm build` before `pnpm vitest run`
    (CI order); treat Windows `EBUSY` suite-collection failures as a
    re-run, not a red. Gate on the re-run result.
-## Phase 1.1 � ECR pull grants + auto-deploy on install (2026-09-02)
+## Phase 1.1 � ECR pull grants + auto-deploy on install (2026-09-02)
 
 Wired the previously-dead ECR grant logic into the live flow, control-plane side.
 
@@ -256,3 +256,33 @@ Edge cases (deliberate):
   reuses the existing idempotency key.
 - API Lambda gains scoped ECR policy IAM (ecr:Get/Set/DeleteRepositoryPolicy
   on the pipeline repository only).
+
+## Phase 3 — Real readiness enforcement (2026-09-02)
+
+Server-side gates at every boundary where a not-yet-provisioned deployment
+can be advanced. Phase 2 gated deployment creation; Phase 3 closes the
+remaining two boundaries.
+
+- New helper `requireReadyManifest` (`apps/api/src/manifest.ts`): re-reads
+  the stored `desired_state.manifest`, re-evaluates readiness, throws 422
+  `MANIFEST_NOT_COMPATIBLE` / `MANIFEST_NEEDS_CONFIGURATION` with findings.
+- Gate 1 — install link: `POST /api/install/:installLinkId/launched`
+  refuses to move a non-READY deployment to `WAITING_FOR_RELAY`.
+- Gate 2 — relay registration: `POST /api/relay/register` refuses to
+  enroll and mint the first INSTALL job when the stored manifest is not
+  READY (the final defensive boundary before AWS provisioning).
+- The INSTALL job is only ever created at relay registration, so these
+  two gates cover the whole pre-provisioning surface; no worker-side
+  duplicate gate was needed.
+- Existing deployments without a stored manifest fail closed (422
+  MANIFEST_NEEDS_CONFIGURATION) — pre-manifest deployments cannot quietly
+  provision.
+- Test fixtures updated: DB-seeded deployments in the five suites that
+  exercise the gated endpoints now carry a READY manifest.
+
+Deferred within Phase 3 (follow-ups, not blockers):
+- Required-env-var readiness findings (manifest `environment.variables`
+  is still a name list; needs a `required`/`secret` model first — see
+  Phase 7's env-var model).
+- Broader unsupported-architecture detectors (Kafka, K8s, Terraform, …)
+  ride Phase 7's compatibility expansion.

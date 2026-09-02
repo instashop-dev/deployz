@@ -18,6 +18,26 @@ import { buildServer, redactClaimedPayload } from './server.js';
 
 // ── Shared test helpers (used by the describe blocks below) ────────────────
 
+/**
+ * A manifest that passes `evaluateManifestReadiness` as READY. Phase 3
+ * readiness gates (install-link launch, relay register) re-evaluate the stored
+ * manifest on every deployment they touch, so DB-seeded fixtures carry one.
+ */
+const READY_MANIFEST = {
+  application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+  build: { command: 'npm run build', context: '.' },
+  web: { command: 'npm start', port: 3000 },
+  health: { path: '/health' },
+  database: { postgres: true },
+  redis: { required: false, envBindings: [] },
+  storage: { required: false, envBindings: [] },
+  migration: { command: 'npm run db:migrate' },
+  worker: { command: null },
+  environment: { variables: [] },
+  externalServices: [],
+  unsupported: [],
+} as const;
+
 /** Signs up a fresh user, which provisions its own vendor org (auth.ts session hook). */
 async function signUpAndGetOrg(
   auth: Auth,
@@ -120,6 +140,9 @@ async function insertDeployment(
       // The control plane mints this when a deployment is created; the relay
       // trades it once for its binding.
       enrollmentCode: crypto.randomUUID(),
+      // Phase 3 readiness gates (install-link launch, relay register)
+      // re-evaluate the stored manifest — seed a READY one so fixtures pass.
+      desiredState: { manifest: READY_MANIFEST },
       ...overrides,
     })
     .returning();

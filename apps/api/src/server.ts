@@ -111,7 +111,7 @@ import {
 } from './ecr-pull-grants.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
-import { applicationToManifestOverrides, readStoredManifest } from './manifest.js';
+import { applicationToManifestOverrides, readStoredManifest, requireReadyManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
   acceptInvitation,
@@ -1649,6 +1649,9 @@ export async function buildServer({
       throw new NotFoundError('Installation not found');
     }
     const { deployment, applicationName } = rows[0]!;
+    // Phase 3 readiness gate: the install link is a second boundary where a
+    // non-READY manifest must be stopped before any AWS provisioning.
+    requireReadyManifest(deployment.desiredState);
     if (deployment.state !== 'NOT_INSTALLED') {
       return reply.code(200).send({ state: deployment.state });
     }
@@ -4083,6 +4086,11 @@ export async function buildServer({
     // called home, and this is the first point where we know the relay is
     // alive. WAITING_FOR_RELAY is the same first-install case with the
     // launch signal already recorded.
+    // Phase 3 readiness gate: the relay registering is the final boundary
+    // before an INSTALL job is minted. Re-evaluate the stored manifest in case
+    // application overrides changed after the deployment was created.
+    requireReadyManifest(deployment.desiredState);
+
     const firstInstall =
       deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY';
     const installJob =
