@@ -575,6 +575,114 @@ describe('server — organization identity comes from the session, not the clien
     expect(response.statusCode).toBe(403);
     expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('ORGANIZATION_MISMATCH');
   });
+
+  it('POST /api/deployments 422s MANIFEST_NOT_COMPATIBLE for an app with §11.4 unsupported architecture (§10 rejection → blocked before provisioning)', async () => {
+    const application = await insertApplication(db, orgA.organizationId, {
+      detectedMetadata: {
+        hasDockerfile: true,
+        dockerfilePath: 'Dockerfile',
+        port: '3000',
+        startupCommands: ['node dist/index.js'],
+        usesPostgresql: false,
+        postgres: { required: false },
+        usesRedis: false,
+        redis: { required: false },
+        usesS3: false,
+        usesLocalFilesystem: false,
+        databaseState: 'none',
+        envVars: [],
+        envVarModel: [],
+        // A fresh Phase 7 analysis persists the full reason list; the manifest
+        // gate turns ANY of it into NOT_COMPATIBLE (blocked pre-provisioning).
+        unsupportedReasons: ['Unsupported architecture: Kubernetes manifests are present (kustomization.yaml).'],
+      },
+    });
+    const customer = await insertCustomer(db, orgA.organizationId);
+    const response = await postJson(
+      app,
+      '/api/deployments',
+      { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(422);
+    const body = response.json() as { error: { code: string } };
+    expect(body.error.code).toBe('MANIFEST_NOT_COMPATIBLE');
+  });
+
+  it('POST /api/deployments 422s MANIFEST_NEEDS_CONFIGURATION when a required env var has no provided value (§11.2)', async () => {
+    const application = await insertApplication(db, orgA.organizationId, {
+      detectedMetadata: {
+        hasDockerfile: true,
+        dockerfilePath: 'Dockerfile',
+        port: '3000',
+        startupCommands: ['node dist/index.js'],
+        usesPostgresql: false,
+        postgres: { required: false },
+        usesRedis: false,
+        redis: { required: false },
+        usesS3: false,
+        usesLocalFilesystem: false,
+        databaseState: 'none',
+        envVars: ['STRIPE_SECRET_KEY'],
+        envVarModel: [
+          { key: 'STRIPE_SECRET_KEY', required: true, secret: true, source: ['read in src/index.ts'] },
+        ],
+      },
+    });
+    const customer = await insertCustomer(db, orgA.organizationId);
+    const response = await postJson(
+      app,
+      '/api/deployments',
+      { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(422);
+    const body = response.json() as {
+      error: { code: string; details?: { findings?: Array<{ id: string }> } };
+    };
+    expect(body.error.code).toBe('MANIFEST_NEEDS_CONFIGURATION');
+    expect(body.error.details?.findings?.some((f) => f.id === 'required-env-vars-missing')).toBe(true);
+  });
+
+  it('POST /api/deployments allows an app whose required env var is set in the application config defaults (§11.2)', async () => {
+    const application = await insertApplication(db, orgA.organizationId, {
+      detectedMetadata: {
+        hasDockerfile: true,
+        dockerfilePath: 'Dockerfile',
+        port: '3000',
+        startupCommands: ['node dist/index.js'],
+        usesPostgresql: false,
+        postgres: { required: false },
+        usesRedis: false,
+        redis: { required: false },
+        usesS3: false,
+        usesLocalFilesystem: false,
+        databaseState: 'none',
+        envVars: ['STRIPE_SECRET_KEY'],
+        envVarModel: [
+          { key: 'STRIPE_SECRET_KEY', required: true, secret: true, source: ['read in src/index.ts'] },
+        ],
+      },
+    });
+    const customer = await insertCustomer(db, orgA.organizationId);
+    // The vendor configured the value as an application default (§31) — the
+    // deployment gate now sees a provided key and lets the deployment through.
+    await db.insert(schema.applicationConfigs).values({
+      applicationId: application.id,
+      customerId: null,
+      key: 'STRIPE_SECRET_KEY',
+      value: '***',
+      isSecret: true,
+    });
+
+    const response = await postJson(
+      app,
+      '/api/deployments',
+      { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+      { cookie: orgA.cookie },
+    );
+    expect(response.statusCode).toBe(201);
+  });
 });
 
 // ── §2: IDOR guards on every :id route ──────────────────────────────────────

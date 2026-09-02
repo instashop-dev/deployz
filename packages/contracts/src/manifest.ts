@@ -24,6 +24,26 @@ export const manifestEnvBindingSchema = z
   .strict();
 export type ManifestEnvBinding = z.infer<typeof manifestEnvBindingSchema>;
 
+/**
+ * One env var the application reads (§11.2 Phase 7 model). Replaces the
+ * Phase 2 name-list: `required`/`secret` are only ever true when detection
+ * has honest evidence (a documented sample value missing, a bare read with no
+ * default, a well-known service credential), and `source` names that evidence
+ * so the vendor can see WHY a variable is flagged.
+ */
+export const manifestEnvVariableSchema = z
+  .object({
+    key: z.string().min(1),
+    /** The app has no default and Deployz will not inject a value — the vendor must supply one. */
+    required: z.boolean(),
+    /** Name/convention evidence says the value is a credential (never a value). */
+    secret: z.boolean(),
+    /** Evidence strings: file paths, reads, or service detections that produced this entry. */
+    source: z.array(z.string()),
+  })
+  .strict();
+export type ManifestEnvVariable = z.infer<typeof manifestEnvVariableSchema>;
+
 export const deploymentManifestSchema = z
   .object({
     application: z
@@ -94,8 +114,13 @@ export const deploymentManifestSchema = z
       .strict(),
     environment: z
       .object({
-        /** Env var NAMES the app reads, for the config surface. */
-        variables: z.array(z.string()),
+        /**
+         * The env vars the app reads, for the config surface. Phase 7 model:
+         * each entry carries required/secret/source (§11.2) — a plain
+         * name-list could not express that a missing required value needs
+         * configuration before provisioning.
+         */
+        variables: z.array(manifestEnvVariableSchema),
       })
       .strict(),
     /** External (non-Deployz) services the app integrates with. Informational. */

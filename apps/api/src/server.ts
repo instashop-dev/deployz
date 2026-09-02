@@ -84,6 +84,7 @@ import {
   createConfigStore,
   createRelaySecretWriter,
   getConfig,
+  listProvidedConfigKeys,
   SECRET_MASK,
   setConfig,
   setConfigBodySchema,
@@ -2417,7 +2418,12 @@ export async function buildServer({
       { metadata: application.detectedMetadata ?? {} },
       applicationToManifestOverrides(application),
     );
-    const readiness = evaluateManifestReadiness(manifest);
+    // §11.2 required-env gate: the deployment's provided env keys are the
+    // application's configured defaults plus this customer's overrides. Keys
+    // Deployz injects itself (database/cache/storage bindings) are always
+    // considered provided by the evaluator.
+    const providedEnvKeys = await listProvidedConfigKeys(db, application.id, body.customerId);
+    const readiness = evaluateManifestReadiness(manifest, { providedEnvKeys });
     if (readiness.state === 'NOT_COMPATIBLE') {
       throw new ApiError(
         422,

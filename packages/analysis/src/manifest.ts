@@ -16,6 +16,7 @@ import {
   deploymentManifestSchema,
   type DeploymentManifest,
   type DeploymentManifestOverrides,
+  type ManifestEnvVariable,
   type ManifestReadinessFinding,
   type ManifestReadinessResult,
 } from '@deployz/contracts';
@@ -25,6 +26,17 @@ import { resolveRedisEnvBindings } from './redis.js';
 
 /** Anything carrying the flat detector metadata record. */
 export type ManifestSource = Pick<AnalysisResult, 'metadata'>;
+
+/** Context a manifest-readiness caller can supply that the manifest alone cannot know. */
+export interface ManifestReadinessContext {
+  /**
+   * Env var keys the operator ALREADY supplies values for (the application's
+   * configured defaults/overrides). Absent = the caller has no config
+   * knowledge, so required-env findings are not evaluated (§11.2 — the
+   * deployment-creation boundary is where the keys are known).
+   */
+  providedEnvKeys?: readonly string[] | undefined;
+}
 
 // ── Small metadata readers ──────────────────────────────────────────────────
 
@@ -48,6 +60,33 @@ function appRootFromDockerfile(dockerfilePath: string | null): string {
   if (!dockerfilePath) return '.';
   const index = dockerfilePath.lastIndexOf('/');
   return index <= 0 ? '.' : dockerfilePath.slice(0, index);
+}
+
+/**
+ * Env-var model → manifest entries. Structured `metadata.envVarModel` (the
+ * §11.2 Phase 7 shape) is authoritative; a legacy row analysed before the
+ * model existed carries only a name list, so it degrades to name entries with
+ * no required/secret claim (fail-open — an unknown requirement never blocks).
+ */
+function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
+  if (Array.isArray(model)) {
+    const entries: ManifestEnvVariable[] = [];
+    for (const raw of model) {
+      if (typeof raw !== 'object' || raw === null) continue;
+      const record = raw as Record<string, unknown>;
+      if (typeof record['key'] !== 'string' || record['key'].length === 0) continue;
+      entries.push({
+        key: record['key'],
+        required: record['required'] === true,
+        secret: record['secret'] === true,
+        source: Array.isArray(record['source'])
+          ? record['source'].filter((s): s is string => typeof s === 'string' && s.length > 0)
+          : [],
+      });
+    }
+    return entries;
+  }
+  return stringArray(names).map((key) => ({ key, required: false, secret: false, source: [] }));
 }
 
 // ── Normalization ───────────────────────────────────────────────────────────
@@ -81,15 +120,22 @@ export function normalizeDeploymentManifest(
   const postgresRequired = overrides.databaseRequired ?? postgresMeta['required'] === true;
 
   // Unsupported reasons — the blocking set. Everything here is a hard
-  // incompatibility no override can fix.
+  // incompatibility no override can fix. New analyses carry the full §11.4
+  // reason list (`unsupportedReasons`); rows analysed before it fall back to
+  // the legacy three sources so nothing silently unblocks.
   const unsupported: string[] = [];
-  if (redisCompatibility['supported'] === false) {
-    unsupported.push(
-      firstString(redisCompatibility['reason']) ?? 'Redis setup is not supported by Deployz',
-    );
-  }
-  if (meta['databaseState'] === 'unsupported') {
-    unsupported.push('Unsupported database detected — Deployz hosts PostgreSQL only');
+  const detectedUnsupported = stringArray(meta['unsupportedReasons']);
+  if (detectedUnsupported.length > 0) {
+    unsupported.push(...detectedUnsupported);
+  } else {
+    if (redisCompatibility['supported'] === false) {
+      unsupported.push(
+        firstString(redisCompatibility['reason']) ?? 'Redis setup is not supported by Deployz',
+      );
+    }
+    if (meta['databaseState'] === 'unsupported') {
+      unsupported.push('Unsupported database detected — Deployz hosts PostgreSQL only');
+    }
   }
   if (meta['usesLocalFilesystem'] === true) {
     unsupported.push('Persistent local filesystem storage is not supported');
@@ -104,7 +150,10 @@ export function normalizeDeploymentManifest(
     },
     build: {
       command: overrides.buildCommand ?? stringArray(meta['buildCommands'])[0] ?? null,
-      context: overrides.buildContext ?? appRoot,
+      // §11.1: the build context defaults to the repository ROOT. A Dockerfile
+      // is addressed by its own path (`docker build -f path`), and a nested
+      // Dockerfile that does `COPY apps/api/package.json` needs the root.
+      context: overrides.buildContext ?? '.',
     },
     web: {
       command: overrides.startCommand ?? stringArray(meta['startupCommands'])[0] ?? null,
@@ -135,7 +184,9 @@ export function normalizeDeploymentManifest(
       command: overrides.migrationCommand ?? stringArray(meta['migrationCommands'])[0] ?? null,
     },
     worker: { command: overrides.workerCommand ?? null },
-    environment: { variables: stringArray(meta['envVars']) },
+    environment: {
+      variables: toEnvVariables(meta['envVarModel'], meta['envVars']),
+    },
     externalServices: stringArray(meta['externalServices']),
     unsupported,
   };
@@ -157,7 +208,10 @@ export function normalizeDeploymentManifest(
  *   - READY — deployable as-is; findings may still carry warnings (e.g. a
  *     PostgreSQL app without a migration command).
  */
-export function evaluateManifestReadiness(manifest: DeploymentManifest): ManifestReadinessResult {
+export function evaluateManifestReadiness(
+  manifest: DeploymentManifest,
+  context: ManifestReadinessContext = {},
+): ManifestReadinessResult {
   const errors: ManifestReadinessFinding[] = [];
   const warnings: ManifestReadinessFinding[] = [];
 
@@ -177,7 +231,7 @@ export function evaluateManifestReadiness(manifest: DeploymentManifest): Manifes
       message: 'No Dockerfile was found; Deployz cannot build an image without container instructions.',
     });
   }
- if (!manifest.web.port) {
+  if (!manifest.web.port) {
     errors.push({
       id: 'port-missing',
       category: 'application',
@@ -193,6 +247,35 @@ export function evaluateManifestReadiness(manifest: DeploymentManifest): Manifes
       message: 'No start command was found; the container would boot with nothing to run.',
     });
   }
+
+  // §11.2 required env vars — a required value Deployz does not inject and
+  // the operator has not supplied is a configuration gap. Evaluated only
+  // when the caller knows the provided keys (deployment creation); without
+  // that knowledge the finding cannot be answered honestly.
+  if (context.providedEnvKeys !== undefined) {
+    const autoProvided = new Set<string>();
+    if (manifest.database.postgres) autoProvided.add('DATABASE_URL');
+    if (manifest.redis.required) {
+      for (const binding of manifest.redis.envBindings) autoProvided.add(binding.name);
+    }
+    if (manifest.storage.required) {
+      for (const binding of manifest.storage.envBindings) autoProvided.add(binding.name);
+    }
+    for (const key of context.providedEnvKeys) autoProvided.add(key);
+
+    const missing = manifest.environment.variables
+      .filter((variable) => variable.required && !autoProvided.has(variable.key))
+      .map((variable) => variable.key);
+    if (missing.length > 0) {
+      errors.push({
+        id: 'required-env-vars-missing',
+        category: 'configuration',
+        severity: 'error',
+        message: `This app requires environment variables that have no value yet: ${missing.join(', ')}. Set them in the application's Configuration screen before deploying.`,
+      });
+    }
+  }
+
   if (manifest.database.postgres && !manifest.migration.command) {
     warnings.push({
       id: 'migration-command-missing',

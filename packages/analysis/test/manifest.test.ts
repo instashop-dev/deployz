@@ -48,7 +48,12 @@ describe('normalizeDeploymentManifest', () => {
     expect(manifest.migration.command).toBe('drizzle-kit');
     expect(manifest.build.command).toBe('tsc -p tsconfig.json');
     expect(manifest.build.context).toBe('.');
-    expect(manifest.environment.variables).toContain('PORT');
+    expect(manifest.environment.variables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'PORT' }),
+        expect.objectContaining({ key: 'DATABASE_URL' }),
+      ]),
+    );
     expect(manifest.unsupported).toEqual([]);
   });
 
@@ -78,7 +83,7 @@ describe('normalizeDeploymentManifest', () => {
     expect(manifest.redis.required).toBe(true);
   });
 
-  it('derives the app root from a nested Dockerfile path', () => {
+  it('derives the app root from a nested Dockerfile path, defaulting the build context to the repo root', () => {
     const analysis = analyseRepo({
       'apps/web/Dockerfile': 'FROM node:20-alpine\nCMD ["node", "index.js"]\n',
       'apps/web/package.json': JSON.stringify({ scripts: { start: 'node index.js' } }),
@@ -86,7 +91,7 @@ describe('normalizeDeploymentManifest', () => {
     const manifest = normalizeDeploymentManifest(analysis, {});
     expect(manifest.application.root).toBe('apps/web');
     expect(manifest.application.dockerfilePath).toBe('apps/web/Dockerfile');
-    expect(manifest.build.context).toBe('apps/web');
+    expect(manifest.build.context).toBe('.');
   });
 
   it('flags unsupported databases and local filesystem', () => {

@@ -6,6 +6,8 @@
  * No AI, no network, no side effects.
  */
 
+import type { ManifestEnvVariable } from '@deployz/contracts';
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 /** A file tree: path → file contents (strings only; directories are implicit via path keys). */
@@ -132,6 +134,71 @@ function findFileContent(tree: FileTree, pathRegex: RegExp): string | null {
   const match = Object.keys(tree).find((p) => pathRegex.test(p));
   if (!match) return null;
   return tree[match] ?? null;
+}
+
+/** Dependency-bearing manifests for the non-Node languages §11.5 reads. */
+const PY_DEPENDENCY_FILES = /(?:^|\/)(?:requirements[^/]*\.txt|Pipfile|pyproject\.toml|setup\.py|environment\.ya?ml)$/;
+const RB_DEPENDENCY_FILES = /(?:^|\/)Gemfile(?:\.lock)?$/;
+const GO_DEPENDENCY_FILES = /(?:^|\/)go\.mod$/;
+
+/** Source-code extensions the §11.5 language detectors scan. */
+const PY_SOURCE = /\.py$/;
+const RB_SOURCE = /\.rb$/;
+const GO_SOURCE = /\.go$/;
+const JS_SOURCE = /\.(ts|js|mjs|cjs|jsx|tsx)$/;
+
+/** Every file that can declare a dependency, for language-breadth scans. */
+function isDependencyManifest(path: string): boolean {
+  return (
+    PY_DEPENDENCY_FILES.test(path) ||
+    RB_DEPENDENCY_FILES.test(path) ||
+    GO_DEPENDENCY_FILES.test(path) ||
+    /(?:^|\/)package\.json$/.test(path)
+  );
+}
+
+/** Escape a dependency token so it can match as an identifier-ish literal. */
+function tokenPattern(token: string): string {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return `(?<![A-Za-z0-9_@/.-])${escaped}(?![A-Za-z0-9_])`;
+}
+
+/**
+ * Files where a dependency token appears in a DEPENDENCY position: a declared
+ * dependency in a package manifest, a `require('x')`/`import x from 'x'`
+ * specifier, or a Python `import x` statement. Prose (READMEs, comments that
+ * merely mention a product name) never counts — an undeclared mention is not
+ * a dependency the app runs on.
+ */
+function findDependencyEvidence(tree: FileTree, token: string): string[] {
+  const evidence: string[] = [];
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content) continue;
+    if (/(?:^|\/)package\.json$/.test(path)) {
+      // package.json content is free-form (name, description, scripts) — only
+      // an EXACT declared dependency counts, never a prose mention.
+      if (collectDependencyNames({ [path]: content }).includes(token)) {
+        evidence.push(path);
+      }
+      continue;
+    }
+    if (isDependencyManifest(path) && new RegExp(tokenPattern(token)).test(content)) {
+      evidence.push(path);
+      continue;
+    }
+    if (PY_SOURCE.test(path) && new RegExp(`import\\s+${tokenPattern(token)}`).test(content)) {
+      evidence.push(path);
+      continue;
+    }
+    if (
+      JS_SOURCE.test(path) &&
+      new RegExp(`(?:require\\s*\\(|from\\s+)[\\s'"]*${tokenPattern(token)}`).test(content)
+    ) {
+      evidence.push(path);
+      continue;
+    }
+  }
+  return evidence;
 }
 
 // ── Detectors ───────────────────────────────────────────────────────────────
@@ -544,8 +611,54 @@ export function detectEnvVars(tree: FileTree): DetectorFinding {
 
 const PG_DRIVERS = ['pg', 'postgres', 'drizzle-orm', 'knex'] as const;
 
+/** §11.5 — per-language PostgreSQL driver tokens matched against dependency manifests and imports. */
+const LANGUAGE_PG_SIGNALS: { token: string; name: string }[] = [
+  { token: 'psycopg2', name: 'psycopg2' },
+  { token: 'psycopg', name: 'psycopg' },
+  { token: 'pg8000', name: 'pg8000' },
+  { token: 'github.com/jackc/pgx', name: 'jackc/pgx' },
+  { token: 'github.com/lib/pq', name: 'lib/pq' },
+  { token: 'pg', name: 'pg (Ruby)' },
+];
+
 /**
- * Detect PostgreSQL usage from package.json dependencies or Prisma schema.
+ * Language-level PostgreSQL evidence (drivers declared in Python/Ruby/Go
+ * manifests, imports, and postgres:// connection URLs in code). Returns the
+ * matched signal names — NOT raw file paths, keeping the finding value a
+ * plain string list like every other driver entry.
+ */
+function detectLanguagePostgres(tree: FileTree): string[] {
+  const detected: string[] = [];
+  for (const { token, name } of LANGUAGE_PG_SIGNALS) {
+    // The bare `pg` token is deliberately ambiguous (node pg, ruby pg) — only
+    // accept it from a Ruby manifest line (`gem 'pg'`) to avoid false hits on
+    // any file containing the word "pg".
+    const paths = findDependencyEvidence(tree, token);
+    if (paths.length === 0) continue;
+    if (token === 'pg') {
+      const rubyHit = paths.some((p) => RB_DEPENDENCY_FILES.test(p));
+      if (!rubyHit) continue;
+    }
+    if (!detected.includes(name)) detected.push(name);
+  }
+  // A postgresql:// connection URL in code is driver-independent evidence
+  // (Python's sqlalchemy engine URL, Django settings, Go config strings).
+  for (const [path, content] of Object.entries(tree)) {
+    if (
+      content &&
+      (PY_SOURCE.test(path) || GO_SOURCE.test(path) || RB_SOURCE.test(path)) &&
+      /(?:postgres|postgresql):\/\//.test(content) &&
+      !detected.includes('postgres connection URL')
+    ) {
+      detected.push('postgres connection URL');
+    }
+  }
+  return detected;
+}
+
+/**
+ * Detect PostgreSQL usage from package.json dependencies, Python/Ruby/Go
+ * driver signals (§11.5), or Prisma schema.
  */
 export function detectPostgresql(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
@@ -556,6 +669,11 @@ export function detectPostgresql(tree: FileTree): DetectorFinding {
     if (deps.includes(driver)) {
       detected.push(driver);
     }
+  }
+
+  // §11.5 language breadth
+  for (const signal of detectLanguagePostgres(tree)) {
+    if (!detected.includes(signal)) detected.push(signal);
   }
 
   // Check @prisma/client with postgresql provider
@@ -611,6 +729,8 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
   const deps = collectDependencyNames(tree);
 
   let hasDependency = false;
+  let hasIndependentEvidence = false;
+
   for (const driver of PG_DRIVERS) {
     if (deps.includes(driver)) {
       hasDependency = true;
@@ -618,7 +738,19 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
     }
   }
 
-  let hasIndependentEvidence = false;
+  // §11.5 language breadth — a Python/Ruby/Go driver is the same "driver
+  // present" signal as a Node one; a postgres:// URL in code counts as
+  // INDEPENDENT evidence (it proves a connection is actually configured).
+  const languageSignals = detectLanguagePostgres(tree);
+  for (const signal of languageSignals) {
+    if (signal === 'postgres connection URL') {
+      hasIndependentEvidence = true;
+      evidence.push(`${signal} in source`);
+    } else {
+      hasDependency = true;
+      evidence.push(`${signal} driver declared`);
+    }
+  }
 
   // Prisma schema declaring a postgresql provider.
   if (deps.includes('@prisma/client')) {
@@ -700,11 +832,39 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
 
   for (const [path, content] of Object.entries(tree)) {
-    if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
+    if (JS_SOURCE.test(path)) {
       for (const { pattern, name } of FS_PATTERNS) {
         if (pattern.test(content) && !detected.includes(name)) {
           detected.push(name);
         }
+      }
+    }
+  }
+
+  // §11.5 language breadth — persistent writes in Python and Ruby. Read-only
+  // opens (no write/append/plus mode), reads of /tmp, and temporary-file
+  // helpers never count, for the same reason a Node fs.read does not: only
+  // state WRITTEN to a durable local path breaks in an ephemeral container.
+  const LANG_FS_PATTERNS: { pattern: RegExp; name: string; ext: RegExp }[] = [
+    // Python: `open(path, "w"|"a"|"x"|"w+"/...)`, `Path(...).write_text|write_bytes|mkdir|touch`,
+    // `os.makedirs(...)` (dirs are persistent state too).
+    {
+      pattern: /open\(\s*["'][^"']+["']\s*,\s*["'][^"']*[wax][^"']*["']/,
+      name: 'Python open() write mode',
+      ext: PY_SOURCE,
+    },
+    { pattern: /\.write_text\(|\.write_bytes\(/, name: 'pathlib write', ext: PY_SOURCE },
+    { pattern: /os\.makedirs\(|\.mkdir\(|\.touch\(/, name: 'pathlib/os mkdir', ext: PY_SOURCE },
+    // Ruby: File.open(path,"w"), File.write, FileUtils.mkdir_p.
+    { pattern: /File\.open\(\s*[^,]+,\s*["'][^"']*[wax][^"']*["']/, name: 'File.open write mode', ext: RB_SOURCE },
+    { pattern: /File\.(?:write|binwrite)\(/, name: 'File.write', ext: RB_SOURCE },
+    { pattern: /FileUtils\.mkdir_p\(|Dir\.mkdir\(/, name: 'mkdir_p', ext: RB_SOURCE },
+  ];
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content) continue;
+    for (const { pattern, name, ext } of LANG_FS_PATTERNS) {
+      if (ext.test(path) && pattern.test(content) && !detected.includes(name)) {
+        detected.push(name);
       }
     }
   }
@@ -771,7 +931,9 @@ const S3_DEPS = ['@aws-sdk/client-s3', 'aws-sdk'] as const;
 const S3_ENV_REGEX = /^(?:AWS_)?S3_BUCKET\s*=/m;
 
 /**
- * Detect S3 usage from package.json dependencies or S3-specific env vars.
+ * Detect S3 usage from package.json dependencies, language-manifest SDKs
+ * (§11.5: boto3 / aws-sdk-s3 / the Go AWS SDK), source-code client usage, or
+ * S3-specific env vars.
  */
 export function detectS3(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
@@ -781,6 +943,38 @@ export function detectS3(tree: FileTree): DetectorFinding {
   for (const dep of S3_DEPS) {
     if (deps.includes(dep)) {
       detected.push(dep);
+    }
+  }
+
+  // §11.5 language breadth: boto3, Ruby aws-sdk-s3, Go AWS SDK S3 module.
+  const LANGUAGE_S3_TOKENS = [
+    { token: 'boto3', name: 'boto3' },
+    { token: 'aws-sdk-s3', name: 'aws-sdk-s3' },
+    { token: 'github.com/aws/aws-sdk-go-v2/service/s3', name: 'aws-sdk-go-v2 service/s3' },
+    { token: 'github.com/aws/aws-sdk-go', name: 'aws-sdk-go' },
+    { token: 'aws_cdk.aws_s3', name: 'aws_cdk aws_s3' },
+  ] as const;
+  for (const { token, name } of LANGUAGE_S3_TOKENS) {
+    if (findDependencyEvidence(tree, token).length > 0 && !detected.includes(name)) {
+      detected.push(name);
+    }
+  }
+
+  // Source-code client usage is independent of the manifest (a vendored SDK,
+  // or a dependency pinned outside the manifests we read).
+  for (const [path, content] of Object.entries(tree)) {
+    if (PY_SOURCE.test(path) && /boto3\.(?:client|resource)\s*\(\s*["']s3["']/.test(content)) {
+      if (!detected.includes('boto3 s3 client')) detected.push('boto3 s3 client');
+    }
+    if (
+      GO_SOURCE.test(path) &&
+      /(?:s3\.NewFromConfig|s3\.New\s*\()/.test(content) &&
+      !detected.includes('aws-sdk-go-v2 service/s3')
+    ) {
+      detected.push('aws-sdk-go-v2 service/s3');
+    }
+    if (JS_SOURCE.test(path) && /new\s+S3Client\s*\(|S3Client\.from/.test(content)) {
+      if (!detected.includes('@aws-sdk/client-s3')) detected.push('@aws-sdk/client-s3');
     }
   }
 
@@ -898,64 +1092,324 @@ export function detectStartupCommand(tree: FileTree): DetectorFinding {
 // 12. External services
 // ---------------------------------------------------------------------------
 
-const EXTERNAL_SERVICE_SDKS = [
-  'stripe',
-  'twilio',
-  'sendgrid',
-  '@sendgrid/mail',
-  'plaid',
-  'auth0',
-  'firebase-admin',
-  'firebase',
-  'algoliasearch',
-  'contentful',
-  'sanity',
-  '@sanity/client',
-] as const;
+/**
+ * §11.3 catalog — the external services Deployz detects deterministically and
+ * the well-known configuration keys each maps to. Deployz only ever COLLECTS
+ * configuration for these; it never provisions the service itself. `packages`
+ * are dependency tokens matched in dependency manifests/imports; `urlDomains`
+ * are a secondary signal (an API host configured in code with no SDK dep).
+ */
+export interface ExternalServiceDefinition {
+  /** Stable canonical id, also used as the manifest.externalServices entry. */
+  id: string;
+  /** Dependency/import tokens that prove the service SDK is used. */
+  packages: string[];
+  /** The service's own API hosts, matched only inside URL literals. */
+  urlDomains: string[];
+  /** Well-known env keys the service configures, most-required first. */
+  keys: string[];
+}
 
-const EXTERNAL_URL_REGEX = /https?:\/\/(?!.*\.amazonaws\.com)(?!.*\.aws\.)([a-zA-Z0-9.-]+)/g;
+export const EXTERNAL_SERVICE_CATALOG: ExternalServiceDefinition[] = [
+  { id: 'stripe', packages: ['stripe'], urlDomains: ['api.stripe.com'], keys: ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET'] },
+  { id: 'clerk', packages: ['@clerk/clerk-sdk-node', '@clerk/clerk-js', '@clerk/nextjs', '@clerk/clerk-react', '@clerk/backend'], urlDomains: ['clerk.com'], keys: ['CLERK_SECRET_KEY', 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY'] },
+  { id: 'auth0', packages: ['auth0', '@auth0/auth0-react', '@auth0/nextjs-auth0', '@auth0/auth0-spa-js', 'auth0-js'], urlDomains: ['auth0.com'], keys: ['AUTH0_DOMAIN', 'AUTH0_CLIENT_ID', 'AUTH0_CLIENT_SECRET'] },
+  { id: 'resend', packages: ['resend'], urlDomains: ['api.resend.com'], keys: ['RESEND_API_KEY'] },
+  { id: 'sendgrid', packages: ['@sendgrid/mail', '@sendgrid/client', 'sendgrid'], urlDomains: ['api.sendgrid.com'], keys: ['SENDGRID_API_KEY'] },
+  { id: 'smtp', packages: ['nodemailer', 'nodemailer-smtp-transport', 'nodemailer-smtp-pool'], urlDomains: [], keys: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS'] },
+  { id: 'sentry', packages: ['@sentry/node', '@sentry/nextjs', '@sentry/browser', '@sentry/react', '@sentry/serverless'], urlDomains: ['sentry.io'], keys: ['SENTRY_DSN'] },
+  { id: 'openai', packages: ['openai', 'openai-node'], urlDomains: ['api.openai.com'], keys: ['OPENAI_API_KEY'] },
+  { id: 'anthropic', packages: ['@anthropic-ai/sdk'], urlDomains: ['api.anthropic.com'], keys: ['ANTHROPIC_API_KEY'] },
+  { id: 'twilio', packages: ['twilio'], urlDomains: ['api.twilio.com'], keys: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN'] },
+  { id: 'shopify', packages: ['@shopify/shopify-api', 'shopify-api-node'], urlDomains: ['myshopify.com', 'shopify.com'], keys: ['SHOPIFY_API_KEY', 'SHOPIFY_API_SECRET'] },
+];
+
+/** A single detected §11.3 integration, with its env-key mapping. */
+export interface ExternalServiceRequirement {
+  service: string;
+  /** Evidence the vendor can read (file paths / declared packages). */
+  evidence: string[];
+}
+
+/** True when a code/import scan or dependency manifest proves the token is used. */
+function dependencyOrImportHit(tree: FileTree, token: string): string[] {
+  if (collectDependencyNames(tree).includes(token)) return ['package.json dependency'];
+  // SMTP is often used through Python's stdlib (no dependency to declare).
+  if (token === 'nodemailer') {
+    for (const [path, content] of Object.entries(tree)) {
+      if (content && /import\s+smtplib/.test(content)) return [path];
+    }
+  }
+  return findDependencyEvidence(tree, token);
+}
+
+/** Match a URL literal against the domains of a catalog entry. */
+function urlHitsDomain(content: string, domains: string[]): boolean {
+  if (domains.length === 0) return false;
+  for (const domain of domains) {
+    const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`https?:\\/\\/[^'"\\s]*${escaped}`).test(content)) return true;
+  }
+  return false;
+}
+
+/** Match a service's keys anywhere they are read or declared (env files, code, Prisma). */
+function envKeyEvidence(tree: FileTree, key: string): boolean {
+  const envRe = new RegExp(`^${key}\\s*[=:]`, 'm');
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content) continue;
+    if (/^\.env(\.\w+)?$/i.test(path) && envRe.test(content)) return true;
+    if (JS_SOURCE.test(path) && new RegExp(`process\\.env\\.${key}\\b`).test(content)) return true;
+    if (PY_SOURCE.test(path) && (new RegExp(`os\\.environ(?:\\[|\\s*\\.\\s*get\\s*\\().{0,3}['"]${key}['"]`).test(content) || new RegExp(`os\\.getenv\\s*\\(\\s*['"]${key}['"]`).test(content))) return true;
+  }
+  return false;
+}
 
 /**
- * Detect external (non-AWS) service dependencies from package.json SDK imports
- * and hardcoded external HTTP API URLs in source code.
+ * Detect external (non-Deployz) service integrations (§11.3). Deterministic:
+ * a canonical service is recorded only when its SDK package or API host is
+ * actually present. The old generic "any external HTTP URL is a service"
+ * scan is gone — it turned documentation links and CDN hosts into bogus
+ * integrations.
  */
 export function detectExternalServices(tree: FileTree): DetectorFinding {
-  const detected: string[] = [];
+  const requirements = collectExternalServices(tree);
 
-  // 1. Check package.json for known external service SDKs
-  const deps = collectDependencyNames(tree);
-  for (const sdk of EXTERNAL_SERVICE_SDKS) {
-    if (deps.includes(sdk) && !detected.includes(sdk)) {
-      detected.push(sdk);
-    }
-  }
-
-  // 2. Scan source code for external HTTP API URLs (non-AWS)
-  const seenDomains = new Set<string>();
-  for (const [path, content] of Object.entries(tree)) {
-    if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
-      let match: RegExpExecArray | null;
-      const regex = new RegExp(EXTERNAL_URL_REGEX.source, 'g');
-      while ((match = regex.exec(content)) !== null) {
-        const domain = match[1];
-        if (domain && !seenDomains.has(domain)) {
-          seenDomains.add(domain);
-          detected.push(domain);
-        }
-      }
-    }
-  }
-
-  if (detected.length === 0) {
+  if (requirements.length === 0) {
     return { detector: 'external-services', detected: false };
   }
 
   return {
     detector: 'external-services',
     detected: true,
-    value: detected,
-    details: `External services detected: ${detected.join(', ')}`,
+    value: requirements.map((r) => r.service),
+    details: `External services detected: ${requirements.map((r) => r.service).join(', ')}`,
   };
+}
+
+/**
+ * The §11.3 service requirements as structured metadata — the manifest
+ * external-services surface and the env-model enrichment both read from it.
+ */
+export function detectExternalServiceRequirements(tree: FileTree): ExternalServiceRequirement[] {
+  return collectExternalServices(tree);
+}
+
+/** Shared §11.3 collector used by both public entry points. */
+function collectExternalServices(tree: FileTree): ExternalServiceRequirement[] {
+  const requirements: ExternalServiceRequirement[] = [];
+  for (const def of EXTERNAL_SERVICE_CATALOG) {
+    const evidence: string[] = [];
+    for (const pkg of def.packages) {
+      for (const hit of dependencyOrImportHit(tree, pkg)) {
+        const text = `${pkg} (${hit})`;
+        if (!evidence.includes(text)) evidence.push(text);
+      }
+    }
+    // URL evidence only counts when no package evidence exists (a host alone
+    // is weaker than a declared SDK, but still a real integration when the
+    // code points at the service's API).
+    if (evidence.length === 0 && def.urlDomains.length > 0) {
+      for (const [path, content] of Object.entries(tree)) {
+        if (content && urlHitsDomain(content, def.urlDomains)) {
+          evidence.push(`${def.urlDomains[0]} URL in ${path}`);
+        }
+      }
+    }
+    if (evidence.length > 0) {
+      requirements.push({ service: def.id, evidence });
+    }
+  }
+  return requirements;
+}
+
+/**
+ * Map a §11.3 catalog key onto a detected integration. Returns the catalog
+ * definition plus whether the repository itself evidences the key (an env
+ * sample line or a code read) — only evidenced keys become REQUIRED manifest
+ * variables, so a vendor that wires a different key name is never blocked on
+ * a canonical one it does not use.
+ */
+export function findExternalServiceForEnvKey(
+  tree: FileTree,
+  services: string[],
+  key: string,
+): { service: string; key: string; evidenced: boolean } | null {
+  const def = EXTERNAL_SERVICE_CATALOG.find(
+    (candidate) => candidate.keys.includes(key) && services.includes(candidate.id),
+  );
+  if (!def) return null;
+  return { service: def.id, key, evidenced: envKeyEvidence(tree, key) };
+}
+
+// 12b. Env-var model (§11.2)
+// ---------------------------------------------------------------------------
+
+const SECRET_NAME_REGEX =
+  /SECRET|TOKEN|PASSWORD|PASS(?!WORD|ENGER|AGE|IVE)|API_KEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIAL|_KEY\b|_PASS\b/i;
+
+/** Sample files the env model treats as documentation of the app's config. */
+const ENV_SAMPLE_FILE_REGEX = /(?:^|\/)(?:\.env(?:\.example|\.sample|\.template)|\.env)$/i;
+
+/** A value that documents "no usable default" (blank or a named placeholder). */
+function isPlaceholderValue(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return true;
+  return /^<[^>]*>$|^(?:your|your[-_ ]|xxx+|changeme|change[-_ ]me|example|placeholder|\.\.\.)$/i.test(trimmed);
+}
+
+/**
+ * The §11.2 env-var model — every environment variable the app reads or
+ * declares, with honest required/secret/source attributes.
+ *
+ * `required` is deliberately narrow (high precision over recall). A variable
+ * is REQUIRED only when ALL of these hold:
+ *   - the app READS it somewhere and the read NEEDS a value — no inline
+ *     `??`/`||` fallback, and not a pure presence guard (`=== 'x'` checks,
+ *     `if (process.env.X)`), and not a defaulted read (Python
+ *     `os.getenv('X', d)`, Ruby `ENV.fetch('X', d)`);
+ *   - nothing in the repository supplies a usable default value (a real env
+ *     sample value, or a read with an inline fallback).
+ *
+ * A sample entry the app never reads (NEXTAUTH_SECRET in a repo with no auth
+ * code) is NOT required. §11.3 well-known service keys that the repository
+ * evidences (read or declared) are upgraded to required+secret — an SDK
+ * dependency without its credential cannot function.
+ */
+export function detectEnvVarModel(tree: FileTree, externalServices: string[] = []): ManifestEnvVariable[] {
+  // ── 1. Declarations: every KEY=VALUE line in any env file we ship with. ──
+  const declarations = new Map<string, { realValue: boolean; sampleEmpty: boolean; files: string[] }>();
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !/^\.env(\.\w+)?$/i.test(path)) continue;
+    const isSample = ENV_SAMPLE_FILE_REGEX.test(path);
+    // `\s` includes the newline, so a `\s*` after `=` would swallow the rest
+    // of the file — use space/tab-only gaps so each KEY=VALUE line parses on
+    // its own line.
+    const regex = /^[ \t]*([A-Z_][A-Z0-9_]*)[ \t]*=[ \t]*(.*)$/gm;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(content)) !== null) {
+      const key = match[1];
+      if (!key) continue;
+      const value = (match[2] ?? '').replace(/\s+#.*$/, '').trim();
+      const current = declarations.get(key) ?? { realValue: false, sampleEmpty: false, files: [] };
+      if (!isPlaceholderValue(value)) current.realValue = true;
+      if (isSample && isPlaceholderValue(value)) current.sampleEmpty = true;
+      if (!current.files.includes(path)) current.files.push(path);
+      declarations.set(key, current);
+    }
+  }
+
+  // ── 2. Reads: which variables the app actually reads, and whether a read
+  //      NEEDS a value vs. tolerates absence (fallback or presence guard). ──
+  const reads = new Map<string, { needsValue: boolean; files: string[] }>();
+  const recordRead = (key: string, needsValue: boolean, file: string): void => {
+    const current = reads.get(key) ?? { needsValue: false, files: [] };
+    if (needsValue) current.needsValue = true;
+    if (!current.files.includes(file)) current.files.push(file);
+    reads.set(key, current);
+  };
+
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content) continue;
+    if (JS_SOURCE.test(path)) {
+      const readRegex =
+        /process\.env\s*\.\s*([A-Z_][A-Z0-9_]*)|process\.env\[["']([A-Z_][A-Z0-9_]*)["']\]/g;
+      let match: RegExpExecArray | null;
+      while ((match = readRegex.exec(content)) !== null) {
+        const key = match[1] ?? match[2];
+        if (!key) continue;
+        // Statement-bound tail: a `??`/`||` on a LATER statement must not look
+        // like a fallback for this read.
+        const rawTail = content.slice(match.index + match[0].length, match.index + match[0].length + 160);
+        const statementEnd = rawTail.search(/[\n;]/);
+        const tail = statementEnd === -1 ? rawTail : rawTail.slice(0, statementEnd);
+        const head = content.slice(Math.max(0, match.index - 60), match.index);
+        // A read only TOLERATES an absent variable (never REQUIRES it) when it
+        // is a presence GUARD: an equality/ternary test, a negation, a boolean
+        // chain, or the direct condition of if/while/catch. A read inside an
+        // ordinary function call (`new Stripe(process.env.KEY)`) is NOT a
+        // guard — it is a required value.
+        const lastOpen = head.lastIndexOf('(');
+        const inConditional =
+          lastOpen >= 0 && /(?:if|while|catch)\s*$/.test(head.slice(0, lastOpen).replace(/\s+$/, ''));
+        const hasFallback = /(?:\?\?|\|\|)\s*\S/.test(tail) || /(?:\?\?=|\|\|=)/.test(tail);
+        const isGuard =
+          /^\s*(?:===|!==|==|!=)/.test(tail) ||
+          /^\s*\?/.test(tail) ||
+          /!\s*[A-Za-z_$][\w$.:]*$/.test(head) ||
+          /(?:&&|\|\|)\s*[A-Za-z_$][\w$.:]*$/.test(head) ||
+          inConditional;
+        recordRead(key, !hasFallback && !isGuard, path);
+      }
+    } else if (/schema\.prisma$/i.test(path)) {
+      const envRegex = /env\(\s*["']([A-Z_][A-Z0-9_]*)["']\s*\)/g;
+      let match: RegExpExecArray | null;
+      while ((match = envRegex.exec(content)) !== null) {
+        if (match[1]) recordRead(match[1], true, path);
+      }
+    } else if (PY_SOURCE.test(path)) {
+      const indexRegex = /os\.environ\[["']([A-Z_][A-Z0-9_]*)["']\]/g;
+      let match: RegExpExecArray | null;
+      while ((match = indexRegex.exec(content)) !== null) {
+        if (match[1]) recordRead(match[1], true, path);
+      }
+      const defaultedRegex = /os\.(?:environ\.get|getenv)\(\s*["']([A-Z_][A-Z0-9_]*)["']/g;
+      while ((match = defaultedRegex.exec(content)) !== null) {
+        // `os.getenv('X')` returns None when absent (app decides); only the
+        // index form `os.environ['X']` REQUIRES the variable.
+        if (match[1]) recordRead(match[1], false, path);
+      }
+    } else if (RB_SOURCE.test(path)) {
+      const fetchRegex = /ENV\.fetch\(\s*["']([A-Z_][A-Z0-9_]*)["']/g;
+      let match: RegExpExecArray | null;
+      while ((match = fetchRegex.exec(content)) !== null) {
+        const hasDefault = content.slice(match.index, match.index + 80).includes(',');
+        if (match[1]) recordRead(match[1], !hasDefault, path);
+      }
+    }
+  }
+
+  // ── 3. Combine into the model. ──
+  const keys = new Set<string>([...declarations.keys(), ...reads.keys()]);
+  const entries: ManifestEnvVariable[] = [];
+
+  for (const key of [...keys].sort()) {
+    const declared = declarations.get(key);
+    const read = reads.get(key);
+    const needsValue = read?.needsValue === true;
+    const hasDefault = declared?.realValue === true;
+    const source: string[] = [];
+
+    if (declared) {
+      for (const file of declared.files) source.push(`${file} declares ${key}`);
+    }
+    if (read) {
+      for (const file of read.files) source.push(`read in ${file}`);
+    }
+
+    // A defaulted/guarded read that never NEEDS the value is never required,
+    // even when a sample line is empty.
+    const required = needsValue && !hasDefault;
+
+    let secret = isSecretName(key);
+    // §11.3 upgrade: an evidenced well-known service credential is a secret
+    // and is required — the SDK cannot operate without it.
+    const serviceKey = findExternalServiceForEnvKey(tree, externalServices, key);
+    if (serviceKey?.evidenced) {
+      secret = true;
+      source.push(`${serviceKey.service} requires ${key}`);
+    }
+    // Never drop a var the app declares-and-reads from the config surface —
+    // but drop nothing: a sample-only var is still worth listing as optional.
+    entries.push({ key, required, secret, source });
+  }
+
+  return entries;
+}
+
+/** Name-based credential heuristic — value-free, so it can never leak anything. */
+function isSecretName(key: string): boolean {
+  return SECRET_NAME_REGEX.test(key);
 }
 
 // 13. Package manager
