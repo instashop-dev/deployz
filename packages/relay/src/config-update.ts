@@ -131,13 +131,6 @@ export function computeSecretChanges(
   return bindings.length > 0 || removals.length > 0 ? { bindings, removals } : null;
 }
 
-async function findServiceArn(deps: ConfigUpdateDeps): Promise<string | null> {
-  const resources = await deps.cfn.describeStackResources(deps.stackName);
-  return (
-    resources.find((resource) => resource.type === 'AWS::ECS::Service')?.physicalId ?? null
-  );
-}
-
 /**
  * The application template's runtime-secrets resource, discovered by logical
  * id — the physical id is its Secrets Manager ARN. Null when the stack does
