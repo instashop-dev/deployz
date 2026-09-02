@@ -227,6 +227,23 @@ describe('secret delivery simulated-E2E (§31 phase 1.2)', () => {
           state: 'NOT_INSTALLED',
           installationId: `inst-${crypto.randomUUID()}`,
           enrollmentCode: crypto.randomUUID(),
+          // The Phase 3 relay-register gate re-evaluates the stored manifest.
+          desiredState: {
+            manifest: {
+              application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+              build: { command: 'npm run build', context: '.' },
+              web: { command: 'npm start', port: 3000 },
+              health: { path: '/health' },
+              database: { postgres: true },
+              redis: { required: false, envBindings: [] },
+              storage: { required: false, envBindings: [] },
+              migration: { command: 'npm run db:migrate' },
+              worker: { command: null },
+              environment: { variables: [] },
+              externalServices: [],
+              unsupported: [],
+            },
+          },
         })
         .returning()
     )[0]!;
