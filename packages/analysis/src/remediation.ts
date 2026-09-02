@@ -366,6 +366,17 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
     requiresManual: true,
     automatic: false,
   },
+  RELAY_STATE_WRITE_FAILED: {
+    summary: 'Deployz lost track of an install that was still running.',
+    steps: [
+      'Check whether the setup finished on its own in the customer account.',
+      'Retry the install — a finished setup is adopted, not recreated.',
+      'Contact Deployz support if it happens again.',
+    ],
+    technicalDetail: [],
+    requiresManual: true,
+    automatic: false,
+  },
 };
 
 // ── The engine ───────────────────────────────────────────────────────────────

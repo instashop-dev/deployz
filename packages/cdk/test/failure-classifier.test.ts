@@ -542,6 +542,8 @@ describe('classifyFailure — purity invariant (§20)', () => {
       { source: 'relay', context: { target: 'redis' }, error: { code: 'ECONNREFUSED' } },
       // DOMAIN_OPERATION_TIMEOUT
       { source: 'relay', signal: 'domain-operation-timeout' },
+      // RELAY_STATE_WRITE_FAILED
+      { source: 'relay', signal: 'relay-state-write-failed' },
       // UNKNOWN
       { source: 'unknown-source' },
     ];
