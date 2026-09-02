@@ -1,4 +1,4 @@
-import { Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { Duration, Stack, Tags, type StackProps } from 'aws-cdk-lib';
 import {
   InstanceType,
   InstanceClass,
@@ -60,6 +60,9 @@ import { WorkerLambda } from './worker-lambda.js';
 export class DeployzStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, { ...props, env: { region: 'us-east-1' } });
+
+    Tags.of(this).add('deployz:managed', 'true');
+    Tags.of(this).add('deployz:scope', 'control-plane');
 
     // ── VPC ──────────────────────────────────────────────────────────────
     const vpc = new Vpc(this, 'Vpc', {

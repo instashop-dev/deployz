@@ -89,6 +89,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             "Key": "deployz:component",
             "Value": "bootstrap",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
       },
       "Type": "AWS::IAM::Role",
@@ -117,6 +125,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           {
             "Key": "deployz:component",
             "Value": "bootstrap",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
         "Timeout": 60,
@@ -155,6 +171,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           {
             "Key": "deployz:component",
             "Value": "bootstrap",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
       },
@@ -200,6 +224,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             "Key": "deployz:component",
             "Value": "bootstrap",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
         "Timeout": 900,
       },
@@ -237,6 +269,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           {
             "Key": "deployz:component",
             "Value": "bootstrap",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
       },
@@ -332,6 +372,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             "Key": "deployz:component",
             "Value": "bootstrap",
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
         "Timeout": 900,
       },
@@ -369,6 +417,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
           {
             "Key": "deployz:component",
             "Value": "bootstrap",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
       },
@@ -1342,6 +1398,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               ],
             },
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
       },
       "Type": "AWS::SecretsManager::Secret",
@@ -1412,6 +1476,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "InstallationId",
               ],
             },
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
         "Timeout": 300,
@@ -1573,6 +1645,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               ],
             },
           },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
         ],
       },
       "Type": "AWS::IAM::Role",
@@ -1595,6 +1675,14 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "InstallationId",
               ],
             },
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
           },
         ],
         "Targets": [
