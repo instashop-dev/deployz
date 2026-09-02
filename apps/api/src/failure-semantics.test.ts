@@ -217,6 +217,79 @@ describe('failure semantics, duplicate results and operation exclusivity', () =>
     expect(row.state).toBe('FAILED');
   });
 
+  // CANARY-008: a first install runs the template-pinned image with no
+  // release row deployed, so currentReleaseId stays null even though the
+  // deployment reached HEALTHY. A failed update must not mark it FAILED —
+  // each test gets its own application so its release set is exact.
+  async function seedApplication(): Promise<string> {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'CANARY-008 App',
+        repoFullName: `acme/canary-008-${crypto.randomUUID().slice(0, 8)}`,
+        repoUrl: 'https://github.com/acme/canary-008',
+        defaultBranch: 'main',
+      })
+      .returning();
+    return application!.id;
+  }
+
+  it('keeps a template-image install live (UPDATE_AVAILABLE) when a deploy fails and a READY release exists (CANARY-008)', async () => {
+    const appId = await seedApplication();
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId: appId,
+        version: '1.0.0',
+        gitSha: 'abc123',
+        imageDigest: `${REPO}@${DIGEST}`,
+        buildStatus: 'SUCCEEDED',
+        releaseStatus: 'READY',
+      })
+      .returning();
+    const deployment = await seedDeployment({
+      state: 'HEALTHY',
+      applicationId: appId,
+      currentReleaseId: null,
+    });
+    await seedJob(deployment.id, 'INSTALL', 'SUCCEEDED');
+    const jobId = await seedJob(deployment.id, 'DEPLOY_RELEASE', 'RUNNING', { releaseId: release!.id });
+
+    const response = await postResult(jobId, deployment.token, {
+      success: false,
+      error: 'migration failed',
+      failureCode: 'MIGRATION_FAILED',
+    });
+    expect(response.statusCode, response.body).toBe(200);
+
+    const row = await getDeploymentRow(deployment.id);
+    expect(row.state).toBe('UPDATE_AVAILABLE');
+    expect(row.currentReleaseId).toBeNull();
+  });
+
+  it('returns a template-image install to HEALTHY when a deploy fails and no READY release exists (CANARY-008)', async () => {
+    const appId = await seedApplication();
+    const deployment = await seedDeployment({
+      state: 'HEALTHY',
+      applicationId: appId,
+      currentReleaseId: null,
+    });
+    await seedJob(deployment.id, 'INSTALL', 'SUCCEEDED');
+    const jobId = await seedJob(deployment.id, 'DEPLOY_RELEASE', 'RUNNING', {});
+
+    const response = await postResult(jobId, deployment.token, {
+      success: false,
+      error: 'migration failed',
+      failureCode: 'MIGRATION_FAILED',
+    });
+    expect(response.statusCode, response.body).toBe(200);
+
+    const row = await getDeploymentRow(deployment.id);
+    expect(row.state).toBe('HEALTHY');
+    expect(row.currentReleaseId).toBeNull();
+  });
+
   it('leaves the deployment state alone when a CONFIG_UPDATE fails', async () => {
     const v1 = await seedRelease('4.0.0', new Date());
     const deployment = await seedDeployment({ state: 'HEALTHY', currentReleaseId: v1 });

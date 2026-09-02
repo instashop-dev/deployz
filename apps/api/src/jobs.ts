@@ -87,13 +87,32 @@ export async function createOrReuseJob(
  * exists — the exact condition under which a live deployment is
  * UPDATE_AVAILABLE rather than HEALTHY (§46). Shared by the relay result
  * route and the stuck-job watchdog to settle failed day-2 operations.
+ *
+ * A null currentReleaseId is not "nothing to compare against": a first
+ * install runs the template-pinned image with no release row deployed yet
+ * (CANARY-008), so any READY release already counts as an available update.
+ * Callers with a genuinely never-installed deployment never reach here —
+ * deploymentStateAfterFailedJob short-circuits to FAILED on hasCurrentRelease
+ * before this result is used.
  */
 export async function newerReadyReleaseExists(
   db: RuntimeDb,
   applicationId: string,
   currentReleaseId: string | null,
 ): Promise<boolean> {
-  if (currentReleaseId === null) return false;
+  if (currentReleaseId === null) {
+    const [any] = await db
+      .select({ id: schema.releases.id })
+      .from(schema.releases)
+      .where(
+        and(
+          eq(schema.releases.applicationId, applicationId),
+          eq(schema.releases.releaseStatus, 'READY'),
+        ),
+      )
+      .limit(1);
+    return any !== undefined;
+  }
   const current = await db
     .select({ createdAt: schema.releases.createdAt })
     .from(schema.releases)
