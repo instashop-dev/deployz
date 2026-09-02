@@ -10,6 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 // the vendor-only "Infrastructure events" disclosure
 // (apps/web/src/components/infrastructure-events.tsx).
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in customer-facing copy.
@@ -69,6 +71,7 @@ async function seedDeployment(
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string };
+  await makeApplicationDeployable(page.request, application.id);
 
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Stack Events Customer ${suffix}`, email: `stack-events-customer-${suffix}@example.com` },

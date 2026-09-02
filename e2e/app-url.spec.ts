@@ -6,6 +6,8 @@ import { expect, test, type Page } from '@playwright/test';
 // the page renders as a link plus a copy button. Mirrors the
 // signUp/seed/relay conventions in diagnostics.spec.ts.
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 async function signUp(page: Page): Promise<void> {
@@ -33,6 +35,7 @@ async function seedDeployment(
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string };
+  await makeApplicationDeployable(page.request, application.id);
 
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `App URL Customer ${suffix}`, email: `app-url-${suffix}@example.com` },
