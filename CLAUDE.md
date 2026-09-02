@@ -25,6 +25,13 @@ For changes under apps/web, follow docs/ui-system.md.
 - Keep raw AWS/CloudFormation states out of primary customer UI.
 - Do not change application logic unless the task explicitly requires it.
 
+## Deployment logic
+
+Before changing deployment/job/relay/watchdog logic, read
+docs/deployment-resilience.md — it documents the invariants (failed-update
+semantics, operation exclusivity, reconcile-before-fail, the relay trust
+boundary) that code in apps/api, packages/relay and the worker must uphold.
+
 ## E2E testing
 
 Simulated E2E is the default (`pnpm e2e`). Do not invoke real AWS E2E

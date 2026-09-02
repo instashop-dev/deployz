@@ -84,6 +84,17 @@ export interface StartSimulatedRelayOptions {
    * ever awaits that hung promise except the one poll cycle it belongs to.
    */
   readonly stopAfterFirstProgress?: boolean;
+  /**
+   * DESTROY-death knob: the relay invocation dies while executing the
+   * DESTROY command. The real executor still runs detached — the teardown
+   * genuinely starts in the simulated account, exactly like a Lambda whose
+   * work reached AWS before the invocation was killed — but the dispatching
+   * poll cycle hangs forever, so no result, progress, or heartbeat is ever
+   * reported for it and no further poll cycle runs. The control plane must
+   * keep the deployment honestly DELETING (force-complete is the vendor's
+   * escape hatch), never a false DELETED or FAILED.
+   */
+  readonly dieDuringDestroy?: boolean;
 }
 
 export interface InstallSettlement {
@@ -133,6 +144,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   // See `stopAfterFirstProgress` doc comment above.
   let hasReportedProgress = false;
   let silenced = false;
+
 
   // One shared PendingStore across INSTALL/DEPLOY_RELEASE/ROLLBACK/DESTROY —
   // mirrors production's single installationId-keyed store
@@ -271,7 +283,16 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   }
 
   const deployExecutor = createEcsDeployExecutor(deployDeps);
-  const destroyExecutor = createDestroyExecutor(destroyDeps);
+  const rawDestroyExecutor = createDestroyExecutor(destroyDeps);
+  // See `dieDuringDestroy`: the real executor runs detached (its work still
+  // reaches the simulated account), but the dispatching poll cycle never
+  // resolves — no result, no heartbeat, no further ticks.
+  const destroyExecutor: CommandExecutor = options.dieDuringDestroy
+    ? (command) => {
+        void rawDestroyExecutor(command).catch(() => {});
+        return new Promise<never>(() => {});
+      }
+    : rawDestroyExecutor;
 
   const pollDeps: PollDependencies = {
     fetchFn,

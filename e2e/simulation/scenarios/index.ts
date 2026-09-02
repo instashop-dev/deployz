@@ -13,6 +13,7 @@ import { retainedResources } from './retained-resources.js';
 import { rollbackFailure } from './rollback-failure.js';
 import { rollbackSuccess } from './rollback-success.js';
 import { slowProvision } from './slow-provision.js';
+import { transientAws } from './transient-aws.js';
 import { updateFailure } from './update-failure.js';
 
 /**
@@ -39,6 +40,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [rollbackFailure.id]: rollbackFailure,
   [deleteFailure.id]: deleteFailure,
   [retainedResources.id]: retainedResources,
+  [transientAws.id]: transientAws,
 };
 
 export function getScenario(id: string): ScenarioDefinition {
@@ -66,5 +68,6 @@ export {
   rollbackFailure,
   rollbackSuccess,
   slowProvision,
+  transientAws,
   updateFailure,
 };
