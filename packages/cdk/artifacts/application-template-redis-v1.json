@@ -1,5 +1,11 @@
 {
   "Parameters": {
+    "paramContainerPort": {
+      "Type": "Number",
+      "Default": "3000",
+      "Description": "TCP port the application container listens on. Overrides the synth-time default per install.",
+      "NoEcho": true
+    },
     "paramHealthCheckPath": {
       "Type": "String",
       "Default": "/health",
@@ -843,6 +849,47 @@
       "UpdateReplacePolicy": "Retain",
       "DeletionPolicy": "Retain"
     },
+    "DatabaseUrlSecretFA7DE062": {
+      "Type": "AWS::SecretsManager::Secret",
+      "Properties": {
+        "Description": "Complete PostgreSQL connection URL for the customer application. Assembled at deploy time from the generated master credentials — the password never appears in the template or task definition.",
+        "SecretString": {
+          "Fn::Join": [
+            "",
+            [
+              "postgresql://deployz_app:{{resolve:secretsmanager:",
+              {
+                "Ref": "DatabaseSecret86DBB7B3"
+              },
+              ":SecretString:password::}}@",
+              {
+                "Fn::GetAtt": [
+                  "DatabaseB269D8BB",
+                  "Endpoint.Address"
+                ]
+              },
+              ":5432/deployz?sslmode=require"
+            ]
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          }
+        ]
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete"
+    },
     "RedisSubnetGroup": {
       "Type": "AWS::ElastiCache::SubnetGroup",
       "Properties": {
@@ -1044,6 +1091,16 @@
               ],
               "Effect": "Allow",
               "Resource": {
+                "Ref": "DatabaseUrlSecretFA7DE062"
+              }
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret"
+              ],
+              "Effect": "Allow",
+              "Resource": {
                 "Ref": "AppConfigSecret251CAC1E"
               }
             },
@@ -1163,6 +1220,16 @@
               ],
               "Effect": "Allow",
               "Resource": {
+                "Ref": "DatabaseUrlSecretFA7DE062"
+              }
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret"
+              ],
+              "Effect": "Allow",
+              "Resource": {
                 "Ref": "AppConfigSecret251CAC1E"
               }
             }
@@ -1189,7 +1256,9 @@
               },
               {
                 "Name": "PORT",
-                "Value": "3000"
+                "Value": {
+                  "Ref": "paramContainerPort"
+                }
               },
               {
                 "Name": "DATABASE_HOST",
@@ -1216,6 +1285,24 @@
                 "Name": "STORAGE_BUCKET",
                 "Value": {
                   "Ref": "AppStorage995579DA"
+                }
+              },
+              {
+                "Name": "S3_BUCKET",
+                "Value": {
+                  "Ref": "AppStorage995579DA"
+                }
+              },
+              {
+                "Name": "AWS_S3_BUCKET",
+                "Value": {
+                  "Ref": "AppStorage995579DA"
+                }
+              },
+              {
+                "Name": "AWS_REGION",
+                "Value": {
+                  "Ref": "AWS::Region"
                 }
               },
               {
@@ -1258,7 +1345,10 @@
                   "Fn::Join": [
                     "",
                     [
-                      "curl -f http://localhost:3000",
+                      "curl -f http://localhost:",
+                      {
+                        "Ref": "paramContainerPort"
+                      },
                       {
                         "Ref": "paramHealthCheckPath"
                       },
@@ -1288,7 +1378,9 @@
             "Name": "App",
             "PortMappings": [
               {
-                "ContainerPort": 3000,
+                "ContainerPort": {
+                  "Ref": "paramContainerPort"
+                },
                 "Protocol": "tcp"
               }
             ],
@@ -1333,6 +1425,12 @@
                       ":signingSecret::"
                     ]
                   ]
+                }
+              },
+              {
+                "Name": "DATABASE_URL",
+                "ValueFrom": {
+                  "Ref": "DatabaseUrlSecretFA7DE062"
                 }
               }
             ]
@@ -1406,7 +1504,9 @@
         "LoadBalancers": [
           {
             "ContainerName": "App",
-            "ContainerPort": 3000,
+            "ContainerPort": {
+              "Ref": "paramContainerPort"
+            },
             "TargetGroupArn": {
               "Ref": "LoadBalancerHttpListenerAppTargetsGroup7AAD0468"
             }
@@ -1492,11 +1592,13 @@
         "TaskRole30FC0FBB"
       ]
     },
-    "ServiceSecurityGroupfromDeployzApplicationLoadBalancerSecurityGroup2327DB2A3000AB5BC619": {
+    "ServiceSecurityGroupfromDeployzApplicationLoadBalancerSecurityGroup2327DB2AIndirectPortE47CE980": {
       "Type": "AWS::EC2::SecurityGroupIngress",
       "Properties": {
         "Description": "Load balancer to target",
-        "FromPort": 3000,
+        "FromPort": {
+          "Ref": "paramContainerPort"
+        },
         "GroupId": {
           "Fn::GetAtt": [
             "ServiceSecurityGroupC96ED6A7",
@@ -1510,7 +1612,9 @@
             "GroupId"
           ]
         },
-        "ToPort": 3000
+        "ToPort": {
+          "Ref": "paramContainerPort"
+        }
       },
       "DependsOn": [
         "TaskRoleDefaultPolicy07FC53DE",
@@ -1605,7 +1709,7 @@
         }
       }
     },
-    "LoadBalancerSecurityGrouptoDeployzApplicationServiceSecurityGroup5D7BD9013000C21C5EC6": {
+    "LoadBalancerSecurityGrouptoDeployzApplicationServiceSecurityGroup5D7BD901IndirectPortB5A84313": {
       "Type": "AWS::EC2::SecurityGroupEgress",
       "Properties": {
         "Description": "Load balancer to target",
@@ -1615,7 +1719,9 @@
             "GroupId"
           ]
         },
-        "FromPort": 3000,
+        "FromPort": {
+          "Ref": "paramContainerPort"
+        },
         "GroupId": {
           "Fn::GetAtt": [
             "LoadBalancerSecurityGroupA28D6DD7",
@@ -1623,7 +1729,9 @@
           ]
         },
         "IpProtocol": "tcp",
-        "ToPort": 3000
+        "ToPort": {
+          "Ref": "paramContainerPort"
+        }
       }
     },
     "LoadBalancerHttpListener22970844": {
@@ -1664,7 +1772,9 @@
         "HealthCheckPath": {
           "Ref": "paramHealthCheckPath"
         },
-        "Port": 3000,
+        "Port": {
+          "Ref": "paramContainerPort"
+        },
         "Protocol": "HTTP",
         "Tags": [
           {

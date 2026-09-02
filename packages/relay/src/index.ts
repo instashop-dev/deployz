@@ -74,6 +74,7 @@ import {
   type EffectiveConfigEntry,
 } from './config-update.js';
 import {
+  buildInstallParametersFromManifest,
   createStackInstaller,
   installApplicationStack,
   type InstallOptions,
@@ -116,7 +117,9 @@ import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
   applicationStackNameForInstallation,
+  deploymentManifestSchema,
   redisApplicationTemplateUrl,
+  type DeploymentManifest,
 } from '@deployz/contracts';
 
 /**
@@ -587,9 +590,14 @@ async function settleInstall(
     }
 > {
   const verifyOptions = readVerifyOptionsFromPayload(request.payload);
+  const manifest = readDeploymentManifest(request.payload);
 
   let templateUrl = deps.templateUrl;
-  if (verifyOptions.redisRequired === true) {
+  // The canonical manifest's redis requirement is the source of truth when
+  // the payload carries it; the legacy top-level flag remains the fallback
+  // for control planes that have not shipped the manifest yet.
+  const redisRequired = verifyOptions.redisRequired ?? manifest?.redis.required ?? false;
+  if (redisRequired) {
     const redisTemplateUrl = redisApplicationTemplateUrl(deps.templateUrl);
     if (redisTemplateUrl === undefined) {
       // Provisioning the base template here would build a stack with no
@@ -615,7 +623,14 @@ async function settleInstall(
     installationId: deps.installationId,
     templateUrl,
     stackName: request.stackName,
-    parameters: readInstallParametersFromPayload(request.payload),
+    // Manifest-derived template parameters win over whatever the control
+    // plane resolved ad-hoc (health path / port columns); the control plane's
+    // secret parameters (paramAppApiKey, Documenso secrets) still flow through
+    // unchanged underneath them.
+    parameters: {
+      ...readInstallParametersFromPayload(request.payload),
+      ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
+    },
     ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),
     ...(collector ? { onPoll: (stackName: string) => collector.poll(stackName) } : {}),
   });
@@ -1014,6 +1029,20 @@ export function readInstallParametersFromPayload(
     if (typeof value === 'string') out[key] = value;
   }
   return out;
+}
+
+/**
+ * Extract the canonical deployment manifest from a command's payload.
+ *
+ * The manifest is the Phase 2 replacement for ad-hoc detector columns: it is
+ * persisted on `deployments.desired_state.manifest` at deployment creation and
+ * shipped in the INSTALL payload. Validated against the contracts schema at
+ * the payload boundary — an invalid or absent manifest reads as `null`, so a
+ * control plane that has not shipped one yet keeps the legacy behavior.
+ */
+export function readDeploymentManifest(payload: Record<string, unknown>): DeploymentManifest | null {
+  const parsed = deploymentManifestSchema.safeParse(payload['manifest']);
+  return parsed.success ? parsed.data : null;
 }
 
 /**
