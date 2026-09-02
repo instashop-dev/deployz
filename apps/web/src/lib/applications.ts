@@ -2,6 +2,7 @@
 // components), so the browser-facing origin — mirrors lib/github.ts and
 // lib/deployments.ts.
 
+import { apiRequest } from '@/lib/api-client';
 import { apiUrl } from '@/lib/api-url';
 
 /** Mirrors `analysisStatusEnum` in packages/db. */
@@ -69,18 +70,13 @@ export interface CreateApplicationInput {
  * §42 step 2 "Choose repository" — creates the real Application row so the
  * readiness page has something real to analyse and show, instead of a
  * navigate-only "Choose" button that never persists anything.
+ *
+ * Goes through the shared envelope handling so a refusal (a repository that
+ * is already connected, 409) reaches the picker as the server's own plain
+ * message rather than a status code.
  */
-export async function createApplication(input: CreateApplicationInput): Promise<Application> {
-  const response = await fetch(`${apiUrl}/api/applications`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  if (!response.ok) {
-    throw new Error(`Create application failed (${response.status})`);
-  }
-  return (await response.json()) as Application;
+export function createApplication(input: CreateApplicationInput): Promise<Application> {
+  return apiRequest<Application>('/api/applications', { method: 'POST', body: input });
 }
 
 /**

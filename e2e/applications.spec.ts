@@ -5,7 +5,7 @@ const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 // §42 application management lifecycle: list, edit, delete, delete-blocked,
 // and cross-org isolation. Runs against the REAL API in GITHUB_FIXTURE_MODE
 // (see playwright.config.ts), so the fixture repo deployz-demo/express-api is
-// available for every Choose action.
+// available for every Select action.
 
 /** The card itself, not its name link or its status badge. */
 const APP_CARD = /^app-card-[0-9a-f-]{36}$/;
@@ -25,7 +25,7 @@ test('application list shows existing applications', async ({ page }) => {
   await page.goto('/dashboard/applications');
 
   // Choose the first available repo — this creates a real Application.
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // Go back to the list — the newly-created app should appear as a card.
@@ -35,41 +35,111 @@ test('application list shows existing applications', async ({ page }) => {
   await expect(page.getByTestId(APP_CARD)).toBeVisible();
 });
 
-// The repo picker is expanded inline only while the org has no applications
-// (§42 onboarding). Once an application exists the list becomes the subject of
-// the page and the picker hides behind "Add application" — which is what makes
-// it discoverable that a vendor can connect more than one repository.
-test('the repo picker hides behind Add application once an application exists', async ({
+// The repo picker is inline only while the org has no applications (§42
+// onboarding). Once an application exists the list becomes the subject of
+// the page and every further addition goes through /dashboard/applications/new
+// — which is what makes it discoverable that a vendor can connect more than
+// one repository.
+test('the first application is added inline; later ones through Add application', async ({
   page,
 }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
 
-  // Empty org: the picker is inline, so Choose is clickable without any reveal.
+  // Empty org: the picker is inline, so Select is clickable without any reveal.
+  await expect(page.getByRole('heading', { name: 'Add your first application' })).toBeVisible();
   await expect(page.getByTestId('add-application-section')).toBeVisible();
   await expect(page.getByTestId('add-application-button')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
-  // With one application the picker is gated behind the header button.
+  // With one application the list is the page, and the picker is gone.
   await page.goto('/dashboard/applications');
   await expect(page.getByTestId(APP_CARD)).toBeVisible();
   await expect(page.getByTestId('add-application-section')).toHaveCount(0);
+  await expect(page.getByTestId('repo-search')).toHaveCount(0);
 
-  // Opening it brings the repo picker back so another repo can be connected.
+  // Add application is its own page with the same picker and a way back.
   await page.getByTestId('add-application-button').click();
-  await expect(page.getByTestId('add-application-section')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Choose' }).first()).toBeVisible();
+  await page.waitForURL('/dashboard/applications/new');
+  await expect(page.getByRole('heading', { name: 'Add application' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Select' }).first()).toBeVisible();
+  await page.getByRole('link', { name: 'Applications' }).first().click();
+  await page.waitForURL('/dashboard/applications');
+});
 
-  // Cancel closes it again.
-  await page.getByTestId('add-application-cancel').click();
-  await expect(page.getByTestId('add-application-section')).toHaveCount(0);
+test('clicking an application row opens the application', async ({ page }) => {
+  await signUp(page);
+  await page.goto('/dashboard/applications');
+  await page.getByRole('button', { name: 'Select' }).first().click();
+  await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
+  const appUrl = page.url();
+
+  await page.goto('/dashboard/applications');
+  // The repository cell, not the name link: the whole row is clickable.
+  await page.getByTestId(APP_CARD).getByText('deployz-demo/express-api').click();
+  await page.waitForURL(appUrl);
+});
+
+test('search filters the repository list as you type', async ({ page }) => {
+  await signUp(page);
+  await page.goto('/dashboard/applications');
+
+  const search = page.getByRole('searchbox', { name: 'Search repositories' });
+  await expect(page.getByTestId('repo-row-deployz-demo/express-api')).toBeVisible();
+  await expect(page.getByTestId('repo-row-deployz-demo/monorepo')).toBeVisible();
+
+  // Case-insensitive, no Search button to press.
+  await search.fill('MONO');
+  await expect(page.getByTestId('repo-row-deployz-demo/monorepo')).toBeVisible();
+  await expect(page.getByTestId('repo-row-deployz-demo/express-api')).toHaveCount(0);
+
+  // The description counts too.
+  await search.fill('prisma');
+  await expect(page.getByTestId('repo-row-deployz-demo/nextjs-prisma')).toBeVisible();
+  await expect(page.getByTestId('repo-row-deployz-demo/monorepo')).toHaveCount(0);
+
+  await search.fill('');
+  await expect(page.getByTestId('repo-row-deployz-demo/express-api')).toBeVisible();
+});
+
+test('a search with no matches explains how to grant GitHub access', async ({ page }) => {
+  await signUp(page);
+  await page.goto('/dashboard/applications');
+
+  await page.getByRole('searchbox', { name: 'Search repositories' }).fill('no-such-repo');
+
+  const empty = page.getByTestId('repo-search-empty');
+  await expect(empty.getByRole('heading', { name: 'No repositories found' })).toBeVisible();
+  await expect(empty.getByTestId('github-manage')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Select' })).toHaveCount(0);
+});
+
+// One application per repository: a repository that is already added shows
+// as such and opens its application, instead of offering Select again and
+// creating a second application with its own releases and deployments.
+test('an already-added repository cannot be selected again', async ({ page }) => {
+  await signUp(page);
+  await page.goto('/dashboard/applications');
+  await page.getByTestId('repo-row-deployz-demo/express-api').getByRole('button').click();
+  await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
+  const appUrl = page.url();
+
+  await page.goto('/dashboard/applications/new');
+  const added = page.getByTestId('repo-row-deployz-demo/express-api');
+  await expect(added.getByRole('link', { name: /Added/ })).toBeVisible();
+  await expect(added.getByRole('button')).toHaveCount(0);
+  // Every other repository is still selectable.
+  await expect(page.getByTestId('repo-row-deployz-demo/monorepo').getByRole('button')).toBeVisible();
+
+  await added.getByRole('link').click();
+  await page.waitForURL(appUrl);
 });
 
 test('editing application details persists the change', async ({ page }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // Edit the containerPort field.
@@ -85,7 +155,7 @@ test('editing application details persists the change', async ({ page }) => {
 test('deleting an application removes it from the list', async ({ page }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // The fixture repo is deployz-demo/express-api — it appears as muted text
@@ -104,7 +174,7 @@ test('deleting an application removes it from the list', async ({ page }) => {
 test('delete is blocked when the application has a deployment', async ({ page }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // Capture the application id from the URL.
@@ -145,7 +215,7 @@ test('cross-org isolation: cannot PATCH or DELETE another org\'s application', a
   const orgAPage = await orgAContext.newPage();
   await signUp(orgAPage);
   await orgAPage.goto('/dashboard/applications');
-  await orgAPage.getByRole('button', { name: 'Choose' }).first().click();
+  await orgAPage.getByRole('button', { name: 'Select' }).first().click();
   await orgAPage.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
   const appId = orgAPage.url().match(/\/dashboard\/applications\/([0-9a-f-]{36}$)/)![1]!;
 

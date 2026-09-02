@@ -27,12 +27,10 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await signUp(page);
   await page.goto('/dashboard/applications');
 
-  // Choose the monorepo fixture repo specifically — its row is the
-  // rounded-lg/border card (RepoRow in apps/web/src/app/dashboard/
-  // applications/page.tsx; the outer Card uses rounded-xl, so this selector
-  // is unambiguous) containing the repo name "monorepo".
-  const monorepoRow = page.locator('div.rounded-lg.border').filter({ hasText: 'monorepo' });
-  await monorepoRow.getByRole('button', { name: 'Choose' }).click();
+  // Select the monorepo fixture repo specifically — the whole row is the
+  // Select control (RepositoryRow in apps/web/src/components/
+  // repository-picker.tsx).
+  await page.getByTestId('repo-row-deployz-demo/monorepo').getByRole('button').click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // ── The readiness verdict: ALMOST_READY, one required change. ──────────────

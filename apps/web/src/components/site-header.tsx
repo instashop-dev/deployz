@@ -11,6 +11,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 const SECTION_LABELS: readonly (readonly [string, string])[] = [
   ['/dashboard/deployments/new', 'Deploy customer'],
   ['/dashboard/deployments', 'Deployments'],
+  ['/dashboard/applications/new', 'Add application'],
   ['/dashboard/applications', 'Applications'],
   ['/dashboard/customers', 'Customers'],
   ['/dashboard/settings/billing', 'Billing'],
