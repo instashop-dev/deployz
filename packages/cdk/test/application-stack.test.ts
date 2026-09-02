@@ -1109,4 +1109,149 @@ describe('ApplicationStack', () => {
       });
     });
   });
+
+  describe('Persistent-service hardening (Phase 9)', () => {
+    const deletionPolicy = (resource: TemplateResource): unknown =>
+      (resource as unknown as Record<string, unknown>)['DeletionPolicy'];
+
+    it('retains the RDS instance and its credential secrets together (RETAIN lifecycle, no final snapshot)', () => {
+      const { template } = synth();
+      const resources = allResources(template);
+
+      const [databaseId, database] = Object.entries(resources).find(
+        ([, resource]) => resource.Type === 'AWS::RDS::DBInstance',
+      )!;
+      expect(databaseId).toBeDefined();
+      expect(deletionPolicy(database)).toBe('Retain');
+
+      const byDescription = (fragment: string) =>
+        Object.entries(resources).find(([, resource]) =>
+          String(resource.Properties?.['Description'] ?? '').includes(fragment),
+        );
+
+      // The generated master-credential secret and the assembled connection-URL
+      // secret are RETAINED with the database — deleting the stack must not
+      // strand a retained database without its password (Phase 9).
+      const dbSecret = byDescription('RDS PostgreSQL master credentials')!;
+      expect(deletionPolicy(dbSecret[1])).toBe('Retain');
+      const urlSecret = byDescription('Complete PostgreSQL connection URL')!;
+      expect(deletionPolicy(urlSecret[1])).toBe('Retain');
+
+      // The app config secret is not a database credential and is still deleted.
+      const appSecret = byDescription('Application runtime secrets')!;
+      expect(deletionPolicy(appSecret[1])).toBe('Delete');
+
+      // Truthful-deletion guard: nothing in the template takes a final DB
+      // snapshot (an old header comment claimed one that never existed).
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toContain('FinalDBSnapshotIdentifier');
+      expect(json).not.toContain('DBSnapshotIdentifier');
+    });
+
+    it('gives the versioned storage bucket lifecycle rules (non-current expiry + abort multipart)', () => {
+      const { template } = synth();
+      const [, bucket] = Object.entries(allResources(template)).find(
+        ([, resource]) => resource.Type === 'AWS::S3::Bucket',
+      )!;
+      const rules = (bucket.Properties?.['LifecycleConfiguration'] as {
+        Rules?: Array<Record<string, unknown>>;
+      })?.Rules ?? [];
+      expect(rules).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            Id: 'ExpireNoncurrentVersions',
+            Status: 'Enabled',
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 },
+          }),
+          expect.objectContaining({
+            Id: 'AbortIncompleteMultipartUploads',
+            Status: 'Enabled',
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+          }),
+        ]),
+      );
+    });
+
+    it('scopes the DB ingress to the app service security group in plain Fargate mode (not the VPC CIDR)', () => {
+      const { template } = synth(false);
+
+      // The DB security group itself carries no 5432 ingress rule at all.
+      const [dbSgId, dbSg] = Object.entries(allResources(template)).find(
+        ([, resource]) =>
+          resource.Type === 'AWS::EC2::SecurityGroup' &&
+          String(resource.Properties?.['GroupDescription'] ?? '').includes('RDS PostgreSQL access'),
+      )!;
+      expect(dbSgId).toContain('DbSecurityGroup');
+      for (const rule of (dbSg.Properties?.['SecurityGroupIngress'] ?? []) as Array<
+        Record<string, unknown>
+      >) {
+        expect(rule['FromPort']).not.toBe(5432);
+        expect(rule['CidrIp']).toBeUndefined();
+      }
+
+      // The ingress lives on a standalone AWS::EC2::SecurityGroupIngress whose
+      // source is the app service's own security group — never the VPC CIDR.
+      // (The stack's other SecurityGroupIngress resource is the ALB's own
+      // "Load balancer to target" rule.)
+      const dbIngress = Object.values(allResources(template)).find(
+        (resource) =>
+          resource.Type === 'AWS::EC2::SecurityGroupIngress' &&
+          resource.Properties?.['Description'] === 'Allow the application to reach RDS PostgreSQL',
+      );
+      expect(dbIngress).toBeDefined();
+      const properties = dbIngress!.Properties as Record<string, unknown>;
+      expect(properties['FromPort']).toBe(5432);
+      expect((properties['GroupId'] as { 'Fn::GetAtt': [string, string] })?.['Fn::GetAtt']?.[0]).toBe(
+        dbSgId,
+      );
+      const source = properties['SourceSecurityGroupId'] as { 'Fn::GetAtt': [string, string] };
+      expect(source?.['Fn::GetAtt']?.[0]).toContain('ServiceSecurityGroup');
+      expect(source?.['Fn::GetAtt']?.[1]).toBe('GroupId');
+    });
+
+    it('keeps the whole-VPC-CIDR DB ingress in Express mode (task security groups are ECS-managed)', () => {
+      const { template } = synth(true);
+
+      const [vpcLogicalId] = Object.keys(template.findResources('AWS::EC2::VPC'));
+      const [, dbSg] = Object.entries(allResources(template)).find(
+        ([, resource]) =>
+          resource.Type === 'AWS::EC2::SecurityGroup' &&
+          String(resource.Properties?.['GroupDescription'] ?? '').includes('RDS PostgreSQL access'),
+      )!;
+      const ingress = (dbSg.Properties?.['SecurityGroupIngress'] ?? []) as Array<
+        Record<string, unknown>
+      >;
+      expect(ingress).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            Description: 'Allow the application to reach RDS PostgreSQL',
+            IpProtocol: 'tcp',
+            FromPort: 5432,
+            ToPort: 5432,
+            CidrIp: { 'Fn::GetAtt': [vpcLogicalId, 'CidrBlock'] },
+          }),
+        ]),
+      );
+      // No SG-sourced ingress to the database anywhere in Express mode.
+      const sgIngress = Object.values(allResources(template)).filter(
+        (resource) => resource.Type === 'AWS::EC2::SecurityGroupIngress',
+      );
+      expect(sgIngress).toHaveLength(0);
+    });
+
+    it('scopes the worker service security group into the DB ingress when a worker is present', () => {
+      const { template } = synth(false, { workerCommand: 'node worker.js' });
+
+      // The worker task carries the same DATABASE_* env/secrets as the app, so
+      // its own SG must be an ingress source for the database too.
+      const workerRules = Object.values(allResources(template)).filter(
+        (resource) =>
+          resource.Type === 'AWS::EC2::SecurityGroupIngress' &&
+          String(resource.Properties?.['Description'] ?? '') ===
+            'Allow the worker to reach RDS PostgreSQL',
+      );
+      expect(workerRules).toHaveLength(1);
+      expect(JSON.stringify(workerRules[0])).toContain('WorkerService');
+    });
+  });
 });

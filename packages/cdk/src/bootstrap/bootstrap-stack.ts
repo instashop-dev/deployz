@@ -241,6 +241,36 @@ const PHASE_2_PURGE_STORAGE_ACTIONS = [
 ] as const;
 
 /**
+ * Phase 9 — PURGE's RDS orphan discovery. The purge identifies the retained
+ * DB instances left behind by a deleted application stack via
+ * DescribeDBInstances + ListTagsForResource (the ownership check is code-side,
+ * same as the S3 sweep). DescribeDBInstances does not support resource-level
+ * permissions and ListTagsForResource returns tags by ARN without evaluating
+ * tag conditions, so both are condition-free read grants — mirroring the
+ * Describe* precedents above.
+ */
+const PHASE_2_PURGE_RDS_DISCOVER_ACTIONS = [
+  'rds:DescribeDBInstances',
+  'rds:ListTagsForResource',
+] as const;
+
+/**
+ * Phase 9 — PURGE's retained-DB-credential sweep (Secrets Manager). The
+ * application stack's DatabaseSecret/DatabaseUrlSecret are RETAINed alongside
+ * the database (the disconnect path must never strand a retained database
+ * without its password); PURGE deletes them after the retained database is
+ * gone. ListSecrets + DescribeSecret are account-level, read-only discovery
+ * (the sweep verifies ownership from the tags itself, same shape as the S3
+ * and RDS orphan discovery); only DeleteSecret is scoped — to the secrets
+ * that already carry this installation's resource tag.
+ */
+const PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS = [
+  'secretsmanager:ListSecrets',
+  'secretsmanager:DescribeSecret',
+] as const;
+const PHASE_2_PURGE_SECRET_DELETE_ACTIONS = ['secretsmanager:DeleteSecret'] as const;
+
+/**
  * Phase 4 — task-level reads behind runtime observation and deploy
  * idempotence. Task and task-definition ARNs carry no usable tag condition,
  * so these stay condition-free like the Describe* precedents above.
@@ -842,6 +872,42 @@ export class BootstrapStack extends Stack {
       resources: ['*'],
     });
 
+    // Phase 9 — PURGE's RDS orphan discovery. Condition-free reads (see the
+    // const): the orphan sweep verifies ownership itself via the returned
+    // tags before touching any instance, and refuses what it cannot verify.
+    const phase2PurgeRdsDiscover = new PolicyStatement({
+      sid: 'RelayPurgeRdsDiscover',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_PURGE_RDS_DISCOVER_ACTIONS],
+      resources: ['*'],
+    });
+
+    // Phase 9 — PURGE's retained-DB-credential sweep. ListSecrets +
+    // DescribeSecret are condition-free discovery reads (account-level,
+    // read-only; the sweep verifies ownership from the returned tags, and a
+    // condition on DescribeSecret would deny the ownership check for every
+    // foreign secret in the account). DeleteSecret is resource-tag-scoped: a
+    // retained DatabaseSecret/DatabaseUrlSecret already carries this
+    // installation's deployz:installation tag (the application stack applies
+    // it), so the condition matches exactly the secrets the sweep may delete.
+    const phase2PurgeSecretsList = new PolicyStatement({
+      sid: 'RelayPurgeSecretsList',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS],
+      resources: ['*'],
+    });
+    const phase2PurgeSecretsDelete = new PolicyStatement({
+      sid: 'RelayPurgeSecretsDelete',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_PURGE_SECRET_DELETE_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
     // Phase 4 — deploy/rollback/restart. ListTasks/DescribeTasks/
     // DescribeTaskDefinition carry no usable tag condition (see the const);
     // RegisterTaskDefinition is bounded by the installation request tag the
@@ -921,6 +987,9 @@ export class BootstrapStack extends Stack {
       phase2CacheManage,
       phase2CacheDescribe,
       phase2PurgeStorage,
+      phase2PurgeRdsDiscover,
+      phase2PurgeSecretsList,
+      phase2PurgeSecretsDelete,
     ];
 
     // The permissions boundary is the CEILING for the relay role: the union of

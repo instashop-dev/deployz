@@ -555,8 +555,8 @@
           }
         ]
       },
-      "UpdateReplacePolicy": "Delete",
-      "DeletionPolicy": "Delete"
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain"
     },
     "DatabaseSecretAttachment9A63A3D4": {
       "Type": "AWS::SecretsManager::SecretTargetAttachment",
@@ -617,6 +617,24 @@
               "ServerSideEncryptionByDefault": {
                 "SSEAlgorithm": "AES256"
               }
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "ExpireNoncurrentVersions",
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 30
+              },
+              "Status": "Enabled"
+            },
+            {
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7
+              },
+              "Id": "AbortIncompleteMultipartUploads",
+              "Status": "Enabled"
             }
           ]
         },
@@ -725,20 +743,6 @@
             "CidrIp": "0.0.0.0/0",
             "Description": "Allow all outbound traffic by default",
             "IpProtocol": "-1"
-          }
-        ],
-        "SecurityGroupIngress": [
-          {
-            "CidrIp": {
-              "Fn::GetAtt": [
-                "Vpc8378EB38",
-                "CidrBlock"
-              ]
-            },
-            "Description": "Allow the application to reach RDS PostgreSQL",
-            "FromPort": 5432,
-            "IpProtocol": "tcp",
-            "ToPort": 5432
           }
         ],
         "Tags": [
@@ -887,8 +891,8 @@
           }
         ]
       },
-      "UpdateReplacePolicy": "Delete",
-      "DeletionPolicy": "Delete"
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain"
     },
     "RedisSubnetGroup": {
       "Type": "AWS::ElastiCache::SubnetGroup",
@@ -1620,6 +1624,27 @@
         "TaskRoleDefaultPolicy07FC53DE",
         "TaskRole30FC0FBB"
       ]
+    },
+    "DbAppServiceIngress": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "Allow the application to reach RDS PostgreSQL",
+        "FromPort": 5432,
+        "GroupId": {
+          "Fn::GetAtt": [
+            "DbSecurityGroupE9D701AD",
+            "GroupId"
+          ]
+        },
+        "IpProtocol": "tcp",
+        "SourceSecurityGroupId": {
+          "Fn::GetAtt": [
+            "ServiceSecurityGroupC96ED6A7",
+            "GroupId"
+          ]
+        },
+        "ToPort": 5432
+      }
     },
     "LoadBalancerBE9EEC3A": {
       "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",

@@ -9,6 +9,7 @@ import {
   type PurgeDeps,
   type RdsPurgeClient,
   type S3PurgeClient,
+  type SecretsPurgeClient,
 } from './purge.js';
 import { memoryPendingStore } from './pending.js';
 import type { WaitOptions } from './recover.js';
@@ -55,6 +56,7 @@ interface FakedClients {
   rds: RdsPurgeClient;
   cache: CachePurgeClient;
   s3: S3PurgeClient;
+  secrets: SecretsPurgeClient;
   deleter: StackDeleter;
 }
 
@@ -62,6 +64,7 @@ function clients(calls: string[], owned: {
   instances?: { identifier: string; status: string }[];
   groups?: { identifier: string; status: string }[];
   buckets?: string[];
+  secrets?: string[];
 } = {}): FakedClients {
   const rds: RdsPurgeClient = {
     async listOwnedInstances() {
@@ -93,12 +96,20 @@ function clients(calls: string[], owned: {
       calls.push(`s3:delete:${bucketName}`);
     },
   };
+  const secrets: SecretsPurgeClient = {
+    async listOwnedSecrets() {
+      return owned.secrets ?? [];
+    },
+    async deleteSecret(secretName) {
+      calls.push(`secrets:delete:${secretName}`);
+    },
+  };
   const deleter: StackDeleter = {
     async deleteStack(stackName) {
       calls.push(`stack:delete:${stackName}`);
     },
   };
-  return { calls, rds, cache, s3, deleter };
+  return { calls, rds, cache, s3, secrets, deleter };
 }
 
 function depsWith(cfn: CloudFormationReader, calls: string[], extra: Partial<PurgeDeps> = {}): PurgeDeps {
@@ -113,6 +124,7 @@ function depsWith(cfn: CloudFormationReader, calls: string[], extra: Partial<Pur
     rds: faked.rds,
     cache: faked.cache,
     s3: faked.s3,
+    secrets: faked.secrets,
     ...extra,
   };
 }
@@ -277,6 +289,41 @@ describe('settlePurge — orphan sweep', () => {
     expect(outcome).toEqual({ state: 'purging' });
     expect(calls).toEqual(['s3:empty:bucket-1', 's3:delete:bucket-1']);
   });
+
+  it('deletes owned retained DB-credential secrets once no RDS, cache, or bucket remains', async () => {
+    // Phase 9 retained-credential behavior: a PURGE must sweep the secrets
+    // that were RETAINed with the database (so a disconnect never strands a
+    // retained database without its password). Once the database itself is
+    // gone these secrets are dead credentials — delete them.
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      secrets: clients(calls, {
+        secrets: ['DatabaseSecret-ABC', 'DatabaseUrlSecret-DEF'],
+      }).secrets,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual(['secrets:delete:DatabaseSecret-ABC', 'secrets:delete:DatabaseUrlSecret-DEF']);
+  });
+
+  it('leaves the retained DB-credential secrets untouched while the retained database is still being deleted', async () => {
+    // Ordering guarantee: the credential sweep must not run on the same pass
+    // that still sees an owned RDS instance — the secrets stay reachable for
+    // the retained database until the database deletion is done.
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      ...clients(calls, {
+        instances: [{ identifier: 'db-1', status: 'available' }],
+        secrets: ['DatabaseSecret-ABC'],
+      }),
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual(['rds:unprotect:db-1', 'rds:delete:db-1']);
+    expect(calls).not.toContain('secrets:delete:DatabaseSecret-ABC');
+  });
 });
 
 // ── settlePurge: bootstrap stack, last ────────────────────────────────────
@@ -352,6 +399,7 @@ describe('full purge across passes', () => {
       instances: [{ identifier: 'db-1', status: 'available' }],
       groups: [{ identifier: 'cache-1', status: 'available' }],
       buckets: ['bucket-1'],
+      secrets: ['DatabaseSecret-ABC', 'DatabaseUrlSecret-DEF'],
     };
     const cfn: CloudFormationReader = {
       async describeStack(stackName) {
@@ -403,6 +451,15 @@ describe('full purge across passes', () => {
         state.buckets = [];
       },
     };
+    const secrets: SecretsPurgeClient = {
+      async listOwnedSecrets() {
+        return [...state.secrets];
+      },
+      async deleteSecret(secretName) {
+        calls.push(`secrets:delete:${secretName}`);
+        state.secrets = [];
+      },
+    };
     const deleter: StackDeleter = {
       async deleteStack(stackName) {
         calls.push(`stack:delete:${stackName}`);
@@ -422,6 +479,7 @@ describe('full purge across passes', () => {
         rds,
         cache,
         s3,
+        secrets,
       },
       setAppStack(status) {
         state.app = status;
@@ -446,7 +504,9 @@ describe('full purge across passes', () => {
     expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
     // Pass 4: owned bucket — empty, delete, wait.
     expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
-    // Pass 5: everything swept — bootstrap stack goes LAST.
+    // Pass 5: owned retained DB-credential secrets — delete, wait.
+    expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
+    // Pass 6: everything swept — bootstrap stack goes LAST.
     expect(await settlePurge(w.deps)).toEqual({ state: 'succeeded' });
 
     expect(w.calls).toEqual([
@@ -456,6 +516,8 @@ describe('full purge across passes', () => {
       'cache:delete:cache-1',
       's3:empty:bucket-1',
       's3:delete:bucket-1',
+      'secrets:delete:DatabaseSecret-ABC',
+      'secrets:delete:DatabaseUrlSecret-DEF',
       `stack:delete:${BOOTSTRAP_STACK}`,
     ]);
     expect(w.calls[w.calls.length - 1]).toBe(`stack:delete:${BOOTSTRAP_STACK}`);
@@ -583,6 +645,43 @@ describe('createPurgeExecutor', () => {
     // isAccessDenied itself distinguishes the two error classes.
     expect(isAccessDenied(accessDenied)).toBe(true);
     expect(isAccessDenied(Object.assign(new Error('gone'), { name: 'NoSuchTagSet' }))).toBe(false);
+
+    const result = await createPurgeExecutor(deps)(command());
+    expect(result).toMatchObject({
+      success: false,
+      failureCode: 'AWS_PERMISSION_DENIED',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('classifies a permission failure while reading owned retained secrets as retryable AWS_PERMISSION_DENIED', async () => {
+    // Phase 9: the retained-credential sweep follows the same rule as every
+    // other orphan read — an access-denied while verifying secret ownership
+    // must fail the purge retryably, never report `purged: true`.
+    const accessDenied = Object.assign(new Error('Access denied'), {
+      name: 'AccessDenied',
+      code: 'AccessDenied',
+    });
+    const calls: string[] = [];
+    const deps = depsWith(
+      {
+        async describeStack() {
+          return { found: false };
+        },
+        async describeStackResources() {
+          return [];
+        },
+      },
+      calls,
+      {
+        secrets: {
+          async listOwnedSecrets() {
+            throw accessDenied;
+          },
+          async deleteSecret() {},
+        },
+      },
+    );
 
     const result = await createPurgeExecutor(deps)(command());
     expect(result).toMatchObject({
