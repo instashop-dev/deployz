@@ -35,6 +35,8 @@ interface FakeEcs {
   /** ARN → definition map, seeded with the service's current definition. */
   definitions: Map<string, EcsTaskDefinition>;
   runningDigest: string | null;
+  /** Registered target states, one per target — the settle gate's answer. */
+  targetHealth?: string[];
   registered: unknown[];
   updates: unknown[];
   runTasks: unknown[];
@@ -123,6 +125,12 @@ function cfnWith(service: boolean): CloudFormationReader {
           status: 'CREATE_COMPLETE',
           physicalId: SERVICE_ARN,
         },
+        {
+          logicalId: 'TargetGroup',
+          type: 'AWS::ElasticLoadBalancingV2::TargetGroup',
+          status: 'CREATE_COMPLETE',
+          physicalId: 'arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/app/c1b2d3e4f5a6b7c8',
+        },
       ]
     : [{ logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' }];
   return {
@@ -135,10 +143,20 @@ function cfnWith(service: boolean): CloudFormationReader {
   };
 }
 
+/** The ELB reader the settle gate reads: every registered target healthy by default. */
+function fakeElb(state: FakeEcs) {
+  return {
+    async describeTargetHealth() {
+      return { targets: (state.targetHealth ?? ['healthy']).map((targetState) => ({ state: targetState })) };
+    },
+  };
+}
+
 function deps(state: FakeEcs, service = true): EcsDeployDeps {
   return {
     cfn: cfnWith(service),
     ecs: fakeEcs(state),
+    elb: fakeElb(state),
     pending: memoryPendingStore(),
     stackName: 'deployz-app',
     installationId: 'inst-test',
@@ -493,6 +511,95 @@ describe('createEcsDeployResumer', () => {
     const results = await createEcsDeployResumer(d)();
     expect(results).toHaveLength(0);
     expect(await d.pending.read()).not.toBeNull();
+  });
+
+  it('never settles while the primary rollout is IN_PROGRESS even when the digest runs', async () => {
+    const state = baseState();
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'IN_PROGRESS' }];
+    state.runningDigest = DIGEST_V3;
+    // ECS already switched the service to the new-definition rollout, whose
+    // running tasks carry v3 — but old tasks are still draining.
+    state.definitions.set(BASE_DEF_ARN, {
+      ...state.taskDefinition,
+      containerDefinitions: state.taskDefinition.containerDefinitions.map((container) =>
+        container.name === 'app' ? { ...container, image: `${REPO}@${DIGEST_V3}` } : container,
+      ),
+    });
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    // Partially rolled out: the new digest runs and the count is stable, but
+    // ECS has not finished the rollout — this must never report success or
+    // re-issue an update against a service that is already rolling.
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(0);
+    expect(await d.pending.read()).not.toBeNull();
+    expect(state.updates).toHaveLength(0);
+
+    // Once ECS finishes, the same settle call succeeds.
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }];
+    const settled = await createEcsDeployResumer(d)();
+    expect(settled).toHaveLength(1);
+    expect(settled[0]?.success).toBe(true);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('never settles while ALB targets are still registering', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    state.targetHealth = ['healthy', 'initial'];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(0);
+    expect(await d.pending.read()).not.toBeNull();
+
+    // Once the last target registers healthy the same settle call succeeds.
+    state.targetHealth = ['healthy', 'healthy'];
+    const settled = await createEcsDeployResumer(d)();
+    expect(settled).toHaveLength(1);
+    expect(settled[0]?.success).toBe(true);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('settles once rollout COMPLETED, digest running and all targets healthy', async () => {
+    const state = baseState();
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'IN_PROGRESS' }];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    // Mid-rollout: the digest is not running yet.
+    expect(await createEcsDeployResumer(d)()).toHaveLength(0);
+
+    // Rollout completes and the new digest serves every task.
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }];
+    state.runningDigest = DIGEST_V3;
+    const settled = await createEcsDeployResumer(d)();
+    expect(settled).toHaveLength(1);
+    expect(settled[0]?.success).toBe(true);
+    expect(await d.pending.read()).toBeNull();
   });
 
   it('ignores pending commands of other types', async () => {

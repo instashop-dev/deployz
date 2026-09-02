@@ -34,6 +34,7 @@
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
+import type { TargetHealthReader } from './ecs-health.js';
 
 /** The ECS write surface this module needs (injectable seam for testing). */
 export interface EcsDeployClient {
@@ -121,6 +122,13 @@ export type RegisterTaskDefinitionInput = Omit<EcsTaskDefinition, 'containerDefi
 export interface EcsDeployDeps {
   readonly cfn: CloudFormationReader;
   readonly ecs: EcsDeployClient;
+  /**
+   * ALB target-health reader behind the settle gate: a deploy does not count
+   * as settled until every registered target is `healthy`. Rollout state
+   * alone is not enough — ECS can mark a deployment COMPLETED while target
+   * registration lags behind it (§10.3).
+   */
+  readonly elb: TargetHealthReader;
   readonly pending: PendingStore;
   readonly stackName: string;
   /** Stamped on every registered task-definition copy (IAM tag boundary). */
@@ -191,6 +199,12 @@ export interface DeploySettleContext {
  * Runs the deploy to whatever conclusion is available right now. Reads
  * before writes: a rollout that already reached the requested digest (or the
  * circuit breaker) is settled without registering anything.
+ *
+ * "Settled" (§10.3) means all four ECS-side gates have passed — the digest
+ * is running, the expected task count is up, the primary deployment's
+ * rollout state is COMPLETED, and every registered ALB target is healthy. A
+ * rollout that is still draining old tasks, or whose targets are still
+ * registering, is `in-progress` — never a success.
  */
 export async function settleEcsDeploy(
   deps: EcsDeployDeps,
@@ -227,7 +241,9 @@ export async function settleEcsDeploy(
   const runningDigest = await observeRunningDigest(deps, cluster, serviceArn);
   const stable =
     (service.desiredCount ?? 0) > 0 && (service.runningCount ?? 0) >= (service.desiredCount ?? 0);
-  if (runningDigest === request.imageDigest && stable) {
+  const rolloutCompleted = primaryRolloutCompleted(service.deployments);
+  const targetsHealthy = await deploymentTargetsHealthy(deps);
+  if (runningDigest === request.imageDigest && stable && rolloutCompleted && targetsHealthy) {
     return { state: 'succeeded', alreadyRunning: true };
   }
 
@@ -467,6 +483,45 @@ function rolloutFailed(
   deployments: { status?: string | undefined; rolloutState?: string | undefined }[] | undefined,
 ): boolean {
   return deployments?.some((deployment) => deployment.rolloutState === 'FAILED') ?? false;
+}
+
+/**
+ * Whether the PRIMARY deployment reached ECS's COMPLETED rollout state. A
+ * service mid-rollout has its new deployment PRIMARY and IN_PROGRESS; a
+ * service that is not (or has never been) rolling exposes no COMPLETED
+ * primary, so this is false and the deploy keeps waiting.
+ */
+function primaryRolloutCompleted(
+  deployments: { status?: string | undefined; rolloutState?: string | undefined }[] | undefined,
+): boolean {
+  return deployments?.find((deployment) => deployment.status === 'PRIMARY')?.rolloutState === 'COMPLETED';
+}
+
+const TARGET_GROUP_TYPE = 'AWS::ElasticLoadBalancingV2::TargetGroup';
+
+/**
+ * Resource statuses whose physicalId actually backs live infrastructure —
+ * the same rule ecs-health.ts applies, so a rolled-back stack's phantom
+ * target-group reference is never asked about.
+ */
+const COMPLETE_RESOURCE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
+
+/**
+ * Whether every registered ALB target for the application's target group is
+ * healthy. Only `healthy` counts: a target still registering (`initial`),
+ * draining, unclassified, or unhealthy means the load balancer is not
+ * finished with this release, however complete the ECS rollout looks.
+ * Absent target group (never completed, or not readable) also means not
+ * healthy — the deploy keeps waiting rather than guessing.
+ */
+async function deploymentTargetsHealthy(deps: EcsDeployDeps): Promise<boolean> {
+  const resources = await deps.cfn.describeStackResources(deps.stackName);
+  const targetGroup = resources.find(
+    (resource) => resource.type === TARGET_GROUP_TYPE && COMPLETE_RESOURCE_STATUSES.has(resource.status),
+  );
+  if (!targetGroup?.physicalId) return false;
+  const { targets } = await deps.elb.describeTargetHealth({ targetGroupArn: targetGroup.physicalId });
+  return targets.length > 0 && targets.every((target) => target.state === 'healthy');
 }
 
 async function observeRunningDigest(

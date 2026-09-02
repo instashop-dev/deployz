@@ -255,6 +255,66 @@ export const healthComponentsSchema = z
 export type HealthComponents = z.infer<typeof healthComponentsSchema>;
 export type HealthStatus = z.infer<typeof healthStatusSchema>;
 
+/**
+ * §10.2 one HTTP health-path probe. The relay measures status code, latency
+ * and the check time, and NEVER a response body; the control plane maintains
+ * `lastSuccessAt`/`lastFailedAt` across heartbeats. `error` is a short
+ * transport reason (timeout / unreachable) — never application output.
+ */
+export const httpProbeSchema = z
+  .object({
+    /** A 2xx response — the only outcome that counts as a successful check. */
+    ok: z.boolean(),
+    /** HTTP status code; null when the request failed before one arrived. */
+    statusCode: z.number().int().nullable(),
+    /** Round-trip latency in milliseconds. */
+    latencyMs: z.number().int().nullable(),
+    /** ISO 8601 — when this probe ran. */
+    checkedAt: z.string().datetime({ offset: true }),
+    error: z.string().max(500).optional(),
+    /** ISO 8601 — the most recent successful check, maintained by the control plane. */
+    lastSuccessAt: z.string().datetime({ offset: true }).nullable().optional(),
+    /** ISO 8601 — the most recent failed check, maintained by the control plane. */
+    lastFailedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  })
+  .strict();
+export type HttpProbe = z.infer<typeof httpProbeSchema>;
+
+/** The ALB target-count half of the runtime-health layers (§10.1). */
+export const healthTargetsSchema = z
+  .object({
+    desiredCount: z.number().int().nullable(),
+    runningCount: z.number().int().nullable(),
+    unhealthyTargetCount: z.number().int().nullable(),
+    pendingTargetCount: z.number().int().nullable(),
+    unknownTargetCount: z.number().int().nullable(),
+  })
+  .strict();
+export type HealthTargets = z.infer<typeof healthTargetsSchema>;
+
+/**
+ * §10.1 layered runtime health — the five layers that must never be
+ * collapsed into one number: infrastructure status (verification), ECS
+ * rollout state, ALB target health, HTTP application health, and relay
+ * connectivity. Each layer reports what its own source observed; one broken
+ * layer never masquerades as another.
+ */
+export const runtimeHealthLayersSchema = z
+  .object({
+    /** Verification's verdict on the stack — HEALTHY/UNHEALTHY/UNKNOWN. */
+    infrastructure: healthStatusSchema.nullable(),
+    /** The ECS PRIMARY deployment's rollout state, when ECS reported one. */
+    rollout: z.enum(['COMPLETED', 'IN_PROGRESS', 'FAILED']).nullable(),
+    /** ECS + ALB counts, when the runtime-health observation reported them. */
+    targets: healthTargetsSchema.nullable(),
+    /** The latest HTTP probe of the application's health path, when one ran. */
+    http: httpProbeSchema.nullable(),
+    /** Relay connectivity, persisted by the liveness sweep / heartbeat. */
+    relay: z.enum(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']),
+  })
+  .strict();
+export type RuntimeHealthLayers = z.infer<typeof runtimeHealthLayersSchema>;
+
 export const orgPlanSchema = z.enum(['FREE', 'STARTER', 'PRO']);
 export type OrgPlan = z.infer<typeof orgPlanSchema>;
 
@@ -517,7 +577,14 @@ export const vendorDeploymentStatusSchema = z
       .strict()
       .nullable(),
     aws: z.object({ stackStatus: z.string().nullable() }).strict(),
-    health: z.object({ status: healthStatusSchema }).strict(),
+    health: z
+      .object({
+        status: healthStatusSchema,
+        // §10.1 layered runtime health — see runtimeHealthLayersSchema. Never
+        // collapsed into the scalar `status` above.
+        layers: runtimeHealthLayersSchema,
+      })
+      .strict(),
     url: z.string().nullable(),
     failure: z
       .object({

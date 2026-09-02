@@ -640,7 +640,16 @@ describe('vendorDeploymentStatusSchema', () => {
       relay: { connected: true, lastSeenAt: '2026-08-31T11:59:00.000Z' },
       job: { type: 'INSTALL' as const, status: 'SUCCEEDED' as const },
       aws: { stackStatus: 'CREATE_COMPLETE' },
-      health: { status: 'UNKNOWN' as const },
+      health: {
+        status: 'UNKNOWN' as const,
+        layers: {
+          infrastructure: 'UNKNOWN' as const,
+          rollout: null,
+          targets: null,
+          http: null,
+          relay: 'UNKNOWN' as const,
+        },
+      },
       url: null,
       failure: null,
     };

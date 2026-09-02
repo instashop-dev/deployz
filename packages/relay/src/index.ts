@@ -55,6 +55,7 @@ import {
 } from './deploy.js';
 import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
 import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
+import { probeHealthUrl } from './http-probe.js';
 import { readRelayIdentity } from './identity.js';
 import {
   createDestroyExecutor,
@@ -1197,6 +1198,7 @@ function deployResumerDeps(installationId: string): EcsDeployDeps {
   return {
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
+    elb: getTargetHealthReader(),
     pending: getPendingStore(installationId),
     stackName: relayApplicationStackName(),
     installationId,
@@ -1246,10 +1248,12 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
   });
 
   // The deploy executors share the ECS write seam behind a lazy SDK client
-  // (same construct-on-first-use rule as the readers above).
+  // (same construct-on-first-use rule as the readers above). The target
+  // health reader is the settle gate's second half.
   const deployDeps: EcsDeployDeps = {
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
+    elb: getTargetHealthReader(),
     pending: getPendingStore(installDeps.installationId),
     stackName: relayApplicationStackName(),
     installationId: installDeps.installationId,
@@ -1396,6 +1400,12 @@ export interface RelayHandlerDeps {
    * rollout state) wired into every health report.
    */
   observeHealth?: PollDependencies['observeHealth'];
+  /**
+   * Overrides the HTTP health-path probe (status code, latency, timestamps)
+   * wired into every health report. When omitted, probes the application URL
+   * the control plane passes in each poll's deployment meta.
+   */
+  observeProbe?: PollDependencies['observeProbe'];
 }
 
 /**
@@ -1428,9 +1438,13 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   // Deployment facts the commands response refreshes every poll. The §59
   // observe hook runs outside any command, so the poll response is the only
   // channel that can tell it whether the installation should include a
-  // cache — without this, a redis-required deployment's heartbeats verify
-  // against the cache-less expectation and never report the cache check.
-  const deploymentMeta: { redisRequired: boolean } = { redisRequired: false };
+  // cache and which application URL to probe — without this, a redis-required
+  // deployment's heartbeats verify against the cache-less expectation and
+  // never report the cache check, and no probe would ever run.
+  const deploymentMeta: { redisRequired: boolean; probeUrl: string | null } = {
+    redisRequired: false,
+    probeUrl: null,
+  };
 
   return async function relayHandler(
     event: ScheduledEvent,
@@ -1580,8 +1594,15 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             },
             relayApplicationStackName(),
           )),
+      observeProbe:
+        deps.observeProbe ??
+        (async () =>
+          deploymentMeta.probeUrl === null
+            ? null
+            : probeHealthUrl(deps.fetchFn, deploymentMeta.probeUrl)),
       onDeploymentMeta: (meta) => {
         deploymentMeta.redisRequired = meta.redisRequired;
+        deploymentMeta.probeUrl = meta.probeUrl;
       },
     };
 

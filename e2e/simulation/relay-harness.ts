@@ -138,6 +138,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   // Refreshed every poll from GET /api/relay/commands' `deployment` meta —
   // same role as `deploymentMeta` in packages/relay/src/index.ts.
   let redisRequired = false;
+  let probeUrl: string | null = null;
 
   const stackNameOrDefault = (): string => account.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
 
@@ -209,6 +210,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   const deployDeps: EcsDeployDeps = {
     cfn: account.cloudFormationReader(),
     ecs: account.ecsDeployClient(),
+    elb: account.targetHealthReader(),
     pending,
     installationId,
     get stackName() {
@@ -363,8 +365,22 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
         },
         stackNameOrDefault(),
       ),
+    // Mirrors createRelayHandler's default probe hook: the simulated account
+    // serves its app whenever the control plane advertises an endpoint, so a
+    // healthy probe record is the identity-consistent answer (never a real
+    // HTTP request to a simulated hostname).
+    observeProbe: async () =>
+      probeUrl === null
+        ? null
+        : {
+            ok: true,
+            statusCode: 200,
+            latencyMs: 5,
+            checkedAt: new Date().toISOString(),
+          },
     onDeploymentMeta: (meta) => {
       redisRequired = meta.redisRequired;
+      probeUrl = meta.probeUrl;
     },
     // Chained the same way `relayHandler`'s default `resume` composes its
     // resumers (packages/relay/src/index.ts): one shared pending store, each
