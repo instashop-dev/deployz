@@ -299,6 +299,21 @@ function DetailBody({
         </div>
       ) : null}
 
+      {detail.state === 'DELETED' && detail.cleanupState === 'COMPLETE' && detail.bootstrapStackName ? (
+        <Alert>
+          <AlertTriangle aria-hidden />
+          <AlertTitle>The Deployz connector is still installed in the customer AWS account</AlertTitle>
+          <AlertDescription>
+            Deployz removed everything it created for this deployment. The connector stack{' '}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+              {detail.bootstrapStackName}
+            </code>{' '}
+            was created by your customer, so only they can delete it — ask them to delete that
+            stack in CloudFormation. Their install link shows the same step.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <section aria-labelledby="actions" className="flex flex-col gap-3">
         <h2 id="actions" className="sr-only">
           Actions
