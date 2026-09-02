@@ -9,6 +9,7 @@ import type { CustomDomainStatus } from './domains';
 // vocabulary only — no raw AWS/CFN/ECS terms at the top level (M14:
 // deployment health only).
 
+import { apiRequest } from '@/lib/api-client';
 import { apiUrl } from '@/lib/api-url';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
@@ -438,14 +439,39 @@ export interface CustomerRecord {
   createdAt: string;
 }
 
-/** §37 create customer — POST /api/customers. */
+/** §37 create customer — POST /api/customers. Routed through `apiRequest`
+ *  (not `postJson`) so a failure carries the server's message (§65) rather
+ *  than just a status/code. */
 export function createCustomerRecord(input: CreateCustomerInput): Promise<CustomerRecord> {
-  return postJson<CustomerRecord>('/api/customers', {
-    name: input.name,
-    email: input.email,
-    company: input.company ?? null,
-    externalReference: input.externalReference ?? null,
+  return apiRequest<CustomerRecord>('/api/customers', {
+    method: 'POST',
+    body: {
+      name: input.name,
+      email: input.email,
+      company: input.company ?? null,
+      externalReference: input.externalReference ?? null,
+    },
   });
+}
+
+/** A customer already created by an earlier failed create-deployment
+ *  attempt (§12 screen 12) — kept so a retry can reuse it instead of
+ *  inserting a duplicate customer row (CANARY-004). */
+export interface RememberedCustomer {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/** True when `remembered` was created for the same trimmed name/email the
+ *  form now carries, so the retry should reuse its id rather than calling
+ *  `createCustomerRecord` again. */
+export function matchesRememberedCustomer(
+  remembered: RememberedCustomer | null,
+  name: string,
+  email: string,
+): remembered is RememberedCustomer {
+  return remembered !== null && remembered.name === name && remembered.email === email;
 }
 
 export interface CreateDeploymentInput {
@@ -471,12 +497,17 @@ export interface DeploymentRecord {
 
 /** §12/§38 create deployment — POST /api/deployments. Stays NOT_INSTALLED
  * until the customer approves the AWS CloudFormation stack and the relay
- * first registers. */
+ * first registers. Routed through `apiRequest` so a readiness rejection
+ * (e.g. MANIFEST_NOT_COMPATIBLE) surfaces its real message instead of a
+ * generic one. */
 export function createDeploymentRecord(input: CreateDeploymentInput): Promise<DeploymentRecord> {
-  return postJson<DeploymentRecord>('/api/deployments', {
-    applicationId: input.applicationId,
-    customerId: input.customerId,
-    region: input.region,
-    isTestDeployment: input.isTestDeployment ?? false,
+  return apiRequest<DeploymentRecord>('/api/deployments', {
+    method: 'POST',
+    body: {
+      applicationId: input.applicationId,
+      customerId: input.customerId,
+      region: input.region,
+      isTestDeployment: input.isTestDeployment ?? false,
+    },
   });
 }

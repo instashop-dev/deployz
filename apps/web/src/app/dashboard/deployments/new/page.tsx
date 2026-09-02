@@ -10,9 +10,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { ApiRequestError, errorMessage } from '@/lib/api-client';
 import { fetchApplications, type Application } from '@/lib/applications';
-import { createCustomerRecord, createDeploymentRecord } from '@/lib/deployments';
+import {
+  createCustomerRecord,
+  createDeploymentRecord,
+  matchesRememberedCustomer,
+  type RememberedCustomer,
+} from '@/lib/deployments';
 import { fetchRegions, type RegionOption } from '@/lib/regions';
+
+/** Readiness rejection codes the "Review the application's readiness
+ *  findings" link applies to (§19) — every other error is shown as plain
+ *  text with no link. */
+const READINESS_ERROR_CODES = new Set(['MANIFEST_NOT_COMPATIBLE', 'MANIFEST_NEEDS_CONFIGURATION']);
 
 // §12/§41 screen 12 "Create customer deployment" — previously this only
 // formatted a slug client-side and rendered a fake install link; nothing was
@@ -55,6 +66,12 @@ function NewDeploymentScreen() {
   const [error, setError] = useState<string | null>(null);
   const [createdCustomerId, setCreatedCustomerId] = useState<string | null>(null);
   const [createdApplicationId, setCreatedApplicationId] = useState<string | null>(null);
+  // The customer created by an earlier failed attempt (§12) — reused on
+  // retry instead of inserting a duplicate customer row (CANARY-004).
+  const [rememberedCustomer, setRememberedCustomer] = useState<RememberedCustomer | null>(null);
+  // Set only for a readiness rejection, so the error can link to the
+  // application's readiness findings.
+  const [readinessApplicationId, setReadinessApplicationId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +117,7 @@ function NewDeploymentScreen() {
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setError(null);
+    setReadinessApplicationId(null);
     setPending(true);
     const form = new FormData(event.currentTarget);
     const customerName = String(form.get('customerName') ?? '').trim();
@@ -108,19 +126,31 @@ function NewDeploymentScreen() {
     const region = String(form.get('region') ?? regions[0]?.value ?? '');
 
     try {
-      const customer = await createCustomerRecord({ name: customerName, email: customerEmail });
+      // A prior failed attempt may already have created this customer — reuse
+      // it rather than inserting a duplicate (CANARY-004).
+      let customerId: string;
+      if (matchesRememberedCustomer(rememberedCustomer, customerName, customerEmail)) {
+        customerId = rememberedCustomer.id;
+      } else {
+        const customer = await createCustomerRecord({ name: customerName, email: customerEmail });
+        customerId = customer.id;
+        setRememberedCustomer({ id: customer.id, name: customerName, email: customerEmail });
+      }
       const deployment = await createDeploymentRecord({
         applicationId,
-        customerId: customer.id,
+        customerId,
         region,
         isTestDeployment,
       });
-      setCreatedCustomerId(customer.id);
+      setCreatedCustomerId(customerId);
       setCreatedApplicationId(applicationId);
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       setInstallLink(`${origin}/install/${deployment.installLinkId}`);
-    } catch {
-      setError("We couldn't create this deployment. Try again in a moment.");
+    } catch (caught) {
+      setError(errorMessage(caught));
+      if (caught instanceof ApiRequestError && READINESS_ERROR_CODES.has(caught.code)) {
+        setReadinessApplicationId(applicationId);
+      }
     } finally {
       setPending(false);
     }
@@ -245,9 +275,17 @@ function NewDeploymentScreen() {
                   {pending ? 'Creating…' : isTestDeployment ? 'Create Test Deployment' : 'Create Customer Deployment'}
                 </Button>
                 {error ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error}
-                  </p>
+                  <div role="alert" className="flex flex-col gap-1 text-sm text-destructive">
+                    <p>{error}</p>
+                    {readinessApplicationId ? (
+                      <Link
+                        href={`/dashboard/applications/${readinessApplicationId}`}
+                        className="underline underline-offset-4"
+                      >
+                        Review the application&apos;s readiness findings
+                      </Link>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             </form>
