@@ -126,13 +126,22 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
   return {
     async read(): Promise<PendingCommand | null> {
       try {
+        // The marker is a SecureString (see `write`): without
+        // `WithDecryption` SSM hands back the KMS ciphertext, which parses
+        // as nothing pending and silently strands every deferred command.
         const response = (await client.send(
-          new GetParameterCommand({ Name: parameterName }),
+          new GetParameterCommand({ Name: parameterName, WithDecryption: true }),
         )) as { Parameter?: { Value?: string } };
 
         const value = response.Parameter?.Value;
         if (value === undefined) return null;
-        return parse(value);
+        const pending = parse(value);
+        if (pending === null) {
+          console.error(
+            JSON.stringify({ event: 'relay:pending-marker-unreadable', parameterName }),
+          );
+        }
+        return pending;
       } catch {
         // `ParameterNotFound` and `AccessDenied` are the same answer to
         // "is there something to resume?" — no.
