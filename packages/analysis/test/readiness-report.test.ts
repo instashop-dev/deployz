@@ -207,13 +207,23 @@ describe('buildReadinessReport — finding classification', () => {
     expect(finding?.blocking).toBe(false);
   });
 
-  it('worker-command is recommended, never blocking', () => {
+  it('NEEDS_CHANGES: a declared background worker process (worker code + resolved command) is blocking', () => {
+    const report = buildReadinessReport(analyseRepo(workerWithCommandTree), {
+      workerCommandResolved: true,
+    });
+    expect(report.state).toBe('NEEDS_CHANGES');
+    const finding = report.findings.find((f) => f.id === 'background-worker-unsupported');
+    expect(finding?.severity).toBe('required');
+    expect(finding?.blocking).toBe(true);
+    expect(finding?.confidence).toBe('confirmed');
+  });
+
+  it('READY stays READY: worker-like code without a worker start command is recommended only', () => {
     const report = buildReadinessReport(analyseRepo(workerWithoutCommandTree), {
       workerCommandResolved: false,
     });
-    const finding = report.findings.find((f) => f.id === 'worker-command');
-    expect(finding?.severity).toBe('recommended');
-    expect(finding?.blocking).toBe(false);
+    expect(report.state).toBe('READY');
+    expect(report.findings.find((f) => f.id === 'worker-command')?.severity).toBe('recommended');
   });
 });
 
@@ -252,31 +262,36 @@ describe('buildReadinessReport — database-migrations finding', () => {
 });
 
 // ==========================================================================
-// Worker finding — gated on workerCommandResolved
+// Worker findings — gated on workerCommandResolved (Phase 8 boundary)
 // ==========================================================================
 
-describe('buildReadinessReport — worker-command finding', () => {
+describe('buildReadinessReport — worker findings', () => {
   it('never fires when no worker-like code is detected', () => {
     const report = buildReadinessReport(analyseRepo(readyTree), { workerCommandResolved: false });
     expect(report.findings.some((f) => f.id === 'worker-command')).toBe(false);
+    expect(report.findings.some((f) => f.id === 'background-worker-unsupported')).toBe(false);
   });
 
-  it('fires when worker-like code is detected and no start command resolved', () => {
+  it('recommended when worker-like code is detected and no start command resolved', () => {
     const report = buildReadinessReport(analyseRepo(workerWithoutCommandTree), {
       workerCommandResolved: false,
     });
     expect(report.findings.some((f) => f.id === 'worker-command')).toBe(true);
+    expect(report.findings.some((f) => f.id === 'background-worker-unsupported')).toBe(false);
   });
 
-  it('fires when worker-like code is detected and context is omitted entirely', () => {
+  it('recommended when worker-like code is detected and context is omitted entirely', () => {
     const report = buildReadinessReport(analyseRepo(workerWithoutCommandTree));
     expect(report.findings.some((f) => f.id === 'worker-command')).toBe(true);
+    expect(report.findings.some((f) => f.id === 'background-worker-unsupported')).toBe(false);
   });
 
-  it('does not fire when worker-like code is detected AND a start command resolved', () => {
+  it('blocking when worker-like code is detected AND a start command resolved', () => {
     const report = buildReadinessReport(analyseRepo(workerWithCommandTree), {
       workerCommandResolved: true,
     });
+    expect(report.findings.some((f) => f.id === 'background-worker-unsupported')).toBe(true);
+    // A resolved worker command never appears as the recommended finding.
     expect(report.findings.some((f) => f.id === 'worker-command')).toBe(false);
   });
 });
@@ -291,18 +306,15 @@ describe('buildReadinessReport — passed checks', () => {
     expect(report.passed.some((p) => p.id === 'local-filesystem')).toBe(false);
   });
 
-  it('includes worker only when a start command resolved (workerCommandResolved: true)', () => {
-    const report = buildReadinessReport(analyseRepo(workerWithCommandTree), {
+  it('never lists worker as a passed check — worker is a finding (blocking or recommended)', () => {
+    const withCommand = buildReadinessReport(analyseRepo(workerWithCommandTree), {
       workerCommandResolved: true,
     });
-    expect(report.passed.some((p) => p.id === 'worker')).toBe(true);
-  });
-
-  it('excludes worker from passed checks when no start command resolved', () => {
-    const report = buildReadinessReport(analyseRepo(workerWithoutCommandTree), {
+    expect(withCommand.passed.some((p) => p.id === 'worker')).toBe(false);
+    const withoutCommand = buildReadinessReport(analyseRepo(workerWithoutCommandTree), {
       workerCommandResolved: false,
     });
-    expect(report.passed.some((p) => p.id === 'worker')).toBe(false);
+    expect(withoutCommand.passed.some((p) => p.id === 'worker')).toBe(false);
   });
 
   it('includes detected positive-signal checks (dockerfile, framework, health-endpoint)', () => {
@@ -367,6 +379,12 @@ describe('buildReadinessReport — jargon-free copy', () => {
       workerWithoutCommandTree,
     ];
     const allFindings = trees.flatMap((tree) => buildReadinessReport(analyseRepo(tree)).findings);
+    // A declared worker process produces its own blocking finding copy.
+    allFindings.push(
+      ...buildReadinessReport(analyseRepo(workerWithCommandTree), {
+        workerCommandResolved: true,
+      }).findings,
+    );
     expect(allFindings.length).toBeGreaterThan(0);
     for (const finding of allFindings) {
       expect(finding.plainEnglishExplanation).not.toMatch(JARGON_REGEX);

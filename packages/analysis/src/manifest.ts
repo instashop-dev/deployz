@@ -140,6 +140,23 @@ export function normalizeDeploymentManifest(
   if (meta['usesLocalFilesystem'] === true) {
     unsupported.push('Persistent local filesystem storage is not supported');
   }
+  // Phase 8 boundary — background worker processes are deferred. The worker
+  // start command is resolved per analysis (`resolvedWorkerCommand`, current
+  // metadata) with the sticky column as the legacy fallback. An app that has
+  // worker-like code AND a declared worker start command needs a second
+  // process Deployz will not run, so it is needs-adaptation (NOT_COMPATIBLE);
+  // worker-like code without a start command stays deployable (the manifest
+  // gate only fires on the declared command).
+  const workerCommand =
+    typeof meta['resolvedWorkerCommand'] === 'string' && meta['resolvedWorkerCommand'].length > 0
+      ? meta['resolvedWorkerCommand']
+      : overrides.workerCommand ?? null;
+  if (meta['hasWorkerProcesses'] === true && workerCommand !== null) {
+    unsupported.push(
+      'Background worker process not supported — Deployz runs one web process per application. ' +
+        'Remove the separate worker process or process background jobs inside the web process.',
+    );
+  }
 
   const manifest: DeploymentManifest = {
     application: {
@@ -183,7 +200,7 @@ export function normalizeDeploymentManifest(
     migration: {
       command: overrides.migrationCommand ?? stringArray(meta['migrationCommands'])[0] ?? null,
     },
-    worker: { command: overrides.workerCommand ?? null },
+    worker: { command: workerCommand },
     environment: {
       variables: toEnvVariables(meta['envVarModel'], meta['envVars']),
     },
