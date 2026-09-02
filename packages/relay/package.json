@@ -17,6 +17,50 @@
     "./verify": {
       "types": "./dist/verify.d.ts",
       "import": "./dist/verify.js"
+    },
+    "./poll": {
+      "types": "./dist/poll.d.ts",
+      "import": "./dist/poll.js"
+    },
+    "./commands": {
+      "types": "./dist/commands.d.ts",
+      "import": "./dist/commands.js"
+    },
+    "./install": {
+      "types": "./dist/install.d.ts",
+      "import": "./dist/install.js"
+    },
+    "./stack-events": {
+      "types": "./dist/stack-events.d.ts",
+      "import": "./dist/stack-events.js"
+    },
+    "./provision-progress": {
+      "types": "./dist/provision-progress.d.ts",
+      "import": "./dist/provision-progress.js"
+    },
+    "./ecs-health": {
+      "types": "./dist/ecs-health.d.ts",
+      "import": "./dist/ecs-health.js"
+    },
+    "./stack-resources": {
+      "types": "./dist/stack-resources.d.ts",
+      "import": "./dist/stack-resources.js"
+    },
+    "./pending": {
+      "types": "./dist/pending.d.ts",
+      "import": "./dist/pending.js"
+    },
+    "./deploy": {
+      "types": "./dist/deploy.d.ts",
+      "import": "./dist/deploy.js"
+    },
+    "./destroy": {
+      "types": "./dist/destroy.d.ts",
+      "import": "./dist/destroy.js"
+    },
+    "./ecs-observe": {
+      "types": "./dist/ecs-observe.d.ts",
+      "import": "./dist/ecs-observe.js"
     }
   },
   "scripts": {

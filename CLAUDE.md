@@ -24,3 +24,9 @@ For changes under apps/web, follow docs/ui-system.md.
 - Preserve shadcn/Radix accessibility behavior.
 - Keep raw AWS/CloudFormation states out of primary customer UI.
 - Do not change application logic unless the task explicitly requires it.
+
+## E2E testing
+
+Simulated E2E is the default (`pnpm e2e`). Do not invoke real AWS E2E
+(`pnpm e2e:canary`, `pnpm e2e:fresh`) unless required. Policy at
+`docs/testing/ai-agent-testing-guide.md`.

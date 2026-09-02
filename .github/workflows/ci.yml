@@ -33,6 +33,50 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+  # Simulated E2E (docs/testing/e2e-testing.md): the mode/guard tests plus the
+  # full simulated scenario regression suite. Runs through scripts/e2e.mjs, so
+  # the workflow-level AWS credentials below double as a live proof that
+  # simulated mode scrubs them from the API under test. The visual suite stays
+  # out of PR CI (Windows-generated snapshots — see e2e.yml).
+  e2e-simulated:
+    name: Simulated E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: pnpm build
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E mode guards
+        run: node scripts/e2e.mjs e2e/e2e-modes.spec.ts
+
+      - name: Simulated scenario suite
+        run: node scripts/e2e.mjs --scenarios
+
+      - name: Upload traces on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-simulated-results
+          path: test-results/
+          retention-days: 7
+
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

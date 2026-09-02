@@ -15,6 +15,19 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // Root-level Node scripts (scripts/*.mjs) aren't covered by any
+    // workspace package's own `eslint src`, but still get linted if eslint
+    // is run at the repo root — declare the Node globals plain JS files need
+    // (TS files get these from @types/node instead).
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+      },
+    },
+  },
+  {
     rules: {
       // `_`-prefixed bindings are the accepted marker for intentionally
       // discarded destructured fields (e.g. stripping secrets from a row).

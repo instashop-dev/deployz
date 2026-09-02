@@ -8,6 +8,12 @@ importers:
 
   .:
     devDependencies:
+      '@deployz/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
+      '@deployz/relay':
+        specifier: workspace:*
+        version: link:packages/relay
       '@eslint/js':
         specifier: ^9.17.0
         version: 9.39.5

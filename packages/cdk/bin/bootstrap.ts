@@ -21,8 +21,13 @@ if (envFile) {
   config({ path: envFile });
 }
 
-const app = new App();
-new BootstrapStack(app, 'DeployzBootstrap', {
+export const app = new App();
+// DEPLOYZ_BOOTSTRAP_STACK_NAME lets a caller (the fresh E2E mode mints
+// `deployz-fresh-<runid>` per run) deploy an isolated stack instead of the
+// standing `DeployzBootstrap` name, so a fresh run cannot collide with — or
+// tear down — anything else in the account. Defaults to the unchanged
+// production name when unset.
+export const stack = new BootstrapStack(app, process.env.DEPLOYZ_BOOTSTRAP_STACK_NAME ?? 'DeployzBootstrap', {
   env: { region: process.env.AWS_REGION ?? 'us-east-1' },
   controlPlaneUrl: process.env.DEPLOYZ_CONTROL_PLANE_URL ?? 'https://api.deployz.dev',
 });

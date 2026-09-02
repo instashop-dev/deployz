@@ -166,15 +166,52 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   const willCreateSection = page.locator('section[aria-labelledby="will-create"]');
   await expect(willCreateSection.getByRole('listitem').getByText('Redis cache', { exact: true })).toBeVisible();
 
-  // ── 4. Deployment detail: the Infrastructure section lists Redis. That
-  // section only renders once the deployment has completed an install (see
+  // ── 4. Deployment detail: the Infrastructure section lists the cache
+  // component. That section renders from the persisted resource inventory
+  // (§59, apps/web/src/components/infrastructure-section.tsx), not from the
+  // `components` health map — so a Redis row only appears once the relay's
+  // ListStackResources read (including the ElastiCache replication group) is
+  // persisted via persistDeploymentResourceSnapshot
+  // (packages/db/src/deployment-resources-persist.ts). It also only renders
+  // once the deployment has completed an install (see
   // `showInfrastructureRows`), so drive a real install through the relay job
   // workflow first — the same sequence fleet.spec.ts's
-  // `driveDeploymentToHealthy` uses.
+  // `driveDeploymentToHealthy` uses — then report the inventory.
   await driveDeploymentToHealthy(page, installationId, enrollmentCode);
+  const health = await page.request.post(`${API_URL}/api/relay/health`, {
+    headers: { Authorization: `Bearer ${installationId}` },
+    data: {
+      installationId,
+      healthStatus: 'HEALTHY',
+      observedState: {
+        infraHealth: {
+          inventory: {
+            stackId: `arn:aws:cloudformation:us-east-1:123456789012:stack/e2e-redis-${suffix}/${crypto.randomUUID()}`,
+            observedAt: new Date().toISOString(),
+            resources: [
+              {
+                logicalId: 'Service',
+                type: 'AWS::ECS::Service',
+                status: 'CREATE_COMPLETE',
+                physicalId: 'arn:aws:ecs:us-east-1:123456789012:service/e2e-redis-app',
+              },
+              {
+                logicalId: 'RedisCache',
+                type: 'AWS::ElastiCache::ReplicationGroup',
+                status: 'CREATE_COMPLETE',
+                physicalId: `redis-${suffix}`,
+              },
+            ],
+          },
+        },
+      },
+    },
+  });
+  expect(health.ok()).toBeTruthy();
+
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   const infraSection = page.locator('section[aria-labelledby="infrastructure"]');
-  await expect(infraSection.getByText('Redis', { exact: true })).toBeVisible();
+  await expect(infraSection.getByText('Cache', { exact: true })).toBeVisible();
 });
 
 test('legacy-redis: analyses as unsupported — "Cache setup not supported"', async ({

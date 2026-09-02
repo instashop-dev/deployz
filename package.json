@@ -12,10 +12,16 @@
     "build": "turbo run build",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "e2e": "node scripts/e2e.mjs",
+    "e2e:scenarios": "node scripts/e2e.mjs --scenarios",
+    "e2e:canary": "node scripts/e2e.mjs --mode=canary",
+    "e2e:fresh": "node scripts/e2e.mjs --mode=fresh",
     "lint": "turbo run lint",
     "dev": "turbo run dev"
   },
   "devDependencies": {
+    "@deployz/contracts": "workspace:*",
+    "@deployz/relay": "workspace:*",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.49.0",
     "@types/node": "^24.0.0",
