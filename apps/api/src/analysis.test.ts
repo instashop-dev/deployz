@@ -510,7 +510,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     expect(row.migrationCommand).toBe('drizzle-kit push');
   });
 
-  it('surfaces the worker ready-check once a worker start command actually resolves', async () => {
+  it('classifies worker-like code with a resolved worker start command as needs-adaptation, never deployable-as-is', async () => {
     const application = await insertApplication(db, orgId, {
       githubInstallationId: 'install-1',
       repoFullName: 'acme/worker-with-command',
@@ -528,9 +528,21 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
+    // The resolved command is still recorded (analysis evidence), but a
+    // declared worker process blocks readiness — Deployz runs one web
+    // process per application and will not start a second one.
     expect(row.workerCommand).toBe('node worker.js');
+    expect(row.compatibilityStatus).toBe('NOT_COMPATIBLE');
     const readiness = (row.detectedMetadata as { readiness: ReadinessReport }).readiness;
-    expect(readiness.passed).toContainEqual({ id: 'worker', label: 'Background worker detected' });
+    expect(readiness.state).toBe('NEEDS_CHANGES');
+    expect(readiness.findings).toContainEqual(
+      expect.objectContaining({
+        id: 'background-worker-unsupported',
+        severity: 'required',
+        blocking: true,
+      }),
+    );
+    expect(readiness.passed).not.toContainEqual({ id: 'worker', label: 'Background worker detected' });
   });
 });
 

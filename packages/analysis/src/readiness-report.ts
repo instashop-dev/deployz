@@ -16,12 +16,17 @@
  *   - REQUIRED + fixable: Deployz cannot deploy reliably without it
  *     (container setup, health check). State becomes ALMOST_READY.
  *   - RECOMMENDED: deployment can proceed, but reliability/configuration
- *     could improve (migrations for a detected database, a worker start
- *     command for detected worker code). Never blocks READY.
+ *     could improve (migrations for a detected database). Never blocks READY.
  *
  * A convention that is merely absent is NOT a finding: a repository with no
  * database gets no migration finding, and one with no worker-like code gets
  * no worker finding.
+ *
+ * Phase 8 boundary — background worker processes are deferred. An app with
+ * worker-like code AND a resolved worker start command declares a second
+ * process Deployz will not run, so it is REQUIRED + blocking (needs-adaptation).
+ * Worker-like code WITHOUT a resolved start command stays RECOMMENDED
+ * (background jobs must run inside the web process).
  */
 
 import type { AnalysisResult } from './analyser.js';
@@ -93,8 +98,10 @@ export interface ReadinessReport {
 export interface ReadinessReportContext {
   /**
    * Whether a runnable worker start command resolved (the API resolves this
-   * from package.json script keys). Worker-like code without one is a
-   * recommended finding; with one it is a passed check.
+   * from package.json script keys). A resolved worker start command declares
+   * a second process Deployz does not run, so worker-like code with one is a
+   * blocking needs-adaptation finding; worker-like code without one is a
+   * recommended finding.
    */
   workerCommandResolved?: boolean | undefined;
 }
@@ -112,7 +119,6 @@ const PASSED_LABELS: Partial<Record<string, string>> = {
   'env-vars': 'Environment variables detected',
   postgresql: 'PostgreSQL database detected — Deployz provides a managed database',
   redis: 'Redis detected — provisioned automatically on install',
-  worker: 'Background worker detected',
   s3: 'Object storage usage detected',
   'migration-command': 'Database migration command found',
   'startup-command': 'Start command found',
@@ -125,7 +131,8 @@ const PASSED_LABELS: Partial<Record<string, string>> = {
 // as a passed check (they surface as findings instead).
 const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem']);
 
-// `worker` is gated on a resolved start command — see ReadinessReportContext.
+// `worker` is handled as a finding (blocking or recommended) — see the worker
+// branch in the report builder. It is never a passed check.
 const SEPARATELY_HANDLED_DETECTORS = new Set<string>(['worker']);
 
 // ── Rejection findings (blocking) ───────────────────────────────────────────
@@ -418,7 +425,26 @@ export function buildReadinessReport(
   }
 
   const worker = finding('worker');
-  if (worker?.detected && context.workerCommandResolved !== true) {
+  if (worker?.detected && context.workerCommandResolved === true) {
+    // Phase 8 boundary: a resolved worker start command declares a SECOND
+    // process the deployment would never start. Needs-adaptation — blocking.
+    findings.push({
+      id: 'background-worker-unsupported',
+      category: 'workers',
+      title: 'Background worker process',
+      severity: 'required',
+      blocking: true,
+      plainEnglishExplanation:
+        'This app declares a background worker process, but Deployz runs one web process per application and does not start a second one.',
+      whyItMatters:
+        'The worker process would never start, so background jobs would stay queued and the app would appear broken or incomplete.',
+      technicalEvidence:
+        worker.details ?? 'Worker-like code detected and a worker start command resolved.',
+      suggestedOutcome:
+        'Run the background work inside the web process, or remove the separate worker process before deploying.',
+      confidence: 'confirmed',
+    });
+  } else if (worker?.detected) {
     findings.push({
       id: 'worker-command',
       category: 'workers',
@@ -426,14 +452,14 @@ export function buildReadinessReport(
       severity: 'recommended',
       blocking: false,
       plainEnglishExplanation:
-        'This app appears to run background jobs, but Deployz could not find a command that starts the job runner.',
+        'This app appears to run background jobs, but no command exists that starts a job runner as a separate process.',
       whyItMatters:
-        'Without a start command for the job runner, background jobs will not run on deployments even though the code for them exists.',
+        'Deployz runs one web process per application. Background jobs only run when the web process itself processes them.',
       technicalEvidence:
         worker.details ??
         `Worker-like code detected (${String(worker.value ?? '')}) but no worker start script was found.`,
       suggestedOutcome:
-        'Add a worker start script (for example a "worker" entry in package.json) so Deployz can run the job processor.',
+        'Process background jobs inside the web process, or remove the job-runner code if it is not used.',
       confidence: 'likely',
     });
   }
@@ -447,10 +473,6 @@ export function buildReadinessReport(
         !SEPARATELY_HANDLED_DETECTORS.has(f.detector),
     )
     .map((f) => ({ id: f.detector, label: PASSED_LABELS[f.detector] ?? f.details ?? f.detector }));
-
-  if (worker?.detected && context.workerCommandResolved === true) {
-    passed.push({ id: 'worker', label: PASSED_LABELS['worker']! });
-  }
 
   // ── State ─────────────────────────────────────────────────────────────────
   const required = findings.filter((f) => f.severity === 'required');

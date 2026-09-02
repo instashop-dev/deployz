@@ -111,7 +111,6 @@ export interface UpdateApplicationInput {
   containerPort?: number | null;
   healthPath?: string | null;
   migrationCommand?: string | null;
-  workerCommand?: string | null;
   databaseRequired?: boolean;
   storageRequired?: boolean;
 }

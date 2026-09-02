@@ -253,12 +253,13 @@ const PUBLIC_INSTALL_RATE_LIMIT = { max: 300, timeWindow: '1 minute' } as const;
 
 // The §35 contract fields the analyser auto-detects and the vendor can take
 // ownership of by editing them (see PATCH /api/applications/:id). `name` is
-// not one — the analyser never writes it.
+// not one — the analyser never writes it. `workerCommand` is NOT one either
+// (Phase 8): background worker processes are deferred, so the worker command
+// is analysis-recorded but never vendor-configurable.
 const CONTRACT_FIELDS = [
   'containerPort',
   'healthPath',
   'migrationCommand',
-  'workerCommand',
   'databaseRequired',
   'storageRequired',
   'redisRequired',
@@ -2011,7 +2012,6 @@ export async function buildServer({
     defaultBranch: z.string().min(1),
     containerPort: z.number().int().nullish(),
     healthPath: z.string().nullish(),
-    workerCommand: z.string().nullish(),
     databaseRequired: z.boolean().nullish(),
     storageRequired: z.boolean().nullish(),
     redisRequired: z.boolean().nullish(),
@@ -2025,7 +2025,6 @@ export async function buildServer({
     containerPort: z.number().int().nullish(),
     healthPath: z.string().nullish(),
     migrationCommand: z.string().nullish(),
-    workerCommand: z.string().nullish(),
     databaseRequired: z.boolean().optional(),
     storageRequired: z.boolean().optional(),
     redisRequired: z.boolean().optional(),
@@ -2135,7 +2134,6 @@ export async function buildServer({
         defaultBranch: body.defaultBranch,
         containerPort: body.containerPort ?? null,
         healthPath: body.healthPath ?? null,
-        workerCommand: body.workerCommand ?? null,
         databaseRequired: body.databaseRequired ?? false,
         storageRequired: body.storageRequired ?? false,
         redisRequired: body.redisRequired ?? false,
@@ -2183,7 +2181,6 @@ export async function buildServer({
     if (body.containerPort !== undefined) set.containerPort = body.containerPort ?? null;
     if (body.healthPath !== undefined) set.healthPath = body.healthPath ?? null;
     if (body.migrationCommand !== undefined) set.migrationCommand = body.migrationCommand ?? null;
-    if (body.workerCommand !== undefined) set.workerCommand = body.workerCommand ?? null;
     if (body.databaseRequired !== undefined) set.databaseRequired = body.databaseRequired;
     if (body.storageRequired !== undefined) set.storageRequired = body.storageRequired;
     if (body.redisRequired !== undefined) set.redisRequired = body.redisRequired;

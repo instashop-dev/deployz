@@ -104,6 +104,40 @@ describe('normalizeDeploymentManifest', () => {
     expect(manifest.unsupported.some((r) => r.includes('local filesystem'))).toBe(true);
   });
 
+  it('flags a declared background worker process as needs-adaptation (Phase 8)', () => {
+    const analysis = analyseRepo({
+      ...READY_TREE,
+      'package.json': JSON.stringify({
+        name: 'shop',
+        scripts: { start: 'node dist/index.js', worker: 'node dist/worker.js' },
+        dependencies: { express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.0.0' },
+      }),
+    });
+    // The API resolves the command from package.json scripts and persists it
+    // in metadata; overrides carry it for rows analysed before Phase 8.
+    const manifest = normalizeDeploymentManifest(analysis, {
+      workerCommand: 'node dist/worker.js',
+    });
+    expect(manifest.worker.command).toBe('node dist/worker.js');
+    expect(manifest.unsupported.some((r) => r.includes('Background worker process'))).toBe(true);
+    expect(evaluateManifestReadiness(manifest).state).toBe('NOT_COMPATIBLE');
+  });
+
+  it('worker-like code WITHOUT a start command stays deployable (no unsupported reason)', () => {
+    const analysis = analyseRepo({
+      ...READY_TREE,
+      'package.json': JSON.stringify({
+        name: 'shop',
+        scripts: { start: 'node dist/index.js' },
+        dependencies: { express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.0.0' },
+      }),
+    });
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.worker.command).toBeNull();
+    expect(manifest.unsupported).toEqual([]);
+    expect(evaluateManifestReadiness(manifest).state).toBe('READY');
+  });
+
   it('resolves Redis bindings from detected connection env vars', () => {
     const analysis = analyseRepo({
       'Dockerfile': 'FROM node:20-alpine\nCMD ["node", "index.js"]\n',

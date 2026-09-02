@@ -145,8 +145,9 @@ export async function runApplicationAnalysis(
     // The semantic readiness report is built from the MERGED metadata, so a
     // start/migration command the AI resolved counts as resolved here too.
     // The persisted verdict is derived from the report — one source of truth.
+    const resolvedWorkerCommand = resolveWorkerCommand(tree);
     const readiness: ReadinessReport = buildReadinessReport(mergedAnalysis, {
-      workerCommandResolved: resolveWorkerCommand(tree) !== undefined,
+      workerCommandResolved: resolvedWorkerCommand !== undefined,
     });
 
     await deps.db
@@ -157,6 +158,12 @@ export async function runApplicationAnalysis(
         compatibilityReason: readiness.summary,
         detectedMetadata: {
           ...metadata,
+          // Phase 8: the resolved worker command rides the metadata so the
+          // deployment manifest's worker gate reads CURRENT analysis output
+          // (this record is replaced wholesale each run) instead of the
+          // sticky worker_command column, which positive-only writes never
+          // clear. Null when no worker script resolves.
+          resolvedWorkerCommand,
           readiness,
           vendorOverrides,
           analysisVersion: ANALYSIS_VERSION,

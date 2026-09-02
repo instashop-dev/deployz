@@ -571,3 +571,92 @@ failed files (the single reported error is the documented Windows
 `onTaskUpdate` worker timeout flake; CI is authoritative). Focused suites for
 every touched file pass: analysis (334 tests incl. new `phase7.test.ts`),
 contracts manifest, relay (417), api server/manifest/analysis, cdk worker.
+
+## Phase 8 — Background worker decision (2026-09-02)
+
+Decision: **Option B**. Deployz defers background worker support. An app that
+declares a worker process is needs-adaptation (NOT_COMPATIBLE). The worker
+command config surface is disabled. A deployment can no longer silently
+ignore a declared worker.
+
+### Decision and evidence
+
+Option A (real worker support) is not a contained extension after the
+manifest work. The audit found:
+
+- The published application template is the only infra the relay creates
+  stacks from, and it never carries a worker. `synthesizeApplicationStack`
+  (quick-create/publish.ts) exposes no worker option; the relay selects
+  between two fixed variants by the boolean Redis requirement only
+  (relay/src/index.ts). The worker command is a per-app string that a shared
+  template cannot bake, and the infra comment in install.ts says exactly
+  that: worker command shapes "infrastructure that is fixed at
+  template-publish time".
+- The ApplicationStack worker branch (worker task + `WorkerService`) is
+  synth-time only. No published template and no production caller enables it.
+- Every relay module that reads an ECS service takes the FIRST
+  `AWS::ECS::Service` physical id (deploy.ts `findServiceArn`,
+  config-update.ts, ecs-health.ts, ecs-observe.ts). The deploy rollout, the
+  §10.3 promotion gates, and the Phase 4 migration path are single-service
+  by construction.
+
+Option A would need a per-app infra model plus dual-service semantics across
+the relay, with byte-identical behavior for no-worker apps. That is not
+contained. Option B is the decision.
+
+### Audited-existing (unchanged unless stated)
+
+- Worker-code detection (`detectWorker`: bull, bullmq, agenda,
+  worker_threads) — kept; it is the requirement evidence.
+- `applications.worker_command` column and its analysis auto-write — kept as
+  analysis evidence and API read surface; it no longer feeds any gate.
+- Manifest schema field `worker.command` — kept for backward-compatible
+  strict parsing of stored manifests; normalization now fills it from
+  current analysis metadata.
+- Single-service relay runtime (deploy/config-update/health/observe/verify,
+  stack-resources, destroy) — unchanged. It stays correct because no
+  published template provisions a worker.
+- The CDK ApplicationStack worker branch — audited and left in place: it is
+  unreachable from the published templates and is not a vendor surface.
+
+### Added
+
+1. **Manifest gate** (packages/analysis/src/manifest.ts): normalization now
+   records the resolved worker command from CURRENT metadata
+   (`resolvedWorkerCommand`, persisted fresh on every analysis), with the
+   sticky column as the legacy fallback. Worker code + a declared worker
+   command adds an `unsupported` reason, so `evaluateManifestReadiness`
+   returns NOT_COMPATIBLE. The Phase 3 deployment-creation gate then refuses
+   the deployment with guidance. Worker code WITHOUT a declared command stays
+   deployable (worker code with no worker command was already a deliberate
+   non-blocking case, and the Redis e2e fixture depends on it).
+2. **Readiness report** (packages/analysis/src/readiness-report.ts): worker
+   code + resolved command is now the required/blocking finding
+   `background-worker-unsupported` (needs-adaptation, state NEEDS_CHANGES).
+   Worker code without a command stays the recommended `worker-command`
+   finding with corrected copy (no more "so Deployz can run the job
+   processor"). The "Background worker detected" passed check is gone.
+3. **Current metadata** (apps/api/src/analysis.ts): each analysis stores the
+   resolved worker command (or null) in `detected_metadata`, so a repo that
+   removes its worker clears the gate on re-analysis.
+4. **Disabled config surface**: `workerCommand` was removed from the POST
+   and PATCH application bodies and from CONTRACT_FIELDS (apps/api/src/
+   server.ts), from the update input type (apps/web/src/lib/applications.ts),
+   and from the application details form (apps/web/src/app/dashboard/
+   applications/[id]/page.tsx). Analysis still records a detected worker
+   command; the vendor can no longer configure one.
+
+No-worker applications behave as before: the gate fires only when a worker
+command is declared, and no relay or CDK runtime file changed.
+
+### Verification
+
+- Full `pnpm build`: 9/9 packages pass (turbo; includes the Next.js web
+  build with type/lint checks).
+- Focused vitest suites pass: packages/analysis (337), apps/api (39 files,
+  926 tests), apps/web + packages/contracts + packages/copy-map (391).
+- No new failure code and no exhaustiveness registry changed.
+
+Re-analysis is required for an app analysed before this phase: its stored
+metadata does not yet carry `resolvedWorkerCommand`, so the manifest falls
+back to the sticky column until the next analysis runs.

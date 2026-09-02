@@ -260,7 +260,6 @@ function ApplicationDetailsSection({
       containerPort: containerPortRaw === '' ? null : Number(containerPortRaw),
       healthPath: String(formData.get('healthPath') ?? '').trim() || null,
       migrationCommand: String(formData.get('migrationCommand') ?? '').trim() || null,
-      workerCommand: String(formData.get('workerCommand') ?? '').trim() || null,
       databaseRequired: formData.get('databaseRequired') === 'on',
       storageRequired: formData.get('storageRequired') === 'on',
     };
@@ -301,7 +300,6 @@ function ApplicationDetailsSection({
     application.containerPort,
     application.healthPath,
     application.migrationCommand,
-    application.workerCommand,
     application.databaseRequired,
     application.storageRequired,
     version,
@@ -359,15 +357,6 @@ function ApplicationDetailsSection({
                 name="migrationCommand"
                 data-testid="app-details-field-migrationCommand"
                 defaultValue={application.migrationCommand ?? ''}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="app-details-field-workerCommand">Worker command</Label>
-              <Input
-                id="app-details-field-workerCommand"
-                name="workerCommand"
-                data-testid="app-details-field-workerCommand"
-                defaultValue={application.workerCommand ?? ''}
               />
             </div>
           </div>
