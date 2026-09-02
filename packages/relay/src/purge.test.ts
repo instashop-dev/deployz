@@ -479,7 +479,7 @@ describe('settlePurge — orphaned network sweep (CANARY-015)', () => {
 
     const outcome = await settlePurge(deps);
     expect(outcome).toEqual({ state: 'succeeded' });
-    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
+    expect(calls).toEqual([]);
   });
 
   it('keeps the purge `purging`, not failed, on a DependencyViolation deleting a security group', async () => {
@@ -644,43 +644,36 @@ describe('settlePurge — bootstrap stack, last', () => {
     };
   }
 
-  it('deletes the tagged bootstrap stack once everything else is gone', async () => {
+  it('leaves the bootstrap stack to the customer: no describe, no delete, one honest log line (CANARY-014)', async () => {
+    // The relay's CloudFormation grants are tag-conditioned on an id the
+    // bootstrap stack can never carry and a stack cannot delete its own
+    // execution role, so the old describe-then-delete was AccessDenied on
+    // every real install and silently reported as "already gone".
     const calls: string[] = [];
-    const deps = depsWith(cfnSweptClean(bootstrapStack()), calls);
+    const describeCalls: string[] = [];
+    const cfn = cfnSweptClean(bootstrapStack());
+    const spied: CloudFormationReader = {
+      ...cfn,
+      async describeStack(stackName) {
+        describeCalls.push(stackName);
+        return cfn.describeStack(stackName);
+      },
+    };
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    const outcome = await settlePurge(deps);
+    const outcome = await settlePurge(depsWith(spied, calls));
+
     expect(outcome).toEqual({ state: 'succeeded' });
-    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
-  });
-
-  it('treats an absent or already-deleting bootstrap stack as done', async () => {
-    const calls: string[] = [];
-    const deleting = depsWith(cfnSweptClean(bootstrapStack('DELETE_IN_PROGRESS')), calls);
-    expect(await settlePurge(deleting)).toEqual({ state: 'succeeded' });
-
-    const absent = depsWith(cfnSweptClean({ found: false }), calls);
-    expect(await settlePurge(absent)).toEqual({ state: 'succeeded' });
     expect(calls).toEqual([]);
-  });
-
-  it('deletes the bootstrap stack by its known name even when it carries no installation tag', async () => {
-    // Phase 5 §9.1: the bootstrap stack is created BEFORE the installation
-    // id exists, so it can never carry a readable `deployz:installation`
-    // tag. Refusing on that impossible tag made the bootstrap removal never
-    // run in production; ownership is the NAME baked into the relay's env.
-    const calls: string[] = [];
-    const untagged = depsWith(cfnSweptClean(bootstrapStack('CREATE_COMPLETE')), calls);
-
-    const outcome = await settlePurge(untagged);
-    expect(outcome).toEqual({ state: 'succeeded' });
-    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
-
-    // A mismatched tag is equally impossible in practice and equally ignored:
-    // the deciding fact is the trusted stack name, not a tag that cannot be.
-    const mismatched = depsWith(cfnSweptClean(bootstrapStack('CREATE_COMPLETE', 'someone-else')), calls);
-    calls.length = 0;
-    expect(await settlePurge(mismatched)).toEqual({ state: 'succeeded' });
-    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
+    expect(describeCalls).not.toContain(BOOTSTRAP_STACK);
+    expect(logSpy).toHaveBeenCalledWith(
+      JSON.stringify({
+        event: 'relay:purge-bootstrap-retained',
+        installationId: INSTALLATION_ID,
+        bootstrapStackName: BOOTSTRAP_STACK,
+      }),
+    );
+    logSpy.mockRestore();
   });
 });
 
@@ -865,7 +858,7 @@ describe('full purge across passes', () => {
     expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
     // Pass 9: — no route tables/gateways present, so the VPC itself, last.
     expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
-    // Pass 10: everything swept — bootstrap stack goes LAST.
+    // Pass 10: everything swept — the bootstrap stack stays for the customer.
     expect(await settlePurge(w.deps)).toEqual({ state: 'succeeded' });
 
     expect(w.calls).toEqual([
@@ -881,9 +874,9 @@ describe('full purge across passes', () => {
       'network:delete-sg:sg-1',
       'network:delete-subnet:subnet-1',
       'network:delete-vpc:vpc-1',
-      `stack:delete:${BOOTSTRAP_STACK}`,
     ]);
-    expect(w.calls[w.calls.length - 1]).toBe(`stack:delete:${BOOTSTRAP_STACK}`);
+    // The bootstrap stack is the customer's to delete (CANARY-014).
+    expect(w.calls).not.toContain(`stack:delete:${BOOTSTRAP_STACK}`);
 
     // Re-running the completed purge is a clean no-op (idempotent retry).
     w.setBootstrap(null);
@@ -916,7 +909,7 @@ describe('createPurgeExecutor', () => {
       commandId: 'cmd-1',
       idempotencyKey: 'key-1',
       success: true,
-      output: { executed: true, type: 'PURGE', purged: true },
+      output: { executed: true, type: 'PURGE', purged: true, connectorStackRetained: BOOTSTRAP_STACK },
     });
     expect(calls).toEqual([]);
   });
@@ -1198,7 +1191,7 @@ describe('createPurgeResumer', () => {
         commandId: 'cmd-1',
         idempotencyKey: 'key-1',
         success: true,
-        output: { executed: true, type: 'PURGE', purged: true },
+        output: { executed: true, type: 'PURGE', purged: true, connectorStackRetained: BOOTSTRAP_STACK },
       },
     ]);
     expect(await deps.pending.read()).toBeNull();
