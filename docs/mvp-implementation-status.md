@@ -293,8 +293,9 @@ A DEPLOY_RELEASE with a migration command runs the migration before the
 service update. Without a command, the deploy is exactly as before.
 
 - The deploy payload now carries `migrationCommand` when one resolves: the
-  stored manifest's `migration.command` first, else the release row's
-  `migrationCommand`. The key is omitted for a no-migration deploy, so that
+  release row's `migrationCommand` first (the vendor's explicit per-release
+  override — the stored manifest is a creation-time snapshot that is never
+  refreshed, CANARY-010), else the stored manifest's `migration.command`. The key is omitted for a no-migration deploy, so that
   payload is byte-for-byte unchanged. Bulk deploys resolve the manifest half
   per target deployment.
 - The relay runs the migration as a one-off ECS RunTask BEFORE the service
