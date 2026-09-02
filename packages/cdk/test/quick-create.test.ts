@@ -24,6 +24,7 @@ import {
   APPLICATION_TEMPLATE_REDIS_KEY,
   ApplicationPublisher,
   BootstrapPublisher,
+  parsePublishRegions,
   publishBootstrapToAllRegions,
   synthesizeApplicationStack,
   synthesizeBootstrapStack,
@@ -651,6 +652,113 @@ describe('quick-create', () => {
           async () => new Uint8Array([0x1f, 0x8b]),
         ),
       ).rejects.toThrow(/Bootstrap publishing failed for us-east-2/);
+    });
+
+    it('publishes exactly one region when regions is restricted to it', async () => {
+      const { s3For, uploads } = makeS3Harness();
+      const verifierFor = () => passingVerifier();
+
+      const results = await publishBootstrapToAllRegions(
+        s3For,
+        verifierFor,
+        synth,
+        { keyPrefix, controlPlaneUrl, regions: ['us-east-1'] },
+        async () => new Uint8Array([0x1f, 0x8b]),
+      );
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.region).toBe('us-east-1');
+      expect(uploads.size).toBe(1);
+      expect(uploads.has('us-east-1')).toBe(true);
+    });
+
+    it('uses a bucket override for one region (uploads, template URL, verification) while other regions keep the deterministic bucket', async () => {
+      const legacyBucket = 'legacy-control-plane-bucket';
+      const uploadBuckets: Record<string, Set<string>> = {};
+      const verifiedBuckets = new Set<string>();
+
+      const s3For = (region: string): S3Client => ({
+        async putObject(params) {
+          (uploadBuckets[region] ??= new Set()).add(params.bucket);
+        },
+      });
+      const verifierFor = (): RegionVerifier => ({
+        getBucketLocation: async (bucket) => {
+          verifiedBuckets.add(bucket);
+          return bucket === legacyBucket ? 'us-east-1' : bucket.replace('deployz-templates-', '');
+        },
+        headObject: async (bucket) => {
+          verifiedBuckets.add(bucket);
+          return true;
+        },
+        fetchUrl: async () => 200,
+        validateTemplate: async () => ({ valid: true }),
+      });
+
+      const results = await publishBootstrapToAllRegions(
+        s3For,
+        verifierFor,
+        synth,
+        {
+          keyPrefix,
+          controlPlaneUrl,
+          regions: ['us-east-1', 'us-east-2'],
+          bucketFor: (region) => (region === 'us-east-1' ? legacyBucket : undefined),
+        },
+        async () => new Uint8Array([0x1f, 0x8b]),
+      );
+
+      expect(results).toHaveLength(2);
+      const east1 = results.find((r) => r.region === 'us-east-1');
+      const east2 = results.find((r) => r.region === 'us-east-2');
+
+      expect(east1?.bucket).toBe(legacyBucket);
+      expect(east1?.templateUrl).toBe(
+        `https://${legacyBucket}.s3.us-east-1.amazonaws.com/${keyPrefix}/bootstrap-template-v1.json`,
+      );
+      expect(east2?.bucket).toBe('deployz-templates-us-east-2');
+      expect(east2?.templateUrl).toContain('deployz-templates-us-east-2.s3.us-east-2');
+
+      // Uploads for the overridden region went to the legacy bucket only;
+      // the other region kept publishing to its deterministic bucket.
+      expect(uploadBuckets['us-east-1']).toEqual(new Set([legacyBucket]));
+      expect(uploadBuckets['us-east-2']).toEqual(new Set(['deployz-templates-us-east-2']));
+
+      // Verification (getBucketLocation/headObject) ran against both.
+      expect(verifiedBuckets.has(legacyBucket)).toBe(true);
+      expect(verifiedBuckets.has('deployz-templates-us-east-2')).toBe(true);
+    });
+  });
+
+  describe('parsePublishRegions', () => {
+    const supported = ['us-east-1', 'us-east-2', 'eu-west-1'];
+
+    it('defaults to every supported region when unset', () => {
+      expect(parsePublishRegions(undefined, supported)).toEqual(supported);
+    });
+
+    it('defaults to every supported region for an empty string', () => {
+      expect(parsePublishRegions('', supported)).toEqual(supported);
+    });
+
+    it('parses a comma-separated subset', () => {
+      expect(parsePublishRegions('us-east-1,eu-west-1', supported)).toEqual([
+        'us-east-1',
+        'eu-west-1',
+      ]);
+    });
+
+    it('trims whitespace around region names', () => {
+      expect(parsePublishRegions(' us-east-1 , eu-west-1 ', supported)).toEqual([
+        'us-east-1',
+        'eu-west-1',
+      ]);
+    });
+
+    it('throws on an unsupported region', () => {
+      expect(() => parsePublishRegions('us-east-1,mars-1', supported)).toThrow(
+        /Unsupported region/,
+      );
     });
   });
 
