@@ -118,6 +118,11 @@ export function DeploymentProgressCard({ status }: { status: VendorDeploymentSta
             <AlertTriangle aria-hidden />
             <AlertTitle>{failure.message}</AlertTitle>
             <AlertDescription className="flex flex-col gap-1">
+              {status.stage !== 'FAILED' ? (
+                // A failure surfaced on a live stage is a failed day-2
+                // operation: the deployment itself is not down.
+                <span>The previous version is still running.</span>
+              ) : null}
               {failureComponentLabel ? <span>Component: {failureComponentLabel}</span> : null}
               {failure.awsStatus ? (
                 <span>

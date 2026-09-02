@@ -47,7 +47,7 @@ import {
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
 } from '@deployz/contracts';
-import { FAILURE_REMEDIATION, type FailureCode } from '@deployz/copy-map';
+import { FAILURE_REMEDIATION, failureRecoverability, type FailureCode } from '@deployz/copy-map';
 // Deep import so the Lambda bundle never touches @deployz/db's package root:
 // the root re-exports client.ts, whose PGlite dev fallback is external in the
 // Lambda bundle and crashes cold start with Runtime.ImportModuleError.
@@ -109,6 +109,7 @@ import {
   revokePullFromCustomer,
   type EcrPullGrantDeps,
 } from './ecr-pull-grants.js';
+import { refineFailureCode } from './failure-classification.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
 import { applicationToManifestOverrides, readStoredManifest, requireReadyManifest } from './manifest.js';
@@ -3557,7 +3558,7 @@ export async function buildServer({
       .orderBy(desc(schema.deploymentJobs.createdAt))
       .limit(1);
     if (deployment.state !== 'FAILED' && latestMutating?.state !== 'FAILED') {
-      return { failureCode: null, what: null, why: null, fix: null, events: [] };
+      return { failureCode: null, recoverability: null, what: null, why: null, fix: null, events: [] };
     }
     const events = await db
       .select()
@@ -3625,6 +3626,9 @@ export async function buildServer({
 
     return {
       failureCode,
+      // §61 recoverability — which affordance the UI should lead with
+      // (wait/reconcile, fix-then-retry, contact support, or none).
+      recoverability: failureRecoverability(failureCode),
       what: explanation.what,
       why: explanation.why,
       fix: explanation.fix,
@@ -4272,6 +4276,38 @@ export async function buildServer({
         ? body.failureCode
         : undefined;
 
+    // §61 server-side refinement: the relay hardcodes coarse defaults (every
+    // INSTALL failure is STACK_CREATE_FAILED, most thrown exceptions become
+    // AWS_PERMISSION_DENIED). Sharpen those using the error text and the
+    // persisted CloudFormation events for this job, so remediation copy
+    // matches the real cause — for every installation, old relays included.
+    const reportedFailureCode = failureCodeParsed?.success ? failureCodeParsed.data : null;
+    let effectiveFailureCode = reportedFailureCode;
+    if (state === 'FAILED') {
+      const stackEvents =
+        job.type === 'INSTALL' || job.type === 'DESTROY'
+          ? await db
+              .select({
+                resourceType: schema.deploymentStackEvents.resourceType,
+                resourceStatus: schema.deploymentStackEvents.resourceStatus,
+                resourceStatusReason: schema.deploymentStackEvents.resourceStatusReason,
+              })
+              .from(schema.deploymentStackEvents)
+              .where(
+                and(
+                  eq(schema.deploymentStackEvents.deploymentId, deployment.id),
+                  eq(schema.deploymentStackEvents.jobId, job.id),
+                ),
+              )
+              .orderBy(schema.deploymentStackEvents.eventAt)
+          : [];
+      effectiveFailureCode = refineFailureCode({
+        reported: reportedFailureCode,
+        errorText: body.error ?? null,
+        stackEvents,
+      });
+    }
+
     // A finished job is what advances the deployment's own §46 state.
     // Domain jobs manage the custom_domains row, never the deployment
     // lifecycle — a failed cert request must not mark the deployment FAILED.
@@ -4305,7 +4341,7 @@ export async function buildServer({
           result: body as Record<string, unknown>,
           finishedAt: new Date(),
           lastProgressAt: new Date(),
-          ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
+          ...(effectiveFailureCode ? { failureCode: effectiveFailureCode } : {}),
         })
         .where(eq(schema.deploymentJobs.id, id));
 
@@ -4367,7 +4403,12 @@ export async function buildServer({
           result: state === 'FAILED' ? 'failure' : 'success',
           payload: {
             ...(body.error ? { error: body.error } : {}),
-            ...(failureCodeParsed?.success ? { failureCode: failureCodeParsed.data } : {}),
+            ...(effectiveFailureCode ? { failureCode: effectiveFailureCode } : {}),
+            // Audit trail: what the relay itself said, when refinement
+            // changed it — the classification decision stays traceable.
+            ...(reportedFailureCode && reportedFailureCode !== effectiveFailureCode
+              ? { reportedFailureCode }
+              : {}),
             ...(unrecognisedFailureCode ? { unrecognisedFailureCode } : {}),
           },
         });

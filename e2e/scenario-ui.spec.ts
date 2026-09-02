@@ -257,13 +257,14 @@ test.describe('cloudformation-rollback (browser)', () => {
       timeout: 15_000,
     });
     // §29 human-readable failure copy (packages/copy-map), not raw AWS jargon
-    // at the top level — the classified STACK_CREATE_FAILED remediation text.
+    // at the top level — refined server-side to DATABASE_CREATE_FAILED (the
+    // failed resource is the RDS instance), so the database remediation text.
     // The same vendorMessage also doubles as `currentActivity`
     // (apps/api/src/deployment-status.ts), so it legitimately renders twice
     // on this card (the activity line, and the failure Alert's title) — `.first()`
     // rather than a stricter locator, since either occurrence proves the copy.
     await expect(
-      page.getByText('The initial setup in your customer’s account did not complete.').first(),
+      page.getByText('The database could not be created.').first(),
     ).toBeVisible();
     // Scoped to the sections a vendor reads as the primary explanation of
     // this failure — NOT the whole page. Product finding (not fixed here,
@@ -322,7 +323,9 @@ test.describe('cloudformation-rollback (browser)', () => {
     await page.goto(`/install/${installLinkId}`);
     await expect(page.getByRole('heading', { name: 'Deployment needs attention' })).toBeVisible();
     await expect(page.getByText('What happened', { exact: true })).toBeVisible();
-    await expect(page.getByText("The initial setup couldn't complete.")).toBeVisible();
+    // Refined server-side to DATABASE_CREATE_FAILED — the customer sees the
+    // database description, not the generic stack one.
+    await expect(page.getByText("The database couldn't be created.")).toBeVisible();
     await expect(page.locator('svg.animate-spin')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Your application is ready' })).toHaveCount(0);
     await expect(page.getByText('Healthy', { exact: true })).toHaveCount(0);

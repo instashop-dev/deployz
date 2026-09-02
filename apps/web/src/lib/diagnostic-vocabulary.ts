@@ -200,3 +200,45 @@ export const FAILURE_SEVERITY_DOT: Record<FailureSeverity, string> = {
 export function failureCodeCopy(code: string): FailureCopy {
   return FAILURE_CODE_COPY[code as FailureCode] ?? FAILURE_CODE_COPY.UNKNOWN;
 }
+
+// ── §61 recoverability (mirrors @deployz/copy-map verbatim) ─────────────────
+
+/** §61 recoverability — what kind of intervention (if any) a failure needs. */
+export type FailureRecoverability =
+  | 'RECONCILE_FIRST'
+  | 'USER_ACTION'
+  | 'DEPLOYZ_ACTION'
+  | 'TERMINAL';
+
+/** Recoverability per §61 code (mirrors @deployz/copy-map verbatim). */
+export const FAILURE_RECOVERABILITY: Record<FailureCode, FailureRecoverability> = {
+  AWS_SCP_BLOCKED: 'USER_ACTION',
+  PORT_MISMATCH: 'USER_ACTION',
+  REGION_NOT_SUPPORTED: 'TERMINAL',
+  QUOTA_EXCEEDED: 'USER_ACTION',
+  IMAGE_HEALTH_CHECK_FAILED: 'USER_ACTION',
+  MIGRATION_FAILED: 'USER_ACTION',
+  RELAY_DISCONNECTED: 'RECONCILE_FIRST',
+  ECS_DEPLOYMENT_FAILED: 'USER_ACTION',
+  RDS_UNAVAILABLE: 'RECONCILE_FIRST',
+  AWS_PERMISSION_DENIED: 'USER_ACTION',
+  STACK_CREATE_FAILED: 'USER_ACTION',
+  STACK_DELETE_FAILED: 'USER_ACTION',
+  DATABASE_CREATE_FAILED: 'USER_ACTION',
+  DATABASE_CONNECTION_FAILED: 'RECONCILE_FIRST',
+  IMAGE_PULL_FAILED: 'DEPLOYZ_ACTION',
+  CONTAINER_START_FAILED: 'USER_ACTION',
+  MISSING_SECRET: 'USER_ACTION',
+  UNSUPPORTED_ARCHITECTURE: 'TERMINAL',
+  UNKNOWN: 'RECONCILE_FIRST',
+  REDIS_PROVISIONING_FAILED: 'DEPLOYZ_ACTION',
+  REDIS_CONNECTION_FAILED: 'RECONCILE_FIRST',
+};
+
+/** §65 one-liner per recoverability class (mirrors @deployz/copy-map verbatim). */
+export const RECOVERABILITY_COPY: Record<FailureRecoverability, string> = {
+  RECONCILE_FIRST: 'This can recover on its own — Deployz keeps checking. Retry only if it persists.',
+  USER_ACTION: 'Needs a change before a retry can succeed — see the fix above.',
+  DEPLOYZ_ACTION: 'This needs a fix on the Deployz side — contact support rather than retrying.',
+  TERMINAL: 'Retrying will not help until the underlying requirement changes.',
+};

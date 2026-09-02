@@ -9,6 +9,7 @@ import {
   EXPLANATION_FALLBACK,
   FAILURE_CODE_COPY,
   FAILURE_CODES,
+  FAILURE_RECOVERABILITY,
   FAILURE_REMEDIATION,
   FAILURE_SEVERITY_BADGE,
   FAILURE_SEVERITY_DOT,
@@ -16,12 +17,15 @@ import {
   ONBOARDING_STEPS,
   READINESS_STATE_PRESENTATION,
   READINESS_STATES,
+  RECOVERABILITY_COPY,
   SECRET_MASK,
+  customerStackStatusLabel,
   deploymentStateLabel,
   eventFamily,
   eventResultLabel,
   eventTypeLabel,
   failureCodeCopy,
+  failureRecoverability,
   readinessCountsLabel,
   readinessStateFromVerdict,
 } from '../src/index';
@@ -409,5 +413,45 @@ describe('§65 copy principles', () => {
     expect('Deployment failed').not.toMatch(JARGON_PATTERN);
     expect('Database unreachable').not.toMatch(JARGON_PATTERN);
     expect('Helper disconnected').not.toMatch(JARGON_PATTERN);
+  });
+});
+// §61 recoverability + the one customer-facing stack-status phrase.
+describe('recoverability and customer stack status label', () => {
+  it('classifies every failure code', () => {
+    for (const code of FAILURE_CODES) {
+      expect(FAILURE_RECOVERABILITY[code], `recoverability for ${code}`).toBeDefined();
+    }
+  });
+
+  it('recoverability copy is jargon-free', () => {
+    for (const copy of Object.values(RECOVERABILITY_COPY)) {
+      expect(copy).not.toMatch(JARGON_PATTERN);
+    }
+  });
+
+  it('falls back to the UNKNOWN class for unlisted codes', () => {
+    expect(failureRecoverability('NOT_A_CODE')).toBe(FAILURE_RECOVERABILITY.UNKNOWN);
+    expect(failureRecoverability('AWS_SCP_BLOCKED')).toBe('USER_ACTION');
+  });
+
+  it('maps every raw CloudFormation status shape to a jargon-free phrase', () => {
+    const samples = [
+      'ROLLBACK_COMPLETE',
+      'CREATE_FAILED',
+      'DELETE_FAILED',
+      'UPDATE_ROLLBACK_COMPLETE',
+      'CREATE_IN_PROGRESS',
+      'DELETE_IN_PROGRESS',
+      'CREATE_COMPLETE',
+      'SOMETHING_ELSE',
+    ];
+    for (const raw of samples) {
+      const label = customerStackStatusLabel(raw);
+      expect(label).not.toMatch(JARGON_PATTERN);
+      // Never the raw enum-style value itself.
+      expect(label).not.toMatch(/^[A-Z_]+$/);
+    }
+    expect(customerStackStatusLabel('ROLLBACK_COMPLETE')).toBe('Setup was rolled back');
+    expect(customerStackStatusLabel('DELETE_FAILED')).toBe('Removal was blocked');
   });
 });

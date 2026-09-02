@@ -396,12 +396,15 @@ describe('customer projection sanitization', () => {
     expect(JSON.stringify(customer)).not.toContain('vendorMessage');
   });
 
-  it('the one allowed AWS status word lives only inside failure.technical', () => {
+  it('the stack status reaches failure.technical only as a jargon-free phrase', () => {
     const customer = toCustomerDeploymentStatus(sensitiveScenario());
-    expect(customer.failure?.technical?.awsStatus).toBe('CREATE_FAILED');
+    // §65: never the raw CloudFormation enum value on the customer surface —
+    // customerStackStatusLabel maps it to plain language.
+    expect(customer.failure?.technical?.awsStatus).toBe('Setup did not complete');
     // "stackStatus" as a KEY name never appears — it is carried under
     // technical.awsStatus instead.
     expect(JSON.stringify(customer)).not.toContain('stackStatus');
+    expect(JSON.stringify(customer)).not.toContain('CREATE_FAILED');
   });
 
   it('the vendor projection, by contrast, does carry the full operational detail', () => {
