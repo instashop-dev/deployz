@@ -190,7 +190,7 @@ describe('deploy contract, busy gate and restart', () => {
     expect(job?.payload).toMatchObject({ migrationCommand: 'node migrate.js up' });
   });
 
-  it('prefers the stored manifest migration.command over the release row', async () => {
+  it('prefers the release row migration command over the stored manifest (CANARY-010)', async () => {
     const deployment = await seedDeployment({
       desiredState: {
         manifest: {
@@ -210,6 +210,37 @@ describe('deploy contract, busy gate and restart', () => {
       },
     });
     const releaseId = await seedRelease('v1.2.0', { migrationCommand: 'npm run release:migrate' });
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job?.payload).toMatchObject({ migrationCommand: 'npm run release:migrate' });
+  });
+
+  it('falls back to the stored manifest migration.command when the release has none', async () => {
+    const deployment = await seedDeployment({
+      desiredState: {
+        manifest: {
+          application: { root: '.', runtime: 'node', framework: null, dockerfilePath: null },
+          build: { command: null, context: '.' },
+          web: { command: null, port: 3000 },
+          health: { path: '/health' },
+          database: { postgres: true },
+          redis: { required: false, envBindings: [] },
+          storage: { required: false, envBindings: [] },
+          migration: { command: 'npm run db:migrate' },
+          worker: { command: null },
+          environment: { variables: [] },
+          externalServices: [],
+          unsupported: [],
+        },
+      },
+    });
+    const releaseId = await seedRelease('v1.3.0');
 
     const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
     expect(response.statusCode, response.body).toBe(202);

@@ -367,7 +367,7 @@ describe('createEcsDeployExecutor', () => {
       assignPublicIp: 'DISABLED',
     });
     expect(runInput.overrides.containerOverrides).toEqual([
-      { name: 'app', command: ['node', 'migrate.js', 'up'] },
+      { name: 'app', command: ['sh', '-c', 'node migrate.js up'] },
     ]);
     // The copy it ran IS the copy the service update then points at.
     const registeredArn = `arn:aws:ecs:us-east-1:151955775369:task-definition/app:1`;
@@ -383,6 +383,47 @@ describe('createEcsDeployExecutor', () => {
       registeredArn,
       completedAt: expect.any(String),
     });
+  });
+
+  it('runs the vendor migration command through the container shell, not a whitespace split', async () => {
+    const state = baseState();
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationCommand: 'npx prisma migrate deploy --schema ../../packages/prisma/schema.prisma',
+      }),
+    );
+    expect(result.deferred).toBe(true);
+    const runInput = state.runTasks[0] as {
+      overrides: { containerOverrides: { name: string; command: string[] }[] };
+    };
+    expect(runInput.overrides.containerOverrides).toEqual([
+      {
+        name: 'app',
+        command: ['sh', '-c', 'npx prisma migrate deploy --schema ../../packages/prisma/schema.prisma'],
+      },
+    ]);
+  });
+
+  it('passes a command with quoting/&& through verbatim as one -c argument, never split', async () => {
+    const state = baseState();
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationCommand: 'cd packages/db && npm run migrate',
+      }),
+    );
+    expect(result.deferred).toBe(true);
+    const runInput = state.runTasks[0] as {
+      overrides: { containerOverrides: { name: string; command: string[] }[] };
+    };
+    expect(runInput.overrides.containerOverrides).toEqual([
+      { name: 'app', command: ['sh', '-c', 'cd packages/db && npm run migrate'] },
+    ]);
   });
 
   it('fails with MIGRATION_FAILED (exit code + stoppedReason) and never touches the service', async () => {
