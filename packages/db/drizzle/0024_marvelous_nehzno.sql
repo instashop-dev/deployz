@@ -1,0 +1,1 @@
+ALTER TABLE "deployment_jobs" ADD COLUMN "reconcile_count" integer DEFAULT 0 NOT NULL;

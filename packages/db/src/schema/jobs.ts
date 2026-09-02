@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import {
   aiExplanationStateEnum,
@@ -18,8 +18,9 @@ export const deploymentJobs = pgTable('deployment_jobs', {
     .references(() => deployments.id),
   // §39 job type (INSTALL … HEALTH_REPORT).
   type: jobTypeEnum('type').notNull(),
-  // §39 job state. WAITING semantics: waiting on customer approval OR on
-  // relay pickup — payload/result disambiguates which.
+  // §39 job state. WAITING: the relay went quiet mid-operation — the
+  // watchdog parks the job here instead of failing it, and the relay's next
+  // command poll claims it back (see sweepStuckJobs and GET /api/relay/commands).
   state: jobStateEnum('state').notNull().default('REQUESTED'),
   // §39 idempotency: retries with the same key must not double-execute.
   idempotencyKey: text('idempotency_key').notNull().unique(),
@@ -35,6 +36,11 @@ export const deploymentJobs = pgTable('deployment_jobs', {
   // heartbeat, or reported progress. The watchdog times out from THIS, not
   // updatedAt: a deployment row update says nothing about the job.
   lastProgressAt: timestamp('last_progress_at', { withTimezone: true }),
+  // How many times the watchdog re-offered this job to the relay after its
+  // runtime bound elapsed (reconcile-before-fail). Bounded; the relay's
+  // describe-first executors make a re-offer converge on real AWS state
+  // instead of duplicating work.
+  reconcileCount: integer('reconcile_count').notNull().default(0),
   finishedAt: timestamp('finished_at', { withTimezone: true }),
   // §16/§29 cached AI explanation of this attempt's failure. Generated lazily
   // on the first diagnostics request and served from here afterwards, so a

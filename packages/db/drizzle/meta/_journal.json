@@ -169,6 +169,13 @@
       "when": 1788342505788,
       "tag": "0023_equal_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788344025803,
+      "tag": "0024_marvelous_nehzno",
+      "breakpoints": true
     }
   ]
 }

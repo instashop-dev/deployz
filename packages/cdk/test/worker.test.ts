@@ -561,6 +561,10 @@ describe('sweepStuckJobs', () => {
     state: 'REQUESTED' | 'QUEUED' | 'WAITING' | 'RUNNING' | 'SUCCEEDED',
     startedMinutesAgo: number,
     lastProgressMinutesAgo: number | null,
+    options: {
+      relayStatus?: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+      reconcileCount?: number;
+    } = {},
   ): Promise<{ jobId: string; deploymentId: string }> {
     const [deployment] = await db
       .insert(schema.deployments)
@@ -570,6 +574,7 @@ describe('sweepStuckJobs', () => {
         customerId,
         region: 'us-east-1',
         state: 'UPDATING',
+        relayStatus: options.relayStatus ?? 'UNKNOWN',
         installationId: `inst-${randomUUID()}`,
         enrollmentCode: randomUUID(),
       })
@@ -585,6 +590,7 @@ describe('sweepStuckJobs', () => {
         idempotencyKey: `watchdog:${randomUUID()}`,
         payload: {},
         startedAt: started,
+        reconcileCount: options.reconcileCount ?? 0,
         ...(lastProgressMinutesAgo !== null
           ? { lastProgressAt: new Date(Date.now() - lastProgressMinutesAgo * 60 * 1000) }
           : {}),
@@ -594,13 +600,40 @@ describe('sweepStuckJobs', () => {
     return { jobId: job!.id, deploymentId: deployment!.id };
   }
 
-  it('fails a DEPLOY_RELEASE with no progress for 25 minutes', async () => {
+  it('parks a stale job WAITING when the relay is quiet — never a false FAILED', async () => {
     const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25);
-    const failed = await sweepStuckJobs(db);
-    expect(failed).toBeGreaterThanOrEqual(1);
+    const settled = await sweepStuckJobs(db);
+    expect(settled).toBeGreaterThanOrEqual(1);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('WAITING');
+
+    // The deployment is untouched: the operation may have finished in AWS
+    // and a returning relay resumes from its checkpoint.
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    expect(deployment?.state).toBe('UPDATING');
+
+    const events = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.jobId, jobId));
+    expect(events.some((e) => e.eventType === 'operation.waiting_for_relay')).toBe(true);
+  });
+
+  it('fails a WAITING job as RELAY_DISCONNECTED once the relay grace elapses', async () => {
+    // 20-minute timeout + 24h grace, all long exceeded.
+    const { jobId, deploymentId } = await seedJobAndDeployment(
+      'DEPLOY_RELEASE',
+      'WAITING',
+      26 * 60,
+      25 * 60,
+      { relayStatus: 'DISCONNECTED' },
+    );
+    await sweepStuckJobs(db);
 
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
     expect(job?.state).toBe('FAILED');
+    expect(job?.failureCode).toBe('RELAY_DISCONNECTED');
     expect(job?.result).toMatchObject({ timeout: true });
 
     const [deployment] = await db
@@ -610,8 +643,45 @@ describe('sweepStuckJobs', () => {
     expect(deployment?.state).toBe('FAILED');
   });
 
-  it('keeps a deployment with a running release live when a day-2 job times out', async () => {
-    const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25);
+  it('re-offers a stuck job to a live relay before ever failing it', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25, {
+      relayStatus: 'CONNECTED',
+    });
+    await sweepStuckJobs(db);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('REQUESTED');
+    expect(job?.reconcileCount).toBe(1);
+
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    expect(deployment?.state).toBe('UPDATING');
+
+    const events = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.jobId, jobId));
+    expect(events.some((e) => e.eventType === 'operation.requeued')).toBe(true);
+  });
+
+  it('re-offers a RUNNING job past its runtime bound even while heartbeats keep it fresh (orphaned invocation)', async () => {
+    // A relay invocation died between the AWS mutation and its checkpoint
+    // write: heartbeats keep refreshing lastProgressAt, so only the runtime
+    // clock can see the job is going nowhere.
+    const { jobId } = await seedJobAndDeployment('INSTALL', 'RUNNING', 100, 1, {
+      relayStatus: 'CONNECTED',
+    });
+    await sweepStuckJobs(db);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('REQUESTED');
+    expect(job?.reconcileCount).toBe(1);
+  });
+
+  it('keeps a deployment with a running release live when a day-2 job finally fails', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25, {
+      relayStatus: 'CONNECTED',
+      reconcileCount: 3,
+    });
     const [release] = await db
       .insert(schema.releases)
       .values({
@@ -631,6 +701,7 @@ describe('sweepStuckJobs', () => {
 
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
     expect(job?.state).toBe('FAILED');
+    expect(job?.result).toMatchObject({ timeout: true, reconcileAttempts: 3 });
     // The previous release is still serving: the deployment returns to a
     // live state instead of FAILED (no newer READY release here -> HEALTHY).
     const [deployment] = await db
@@ -640,8 +711,11 @@ describe('sweepStuckJobs', () => {
     expect(deployment?.state).toBe('HEALTHY');
   });
 
-  it('leaves the deployment state alone when a CONFIG_UPDATE times out', async () => {
-    const { jobId, deploymentId } = await seedJobAndDeployment('CONFIG_UPDATE', 'RUNNING', 30, 25);
+  it('leaves the deployment state alone when a CONFIG_UPDATE finally fails', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('CONFIG_UPDATE', 'RUNNING', 30, 25, {
+      relayStatus: 'CONNECTED',
+      reconcileCount: 3,
+    });
     await sweepStuckJobs(db);
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
     expect(job?.state).toBe('FAILED');
@@ -653,7 +727,10 @@ describe('sweepStuckJobs', () => {
   });
 
   it('records an operation.timeout event with the job evidence', async () => {
-    const { jobId } = await seedJobAndDeployment('ROLLBACK', 'RUNNING', 30, 25);
+    const { jobId } = await seedJobAndDeployment('ROLLBACK', 'RUNNING', 30, 25, {
+      relayStatus: 'CONNECTED',
+      reconcileCount: 3,
+    });
     await sweepStuckJobs(db);
 
     const events = await db
@@ -665,6 +742,7 @@ describe('sweepStuckJobs', () => {
     expect(timeout?.payload).toMatchObject({
       jobType: 'ROLLBACK',
       relayStatus: expect.any(String),
+      reconcileCount: 3,
     });
   });
 
@@ -689,11 +767,11 @@ describe('sweepStuckJobs', () => {
     expect(job?.state).toBe('RUNNING');
   });
 
-  it('sweeps an INSTALL past its 60-minute budget', async () => {
+  it('parks an INSTALL past its 60-minute budget on a quiet relay', async () => {
     const { jobId } = await seedJobAndDeployment('INSTALL', 'RUNNING', 75, 70);
     await sweepStuckJobs(db);
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
-    expect(job?.state).toBe('FAILED');
+    expect(job?.state).toBe('WAITING');
   });
 
   it('never sweeps a finished job', async () => {
@@ -707,7 +785,7 @@ describe('sweepStuckJobs', () => {
   // lastProgressAt while it lives). Failing it here would strand the
   // deployment in FAILED with no disconnect path; force-complete owns the
   // dead-relay DESTROY instead.
-  it('never sweeps a DESTROY, however stale', async () => {
+  it('never fails a DESTROY, however stale', async () => {
     const { jobId, deploymentId } = await seedJobAndDeployment('DESTROY', 'RUNNING', 120, 120);
     await sweepStuckJobs(db);
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
@@ -717,6 +795,18 @@ describe('sweepStuckJobs', () => {
       .from(schema.deployments)
       .where(eq(schema.deployments.id, deploymentId));
     expect(deployment?.state).toBe('UPDATING');
+  });
+
+  it('re-offers a stale DESTROY to a live relay (but never fails it)', async () => {
+    const { jobId } = await seedJobAndDeployment('DESTROY', 'RUNNING', 120, 120, {
+      relayStatus: 'CONNECTED',
+      reconcileCount: 3,
+    });
+    await sweepStuckJobs(db);
+    // Re-offers exhausted: a DESTROY still never fails from the watchdog —
+    // the vendor's force-complete escape hatch owns the dead-end case.
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('RUNNING');
   });
 });
 

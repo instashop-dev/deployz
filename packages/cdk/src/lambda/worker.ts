@@ -429,30 +429,77 @@ export async function handleMessage(
   }
 }
 
-// ── Stuck-job watchdog (Phase 7) ─────────────────────────────────────────
+// ── Stuck-job watchdog / reconciler (reconcile-before-fail) ──────────────
 
-/** Suggested MVP timeouts per mutating job type. */
+/**
+ * Staleness bound per job type: how long with NO signal at all (no claim, no
+ * heartbeat, no progress, no result) before the relay is presumed gone for
+ * this job. Heartbeats refresh lastProgressAt on every active job, so
+ * tripping this means the relay itself has gone quiet — never that a live
+ * operation is merely slow.
+ *
+ * DESTROY is deliberately absent: a dead-relay DESTROY is settled by the
+ * vendor's force-complete escape hatch (with the honest SKIPPED_RELAY_OFFLINE
+ * outcome), never failed by the watchdog.
+ */
 const JOB_TIMEOUTS_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect)['type'], number>> = {
   INSTALL: 60 * 60 * 1000,
   DEPLOY_RELEASE: 20 * 60 * 1000,
   ROLLBACK: 20 * 60 * 1000,
   RESTART: 20 * 60 * 1000,
   CONFIG_UPDATE: 20 * 60 * 1000,
-  // DESTROY is deliberately absent: while the relay lives, its heartbeats
-  // refresh lastProgressAt, so a DESTROY only ever trips a timeout when the
-  // relay is dead — and failing it here would strand the deployment in
-  // FAILED with no disconnect path left. That case is settled by the
-  // force-complete escape hatch instead, gated on the same staleness.
+  PURGE: 60 * 60 * 1000,
 };
+
+/**
+ * Runtime bound per attempt with a LIVE relay. Heartbeats keep
+ * lastProgressAt fresh whether or not the operation is actually moving, so a
+ * relay invocation that died between an AWS mutation and its checkpoint
+ * write leaves a RUNNING job no signal will ever settle — the staleness
+ * clock cannot see it. Past this bound the job is re-offered to the relay
+ * (state back to REQUESTED): every relay executor reads AWS state before
+ * acting (describe-before-create/delete, digest short-circuit), so a
+ * re-offer converges on what actually happened instead of repeating the
+ * mutation, and the result route ignores a late duplicate report.
+ */
+const JOB_MAX_RUNTIME_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSelect)['type'], number>> = {
+  INSTALL: 90 * 60 * 1000,
+  DEPLOY_RELEASE: 30 * 60 * 1000,
+  ROLLBACK: 30 * 60 * 1000,
+  RESTART: 30 * 60 * 1000,
+  CONFIG_UPDATE: 30 * 60 * 1000,
+  DESTROY: 90 * 60 * 1000,
+  PURGE: 90 * 60 * 1000,
+};
+
+/** Re-offers per job before the watchdog concludes the operation is wedged. */
+const MAX_RECONCILE_REQUEUES = 3;
+
+/**
+ * How long past its staleness bound a WAITING job may sit on a disconnected
+ * relay before the watchdog finally fails it. Long on purpose: a relay that
+ * comes back resumes from its checkpoint, and prematurely failing the job
+ * would misreport an operation that may have finished in AWS.
+ */
+const RELAY_WAIT_GRACE_MS = 24 * 60 * 60 * 1000;
 
 const ACTIVE_MUTATING_STATES = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'] as const;
 
 /**
- * Fails mutating jobs whose last genuine progress signal is older than the
- * job type's timeout. The signal is lastProgressAt — updated on relay
- * acknowledgement, heartbeat and result — falling back to startedAt, then
- * createdAt. A deployment row update says nothing about a job, so updatedAt
- * is deliberately not consulted.
+ * Reconciles stuck mutating jobs instead of blindly failing them.
+ *
+ * Live relay: a job past its runtime bound (or stale in flight) is re-offered
+ * to the relay (bounded by MAX_RECONCILE_REQUEUES), whose describe-first
+ * executors resolve the true AWS state; only exhausted re-offers fail.
+ *
+ * Dead relay: the job is parked WAITING (surfaced as "waiting for the
+ * customer's AWS connection", never a false FAILED); the relay's next command
+ * poll claims WAITING jobs back. Only after RELAY_WAIT_GRACE_MS does the
+ * watchdog fail it, classified RELAY_DISCONNECTED.
+ *
+ * Failure settlement matches the relay result route: a failed day-2
+ * operation on a deployment with a running release never marks the whole
+ * deployment FAILED.
  */
 export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Promise<number> {
   const rows = await db
@@ -463,65 +510,155 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
       inArray(schema.deploymentJobs.state, [...ACTIVE_MUTATING_STATES]),
     );
 
-  let failed = 0;
+  let settled = 0;
   for (const { job, deployment } of rows) {
     const timeout = JOB_TIMEOUTS_MS[job.type];
-    if (timeout === undefined) continue;
+    const maxRuntime = JOB_MAX_RUNTIME_MS[job.type];
     const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
-    if (now.getTime() - lastSignal.getTime() <= timeout) continue;
+    const runtimeStart = job.startedAt ?? job.createdAt;
+    const stale = timeout !== undefined && now.getTime() - lastSignal.getTime() > timeout;
+    const inFlight = job.state === 'RUNNING' || job.state === 'WAITING';
+    const overRuntime =
+      maxRuntime !== undefined && inFlight && now.getTime() - runtimeStart.getTime() > maxRuntime;
 
-    // Same settlement rule as the relay result route: a timed-out day-2
-    // operation on a deployment with a running release must not mark the
-    // whole deployment FAILED — the previous release is still serving.
-    const nextState = deploymentStateAfterFailedJob({
+    const evidence = {
       jobType: job.type,
-      hasCurrentRelease: deployment.currentReleaseId !== null,
-      newerReadyReleaseExists: await newerReadyReleaseExists(
-        db,
-        deployment.applicationId,
-        deployment.currentReleaseId,
-      ),
-    });
+      startedAt: job.startedAt?.toISOString() ?? null,
+      lastProgressAt: job.lastProgressAt?.toISOString() ?? null,
+      relayStatus: deployment.relayStatus,
+      reconcileCount: job.reconcileCount,
+    };
 
-    await db.transaction(async (tx) => {
-      await tx
-        .update(schema.deploymentJobs)
-        .set({
-          state: 'FAILED',
-          finishedAt: now,
-          result: { timeout: true },
-        })
-        .where(eq(schema.deploymentJobs.id, job.id));
+    if (deployment.relayStatus === 'CONNECTED') {
+      if (!stale && !overRuntime) continue;
 
-      if (nextState !== null) {
-        await tx
-          .update(schema.deployments)
-          .set({ state: nextState })
-          .where(eq(schema.deployments.id, deployment.id));
+      if (inFlight && job.reconcileCount < MAX_RECONCILE_REQUEUES) {
+        await db.transaction(async (tx) => {
+          await tx
+            .update(schema.deploymentJobs)
+            .set({
+              state: 'REQUESTED',
+              reconcileCount: job.reconcileCount + 1,
+              lastProgressAt: now,
+            })
+            .where(eq(schema.deploymentJobs.id, job.id));
+          await tx.insert(schema.eventLogs).values({
+            actorType: 'system',
+            actorId: 'watchdog',
+            organizationId: deployment.organizationId,
+            customerId: deployment.customerId,
+            deploymentId: deployment.id,
+            jobId: job.id,
+            eventType: 'operation.requeued',
+            previousState: deployment.state,
+            requestedState: null,
+            result: 'pending',
+            payload: evidence,
+          });
+        });
+        settled += 1;
+        continue;
       }
 
-      await tx.insert(schema.eventLogs).values({
-        actorType: 'system',
-        actorId: 'watchdog',
-        organizationId: deployment.organizationId,
-        customerId: deployment.customerId,
-        deploymentId: deployment.id,
-        jobId: job.id,
-        eventType: 'operation.timeout',
-        previousState: deployment.state,
-        requestedState: nextState,
-        result: 'failure',
-        payload: {
-          jobType: job.type,
-          startedAt: job.startedAt?.toISOString() ?? null,
-          lastProgressAt: job.lastProgressAt?.toISOString() ?? null,
-          relayStatus: deployment.relayStatus,
-        },
+      // Re-offers exhausted (or the relay never claims what it is offered).
+      // DESTROY still never fails from here — force-complete owns it.
+      if (timeout === undefined) continue;
+      await failStuckJob(db, job, deployment, now, 'UNKNOWN', evidence);
+      settled += 1;
+      continue;
+    }
+
+    // Relay not connected. DESTROY (no timeout entry) is force-complete's.
+    if (timeout === undefined || !stale) continue;
+
+    if (job.state !== 'WAITING') {
+      // Park, don't fail: the operation may have finished in AWS, and a
+      // returning relay resumes from its checkpoint. lastProgressAt is left
+      // alone so the grace clock keeps measuring real silence.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.deploymentJobs)
+          .set({ state: 'WAITING' })
+          .where(eq(schema.deploymentJobs.id, job.id));
+        await tx.insert(schema.eventLogs).values({
+          actorType: 'system',
+          actorId: 'watchdog',
+          organizationId: deployment.organizationId,
+          customerId: deployment.customerId,
+          deploymentId: deployment.id,
+          jobId: job.id,
+          eventType: 'operation.waiting_for_relay',
+          previousState: deployment.state,
+          requestedState: null,
+          result: 'pending',
+          payload: evidence,
+        });
       });
-    });
-    failed += 1;
+      settled += 1;
+      continue;
+    }
+
+    if (now.getTime() - lastSignal.getTime() > timeout + RELAY_WAIT_GRACE_MS) {
+      await failStuckJob(db, job, deployment, now, 'RELAY_DISCONNECTED', evidence);
+      settled += 1;
+    }
   }
-  return failed;
+  return settled;
+}
+
+async function failStuckJob(
+  db: RuntimeDb,
+  job: typeof schema.deploymentJobs.$inferSelect,
+  deployment: typeof schema.deployments.$inferSelect,
+  now: Date,
+  failureCode: 'UNKNOWN' | 'RELAY_DISCONNECTED',
+  evidence: Record<string, unknown>,
+): Promise<void> {
+  // Same settlement rule as the relay result route: a timed-out day-2
+  // operation on a deployment with a running release must not mark the
+  // whole deployment FAILED — the previous release is still serving.
+  const nextState = deploymentStateAfterFailedJob({
+    jobType: job.type,
+    hasCurrentRelease: deployment.currentReleaseId !== null,
+    newerReadyReleaseExists: await newerReadyReleaseExists(
+      db,
+      deployment.applicationId,
+      deployment.currentReleaseId,
+    ),
+  });
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.deploymentJobs)
+      .set({
+        state: 'FAILED',
+        finishedAt: now,
+        failureCode,
+        result: { timeout: true, reconcileAttempts: job.reconcileCount },
+      })
+      .where(eq(schema.deploymentJobs.id, job.id));
+
+    if (nextState !== null) {
+      await tx
+        .update(schema.deployments)
+        .set({ state: nextState })
+        .where(eq(schema.deployments.id, deployment.id));
+    }
+
+    await tx.insert(schema.eventLogs).values({
+      actorType: 'system',
+      actorId: 'watchdog',
+      organizationId: deployment.organizationId,
+      customerId: deployment.customerId,
+      deploymentId: deployment.id,
+      jobId: job.id,
+      eventType: 'operation.timeout',
+      previousState: deployment.state,
+      requestedState: nextState,
+      result: 'failure',
+      payload: evidence,
+    });
+  });
 }
 
 // ── Relay-liveness sweep ──────────────────────────────────────────────────
