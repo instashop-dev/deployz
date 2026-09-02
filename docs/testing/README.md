@@ -30,8 +30,10 @@ escalation ladder.
 
 A full product-flow live install (install link → a real customer AWS account
 → HEALTHY → update → delete) is not automated in Phase 1. It stays a
-documented manual escalation — see [`aws-canary.md`](aws-canary.md) and
-[`aws-fresh.md`](aws-fresh.md) for what canary/fresh actually cover instead.
+documented manual escalation — see
+[`aws-full-product-canary.md`](aws-full-product-canary.md) for the runbook,
+and [`aws-canary.md`](aws-canary.md) / [`aws-fresh.md`](aws-fresh.md) for
+what canary/fresh actually cover instead.
 
 ## When to use each
 
@@ -62,5 +64,6 @@ documented manual escalation — see [`aws-canary.md`](aws-canary.md) and
 | [`e2e-scenarios.md`](e2e-scenarios.md) | The full simulated-scenario table, and how to add a new one |
 | [`aws-canary.md`](aws-canary.md) | The read-only canary mode against the standing installation |
 | [`aws-fresh.md`](aws-fresh.md) | The real-AWS bootstrap create/destroy mode |
+| [`aws-full-product-canary.md`](aws-full-product-canary.md) | The manual full-product walk against the deployed control plane: template publishing, resource ledger, cleanup verification, failure cases seen on real AWS |
 | [`ai-agent-testing-guide.md`](ai-agent-testing-guide.md) | The escalation policy AI coding agents must follow |
 | [`discovery/README.md`](discovery/README.md) | Point-in-time investigation reports behind the Phase 1 design — reference only, not maintained |
