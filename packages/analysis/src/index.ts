@@ -71,6 +71,9 @@ export type {
 } from './readiness-report.js';
 export { buildReadinessReport, verdictFromReadiness } from './readiness-report.js';
 
+export type { ManifestSource } from './manifest.js';
+export { normalizeDeploymentManifest, evaluateManifestReadiness } from './manifest.js';
+
 export type {
   FixInstructionsFacts,
   FixInstructionsContext,

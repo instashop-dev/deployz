@@ -430,6 +430,8 @@ async function reportHealth(
           desiredCount: runtimeHealth.desiredCount,
           runningCount: runtimeHealth.runningCount,
           unhealthyTargetCount: runtimeHealth.unhealthyTargetCount,
+          pendingTargetCount: runtimeHealth.pendingTargetCount,
+          unknownTargetCount: runtimeHealth.unknownTargetCount,
           deploymentRolloutState: runtimeHealth.deploymentRolloutState,
         }
       : {}),

@@ -136,6 +136,25 @@ async function seedAndLaunch(
     }
   }
 
+  // Phase 2 readiness gate: ensure the test fixture application has a
+  // manifest that evaluates to READY. The simulated analysis repo fixtures do
+  // not carry a real Dockerfile/start command, so override them.
+  const patchResponse = await request.patch(`${API_URL}/api/applications/${application.id}`, {
+    data: {
+      containerPort: 3000,
+      healthPath: '/api/health',
+      migrationCommand: 'npm run db:migrate',
+      appRoot: '.',
+      dockerfilePath: 'Dockerfile',
+      buildContext: '.',
+      buildCommand: 'npm run build',
+      startCommand: 'npm start',
+    },
+  });
+  if (!patchResponse.ok()) {
+    throw new Error(`patch application failed: ${patchResponse.status()} ${await patchResponse.text()}`);
+  }
+
   const customerResponse = await request.post(`${API_URL}/api/customers`, {
     data: {
       name: `Scenario Customer ${suffix}`,

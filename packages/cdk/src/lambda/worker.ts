@@ -227,9 +227,11 @@ type ConfigUpdateMessage = Extract<QueueMessage, { type: 'CONFIG_UPDATE' }>;
 
 /**
  * Turns a config write-through into per-deployment CONFIG_UPDATE jobs. The
- * durable payload carries KEYS ONLY — plaintext secret values never persist
- * in the control plane; the relay fetches the effective configuration over
- * its authenticated channel when it executes.
+ * durable payload carries newly-entered secret VALUES only long enough for
+ * the relay to claim them — `GET /api/relay/commands` serves the payload
+ * once and scrubs the values from the stored row in the same request (see
+ * `redactClaimedPayload` in server.ts). The control-plane DB never keeps
+ * plaintext secret values.
  */
 async function configUpdate(
   db: RuntimeDb,
@@ -260,6 +262,8 @@ async function configUpdate(
       messageId,
       customerId: message.customerId,
       deployments: deployments.length,
+      // Values never leave the process in a log line — count only.
+      secretCount: message.secrets?.length ?? 0,
     }),
   );
 
@@ -274,6 +278,7 @@ async function configUpdate(
         idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${messageId}`,
         payload: {
           ...(message.changedKeys ? { changedKeys: [...message.changedKeys] } : {}),
+          ...(message.secrets ? { secrets: message.secrets.map((s) => ({ ...s })) } : {}),
           ...(message.removedKeys ? { removedKeys: [...message.removedKeys] } : {}),
         },
         requestedBy: null,

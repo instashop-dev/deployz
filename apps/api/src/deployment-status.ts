@@ -152,7 +152,13 @@ export interface DeriveDeploymentStatusInput {
   /** This deployment's jobs — at minimum every INSTALL job, the latest job overall, and the latest FAILED job. */
   jobs: DerivationJob[];
   domain: DerivationDomain | null;
-  /** resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE, else http for a bare ALB, else null. */
+  /**
+   * resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE or
+   * CONFIGURING, else http for a bare ALB, else null. Exposed to the
+   * customer only once runtime health confirms the app is reachable (READY,
+   * or VERIFYING with healthStatus HEALTHY) — never from a stack that merely
+   * finished creating.
+   */
   appUrl: string | null;
   /**
    * The second (and only other) documented clock exception, alongside the
@@ -978,7 +984,17 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
         extractStackStatus(latestStackJob?.result) ?? readSnapshotStackStatus(deployment.observedState),
     },
     health: { status: deployment.healthStatus },
-    result: stage === 'READY' && appUrl ? { url: appUrl } : null,
+    // Runtime-verified reachability is the gate for exposing an address:
+    // READY's https URL always, and the temporary HTTP ALB endpoint once a
+    // VERIFYING deployment's health status confirms the app is actually
+    // serving. An appUrl that merely EXISTS (stack complete, health still
+    // UNKNOWN) is never presented as a working address.
+    result:
+      stage === 'READY' && appUrl
+        ? { url: appUrl }
+        : stage === 'VERIFYING' && deployment.healthStatus === 'HEALTHY' && appUrl
+          ? { url: appUrl }
+          : null,
     failure:
       stage === 'FAILED'
         ? buildFailure(latestFailed, failureEntry!)

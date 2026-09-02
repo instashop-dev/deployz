@@ -77,6 +77,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@aws-sdk/client-ecr':
+        specifier: ^3.1115.0
+        version: 3.1115.0
       '@aws-sdk/client-ses':
         specifier: ^3.1115.0
         version: 3.1115.0
@@ -123,9 +126,6 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@aws-sdk/client-ecr':
-        specifier: ^3.1115.0
-        version: 3.1115.0
       '@electric-sql/pglite':
         specifier: ^0.5.5
         version: 0.5.5
@@ -202,6 +202,9 @@ importers:
       '@ai-sdk/openai-compatible':
         specifier: ^3.0.34
         version: 3.0.34(zod@4.4.3)
+      '@deployz/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       ai:
         specifier: ^7.0.73
         version: 7.0.73(zod@4.4.3)

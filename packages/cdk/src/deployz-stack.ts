@@ -185,10 +185,27 @@ export class DeployzStack extends Stack {
         // artifacts are not confirmed published (fail closed). The publisher
         // prints this value after verifying every region.
         ...(deployableAwsRegions ? { DEPLOYABLE_AWS_REGIONS: deployableAwsRegions } : {}),
+        // Phase 1.1 ECR pull-grant lifecycle: the repository whose policy the
+        // API mutates when an installation is granted/revoked.
+        DEPLOYZ_ECR_REPOSITORY_NAME: buildPipeline.repository.repositoryName,
       },
     });
 
     jobQueue.grantSendMessages(apiLambda.function);
+
+    // Phase 1.1: the API rewrites the ECR repository policy to grant/revoke
+    // per-installation cross-account pull access. Scoped to this repository,
+    // not ecr:* on everything.
+    apiLambda.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: [
+          'ecr:GetRepositoryPolicy',
+          'ecr:SetRepositoryPolicy',
+          'ecr:DeleteRepositoryPolicy',
+        ],
+        resources: [buildPipeline.repository.repositoryArn],
+      }),
+    );
 
     dbSecurityGroup.addIngressRule(
       apiLambda.function.connections.securityGroups[0] ?? Peer.anyIpv4(),

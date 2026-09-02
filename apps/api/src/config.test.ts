@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
+  createRelaySecretWriter,
   SECRET_MASK,
   getConfig,
   mergeConfigEntries,
@@ -11,7 +12,12 @@ import {
   type ConfigSecretWriter,
   type ConfigStore,
 } from './config.js';
+import { enqueue } from './queue.js';
 import { ApiError } from './errors.js';
+
+// enqueue is only ever called by createRelaySecretWriter (below) — mocking
+// it here affects no other test in this file.
+vi.mock('./queue.js');
 
 // Todo 26 — application configuration API logic. The DB boundary
 // (ConfigStore) and the §31 relay write-through (ConfigSecretWriter) are
@@ -480,5 +486,25 @@ describe('config — removing a value', () => {
   it('accepts deletes through the request body schema', () => {
     const parsed = setConfigBodySchema.parse({ customerId: null, entries: [], deletes: ['OLD_KEY'] });
     expect(parsed.deletes).toEqual(['OLD_KEY']);
+  });
+});
+
+describe('config — relay write-through queue message', () => {
+  it('carries entered secret VALUES transiently and keys for plain changes', async () => {
+    const enqueueMock = vi.mocked(enqueue);
+    enqueueMock.mockResolvedValue(true);
+    const writer = createRelaySecretWriter();
+    await writer.writeSecrets(CUSTOMER_ID, [
+      { key: 'DATABASE_URL', value: 'postgres://fresh-secret', isSecret: true },
+      { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
+      { key: 'TOUCHED_NOT_SECRET', value: '', isSecret: true },
+    ]);
+
+    expect(enqueueMock).toHaveBeenCalledWith({
+      type: 'CONFIG_UPDATE',
+      customerId: CUSTOMER_ID,
+      changedKeys: ['DATABASE_URL', 'LOG_LEVEL', 'TOUCHED_NOT_SECRET'],
+      secrets: [{ key: 'DATABASE_URL', value: 'postgres://fresh-secret' }],
+    });
   });
 });
