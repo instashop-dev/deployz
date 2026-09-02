@@ -1,0 +1,66 @@
+{
+  "generatedAt": "2026-09-01 (session)",
+  "account": "151955775369",
+  "regionsScanned": ["ap-south-1","eu-north-1","eu-west-3","eu-west-2","eu-west-1","ap-northeast-3","ap-northeast-2","ap-northeast-1","ca-central-1","sa-east-1","ap-southeast-1","ap-southeast-2","eu-central-1","us-east-1","us-east-2","us-west-1","us-west-2"],
+  "dbInventory": {
+    "applications": [
+      { "id": "ad3f096f-d10a-482a-a69e-3e820bad52a0", "name": "revealyst" },
+      { "id": "2c89beda-63c5-4a25-a834-6e330a12ec61", "name": "documenso" }
+    ],
+    "deployments": [
+      { "id": "eafc9c06-d547-4f08-9a50-458ff81a2ea7", "applicationId": "2c89beda-63c5-4a25-a834-6e330a12ec61", "state": "FAILED", "region": "us-east-1", "awsAccountId": "151955775369", "installationId": "ab4e2915-a79e-4000-8f49-7c637ec3bb1c", "bootstrapStackName": "deployz-bootstrap-documenso-eafc9c06" }
+    ],
+    "deploymentJobs": 2, "releases": 0, "customDomains": 0, "deploymentResources": 0, "usageRecords": 0, "applicationConfigs": 0,
+    "eventLogs": { "rows": 8, "action": "PRESERVE - append-only by DB trigger (0001_event_logs_immutable.sql), repo design forbids deletion" },
+    "preserved": { "users": 23, "organizations": 24, "customers": 2 }
+  },
+  "deletionCandidates": {
+    "us-east-1": {
+      "installationId": "ab4e2915-a79e-4000-8f49-7c637ec3bb1c",
+      "proof": "DB deployment eafc9c06 -> installation_id + bootstrap_stack_name (proof 1); stack tag deployz:installation (proof 3); resource tags + stack membership (proof 2)",
+      "cloudFormation": [
+        { "name": "deployz-app-ab4e2915", "status": "ROLLBACK_FAILED", "tag": "deployz:installation=ab4e2915-a79e-4000-8f49-7c637ec3bb1c" },
+        { "name": "deployz-bootstrap-documenso-eafc9c06", "status": "CREATE_COMPLETE", "proof": "InstallationId custom resource = ab4e2915-...; DB bootstrap_stack_name match" }
+      ],
+      "rds": [{ "id": "deployz-app-ab4e2915-databaseb269d8bb-gsbbc8sjloq6", "deletionProtection": true, "tags": "deployz:installation + aws:cloudformation:stack-name=deployz-app-ab4e2915", "automatedSnapshot": "rds:deployz-app-ab4e2915-databaseb269d8bb-gsbbc8sjloq6-2026-09-01-11-15" }],
+      "rdsSubnetGroups": ["deployz-app-ab4e2915-databasesubnetgroup7d60f180-0qihn7bfj7ez"],
+      "s3": [
+        { "bucket": "deployz-app-ab4e2915-appstorage995579da-gobauordfdit", "tag": "deployz:installation=ab4e2915-..." },
+        { "bucket": "deployz-app-ab4e2915-appstorage995579da-xfz43s8ebo3q", "tag": "deployz:installation=ab4e2915-... (retained orphan of earlier rollback)" }
+      ],
+      "ec2ViaStackDelete": ["vpc-00ad9c35d12d8acda", "sg-0b025492ab6938da8", "subnet-02a19cd3f064dba30"],
+      "logGroupOrphans": [
+        "/aws/lambda/deployz-bootstrap-smoke-u-InstallIdFunctionE00E99D-qcEeVQFc6yvj",
+        "/aws/lambda/deployz-bootstrap-smoke-u-InstallIdProviderframewo-NtJ6RDn5YJ3Q",
+        "/aws/lambda/deployz-bootstrap-smoke-u-LogRetentionaae0aa3c5b4d-Fa9oTxzO02GK",
+        "/aws/lambda/deployz-bootstrap-smoke-us-e-RelayFunctionD137DF95-OUucsrAduIeY",
+        "(post-stack-delete leftovers matching /aws/lambda/deployz-bootstrap-documen-*)"
+      ],
+      "logGroupOrphanProof": "proof 4: bootstrap naming from packages/contracts bootstrapStackName() + deleted stack deployz-bootstrap-smoke-us-east-1 (DELETE_COMPLETE 2026-09-01T10:57Z) in CFN history"
+    },
+    "us-west-2": {
+      "installationId": "cb676247-28b5-40bc-a557-5fda3431355b",
+      "proof": "orphan (no DB row - interrupted destroy): stack tag deployz:installation (proof 3) + stack membership (proof 2) + bootstrap InstallationId custom resource match",
+      "cloudFormation": [
+        { "name": "deployz-app-cb676247", "status": "DELETE_FAILED", "tag": "deployz:installation=cb676247-28b5-40bc-a557-5fda3431355b" },
+        { "name": "deployz-bootstrap-live-documenso-bcbf53ca-7896eb6f", "status": "UPDATE_COMPLETE", "proof": "InstallationId custom resource = cb676247-..." }
+      ],
+      "rds": [{ "id": "deployz-app-cb676247-databaseb269d8bb-xlbv4w0rbmft", "deletionProtection": true, "tags": "deployz:installation + aws:cloudformation:stack-name=deployz-app-cb676247", "automatedSnapshot": "rds:deployz-app-cb676247-databaseb269d8bb-xlbv4w0rbmft-2026-09-01-15-43" }],
+      "rdsSubnetGroups": ["deployz-app-cb676247-databasesubnetgroup7d60f180-zcgpr39d4lph"],
+      "s3": [{ "bucket": "deployz-app-cb676247-appstorage995579da-qz22hpraa0za", "tag": "deployz:installation=cb676247-..." }],
+      "ec2Retained": ["subnet-02a6492263fc373ff", "sg-0f34c2b808b6e43ff"],
+      "ec2ViaStackDelete": ["vpc-04434cf5fd26f164a"],
+      "ssm": ["/deployz/cb676247-28b5-40bc-a557-5fda3431355b/pending-command"],
+      "acmOrphan": [{ "arn": "arn:aws:acm:us-west-2:151955775369:certificate/243b07e8-98ee-4a84-9dbd-91abaa6705ab", "domain": "deployz-e2e.thalia-apps.com", "tag": "deployz:installation=0a60c13e-0e0c-4b8f-9f77-a9b54f6e99cd", "inUseBy": [], "note": "orphan of earlier purged installation 0a60c13e" }],
+      "logGroupOrphans": ["(post-stack-delete leftovers matching /aws/lambda/deployz-bootstrap-live-do-*)"]
+    }
+  },
+  "dbPurgePlan": {
+    "order": ["deployment_resources (0)", "usage_records (0)", "custom_domains (0)", "deployment_jobs (2)", "deployments (1)", "application_configs (0)", "releases (0)", "applications (2)"],
+    "untouched": ["user", "session", "account", "verification", "organization", "member", "invitation", "customers", "subscriptions", "github_installations", "event_logs"]
+  },
+  "invariantCheck": {
+    "assertion": "deletion_candidates INTERSECT protected_resources = EMPTY",
+    "result": "PASS - no candidate stack name, RDS id, bucket, SG, subnet, VPC, log group, SSM param, or ACM ARN appears in customer-cleanup-protected.json; candidate stacks carry deployz:installation tags, protected stacks (Deployz, CDKToolkit) do not; control-plane RDS deployz-databaseb269d8bb-5r7co4vq7bcx distinguished from customer deployz-app-*-databaseb269d8bb-* by stack-name tag"
+  }
+}
