@@ -623,6 +623,23 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
   return settled;
 }
 
+/** Whether any INSTALL job for this deployment ever finished successfully —
+ *  mirrors apps/api/src/server.ts's hasSucceededInstall; the watchdog cannot
+ *  import it (that module is not one of @deployz/api's exported entry
+ *  points), so it keeps its own copy of the same query. */
+async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  const installJobs = await db
+    .select({ state: schema.deploymentJobs.state })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        eq(schema.deploymentJobs.type, 'INSTALL'),
+      ),
+    );
+  return installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
+}
+
 async function failStuckJob(
   db: RuntimeDb,
   job: typeof schema.deploymentJobs.$inferSelect,
@@ -640,11 +657,16 @@ async function failStuckJob(
   // Same settlement rule as the relay result route: a timed-out day-2
   // operation on a deployment with a running release must not mark the
   // whole deployment FAILED — the previous release is still serving.
+  // currentReleaseId alone under-counts this: a first install runs the
+  // template-pinned image with no release row ever deployed (CANARY-008),
+  // so a SUCCEEDED install also counts as a running workload.
   const nextState = isDomainJob
     ? null
     : deploymentStateAfterFailedJob({
         jobType: job.type,
-        hasCurrentRelease: deployment.currentReleaseId !== null,
+        hasCurrentRelease:
+          deployment.currentReleaseId !== null ||
+          (await hasSucceededInstall(db, deployment.id)),
         newerReadyReleaseExists: await newerReadyReleaseExists(
           db,
           deployment.applicationId,

@@ -745,6 +745,45 @@ describe('sweepStuckJobs', () => {
     expect(deployment?.state).toBe('HEALTHY');
   });
 
+  it('keeps a deployment with a SUCCEEDED install but no deployed release live when a day-2 job finally fails (CANARY-008)', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25, {
+      relayStatus: 'CONNECTED',
+      reconcileCount: 3,
+    });
+    // A first install runs the template-pinned image: the INSTALL job
+    // SUCCEEDED, but no release row was ever deployed, so currentReleaseId
+    // stays null — the same shape as a real install of the template image.
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `watchdog:${randomUUID()}`,
+      payload: {},
+    });
+    await db.insert(schema.releases).values({
+      applicationId,
+      version: `w-${randomUUID().slice(0, 8)}`,
+      gitSha: 'abc',
+      releaseStatus: 'READY',
+      buildStatus: 'SUCCEEDED',
+    });
+
+    await sweepStuckJobs(db);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('FAILED');
+
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    // A running install counts even with currentReleaseId still null: the
+    // deployment must not be marked FAILED, and the READY release counts as
+    // an available update.
+    expect(deployment?.state).toBe('UPDATE_AVAILABLE');
+    expect(deployment?.currentReleaseId).toBeNull();
+  });
+
   it('leaves the deployment state alone when a CONFIG_UPDATE finally fails', async () => {
     const { jobId, deploymentId } = await seedJobAndDeployment('CONFIG_UPDATE', 'RUNNING', 30, 25, {
       relayStatus: 'CONNECTED',
