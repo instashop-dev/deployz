@@ -222,6 +222,9 @@ describe('worker handler', () => {
         applicationId,
         customerId,
         region: 'us-east-1',
+        // A state a relay can actually act on — pre-install and removed
+        // deployments are skipped by the fanout (see configUpdate).
+        state: 'HEALTHY',
         installationId: randomUUID(),
         // Single-use enrollment code the bootstrap stack carries; NOT NULL,
         // because a deployment no relay can ever enrol with is not a
@@ -248,6 +251,19 @@ describe('worker handler', () => {
     // The durable payload carries keys only — a plaintext secret value must
     // never persist in the control plane.
     expect(jobs[0]?.payload).toEqual({ changedKeys: ['API_KEY'] });
+
+    // A deployment no relay can act on gets no job: nothing is enrolled
+    // before install, nothing remains during/after removal.
+    await db
+      .update(schema.deployments)
+      .set({ state: 'DELETED' })
+      .where(eq(schema.deployments.id, deployment!.id));
+    await handleMessage(deps(), { ...message, changedKeys: ['OTHER'] }, 'msg-5');
+    const after = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment!.id));
+    expect(after).toHaveLength(1);
   });
 
   function buildEvent(
@@ -585,6 +601,48 @@ describe('sweepStuckJobs', () => {
       .from(schema.deployments)
       .where(eq(schema.deployments.id, deploymentId));
     expect(deployment?.state).toBe('FAILED');
+  });
+
+  it('keeps a deployment with a running release live when a day-2 job times out', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25);
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version: `w-${randomUUID().slice(0, 8)}`,
+        gitSha: 'abc',
+        releaseStatus: 'READY',
+        buildStatus: 'SUCCEEDED',
+      })
+      .returning();
+    await db
+      .update(schema.deployments)
+      .set({ currentReleaseId: release!.id })
+      .where(eq(schema.deployments.id, deploymentId));
+
+    await sweepStuckJobs(db);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('FAILED');
+    // The previous release is still serving: the deployment returns to a
+    // live state instead of FAILED (no newer READY release here -> HEALTHY).
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    expect(deployment?.state).toBe('HEALTHY');
+  });
+
+  it('leaves the deployment state alone when a CONFIG_UPDATE times out', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('CONFIG_UPDATE', 'RUNNING', 30, 25);
+    await sweepStuckJobs(db);
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('FAILED');
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    expect(deployment?.state).toBe('UPDATING');
   });
 
   it('records an operation.timeout event with the job evidence', async () => {

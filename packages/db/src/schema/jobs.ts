@@ -1,4 +1,5 @@
-import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import {
   aiExplanationStateEnum,
@@ -54,4 +55,17 @@ export const deploymentJobs = pgTable('deployment_jobs', {
     withTimezone: true,
   }),
   ...auditFields(),
-});
+},
+(t) => [
+  // §39 operation exclusivity, enforced where it cannot race: at most one
+  // active mutating job per deployment. The route-level DEPLOYMENT_BUSY
+  // check is a friendly fast path; this index is the correctness backstop
+  // for two requests that both pass the check before either inserts.
+  // Domain and health/report job types are deliberately outside the guard —
+  // they never race an executor over the same stack/service.
+  uniqueIndex('deployment_jobs_one_active_mutating_uidx')
+    .on(t.deploymentId)
+    .where(
+      sql`${t.state} IN ('REQUESTED', 'QUEUED', 'WAITING', 'RUNNING') AND ${t.type} IN ('INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'CONFIG_UPDATE', 'DESTROY', 'MIGRATION', 'INFRA_UPGRADE', 'PURGE')`,
+    ),
+]);

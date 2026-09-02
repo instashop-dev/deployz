@@ -411,26 +411,29 @@ test.describe('update-failure then rollback-success (browser)', () => {
     await expect(deployPanel).toBeVisible();
     await deployPanel.getByRole('button', { name: 'Deploy update' }).click();
 
+    // Failed-update semantics: the deployment returns to UPDATE_AVAILABLE —
+    // the circuit breaker restored v1, which never stopped serving — and the
+    // FAILED job carries the failure. Never a whole-deployment FAILED.
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, {
         timeout: 15_000,
         message: 'waiting for the v2 rollout to fail',
       })
-      .toBe('FAILED');
+      .toBe('UPDATE_AVAILABLE');
     // The release pointer never advanced to v2 — v1 is still what is
     // actually running behind the load balancer.
     const afterV2 = await getDeployment(page, deploymentId);
     expect(afterV2.currentReleaseId).toBe(v1ReleaseId);
     expect(afterV2.currentReleaseId).not.toBe(v2ReleaseId);
 
-    // ── The vendor page reflects the failed update: the same failed-state
-    // presentation as the cloudformation-rollback test above, but classified
-    // as an ECS rollout failure, and the release pointer never advanced past
-    // the last release that actually deployed (v1) — visible in the Overview
-    // section's Version row.
+    // ── The vendor page reflects the failed update honestly WITHOUT
+    // presenting the deployment as down: the progress card surfaces the
+    // classified ECS rollout failure while the stage stays live, and the
+    // release pointer never advanced past the last release that actually
+    // deployed (v1) — visible in the Overview section's Version row.
     await page.reload();
     const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-    await expect(progressCard.locator('p[aria-live="polite"]')).toHaveText('Needs attention', {
+    await expect(progressCard.locator('p[aria-live="polite"]')).not.toHaveText('Needs attention', {
       timeout: 15_000,
     });
     // (Same double-render reasoning as the cloudformation-rollback test's
