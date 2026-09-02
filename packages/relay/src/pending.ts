@@ -54,6 +54,14 @@ export interface PendingCommand {
    * from `startedAt` instead of a prior cursor.
    */
   readonly stackEventsCursor?: { readonly lastEventAt: string };
+  /**
+   * Deploy-time migration state (DEPLOY_RELEASE only). One-off ECS task that
+   * runs the migration command before the service update; written the moment
+   * `runTask` returns so a migration that outlives one invocation resumes by
+   * polling the SAME task instead of starting a second one. Optional so a
+   * marker written by an older relay version still parses.
+   */
+  readonly migration?: { readonly taskArn: string; readonly completedAt?: string };
 }
 
 export interface PendingStore {
@@ -183,6 +191,22 @@ function parse(value: string): PendingCommand | null {
       ? { lastEventAt: (stackEventsCursorRaw as Record<string, unknown>)['lastEventAt'] as string }
       : undefined;
 
+  const migrationRaw = candidate['migration'];
+  const migration =
+    typeof migrationRaw === 'object' && migrationRaw !== null
+      ? (() => {
+          const record = migrationRaw as Record<string, unknown>;
+          if (typeof record['taskArn'] !== 'string') return undefined;
+          const completedAt = record['completedAt'];
+          const registeredArn = record['registeredArn'];
+          return {
+            taskArn: record['taskArn'] as string,
+            ...(typeof registeredArn === 'string' ? { registeredArn } : {}),
+            ...(typeof completedAt === 'string' ? { completedAt } : {}),
+          };
+        })()
+      : undefined;
+
   return {
     commandId: candidate['commandId'] as string,
     idempotencyKey: candidate['idempotencyKey'] as string,
@@ -194,5 +218,6 @@ function parse(value: string): PendingCommand | null {
         ? (payload as Record<string, unknown>)
         : {},
     ...(stackEventsCursor !== undefined ? { stackEventsCursor } : {}),
+    ...(migration !== undefined ? { migration } : {}),
   };
 }

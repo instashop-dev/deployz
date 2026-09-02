@@ -11,6 +11,8 @@ import { expect, test, type Page } from '@playwright/test';
 // hasn't failed) end to end and the page linking from deployment detail.
 
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)\b/;
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 async function signUp(page: Page): Promise<void> {
@@ -43,6 +45,7 @@ async function seedDeployment(
     },
   });
   const application = (await appResponse.json()) as { id: string };
+  await makeApplicationDeployable(page.request, application.id);
 
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Globex Inc ${suffix}`, email: `globex-${suffix}@example.com` },

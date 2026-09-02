@@ -10,6 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 // everything else — seeding and the relay protocol — through `page.request`,
 // which shares the signed-in session's cookies).
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 interface RelayCommand {
@@ -43,6 +45,7 @@ async function seedDeployment(
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string };
+  await makeApplicationDeployable(page.request, application.id);
 
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Domain Customer ${suffix}`, email: `domain-customer-${suffix}@example.com` },
@@ -238,7 +241,11 @@ test('custom domain: add, verify DNS, connect, activate, appear on the dashboard
   await card.getByRole('button', { name: 'Check now' }).click();
 
   await expect(card.getByText('Active', { exact: true })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('link', { name: `https://${hostname}` })).toBeVisible();
+  // Scoped to the Access section: the custom-domain card also renders a link
+  // with the same URL, and a page-wide lookup would match both.
+  await expect(
+    page.getByLabel('Access').getByRole('link', { name: `https://${hostname}` }),
+  ).toBeVisible();
   await expect(card.getByRole('link', { name: 'Open domain' })).toBeVisible();
 
   // ── 10. Dashboard: the compact Custom domain section + Overview URL row.

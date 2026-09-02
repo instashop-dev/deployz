@@ -127,6 +127,8 @@ export interface DerivationApplication {
   databaseRequired?: boolean | null;
   storageRequired?: boolean | null;
   redisRequired?: boolean | null;
+  /** When set, the deploy ladder carries the MIGRATION step (before the application). */
+  migrationCommand?: string | null;
 }
 
 export interface DerivationJob {
@@ -649,12 +651,14 @@ function snapshotFailedStep(
   return null;
 }
 
-/** Applicable steps for this deployment, in canonical order — REDIS/DATABASE_STORAGE only when required. */
+/** Applicable steps for this deployment, in canonical order — REDIS/DATABASE_STORAGE only when required, MIGRATION only for apps with a migration command. */
 function applicableSteps(application: DerivationApplication): DeploymentStep[] {
   const databaseStorageRequired = (application.databaseRequired ?? false) || (application.storageRequired ?? false);
+  const migrationConfigured = typeof application.migrationCommand === 'string' && application.migrationCommand.length > 0;
   return DEPLOYMENT_STEP_ORDER.filter((step) => {
     if (step === 'DATABASE_STORAGE') return databaseStorageRequired;
     if (step === 'REDIS') return application.redisRequired ?? false;
+    if (step === 'MIGRATION') return migrationConfigured;
     return true;
   });
 }
@@ -695,6 +699,7 @@ function resolveStepStartedAt(
       return snapshotStartedAt(params.snapshot, step, params.application);
     case 'HEALTH_CHECK':
       return latestOfType(params.jobs, 'INSTALL')?.finishedAt?.toISOString() ?? null;
+    case 'MIGRATION':
     case 'TLS':
     case 'READY':
       return null;
@@ -881,7 +886,10 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
                   : 'PREPARING';
         }
       } else {
-        step = 'APPLICATION';
+        // A failed job of any other type (DEPLOY_RELEASE, RESTART, ...)
+        // never touched provisioning; a MIGRATION_FAILED deploy names the
+        // migration step, everything else is attributed to APPLICATION.
+        step = latestFailed?.failureCode === 'MIGRATION_FAILED' ? 'MIGRATION' : 'APPLICATION';
       }
       break;
     }

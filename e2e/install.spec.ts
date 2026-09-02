@@ -8,6 +8,8 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 // customer. Unknown installation ids now get an honest not-found state
 // instead of fabricated content.
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in rendered top-level copy.
@@ -57,6 +59,7 @@ async function seedInstall(
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string; name: string };
+  await makeApplicationDeployable(request, application.id);
 
   const customerResponse = await request.post(`${API_URL}/api/customers`, {
     data: { name: `Acme Corp ${suffix}`, email: `acme-${suffix}@example.com` },

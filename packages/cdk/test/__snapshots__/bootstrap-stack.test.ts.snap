@@ -722,6 +722,12 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Sid": "RelayDeployRegister",
             },
             {
+              "Action": "ecs:RunTask",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayMigrationRun",
+            },
+            {
               "Action": "iam:PassRole",
               "Condition": {
                 "StringEquals": {
@@ -1305,6 +1311,12 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayDeployRegister",
+            },
+            {
+              "Action": "ecs:RunTask",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayMigrationRun",
             },
             {
               "Action": "iam:PassRole",

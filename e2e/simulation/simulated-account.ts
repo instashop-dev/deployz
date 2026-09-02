@@ -97,6 +97,8 @@ export class SimulatedCustomerAccount {
   private currentTaskDefinitionArn = '';
   private taskDefinitionRevision = 1;
   private runningImageDigest: string | null = null;
+  /** The one-off migration task, when a deploy started one (Phase 4 stage). */
+  private migrationTaskArn: string | null = null;
   // One-shot: consumed (and reset) the first time `ecsDeployClient()`'s own
   // `describeServices` reads it as 'failed' — this is what settleEcsDeploy's
   // `rolloutFailed()` gate checks BEFORE issuing a new UpdateService, so a
@@ -485,13 +487,30 @@ export class SimulatedCustomerAccount {
   }
 
   private async describeSimulatedTasks(): Promise<{
-    tasks: { containers?: { imageDigest?: string }[] }[];
+    tasks: {
+      lastStatus?: string;
+      stopCode?: string;
+      containers?: { imageDigest?: string; exitCode?: number }[];
+    }[];
   }> {
+    // The one-off migration task answers STOPPED + exit 0 immediately, so a
+    // scenario that carries a migration command resolves the migration stage
+    // the same way the rollout resolves: on the next poll.
     return {
-      tasks:
-        this.runningImageDigest !== null
+      tasks: [
+        ...(this.migrationTaskArn !== null
+          ? [
+              {
+                lastStatus: 'STOPPED',
+                stopCode: 'EssentialContainerExited',
+                containers: [{ exitCode: 0 }],
+              },
+            ]
+          : []),
+        ...(this.runningImageDigest !== null
           ? [{ containers: [{ imageDigest: this.runningImageDigest }] }]
-          : [],
+          : []),
+      ],
     };
   }
 
@@ -520,6 +539,13 @@ export class SimulatedCustomerAccount {
               runningCount: this.runningCount,
               taskDefinition: this.currentTaskDefinitionArn,
               deployments: [{ status: 'PRIMARY', rolloutState: failed ? 'FAILED' : 'COMPLETED' }],
+              networkConfiguration: {
+                awsvpcConfiguration: {
+                  subnets: ['subnet-11111aaa'],
+                  securityGroups: ['sg-22222bbb'],
+                  assignPublicIp: 'DISABLED',
+                },
+              },
             },
           ],
         };
@@ -579,6 +605,13 @@ export class SimulatedCustomerAccount {
       },
       listTasks: () => this.listSimulatedTasks(),
       describeTasks: () => this.describeSimulatedTasks(),
+      runTask: async () => {
+        this.ensureEcsDeployInitialized();
+        // Simulated migrations succeed instantly: the task answers STOPPED
+        // with exit code 0 on the next poll (see describeSimulatedTasks).
+        this.migrationTaskArn = 'arn:aws:ecs:us-east-1:123456789012:task/simulated/migration-1';
+        return { taskArns: [this.migrationTaskArn] };
+      },
     };
   }
 

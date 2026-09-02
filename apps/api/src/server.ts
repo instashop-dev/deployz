@@ -448,6 +448,8 @@ interface DeployPayload {
   version: string;
   imageRepository: string;
   imageDigest: string;
+  /** Present only when a migration command resolves — see requireDeployableRelease. */
+  migrationCommand?: string;
   [key: string]: unknown;
 }
 
@@ -465,6 +467,7 @@ async function requireDeployableRelease(
   db: RuntimeDb,
   releaseId: string,
   applicationId: string,
+  deployment?: DeploymentRow,
 ): Promise<DeployPayload> {
   requireUuidId(releaseId);
   const rows = await db
@@ -494,7 +497,23 @@ async function requireDeployableRelease(
       `Version ${release.version} has no deployable image yet. Wait for the build to finish or pick another release.`,
     );
   }
-  return { releaseId: release.id, version: release.version, imageRepository, imageDigest };
+  const payload: DeployPayload = {
+    releaseId: release.id,
+    version: release.version,
+    imageRepository,
+    imageDigest,
+  };
+  // Phase 4: the migration command, stored-manifest first (the canonical
+  // snapshot the deployment was created with), else the release's own
+  // override. Absent → the key is omitted so a no-migration deploy carries
+  // byte-for-byte the payload it always did. A bulk deploy resolves the
+  // manifest half per target (each target has its own stored manifest).
+  const manifestCommand = deployment ? (readStoredManifest(deployment.desiredState)?.migration.command ?? null) : null;
+  const migrationCommand = manifestCommand ?? release.migrationCommand ?? null;
+  if (migrationCommand !== null && migrationCommand.trim().length > 0) {
+    payload.migrationCommand = migrationCommand.trim();
+  }
+  return payload;
 }
 
 /**
@@ -895,6 +914,7 @@ async function advanceStepTimingsAfterWrite(
       databaseRequired: schema.applications.databaseRequired,
       storageRequired: schema.applications.storageRequired,
       redisRequired: schema.applications.redisRequired,
+      migrationCommand: schema.applications.migrationCommand,
     })
     .from(schema.applications)
     .where(eq(schema.applications.id, freshDeployment.applicationId))
@@ -1601,6 +1621,7 @@ export async function buildServer({
           databaseRequired: schema.applications.databaseRequired,
           storageRequired: schema.applications.storageRequired,
           redisRequired: schema.applications.redisRequired,
+          migrationCommand: schema.applications.migrationCommand,
         })
         .from(schema.deployments)
         .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
@@ -2447,6 +2468,7 @@ export async function buildServer({
         databaseRequired: schema.applications.databaseRequired,
         storageRequired: schema.applications.storageRequired,
         redisRequired: schema.applications.redisRequired,
+        migrationCommand: schema.applications.migrationCommand,
       })
       .from(schema.deployments)
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
@@ -2513,6 +2535,7 @@ export async function buildServer({
         databaseRequired: schema.applications.databaseRequired,
         storageRequired: schema.applications.storageRequired,
         redisRequired: schema.applications.redisRequired,
+        migrationCommand: schema.applications.migrationCommand,
       })
       .from(schema.deployments)
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
@@ -2722,7 +2745,7 @@ export async function buildServer({
     const release = newestReady[0];
     if (!release) return;
 
-    const payload = await requireDeployableRelease(db, release.id, deployment.applicationId);
+    const payload = await requireDeployableRelease(db, release.id, deployment.applicationId, deployment);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DEPLOY_RELEASE',
@@ -2749,7 +2772,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
-    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId);
+    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId, deployment);
     // The same rule deploy-bulk applies. Without it this route accepted a
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
@@ -2859,11 +2882,19 @@ export async function buildServer({
         });
         continue;
       }
+      // Phase 4: each target resolves its own migration command — the shared
+      // `payload` carries the release-level command; a target's stored
+      // manifest command overrides it (same precedence as single deploys).
+      let targetPayload = payload;
+      const manifestCommand = readStoredManifest(deployment.desiredState)?.migration.command ?? null;
+      if (manifestCommand !== null && manifestCommand !== payload['migrationCommand']) {
+        targetPayload = { ...payload, migrationCommand: manifestCommand };
+      }
       const { job, created } = await createOrReuseJob(db, {
         deploymentId: deployment.id,
         type: 'DEPLOY_RELEASE',
         idempotencyKey,
-        payload,
+        payload: targetPayload,
         requestedBy: request.user?.id ?? null,
       });
       results.push({

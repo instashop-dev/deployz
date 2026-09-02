@@ -10,6 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 // seed/relay conventions already established in custom-domain.spec.ts,
 // app-url.spec.ts and fleet.spec.ts.
 
+import { makeApplicationDeployable } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // Raw AWS service terms that must NOT appear in customer-facing copy.
@@ -76,6 +78,7 @@ async function seedDeployment(
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string; name: string };
+  await makeApplicationDeployable(page.request, application.id);
 
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Progress Customer ${suffix}`, email: `progress-customer-${suffix}@example.com` },
@@ -536,6 +539,7 @@ test('status API: 404s on unknown/malformed ids, and a live one matches the cust
   });
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string };
+  await makeApplicationDeployable(request, application.id);
   const customerResponse = await request.post(`${API_URL}/api/customers`, {
     data: { name: `Progress API Customer ${suffix}`, email: `progress-api-customer-${suffix}@example.com` },
   });

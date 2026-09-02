@@ -23,6 +23,7 @@ const FULL_STEPS: DeploymentStep[] = [
   'NETWORK',
   'DATABASE_STORAGE',
   'REDIS',
+  'MIGRATION',
   'APPLICATION',
   'HEALTH_CHECK',
   'TLS',

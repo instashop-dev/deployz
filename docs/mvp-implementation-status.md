@@ -286,3 +286,42 @@ Deferred within Phase 3 (follow-ups, not blockers):
   Phase 7's env-var model).
 - Broader unsupported-architecture detectors (Kafka, K8s, Terraform, …)
   ride Phase 7's compatibility expansion.
+
+## Phase 4 — Database migrations as a gated deployment stage (2026-09-02)
+
+A DEPLOY_RELEASE with a migration command runs the migration before the
+service update. Without a command, the deploy is exactly as before.
+
+- The deploy payload now carries `migrationCommand` when one resolves: the
+  stored manifest's `migration.command` first, else the release row's
+  `migrationCommand`. The key is omitted for a no-migration deploy, so that
+  payload is byte-for-byte unchanged. Bulk deploys resolve the manifest half
+  per target deployment.
+- The relay runs the migration as a one-off ECS RunTask BEFORE the service
+  update: same cluster, subnets, security groups, image digest and
+  env/secrets as the app service, command overridden, no load balancer. It
+  polls DescribeTasks until STOPPED. Exit code 0 continues the normal
+  task-definition registration and service update.
+- A non-zero exit fails the job with `MIGRATION_FAILED`; the error carries
+  the exit code and stoppedReason (never raw log bodies — the relay role
+  still has no `logs:GetLogEvents`).
+- On MIGRATION_FAILED the deployment state, `currentReleaseId` and
+  `previousReleaseId` are untouched — the previous release keeps running.
+- A migration that outlives one invocation is resumed by task ARN on later
+  polls (same pending-marker pattern as the rollout). The marker also
+  records the registered task-definition ARN, so a resumed deploy never
+  registers a second copy, and a completed migration is never re-run.
+- ROLLBACK deploys the old digest WITHOUT running migrations — schema
+  changes are never auto-reversed (noted in the executor).
+- The relay's bootstrap-stack IAM gains a condition-free `ecs:RunTask`
+  grant (RunTask is evaluated against cluster + task definition + further
+  untagged resource ARNs); `iam:PassRole` for the task roles was already
+  granted. PassRole for the task roles lives in the relay's deploy policy.
+- Progress ladder: a new `MIGRATION` step sits between the cache (REDIS)
+  and the application in the contracts schema, the API derivation and the
+  web step copy. It appears in the applicable list only for applications
+  with a migration command; a MIGRATION_FAILED deploy names that step.
+- Tests are vitest fakes only: migration success proceeds to the service
+  update, non-zero exit fails with MIGRATION_FAILED leaving pointers and
+  the service untouched, no-command deploys behave as before, rollback
+  never runs migrations, and the ladder includes Migration.

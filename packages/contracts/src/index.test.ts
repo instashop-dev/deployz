@@ -530,7 +530,7 @@ describe('componentProgressStatusSchema', () => {
 });
 
 describe('deploymentStepSchema', () => {
-  it('is exactly the ten documented steps', () => {
+  it('is exactly the eleven documented steps', () => {
     expect([...deploymentStepSchema.options].sort()).toEqual(
       [
         'AWS_SETUP',
@@ -539,6 +539,7 @@ describe('deploymentStepSchema', () => {
         'NETWORK',
         'DATABASE_STORAGE',
         'REDIS',
+        'MIGRATION',
         'APPLICATION',
         'HEALTH_CHECK',
         'TLS',
@@ -550,6 +551,11 @@ describe('deploymentStepSchema', () => {
   it('DEPLOYMENT_STEP_ORDER carries every step exactly once, TLS after HEALTH_CHECK', () => {
     expect([...DEPLOYMENT_STEP_ORDER].sort()).toEqual([...deploymentStepSchema.options].sort());
     expect(DEPLOYMENT_STEP_ORDER.indexOf('TLS')).toBeGreaterThan(DEPLOYMENT_STEP_ORDER.indexOf('HEALTH_CHECK'));
+  });
+
+  it('MIGRATION sits between the cache (REDIS) and the application', () => {
+    expect(DEPLOYMENT_STEP_ORDER.indexOf('MIGRATION')).toBeGreaterThan(DEPLOYMENT_STEP_ORDER.indexOf('REDIS'));
+    expect(DEPLOYMENT_STEP_ORDER.indexOf('APPLICATION')).toBeGreaterThan(DEPLOYMENT_STEP_ORDER.indexOf('MIGRATION'));
   });
 
   it('TYPICAL_STEP_DURATION_SECONDS covers every step, null only for TLS/READY', () => {

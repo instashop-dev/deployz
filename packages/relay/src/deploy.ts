@@ -20,6 +20,15 @@
  *
  * 3. **Failure is classified.** A rollout the ECS circuit breaker reports
  *    FAILED fails the job with `ECS_DEPLOYMENT_FAILED`, never a success.
+ *
+ * DEPLOY_RELEASE additionally runs a migration stage before the service
+ * update when the payload carries a `migrationCommand` (Phase 4 boundary):
+ * a one-off RunTask on the same cluster/VPC/secrets as the app service —
+ * the same copy the service update will use — command overridden, no load
+ * balancer, polled until STOPPED. Exit code 0 continues the deploy;
+ * anything else fails with `MIGRATION_FAILED` and the previous release
+ * keeps running. ROLLBACK never runs migrations: schema changes are never
+ * auto-reversed.
  */
 
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
@@ -37,6 +46,13 @@ export interface EcsDeployClient {
       runningCount?: number | undefined;
       taskDefinition?: string | undefined;
       deployments?: { status?: string | undefined; rolloutState?: string | undefined }[];
+      networkConfiguration?: {
+        awsvpcConfiguration?: {
+          subnets?: string[] | undefined;
+          securityGroups?: string[] | undefined;
+          assignPublicIp?: string | undefined;
+        } | undefined;
+      } | undefined;
     }[];
   }>;
   describeTaskDefinition(input: { taskDefinition: string }): Promise<{
@@ -53,7 +69,25 @@ export interface EcsDeployClient {
   describeTasks(input: {
     cluster: string;
     tasks: string[];
-  }): Promise<{ tasks: { containers?: { imageDigest?: string | undefined }[] }[] }>;
+  }): Promise<{
+    tasks: {
+      lastStatus?: string | undefined;
+      stopCode?: string | undefined;
+      stoppedReason?: string | undefined;
+      containers?: { imageDigest?: string | undefined; exitCode?: number | undefined }[] | undefined;
+    }[];
+  }>;
+  /** Starts a one-off migration task — no load balancer, command overridden. */
+  runTask(input: {
+    cluster: string;
+    taskDefinition: string;
+    count?: number;
+    launchType?: string;
+    networkConfiguration: {
+      awsvpcConfiguration: { subnets: string[]; securityGroups: string[]; assignPublicIp: string };
+    };
+    overrides: { containerOverrides: { name?: string; command?: string[] }[] };
+  }): Promise<{ taskArns: string[] }>;
 }
 
 /**
@@ -92,12 +126,35 @@ export interface EcsDeployDeps {
   /** Stamped on every registered task-definition copy (IAM tag boundary). */
   readonly installationId: string;
   readonly now?: () => string;
+  /** How long the in-invocation migration poll waits between DescribeTasks calls. */
+  readonly migrationPollIntervalMs?: number;
+  /** How many in-invocation migration polls may run before deferring to a later invocation. */
+  readonly migrationPollMaxAttempts?: number;
 }
 
 /** A deploy request after payload validation. */
 export interface DeployRequest {
   readonly imageRepository: string;
   readonly imageDigest: string;
+  /**
+   * Migration command to run as a one-off ECS task before the service
+   * update. Absent (null) deploys exactly as before the migration stage.
+   */
+  readonly migrationCommand: string | null;
+}
+
+/**
+ * One-off migration-task state, carried on the pending marker so a migration
+ * that outlives one invocation resumes on the SAME task (never a second run).
+ * `completedAt` is set the moment the task STOPPED with exit code 0.
+ * `registeredArn` is the application copy the migration registered (the def
+ * the service update will also use) — without it, a resume would describe
+ * the still-old service definition and mindlessly register a second copy.
+ */
+export interface PendingMigration {
+  readonly taskArn: string;
+  readonly registeredArn?: string;
+  readonly completedAt?: string;
 }
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -108,13 +165,27 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
   const imageDigest = payload['imageDigest'];
   if (typeof imageRepository !== 'string' || imageRepository.length === 0) return null;
   if (typeof imageDigest !== 'string' || !DIGEST_PATTERN.test(imageDigest)) return null;
-  return { imageRepository, imageDigest };
+  const rawCommand = payload['migrationCommand'];
+  const migrationCommand =
+    typeof rawCommand === 'string' && rawCommand.trim().length > 0 ? rawCommand.trim() : null;
+  return { imageRepository, imageDigest, migrationCommand };
 }
 
 type EcsDeployOutcome =
   | { readonly state: 'succeeded'; readonly alreadyRunning: boolean }
   | { readonly state: 'failed'; readonly reason: string; readonly failureCode?: string }
-  | { readonly state: 'in-progress' };
+  | { readonly state: 'in-progress'; readonly migration?: PendingMigration };
+
+/** Per-call deploy context: which command family is running and any migration state already started. */
+export interface DeploySettleContext {
+  /**
+   * Migrations run only for DEPLOY_RELEASE. ROLLBACK rolls the old digest
+   * without them — schema changes are never auto-reversed.
+   */
+  readonly allowMigration: boolean;
+  /** The pending marker's migration state, when this command was already started. */
+  readonly migration?: PendingMigration | null;
+}
 
 /**
  * Runs the deploy to whatever conclusion is available right now. Reads
@@ -124,6 +195,7 @@ type EcsDeployOutcome =
 export async function settleEcsDeploy(
   deps: EcsDeployDeps,
   request: DeployRequest,
+  context: DeploySettleContext = { allowMigration: false },
 ): Promise<EcsDeployOutcome> {
   const serviceArn = await findServiceArn(deps);
   if (!serviceArn) {
@@ -163,11 +235,40 @@ export async function settleEcsDeploy(
     taskDefinition: service.taskDefinition,
   });
   const nextImage = `${request.imageRepository}@${request.imageDigest}`;
-  const alreadyRegistered = taskDefinition.containerDefinitions.some(
+  let alreadyRegistered = taskDefinition.containerDefinitions.some(
     (container) => container.image === nextImage,
   );
 
+  // Migration stage — before any service update, so the previous release
+  // keeps running and the release pointers never move on a MIGRATION_FAILED.
+  let migration: PendingMigration | undefined;
+  let registeredApplicationArn: string | null = null;
+  const migrationCommand = context.allowMigration ? (request.migrationCommand ?? null) : null;
+  if (migrationCommand !== null) {
+    const outcome = await settleMigration(deps, {
+      cluster,
+      serviceTaskDefinition: service.taskDefinition,
+      networkConfiguration: service.networkConfiguration,
+      taskDefinition,
+      request,
+      migrationCommand,
+      alreadyRegistered,
+      pendingMigration: context.migration ?? null,
+    });
+    if (outcome.state === 'failed') {
+      return { state: 'failed', reason: outcome.reason, failureCode: 'MIGRATION_FAILED' };
+    }
+    if (outcome.state === 'in-progress') {
+      return { state: 'in-progress', migration: outcome.migration };
+    }
+    alreadyRegistered = alreadyRegistered || outcome.registered;
+    registeredApplicationArn = outcome.registeredArn;
+    migration = outcome.migration;
+  }
+
   if (!alreadyRegistered) {
+    // No migration registered the application copy, so this is the same
+    // fresh-register path as ever: register, then start the rollout.
     const replaced = replaceApplicationImages(taskDefinition, request);
     if (!replaced) {
       return {
@@ -177,20 +278,189 @@ export async function settleEcsDeploy(
     }
     replaced.tags = [{ key: 'deployz:installation', value: deps.installationId }];
     const registered = await deps.ecs.registerTaskDefinition(replaced);
+    registeredApplicationArn = registered.taskDefinitionArn;
     await deps.ecs.updateService({
       cluster,
       service: serviceArn,
-      taskDefinition: registered.taskDefinitionArn,
+      taskDefinition: registeredApplicationArn,
     });
   } else if (runningDigest !== request.imageDigest) {
-    // Registered on an earlier attempt but the service never picked it up
-    // (an update that did not land). Re-issue the update.
-    await deps.ecs.updateService({ cluster, service: serviceArn, taskDefinition: service.taskDefinition });
+    // The application copy already exists — the migration stage registered it
+    // (or an earlier attempt did) — but the service never picked it up.
+    // Re-issue the update against that copy.
+    await deps.ecs.updateService({
+      cluster,
+      service: serviceArn,
+      taskDefinition: registeredApplicationArn ?? service.taskDefinition,
+    });
   }
 
   // The rollout just started or is still in flight — only its own progress
   // can settle it, on a later poll.
-  return { state: 'in-progress' };
+  return migration === undefined ? { state: 'in-progress' } : { state: 'in-progress', migration };
+}
+
+/** The outcome of one migration-stage pass. */
+type MigrationOutcome =
+  | {
+      readonly state: 'completed';
+      readonly registered: boolean;
+      /** The application copy the migration registered, when it registered one. */
+      readonly registeredArn: string | null;
+      readonly migration: PendingMigration;
+    }
+  | { readonly state: 'in-progress'; readonly migration: PendingMigration }
+  | { readonly state: 'failed'; readonly reason: string };
+
+/**
+ * Runs (or resumes) the migration stage: one one-off ECS task on the SAME
+ * cluster/VPC/subnets/security groups as the app service, running the NEW
+ * digest with the command overridden, no load balancer. Polls DescribeTasks
+ * until STOPPED; a task that outlives the invocation is resumed by ARN on a
+ * later poll, never re-run. Exit code 0 completes the stage; anything else
+ * fails the job with MIGRATION_FAILED (exit code + stoppedReason as detail —
+ * never log bodies: the relay role deliberately has no logs:GetLogEvents).
+ */
+async function settleMigration(
+  deps: EcsDeployDeps,
+  params: {
+    cluster: string;
+    serviceTaskDefinition: string;
+    networkConfiguration?: {
+      awsvpcConfiguration?: {
+        subnets?: string[] | undefined;
+        securityGroups?: string[] | undefined;
+        assignPublicIp?: string | undefined;
+      } | undefined;
+    } | undefined;
+    taskDefinition: EcsTaskDefinition;
+    request: DeployRequest;
+    migrationCommand: string;
+    alreadyRegistered: boolean;
+    pendingMigration: PendingMigration | null;
+  },
+): Promise<MigrationOutcome> {
+  const { cluster, serviceTaskDefinition, taskDefinition, request, migrationCommand } = params;
+
+  if (params.pendingMigration?.completedAt !== undefined) {
+    return {
+      state: 'completed',
+      registered: params.alreadyRegistered || params.pendingMigration.registeredArn !== undefined,
+      registeredArn: params.pendingMigration.registeredArn ?? null,
+      migration: params.pendingMigration,
+    };
+  }
+
+  let registered = params.alreadyRegistered;
+  let registeredArn: string | null = params.pendingMigration?.registeredArn ?? null;
+  if (registeredArn !== null) registered = true;
+  let taskArn: string | null = params.pendingMigration?.taskArn ?? null;
+
+  if (taskArn === null) {
+    // The migration task runs the NEW digest — register the copy the service
+    // update will use (or reuse the one an earlier attempt registered), then
+    // start it with the command overridden.
+    const appContainer = taskDefinition.containerDefinitions.find(
+      (container) =>
+        typeof container.image === 'string' &&
+        container.image.startsWith(`${request.imageRepository}@`),
+    );
+    let definitionArn = registeredArn ?? serviceTaskDefinition;
+    if (!registered) {
+      const replaced = replaceApplicationImages(taskDefinition, request);
+      if (!replaced) {
+        return {
+          state: 'failed',
+          reason: `No container in the task definition references repository "${request.imageRepository}"`,
+        };
+      }
+      replaced.tags = [{ key: 'deployz:installation', value: deps.installationId }];
+      definitionArn = (await deps.ecs.registerTaskDefinition(replaced)).taskDefinitionArn;
+      registeredArn = definitionArn;
+      registered = true;
+    }
+
+    const network = params.networkConfiguration?.awsvpcConfiguration;
+    if (network === undefined || network.subnets === undefined || network.securityGroups === undefined) {
+      return {
+        state: 'failed',
+        reason:
+          "Migration needs the service's VPC network configuration, which could not be described",
+      };
+    }
+
+    const { taskArns } = await deps.ecs.runTask({
+      cluster,
+      taskDefinition: definitionArn,
+      count: 1,
+      launchType: 'FARGATE',
+      networkConfiguration: {
+        awsvpcConfiguration: {
+          subnets: network.subnets,
+          securityGroups: network.securityGroups,
+          assignPublicIp: network.assignPublicIp ?? 'DISABLED',
+        },
+      },
+      overrides: {
+        containerOverrides:
+          appContainer === undefined || appContainer.name === undefined
+            ? []
+            : [{ name: appContainer.name, command: migrationCommand.split(' ') }],
+      },
+    });
+    taskArn = taskArns[0] ?? null;
+    if (taskArn === null) {
+      return {
+        state: 'failed',
+        reason: 'Migration task could not be started (RunTask returned no task ARN)',
+      };
+    }
+  }
+
+  const pollIntervalMs = deps.migrationPollIntervalMs ?? 10_000;
+  const maxAttempts = deps.migrationPollMaxAttempts ?? 24;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) await sleep(pollIntervalMs);
+    const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: [taskArn] });
+    const task = tasks[0];
+    if (task === undefined) {
+      return {
+        state: 'failed',
+        reason: `Migration task "${taskArn}" could not be described`,
+      };
+    }
+    if (task.lastStatus !== 'STOPPED') continue;
+    const exitCode = task.containers?.find((container) => container.exitCode !== undefined)?.exitCode;
+    if (exitCode !== 0) {
+      return {
+        state: 'failed',
+        reason: `Migration failed: exit code ${exitCode ?? 'unknown'} (${task.stopCode ?? 'STOPPED'}: ${task.stoppedReason ?? 'no reason given'})`,
+      };
+    }
+    const completedAt = (deps.now ?? (() => new Date().toISOString()))();
+    return {
+      state: 'completed',
+      registered,
+      registeredArn,
+      migration: {
+        taskArn,
+        ...(registeredArn !== null ? { registeredArn } : {}),
+        completedAt,
+      },
+    };
+  }
+
+  return {
+    state: 'in-progress',
+    migration: {
+      taskArn,
+      ...(registeredArn !== null ? { registeredArn } : {}),
+    },
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function rolloutFailed(
@@ -292,7 +562,14 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
 
     let outcome: EcsDeployOutcome;
     try {
-      outcome = await settleEcsDeploy(deps, request);
+      // Only this command's OWN marker may carry a migration task forward —
+      // a stale marker from an earlier command must never resume its task.
+      const existing = await deps.pending.read();
+      const migration = existing?.commandId === command.id ? (existing.migration ?? null) : null;
+      outcome = await settleEcsDeploy(deps, request, {
+        allowMigration: command.type === 'DEPLOY_RELEASE',
+        migration,
+      });
     } catch (err) {
       return result(command, false, {
         error: String(err),
@@ -330,7 +607,9 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
     }
 
     // Record the debt BEFORE deferring — an unfindable deferral leaves the
-    // job in RUNNING forever, which is worse than an honest failure.
+    // job in RUNNING forever, which is worse than an honest failure. The
+    // marker also carries any migration task so a later invocation resumes
+    // the SAME task instead of starting a second migration.
     const recorded = await deps.pending.write({
       commandId: command.id,
       idempotencyKey: command.idempotencyKey,
@@ -338,6 +617,7 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       stackName: deps.stackName,
       startedAt: (deps.now ?? (() => new Date().toISOString()))(),
       payload: command.payload,
+      ...(outcome.migration ? { migration: outcome.migration } : {}),
     });
     if (!recorded) {
       return result(command, false, {
@@ -378,8 +658,18 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
       ];
     }
 
-    const outcome = await settleEcsDeploy(deps, request);
+    const outcome = await settleEcsDeploy(deps, request, {
+      allowMigration: pending.type === 'DEPLOY_RELEASE',
+      migration: pending.migration ?? null,
+    });
     if (outcome.state === 'in-progress') {
+      // The moment a migration task is first observed STOPPED + exit 0, pin
+      // completion onto the marker: a stopped task ages out of DescribeTasks,
+      // and re-polling it on later polls would eventually fail a deploy
+      // whose migration already succeeded. One extra write, exactly once.
+      if (outcome.migration !== undefined && outcome.migration.completedAt !== pending.migration?.completedAt) {
+        await deps.pending.write({ ...pending, migration: outcome.migration });
+      }
       console.log(
         JSON.stringify({
           event: 'relay:command-still-pending',
