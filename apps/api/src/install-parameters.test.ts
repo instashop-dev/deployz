@@ -298,6 +298,44 @@ describe('INSTALL job payload.parameters wiring', () => {
     expect((job!.payload as { redisRequired?: boolean }).redisRequired).toBe(false);
   });
 
+  it('POST /api/relay/register carries the canonical manifest from desired_state.manifest', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const manifest = {
+      application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+      build: { command: 'npm run build', context: '.' },
+      web: { command: 'node server.js', port: 8080 },
+      health: { path: '/api/health' },
+      database: { postgres: true },
+      redis: { required: true, envBindings: [{ name: 'REDIS_URL', kind: 'url' }] },
+      storage: { required: true, envBindings: [{ name: 'AWS_S3_BUCKET', kind: 'bucket' }] },
+      migration: { command: 'npm run migrate' },
+      worker: { command: null },
+      environment: { variables: ['LOG_LEVEL'] },
+      externalServices: [],
+      unsupported: [],
+    };
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+      desiredState: { manifest },
+    });
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId: `inst-${crypto.randomUUID()}` },
+      { authorization: 'Bearer relay-token-install-params-manifest' },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect((job!.payload as { manifest?: typeof manifest }).manifest).toEqual(manifest);
+  });
+
   it('POST /api/deployments/:id/retry-install keeps recovery.neverInstalled AND adds parameters', async () => {
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);

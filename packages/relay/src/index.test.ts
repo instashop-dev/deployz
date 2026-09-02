@@ -10,6 +10,7 @@ import {
   createObserveHook,
   createRelayHandler,
   createVerifyingExecutor,
+  readDeploymentManifest,
   readInstallParametersFromPayload,
   readVerifyOptionsFromPayload,
   relayApplicationStackName,
@@ -1373,6 +1374,117 @@ describe('readInstallParametersFromPayload', () => {
 
   it('ignores a parameters field that is not an object', () => {
     expect(readInstallParametersFromPayload({ parameters: 'nope' })).toEqual({});
+  });
+});
+
+// ── Phase 2: the canonical manifest rides the INSTALL payload ───────────────
+
+function manifestPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+    build: { command: 'npm run build', context: '.' },
+    web: { command: 'node server.js', port: 8080 },
+    health: { path: '/api/health' },
+    database: { postgres: true },
+    redis: {
+      required: true,
+      envBindings: [
+        { name: 'REDIS_URL', kind: 'url' },
+        { name: 'REDIS_HOST', kind: 'host' },
+        { name: 'REDIS_PORT', kind: 'port' },
+      ],
+    },
+    storage: { required: true, envBindings: [{ name: 'AWS_S3_BUCKET', kind: 'bucket' }] },
+    migration: { command: 'npm run migrate' },
+    worker: { command: null },
+    environment: { variables: ['LOG_LEVEL'] },
+    externalServices: [],
+    unsupported: [],
+    ...overrides,
+  };
+}
+
+describe('readDeploymentManifest', () => {
+  it('returns the validated manifest from the payload', () => {
+    const manifest = readDeploymentManifest({ manifest: manifestPayload() });
+    expect(manifest?.web.port).toBe(8080);
+    expect(manifest?.health.path).toBe('/api/health');
+  });
+
+  it('returns null when the payload carries no manifest', () => {
+    expect(readDeploymentManifest({})).toBeNull();
+  });
+
+  it('rejects a manifest that violates the contracts schema', () => {
+    expect(readDeploymentManifest({ manifest: { application: {} } })).toBeNull();
+  });
+});
+
+describe('settleInstall derives parameters and the Redis variant from the manifest', () => {
+  const command = {
+    id: 'cmd-manifest',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL:manifest',
+    payload: {},
+  };
+
+  function makeInstallDeps(install: ReturnType<typeof vi.fn>): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      install,
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: memoryPendingStore(),
+      now: () => '2026-08-26T12:00:00.000Z',
+    };
+  }
+
+  it('selects the redis template and sends manifest-derived port/health parameters, with manifest winning over the ad-hoc control-plane value', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps(install))({
+      ...command,
+      payload: {
+        // The legacy path still sent a health path resolved from the ad-hoc
+        // column — the manifest's canonical path must win over it.
+        parameters: { paramHealthCheckPath: '/legacy', paramAppApiKey: 'k' },
+        manifest: manifestPayload({ redis: manifestPayload().redis }),
+      },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl:
+        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      parameters: {
+        paramHealthCheckPath: '/api/health',
+        paramContainerPort: '8080',
+        paramAppApiKey: 'k',
+      },
+    });
+  });
+
+  it('falls back to the legacy top-level redisRequired flag when the payload has no manifest', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps(install))({
+      ...command,
+      payload: { redisRequired: true },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl:
+        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      parameters: {},
+    });
   });
 });
 

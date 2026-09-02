@@ -447,7 +447,24 @@ describe('server — organization identity comes from the session, not the clien
   });
 
   it('POST /api/deployments with the correct (or no) organizationId inserts under the session org', async () => {
-    const application = await insertApplication(db, orgA.organizationId);
+    const application = await insertApplication(db, orgA.organizationId, {
+      // Phase 2 readiness gate: a deployment may only be created when the
+      // final manifest is READY, so an analyzed (manifest-ready) application
+      // is required here.
+      detectedMetadata: {
+        hasDockerfile: true,
+        dockerfilePath: 'Dockerfile',
+        port: '3000',
+        startupCommands: ['node dist/index.js'],
+        usesPostgresql: false,
+        postgres: { required: false },
+        usesRedis: false,
+        redis: { required: false },
+        usesS3: false,
+        usesLocalFilesystem: false,
+        databaseState: 'none',
+      },
+    });
     const customer = await insertCustomer(db, orgA.organizationId);
 
     const response = await postJson(

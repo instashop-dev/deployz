@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.34",
+    "@deployz/contracts": "workspace:*",
     "ai": "^7.0.73",
     "zod": "^4.4.3"
   }
