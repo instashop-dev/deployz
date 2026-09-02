@@ -45,7 +45,7 @@ test('choosing a repository creates a real application and opens its readiness p
   await signUp(page);
   await page.goto('/dashboard/applications');
 
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   // The Application row is now real — the URL carries a UUID, not a
   // fixture-repo-* id.
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
@@ -57,7 +57,7 @@ test('choosing a repository creates a real application and opens its readiness p
 test('a freshly-analysed application shows the real §19 COMPLETE verdict', async ({ page }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // The fixture repo (deployz-demo/express-api) analyses as fully READY —
@@ -71,7 +71,7 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
 test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
@@ -84,7 +84,7 @@ test('re-analysing settles the button back to Re-analyse and refreshes the appli
 }) => {
   await signUp(page);
   await page.goto('/dashboard/applications');
-  await page.getByRole('button', { name: 'Choose' }).first().click();
+  await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/([0-9a-f-]{36})$/);
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
 

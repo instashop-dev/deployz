@@ -20,7 +20,8 @@ test('applications page lists the fixture installation and its repositories', as
   await page.goto('/dashboard/applications');
 
   await expect(page.getByRole('heading', { name: 'Applications', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Choose a repository' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Add your first application' })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search repositories' })).toBeVisible();
 
   // The fixture org's installation + both §216 fixture repos.
   await expect(page.getByText('deployz-demo', { exact: true })).toBeVisible();
