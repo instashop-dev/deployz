@@ -171,10 +171,27 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
     });
 
     // The analyser records where the Dockerfile actually lives; a repository
-    // is free to keep it out of the root.
+    // is free to keep it out of the root. A vendor PATCH override
+    // (detected_metadata.manifestOverrides) WINS over detection — the build
+    // must follow the same manifest the deployment gate read, or an
+    // override-corrected app would still be built from the wrong files.
+    const storedOverrides = (application.detectedMetadata?.['manifestOverrides'] ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const overrideDockerfile =
+      typeof storedOverrides['dockerfilePath'] === 'string' && storedOverrides['dockerfilePath'].length > 0
+        ? storedOverrides['dockerfilePath']
+        : undefined;
+    const overrideBuildContext =
+      typeof storedOverrides['buildContext'] === 'string' && storedOverrides['buildContext'].length > 0
+        ? storedOverrides['buildContext']
+        : undefined;
     const dockerfilePath =
-      (application.detectedMetadata?.['dockerfilePath'] as string | undefined) ?? 'Dockerfile';
-    const buildContext = resolveBuildContext(dockerfilePath);
+      overrideDockerfile ??
+      (application.detectedMetadata?.['dockerfilePath'] as string | undefined) ??
+      'Dockerfile';
+    const buildContext = overrideBuildContext ?? resolveBuildContext(dockerfilePath);
 
     const environmentVariables: { name: string; value: string }[] = [
       { name: 'SOURCE_S3_URI', value: `s3://${bucket}/${archive.s3Key}` },

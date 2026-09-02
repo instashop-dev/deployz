@@ -179,6 +179,16 @@ const OTHER_DB_COPY: RejectionCopy = {
     'Move the data layer to PostgreSQL, or remove the unsupported dependency if it is not actually used.',
 };
 
+const SQLITE_COPY: RejectionCopy = {
+  ...MYSQL_COPY,
+  id: 'unsupported-database-sqlite',
+  plainEnglishExplanation:
+    'This app uses SQLite, a database stored in a file on the app server. Deployz cannot host it because app disks are wiped on every deploy.',
+  whyItMatters:
+    'Deployz provisions, connects, and backs up the database for every customer deployment, and it can only do that for a managed PostgreSQL database.',
+  suggestedOutcome: 'Move the data layer to PostgreSQL.',
+};
+
 const REDIS_COPY: RejectionCopy = {
   id: 'unsupported-redis-setup',
   category: 'cache',
@@ -191,17 +201,87 @@ const REDIS_COPY: RejectionCopy = {
     'Use a standard single-node Redis setup without Stack modules or cluster mode.',
 };
 
-/** Maps a §10 rejection `dependency` to its blocking-finding copy. */
+/**
+ * §11.4 architecture/cloud/queue families. Each stays deliberately generic in
+ * the copy fields (jargon-free, §65) — the SPECIFIC reason with its file
+ * evidence lives in the rejection's own `reason`, surfaced as the finding's
+ * technical evidence.
+ */
+const ARCHITECTURE_COPY: RejectionCopy = {
+  id: 'unsupported-architecture',
+  category: 'architecture',
+  title: 'Runs its own infrastructure',
+  plainEnglishExplanation:
+    'This app depends on infrastructure that Deployz does not host or manage (its own deployment tooling, cloud platform files, or cluster setup).',
+  whyItMatters:
+    'Deployz provisions one container per application with managed database, cache, and storage. Extra infrastructure the app expects would not exist at runtime.',
+  suggestedOutcome:
+    'Remove the third-party infrastructure and keep only the application code. Deployz provides the hosting, database, cache, and storage.',
+};
+
+const MESSAGE_QUEUE_COPY: RejectionCopy = {
+  ...ARCHITECTURE_COPY,
+  id: 'unsupported-message-queue',
+  title: 'Relies on its own message queue',
+  plainEnglishExplanation:
+    'This app depends on a message queue or event bus that Deployz does not host (for example Kafka, RabbitMQ, or an AWS queue).',
+  suggestedOutcome:
+    'Replace the queue with background jobs that run inside the Deployz container, or remove the queue dependency if it is not actually used.',
+};
+
+const STORAGE_COPY: RejectionCopy = {
+  ...ARCHITECTURE_COPY,
+  id: 'unsupported-persistent-volume',
+  category: 'storage',
+  title: 'Needs a persistent disk volume',
+  plainEnglishExplanation:
+    'This app expects a persistent disk volume that stays attached between restarts. Deployz runs apps on disks that are wiped on every deploy.',
+  suggestedOutcome: 'Store persistent data in object storage instead of an attached disk.',
+};
+
+const GPU_COPY: RejectionCopy = {
+  ...ARCHITECTURE_COPY,
+  id: 'unsupported-gpu',
+  title: 'Needs a graphics processor (GPU)',
+  plainEnglishExplanation:
+    'This app requires a graphics processor to run. Deployz runs apps on standard processors only.',
+  suggestedOutcome:
+    'Use a processor-only configuration, or move the graphics processing to a service that provides it.',
+};
+
+/** Maps a §10/§11 rejection `dependency` to its blocking-finding copy. */
 function rejectionCopy(dependency: string): RejectionCopy {
   if (dependency === 'redis-unsupported') return REDIS_COPY;
-  if (dependency === 'mysql' || dependency === 'mysql2' || dependency === '@prisma/client') {
+  if (dependency === 'mysql' || dependency === 'mysql2' || dependency === 'mariadb' || dependency === '@prisma/client') {
     return MYSQL_COPY;
   }
+  if (dependency === 'sqlite') return SQLITE_COPY;
   if (dependency === 'mongoose' || dependency === 'mongodb' || dependency === 'mongodb-client') {
     return MONGO_COPY;
   }
   if (dependency === '@elastic/elasticsearch' || dependency === '@opensearch-project/opensearch') {
     return ELASTICSEARCH_COPY;
+  }
+  if (
+    dependency === 'kafka' ||
+    dependency === 'rabbitmq' ||
+    dependency === 'sqs-event-consumer' ||
+    dependency === 'docker-compose-multi-service'
+  ) {
+    return MESSAGE_QUEUE_COPY;
+  }
+  if (dependency === 'persistent-volume') return STORAGE_COPY;
+  if (dependency === 'gpu') return GPU_COPY;
+  if (
+    dependency === 'kubernetes' ||
+    dependency === 'serverless' ||
+    dependency === 'terraform' ||
+    dependency === 'pulumi' ||
+    dependency === 'cloudformation' ||
+    dependency === 'azure' ||
+    dependency === 'gcp'
+  ) {
+    return ARCHITECTURE_COPY;
   }
   return OTHER_DB_COPY;
 }

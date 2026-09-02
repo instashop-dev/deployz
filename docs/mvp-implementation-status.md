@@ -510,3 +510,64 @@ real AWS. No new failure code was added, so no registry changed.
 
 Full build (`pnpm build`) passes; relay, contracts, api and web vitest
 suites pass with the changed fixtures.
+
+## Phase 7 — Repository compatibility expansion (2026-09-02)
+
+Phase 7 expands the ANALYSIS layer for repository compatibility. Runtime
+behavior does not change: the existing Phase 3 gates still enforce readiness
+from the manifest, and the new findings simply feed those gates. No failure
+code, failure-code schema, or failure-code registry changed.
+
+### Audited-existing (verified, changed only where required)
+
+- §10 rejection checks (MySQL/Mongo/Elasticsearch/other DBs) and their
+  blocking readiness findings were already precise. `databaseState`
+  derivation now ignores non-database rejections (§11.4) so a Kubernetes or
+  Terraform repo is never mislabelled as an "unsupported database".
+- `manifest.environment.variables` was a plain name list — extended to
+  `{ key, required, secret, source }` (§11.2). Every consumer of the field
+  (contracts schema, analysis normalization, relay test fixtures, api test
+  fixtures) was updated; the relay reads only port/health/migration from the
+  manifest, so no relay logic changed.
+- Vendor overrides (appRoot, dockerfilePath, buildContext) flowed into
+  manifest normalization but NOT into the release build
+  (`packages/cdk/src/lambda/worker.ts` read raw detected metadata). The
+  release build now honours `manifestOverrides.dockerfilePath/buildContext`.
+- Manifest `build.context` defaulted to the app-root directory. It now
+  defaults to the repository root (§11.1); a nested Dockerfile is addressed
+  by its own path.
+
+### Added
+
+- §11.2 env-var model: `detectEnvVarModel` seeds from env samples, source
+  reads (JS/TS, Prisma `env()`, Python `os.environ`, Ruby `ENV.fetch`), and
+  §11.3 service keys. `required` is narrow and honest (a value the app reads
+  with no fallback/guard and no repository default). The manifest gate
+  reports missing required values as `required-env-vars-missing`
+  (NEEDS_CONFIGURATION) when the deployment-creation boundary knows which
+  values are configured (vendor defaults + customer overrides,
+  `listProvidedConfigKeys`).
+- §11.3 external services: deterministic detection for Stripe, Clerk, Auth0,
+  Resend, SendGrid, SMTP, Sentry, OpenAI, Anthropic, Twilio, Shopify into
+  `manifest.externalServices`, each mapped to its well-known keys. Deployz
+  collects configuration; it never provisions these services.
+- §11.4 unsupported architecture breadth (each NOT_COMPATIBLE with evidence
+  in the reason): MySQL/MariaDB breadth, SQLite, Kafka, RabbitMQ, complex
+  SQS consumers, Kubernetes, Serverless/SAM, multi-service Docker Compose,
+  persistent volumes (PVC/EFS/compose volumes), Terraform, Pulumi, customer
+  CloudFormation, Azure, GCP, GPU.
+- §11.5 language breadth: PostgreSQL detection for Python (psycopg2),
+  Ruby (`pg`), Go (`pgx`/`lib/pq`), S3 via boto3/aws-sdk-s3/Go AWS SDK, and
+  persistent filesystem writes in Python and Ruby.
+- Monorepo classification: analysis → manifest → readiness for the monorepo
+  fixture is covered end to end (nested app root, repo-root build context,
+  READY manifest), plus a worker test that the release build follows the
+  vendor-corrected Dockerfile/context.
+
+### Verification
+
+Full build passes. Full `pnpm vitest run`: 95 files / 2094 tests pass with no
+failed files (the single reported error is the documented Windows
+`onTaskUpdate` worker timeout flake; CI is authoritative). Focused suites for
+every touched file pass: analysis (334 tests incl. new `phase7.test.ts`),
+contracts manifest, relay (417), api server/manifest/analysis, cdk worker.

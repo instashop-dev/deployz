@@ -1397,7 +1397,7 @@ function manifestPayload(overrides: Record<string, unknown> = {}) {
     storage: { required: true, envBindings: [{ name: 'AWS_S3_BUCKET', kind: 'bucket' }] },
     migration: { command: 'npm run migrate' },
     worker: { command: null },
-    environment: { variables: ['LOG_LEVEL'] },
+    environment: { variables: [{ key: 'LOG_LEVEL', required: false, secret: false, source: [] }] },
     externalServices: [],
     unsupported: [],
     ...overrides,

@@ -47,8 +47,10 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // whose analysis LOGIC has still gets a fresh run instead of a stale cache
 // hit. Version 1 is the pre-AI implicit version (no `analysisVersion` field
 // on the row at all). Version 3 introduced the semantic readiness report
-// (`detected_metadata.readiness`).
-export const ANALYSIS_VERSION = 3;
+// (`detected_metadata.readiness`). Version 4 introduced the Phase 7 §11
+// metadata (env-var model, external-service requirements, unsupported
+// architecture reasons), whose absence would silently keep old verdicts.
+export const ANALYSIS_VERSION = 4;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

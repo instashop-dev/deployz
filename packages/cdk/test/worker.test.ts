@@ -177,6 +177,40 @@ describe('worker handler', () => {
     expect(build?.environmentVariables.some((v) => v.name === 'BUILD_CONTEXT')).toBe(false);
   });
 
+  it('builds from vendor manifest overrides (dockerfilePath/buildContext) when the vendor corrected them (§11.1)', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Monorepo App',
+        githubInstallationId: '4242',
+        repoFullName: 'acme/monorepo',
+        repoUrl: 'https://github.com/acme/monorepo',
+        defaultBranch: 'main',
+        // Detection guessed the root Dockerfile; the vendor corrected it to the
+        // app under apps/api with a repo-root build context. The release build
+        // must follow the corrected manifest, or it builds the wrong image.
+        detectedMetadata: {
+          dockerfilePath: 'Dockerfile',
+          manifestOverrides: { dockerfilePath: 'apps/api/Dockerfile', buildContext: '.' },
+        },
+      })
+      .returning();
+    const [release] = await db
+      .insert(schema.releases)
+      .values({ applicationId: application!.id, version: 'v1.2.0', gitSha: 'abc125' })
+      .returning();
+
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release!.id }, 'msg-2c');
+
+    const build = started[started.length - 1];
+    expect(build?.environmentVariables).toContainEqual({
+      name: 'DOCKERFILE_PATH',
+      value: 'apps/api/Dockerfile',
+    });
+    expect(build?.environmentVariables).toContainEqual({ name: 'BUILD_CONTEXT', value: '.' });
+  });
+
   it('fails the release when the application has no GitHub installation', async () => {
     const [application] = await db
       .insert(schema.applications)

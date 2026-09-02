@@ -7,6 +7,8 @@ import {
   analyseRepo,
   collectUnresolvedQuestions,
   createAiGateway,
+  evaluateManifestReadiness,
+  normalizeDeploymentManifest,
   type AiGateway,
   type ReadinessReport,
 } from '@deployz/analysis';
@@ -298,6 +300,30 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(metadata.readiness.findings).toEqual([
       expect.objectContaining({ id: 'health-check', severity: 'required', blocking: false }),
     ]);
+
+    // §11.1 end-to-end: analysis → manifest → manifest readiness. The MVP is
+    // ONE selected app; the manifest gate must point at the nested app with a
+    // repo-root build context and classify the monorepo as deployable (the
+    // missing health check is a semantic finding, not a manifest blocker).
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.application.root).toBe('apps/api');
+    expect(manifest.application.dockerfilePath).toBe('apps/api/Dockerfile');
+    expect(manifest.build.context).toBe('.');
+    expect(manifest.web.command).toContain('src/index.js');
+    expect(manifest.web.port).toBe(3000);
+    expect(manifest.unsupported).toEqual([]);
+    expect(evaluateManifestReadiness(manifest).state).toBe('READY');
+    // The same flow accepts the vendor-corrected overrides verbatim — the
+    // PATCH surface feeds this exact normalizer at deployment creation.
+    const overridden = normalizeDeploymentManifest(analysis, {
+      appRoot: 'apps/api',
+      dockerfilePath: 'apps/api/Dockerfile',
+      buildContext: '.',
+      startCommand: 'pnpm --filter api start',
+    });
+    expect(overridden.application.root).toBe('apps/api');
+    expect(overridden.build.context).toBe('.');
+    expect(overridden.web.command).toBe('pnpm --filter api start');
   });
 
   it('refreshes a previously auto-detected contract field when the repo has changed', async () => {

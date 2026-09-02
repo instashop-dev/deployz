@@ -1,4 +1,4 @@
-import { and, eq, isNull, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { RuntimeDb } from '@deployz/db';
@@ -408,4 +408,31 @@ export function createRelaySecretWriter(): ConfigSecretWriter {
       await enqueue({ type: 'CONFIG_UPDATE', customerId, removedKeys: [...keys] });
     },
   };
+}
+
+/**
+ * The env keys that already carry a value for one deployment scope: vendor
+ * defaults for the application plus this customer's overrides (§31 merge
+ * order). Used by the §11.2 readiness gate at deployment creation to decide
+ * which required env vars are already provided.
+ */
+export async function listProvidedConfigKeys(
+  db: RuntimeDb,
+  applicationId: string,
+  customerId: string,
+): Promise<string[]> {
+  if (!UUID_PATTERN.test(applicationId) || !UUID_PATTERN.test(customerId)) return [];
+  const rows = await db
+    .select({ key: schema.applicationConfigs.key })
+    .from(schema.applicationConfigs)
+    .where(
+      and(
+        eq(schema.applicationConfigs.applicationId, applicationId),
+        or(
+          isNull(schema.applicationConfigs.customerId),
+          eq(schema.applicationConfigs.customerId, customerId),
+        ),
+      ),
+    );
+  return [...new Set(rows.map((row) => row.key))];
 }

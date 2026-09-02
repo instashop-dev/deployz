@@ -14,6 +14,7 @@ import {
   detectPort,
   detectHealthEndpoint,
   detectEnvVars,
+  detectEnvVarModel,
   detectPostgresql,
   assessPostgres,
   detectLocalFilesystem,
@@ -22,17 +23,33 @@ import {
   detectMigrationCommand,
   detectStartupCommand,
   detectExternalServices,
+  detectExternalServiceRequirements,
   detectPackageManager,
   detectBuildCommand,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
 import {
+  DATABASE_REJECTION_TOKENS,
   checkRedisUnsupported,
   checkMysql,
   checkMongo,
   checkElasticsearch,
   checkOtherUnsupportedDatabases,
+  checkSqlite,
+  checkKafka,
+  checkRabbitMq,
+  checkSqsEventArchitecture,
+  checkKubernetes,
+  checkServerless,
+  checkDockerComposeMultiService,
+  checkPersistentVolumes,
+  checkTerraform,
+  checkPulumi,
+  checkCloudFormation,
+  checkAzure,
+  checkGcp,
+  checkGpu,
 } from './rejection.js';
 
 import type { RedisRequirement } from './redis.js';
@@ -91,6 +108,20 @@ const REJECTION_CHECKS = [
   checkMongo,
   checkElasticsearch,
   checkOtherUnsupportedDatabases,
+  checkSqlite,
+  checkKafka,
+  checkRabbitMq,
+  checkSqsEventArchitecture,
+  checkKubernetes,
+  checkServerless,
+  checkDockerComposeMultiService,
+  checkPersistentVolumes,
+  checkTerraform,
+  checkPulumi,
+  checkCloudFormation,
+  checkAzure,
+  checkGcp,
+  checkGpu,
 ] as const;
 
 /**
@@ -230,6 +261,22 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   }
 
   const metadata = buildMetadata(findings, redis, postgres);
+
+  // §11.4 — the full unsupported-reason list the manifest gate turns into
+  // NOT_COMPATIBLE. Kept as plain strings on the metadata so a deployment
+  // created from STORED detected_metadata blocks exactly like one created
+  // straight after analysis.
+  const detectedRejections = rejections.filter((r) => r.detected);
+  metadata['unsupportedReasons'] = detectedRejections.map((r) => r.reason);
+
+  // §11.3 / §11.2 — structured service requirements and the env-var model.
+  const serviceRequirements = detectExternalServiceRequirements(tree);
+  metadata['externalServiceRequirements'] = serviceRequirements;
+  metadata['envVarModel'] = detectEnvVarModel(
+    tree,
+    serviceRequirements.map((r) => r.service),
+  );
+
   metadata['databaseState'] = deriveDatabaseState(findings, rejections);
 
   return { findings, rejections, metadata };
@@ -239,9 +286,11 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
  * Derive the `databaseState` metadata value from the detector findings and
  * §10 rejections. PostgreSQL takes priority over an unsupported DB (a Postgres
  * app that also pulled in an unsupported Redis config is `postgres` for DB
- * purposes — the Redis rejection still drives the verdict). Redis-only
- * rejections are about the cache, not the database, so they do not count as an
- * unsupported DB state.
+ * purposes — the Redis rejection still drives the verdict). Only a rejection
+ * whose dependency is an actual DATABASE token (§10) counts here — an
+ * architecture/cloud/cache rejection (§11.4) means the app is unsupported but
+ * is not a "database" verdict, and Redis-only rejections are about the cache,
+ * not the database.
  */
 function deriveDatabaseState(
   findings: DetectorFinding[],
@@ -251,7 +300,7 @@ function deriveDatabaseState(
   if (postgres) return 'postgres';
 
   const unsupportedDb = rejections.some(
-    (r) => r.detected && r.dependency !== 'redis-unsupported',
+    (r) => r.detected && r.dependency !== 'redis-unsupported' && DATABASE_REJECTION_TOKENS.has(r.dependency),
   );
   if (unsupportedDb) return 'unsupported';
 

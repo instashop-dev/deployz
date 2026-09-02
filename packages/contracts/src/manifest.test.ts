@@ -22,7 +22,7 @@ const READY_MANIFEST = {
   storage: { required: false, envBindings: [] },
   migration: { command: 'npm run db:migrate' },
   worker: { command: null },
-  environment: { variables: ['DATABASE_URL'] },
+  environment: { variables: [{ key: 'DATABASE_URL', required: false, secret: false, source: [] }] },
   externalServices: ['stripe'],
   unsupported: [],
 } as const;

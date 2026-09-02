@@ -17,6 +17,7 @@ export {
   detectPort,
   detectHealthEndpoint,
   detectEnvVars,
+  detectEnvVarModel,
   detectPostgresql,
   assessPostgres,
   detectLocalFilesystem,
@@ -25,16 +26,37 @@ export {
   detectMigrationCommand,
   detectStartupCommand,
   detectExternalServices,
+  detectExternalServiceRequirements,
   collectScripts,
 } from './detectors.js';
+export type {
+  ExternalServiceDefinition,
+  ExternalServiceRequirement,
+} from './detectors.js';
+export { EXTERNAL_SERVICE_CATALOG } from './detectors.js';
 
 export type { RejectionFinding } from './rejection.js';
 export {
+  DATABASE_REJECTION_TOKENS,
   checkRedisUnsupported,
   checkMysql,
   checkMongo,
   checkElasticsearch,
   checkOtherUnsupportedDatabases,
+  checkSqlite,
+  checkKafka,
+  checkRabbitMq,
+  checkSqsEventArchitecture,
+  checkKubernetes,
+  checkServerless,
+  checkDockerComposeMultiService,
+  checkPersistentVolumes,
+  checkTerraform,
+  checkPulumi,
+  checkCloudFormation,
+  checkAzure,
+  checkGcp,
+  checkGpu,
 } from './rejection.js';
 
 export type {
@@ -71,7 +93,7 @@ export type {
 } from './readiness-report.js';
 export { buildReadinessReport, verdictFromReadiness } from './readiness-report.js';
 
-export type { ManifestSource } from './manifest.js';
+export type { ManifestSource, ManifestReadinessContext } from './manifest.js';
 export { normalizeDeploymentManifest, evaluateManifestReadiness } from './manifest.js';
 
 export type {
