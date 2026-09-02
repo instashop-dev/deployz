@@ -195,10 +195,34 @@ function contentMatches(tree: FileTree, pathRegex: RegExp, contentRegex: RegExp)
   return Object.keys(tree).filter((p) => pathRegex.test(p) && !!tree[p] && contentRegex.test(tree[p]));
 }
 
-/** Compose services: file → [{ name, image }]. Undefined when no compose file. */
+/**
+ * Path segments that mark a compose file as dev/test/example tooling rather
+ * than the app's own production deployment shape.
+ */
+const NON_PRODUCTION_COMPOSE_SEGMENT_REGEX =
+  /(?:^|\/)(?:development|dev|test|testing|tests|e2e|ci|example|examples|sample|samples|local|\.devcontainer)(?:\/|$)/i;
+
+/** Dev/override-flavoured compose filenames (docker-compose.dev.yml, etc.). */
+const NON_PRODUCTION_COMPOSE_FILENAME_REGEX =
+  /(?:docker-compose|compose)\.(?:dev|development|test|testing|override|local|example|sample|ci)\.ya?ml$/i;
+
+function isProductionComposeFile(path: string): boolean {
+  return !NON_PRODUCTION_COMPOSE_SEGMENT_REGEX.test(path) && !NON_PRODUCTION_COMPOSE_FILENAME_REGEX.test(path);
+}
+
+/**
+ * Compose services: file → [{ name, image }]. Undefined when no compose file
+ * describes the app's own production deployment — dev/test/example compose
+ * files (e.g. `docker/development/compose.yml`, a mail sandbox or PDF
+ * renderer for local tooling) are not evidence of the app's architecture.
+ * Prefers a repository-root compose file over a nested one.
+ */
 function composeServices(tree: FileTree): { file: string; services: { name: string; image: string | null }[] } | null {
-  const path = Object.keys(tree).find((p) => /(?:^|\/)(?:docker-compose|compose)\.ya?ml$/i.test(p));
-  if (!path) return null;
+  const candidates = Object.keys(tree).filter(
+    (p) => /(?:^|\/)(?:docker-compose|compose)\.ya?ml$/i.test(p) && isProductionComposeFile(p),
+  );
+  if (candidates.length === 0) return null;
+  const path = candidates.find((p) => !p.includes('/')) ?? candidates[0]!;
   const content = tree[path] ?? '';
   const services: { name: string; image: string | null }[] = [];
   const lines = content.split('\n');
@@ -499,34 +523,41 @@ export function checkCloudFormation(tree: FileTree): RejectionFinding {
   return { detected: false, dependency: 'none', reason: 'No CloudFormation template detected' };
 }
 
-/** Azure dependencies. */
+/**
+ * Azure deployment files. A `@azure/*` package (e.g. an optional storage or
+ * KMS SDK) is not evidence the app deploys TO Azure, so only files that
+ * describe an Azure deployment pipeline or resource template count.
+ */
 export function checkAzure(tree: FileTree): RejectionFinding {
-  const signals = [
-    ...filePathsMatching(tree, /(?:^|\/)azure-pipelines\.ya?ml$|(?:^|\/)azuredeploy(?:\.parameters)?\.json$|\.bicep$/),
-  ];
-  const deps = collectDependencyNames(tree).filter((d) => d.startsWith('@azure/'));
-  if (signals.length > 0 || deps.length > 0) {
+  const signals = filePathsMatching(
+    tree,
+    /(?:^|\/)azure-pipelines\.ya?ml$|(?:^|\/)azuredeploy(?:\.parameters)?\.json$|\.bicep$/,
+  );
+  if (signals.length > 0) {
     return {
       detected: true,
       dependency: 'azure',
-      reason: `Unsupported cloud: Azure deployment files or packages are present (${(signals[0] ?? deps[0])}). Deployz deploys to AWS.`,
+      reason: `Unsupported cloud: an Azure deployment file is present (${signals[0]}). Deployz deploys to AWS.`,
     };
   }
   return { detected: false, dependency: 'none', reason: 'No Azure dependency detected' };
 }
 
-/** GCP dependencies. */
+/**
+ * GCP deployment files. A `@google-cloud/*` or `firebase-admin` package (e.g.
+ * an optional KMS or storage client) is not evidence the app deploys TO GCP,
+ * so only files that describe a GCP deployment target count.
+ */
 export function checkGcp(tree: FileTree): RejectionFinding {
   const appEngine = contentMatches(tree, /(?:^|\/)app\.ya?ml$/, /^runtime:\s*(?:nodejs|python|go|java|php)/m);
   const cloudBuild = filePathsMatching(tree, /(?:^|\/)cloudbuild\.ya?ml$|(?:^|\/)\.gcloudignore$/);
   const gcrBase = contentMatches(tree, /(?:^|\/)Dockerfile(?:\.[\w.-]+)?$/i, /^FROM\s+(?:[^/\s]+\/)?gcr\.io\//m);
-  const deps = collectDependencyNames(tree).filter((d) => /^@google-cloud\/|^firebase-admin$/.test(d));
-  if (appEngine.length > 0 || cloudBuild.length > 0 || gcrBase.length > 0 || deps.length > 0) {
-    const evidence = (appEngine[0] ?? cloudBuild[0] ?? gcrBase[0] ?? deps[0]) ?? '';
+  if (appEngine.length > 0 || cloudBuild.length > 0 || gcrBase.length > 0) {
+    const evidence = (appEngine[0] ?? cloudBuild[0] ?? gcrBase[0]) ?? '';
     return {
       detected: true,
       dependency: 'gcp',
-      reason: `Unsupported cloud: Google Cloud deployment files or packages are present (${evidence}). Deployz deploys to AWS.`,
+      reason: `Unsupported cloud: a Google Cloud deployment file is present (${evidence}). Deployz deploys to AWS.`,
     };
   }
   return { detected: false, dependency: 'none', reason: 'No Google Cloud dependency detected' };

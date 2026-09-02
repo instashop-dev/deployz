@@ -99,6 +99,19 @@ const localFsTree: FileTree = {
     "import fs from 'fs';\nexport function save(path: string, data: string) { fs.writeFileSync(path, data); }\n",
 };
 
+/** Docker Compose defining two application services — a §11.4 rejection. */
+const multiServiceComposeTree: FileTree = {
+  ...readyTree,
+  'docker-compose.yml': [
+    'services:',
+    '  web:',
+    '    image: myapp/web:latest',
+    '  worker:',
+    '    image: myapp/worker:latest',
+    '',
+  ].join('\n'),
+};
+
 /** MySQL dependency — a §10 rejection. */
 const mysqlTree: FileTree = {
   ...readyTree,
@@ -198,6 +211,16 @@ describe('buildReadinessReport — finding classification', () => {
     expect(finding?.severity).toBe('required');
     expect(finding?.blocking).toBe(false);
     expect(finding?.confidence).toBe('likely');
+  });
+
+  it('a multi-service compose file renders the multi-service copy, not the message-queue copy (CANARY-002)', () => {
+    const report = buildReadinessReport(analyseRepo(multiServiceComposeTree));
+    const finding = report.findings.find((f) => f.id === 'unsupported-multi-service');
+    expect(finding).toBeDefined();
+    expect(finding?.title).toBe('Runs as several services');
+    expect(finding?.severity).toBe('required');
+    expect(finding?.blocking).toBe(true);
+    expect(report.findings.some((f) => f.id === 'unsupported-message-queue')).toBe(false);
   });
 
   it('database-migrations is recommended, never blocking', () => {
