@@ -516,13 +516,15 @@ async function requireDeployableRelease(
     imageRepository,
     imageDigest,
   };
-  // Phase 4: the migration command, stored-manifest first (the canonical
-  // snapshot the deployment was created with), else the release's own
-  // override. Absent → the key is omitted so a no-migration deploy carries
-  // byte-for-byte the payload it always did. A bulk deploy resolves the
-  // manifest half per target (each target has its own stored manifest).
+  // Phase 4: the migration command — the release's own command first (the
+  // vendor's explicit per-release override), else the stored manifest's (the
+  // snapshot the deployment was created with, which is never refreshed, so
+  // it must not outrank a deliberate correction — CANARY-010). Absent → the
+  // key is omitted so a no-migration deploy carries byte-for-byte the payload
+  // it always did. A bulk deploy resolves the manifest half per target (each
+  // target has its own stored manifest).
   const manifestCommand = deployment ? (readStoredManifest(deployment.desiredState)?.migration.command ?? null) : null;
-  const migrationCommand = manifestCommand ?? release.migrationCommand ?? null;
+  const migrationCommand = release.migrationCommand ?? manifestCommand ?? null;
   if (migrationCommand !== null && migrationCommand.trim().length > 0) {
     payload.migrationCommand = migrationCommand.trim();
   }
@@ -2940,12 +2942,13 @@ export async function buildServer({
         continue;
       }
       // Phase 4: each target resolves its own migration command — the shared
-      // `payload` carries the release-level command; a target's stored
-      // manifest command overrides it (same precedence as single deploys).
+      // `payload` carries the release-level command when the release has one;
+      // otherwise a target's stored manifest command fills in (same precedence
+      // as single deploys).
       let targetPayload = payload;
       const manifestCommand = readStoredManifest(deployment.desiredState)?.migration.command ?? null;
-      if (manifestCommand !== null && manifestCommand !== payload['migrationCommand']) {
-        targetPayload = { ...payload, migrationCommand: manifestCommand };
+      if (payload['migrationCommand'] === undefined && manifestCommand !== null && manifestCommand.trim().length > 0) {
+        targetPayload = { ...payload, migrationCommand: manifestCommand.trim() };
       }
       const { job, created } = await createOrReuseJob(db, {
         deploymentId: deployment.id,
