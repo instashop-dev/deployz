@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { matchesRememberedCustomer, type RememberedCustomer } from '../src/lib/deployments';
+import { listedUnderStatus, matchesRememberedCustomer, type RememberedCustomer } from '../src/lib/deployments';
 
 const REMEMBERED: RememberedCustomer = {
   id: 'cust-1',
@@ -25,5 +25,18 @@ describe('matchesRememberedCustomer', () => {
     expect(matchesRememberedCustomer(REMEMBERED, REMEMBERED.name, 'other@example.com')).toBe(
       false,
     );
+  });
+});
+
+describe('listedUnderStatus', () => {
+  it('keeps removed deployments out of the live fleet', () => {
+    expect(listedUnderStatus({ state: 'DELETED' }, 'all')).toBe(false);
+    expect(listedUnderStatus({ state: 'HEALTHY' }, 'all')).toBe(true);
+  });
+
+  it('lists removed deployments under the Removed filter only', () => {
+    expect(listedUnderStatus({ state: 'DELETED' }, 'DELETED')).toBe(true);
+    expect(listedUnderStatus({ state: 'HEALTHY' }, 'DELETED')).toBe(false);
+    expect(listedUnderStatus({ state: 'HEALTHY' }, 'HEALTHY')).toBe(true);
   });
 });

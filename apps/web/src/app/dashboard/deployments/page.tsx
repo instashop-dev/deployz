@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/table';
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
-import { fetchDeployments, type FleetDeployment } from '@/lib/deployments';
+import { fetchDeployments, listedUnderStatus, type FleetDeployment } from '@/lib/deployments';
 import { DEPLOYMENT_STATES, deploymentStateLabel } from '@/lib/deployment-vocabulary';
 import { STAGE_LABEL, STEP_LABEL } from '@/lib/deployment-progress';
 import { relativeTime } from '@/lib/diagnostics';
@@ -53,15 +53,15 @@ type StatusFilter = (typeof DEPLOYMENT_STATES)[number] | 'attention';
 
 const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'attention', label: 'Needs attention' },
-  ...DEPLOYMENT_STATES.filter((state) => state !== 'DELETED').map((state) => ({
+  ...DEPLOYMENT_STATES.map((state) => ({
     value: state as StatusFilter,
-    label: deploymentStateLabel(state),
+    label: state === 'DELETED' ? 'Removed' : deploymentStateLabel(state),
   })),
 ];
 
 function matchesStatus(deployment: FleetDeployment, filter: StatusFilter): boolean {
   if (filter === 'attention') return attentionReason(deployment) !== null;
-  return deployment.state === filter;
+  return listedUnderStatus(deployment, filter);
 }
 
 /** True once a deployment's derived stage can no longer advance on its own —
@@ -103,7 +103,7 @@ export default function DeploymentsPage() {
     let cancelled = false;
     async function run(): Promise<void> {
       try {
-        const deployments = await fetchDeployments();
+        const deployments = await fetchDeployments({ includeDeleted: true });
         if (cancelled) return;
         setState(
           deployments.length === 0
@@ -130,7 +130,7 @@ export default function DeploymentsPage() {
   // never re-triggers from this. Filters/search stay untouched: they are
   // client-side and URL-persisted, derived fresh from the updated rows below.
   const poll = useStatusPoll({
-    fetcher: fetchDeployments,
+    fetcher: () => fetchDeployments({ includeDeleted: true }),
     intervalMs: 12_000,
     terminalIntervalMs: 60_000,
     isTerminal: (list) =>
@@ -170,7 +170,7 @@ export default function DeploymentsPage() {
     if (state.status !== 'loaded') return [];
     const needle = search.trim().toLowerCase();
     return deployments.filter((deployment) => {
-      if (status !== 'all' && !matchesStatus(deployment, status as StatusFilter)) return false;
+      if (!matchesStatus(deployment, status as StatusFilter)) return false;
       if (application !== 'all' && deployment.applicationName !== application) return false;
       if (region !== 'all' && deployment.region !== region) return false;
       if (needle !== '') {
@@ -183,6 +183,7 @@ export default function DeploymentsPage() {
   }, [state, deployments, search, status, application, region]);
 
   const hasFilters = search !== '' || status !== 'all' || application !== 'all' || region !== 'all';
+  const removedCount = deployments.filter((deployment) => deployment.state === 'DELETED').length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -275,6 +276,19 @@ export default function DeploymentsPage() {
             hasFilters ? (
               <p className="px-1 text-sm text-muted-foreground">
                 No deployments match these filters.
+              </p>
+            ) : removedCount > 0 ? (
+              <p className="px-1 text-sm text-muted-foreground">
+                No active deployments.{' '}
+                <button
+                  type="button"
+                  className="underline underline-offset-4"
+                  onClick={() => setFilter('status', 'DELETED')}
+                >
+                  {removedCount === 1
+                    ? '1 removed deployment may still have retained resources.'
+                    : `${removedCount} removed deployments may still have retained resources.`}
+                </button>
               </p>
             ) : null
           ) : (
