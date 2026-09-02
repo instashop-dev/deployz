@@ -782,3 +782,94 @@ The documented behavior is now:
 Verification: `pnpm build` (relay, contracts, cdk) passes; the affected
 vitest suites pass. One documented Windows `onTaskUpdate` timeout flake
 appeared in the bootstrap suite; it is not a failure (CI is authoritative).
+
+## Phase 10 — Runtime failure classification and diagnostics (2026-09-03)
+
+Phase 10 connects the §61 failure taxonomy to real runtime failures. The
+audit came first; most of §14 already existed. Only two real gaps were
+wired. No failure code, enum, schema, copy-map entry, or classifier rule
+was added.
+
+### §14.2 gap matrix
+
+For each plan item: can the live runtime produce the specific code today,
+and from which file? "Audited" = already live before Phase 10. "Added" =
+wired in Phase 10.
+
+| §14.2 item | Code | Live producer (file) | State |
+|---|---|---|---|
+| ECR image pull | IMAGE_PULL_FAILED | Migration RunTask stopped reason (`packages/relay/src/deploy.ts`) | **Added** — was unreachable; a pull failure in the migration stage collapsed to MIGRATION_FAILED. Now a CannotPullContainerError / pull-access-denied stopped reason classifies IMAGE_PULL_FAILED. INSTALL-time pull text also refines server-side (audited). |
+| Migration | MIGRATION_FAILED | Relay migration exit code (`packages/relay/src/deploy.ts`) | Audited |
+| Port mismatch | PORT_MISMATCH | none | Audited gap — no structured signal distinguishes it from a health-check failure or an app crash: the app's real listening port is not observable (no log access by design), and the §29 rule needs it. Honest code for the observed symptom (app started, targets unhealthy) is IMAGE_HEALTH_CHECK_FAILED. No new code added. |
+| Health-check failure | IMAGE_HEALTH_CHECK_FAILED | INSTALL: failed AWS::ECS stack event with a health-check reason, refined at `/result` (`apps/api/src/failure-classification.ts`, `server.ts`) | Audited |
+| AWS permission denial | AWS_PERMISSION_DENIED / AWS_SCP_BLOCKED | Relay catch sites + server refine (`packages/relay/src/*`, `apps/api/src/failure-classification.ts`) | Audited |
+| Quota | QUOTA_EXCEEDED | Server refine from limit text / stack events (`apps/api/src/failure-classification.ts`) | Audited |
+| Database provisioning | DATABASE_CREATE_FAILED | Server refine from failed AWS::RDS stack event | Audited |
+| Redis provisioning | REDIS_PROVISIONING_FAILED | Server refine from failed AWS::ElastiCache stack event | Audited |
+| Relay timeout / disconnect | RELAY_DISCONNECTED / DOMAIN_OPERATION_TIMEOUT | Worker watchdog (`packages/cdk/src/lambda/worker.ts`) | Audited |
+
+Classify-at-ingest (§14.2 gap 1) already existed: `refineFailureCode` runs
+server-side at the `/result` route (option b from Phase 0), because relay
+code in customer accounts never updates in place. It is kept. The relay
+also already classifies at the executor boundary where it holds structured
+evidence (MIGRATION_FAILED, AWS_PERMISSION_DENIED, ECS_DEPLOYMENT_FAILED,
+STACK_DELETE_FAILED). Phase 10 extended that boundary classification to the
+migration stage's image-pull evidence — the one §14.2 class that was
+provably unreachable before.
+
+### Added
+
+1. **Migration-stage image-pull classification** (`packages/relay/src/
+   deploy.ts`). The migration stage already read the one-off task's
+   `stoppedReason`; it only used it as message text and always failed the
+   job with `MIGRATION_FAILED`. A stopped reason that names an image-pull
+   failure (`CannotPullContainerError`, `pull access denied`, no basic auth
+   credentials, failed to pull image) is now reported as `IMAGE_PULL_FAILED`
+   — the migration uses the same image as the service update, so the fix
+   belongs to registry/grant access, never to "fix the migration". The
+   markers mirror the server-side refinement vocabulary in
+   `apps/api/src/failure-classification.ts`, so relay and control plane
+   agree. The relay test fake was made honest: a task that never started its
+   container reports no exit code (previously the fake forced exit code 0,
+   which would have misread a pull failure as success).
+
+2. **Diagnostics technical-detail plumbing** (`apps/web/src/lib/
+   diagnostics.ts`). The `/diagnostics` endpoint already served the relay's
+   verbatim error as `technicalDetail`, but the web client dropped it, so
+   the card's expandable "Technical detail" layer was empty on every
+   failure. The response is now mapped into the diagnostic event's
+   `error.message`, which the existing card disclosure renders. The mapping
+   was extracted to an exported pure `toDiagnostics` function so it is
+   unit-testable without a fetch seam.
+
+### Audited existing (unchanged)
+
+- The 22-code taxonomy with copy-map remediation and recoverability for
+  every code (`packages/copy-map/src/index.ts`, web mirror) — exhaustive
+  tests already lock it.
+- Diagnostics endpoint serving remediation + recoverability + technical
+  detail, deterministic copy first with AI only for UNKNOWN
+  (`apps/api/src/server.ts`).
+- Customer recovery surface: what/why/what-to-do and retry-when-safe copy
+  per code via copy-map + the vendor/customer status projections
+  (`apps/api/src/deployment-status.ts`).
+- Watchdog codes and INSTALL stack-event refinement (Phase 5 / resilience
+  work) — all audited, none changed.
+
+### Tests
+
+- `packages/relay/src/deploy.test.ts` — a migration task stopped with a
+  pull-denial reason (no container exit code) fails with
+  `IMAGE_PULL_FAILED`, never touches the service, and never defers; a
+  genuine migration crash still fails with `MIGRATION_FAILED`.
+- `apps/web/test/diagnostics.test.ts` (new) — `toDiagnostics` maps the
+  endpoint response: no card when `failureCode` is null; the relay
+  technical detail reaches the card's event error message; no error is set
+  when none was served.
+
+Verification: `pnpm build` passes for relay; focused vitest suites pass —
+`packages/relay` (20 files / 421 tests), `apps/web` (17 files / 259 tests),
+`apps/api` failure-classification + failure-semantics + deployment-status +
+server (green), `packages/copy-map` (green). No real AWS was used. No new
+failure code, enum, migration, copy-map entry, classifier rule, or
+remediation count changed.

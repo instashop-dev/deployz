@@ -92,13 +92,33 @@ function fakeEcs(state: FakeEcs): EcsDeployClient {
     },
     async describeTasks(input) {
       if (input.tasks[0] === MIGRATION_TASK_ARN) {
+        // A configured migration task is reported verbatim, so a stopped
+        // reason like CannotPullContainerError (with NO container exit code —
+        // the container never started) is representable. An unconfigured
+        // migration task defaults to an instant STOPPED/exit-0 completion,
+        // which is what the "runs the migration one-off" test relies on.
+        if (state.migrationTask === undefined) {
+          return {
+            tasks: [
+              {
+                lastStatus: 'STOPPED',
+                stopCode: 'EssentialContainerExited',
+                stoppedReason: 'Essential container exited',
+                containers: [{ exitCode: 0 }],
+              },
+            ],
+          };
+        }
         return {
           tasks: [
             {
               lastStatus: state.migrationTask?.lastStatus ?? 'STOPPED',
-              stopCode: state.migrationTask?.stopCode ?? 'EssentialContainerExited',
-              stoppedReason: state.migrationTask?.stoppedReason ?? 'Essential container exited',
-              containers: [{ exitCode: state.migrationTask?.exitCode ?? 0 }],
+              ...(state.migrationTask?.stopCode !== undefined ? { stopCode: state.migrationTask.stopCode } : {}),
+              ...(state.migrationTask?.stoppedReason !== undefined
+                ? { stoppedReason: state.migrationTask.stoppedReason }
+                : {}),
+              containers:
+                state.migrationTask?.exitCode !== undefined ? [{ exitCode: state.migrationTask.exitCode }] : [],
             },
           ],
         };
@@ -387,6 +407,33 @@ describe('createEcsDeployExecutor', () => {
     expect(String(result.error)).toContain('exit code 1');
     expect(String(result.error)).toContain('migration crashed: bad SQL');
     // The previous release keeps running: no service update, no deferral.
+    expect(state.updates).toHaveLength(0);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('classifies a migration task that could not pull the image as IMAGE_PULL_FAILED, not MIGRATION_FAILED', async () => {
+    const state = baseState();
+    // The migration container never started: no exit code, stopped reason is
+    // ECS's CannotPullContainerError wrap of the ECR pull denial.
+    state.migrationTask = {
+      lastStatus: 'STOPPED',
+      stopCode: 'TaskFailedToStart',
+      stoppedReason:
+        'CannotPullContainerError: pull access denied for acme/app@sha256:abc, repository does not exist or may require docker login',
+    };
+    const d = deps(state);
+    const result = await run(
+      createEcsDeployExecutor(d),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationCommand: 'node migrate.js up',
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('IMAGE_PULL_FAILED');
+    // The remediation for IMAGE_PULL_FAILED is registry/grant access — never
+    // "fix the migration". The previous release keeps serving untouched.
     expect(state.updates).toHaveLength(0);
     expect(await d.pending.read()).toBeNull();
   });
