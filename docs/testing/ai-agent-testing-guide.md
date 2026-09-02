@@ -62,6 +62,13 @@ When a new real-world AWS failure is discovered:
   [`aws-canary.md`](aws-canary.md).
 - Fresh (real AWS, create + destroy): `pnpm e2e:fresh` — see
   [`aws-fresh.md`](aws-fresh.md).
+- Full-product canary (manual, deployed control plane + real customer
+  install): [`aws-full-product-canary.md`](aws-full-product-canary.md) —
+  required before calling a release ready; it is the only check that runs
+  the published templates and the customer-side relay Lambda together with
+  the control plane. Its §6 lists the failure modes the simulated suite
+  cannot reproduce (multi-invocation deferral, image entrypoints, template
+  drift).
 
 For the regression-scenario step: add a fixture under
 `e2e/simulation/scenarios/` reproducing the failing

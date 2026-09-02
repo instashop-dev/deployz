@@ -39,8 +39,11 @@ watchdog):
 - A failed **day-2 operation** (deploy/rollback/restart) on a deployment
   with a running release returns the deployment to `UPDATE_AVAILABLE` (a
   newer READY release exists) or `HEALTHY` — the ECS circuit breaker
-  restored the previous release, which never stopped serving. The FAILED
-  job carries the failure; the status derivation surfaces it
+  restored the previous release, which never stopped serving. A running
+  install counts here even when `currentReleaseId` is still null: a first
+  install runs the template-pinned image with no release row deployed yet,
+  so a SUCCEEDED install is itself a running release. The FAILED job
+  carries the failure; the status derivation surfaces it
   (`deploymentStatus.failure`) without regressing the live stage, and the
   vendor UI adds "The previous version is still running."
 - A failed **first install** or **destroy** marks the deployment `FAILED` —

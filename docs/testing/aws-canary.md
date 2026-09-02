@@ -36,6 +36,11 @@ with a fresh `deployz:installation` tag plus `DeployzEnvironment=e2e` /
 
 **Never repurpose customer deployments as canary infrastructure.**
 
+The end-to-end product walk (vendor → install link → Quick Create → relay →
+HEALTHY → deploy → disconnect → purge) against the deployed control plane is
+a separate, manual procedure with its own ledger and cleanup checklist:
+[`aws-full-product-canary.md`](aws-full-product-canary.md).
+
 Driving a real update/rollback through the canary installation is out of
 scope for Phase 1 — that stays a documented manual escalation via the live-
 install workflow (see [`aws-fresh.md`](aws-fresh.md) and

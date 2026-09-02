@@ -303,6 +303,9 @@ service update. Without a command, the deploy is exactly as before.
   env/secrets as the app service, command overridden, no load balancer. It
   polls DescribeTasks until STOPPED. Exit code 0 continues the normal
   task-definition registration and service update.
+- The command override runs as `sh -c <migrationCommand>` (CANARY-009), not a
+  whitespace split, so PATH lookup, `npx`, `&&` and quoting behave as the
+  vendor's own start script expects.
 - A non-zero exit fails the job with `MIGRATION_FAILED`; the error carries
   the exit code and stoppedReason (never raw log bodies — the relay role
   still has no `logs:GetLogEvents`).

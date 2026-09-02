@@ -4595,13 +4595,18 @@ export async function buildServer({
     // A failed day-2 operation on a deployment with a running release keeps
     // the deployment in a live state (deploymentStateAfterFailedJob): the
     // previous release is still serving, and the FAILED job itself carries
-    // the failure for the status derivation to surface.
+    // the failure for the status derivation to surface. currentReleaseId
+    // alone under-counts this: a first install runs the template-pinned
+    // image with no release row ever deployed (CANARY-008), so a SUCCEEDED
+    // install also counts as a running workload.
     const nextState = isDomainJobType(job.type)
       ? undefined
       : state === 'FAILED'
         ? (deploymentStateAfterFailedJob({
             jobType: job.type,
-            hasCurrentRelease: deployment.currentReleaseId !== null,
+            hasCurrentRelease:
+              deployment.currentReleaseId !== null ||
+              (await hasSucceededInstall(db, deployment.id)),
             newerReadyReleaseExists: await newerReadyReleaseExists(
               db,
               deployment.applicationId,
