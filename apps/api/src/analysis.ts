@@ -52,7 +52,10 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // architecture reasons), whose absence would silently keep old verdicts.
 // Version 5 fixed file-based health-route path derivation (CANARY-003), so
 // a stored `healthPath` computed under the old, buggy logic re-runs.
-export const ANALYSIS_VERSION = 5;
+// Version 6 narrowed the §11.4 architecture rejections (CANARY-002) — a
+// dev-only compose file and a bare `@azure/*`/`@google-cloud/*` package no
+// longer reject, so a stale NOT_COMPATIBLE verdict from Version 5 must re-run.
+export const ANALYSIS_VERSION = 6;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

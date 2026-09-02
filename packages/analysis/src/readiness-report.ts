@@ -236,6 +236,16 @@ const MESSAGE_QUEUE_COPY: RejectionCopy = {
     'Replace the queue with background jobs that run inside the Deployz container, or remove the queue dependency if it is not actually used.',
 };
 
+const MULTI_SERVICE_COPY: RejectionCopy = {
+  ...ARCHITECTURE_COPY,
+  id: 'unsupported-multi-service',
+  title: 'Runs as several services',
+  plainEnglishExplanation:
+    "This app's Docker Compose file starts more than one application container, but Deployz runs one container per deployment.",
+  suggestedOutcome:
+    'Run the app as a single container, or move the extra services out of the deployment.',
+};
+
 const STORAGE_COPY: RejectionCopy = {
   ...ARCHITECTURE_COPY,
   id: 'unsupported-persistent-volume',
@@ -269,14 +279,10 @@ function rejectionCopy(dependency: string): RejectionCopy {
   if (dependency === '@elastic/elasticsearch' || dependency === '@opensearch-project/opensearch') {
     return ELASTICSEARCH_COPY;
   }
-  if (
-    dependency === 'kafka' ||
-    dependency === 'rabbitmq' ||
-    dependency === 'sqs-event-consumer' ||
-    dependency === 'docker-compose-multi-service'
-  ) {
+  if (dependency === 'kafka' || dependency === 'rabbitmq' || dependency === 'sqs-event-consumer') {
     return MESSAGE_QUEUE_COPY;
   }
+  if (dependency === 'docker-compose-multi-service') return MULTI_SERVICE_COPY;
   if (dependency === 'persistent-volume') return STORAGE_COPY;
   if (dependency === 'gpu') return GPU_COPY;
   if (

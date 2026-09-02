@@ -229,6 +229,112 @@ describe('§11.4 architecture rejections', () => {
     const blocked = analysis.rejections.filter((r) => r.detected);
     expect(blocked).toEqual([]);
   });
+
+  // ── CANARY-002: dev-only compose files, and cloud SDK packages that are
+  // not evidence of a cloud deployment ─────────────────────────────────────
+
+  it('a dev-only compose file with two app services is NOT rejected', () => {
+    const tree: FileTree = {
+      'docker/development/compose.yml': [
+        'services:',
+        '  inbucket:',
+        '    image: inbucket/inbucket:latest',
+        '  gotenberg:',
+        '    image: gotenberg/gotenberg:8',
+        '',
+      ].join('\n'),
+    };
+    expect(rejection(tree, 'docker-compose-multi-service')?.detected).toBeFalsy();
+  });
+
+  it('a production compose file with two app services IS rejected', () => {
+    const tree: FileTree = {
+      'docker/production/compose.yml': [
+        'services:',
+        '  web:',
+        '    image: myapp/web:latest',
+        '  worker:',
+        '    image: myapp/worker:latest',
+        '',
+      ].join('\n'),
+    };
+    expect(rejection(tree, 'docker-compose-multi-service')?.detected).toBe(true);
+  });
+
+  it('a root docker-compose.yml (one app service) wins over a nested production compose (two app services)', () => {
+    const tree: FileTree = {
+      'docker-compose.yml': [
+        'services:',
+        '  web:',
+        '    image: myapp/web:latest',
+        '',
+      ].join('\n'),
+      'docker/production/compose.yml': [
+        'services:',
+        '  web:',
+        '    image: myapp/web:latest',
+        '  worker:',
+        '    image: myapp/worker:latest',
+        '',
+      ].join('\n'),
+    };
+    // If the nested two-service file were consulted instead of the root
+    // file, this would reject — the root file must win.
+    expect(rejection(tree, 'docker-compose-multi-service')?.detected).toBeFalsy();
+  });
+
+  it('@azure/storage-blob alone is NOT rejected; azure-pipelines.yml still is', () => {
+    const tree: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { '@azure/storage-blob': '^12.0.0' } }),
+    };
+    expect(rejection(tree, 'azure')?.detected).toBeFalsy();
+
+    const withPipeline: FileTree = { ...tree, 'azure-pipelines.yml': 'trigger:\n  - main\n' };
+    expect(rejection(withPipeline, 'azure')?.detected).toBe(true);
+  });
+
+  it('@google-cloud/kms alone is NOT rejected; cloudbuild.yaml still is', () => {
+    const tree: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { '@google-cloud/kms': '^4.0.0' } }),
+    };
+    expect(rejection(tree, 'gcp')?.detected).toBeFalsy();
+
+    const withCloudBuild: FileTree = { ...tree, 'cloudbuild.yaml': 'steps:\n  - name: gcr.io/cloud-builders/docker\n' };
+    expect(rejection(withCloudBuild, 'gcp')?.detected).toBe(true);
+  });
+
+  it('documenso-shaped fixture: dev compose + optional cloud SDKs are not rejected', () => {
+    const tree: FileTree = {
+      'docker/development/compose.yml': [
+        'services:',
+        '  inbucket:',
+        '    image: inbucket/inbucket:latest',
+        '  gotenberg:',
+        '    image: gotenberg/gotenberg:8',
+        '',
+      ].join('\n'),
+      'docker/production/compose.yml': [
+        'services:',
+        '  documenso:',
+        '    image: documenso/documenso:latest',
+        '  postgres:',
+        '    image: postgres:15',
+        '',
+      ].join('\n'),
+      'docker/Dockerfile': 'FROM node:20-alpine\nCMD ["node", "start.js"]\n',
+      'packages/lib/package.json': JSON.stringify({
+        name: '@documenso/lib',
+        dependencies: { '@azure/storage-blob': '^12.0.0' },
+      }),
+      'packages/signing/package.json': JSON.stringify({
+        name: '@documenso/signing',
+        dependencies: { '@google-cloud/kms': '^4.0.0' },
+      }),
+    };
+    const analysis = analyseRepo(tree);
+    const blocked = analysis.rejections.filter((r) => r.detected);
+    expect(blocked).toEqual([]);
+  });
 });
 
 // ==========================================================================
