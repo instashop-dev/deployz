@@ -74,6 +74,7 @@ describe('deploy contract, busy gate and restart', () => {
     options: {
       releaseStatus?: 'BUILDING' | 'READY' | 'FAILED';
       imageDigest?: string | null;
+      migrationCommand?: string | null;
     } = {},
   ): Promise<string> {
     const [row] = await db
@@ -86,6 +87,7 @@ describe('deploy contract, busy gate and restart', () => {
           'imageDigest' in options ? options.imageDigest! : `${REPO}@${DIGEST}`,
         buildStatus: options.releaseStatus === 'READY' ? 'SUCCEEDED' : 'BUILDING',
         releaseStatus: options.releaseStatus ?? 'READY',
+        ...('migrationCommand' in options ? { migrationCommand: options.migrationCommand } : {}),
       })
       .returning();
     return row!.id;
@@ -168,6 +170,51 @@ describe('deploy contract, busy gate and restart', () => {
       imageRepository: REPO,
       imageDigest: DIGEST,
     });
+  });
+
+  it('threads the migration command into the DEPLOY_RELEASE payload (release override)', async () => {
+    const deployment = await seedDeployment();
+    const releaseId = await seedRelease('v1.1.0', { migrationCommand: 'node migrate.js up' });
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job?.payload).toMatchObject({ migrationCommand: 'node migrate.js up' });
+  });
+
+  it('prefers the stored manifest migration.command over the release row', async () => {
+    const deployment = await seedDeployment({
+      desiredState: {
+        manifest: {
+          application: { root: '.', runtime: 'node', framework: null, dockerfilePath: null },
+          build: { command: null, context: '.' },
+          web: { command: null, port: 3000 },
+          health: { path: '/health' },
+          database: { postgres: true },
+          redis: { required: false, envBindings: [] },
+          storage: { required: false, envBindings: [] },
+          migration: { command: 'npm run db:migrate' },
+          worker: { command: null },
+          environment: { variables: [] },
+          externalServices: [],
+          unsupported: [],
+        },
+      },
+    });
+    const releaseId = await seedRelease('v1.2.0', { migrationCommand: 'npm run release:migrate' });
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job?.payload).toMatchObject({ migrationCommand: 'npm run db:migrate' });
   });
 
   it.each(['BUILDING', 'FAILED'] as const)(

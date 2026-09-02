@@ -671,6 +671,16 @@ describe('step derivation — one per stage', () => {
     expect(status.step).toBe('APPLICATION');
   });
 
+  it('FAILED DEPLOY_RELEASE with MIGRATION_FAILED names the MIGRATION step', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'FAILED', currentReleaseId: 'rel-1' }),
+      application: makeApplication({ migrationCommand: 'npm run db:migrate' }),
+      jobs: [makeJob({ type: 'DEPLOY_RELEASE', state: 'FAILED', failureCode: 'MIGRATION_FAILED' })],
+    });
+    expect(status.steps).toContain('MIGRATION');
+    expect(status.step).toBe('MIGRATION');
+  });
+
   it('FAILED INSTALL with no snapshot falls back to the FAILURE_COMPONENT map (database)', () => {
     const status = derive({
       deployment: makeDeployment({ state: 'FAILED' }),
@@ -893,7 +903,13 @@ describe('applicable steps list', () => {
   });
 
   it('is always in canonical order', () => {
-    const status = derive({ application: makeApplication({ databaseRequired: true, redisRequired: true }) });
+    const status = derive({
+      application: makeApplication({
+        databaseRequired: true,
+        redisRequired: true,
+        migrationCommand: 'npm run db:migrate',
+      }),
+    });
     expect(status.steps).toEqual([
       'AWS_SETUP',
       'RELAY_CONNECT',
@@ -901,11 +917,20 @@ describe('applicable steps list', () => {
       'NETWORK',
       'DATABASE_STORAGE',
       'REDIS',
+      'MIGRATION',
       'APPLICATION',
       'HEALTH_CHECK',
       'TLS',
       'READY',
     ]);
+  });
+
+  it('MIGRATION is present only when the application has a migration command', () => {
+    expect(derive({ application: makeApplication({ migrationCommand: 'npm run db:migrate' }) }).steps).toContain(
+      'MIGRATION',
+    );
+    expect(derive({ application: makeApplication({ migrationCommand: null }) }).steps).not.toContain('MIGRATION');
+    expect(derive({ application: makeApplication() }).steps).not.toContain('MIGRATION');
   });
 });
 

@@ -290,8 +290,11 @@ export type DeploymentStage = z.infer<typeof deploymentStageSchema>;
  * deployment-status.ts) — NOT a new persisted lifecycle; `state` and
  * `stage` remain the only source of truth. Mainly distinguishes what
  * PROVISIONING is actually doing (PREPARING/NETWORK/DATABASE_STORAGE/
- * REDIS/APPLICATION), but also covers WAITING_FOR_AWS (AWS_SETUP),
+ * REDIS/MIGRATION/APPLICATION), but also covers WAITING_FOR_AWS (AWS_SETUP),
  * CONNECTING (RELAY_CONNECT), VERIFYING (HEALTH_CHECK/TLS), and READY.
+ * MIGRATION sits between the cache and the application: a deploy with a
+ * migration command runs that command as a one-off ECS task before the
+ * service update, while cache provisioning is a create-time step.
  * TLS deliberately comes AFTER HEALTH_CHECK, not before: in Deployz, HTTPS
  * (custom domain) setup only starts once health passes (`needsDomainSetup`),
  * so an earlier position in the order would misstate what happens next.
@@ -303,6 +306,7 @@ export const deploymentStepSchema = z.enum([
   'NETWORK',
   'DATABASE_STORAGE',
   'REDIS',
+  'MIGRATION',
   'APPLICATION',
   'HEALTH_CHECK',
   'TLS',
@@ -322,6 +326,7 @@ export const DEPLOYMENT_STEP_ORDER: readonly DeploymentStep[] = [
   'NETWORK',
   'DATABASE_STORAGE',
   'REDIS',
+  'MIGRATION',
   'APPLICATION',
   'HEALTH_CHECK',
   'TLS',
@@ -345,6 +350,7 @@ export const TYPICAL_STEP_DURATION_SECONDS: Record<DeploymentStep, { min: number
   NETWORK: { min: 120, max: 360 },
   DATABASE_STORAGE: { min: 180, max: 720 }, // RDS dominates
   REDIS: { min: 480, max: 1200 }, // ElastiCache replication group
+  MIGRATION: { min: 60, max: 600 }, // one-off ECS task before the service update
   APPLICATION: { min: 180, max: 600 }, // ECS stabilization behind CFN
   HEALTH_CHECK: { min: 60, max: 600 }, // bounded by heartbeat cadence
   TLS: null,

@@ -27,8 +27,10 @@ import {
   ECSClient,
   ListTasksCommand,
   RegisterTaskDefinitionCommand,
+  RunTaskCommand,
   UpdateServiceCommand,
   type RegisterTaskDefinitionCommandInput,
+  type RunTaskCommandInput,
 } from '@aws-sdk/client-ecs';
 import {
   DescribeTargetHealthCommand,
@@ -309,6 +311,19 @@ function getEcsDeployClient(): EcsDeployClient {
               status: deployment.status ?? undefined,
               rolloutState: deployment.rolloutState ?? undefined,
             })),
+            networkConfiguration: service.networkConfiguration
+              ? {
+                  awsvpcConfiguration: service.networkConfiguration.awsvpcConfiguration
+                    ? {
+                        subnets: service.networkConfiguration.awsvpcConfiguration.subnets ?? undefined,
+                        securityGroups:
+                          service.networkConfiguration.awsvpcConfiguration.securityGroups ?? undefined,
+                        assignPublicIp:
+                          service.networkConfiguration.awsvpcConfiguration.assignPublicIp ?? undefined,
+                      }
+                    : undefined,
+                }
+              : undefined,
           })),
         };
       },
@@ -372,10 +387,31 @@ function getEcsDeployClient(): EcsDeployClient {
         );
         return {
           tasks: (response.tasks ?? []).map((task) => ({
+            lastStatus: task.lastStatus ?? undefined,
+            stopCode: task.stopCode ?? undefined,
+            stoppedReason: task.stoppedReason ?? undefined,
             containers: (task.containers ?? []).map((container) => ({
               imageDigest: container.imageDigest ?? undefined,
+              exitCode: container.exitCode ?? undefined,
             })),
           })),
+        };
+      },
+      async runTask(input) {
+        const response = await client.send(
+          new RunTaskCommand({
+            cluster: input.cluster,
+            taskDefinition: input.taskDefinition,
+            count: input.count,
+            launchType: input.launchType as 'FARGATE',
+            networkConfiguration: input.networkConfiguration,
+            overrides: input.overrides,
+          } as RunTaskCommandInput),
+        );
+        return {
+          taskArns: (response.tasks ?? [])
+            .map((task) => task.taskArn)
+            .filter((arn): arn is string => typeof arn === 'string'),
         };
       },
     };
