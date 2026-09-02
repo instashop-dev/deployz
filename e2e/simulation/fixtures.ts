@@ -213,6 +213,8 @@ async function signUpViaBrowser(page: Page, suffix: string): Promise<void> {
 export interface DeployzRelayOptions {
   /** See relay-harness.ts's `StartSimulatedRelayOptions.stopAfterFirstProgress`. */
   readonly stopAfterFirstProgress?: boolean;
+  /** See relay-harness.ts's `StartSimulatedRelayOptions.dieDuringDestroy`. */
+  readonly dieDuringDestroy?: boolean;
 }
 
 export const test = base.extend<{

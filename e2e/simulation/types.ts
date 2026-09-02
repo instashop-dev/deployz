@@ -141,4 +141,14 @@ export interface ScenarioDefinition {
   /** DESTROY behaviour. Absent means no lifecycle scenario in this test ever
    *  calls DeleteStack against this account. */
   readonly destroy?: DestroyScenario;
+  /**
+   * Transient-fault injection: the first N post-create `DescribeStacks`
+   * calls in the INSTALL wait loop answer as unreadable (`null`) — exactly
+   * how the real relay client maps a throttled/timed-out describe (see
+   * packages/relay/src/install.ts: "describeStack maps every failure to
+   * null"). The executor must ride these out (up to its
+   * UNREADABLE_POLLS_BEFORE_FAILING budget) rather than failing a live
+   * install.
+   */
+  readonly transientDescribeFailures?: number;
 }

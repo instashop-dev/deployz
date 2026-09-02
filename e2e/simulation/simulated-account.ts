@@ -118,10 +118,14 @@ export class SimulatedCustomerAccount {
   // ── Destroy state (D2) ──────────────────────────────────────────────────
   private deleteStartRealMs: number | null = null;
 
+  // ── Transient-fault injection ──────────────────────────────────────────
+  private transientDescribeRemaining: number;
+
   constructor(scenario: ScenarioDefinition) {
     this.scenario = scenario;
     this.indexedTimeline = scenario.timeline.map((event, index) => ({ event, index }));
     this.stackIdValue = `arn:aws:cloudformation:us-east-1:123456789012:stack/simulated-${crypto.randomUUID().slice(0, 8)}/${crypto.randomUUID()}`;
+    this.transientDescribeRemaining = scenario.transientDescribeFailures ?? 0;
   }
 
   get stackName(): string | null {
@@ -307,6 +311,13 @@ export class SimulatedCustomerAccount {
       createStack: (input: CreateStackInput) => this.createStack(input),
       describeStack: async (stackName: string): Promise<StackState | null> => {
         if (this.stackNameValue === null || stackName !== this.stackNameValue) return null;
+        // Transient fault: the real relay client maps a throttled/timed-out
+        // describe to `null` (unreadable) — the wait loop must ride these
+        // out, not fail a live install.
+        if (this.transientDescribeRemaining > 0) {
+          this.transientDescribeRemaining -= 1;
+          return null;
+        }
         const status = this.currentStackStatus();
         const outputs = SUCCESS_STATUSES.has(status) ? { ...(this.scenario.outputs ?? {}) } : {};
         const statusReason = this.latestStackStatusReason();
