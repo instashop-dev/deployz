@@ -935,6 +935,21 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     (job) => job.createdAt,
   );
 
+  // A failed day-2 operation (deploy/rollback/restart) leaves the deployment
+  // in a live state — the previous release keeps serving — so the stage is
+  // READY/VERIFYING, not FAILED. The failure still has to reach the screen:
+  // surface it while the most recent day-2 attempt is the failed one (a
+  // running retry or a later success clears it, and a removed deployment has
+  // no update to report on).
+  const latestDayTwo = latestBy(
+    jobs.filter((job) => job.type === 'DEPLOY_RELEASE' || job.type === 'ROLLBACK' || job.type === 'RESTART'),
+    (job) => job.createdAt,
+  );
+  const dayTwoFailure =
+    stage !== 'FAILED' && everInstalled && !REMOVED_STATES.has(deployment.state) && latestDayTwo?.state === 'FAILED'
+      ? latestDayTwo
+      : undefined;
+
   const updatedAt =
     maxDate(deployment.updatedAt, deployment.lastHealthAt, latest?.lastProgressAt, latest?.finishedAt) ?? new Date();
 
@@ -980,7 +995,12 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
         : stage === 'VERIFYING' && deployment.healthStatus === 'HEALTHY' && appUrl
           ? { url: appUrl }
           : null,
-    failure: stage === 'FAILED' ? buildFailure(latestFailed, failureEntry!) : null,
+    failure:
+      stage === 'FAILED'
+        ? buildFailure(latestFailed, failureEntry!)
+        : dayTwoFailure
+          ? buildFailure(dayTwoFailure, failureEntryFor(dayTwoFailure.failureCode ?? null))
+          : null,
   };
 }
 

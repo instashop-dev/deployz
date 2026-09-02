@@ -5,6 +5,7 @@ import {
   DEFAULT_APPLICATION_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME,
   DESTROY_PENDING_STALE_AFTER_MS,
+  deploymentStateAfterFailedJob,
   PACKAGE_NAME,
   REGION_LABELS,
   SUPPORTED_AWS_REGIONS,
@@ -701,3 +702,39 @@ describe('customDomainStatusSchema (used by the https component mapping)', () =>
   });
 });
 
+
+// A failed day-2 operation must not mark a deployment with a running release
+// as FAILED — shared settlement rule for the relay result route and the
+// stuck-job watchdog.
+describe('deploymentStateAfterFailedJob', () => {
+  it('keeps a deployment with a running release live on a failed day-2 op', () => {
+    for (const jobType of ['DEPLOY_RELEASE', 'ROLLBACK', 'RESTART'] as const) {
+      expect(
+        deploymentStateAfterFailedJob({ jobType, hasCurrentRelease: true, newerReadyReleaseExists: true }),
+      ).toBe('UPDATE_AVAILABLE');
+      expect(
+        deploymentStateAfterFailedJob({ jobType, hasCurrentRelease: true, newerReadyReleaseExists: false }),
+      ).toBe('HEALTHY');
+      // Nothing ever ran: the failure IS the deployment failing.
+      expect(
+        deploymentStateAfterFailedJob({ jobType, hasCurrentRelease: false, newerReadyReleaseExists: false }),
+      ).toBe('FAILED');
+    }
+  });
+
+  it('never touches the deployment state for CONFIG_UPDATE or PURGE failures', () => {
+    for (const jobType of ['CONFIG_UPDATE', 'PURGE'] as const) {
+      expect(
+        deploymentStateAfterFailedJob({ jobType, hasCurrentRelease: true, newerReadyReleaseExists: true }),
+      ).toBeNull();
+    }
+  });
+
+  it('fails the deployment for INSTALL and DESTROY', () => {
+    for (const jobType of ['INSTALL', 'DESTROY'] as const) {
+      expect(
+        deploymentStateAfterFailedJob({ jobType, hasCurrentRelease: true, newerReadyReleaseExists: false }),
+      ).toBe('FAILED');
+    }
+  });
+});

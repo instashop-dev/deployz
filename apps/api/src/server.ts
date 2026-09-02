@@ -34,6 +34,7 @@ import {
   aggregateInfrastructureComponents,
   bootstrapStackName,
   buildBootstrapQuickCreateUrl,
+  deploymentStateAfterFailedJob,
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
@@ -109,7 +110,7 @@ import {
   type EcrPullGrantDeps,
 } from './ecr-pull-grants.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
-import { createOrReuseJob } from './jobs.js';
+import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
 import { applicationToManifestOverrides, readStoredManifest, requireReadyManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
@@ -3352,6 +3353,16 @@ export async function buildServer({
       );
     }
 
+    // Superseded stale attempt (a dead relay invocation's RUNNING job, or a
+    // queued job the FAILED state outran) is closed BEFORE the new insert —
+    // the one-active-job index refuses a second active INSTALL otherwise.
+    if (inFlight) {
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'CANCELLED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.id, inFlight.id));
+    }
+
     // Attempt-scoped key: the original `${deployment.id}:INSTALL` row is
     // FAILED and createOrReuseJob would keep returning it. Counting prior
     // attempts keeps the key deterministic, so a double-click reuses the
@@ -3374,15 +3385,6 @@ export async function buildServer({
 
     if (created) {
       await db.transaction(async (tx) => {
-        if (inFlight) {
-          // Superseded (stale RUNNING from a dead relay invocation, or a
-          // queued job the FAILED state outran) — close it so the job list
-          // does not show two live installs.
-          await tx
-            .update(schema.deploymentJobs)
-            .set({ state: 'CANCELLED', finishedAt: new Date() })
-            .where(eq(schema.deploymentJobs.id, inFlight.id));
-        }
         await tx
           .update(schema.deployments)
           .set({ state: 'INSTALLING', updatedBy: request.user?.id ?? null })
@@ -3531,7 +3533,30 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
-    if (deployment.state !== 'FAILED') {
+    // A failed day-2 operation no longer marks the deployment itself FAILED
+    // (the previous release keeps serving), but its diagnostics must stay
+    // reachable — gate on "the most recent mutating attempt failed", with
+    // the deployment state as the legacy fast path.
+    const [latestMutating] = await db
+      .select({ state: schema.deploymentJobs.state })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, id),
+          inArray(schema.deploymentJobs.type, [
+            'INSTALL',
+            'DEPLOY_RELEASE',
+            'ROLLBACK',
+            'RESTART',
+            'CONFIG_UPDATE',
+            'DESTROY',
+            'PURGE',
+          ]),
+        ),
+      )
+      .orderBy(desc(schema.deploymentJobs.createdAt))
+      .limit(1);
+    if (deployment.state !== 'FAILED' && latestMutating?.state !== 'FAILED') {
       return { failureCode: null, what: null, why: null, fix: null, events: [] };
     }
     const events = await db
@@ -4145,34 +4170,36 @@ export async function buildServer({
     const { installationId } = request.query as { installationId?: string };
     const deployment = await requireRelayDeployment(installationId, token);
 
-    const jobs = await db
-      .select()
-      .from(schema.deploymentJobs)
-      .where(
-        and(
-          eq(schema.deploymentJobs.deploymentId, deployment.id),
-          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED']),
-        ),
-      )
-      .orderBy(schema.deploymentJobs.createdAt);
+    // Atomic claim: transition and read in one statement, so two overlapping
+    // polls (a client retry racing the original) can never both receive the
+    // same command — the second poll's UPDATE matches zero rows. WAITING jobs
+    // are claimed back too: the watchdog parks a job there when the relay
+    // goes quiet mid-operation, and this poll IS the relay returning.
+    const jobs = (
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING']),
+          ),
+        )
+        .returning()
+    ).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
-    if (jobs.length > 0) {
-      for (const job of jobs) {
-        // Payload redaction rides the same transition: the relay reads the
-        // value ONCE from this response; the stored row keeps only the shape
-        // without plaintext after the claim (see `redactClaimedPayload`).
-        await db
-          .update(schema.deploymentJobs)
-          .set({
-            state: 'RUNNING',
-            startedAt: new Date(),
-            lastProgressAt: new Date(),
-            // The payload column is NOT NULL; a null redaction (defensive
-            // only — the column never stores null) falls back to {}.
-            payload: redactClaimedPayload(job) ?? {},
-          })
-          .where(eq(schema.deploymentJobs.id, job.id));
-      }
+    // Payload redaction rides the claim: the relay reads the value ONCE from
+    // this response (built from the pre-redaction rows below); the stored row
+    // keeps only the shape without plaintext (see `redactClaimedPayload`).
+    for (const job of jobs) {
+      await db
+        .update(schema.deploymentJobs)
+        .set({
+          // The payload column is NOT NULL; a null redaction (defensive
+          // only — the column never stores null) falls back to {}.
+          payload: redactClaimedPayload(job) ?? {},
+        })
+        .where(eq(schema.deploymentJobs.id, job.id));
     }
 
     // Deployment facts the observe hook needs but no command carries: the
@@ -4220,6 +4247,14 @@ export async function buildServer({
       throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
     }
 
+    // A settled job never reprocesses: a late duplicate result (the relay's
+    // earlier report timed out and it retried, or the job was already
+    // force-completed/cancelled) must not flip the deployment state again or
+    // recompute release pointers against a since-changed deployment row.
+    if (!['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'].includes(job.state)) {
+      return reply.code(200).send({ received: true, alreadySettled: true });
+    }
+
     const body = request.body as {
       success?: boolean;
       error?: string;
@@ -4240,10 +4275,22 @@ export async function buildServer({
     // A finished job is what advances the deployment's own §46 state.
     // Domain jobs manage the custom_domains row, never the deployment
     // lifecycle — a failed cert request must not mark the deployment FAILED.
+    // A failed day-2 operation on a deployment with a running release keeps
+    // the deployment in a live state (deploymentStateAfterFailedJob): the
+    // previous release is still serving, and the FAILED job itself carries
+    // the failure for the status derivation to surface.
     const nextState = isDomainJobType(job.type)
       ? undefined
       : state === 'FAILED'
-        ? 'FAILED'
+        ? (deploymentStateAfterFailedJob({
+            jobType: job.type,
+            hasCurrentRelease: deployment.currentReleaseId !== null,
+            newerReadyReleaseExists: await newerReadyReleaseExists(
+              db,
+              deployment.applicationId,
+              deployment.currentReleaseId,
+            ),
+          }) ?? undefined)
         : JOB_SUCCESS_STATE[job.type];
     const releaseId =
       state === 'SUCCEEDED' && RELEASE_ADVANCING_JOBS.has(job.type)
@@ -4532,11 +4579,13 @@ export async function buildServer({
     ];
     const rolloutNewlyFailed =
       nextRolloutState === 'FAILED' && previousRolloutState !== 'FAILED';
-    // Observed state wins over a stale FAILED: a failed day-2 operation
-    // marks the deployment FAILED, but the previously installed application
-    // keeps serving — a healthy heartbeat from it is the ground truth that
-    // the deployment is running. A failed FIRST install (no release ever
-    // deployed) has nothing running and stays FAILED until retried.
+    // Observed state wins over a stale FAILED: a failed day-2 operation no
+    // longer marks the deployment FAILED (deploymentStateAfterFailedJob
+    // restores a live state), but rows written before that rule — or any
+    // edge path that still lands on FAILED with a running release — self-heal
+    // here: a healthy heartbeat is the ground truth that the deployment is
+    // running. A failed FIRST install (no release ever deployed) has nothing
+    // running and stays FAILED until retried.
     // ...but not when what failed was a DESTROY: the app still serving is
     // exactly the problem then, and flipping back to HEALTHY would hide the
     // stuck teardown the vendor explicitly asked for.

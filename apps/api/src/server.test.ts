@@ -1317,7 +1317,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(updated!.previousReleaseId).toBe(before!.currentReleaseId);
   });
 
-  it('a failed job moves the deployment to FAILED so diagnostics can classify it', async () => {
+  it('a failed update keeps the deployment live and diagnostics still classify it', async () => {
     const [job] = await db
       .insert(schema.deploymentJobs)
       .values({
@@ -1336,10 +1336,14 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       { authorization: `Bearer ${RELAY_TOKEN}` },
     );
 
+    // The previous release (advanced by the successful DEPLOY_RELEASE above)
+    // is still serving: a failed day-2 operation must not mark the whole
+    // deployment FAILED. No newer READY release exists here, so HEALTHY.
     const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
-    expect(updated!.state).toBe('FAILED');
+    expect(updated!.state).toBe('HEALTHY');
 
-    // §61: diagnostics must report the code the relay gave, not a hardcoded one.
+    // §61: diagnostics must still report the code the relay gave — the gate
+    // follows the latest mutating attempt, not only deployment.state.
     const diagnostics = await app.inject({
       method: 'GET',
       url: `/api/deployments/${deployment.id}/diagnostics`,

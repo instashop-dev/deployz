@@ -136,6 +136,43 @@ export const jobStateSchema = z.enum([
 ]);
 export type JobState = z.infer<typeof jobStateSchema>;
 
+/**
+ * §46 deployment state a FAILED job leaves behind — shared by the relay
+ * result route and the stuck-job watchdog so both settle a failure the same
+ * way. A failed day-2 operation (deploy/rollback/restart) on a deployment
+ * that has a running release must NOT mark the whole deployment FAILED: the
+ * previous release keeps serving (the ECS circuit breaker restores it), so
+ * the deployment stays in a live state and the FAILED job itself carries the
+ * failure. Only a first install (nothing ever ran) or a destroy failure
+ * represents the deployment itself being broken.
+ *
+ * Returns `null` when the failure must not touch the deployment state at
+ * all: CONFIG_UPDATE is non-disruptive in both directions, and a failed
+ * PURGE happens on an already-DELETED deployment (flipping it to FAILED
+ * would resurrect it).
+ */
+export function deploymentStateAfterFailedJob(input: {
+  jobType: JobType;
+  hasCurrentRelease: boolean;
+  newerReadyReleaseExists: boolean;
+}): 'FAILED' | 'HEALTHY' | 'UPDATE_AVAILABLE' | null {
+  switch (input.jobType) {
+    case 'DEPLOY_RELEASE':
+    case 'ROLLBACK':
+    case 'RESTART':
+      if (!input.hasCurrentRelease) return 'FAILED';
+      // The state the deployment held before the operation started: a READY
+      // release newer than the one running is exactly what UPDATE_AVAILABLE
+      // means (the failed candidate itself qualifies).
+      return input.newerReadyReleaseExists ? 'UPDATE_AVAILABLE' : 'HEALTHY';
+    case 'CONFIG_UPDATE':
+    case 'PURGE':
+      return null;
+    default:
+      return 'FAILED';
+  }
+}
+
 // §61 failure codes — stable taxonomy from day one. Todo 27 (classifier
 // pipeline) may extend this set; nothing else may invent codes.
 export const failureCodeSchema = z.enum([

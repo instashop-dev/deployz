@@ -15,12 +15,12 @@
  * The Lambda entry point (worker-handler.ts) wires the real seams; this
  * module holds no AWS clients of its own, so the logic stays testable.
  */
-import { and, eq, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or } from 'drizzle-orm';
 
 import { mintInstallationToken } from '@deployz/api/github';
-import { createOrReuseJob } from '@deployz/api/jobs';
+import { createOrReuseJob, newerReadyReleaseExists } from '@deployz/api/jobs';
 import type { QueueMessage } from '@deployz/api/queue';
-import { RELAY_STALE_AFTER_MS } from '@deployz/contracts';
+import { RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -238,10 +238,23 @@ async function configUpdate(
   message: ConfigUpdateMessage,
   messageId: string,
 ): Promise<void> {
+  // Only deployments a relay can actually act on: nothing is enrolled before
+  // install, and nothing remains to configure during/after removal. A job
+  // created for those rows would sit REQUESTED until the watchdog failed it.
   const deployments = await db
     .select()
     .from(schema.deployments)
-    .where(eq(schema.deployments.customerId, message.customerId));
+    .where(
+      and(
+        eq(schema.deployments.customerId, message.customerId),
+        notInArray(schema.deployments.state, [
+          'NOT_INSTALLED',
+          'WAITING_FOR_RELAY',
+          'DELETING',
+          'DELETED',
+        ]),
+      ),
+    );
 
   console.log(
     JSON.stringify({
@@ -255,6 +268,11 @@ async function configUpdate(
   );
 
   for (const deployment of deployments) {
+    // CONFIG_UPDATE sits outside the one-active-mutating-job index on
+    // purpose: the secret value rides this payload transiently (§31 phase
+    // 1.2) and skipping the fanout because an install/deploy is active
+    // would lose it. The relay executes its commands sequentially, so the
+    // config job simply runs after whatever is in flight.
     await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'CONFIG_UPDATE',
@@ -452,6 +470,19 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
     const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
     if (now.getTime() - lastSignal.getTime() <= timeout) continue;
 
+    // Same settlement rule as the relay result route: a timed-out day-2
+    // operation on a deployment with a running release must not mark the
+    // whole deployment FAILED — the previous release is still serving.
+    const nextState = deploymentStateAfterFailedJob({
+      jobType: job.type,
+      hasCurrentRelease: deployment.currentReleaseId !== null,
+      newerReadyReleaseExists: await newerReadyReleaseExists(
+        db,
+        deployment.applicationId,
+        deployment.currentReleaseId,
+      ),
+    });
+
     await db.transaction(async (tx) => {
       await tx
         .update(schema.deploymentJobs)
@@ -462,10 +493,12 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
         })
         .where(eq(schema.deploymentJobs.id, job.id));
 
-      await tx
-        .update(schema.deployments)
-        .set({ state: 'FAILED' })
-        .where(eq(schema.deployments.id, deployment.id));
+      if (nextState !== null) {
+        await tx
+          .update(schema.deployments)
+          .set({ state: nextState })
+          .where(eq(schema.deployments.id, deployment.id));
+      }
 
       await tx.insert(schema.eventLogs).values({
         actorType: 'system',
@@ -476,7 +509,7 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
         jobId: job.id,
         eventType: 'operation.timeout',
         previousState: deployment.state,
-        requestedState: 'FAILED',
+        requestedState: nextState,
         result: 'failure',
         payload: {
           jobType: job.type,

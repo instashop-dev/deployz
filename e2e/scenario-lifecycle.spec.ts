@@ -127,15 +127,21 @@ test.describe('update-failure', () => {
     const afterDeployV2Requested = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(afterDeployV2Requested.state).toBe('UPDATING');
 
+    // A failed update does NOT mark the whole deployment FAILED: the circuit
+    // breaker restored v1, which is still serving. The deployment returns to
+    // UPDATE_AVAILABLE (v2 exists, READY, and is not running) and the FAILED
+    // job carries the failure.
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, {
         timeout: 15_000,
         message: 'waiting for the v2 rollout to fail',
       })
-      .toBe('FAILED');
+      .toBe('UPDATE_AVAILABLE');
 
     const failed = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(failed.deploymentStatus.stage).toBe('FAILED');
+    // The stage stays live (READY/VERIFYING, never FAILED) while the failure
+    // itself is still surfaced with its real classification.
+    expect(failed.deploymentStatus.stage).not.toBe('FAILED');
     expect(failed.deploymentStatus.failure!.code).toBe('ECS_DEPLOYMENT_FAILED');
     // The release pointer never advances past the last release that actually
     // deployed successfully.
@@ -167,36 +173,32 @@ test.describe('rollback-success', () => {
 
     const v2ReleaseId = await createRelease(request, applicationId, '2.0.0');
     await deployRelease(request, deploymentId, v2ReleaseId);
+    // Failed-update semantics: the deployment returns to UPDATE_AVAILABLE
+    // (v1 still serving, v2 READY but not running), never FAILED.
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, {
         timeout: 15_000,
         message: 'waiting for the v2 rollout to fail',
       })
-      .toBe('FAILED');
+      .toBe('UPDATE_AVAILABLE');
 
     const beforeRollback = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(beforeRollback.currentReleaseId).toBe(v1ReleaseId);
 
-    // Production's honest pointer/state semantics: `markJobRequested`'s
-    // in-flight-state write only fires from HEALTHY/UPDATE_AVAILABLE
-    // (BULK_DEPLOYABLE_STATES); the deployment is FAILED at request time, so
-    // it stays FAILED — never a transient UPDATING — until the rollback job
-    // itself settles.
+    // UPDATE_AVAILABLE is in BULK_DEPLOYABLE_STATES, so `markJobRequested`
+    // writes the transient UPDATING in-flight state while the rollback runs.
     const rollbackResponse = await rollbackToRelease(request, deploymentId, v1ReleaseId);
     expect(rollbackResponse.status()).toBe(202);
     const afterRollbackRequested = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(afterRollbackRequested.state).toBe('FAILED');
+    expect(afterRollbackRequested.state).toBe('UPDATING');
 
     // The ROLLBACK job's own event, not a deployment.state transition, is
     // the authoritative "it settled" signal here: the simulated ECS service
     // converges to the rolled-back digest the instant UpdateService succeeds
-    // (see simulated-account.ts's `ecsDeployClient`), so the very next
-    // heartbeat can report HEALTHY — and, since the deployment was still
-    // FAILED at that moment, production's self-healing rule
-    // (`stateRecovered`, server.ts) can legitimately flip it to HEALTHY
-    // BEFORE the resumer's own tick reports the job's result and writes the
-    // release pointers. Polling deployment.state here would therefore race
-    // a real product mechanism rather than test it.
+    // (see simulated-account.ts's `ecsDeployClient`), so a heartbeat between
+    // the request and the resumer's own result tick can already report
+    // HEALTHY. Polling for a state the job result writes keeps this test
+    // pinned to the settlement, not the race.
     await expect
       .poll(
         async () => {
@@ -243,21 +245,21 @@ test.describe('rollback-failure', () => {
 
     const v2ReleaseId = await createRelease(request, applicationId, '2.0.0');
     await deployRelease(request, deploymentId, v2ReleaseId);
+    // Failed-update semantics: UPDATE_AVAILABLE, never FAILED (v1 serving).
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, {
         timeout: 15_000,
         message: 'waiting for the v2 rollout to fail',
       })
-      .toBe('FAILED');
+      .toBe('UPDATE_AVAILABLE');
 
     const beforeRollback = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
 
     const rollbackResponse = await rollbackToRelease(request, deploymentId, v1ReleaseId);
     expect(rollbackResponse.status()).toBe(202);
 
-    // deployment.state is already FAILED and stays FAILED throughout this
-    // attempt (see rollback-success's comment on why) — so the rollback
-    // job's own event, not a state transition, is what proves it settled.
+    // The rollback job's own event, not a state transition, is what proves
+    // it settled (see rollback-success's comment on the heartbeat race).
     await expect
       .poll(
         async () => {
@@ -268,8 +270,11 @@ test.describe('rollback-failure', () => {
       )
       .toBe(true);
 
+    // The failed rollback also leaves the deployment live: v1 never stopped
+    // serving, so the honest state is UPDATE_AVAILABLE with the FAILED job
+    // carrying the classification.
     const after = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(after.state).toBe('FAILED');
+    expect(after.state).toBe('UPDATE_AVAILABLE');
     expect(after.deploymentStatus.failure!.code).toBe('ECS_DEPLOYMENT_FAILED');
     // Pointers unchanged — the rollback never succeeded, so nothing advances.
     expect(after.currentReleaseId).toBe(beforeRollback.currentReleaseId);

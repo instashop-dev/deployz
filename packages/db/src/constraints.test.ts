@@ -98,9 +98,13 @@ describe('constraints and enums', () => {
         'HEALTH_CHECK',
       ] as const;
       for (const type of types) {
+        // CANCELLED keeps every row outside the one-active-mutating-job
+        // partial unique index — this test is about enum acceptance, not
+        // operation exclusivity.
         await db!.insert(deploymentJobs).values({
           deploymentId,
           type,
+          state: 'CANCELLED',
           idempotencyKey: `idem-${type}`,
         });
       }

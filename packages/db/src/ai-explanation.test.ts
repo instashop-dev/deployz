@@ -1,5 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Db } from './client.js';
@@ -37,6 +37,17 @@ describe('deployment_jobs AI explanation cache', () => {
   });
 
   async function insertJob(key: string): Promise<string> {
+    // One active mutating job per deployment (partial unique index): settle
+    // the previous test's job before inserting the next one.
+    await db!
+      .update(deploymentJobs)
+      .set({ state: 'CANCELLED', finishedAt: new Date() })
+      .where(
+        and(
+          eq(deploymentJobs.deploymentId, deploymentId),
+          inArray(deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+        ),
+      );
     const id = crypto.randomUUID();
     await db!.insert(deploymentJobs).values({
       id,
