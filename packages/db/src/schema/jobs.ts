@@ -62,10 +62,15 @@ export const deploymentJobs = pgTable('deployment_jobs', {
   // check is a friendly fast path; this index is the correctness backstop
   // for two requests that both pass the check before either inserts.
   // Domain and health/report job types are deliberately outside the guard —
-  // they never race an executor over the same stack/service.
+  // they never race an executor over the same stack/service. CONFIG_UPDATE
+  // is outside it too: secret delivery (§31 phase 1.2) must be able to queue
+  // a config job while an INSTALL/deploy is active (the secret value rides
+  // the payload transiently and would otherwise be lost), and the relay
+  // executes its commands sequentially anyway — CONFIG_UPDATE still blocks
+  // OTHER mutations while active via requireDeploymentIdle.
   uniqueIndex('deployment_jobs_one_active_mutating_uidx')
     .on(t.deploymentId)
     .where(
-      sql`${t.state} IN ('REQUESTED', 'QUEUED', 'WAITING', 'RUNNING') AND ${t.type} IN ('INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'CONFIG_UPDATE', 'DESTROY', 'MIGRATION', 'INFRA_UPGRADE', 'PURGE')`,
+      sql`${t.state} IN ('REQUESTED', 'QUEUED', 'WAITING', 'RUNNING') AND ${t.type} IN ('INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'DESTROY', 'MIGRATION', 'INFRA_UPGRADE', 'PURGE')`,
     ),
 ]);

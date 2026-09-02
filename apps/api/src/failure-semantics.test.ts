@@ -312,14 +312,22 @@ describe('failure semantics, duplicate results and operation exclusivity', () =>
       }),
     ).rejects.toMatchObject({ code: 'DEPLOYMENT_BUSY', statusCode: 409 });
 
-    // A domain job is outside the exclusivity guard — it never races an
-    // executor over the stack/service — and a settled mutating job frees the
-    // slot.
+    // Domain jobs and CONFIG_UPDATE are outside the exclusivity guard —
+    // domain jobs never race an executor over the stack/service, and secret
+    // delivery must be able to queue a config job during an active
+    // install/deploy (the secret value rides the payload transiently) — and
+    // a settled mutating job frees the slot.
     await db.insert(schema.deploymentJobs).values({
       deploymentId: deployment.id,
       type: 'CONFIGURE_DOMAIN',
       state: 'REQUESTED',
       idempotencyKey: `${deployment.id}:CONFIGURE_DOMAIN:ok`,
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'CONFIG_UPDATE',
+      state: 'REQUESTED',
+      idempotencyKey: `${deployment.id}:CONFIG_UPDATE:ok`,
     });
     await db
       .update(schema.deploymentJobs)

@@ -268,35 +268,25 @@ async function configUpdate(
   );
 
   for (const deployment of deployments) {
-    try {
-      await createOrReuseJob(db, {
-        deploymentId: deployment.id,
-        type: 'CONFIG_UPDATE',
-        // Keyed on the SQS message, so a redelivery of the same write reuses
-        // the job it already created while a genuinely new write makes a new
-        // one - writing the same key twice is a legitimate second job.
-        idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${messageId}`,
-        payload: {
-          ...(message.changedKeys ? { changedKeys: [...message.changedKeys] } : {}),
-          ...(message.secrets ? { secrets: message.secrets.map((s) => ({ ...s })) } : {}),
-          ...(message.removedKeys ? { removedKeys: [...message.removedKeys] } : {}),
-        },
-        requestedBy: null,
-      });
-    } catch (error) {
-      // Another mutating operation (deploy, destroy, ...) is active on this
-      // deployment. Skipping is correct: configuration lives control-plane
-      // side and the relay reads the effective values at execution time, so
-      // the running operation (or the next config write) picks them up.
-      if ((error as { code?: string }).code !== 'DEPLOYMENT_BUSY') throw error;
-      console.log(
-        JSON.stringify({
-          event: 'worker:config-update-skipped-busy',
-          messageId,
-          deploymentId: deployment.id,
-        }),
-      );
-    }
+    // CONFIG_UPDATE sits outside the one-active-mutating-job index on
+    // purpose: the secret value rides this payload transiently (§31 phase
+    // 1.2) and skipping the fanout because an install/deploy is active
+    // would lose it. The relay executes its commands sequentially, so the
+    // config job simply runs after whatever is in flight.
+    await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'CONFIG_UPDATE',
+      // Keyed on the SQS message, so a redelivery of the same write reuses
+      // the job it already created while a genuinely new write makes a new
+      // one - writing the same key twice is a legitimate second job.
+      idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${messageId}`,
+      payload: {
+        ...(message.changedKeys ? { changedKeys: [...message.changedKeys] } : {}),
+        ...(message.secrets ? { secrets: message.secrets.map((s) => ({ ...s })) } : {}),
+        ...(message.removedKeys ? { removedKeys: [...message.removedKeys] } : {}),
+      },
+      requestedBy: null,
+    });
   }
 }
 

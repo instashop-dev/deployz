@@ -1,5 +1,5 @@
 {
-  "id": "ed428c29-4b17-4e5b-8b6a-1b02e5089499",
+  "id": "7f3ea907-c470-4316-9074-e745bd5c9ef1",
   "prevId": "4bd368ff-564e-4899-9cea-5d4a3e65cf46",
   "version": "7",
   "dialect": "postgresql",
@@ -2105,7 +2105,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"deployment_jobs\".\"state\" IN ('REQUESTED', 'QUEUED', 'WAITING', 'RUNNING') AND \"deployment_jobs\".\"type\" IN ('INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'CONFIG_UPDATE', 'DESTROY', 'MIGRATION', 'INFRA_UPGRADE', 'PURGE')",
+          "where": "\"deployment_jobs\".\"state\" IN ('REQUESTED', 'QUEUED', 'WAITING', 'RUNNING') AND \"deployment_jobs\".\"type\" IN ('INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'DESTROY', 'MIGRATION', 'INFRA_UPGRADE', 'PURGE')",
           "concurrently": false,
           "method": "btree",
           "with": {}
