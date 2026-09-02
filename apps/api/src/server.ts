@@ -25,6 +25,7 @@ import {
 } from '@deployz/analysis';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
+  DOCUMENSO_PARAMETERS,
   REGION_LABELS,
   RELAY_STALE_AFTER_MS,
   SUPPORTED_AWS_REGIONS,
@@ -79,6 +80,7 @@ import {
   createConfigStore,
   createRelaySecretWriter,
   getConfig,
+  SECRET_MASK,
   setConfig,
   setConfigBodySchema,
 } from './config.js';
@@ -97,6 +99,13 @@ import {
   type GithubWebhookEvent,
 } from './github.js';
 import { createEmailSender, type EmailSender } from './email.js';
+import type { EcrClient } from './ecr-grants.js';
+import {
+  createEcrPullGrantDeps,
+  grantPullToCustomer,
+  revokePullFromCustomer,
+  type EcrPullGrantDeps,
+} from './ecr-pull-grants.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
 import { enqueue } from './queue.js';
@@ -197,6 +206,10 @@ export interface ServerDeps {
   // Defaults to env.domainFixtureMode's real-vs-fixture split; tests inject a
   // fake so no real DNS lookup or HTTPS probe ever leaves the machine.
   domainCheckDeps?: DomainCheckDeps | undefined;
+  // Injectable ECR repository-policy seam for the Phase 1.1 install-grant /
+  // destroy-revoke lifecycle. Defaults to the real SDK client; tests inject a
+  // recorder so no ECR call ever leaves the machine.
+  ecrClient?: EcrClient | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -812,14 +825,17 @@ function albEndpointFromResult(result: DeploymentJobRow['result']): string | nul
 
 /**
  * The deployment-detail page's first-class application URL. An active custom
- * domain always wins; otherwise the latest successful INSTALL job's ALB
+ * domain always wins; once the relay starts CONFIGURING it (DNS verified,
+ * certificate issued, ALB port-80 redirect live), the ALB endpoint no longer
+ * serves the app, so the pending domain URL replaces it and the stale ALB
+ * endpoint stays hidden; otherwise the latest successful INSTALL job's ALB
  * endpoint; otherwise null. `jobs` must be ascending by createdAt.
  */
 function resolveAppUrl(
   jobs: DeploymentJobRow[],
   domain: Pick<CustomDomainRow, 'hostname' | 'status'> | null,
 ): string | null {
-  if (domain?.status === 'ACTIVE') {
+  if (domain?.status === 'ACTIVE' || domain?.status === 'CONFIGURING') {
     return `https://${domain.hostname}`;
   }
   const installs = jobs.filter(
@@ -911,9 +927,14 @@ async function advanceStepTimingsAfterWrite(
  * Mirrors the transitions the packages/cdk job workflows already model. A job
  * type absent from this map leaves the state alone — CONFIG_UPDATE is
  * non-disruptive (§31), so a config write must not disturb the lifecycle.
+ *
+ * INSTALL is deliberately absent: a CloudFormation CREATE_COMPLETE does not
+ * prove the application is running. The deployment stays in INSTALLING until
+ * the relay's runtime health verification reports HEALTHY (see the
+ * /api/relay/health handler, which advances INSTALLING → HEALTHY), so a
+ * "healthy" state always means observed-healthy, never just stack-complete.
  */
 const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
-  INSTALL: 'HEALTHY',
   DEPLOY_RELEASE: 'HEALTHY',
   ROLLBACK: 'HEALTHY',
   RESTART: 'HEALTHY',
@@ -922,6 +943,60 @@ const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
 
 /** Job types that carry a release pointer forward on success (§38). */
 const RELEASE_ADVANCING_JOBS = new Set<JobType>(['DEPLOY_RELEASE', 'ROLLBACK']);
+
+/**
+ * Documenso preset parameters the control plane GENERATES at install time
+ * (or that carry SMTP credentials) — their values are secrets. `redactClaimedPayload`
+ * scrubs these from the INSTALL job payload once the relay has claimed it,
+ * so generated install secrets do not sit in `deployment_jobs.payload`
+ * indefinitely (§31 "stop storing generated install secrets unnecessarily
+ * in job payloads").
+ */
+const INSTALL_SECRET_PARAMETER_IDS = new Set<string>([
+  DOCUMENSO_PARAMETERS.nextauthSecret,
+  DOCUMENSO_PARAMETERS.encryptionKey,
+  DOCUMENSO_PARAMETERS.encryptionSecondaryKey,
+  DOCUMENSO_PARAMETERS.smtpUsername,
+  DOCUMENSO_PARAMETERS.smtpPassword,
+]);
+
+/**
+ * The relay receives a command's payload exactly once, at claim time
+ * (`GET /api/relay/commands`). After that response the stored row never
+ * needs the plaintext again, so the claim handler scrubs it in the same
+ * request that serves it:
+ *  - CONFIG_UPDATE: newly-entered secret VALUES (transport-only) become
+ *    key stubs — the DB keeps key names, never values.
+ *  - INSTALL: generated secret parameter values become SECRET_MASK; plain
+ *    parameters (publicUrl, healthPath) survive untouched.
+ */
+export function redactClaimedPayload(job: {
+  readonly type: string;
+  readonly payload: Record<string, unknown> | null;
+}): Record<string, unknown> | null {
+  const payload = job.payload;
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+
+  if (job.type === 'CONFIG_UPDATE' && Array.isArray(payload['secrets'])) {
+    return {
+      ...payload,
+      secrets: (payload['secrets'] as { key?: unknown }[]).map((entry) => ({
+        key: typeof entry.key === 'string' ? entry.key : '',
+      })),
+    };
+  }
+
+  if (job.type === 'INSTALL' && typeof payload['parameters'] === 'object' && payload['parameters'] !== null) {
+    const parameters = payload['parameters'] as Record<string, unknown>;
+    const redacted: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parameters)) {
+      redacted[key] = INSTALL_SECRET_PARAMETER_IDS.has(key) ? SECRET_MASK : value;
+    }
+    return { ...payload, parameters: redacted };
+  }
+
+  return payload;
+}
 
 /** §40 event type per job outcome. Job types with no vendor-visible event are absent. */
   const JOB_RESULT_EVENT: Partial<
@@ -949,6 +1024,7 @@ export async function buildServer({
   githubAppInstallUrl,
   analysisRunner,
   emailSender,
+  ecrClient,
   githubFetch: injectedGithubFetch,
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
@@ -956,6 +1032,9 @@ export async function buildServer({
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
   loggerInstance,
 }: ServerDeps): Promise<FastifyInstance> {
+  // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
+  // grant must not fail the install request that owns it (see ecr-pull-grants.ts).
+  const ecrGrantDeps: EcrPullGrantDeps = createEcrPullGrantDeps(ecrClient);
   // `logger: false` meant a 500 left NO trace anywhere: not in CloudWatch, not
   // in the response (the envelope is deliberately generic), nowhere. Three
   // production failures in a row could only be diagnosed by reading
@@ -2525,6 +2604,57 @@ export async function buildServer({
     });
   }
 
+  /**
+   * Phase 1.1: after a successful INSTALL the stack runs the template's pinned
+   * image — roll the newest READY release of the application immediately so a
+   * fresh installation serves real traffic without a manual deploy step.
+   *
+   * Best-effort: no READY release (nothing built yet) or a payload that stops
+   * validating simply skips. The job uses the SAME idempotency key as the
+   * manual deploy route (`${deployment.id}:DEPLOY_RELEASE:<releaseId>`), so a
+   * vendor-driven deploy of the same release reuses it instead of racing it.
+   *
+   * The deployment state is deliberately NOT advanced (`inFlightState: null`):
+   * the INSTALLING → HEALTHY transition belongs to the relay's runtime-health
+   * verification, and an auto-queued deploy must not make the deployment look
+   * healthier than it is. The relay picks the job up on its next poll and the
+   * DEPLOY_RELEASE result handler settles the state as usual.
+   */
+  async function autoDeploySelectedRelease(deployment: DeploymentRow): Promise<void> {
+    const newestReady = await db
+      .select({ id: schema.releases.id })
+      .from(schema.releases)
+      .where(
+        and(
+          eq(schema.releases.applicationId, deployment.applicationId),
+          eq(schema.releases.releaseStatus, 'READY'),
+        ),
+      )
+      .orderBy(desc(schema.releases.createdAt))
+      .limit(1);
+    const release = newestReady[0];
+    if (!release) return;
+
+    const payload = await requireDeployableRelease(db, release.id, deployment.applicationId);
+    const { job, created } = await createOrReuseJob(db, {
+      deploymentId: deployment.id,
+      type: 'DEPLOY_RELEASE',
+      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:${release.id}`,
+      payload,
+      requestedBy: null,
+    });
+    if (created) {
+      await markJobRequested({
+        deployment,
+        jobId: job.id,
+        inFlightState: null,
+        eventType: 'deploy.requested',
+        actorId: null,
+        releaseId: release.id,
+      });
+    }
+  }
+
 
   // POST /api/deployments/:id/deploy — Trigger (or reuse) a DEPLOY_RELEASE job
   app.post('/api/deployments/:id/deploy', { preHandler: requireAuth }, async (request, reply) => {
@@ -3183,6 +3313,16 @@ export async function buildServer({
           payload: { supersededJobId: inFlight?.id ?? null },
         });
       });
+    }
+
+    if (created && deployment.installationId && deployment.awsAccountId) {
+      // Phase 1.1: a fresh install attempt re-grants pull access. Idempotent —
+      // a replay or an already-granted installation is a no-op policy write.
+      await grantPullToCustomer(
+        ecrGrantDeps,
+        deployment.installationId,
+        deployment.awsAccountId,
+      );
     }
 
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
@@ -3888,6 +4028,15 @@ export async function buildServer({
       }
     });
 
+    // Phase 1.1: a just-enrolled relay's customer account needs pull access to
+    // the vendor ECR before the INSTALL job queued above can ever start a task
+    // that pulls the image. Idempotent + best-effort: an already-granted
+    // installation (replay) is a no-op policy write, and a grant failure logs
+    // and surfaces later as the customer task's IMAGE_PULL_FAILED.
+    if (installJob && typeof body.awsAccountId === 'string' && body.awsAccountId.length > 0) {
+      await grantPullToCustomer(ecrGrantDeps, body.installationId!, body.awsAccountId);
+    }
+
     return reply.code(200).send({ registered: true });
   });
 
@@ -3912,15 +4061,22 @@ export async function buildServer({
       .orderBy(schema.deploymentJobs.createdAt);
 
     if (jobs.length > 0) {
-      await db
-        .update(schema.deploymentJobs)
-        .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
-        .where(
-          inArray(
-            schema.deploymentJobs.id,
-            jobs.map((job) => job.id),
-          ),
-        );
+      for (const job of jobs) {
+        // Payload redaction rides the same transition: the relay reads the
+        // value ONCE from this response; the stored row keeps only the shape
+        // without plaintext after the claim (see `redactClaimedPayload`).
+        await db
+          .update(schema.deploymentJobs)
+          .set({
+            state: 'RUNNING',
+            startedAt: new Date(),
+            lastProgressAt: new Date(),
+            // The payload column is NOT NULL; a null redaction (defensive
+            // only — the column never stores null) falls back to {}.
+            payload: redactClaimedPayload(job) ?? {},
+          })
+          .where(eq(schema.deploymentJobs.id, job.id));
+      }
     }
 
     // Deployment facts the observe hook needs but no command carries: the
@@ -4086,6 +4242,27 @@ export async function buildServer({
       });
     } catch (error) {
       request.log.warn({ err: error }, 'step-timings advance failed');
+    }
+
+    // Phase 1.1 side effects, best-effort after the transaction — neither may
+    // fail the /result response:
+    //  - INSTALL success auto-queues the deploy of the newest READY release.
+    //  - DESTROY/PURGE success revokes the customer's ECR pull grant (both
+    //    revocations are idempotent, whichever lands first).
+    // A replay of an already-reported result re-runs both: the deploy enqueue
+    // reuses its idempotency key and the revoke is a no-op policy read.
+    if (job.type === 'INSTALL' && state === 'SUCCEEDED') {
+      try {
+        await autoDeploySelectedRelease(deployment);
+      } catch (error) {
+        request.log.warn({ err: error }, 'auto-deploy after install failed');
+      }
+    }
+    if ((job.type === 'DESTROY' || job.type === 'PURGE') && state === 'SUCCEEDED') {
+      const installationId = deployment.installationId;
+      if (installationId) {
+        await revokePullFromCustomer(ecrGrantDeps, installationId);
+      }
     }
 
     return reply.code(200).send({ received: true });
@@ -4272,6 +4449,15 @@ export async function buildServer({
       deployment.state === 'FAILED' &&
       deployment.currentReleaseId !== null &&
       !(await latestJobIsDestroy(db, deployment.id));
+    // INSTALL succeeded (CFN stack complete) but the deployment is still
+    // INSTALLING: runtime verification is what earns HEALTHY, and this is the
+    // only place it can land. Guarded by the INSTALL job actually having
+    // finished — a healthy-looking heartbeat racing ahead of the INSTALL
+    // result must not bill or label the deployment before the install settled.
+    const installVerifiedHealthy =
+      deployment.state === 'INSTALLING' &&
+      nextHealth === 'HEALTHY' &&
+      (await hasSucceededInstall(db, deployment.id));
 
     await db.transaction(async (tx) => {
       await tx
@@ -4281,6 +4467,7 @@ export async function buildServer({
           relayStatus: 'CONNECTED',
           lastHealthAt: new Date(),
           ...(stateRecovered ? { state: 'HEALTHY' as const } : {}),
+          ...(installVerifiedHealthy ? { state: 'HEALTHY' as const } : {}),
           ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
           ...(identity?.awsAccountId ? { awsAccountId: identity.awsAccountId } : {}),
           ...(typeof identity?.relayVersion === 'string' ? { relayVersion: identity.relayVersion } : {}),
@@ -4410,6 +4597,7 @@ export async function buildServer({
           relayStatus: 'CONNECTED',
           lastHealthAt: new Date(),
           ...(stateRecovered ? { state: 'HEALTHY' as const } : {}),
+          ...(installVerifiedHealthy ? { state: 'HEALTHY' as const } : {}),
           ...(healthStatusParsed.success ? { healthStatus: healthStatusParsed.data } : {}),
         },
         activeDomain,

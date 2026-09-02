@@ -169,6 +169,10 @@ export const env = {
   // See SUPPORTED_AWS_REGIONS + resolveBootstrapTemplate in @deployz/contracts.
   deployableAwsRegions: parseRegionList(process.env.DEPLOYABLE_AWS_REGIONS, ['us-east-1']),
   awsRegion: process.env.AWS_REGION ?? 'us-east-1',
+  // The control-plane ECR repository customer task roles pull images from.
+  // Created by the BuildPipeline (default `deployz-images`); the stack wires
+  // the real name into the Lambda environment so a rename cannot drift.
+  ecrRepositoryName: process.env.DEPLOYZ_ECR_REPOSITORY_NAME ?? 'deployz-images',
   githubFixtureMode:
     process.env.GITHUB_FIXTURE_MODE === 'true' || process.env.GITHUB_FIXTURE_MODE === '1',
   // Custom-domains MVP E2E fixture mode — see domain-check.ts's

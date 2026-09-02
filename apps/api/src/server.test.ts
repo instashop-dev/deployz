@@ -4,15 +4,17 @@ import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { bootstrapStackName, errorEnvelopeSchema } from '@deployz/contracts';
+import { bootstrapStackName, DOCUMENSO_PARAMETERS, errorEnvelopeSchema } from '@deployz/contracts';
 import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
+import { buildPullStatement, type EcrClient, type EcrGrantStatement } from './ecr-grants.js';
 import { env } from './env.js';
 import { ApiError } from './errors.js';
 import { createRequireAuth } from './require-auth.js';
-import { buildServer } from './server.js';
+import { hashRelayToken } from './relay-store.js';
+import { buildServer, redactClaimedPayload } from './server.js';
 
 // ── Shared test helpers (used by the describe blocks below) ────────────────
 
@@ -866,6 +868,60 @@ describe('server — PATCH/DELETE /api/applications/:id (§36,§37)', () => {
   });
 });
 
+// ── §31: job-payload redaction at claim time ───────────────────────────────
+describe('redactClaimedPayload', () => {
+  it('scrubs CONFIG_UPDATE secret values down to key stubs', () => {
+    const redacted = redactClaimedPayload({
+      type: 'CONFIG_UPDATE',
+      payload: {
+        changedKeys: ['API_KEY', 'DATABASE_URL'],
+        secrets: [
+          { key: 'API_KEY', value: 'plain-1' },
+          { key: 'DATABASE_URL', value: 'plain-2' },
+        ],
+        removedKeys: ['OLD_KEY'],
+      },
+    });
+    expect(JSON.stringify(redacted)).not.toContain('plain-1');
+    expect(JSON.stringify(redacted)).not.toContain('plain-2');
+    expect(redacted).toEqual({
+      changedKeys: ['API_KEY', 'DATABASE_URL'],
+      secrets: [{ key: 'API_KEY' }, { key: 'DATABASE_URL' }],
+      removedKeys: ['OLD_KEY'],
+    });
+  });
+
+  it('masks generated secret parameters from INSTALL payloads and keeps plain ones', () => {
+    const redacted = redactClaimedPayload({
+      type: 'INSTALL',
+      payload: {
+        parameters: {
+          [DOCUMENSO_PARAMETERS.nextauthSecret]: 'gen-secret-a',
+          [DOCUMENSO_PARAMETERS.encryptionKey]: 'gen-secret-b',
+          [DOCUMENSO_PARAMETERS.publicUrl]: 'https://docs.example.com',
+          paramHealthCheckPath: '/health',
+        },
+      },
+    });
+    expect(JSON.stringify(redacted)).not.toContain('gen-secret-a');
+    expect(JSON.stringify(redacted)).not.toContain('gen-secret-b');
+    expect((redacted as { parameters: Record<string, string> }).parameters).toEqual({
+      [DOCUMENSO_PARAMETERS.nextauthSecret]: '***',
+      [DOCUMENSO_PARAMETERS.encryptionKey]: '***',
+      [DOCUMENSO_PARAMETERS.publicUrl]: 'https://docs.example.com',
+      paramHealthCheckPath: '/health',
+    });
+  });
+
+  it('leaves payloads without secrets untouched', () => {
+    const payload = { releaseId: 'rel-1', imageDigest: 'sha256:abc' };
+    expect(redactClaimedPayload({ type: 'DEPLOY_RELEASE', payload })).toEqual(payload);
+    expect(redactClaimedPayload({ type: 'CONFIG_UPDATE', payload: { changedKeys: ['LOG_LEVEL'] } })).toEqual({
+      changedKeys: ['LOG_LEVEL'],
+    });
+  });
+});
+
 // ── §3/§4/§6: relay bearer auth, INSTALL job creation, command/result/health ─
 describe('server — relay bearer auth, INSTALL job, and command/result/health flow (§3,§4,§6)', () => {
   let client: PGlite | undefined;
@@ -1036,6 +1092,49 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect((response.json() as { commands: unknown[] }).commands).toHaveLength(0);
   });
 
+  it('serves a secret-bearing CONFIG_UPDATE payload once, then scrubs the stored row (§1.2)', async () => {
+    const secretValue = 'plaintext-rides-the-claim-once';
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment.id,
+        type: 'CONFIG_UPDATE',
+        state: 'REQUESTED',
+        idempotencyKey: `${deployment.id}:CONFIG_UPDATE:secret-redaction`,
+        payload: {
+          changedKeys: ['API_KEY'],
+          secrets: [{ key: 'API_KEY', value: secretValue }],
+        },
+      })
+      .returning();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/relay/commands?installationId=${RELAY_INSTALLATION_ID}`,
+      headers: { authorization: `Bearer ${RELAY_TOKEN}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      commands: Array<{ id: string; type: string; payload: { secrets: { key: string; value: string }[] } }>;
+    };
+    const claimed = body.commands.find((command) => command.id === job!.id);
+    // The relay receives the value exactly once, at claim time.
+    expect(claimed).toBeDefined();
+    expect(claimed!.payload.secrets).toEqual([{ key: 'API_KEY', value: secretValue }]);
+
+    // The stored row is scrubbed in the same request: keys only, no value.
+    const [updated] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.id, job!.id));
+    expect(updated!.state).toBe('RUNNING');
+    expect(updated!.payload).toEqual({
+      changedKeys: ['API_KEY'],
+      secrets: [{ key: 'API_KEY' }],
+    });
+    expect(JSON.stringify(updated!.payload)).not.toContain(secretValue);
+  });
+
   it('POST /api/relay/commands/:id/result rejects a wrong bearer token', async () => {
     const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id));
     const response = await postJson(app, `/api/relay/commands/${job!.id}/result`, { success: true }, { authorization: 'Bearer wrong-token' });
@@ -1107,24 +1206,48 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(updated!.failureCode).toBeNull();
   });
 
-  // §46: the relay reporting a finished command is what moves the deployment
-  // itself. Without these transitions the fleet is stuck in INSTALLING, which
-  // silently disables §25 bulk deploy, §29 diagnostics and §48 billing.
-  it('a successful INSTALL moves the deployment to HEALTHY', async () => {
+  // §46: the relay reporting a finished INSTALL no longer marks the fleet
+  // HEALTHY — CloudFormation completing is not the application running. The
+  // deployment stays INSTALLING until the relay's runtime health verification
+  // reports HEALTHY; only then is a "healthy" state honest.
+  it('a successful INSTALL alone keeps the deployment INSTALLING; a healthy heartbeat then moves it to HEALTHY', async () => {
+    // Fresh deployment for this lifecycle — the earlier tests in this block
+    // have already moved the shared fixture to FAILED.
+    const token = 'relay-install-honest-token';
+    const installationId = 'inst-install-honest';
+    const fresh = await insertDeployment(db, org.organizationId, deployment.applicationId, deployment.customerId);
+
+    await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: fresh.enrollmentCode, installationId },
+      { authorization: `Bearer ${token}` },
+    );
+
     const [installJob] = await db
       .select()
       .from(schema.deploymentJobs)
-      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+      .where(and(eq(schema.deploymentJobs.deploymentId, fresh.id), eq(schema.deploymentJobs.type, 'INSTALL')));
 
     await postJson(
       app,
       `/api/relay/commands/${installJob!.id}/result`,
       { success: true },
-      { authorization: `Bearer ${RELAY_TOKEN}` },
+      { authorization: `Bearer ${token}` },
     );
 
-    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
-    expect(updated!.state).toBe('HEALTHY');
+    const [afterInstall] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
+    expect(afterInstall!.state).toBe('INSTALLING');
+
+    await postJson(
+      app,
+      '/api/relay/health',
+      { installationId, healthStatus: 'HEALTHY' },
+      { authorization: `Bearer ${token}` },
+    );
+
+    const [afterHealth] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
+    expect(afterHealth!.state).toBe('HEALTHY');
   });
 
   it('a successful DEPLOY_RELEASE moves to HEALTHY and advances the release pointers', async () => {
@@ -3553,5 +3676,325 @@ describe('server — infrastructure inventory (§59)', () => {
 const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
     expect(body.summary).toEqual({ status: 'healthy', componentCount: 1, technicalResourceCount: 1 });
     expect(body.components[0]!.status).toBe('ready');
+  });
+});
+
+// ── Phase 1.1: ECR pull grants + auto-deploy on INSTALL success ─────────────
+// The ECR repository policy seam is injected so no grant/revoke ever leaves
+// the machine; the fake records the policy reads/writes exactly like ECR
+// would.
+function createRecorderEcrClient(): EcrClient & {
+  seed(statement: EcrGrantStatement): void;
+  statements(): Array<{ Sid: string; Principal: { AWS: string } }>;
+  statementFor(sid: string): { Sid: string; Principal: { AWS: string } } | undefined;
+} {
+  let policy: { Statement?: unknown[] } | null = null;
+  return {
+    async getRepositoryPolicy(): Promise<{ policyText: Record<string, unknown> } | null> {
+      return policy ? { policyText: policy as unknown as Record<string, unknown> } : null;
+    },
+    async setRepositoryPolicy(
+      _repositoryName: string,
+      policyText: Record<string, unknown>,
+    ): Promise<void> {
+      policy = policyText as unknown as { Statement?: unknown[] };
+    },
+    async deleteRepositoryPolicy(_repositoryName: string): Promise<void> {
+      policy = null;
+    },
+    // Seeds the state an installation's grant would have left behind.
+    seed(statement: EcrGrantStatement): void {
+      policy = { Statement: [statement] } as unknown as { Statement?: unknown[] };
+    },
+    statements() {
+      return (
+        (policy?.Statement as Array<{ Sid: string; Principal: { AWS: string } }> | undefined) ?? []
+      );
+    },
+    statementFor(sid: string) {
+      return this.statements().find((s) => s.Sid === sid);
+    },
+  };
+}
+
+describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let fakeEcr: ReturnType<typeof createRecorderEcrClient>;
+  const RELAY_TOKEN = 'relay-token-phase-11';
+  // A built release's image as CodeBuild reports it: `repository@sha256:…`.
+  const READY_IMAGE_DIGEST =
+    '111122223333.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' + 'a'.repeat(64);
+
+  async function seedReadyRelease(applicationId: string) {
+    return insertRelease(db, applicationId, {
+      buildStatus: 'SUCCEEDED',
+      releaseStatus: 'READY',
+      imageDigest: READY_IMAGE_DIGEST,
+    });
+  }
+
+  async function claimCommands(installationId: string): Promise<Array<{ id: string; type: string }>> {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/relay/commands?installationId=${installationId}`,
+      headers: { authorization: `Bearer ${RELAY_TOKEN}` },
+    });
+    expect(response.statusCode).toBe(200);
+    return (response.json() as { commands: Array<{ id: string; type: string }> }).commands;
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'phase-11@example.com');
+    fakeEcr = createRecorderEcrClient();
+    app = await buildServer({ auth, db, ecrClient: fakeEcr });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('relay registration grants the customer account pull access for the installation', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+    });
+    const installationId = `inst-grant-${crypto.randomUUID()}`;
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId, awsAccountId: '123456789012' },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(response.statusCode).toBe(200);
+
+    expect(fakeEcr.statementFor(`deployz-pull-${installationId}`)).toMatchObject({
+      Sid: `deployz-pull-${installationId}`,
+      Principal: { AWS: 'arn:aws:iam::123456789012:root' },
+    });
+  });
+
+  it('INSTALL success auto-enqueues a digest-pinned DEPLOY_RELEASE for the newest READY release', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+    });
+    const release = await seedReadyRelease(application.id);
+    const installationId = `inst-auto-${release.id}`;
+
+    const register = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId, awsAccountId: '123456789012' },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(register.statusCode).toBe(200);
+
+    const commands = await claimCommands(installationId);
+    const installJob = commands.find((c) => c.type === 'INSTALL')!;
+    const result = await postJson(
+      app,
+      `/api/relay/commands/${installJob.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(result.statusCode).toBe(200);
+
+    const deployJobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE'),
+        ),
+      );
+    expect(deployJobs).toHaveLength(1);
+    const [job] = deployJobs;
+    expect(job!.state).toBe('REQUESTED');
+    expect(job!.requestedBy).toBeNull();
+    expect(job!.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:${release.id}`);
+    // Digest-pinned: repository + immutable sha256, exactly what the relay's
+    // readDeployRequest validates.
+    expect(job!.payload).toMatchObject({
+      releaseId: release.id,
+      imageRepository: '111122223333.dkr.ecr.us-east-1.amazonaws.com/deployz-images',
+      imageDigest: `sha256:${'a'.repeat(64)}`,
+    });
+
+    // The auto-queue must NOT advance the deployment state: INSTALLING →
+    // HEALTHY belongs to runtime-health verification (INSTALL result no
+    // longer sets HEALTHY), and the deploy job must not skip that gate.
+    const [dep] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('INSTALLING');
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(
+        and(
+          eq(schema.eventLogs.deploymentId, deployment.id),
+          eq(schema.eventLogs.eventType, 'deploy.requested'),
+        ),
+      );
+    expect(events).toHaveLength(1);
+  });
+
+  it('skips the auto-deploy when the newest release is not READY yet', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+    });
+    // A release still building — nothing deployable to roll yet.
+    await insertRelease(db, application.id, { buildStatus: 'BUILDING' });
+    const installationId = `inst-noready-${crypto.randomUUID()}`;
+
+    await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId, awsAccountId: '123456789012' },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    const commands = await claimCommands(installationId);
+    const installJob = commands.find((c) => c.type === 'INSTALL')!;
+    await postJson(
+      app,
+      `/api/relay/commands/${installJob.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+
+    const deployJobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE'),
+        ),
+      );
+    expect(deployJobs).toHaveLength(0);
+  });
+
+  it('does not auto-enqueue a DEPLOY_RELEASE when the INSTALL fails', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+    });
+    await seedReadyRelease(application.id);
+    const installationId = `inst-fail-${crypto.randomUUID()}`;
+
+    await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId, awsAccountId: '123456789012' },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    const commands = await claimCommands(installationId);
+    const installJob = commands.find((c) => c.type === 'INSTALL')!;
+    const result = await postJson(
+      app,
+      `/api/relay/commands/${installJob.id}/result`,
+      { success: false, failureCode: 'STACK_CREATE_FAILED', error: 'create rolled back' },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(result.statusCode).toBe(200);
+
+    const deployJobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE'),
+        ),
+      );
+    expect(deployJobs).toHaveLength(0);
+  });
+
+  it('revokes the pull grant when a DESTROY succeeds', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      installationId: `inst-destroy-${crypto.randomUUID()}`,
+      awsAccountId: '123456789012',
+      relayTokenHash: hashRelayToken(RELAY_TOKEN),
+    });
+    // The grant the install would have made.
+    fakeEcr.seed(buildPullStatement(deployment.installationId!, '123456789012'));
+
+    const destroy = await postJson(
+      app,
+      `/api/deployments/${deployment.id}/destroy`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(destroy.statusCode).toBe(202);
+
+    const commands = await claimCommands(deployment.installationId!);
+    const destroyJob = commands.find((c) => c.type === 'DESTROY')!;
+    const result = await postJson(
+      app,
+      `/api/relay/commands/${destroyJob.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(result.statusCode).toBe(200);
+
+    expect(fakeEcr.statementFor(`deployz-pull-${deployment.installationId}`)).toBeUndefined();
+  });
+
+  it('revokes the pull grant when a PURGE succeeds', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'DELETED',
+      cleanupState: 'SKIPPED_RELAY_OFFLINE',
+      installationId: `inst-purge-${crypto.randomUUID()}`,
+      awsAccountId: '123456789012',
+      relayTokenHash: hashRelayToken(RELAY_TOKEN),
+    });
+    fakeEcr.seed(buildPullStatement(deployment.installationId!, '123456789012'));
+
+    const purge = await postJson(
+      app,
+      `/api/deployments/${deployment.id}/purge`,
+      {},
+      { cookie: org.cookie },
+    );
+    expect(purge.statusCode).toBe(202);
+
+    const commands = await claimCommands(deployment.installationId!);
+    const purgeJob = commands.find((c) => c.type === 'PURGE')!;
+    const result = await postJson(
+      app,
+      `/api/relay/commands/${purgeJob.id}/result`,
+      { success: true },
+      { authorization: `Bearer ${RELAY_TOKEN}` },
+    );
+    expect(result.statusCode).toBe(200);
+
+    expect(fakeEcr.statementFor(`deployz-pull-${deployment.installationId}`)).toBeUndefined();
   });
 });

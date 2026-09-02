@@ -44,6 +44,8 @@ const stubObserveHealth = async () => ({
   desiredCount: null,
   runningCount: null,
   unhealthyTargetCount: null,
+  pendingTargetCount: null,
+  unknownTargetCount: null,
   deploymentRolloutState: null,
 });
 
