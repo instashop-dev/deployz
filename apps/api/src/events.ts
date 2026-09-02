@@ -45,6 +45,12 @@ export type DeploymentEventType =
   | 'deployment.state_recovered'
   // The watchdog failed a stuck mutating job (Phase 7).
   | 'operation.timeout'
+  // The watchdog parked an in-flight job because the relay went quiet —
+  // never a failure claim; the relay's next command poll claims it back.
+  | 'operation.waiting_for_relay'
+  // The watchdog re-offered a stuck job to a live relay (reconcile-before-
+  // fail); the describe-first executors converge on real AWS state.
+  | 'operation.requeued'
   // A derived deployment `step` (apps/api/src/deployment-status.ts) finished —
   // written by apps/api/src/step-timings.ts's advanceStepTimings, from the
   // relay-authenticated write paths only. Not a lifecycle transition; the

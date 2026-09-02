@@ -343,6 +343,26 @@ describe('failure semantics, duplicate results and operation exclusivity', () =>
     expect(reopened.created).toBe(true);
   });
 
+  it('claims a WAITING job back when the relay returns', async () => {
+    // The watchdog parks a job WAITING when the relay goes quiet
+    // mid-operation; the relay's next command poll IS the relay returning,
+    // so the claim must hand the job back out.
+    const deployment = await seedDeployment({ state: 'INSTALLING' });
+    const jobId = await seedJob(deployment.id, 'INSTALL', 'WAITING');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/relay/commands?installationId=${deployment.installationId}`,
+      headers: { authorization: `Bearer ${deployment.token}` },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const commands = (response.json() as { commands: { id: string }[] }).commands;
+    expect(commands.map((c) => c.id)).toContain(jobId);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job!.state).toBe('RUNNING');
+  });
+
   it('claims relay commands atomically — a second poll receives nothing', async () => {
     const deployment = await seedDeployment({ state: 'INSTALLING' });
     await seedJob(deployment.id, 'INSTALL', 'REQUESTED');

@@ -109,6 +109,9 @@ describe('§40 event family parity (web ↔ copy-map)', () => {
       'rollback.restore',
       'install.state.healthy',
       'deploy.state.update-available',
+      'operation.timeout',
+      'operation.waiting_for_relay',
+      'operation.requeued',
     ];
     for (const type of knownTypes) {
       expect(webEventTypeLabel(type), `label for ${type}`).toBe(copyMapEventTypeLabel(type));
