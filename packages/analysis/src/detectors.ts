@@ -375,9 +375,14 @@ const HEALTH_HTTP_ADAPTER_REGEX =
 const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
 // File-based routing (Next.js, Remix, Nuxt, SvelteKit) declares the path in
 // the FILE NAME, so there is no route string to match: `api/health.ts`,
-// `app/api/health/route.ts`, `pages/api/healthz.js`.
+// `app/api/health/route.ts`, `pages/api/healthz.js`, Remix v2 dot routes
+// (`api.health.ts`), where `.` rather than `/` separates segments.
 const HEALTH_ROUTE_FILE_REGEX =
-  /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
+  /(?:^|[/.])(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
+// Router-root directories: the file-based routers above never let these
+// appear in the served URL. Keeping only the segments after the LAST one
+// drops monorepo prefixes (`apps/remix/app/routes/...` -> `...`).
+const ROUTER_ROOT_DIRS = new Set(['routes', 'pages', 'app']);
 // Router mounts: `app.use('/api', router)` / `apiRouter.use('/v1', v1Router)`.
 // The prefix is as literal as a route string, so composing mount prefix +
 // route path yields the path the app actually serves.
@@ -405,17 +410,37 @@ function normalizeHealthPath(raw: string): string {
 /**
  * Derive the URL path a file-based health-check ROUTE FILE implies, mirroring
  * how a file location maps to a URL for Next.js (app-router
- * `app/api/health/route.ts`, pages-router `pages/api/health.ts`) and similar
- * file-based routers. `app`, `pages`, and `src` are router-root directories
- * that never appear in the URL; once an `api` segment is seen, everything
- * from there on is literal.
+ * `app/api/health/route.ts`, pages-router `pages/api/health.ts`), Remix flat
+ * routes (`api+/health.ts`, dot routes `api.health.ts`), and SvelteKit
+ * (`routes/api/health/+server.ts`). `routes`, `pages`, and `app` are
+ * router-root directories: only the segments AFTER the LAST one survive, so a
+ * monorepo prefix like `apps/remix/app/` never leaks into the path. Once an
+ * `api` segment is seen, everything from there on is literal.
  */
 function deriveHealthPathFromFile(filePath: string): string {
   const trimmed = filePath.replace(/\.[jt]sx?$/, '').replace(/\/(?:route|index|\+server)$/, '');
-  const segments = trimmed.split('/').filter(Boolean);
+  let segments = trimmed.split('/').filter(Boolean);
+
+  let rootIndex = -1;
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const segment = segments[i];
+    if (segment !== undefined && ROUTER_ROOT_DIRS.has(segment)) {
+      rootIndex = i;
+      break;
+    }
+  }
+  segments =
+    rootIndex === -1 ? segments.filter((s) => !ROUTER_ROOT_DIRS.has(s) && s !== 'src') : segments.slice(rootIndex + 1);
+
+  // Normalise framework segment conventions: drop the remix-flat-routes `+`
+  // folder marker, split dot-delimited segments (Remix v2 flat files), and
+  // drop pathless layout/group segments.
+  segments = segments
+    .flatMap((s) => s.replace(/\+$/, '').split('.'))
+    .filter((s) => s && !/^\(.*\)$/.test(s) && !s.startsWith('_'));
+
   const apiIndex = segments.indexOf('api');
-  const relevant =
-    apiIndex === -1 ? segments.filter((s) => s !== 'app' && s !== 'pages' && s !== 'src') : segments.slice(apiIndex);
+  const relevant = apiIndex === -1 ? segments : segments.slice(apiIndex);
   return `/${relevant.join('/')}`;
 }
 
