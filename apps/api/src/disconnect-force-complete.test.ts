@@ -409,7 +409,7 @@ describe('disconnect force-complete + persisted liveness', () => {
     });
   }
 
-  it('purge: only a force-completed deployment is eligible', async () => {
+  it('purge: any disconnected deployment whose resources have not been purged is eligible', async () => {
     const eligible = await seedPurgeEligibleDeployment();
     const response = await purge(eligible.id);
     expect(response.statusCode, response.body).toBe(202);
@@ -430,10 +430,17 @@ describe('disconnect force-complete + persisted liveness', () => {
     expect(wrongStateResponse.statusCode).toBe(409);
     expect(wrongStateResponse.json().error.code).toBe('NOT_PURGE_ELIGIBLE');
 
-    const wrongCleanup = await seedPurgeEligibleDeployment({ cleanupState: null });
-    const wrongCleanupResponse = await purge(wrongCleanup.id);
-    expect(wrongCleanupResponse.statusCode).toBe(409);
-    expect(wrongCleanupResponse.json().error.code).toBe('NOT_PURGE_ELIGIBLE');
+    // A normal Disconnect (relay online, DESTROY succeeded) leaves
+    // cleanupState null with the database/secrets/files retained — that
+    // deployment must be purgeable too (CANARY-013).
+    const normalDisconnect = await seedPurgeEligibleDeployment({ cleanupState: null });
+    const normalDisconnectResponse = await purge(normalDisconnect.id);
+    expect(normalDisconnectResponse.statusCode, normalDisconnectResponse.body).toBe(202);
+
+    const alreadyPurged = await seedPurgeEligibleDeployment({ cleanupState: 'COMPLETE' });
+    const alreadyPurgedResponse = await purge(alreadyPurged.id);
+    expect(alreadyPurgedResponse.statusCode).toBe(409);
+    expect(alreadyPurgedResponse.json().error.code).toBe('NOT_PURGE_ELIGIBLE');
   });
 
   it('purge: a repeat request while the job is active reuses it', async () => {
