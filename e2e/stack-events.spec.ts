@@ -340,9 +340,12 @@ test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while 
   const html = await page.content();
   expect(html).not.toContain(rawReason);
 
-  // Technical details are collapsed by default, then reveal the AWS status.
+  // Technical details are collapsed by default. §65 keeps the raw
+  // CloudFormation enum off the customer surface even when expanded — the
+  // panel shows the jargon-free phrase (customerStackStatusLabel) instead.
   await page.getByRole('button', { name: 'Technical details' }).click();
-  await expect(page.getByText('ROLLBACK_COMPLETE', { exact: true })).toBeVisible();
+  await expect(page.getByText('Setup was rolled back', { exact: true })).toBeVisible();
+  await expect(page.getByText('ROLLBACK_COMPLETE', { exact: true })).toHaveCount(0);
 
   // Vendor: the raw reason lives in the Infrastructure events disclosure.
   await page.goto(`/dashboard/deployments/${deploymentId}`);
