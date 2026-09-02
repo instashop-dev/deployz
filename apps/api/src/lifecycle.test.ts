@@ -99,6 +99,27 @@ describe('deployment lifecycle — states, events, and removal', () => {
       { cookie },
     );
     customerId = (customer.json() as { id: string }).id;
+
+    // Phase 2 readiness gate: deployment creation requires a READY final
+    // manifest, so the application needs a manifest-ready analysis.
+    await db
+      .update(schema.applications)
+      .set({
+        detectedMetadata: {
+          hasDockerfile: true,
+          dockerfilePath: 'Dockerfile',
+          port: '3000',
+          startupCommands: ['node dist/index.js'],
+          usesPostgresql: false,
+          postgres: { required: false },
+          usesRedis: false,
+          redis: { required: false },
+          usesS3: false,
+          usesLocalFilesystem: false,
+          databaseState: 'none',
+        },
+      })
+      .where(eq(schema.applications.id, applicationId));
   }, 60_000);
 
   afterAll(async () => {

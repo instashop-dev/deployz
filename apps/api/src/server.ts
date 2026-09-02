@@ -14,7 +14,9 @@ import { z } from 'zod';
 import {
   FIX_INSTRUCTIONS_TIMEOUT_MS,
   createAiGateway,
+  evaluateManifestReadiness,
   generateFixInstructions,
+  normalizeDeploymentManifest,
   normalizeErrorText,
   redactSecrets,
   type AiGateway,
@@ -108,6 +110,7 @@ import {
 } from './ecr-pull-grants.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
+import { applicationToManifestOverrides, readStoredManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
   acceptInvitation,
@@ -242,6 +245,21 @@ const CONTRACT_FIELDS = [
   'workerCommand',
   'databaseRequired',
   'storageRequired',
+  'redisRequired',
+] as const;
+
+/**
+ * The manifest-only vendor overrides (Phase 2) — no applications column backs
+ * them, so they live on `detected_metadata.manifestOverrides` instead of being
+ * recorded as claimed column fields. `redisRequired` IS column-backed and stays
+ * in CONTRACT_FIELDS above.
+ */
+const MANIFEST_OVERRIDE_FIELDS = [
+  'appRoot',
+  'dockerfilePath',
+  'buildContext',
+  'buildCommand',
+  'startCommand',
 ] as const;
 
 function requireUuidId(id: string): void {
@@ -1925,6 +1943,7 @@ export async function buildServer({
     workerCommand: z.string().nullish(),
     databaseRequired: z.boolean().nullish(),
     storageRequired: z.boolean().nullish(),
+    redisRequired: z.boolean().nullish(),
   });
 
   // §36 PATCH-only — mirrors POST but all-optional. `nullish` fields let the
@@ -1938,6 +1957,13 @@ export async function buildServer({
     workerCommand: z.string().nullish(),
     databaseRequired: z.boolean().optional(),
     storageRequired: z.boolean().optional(),
+    redisRequired: z.boolean().optional(),
+    // Phase 2 manifest overrides — stored on detected_metadata.manifestOverrides.
+    appRoot: z.string().nullish(),
+    dockerfilePath: z.string().nullish(),
+    buildContext: z.string().nullish(),
+    buildCommand: z.string().nullish(),
+    startCommand: z.string().nullish(),
   });
 
   const createCustomerBodySchema = z.object({
@@ -2041,6 +2067,7 @@ export async function buildServer({
         workerCommand: body.workerCommand ?? null,
         databaseRequired: body.databaseRequired ?? false,
         storageRequired: body.storageRequired ?? false,
+        redisRequired: body.redisRequired ?? false,
         analysisStatus: 'PENDING',
         createdBy: request.user?.id ?? null,
         updatedBy: request.user?.id ?? null,
@@ -2088,15 +2115,41 @@ export async function buildServer({
     if (body.workerCommand !== undefined) set.workerCommand = body.workerCommand ?? null;
     if (body.databaseRequired !== undefined) set.databaseRequired = body.databaseRequired;
     if (body.storageRequired !== undefined) set.storageRequired = body.storageRequired;
-    if (Object.keys(set).length === 0) return existing;
+    if (body.redisRequired !== undefined) set.redisRequired = body.redisRequired;
+
+    // Phase 2 manifest-only overrides (app root, Dockerfile, build
+    // context/command, start command) have no applications column; they live
+    // on detected_metadata.manifestOverrides. A null clears that key.
+    let nextMetadata = existing.detectedMetadata ?? {};
+    const storedManifestOverrides = (nextMetadata['manifestOverrides'] ?? {}) as Record<string, unknown>;
+    const nextManifestOverrides = { ...storedManifestOverrides };
+    let manifestOnlyChanged = false;
+    for (const field of MANIFEST_OVERRIDE_FIELDS) {
+      const value = body[field];
+      if (value === undefined) continue;
+      manifestOnlyChanged = true;
+      if (value === null) {
+        delete nextManifestOverrides[field];
+      } else {
+        nextManifestOverrides[field] = value;
+      }
+    }
+    if (manifestOnlyChanged) {
+      nextMetadata = { ...nextMetadata, manifestOverrides: nextManifestOverrides };
+    }
+
+    if (Object.keys(set).length === 0 && !manifestOnlyChanged) return existing;
     // The details form re-submits every field on every save, so only a value
     // that actually differs counts as the vendor claiming that field.
     const claimed = CONTRACT_FIELDS.filter(
       (field) => set[field] !== undefined && set[field] !== existing[field],
     );
-    if (claimed.length > 0) {
-      const overrides = new Set([...readVendorOverrides(existing.detectedMetadata), ...claimed]);
-      set.detectedMetadata = { ...(existing.detectedMetadata ?? {}), vendorOverrides: [...overrides] };
+    if (claimed.length > 0 || manifestOnlyChanged) {
+      if (claimed.length > 0) {
+        const overrides = new Set([...readVendorOverrides(existing.detectedMetadata), ...claimed]);
+        nextMetadata = { ...nextMetadata, vendorOverrides: [...overrides] };
+      }
+      set.detectedMetadata = nextMetadata;
     }
     set.updatedBy = request.user?.id ?? null;
     const [row] = await db
@@ -2284,8 +2337,33 @@ export async function buildServer({
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
     // 404 on a non-existent/other-org applicationId or customerId — otherwise
     // the INSERT below hits a foreign-key violation and surfaces as a 500.
-    await loadOwnedApplication(db, body.applicationId, organizationId);
+    const application = await loadOwnedApplication(db, body.applicationId, organizationId);
     await loadOwnedCustomer(db, body.customerId, organizationId);
+    // Phase 2 readiness gate — block incompatible/missing-config deployments
+    // BEFORE any AWS provisioning can start. The evaluator runs from the FINAL
+    // manifest (detector output + vendor overrides), so a vendor-corrected
+    // config passes even when the stored analysis report is stale.
+    const manifest = normalizeDeploymentManifest(
+      { metadata: application.detectedMetadata ?? {} },
+      applicationToManifestOverrides(application),
+    );
+    const readiness = evaluateManifestReadiness(manifest);
+    if (readiness.state === 'NOT_COMPATIBLE') {
+      throw new ApiError(
+        422,
+        'MANIFEST_NOT_COMPATIBLE',
+        'This application cannot be deployed with Deployz as configured.',
+        { findings: readiness.findings },
+      );
+    }
+    if (readiness.state === 'NEEDS_CONFIGURATION') {
+      throw new ApiError(
+        422,
+        'MANIFEST_NEEDS_CONFIGURATION',
+        'This application is missing configuration required for deployment. Run analysis or correct it in the application settings first.',
+        { findings: readiness.findings },
+      );
+    }
     // The relay mints its own installationId inside the customer's account, so
     // it is unknown until enrollment. What the control plane mints here is the
     // single-use enrollment code the bootstrap stack carries, plus the public
@@ -2299,6 +2377,10 @@ export async function buildServer({
         organizationId,
         region: body.region,
         state: 'NOT_INSTALLED',
+        // The final manifest is the deployment's desired state — the canonical
+        // config this deployment was created with, kept for rollback/deploy
+        // even if application analysis or overrides change afterwards.
+        desiredState: { manifest },
         enrollmentCode: mintEnrollmentCode(),
         isTestDeployment: body.isTestDeployment ?? false,
         createdBy: request.user?.id ?? null,
@@ -3280,6 +3362,9 @@ export async function buildServer({
         recovery: { neverInstalled: true },
         parameters: await buildInstallParameters(db, deployment.id),
         redisRequired: await readRedisRequired(db, deployment.applicationId),
+        // The canonical manifest this deployment was created with — the relay
+        // derives port/health/binding parameters from it (Phase 2).
+        manifest: readStoredManifest(deployment.desiredState),
       },
       requestedBy: request.user?.id ?? null,
     });
@@ -3985,6 +4070,9 @@ export async function buildServer({
               payload: {
                 parameters: await buildInstallParameters(db, deployment.id),
                 redisRequired: await readRedisRequired(db, deployment.applicationId),
+                // The canonical manifest this deployment was created with — the
+                // relay derives port/health/binding parameters from it (Phase 2).
+                manifest: readStoredManifest(deployment.desiredState),
               },
               requestedBy: null,
             })

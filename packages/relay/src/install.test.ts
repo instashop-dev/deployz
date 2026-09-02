@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildInstallParametersFromManifest,
+  CONTAINER_PORT_PARAMETER,
   firstFailureEvent,
+  HEALTH_CHECK_PATH_PARAMETER,
   installApplicationStack,
   INSTALLATION_TAG,
   toInstaller,
@@ -555,6 +558,65 @@ function failureEvent(overrides: Partial<StackFailureEvent> = {}): StackFailureE
     ...overrides,
   };
 }
+
+// ── buildInstallParametersFromManifest ───────────────────────────────────────
+
+function manifestFixture(): Parameters<typeof buildInstallParametersFromManifest>[0] {
+  return {
+    application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+    build: { command: 'npm run build', context: '.' },
+    web: { command: 'node server.js', port: 8080 },
+    health: { path: '/api/health' },
+    database: { postgres: true },
+    redis: {
+      required: true,
+      envBindings: [
+        { name: 'REDIS_URL', kind: 'url' },
+        { name: 'REDIS_HOST', kind: 'host' },
+        { name: 'REDIS_PORT', kind: 'port' },
+      ],
+    },
+    storage: { required: true, envBindings: [{ name: 'AWS_S3_BUCKET', kind: 'bucket' }] },
+    migration: { command: 'npm run migrate' },
+    worker: { command: null },
+    environment: { variables: ['LOG_LEVEL'] },
+    externalServices: [],
+    unsupported: [],
+  };
+}
+
+describe('buildInstallParametersFromManifest', () => {
+  it('maps the manifest web.port and health.path to the template parameters', () => {
+    expect(buildInstallParametersFromManifest(manifestFixture())).toEqual({
+      [CONTAINER_PORT_PARAMETER]: '8080',
+      [HEALTH_CHECK_PATH_PARAMETER]: '/api/health',
+    });
+  });
+
+  it('emits the port parameter even when it matches the template default — CFN accepts it harmlessly', () => {
+    const manifest = manifestFixture();
+    manifest.web.port = 3000;
+    expect(buildInstallParametersFromManifest(manifest)[CONTAINER_PORT_PARAMETER]).toBe('3000');
+  });
+
+  it('omits the port parameter when the manifest did not detect one', () => {
+    const manifest = manifestFixture();
+    manifest.web.port = null;
+    expect(buildInstallParametersFromManifest(manifest)).toEqual({
+      [HEALTH_CHECK_PATH_PARAMETER]: '/api/health',
+    });
+  });
+
+  it('ignores fields the template cannot parameterize (build context, dependency requirements)', () => {
+    const manifest = manifestFixture();
+    manifest.application.root = 'apps/web';
+    manifest.redis.envBindings = [{ name: 'CELERY_BROKER_URL', kind: 'url' }];
+    expect(buildInstallParametersFromManifest(manifest)).toEqual({
+      [CONTAINER_PORT_PARAMETER]: '8080',
+      [HEALTH_CHECK_PATH_PARAMETER]: '/api/health',
+    });
+  });
+});
 
 describe('firstFailureEvent', () => {
   it('returns null with no events', () => {

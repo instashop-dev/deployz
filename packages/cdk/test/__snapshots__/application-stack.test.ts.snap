@@ -53,6 +53,12 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       "NoEcho": true,
       "Type": "String",
     },
+    "paramContainerPort": {
+      "Default": "3000",
+      "Description": "TCP port the application container listens on. Overrides the synth-time default per install.",
+      "NoEcho": true,
+      "Type": "Number",
+    },
     "paramHealthCheckPath": {
       "Default": "/health",
       "Description": "Path the ALB target group and container health checks probe. NoEcho - never echoed.",
@@ -355,6 +361,47 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       "Type": "AWS::RDS::DBSubnetGroup",
       "UpdateReplacePolicy": "Retain",
     },
+    "DatabaseUrlSecretFA7DE062": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Description": "Complete PostgreSQL connection URL for the customer application. Assembled at deploy time from the generated master credentials — the password never appears in the template or task definition.",
+        "SecretString": {
+          "Fn::Join": [
+            "",
+            [
+              "postgresql://deployz_app:{{resolve:secretsmanager:",
+              {
+                "Ref": "DatabaseSecret86DBB7B3",
+              },
+              ":SecretString:password::}}@",
+              {
+                "Fn::GetAtt": [
+                  "DatabaseB269D8BB",
+                  "Endpoint.Address",
+                ],
+              },
+              ":5432/deployz?sslmode=require",
+            ],
+          ],
+        },
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "application",
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+        ],
+      },
+      "Type": "AWS::SecretsManager::Secret",
+      "UpdateReplacePolicy": "Delete",
+    },
     "DbSecurityGroupE9D701AD": {
       "Properties": {
         "GroupDescription": "RDS PostgreSQL access for the customer application",
@@ -485,7 +532,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
         "HealthCheckPath": {
           "Ref": "paramHealthCheckPath",
         },
-        "Port": 3000,
+        "Port": {
+          "Ref": "paramContainerPort",
+        },
         "Protocol": "HTTP",
         "Tags": [
           {
@@ -553,7 +602,7 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       },
       "Type": "AWS::EC2::SecurityGroup",
     },
-    "LoadBalancerSecurityGrouptoApplicationTestServiceSecurityGroup8E64BF8E30002BC3F40D": {
+    "LoadBalancerSecurityGrouptoApplicationTestServiceSecurityGroup8E64BF8EIndirectPort7BC5E9C0": {
       "Properties": {
         "Description": "Load balancer to target",
         "DestinationSecurityGroupId": {
@@ -562,7 +611,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "GroupId",
           ],
         },
-        "FromPort": 3000,
+        "FromPort": {
+          "Ref": "paramContainerPort",
+        },
         "GroupId": {
           "Fn::GetAtt": [
             "LoadBalancerSecurityGroupA28D6DD7",
@@ -570,7 +621,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
           ],
         },
         "IpProtocol": "tcp",
-        "ToPort": 3000,
+        "ToPort": {
+          "Ref": "paramContainerPort",
+        },
       },
       "Type": "AWS::EC2::SecurityGroupEgress",
     },
@@ -608,7 +661,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
         "LoadBalancers": [
           {
             "ContainerName": "App",
-            "ContainerPort": 3000,
+            "ContainerPort": {
+              "Ref": "paramContainerPort",
+            },
             "TargetGroupArn": {
               "Ref": "LoadBalancerHttpListenerAppTargetsGroup7AAD0468",
             },
@@ -689,14 +744,16 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       },
       "Type": "AWS::EC2::SecurityGroup",
     },
-    "ServiceSecurityGroupfromApplicationTestLoadBalancerSecurityGroupD48952FB3000A0E7564D": {
+    "ServiceSecurityGroupfromApplicationTestLoadBalancerSecurityGroupD48952FBIndirectPortFF439FFE": {
       "DependsOn": [
         "TaskRoleDefaultPolicy07FC53DE",
         "TaskRole30FC0FBB",
       ],
       "Properties": {
         "Description": "Load balancer to target",
-        "FromPort": 3000,
+        "FromPort": {
+          "Ref": "paramContainerPort",
+        },
         "GroupId": {
           "Fn::GetAtt": [
             "ServiceSecurityGroupC96ED6A7",
@@ -710,7 +767,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "GroupId",
           ],
         },
-        "ToPort": 3000,
+        "ToPort": {
+          "Ref": "paramContainerPort",
+        },
       },
       "Type": "AWS::EC2::SecurityGroupIngress",
     },
@@ -725,7 +784,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
               },
               {
                 "Name": "PORT",
-                "Value": "3000",
+                "Value": {
+                  "Ref": "paramContainerPort",
+                },
               },
               {
                 "Name": "DATABASE_HOST",
@@ -754,6 +815,24 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
                   "Ref": "AppStorage995579DA",
                 },
               },
+              {
+                "Name": "S3_BUCKET",
+                "Value": {
+                  "Ref": "AppStorage995579DA",
+                },
+              },
+              {
+                "Name": "AWS_S3_BUCKET",
+                "Value": {
+                  "Ref": "AppStorage995579DA",
+                },
+              },
+              {
+                "Name": "AWS_REGION",
+                "Value": {
+                  "Ref": "AWS::Region",
+                },
+              },
             ],
             "Essential": true,
             "HealthCheck": {
@@ -763,7 +842,10 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
                   "Fn::Join": [
                     "",
                     [
-                      "curl -f http://localhost:3000",
+                      "curl -f http://localhost:",
+                      {
+                        "Ref": "paramContainerPort",
+                      },
                       {
                         "Ref": "paramHealthCheckPath",
                       },
@@ -793,7 +875,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Name": "App",
             "PortMappings": [
               {
-                "ContainerPort": 3000,
+                "ContainerPort": {
+                  "Ref": "paramContainerPort",
+                },
                 "Protocol": "tcp",
               },
             ],
@@ -838,6 +922,12 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
                       ":signingSecret::",
                     ],
                   ],
+                },
+              },
+              {
+                "Name": "DATABASE_URL",
+                "ValueFrom": {
+                  "Ref": "DatabaseUrlSecretFA7DE062",
                 },
               },
             ],
@@ -942,6 +1032,16 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
               "Effect": "Allow",
               "Resource": {
                 "Ref": "DatabaseSecret86DBB7B3",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseUrlSecretFA7DE062",
               },
             },
             {
@@ -1061,6 +1161,16 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
               "Effect": "Allow",
               "Resource": {
                 "Ref": "DatabaseSecret86DBB7B3",
+              },
+            },
+            {
+              "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Ref": "DatabaseUrlSecretFA7DE062",
               },
             },
             {
