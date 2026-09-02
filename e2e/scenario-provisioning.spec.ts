@@ -137,7 +137,10 @@ test.describe('cloudformation-failure', () => {
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
     expect(deployment.deploymentStatus.failure).not.toBeNull();
-    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    // Refinement: "The maximum number of VPCs has been reached" is a quota
+    // failure — the remediation (raise the limit) is entirely different from
+    // a generic stack failure.
+    expect(deployment.deploymentStatus.failure!.code).toBe('QUOTA_EXCEEDED');
     // The distinguishing fact versus cloudformation-rollback.ts/ecs-failure.ts:
     // the stack's own terminal status here is CREATE_FAILED, never
     // ROLLBACK_COMPLETE — rollback was never attempted.
@@ -176,7 +179,8 @@ test.describe('database-failure', () => {
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
-    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    // Refinement: the failed resource is the RDS instance.
+    expect(deployment.deploymentStatus.failure!.code).toBe('DATABASE_CREATE_FAILED');
     expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
     // Honest, observed production behaviour: `snapshotFailedStep`
     // (apps/api/src/deployment-status.ts) finds exactly one failed category
@@ -221,7 +225,8 @@ test.describe('redis-failure', () => {
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
-    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    // Refinement: the failed resource is the ElastiCache replication group.
+    expect(deployment.deploymentStatus.failure!.code).toBe('REDIS_PROVISIONING_FAILED');
     expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
     // Honest, observed production behaviour: `snapshotFailedStep` finds only
     // the `redis` category failed (network + database completed fine), so

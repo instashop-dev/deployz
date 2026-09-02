@@ -247,7 +247,9 @@ function FailureDetails({ failure }: { failure: CustomerDeploymentStatus['failur
         <CollapsibleContent className="flex flex-col gap-1.5 pt-2 text-sm">
           {technical ? <DetailRow label="Stage" value={technical.stage} /> : null}
           {technical?.component ? <DetailRow label="Component" value={technical.component} /> : null}
-          {technical?.awsStatus ? <DetailRow label="AWS status" value={technical.awsStatus} /> : null}
+          {/* The API maps the raw CloudFormation status to a jargon-free
+              phrase before it reaches this projection (§65). */}
+          {technical?.awsStatus ? <DetailRow label="Infrastructure" value={technical.awsStatus} /> : null}
           <DetailRow label="Reference" value={failure.reference} />
         </CollapsibleContent>
       </Collapsible>

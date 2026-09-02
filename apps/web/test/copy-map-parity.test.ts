@@ -19,6 +19,8 @@ import {
   eventFamily as copyMapEventFamily,
   eventResultLabel as copyMapEventResultLabel,
   eventTypeLabel as copyMapEventTypeLabel,
+  FAILURE_RECOVERABILITY as COPY_MAP_FAILURE_RECOVERABILITY,
+  RECOVERABILITY_COPY as COPY_MAP_RECOVERABILITY_COPY,
   failureCodeCopy as copyMapFailureCodeCopy,
   readinessCountsLabel as copyMapReadinessCountsLabel,
   readinessStateFromVerdict as copyMapReadinessStateFromVerdict,
@@ -36,9 +38,11 @@ import {
 import {
   FAILURE_CODE_COPY as WEB_FAILURE_CODE_COPY,
   FAILURE_CODES as WEB_FAILURE_CODES,
+  FAILURE_RECOVERABILITY as WEB_FAILURE_RECOVERABILITY,
   FAILURE_SEVERITY_BADGE as WEB_FAILURE_SEVERITY_BADGE,
   FAILURE_SEVERITY_DOT as WEB_FAILURE_SEVERITY_DOT,
   EXPLANATION_FALLBACK as WEB_EXPLANATION_FALLBACK,
+  RECOVERABILITY_COPY as WEB_RECOVERABILITY_COPY,
   failureCodeCopy as webFailureCodeCopy,
 } from '../src/lib/diagnostic-vocabulary';
 
@@ -151,6 +155,11 @@ describe('§61 failure code vocabulary parity (web ↔ copy-map)', () => {
       expect(webCopy.description, `description for ${code}`).toBe(copyMapCopy.description);
       expect(webCopy.severity, `severity for ${code}`).toBe(copyMapCopy.severity);
     }
+  });
+
+  it('failure recoverability mappings and copy match', () => {
+    expect(WEB_FAILURE_RECOVERABILITY).toEqual(COPY_MAP_FAILURE_RECOVERABILITY);
+    expect(WEB_RECOVERABILITY_COPY).toEqual(COPY_MAP_RECOVERABILITY_COPY);
   });
 
   it('failure severity badge mappings match', () => {

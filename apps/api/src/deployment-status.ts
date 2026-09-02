@@ -1,4 +1,4 @@
-import { FAILURE_REMEDIATION, failureCodeCopy, type FailureCode } from '@deployz/copy-map';
+import { FAILURE_REMEDIATION, customerStackStatusLabel, failureCodeCopy, type FailureCode } from '@deployz/copy-map';
 import {
   DEPLOYMENT_STEP_ORDER,
   TYPICAL_STEP_DURATION_SECONDS,
@@ -1051,7 +1051,12 @@ export function toCustomerDeploymentStatus(derived: DerivedDeploymentStatus): Cu
             // not relabel the failure.
             stage: derived.failure.jobType ?? 'UNKNOWN',
             component: derived.failure.component,
-            awsStatus: derived.failure.awsStatus,
+            // §65: never the raw CloudFormation status on the unauthenticated
+            // customer surface — a jargon-free phrase instead. The vendor
+            // projection keeps the raw status.
+            awsStatus: derived.failure.awsStatus
+              ? customerStackStatusLabel(derived.failure.awsStatus)
+              : null,
           },
         }
       : null,

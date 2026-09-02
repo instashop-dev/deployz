@@ -133,7 +133,10 @@ test.describe('cloudformation-rollback', () => {
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
     expect(deployment.deploymentStatus.failure).not.toBeNull();
-    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    // Server-side refinement (apps/api/src/failure-classification.ts):
+    // the failed resource is the RDS instance, so the honest classification
+    // is the database, not the generic stack bucket.
+    expect(deployment.deploymentStatus.failure!.code).toBe('DATABASE_CREATE_FAILED');
     expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
 
     // The stack events show the rollback via the real ingest path.
@@ -162,7 +165,9 @@ test.describe('ecs-failure', () => {
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
-    expect(deployment.deploymentStatus.failure!.code).toBe('STACK_CREATE_FAILED');
+    // Refinement: the ECS service failed its health checks — classified as
+    // the health check, not the generic stack bucket.
+    expect(deployment.deploymentStatus.failure!.code).toBe('IMAGE_HEALTH_CHECK_FAILED');
     expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
 
     const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
