@@ -390,7 +390,7 @@ export interface PublishAllRegionsOptions {
    * `BOOTSTRAP_TEMPLATE_URL` already points at. Falls back to
    * `bootstrapTemplateBucketName(region)` for any region not listed here.
    */
-  readonly bucketFor?: (region: string) => string;
+  readonly bucketFor?: (region: string) => string | undefined;
 }
 
 /**
