@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-09-01T00:00:00Z (session date 2026-09-01)",
+  "account": "151955775369",
+  "description": "Deployz control-plane and shared resources. NOTHING in this file may be deleted by the customer cleanup. Any deletion candidate matching an entry here aborts the run.",
+  "cloudFormationStacks": [
+    { "region": "us-east-1", "name": "Deployz", "status": "UPDATE_COMPLETE", "note": "control plane: API/worker/durable lambdas, control DB, queues, CodeBuild, buckets, VPC (76 resources; full list in scratchpad deployz-stack-resources.json)" },
+    { "region": "us-east-1", "name": "CDKToolkit", "status": "CREATE_COMPLETE", "note": "CDK bootstrap" }
+  ],
+  "rds": [
+    { "region": "us-east-1", "id": "deployz-databaseb269d8bb-5r7co4vq7bcx", "note": "control-plane Postgres; automated snapshots rds:deployz-databaseb269d8bb-* also protected" }
+  ],
+  "s3": [
+    "cdk-hnb659fds-assets-151955775369-us-east-1",
+    "deployz-buildsourcebucketb61842f6-wnvojmbgnoe0",
+    "deployz-templatebucket88a95323-jozlev0tiasb",
+    "deployz-e2e-usw2-progress"
+  ],
+  "s3Notes": "deployz-e2e-usw2-progress hosts published bootstrap/application templates and Lambda assets for us-west-2 installs (shared runtime/bootstrap assets) - preserved.",
+  "ecr": ["deployz-images"],
+  "secretsManager": ["DeployzDatabaseSecretA1F8E3-JuPtqjSM39Wk"],
+  "acm": [
+    { "region": "us-east-1", "arn": "arn:aws:acm:us-east-1:151955775369:certificate/b3e789f6-ae14-4c7a-ae93-985877338eb5", "domain": "api.deployz.dev" }
+  ],
+  "apiGateway": [{ "region": "us-east-1", "domainName": "api.deployz.dev", "apiId": "nbhfp91r6k" }],
+  "lambda": [
+    "Deployz-ApiLambdaFunction8FC74655-cJvQd51xjme6",
+    "Deployz-WorkerFunctionAF8A26AF-KjxPyQsdyOMb",
+    "Deployz-DurableExecutionFunctionCA8C4F70-EfuI9NRHIH0O",
+    "Deployz-LogRetentionaae0aa3c5b4d4f87b02d85b201efdd-dx5WM7KtmOb8"
+  ],
+  "sqs": [
+    "Deployz-JobQueueEE3AD499-B5hAo3VXby5T",
+    "Deployz-JobDeadLetterQueue4B560BCC-bGMjsS1zTfRG"
+  ],
+  "dynamodb": ["Deployz-DurableExecutionWorkflowState89B92F5D-1UB52G94FPZ7F"],
+  "codebuild": ["BuildPipelineBuildProjectDC-N4wr6ofwaZaJ"],
+  "vpc": { "region": "us-east-1", "id": "vpc-0c2cd12792ed8b59c", "note": "control-plane VPC incl. all subnets/route tables/NAT nat-04e50cabe770f8d46/IGW/EIP 34.226.70.155/SGs sg-071de4e3825a9894a sg-0f919f350ec4a83f0" },
+  "ssm": ["/cdk-bootstrap/hnb659fds/version"],
+  "eventBridgeRules": [
+    { "region": "us-east-1", "name": "Deployz-BuildStateRule3F761CD2-Xg7MmCSUmzJ4" },
+    { "region": "us-east-1", "name": "Deployz-WorkerWatchdogSchedule994C01B3-0Xvgp9LEmYaZ", "note": "temporarily DISABLED for cleanup freeze - re-enable in Phase 7" }
+  ],
+  "logGroups": [
+    "/aws/codebuild/BuildPipelineBuildProjectDC-N4wr6ofwaZaJ",
+    "/aws/lambda/Deployz-ApiLambdaFunction8FC74655-cJvQd51xjme6",
+    "/aws/lambda/Deployz-DurableExecutionFunctionCA8C4F70-EfuI9NRHIH0O",
+    "/aws/lambda/Deployz-LogRetentionaae0aa3c5b4d4f87b02d85b201efdd-dx5WM7KtmOb8",
+    "/aws/lambda/Deployz-WorkerFunctionAF8A26AF-KjxPyQsdyOMb"
+  ],
+  "iam": "All IAM roles/policies belonging to stacks Deployz and CDKToolkit (aws:cloudformation:stack-name tag/membership).",
+  "database": "Control-plane Postgres content: user, session, account, verification, organization, member, invitation, customers, subscriptions, github_installations, event_logs (append-only by trigger, preserved by design).",
+  "dns": "No Route53 hosted zones in this account (DNS on Cloudflare). Nothing to protect or delete in Route53.",
+  "tooling": [
+    { "type": "lambda+role+logGroup", "name": "deployz-temp-db-cleanup", "note": "temporary DB probe used by this cleanup; removed at the end of the run, not customer data" }
+  ]
+}
