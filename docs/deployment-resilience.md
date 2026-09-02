@@ -46,7 +46,10 @@ watchdog):
 - A failed **first install** or **destroy** marks the deployment `FAILED` —
   there, the operation's failure IS the environment's.
 - A failed **CONFIG_UPDATE** or **PURGE** never touches deployment state
-  (a failed purge used to resurrect a DELETED deployment).
+  (a failed purge used to resurrect a DELETED deployment); a purge failure
+  lands on `cleanupState: PURGE_FAILED` instead, which keeps it retryable.
+  Domain jobs (CONFIGURE_DOMAIN/REMOVE_DOMAIN) follow the same rule: their
+  failures surface on the `custom_domains` row, never on the deployment.
 
 Retrying a failed update is just deploying again — `requireDeployableState`
 allows it, and `retryAwareIdempotencyKey` mints a fresh attempt key once the
