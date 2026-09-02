@@ -23,6 +23,24 @@
  * for any region whose bucket is missing, in the wrong region, or missing
  * objects, so a broken region can never be half-published.
  *
+ * Environment (region targeting):
+ *   BOOTSTRAP_PUBLISH_REGIONS
+ *                         comma-separated region list to publish. Defaults to
+ *                         every supported region (current behaviour).
+ *                         Publishing to a region other than us-east-1
+ *                         requires that region's `deployz-templates-<region>`
+ *                         bucket to already exist.
+ *   BOOTSTRAP_LEGACY_BUCKET_REGION
+ *                         when set to `us-east-1`, that region publishes into
+ *                         the resolved `TEMPLATE_BUCKET` (the legacy
+ *                         control-plane bucket) instead of
+ *                         `deployz-templates-us-east-1`. Unset by default.
+ *
+ * Production recipe (publish the one region the control plane actually
+ * deploys to today, into the legacy bucket its API Lambda already points
+ * at):
+ *   BOOTSTRAP_PUBLISH_REGIONS=us-east-1 BOOTSTRAP_LEGACY_BUCKET_REGION=us-east-1 pnpm --filter @deployz/cdk run publish:bootstrap
+ *
  * Until this has run, no install link can be handed to a customer in any
  * non-default region: the control plane's `DEPLOYABLE_AWS_REGIONS` is unset,
  * so deployment creation rejects those regions and the install link resolver
@@ -55,9 +73,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
 import {
   createRealRegionVerifier,
   createRealS3Client,
+  parsePublishRegions,
   publishBootstrapToAllRegions,
   synthesizeBootstrapStack,
 } from '../dist/quick-create/publish.js';
@@ -67,6 +87,11 @@ const controlPlaneUrl = process.env.API_URL ?? 'https://api.deployz.dev';
 const stackName = process.env.CONTROL_PLANE_STACK ?? 'Deployz';
 const keyPrefix = process.env.TEMPLATE_KEY_PREFIX ?? 'bootstrap/v1';
 const applicationKeyPrefix = process.env.APPLICATION_KEY_PREFIX ?? 'application/v1';
+const legacyBucketRegion = process.env.BOOTSTRAP_LEGACY_BUCKET_REGION;
+const publishRegions = parsePublishRegions(
+  process.env.BOOTSTRAP_PUBLISH_REGIONS,
+  SUPPORTED_AWS_REGIONS,
+);
 
 /** Reads the template bucket name from the control plane stack's exports. */
 async function resolveBucket() {
@@ -116,17 +141,26 @@ if (!process.env.APPLICATION_TEMPLATE_URL) {
 const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, applicationTemplateUrl });
 
 // One real S3 client + verifier per region (each bound to that region's
-// endpoint), assets built once and reused everywhere.
+// endpoint), assets built once and reused everywhere. When
+// BOOTSTRAP_LEGACY_BUCKET_REGION is set, that region publishes into the
+// resolved TEMPLATE_BUCKET instead of its deployz-templates-<region> bucket
+// (see the file header); every other requested region keeps the default.
 const results = await publishBootstrapToAllRegions(
   (r) => createRealS3Client(r),
   (r) => createRealRegionVerifier(r),
   synth,
-  { keyPrefix, controlPlaneUrl },
+  {
+    keyPrefix,
+    controlPlaneUrl,
+    regions: publishRegions,
+    bucketFor: (r) => (r === legacyBucketRegion ? bucket : undefined),
+  },
 );
 
 console.log(`Published ${synth.assets.length} Lambda asset(s) + a template to ${results.length} region(s):`);
 for (const result of results) {
   console.log(`  ${result.region}`);
+  console.log(`    bucket      ${result.bucket}`);
   console.log(`    template    ${result.templateUrl}`);
   console.log(`    quickCreate ${result.quickCreateUrl}`);
   console.log(`    size        ${result.templateBytes} bytes, ${result.parameterCount} parameter(s)`);
@@ -135,3 +169,10 @@ console.log(`  application ${applicationTemplateUrl}`);
 console.log();
 console.log('Record the verified regions on the control plane so install links are handed out:');
 console.log(`  DEPLOYABLE_AWS_REGIONS=${results.map((r) => r.region).join(',')}`);
+
+const defaultRegionResult = results.find((r) => r.region === region);
+if (defaultRegionResult) {
+  console.log();
+  console.log('Compare against the deployed API Lambda\'s BOOTSTRAP_TEMPLATE_URL:');
+  console.log(`  BOOTSTRAP_TEMPLATE_URL=${defaultRegionResult.templateUrl}`);
+}

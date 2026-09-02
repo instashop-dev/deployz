@@ -383,6 +383,37 @@ export interface PublishAllRegionsOptions {
   readonly stackName?: string;
   /** Regions to publish to. Defaults to the canonical supported set. */
   readonly regions?: readonly string[];
+  /**
+   * Per-region bucket override, for publishing a region into a bucket other
+   * than the deterministic `bootstrapTemplateBucketName(region)` — e.g. the
+   * legacy control-plane bucket the production API Lambda's
+   * `BOOTSTRAP_TEMPLATE_URL` already points at. Falls back to
+   * `bootstrapTemplateBucketName(region)` for any region not listed here.
+   */
+  readonly bucketFor?: (region: string) => string | undefined;
+}
+
+/**
+ * Parses a comma-separated region list (e.g. `BOOTSTRAP_PUBLISH_REGIONS`)
+ * against the supported set. `undefined`/empty means "every supported
+ * region" — the default, current behaviour. Throws on any region not in
+ * `supported`, so a typo fails the script before it makes any AWS call
+ * rather than silently publishing the wrong set.
+ */
+export function parsePublishRegions(
+  value: string | undefined,
+  supported: readonly string[],
+): string[] {
+  if (value === undefined || value.trim() === '') return [...supported];
+
+  const requested = value.split(',').map((region) => region.trim());
+  const unknown = requested.filter((region) => !supported.includes(region));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unsupported region(s): ${unknown.join(', ')}. Supported regions: ${supported.join(', ')}`,
+    );
+  }
+  return requested;
 }
 
 /**
@@ -414,7 +445,7 @@ export async function publishBootstrapToAllRegions(
 
   const results: RegionalPublishResult[] = [];
   for (const region of regions) {
-    const bucket = bootstrapTemplateBucketName(region);
+    const bucket = options.bucketFor?.(region) ?? bootstrapTemplateBucketName(region);
     const keyPrefix = options.keyPrefix;
     const s3 = s3For(region);
 
