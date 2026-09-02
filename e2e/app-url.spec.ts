@@ -34,6 +34,23 @@ async function seedDeployment(
   expect(appResponse.ok()).toBeTruthy();
   const application = (await appResponse.json()) as { id: string };
 
+  // Phase 2 readiness gate (POST /api/deployments): give the bare fixture
+  // application a manifest that evaluates to READY — same override set as
+  // e2e/simulation/fixtures.ts's seedAndLaunch.
+  const patchResponse = await page.request.patch(`${API_URL}/api/applications/${application.id}`, {
+    data: {
+      containerPort: 3000,
+      healthPath: '/api/health',
+      migrationCommand: 'npm run db:migrate',
+      appRoot: '.',
+      dockerfilePath: 'Dockerfile',
+      buildContext: '.',
+      buildCommand: 'npm run build',
+      startCommand: 'npm start',
+    },
+  });
+  expect(patchResponse.ok()).toBeTruthy();
+
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `App URL Customer ${suffix}`, email: `app-url-${suffix}@example.com` },
   });
