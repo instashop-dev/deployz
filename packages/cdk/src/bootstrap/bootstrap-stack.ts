@@ -271,6 +271,45 @@ const PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS = [
 const PHASE_2_PURGE_SECRET_DELETE_ACTIONS = ['secretsmanager:DeleteSecret'] as const;
 
 /**
+ * CANARY-015 — PURGE's orphaned-network sweep. A data-preserving Disconnect
+ * that retains the RDS instance also retains the private subnet its ENI
+ * pins alive, the DB security group, and (once those two block DeleteVpc)
+ * the VPC itself, plus the RETAIN-ed RDS subnet group — none of which the
+ * RDS/cache/S3/secrets sweeps above touch. Reads are condition-free reads
+ * like every Describe* precedent above (none support resource-level
+ * permissions); the sweep verifies ownership itself from the returned tags
+ * before touching anything, same as every other purge client.
+ */
+const PHASE_2_PURGE_NETWORK_DISCOVER_ACTIONS = [
+  'ec2:DescribeVpcs',
+  'ec2:DescribeSubnets',
+  'ec2:DescribeSecurityGroups',
+  'ec2:DescribeRouteTables',
+  'ec2:DescribeInternetGateways',
+  'ec2:DescribeNatGateways',
+  'ec2:DescribeNetworkInterfaces',
+  'rds:DescribeDBSubnetGroups',
+] as const;
+
+/**
+ * CANARY-015 — the delete half of the orphaned-network sweep. Every action
+ * here already carries a resource tag by the time PURGE reaches it — the
+ * ORIGINAL create call applied it — so, exactly like PROVISION_MANAGE_ACTIONS'
+ * counterparts on the execution role, these are scoped to the installation's
+ * RESOURCE tag rather than granted condition-free.
+ */
+const PHASE_2_PURGE_NETWORK_DELETE_ACTIONS = [
+  'ec2:DeleteVpc',
+  'ec2:DeleteSubnet',
+  'ec2:DeleteSecurityGroup',
+  'ec2:DeleteRouteTable',
+  'ec2:DeleteInternetGateway',
+  'ec2:DetachInternetGateway',
+  'ec2:DeleteNatGateway',
+  'rds:DeleteDBSubnetGroup',
+] as const;
+
+/**
  * Phase 4 — task-level reads behind runtime observation and deploy
  * idempotence. Task and task-definition ARNs carry no usable tag condition,
  * so these stay condition-free like the Describe* precedents above.
@@ -908,6 +947,31 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // CANARY-015 — PURGE's orphaned-network sweep. Condition-free reads (see
+    // the const): the sweep verifies ownership itself from the returned tags
+    // before touching anything, same as every other purge client above.
+    const phase2PurgeNetworkDiscover = new PolicyStatement({
+      sid: 'RelayPurgeNetworkDiscover',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_PURGE_NETWORK_DISCOVER_ACTIONS],
+      resources: ['*'],
+    });
+    // Resource-tag-scoped: every VPC/subnet/security-group/subnet-group
+    // orphan already carries this installation's tag from its ORIGINAL
+    // create call, so the condition matches exactly what the sweep may
+    // delete.
+    const phase2PurgeNetworkDelete = new PolicyStatement({
+      sid: 'RelayPurgeNetworkDelete',
+      effect: Effect.ALLOW,
+      actions: [...PHASE_2_PURGE_NETWORK_DELETE_ACTIONS],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
     // Phase 4 — deploy/rollback/restart. ListTasks/DescribeTasks/
     // DescribeTaskDefinition carry no usable tag condition (see the const);
     // RegisterTaskDefinition is bounded by the installation request tag the
@@ -990,6 +1054,8 @@ export class BootstrapStack extends Stack {
       phase2PurgeRdsDiscover,
       phase2PurgeSecretsList,
       phase2PurgeSecretsDelete,
+      phase2PurgeNetworkDiscover,
+      phase2PurgeNetworkDelete,
     ];
 
     // The permissions boundary is the CEILING for the relay role: the union of
