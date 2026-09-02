@@ -38,6 +38,14 @@
             "Value": "application"
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          },
+          {
             "Key": "Name",
             "Value": "DeployzApplication/Vpc"
           }
@@ -71,6 +79,14 @@
             "Value": "application"
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          },
+          {
             "Key": "Name",
             "Value": "DeployzApplication/Vpc/PublicSubnet1"
           }
@@ -87,6 +103,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           },
           {
             "Key": "Name",
@@ -134,6 +158,14 @@
             "Value": "application"
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          },
+          {
             "Key": "Name",
             "Value": "DeployzApplication/Vpc/PublicSubnet1"
           }
@@ -156,6 +188,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           },
           {
             "Key": "Name",
@@ -195,6 +235,14 @@
             "Value": "application"
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          },
+          {
             "Key": "Name",
             "Value": "DeployzApplication/Vpc/PublicSubnet2"
           }
@@ -211,6 +259,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           },
           {
             "Key": "Name",
@@ -275,6 +331,14 @@
             "Value": "application"
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          },
+          {
             "Key": "Name",
             "Value": "DeployzApplication/Vpc/PrivateSubnet1"
           }
@@ -291,6 +355,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           },
           {
             "Key": "Name",
@@ -352,6 +424,14 @@
             "Value": "application"
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          },
+          {
             "Key": "Name",
             "Value": "DeployzApplication/Vpc/PrivateSubnet2"
           }
@@ -368,6 +448,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           },
           {
             "Key": "Name",
@@ -411,6 +499,14 @@
             "Value": "application"
           },
           {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
+          },
+          {
             "Key": "Name",
             "Value": "DeployzApplication/Vpc"
           }
@@ -442,6 +538,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       },
@@ -484,6 +588,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       },
@@ -512,6 +624,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "VersioningConfiguration": {
@@ -576,6 +696,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       },
@@ -611,6 +739,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "VpcId": {
@@ -634,6 +770,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       },
@@ -677,6 +821,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "VPCSecurityGroups": [
@@ -707,6 +859,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -740,6 +900,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "VpcId": {
@@ -772,6 +940,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "TransitEncryptionEnabled": false
@@ -787,6 +963,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -826,6 +1010,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -900,6 +1092,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -1159,6 +1359,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "TaskRoleArn": {
@@ -1229,6 +1437,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "TaskDefinition": {
@@ -1257,6 +1473,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "VpcId": {
@@ -1323,6 +1547,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "Type": "application"
@@ -1358,6 +1590,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "VpcId": {
@@ -1406,6 +1646,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -1422,6 +1670,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "TargetGroupAttributes": [
@@ -1512,6 +1768,14 @@
           {
             "Key": "deployz:component",
             "Value": "application"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "Threshold": 1,

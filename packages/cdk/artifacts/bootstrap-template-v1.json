@@ -55,6 +55,14 @@
           {
             "Key": "deployz:component",
             "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -81,6 +89,14 @@
           {
             "Key": "deployz:component",
             "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "Timeout": 60
@@ -122,6 +138,14 @@
           {
             "Key": "deployz:component",
             "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -214,6 +238,14 @@
           {
             "Key": "deployz:component",
             "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "Timeout": 900
@@ -259,6 +291,14 @@
                 "InstallationId"
               ]
             }
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       },
@@ -913,6 +953,14 @@
                 "InstallationId"
               ]
             }
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -1040,6 +1088,14 @@
           {
             "Key": "deployz:component",
             "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -1360,7 +1416,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "930d57891eea0ce17dc58af40136faedd8be72ced649d97a5383335f8816ed25.zip"
+          "S3Key": "6c0ace039f388e9381971fb6d7bd67ed8dd80d9e09f70cf9e96c2c69b775de49.zip"
         },
         "Environment": {
           "Variables": {
@@ -1415,6 +1471,14 @@
                 "InstallationId"
               ]
             }
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "Timeout": 300
@@ -1480,6 +1544,14 @@
           {
             "Key": "deployz:component",
             "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       }
@@ -1530,6 +1602,14 @@
           {
             "Key": "deployz:component",
             "Value": "bootstrap"
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ]
       },
@@ -1557,6 +1637,14 @@
                 "InstallationId"
               ]
             }
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true"
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer"
           }
         ],
         "Targets": [
