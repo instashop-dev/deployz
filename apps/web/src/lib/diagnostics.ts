@@ -52,6 +52,12 @@ interface DiagnosticsApiResponse {
   what: string | null;
   why: string | null;
   fix: string | null;
+  /**
+   * What the relay said, verbatim (the failed job's error text). The API
+   * serves it for exactly the §65 "Technical detail" disclosure — the web
+   * client must not drop it on the floor.
+   */
+  technicalDetail?: string | null;
   events: Array<{
     occurredAt: string;
     eventType: string;
@@ -59,21 +65,17 @@ interface DiagnosticsApiResponse {
   }>;
 }
 
-// ── Fetch helper ────────────────────────────────────────────────────────────
+// ── Response mapping ─────────────────────────────────────────────────────────
 
 /**
- * Fetch a deployment's diagnostics. The API returns a single what/why/fix
- * classification for the deployment (not one per event) — a healthy or
- * non-failed deployment gets `failureCode: null`, which maps to an empty
- * list (the "no issues" state).
+ * Map the diagnostics endpoint's response onto the card list the UI renders.
+ * Exported so the mapping is unit-testable without a fetch seam — the fetch
+ * helper below is a thin wrapper over it.
+ *
+ * A healthy or non-failed deployment gets `failureCode: null`, which maps to
+ * an empty list (the "no issues" state).
  */
-export async function fetchDiagnostics(id: string): Promise<Diagnostic[]> {
-  const response = await fetch(`${apiUrl}/api/deployments/${encodeURIComponent(id)}/diagnostics`, {
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  if (!response.ok) throw new Error(`Diagnostics request failed (${response.status})`);
-  const body = (await response.json()) as DiagnosticsApiResponse;
+export function toDiagnostics(body: DiagnosticsApiResponse): Diagnostic[] {
   if (!body.failureCode) return [];
 
   const latestEvent = body.events[body.events.length - 1];
@@ -82,15 +84,39 @@ export async function fetchDiagnostics(id: string): Promise<Diagnostic[]> {
       failureCode: body.failureCode as FailureCode,
       recoverability: (body.recoverability as FailureRecoverability | undefined) ?? null,
       occurredAt: latestEvent?.occurredAt ?? new Date().toISOString(),
-      event: latestEvent
-        ? { source: 'deployment', action: latestEvent.eventType }
-        : { source: 'deployment' },
+      event: {
+        source: 'deployment',
+        ...(latestEvent ? { action: latestEvent.eventType } : {}),
+        // §14.3/§65: the relay's verbatim error text belongs inside the card's
+        // expandable "Technical detail" layer, exactly where the raw code and
+        // message live. It used to be dropped here, leaving the disclosure
+        // empty on every failure.
+        ...(typeof body.technicalDetail === 'string' && body.technicalDetail.length > 0
+          ? { error: { message: body.technicalDetail } }
+          : {}),
+      },
       explanation:
         body.what && body.why && body.fix
           ? { what: body.what, why: body.why, fix: body.fix }
           : null,
     },
   ];
+}
+
+// ── Fetch helper ────────────────────────────────────────────────────────────
+
+/**
+ * Fetch a deployment's diagnostics. The API returns a single what/why/fix
+ * classification for the deployment (not one per event).
+ */
+export async function fetchDiagnostics(id: string): Promise<Diagnostic[]> {
+  const response = await fetch(`${apiUrl}/api/deployments/${encodeURIComponent(id)}/diagnostics`, {
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`Diagnostics request failed (${response.status})`);
+  const body = (await response.json()) as DiagnosticsApiResponse;
+  return toDiagnostics(body);
 }
 
 // ── Relay-observed infrastructure checks ─────────────────────────────────────

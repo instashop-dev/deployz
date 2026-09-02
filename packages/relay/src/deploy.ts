@@ -272,7 +272,11 @@ export async function settleEcsDeploy(
       pendingMigration: context.migration ?? null,
     });
     if (outcome.state === 'failed') {
-      return { state: 'failed', reason: outcome.reason, failureCode: 'MIGRATION_FAILED' };
+      return {
+        state: 'failed',
+        reason: outcome.reason,
+        failureCode: outcome.failureCode ?? 'MIGRATION_FAILED',
+      };
     }
     if (outcome.state === 'in-progress') {
       return { state: 'in-progress', migration: outcome.migration };
@@ -326,7 +330,17 @@ type MigrationOutcome =
       readonly migration: PendingMigration;
     }
   | { readonly state: 'in-progress'; readonly migration: PendingMigration }
-  | { readonly state: 'failed'; readonly reason: string };
+  | {
+      readonly state: 'failed';
+      readonly reason: string;
+      /**
+       * Sharper classification for a migration task that could not run at
+       * all — the image pull failed before the migration command started
+       * (the task's stoppedReason names CannotPullContainerError). Absent
+       * when the migration itself failed, which stays MIGRATION_FAILED.
+       */
+      readonly failureCode?: string;
+    };
 
 /**
  * Runs (or resumes) the migration stage: one one-off ECS task on the SAME
@@ -451,6 +465,13 @@ async function settleMigration(
       return {
         state: 'failed',
         reason: `Migration failed: exit code ${exitCode ?? 'unknown'} (${task.stopCode ?? 'STOPPED'}: ${task.stoppedReason ?? 'no reason given'})`,
+        // §14.2 ECR-image-pull classification: the migration task never ran
+        // because its image could not be pulled. The migration uses the same
+        // image as the service update, so this is IMAGE_PULL_FAILED, never a
+        // migration bug the "fix the migration" remediation would address.
+        ...(isImagePullFailure(task.stoppedReason)
+          ? { failureCode: 'IMAGE_PULL_FAILED' }
+          : {}),
       };
     }
     const completedAt = (deps.now ?? (() => new Date().toISOString()))();
@@ -477,6 +498,28 @@ async function settleMigration(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Markers that tell a migration task never ran because ECS could not pull
+ * the application image — the task's stoppedReason names them verbatim
+ * (CannotPullContainerError is ECS's own wrap; the others are the ECR /
+ * registry error texts inside it). Mirrors the server-side refinement
+ * vocabulary in apps/api/src/failure-classification.ts so the relay and the
+ * control plane agree on what an image-pull failure looks like.
+ */
+const IMAGE_PULL_FAILURE_MARKERS =
+  /cannotpullcontainererror|pull access denied|no basic auth credentials|failed to pull image/i;
+
+/**
+ * True when a stopped migration task never started because its image could
+ * not be pulled. The migration command runs the SAME image the service
+ * update will use, so a pull denial here is the ECR grant / registry
+ * problem §29's IMAGE_PULL_FAILED exists for — not a migration bug, and the
+ * "fix the migration" remediation would send the vendor the wrong way.
+ */
+function isImagePullFailure(stoppedReason: string | null | undefined): boolean {
+  return stoppedReason !== undefined && stoppedReason !== null && IMAGE_PULL_FAILURE_MARKERS.test(stoppedReason);
 }
 
 function rolloutFailed(
