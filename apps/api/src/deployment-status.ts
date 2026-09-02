@@ -10,9 +10,12 @@ import {
   type DeploymentState,
   type DeploymentStep,
   type HealthStatus,
+  type HealthTargets,
+  type HttpProbe,
   type JobState,
   type JobType,
   type RelayStatus,
+  type RuntimeHealthLayers,
   type VendorDeploymentStatus,
 } from '@deployz/contracts';
 
@@ -226,7 +229,7 @@ export interface DerivedDeploymentStatus {
   relay: { connected: boolean; lastSeenAt: string | null };
   job: { type: JobType; status: JobState } | null;
   aws: { stackStatus: string | null };
-  health: { status: HealthStatus };
+  health: { status: HealthStatus; layers: RuntimeHealthLayers };
   result: { url: string } | null;
   failure: DerivedFailure | null;
 }
@@ -753,6 +756,87 @@ const REMOVED_STATES = new Set<DeploymentState>(['DELETING', 'DELETED']);
 const PROVISIONING_JOB_STATES = new Set<JobState>(['RUNNING', 'WAITING']);
 const SUCCEEDED_JOB_STATES = new Set<JobState>(['SUCCEEDED', 'SUCCESS']);
 
+// ---------------------------------------------------------------------------
+// §10.1 layered runtime health — read from the SAME observedState the relay's
+// heartbeat persists, with each layer derived from its own source. The five
+// layers deliberately stay apart: verification says whether the STACK is
+// right, rollout state what ECS is doing, target counts what the ALB sees,
+// httpProbe what the APPLICATION answers, and relayStatus whether the relay
+// is even connected. A failing app must never be reported through the ALB
+// layer, and vice versa.
+// ---------------------------------------------------------------------------
+
+const ROLLOUT_STATES: ReadonlySet<string> = new Set(['COMPLETED', 'IN_PROGRESS', 'FAILED']);
+const RELAY_STATUSES: ReadonlySet<string> = new Set(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']);
+
+/** The ALB/ECS counts the heartbeat reported, or null when it reported none. */
+function readHealthTargets(observedState: Record<string, unknown> | null): HealthTargets | null {
+  if (!observedState) return null;
+  const o = observedState;
+  const hasRuntimeHealth =
+    'desiredCount' in o || 'runningCount' in o || 'unhealthyTargetCount' in o;
+  if (!hasRuntimeHealth) return null;
+  const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+  return {
+    desiredCount: numberOrNull(o['desiredCount']),
+    runningCount: numberOrNull(o['runningCount']),
+    unhealthyTargetCount: numberOrNull(o['unhealthyTargetCount']),
+    pendingTargetCount: numberOrNull(o['pendingTargetCount']),
+    unknownTargetCount: numberOrNull(o['unknownTargetCount']),
+  };
+}
+
+/** The relay's HTTP probe record, defensively narrowed to the wire shape. */
+function readHttpProbe(observedState: Record<string, unknown> | null): HttpProbe | null {
+  const raw = observedState?.['httpProbe'];
+  if (raw === null || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  if (typeof record['ok'] !== 'boolean' || typeof record['checkedAt'] !== 'string') return null;
+  const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+  const stringOrNullish = (value: unknown): string | null | undefined =>
+    typeof value === 'string' ? value : value === null ? null : undefined;
+  return {
+    ok: record['ok'],
+    statusCode: numberOrNull(record['statusCode']),
+    latencyMs: numberOrNull(record['latencyMs']),
+    checkedAt: record['checkedAt'],
+    ...(stringOrNullish(record['error']) !== undefined ? { error: record['error'] as string } : {}),
+    ...(stringOrNullish(record['lastSuccessAt']) !== undefined
+      ? { lastSuccessAt: stringOrNullish(record['lastSuccessAt']) }
+      : {}),
+    ...(stringOrNullish(record['lastFailedAt']) !== undefined
+      ? { lastFailedAt: stringOrNullish(record['lastFailedAt']) }
+      : {}),
+  };
+}
+
+/**
+ * Builds the five §10.1 layers from the persisted heartbeat's observedState
+ * plus the persisted relay liveness column. Always returns a complete object
+ * — every layer has an honest "unknown" answer when its source said nothing.
+ */
+function buildHealthLayers(
+  relayStatus: RelayStatus,
+  observedState: Record<string, unknown> | null,
+): RuntimeHealthLayers {
+  const infraHealth = observedState?.['infraHealth'];
+  const verified =
+    infraHealth !== null && typeof infraHealth === 'object'
+      ? (infraHealth as Record<string, unknown>)['verified']
+      : undefined;
+  const rawRollout = observedState?.['deploymentRolloutState'];
+  return {
+    infrastructure:
+      typeof verified === 'boolean' ? (verified ? 'HEALTHY' : 'UNHEALTHY') : 'UNKNOWN',
+    rollout: typeof rawRollout === 'string' && ROLLOUT_STATES.has(rawRollout)
+      ? (rawRollout as RuntimeHealthLayers['rollout'])
+      : null,
+    targets: readHealthTargets(observedState),
+    http: readHttpProbe(observedState),
+    relay: RELAY_STATUSES.has(relayStatus) ? (relayStatus as RuntimeHealthLayers['relay']) : 'UNKNOWN',
+  };
+}
+
 /**
  * The pure read-time derivation. Precedence (exact, first match wins):
  *   1. state FAILED                              → FAILED
@@ -992,7 +1076,12 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       stackStatus:
         extractStackStatus(latestStackJob?.result) ?? readSnapshotStackStatus(deployment.observedState),
     },
-    health: { status: deployment.healthStatus },
+    health: {
+      status: deployment.healthStatus,
+      // §10.1: the five layers, each from its own source — never collapsed
+      // into the scalar `status` above.
+      layers: buildHealthLayers(deployment.relayStatus, deployment.observedState),
+    },
     // Runtime-verified reachability is the gate for exposing an address:
     // READY's https URL always, and the temporary HTTP ALB endpoint once a
     // VERIFYING deployment's health status confirms the app is actually

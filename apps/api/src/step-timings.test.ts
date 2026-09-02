@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import type { RuntimeHealthLayers } from '@deployz/contracts';
+
 import type { DerivedDeploymentStatus } from './deployment-status.js';
 import { advanceStepTimings, type StepTimings } from './step-timings.js';
 
@@ -8,6 +10,11 @@ import { advanceStepTimings, type StepTimings } from './step-timings.js';
 // design goal as deployment-status.test.ts.
 
 const NOW = new Date('2026-08-31T12:00:00.000Z');
+
+/** Empty §10.1 layers — nothing observed yet, which is this fixture's default. */
+function emptyLayers(): RuntimeHealthLayers {
+  return { infrastructure: 'UNKNOWN', rollout: null, targets: null, http: null, relay: 'UNKNOWN' };
+}
 
 function makeDerived(overrides: Partial<DerivedDeploymentStatus> = {}): DerivedDeploymentStatus {
   return {
@@ -27,7 +34,7 @@ function makeDerived(overrides: Partial<DerivedDeploymentStatus> = {}): DerivedD
     relay: { connected: true, lastSeenAt: null },
     job: null,
     aws: { stackStatus: null },
-    health: { status: 'UNKNOWN' },
+    health: { status: 'UNKNOWN', layers: emptyLayers() },
     result: null,
     failure: null,
     ...overrides,

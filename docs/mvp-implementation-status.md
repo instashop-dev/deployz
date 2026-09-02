@@ -427,3 +427,86 @@ One focused test per gap, all vitest fakes (no real AWS):
 
 Full build (`pnpm build`) and the full vitest suite pass (93 files; one
 known Windows `onTaskUpdate` timeout flake, no real failure).
+
+## Phase 6 — Runtime health and promotion correctness (2026-09-02)
+
+Phase 6 adds the HTTP application probe and makes release promotion wait for
+every health gate. The plan (§10) is here; all tests use vitest fakes, never
+real AWS. No new failure code was added, so no registry changed.
+
+### Already existed (audited, not reimplemented)
+
+- Honest ALB target interpretation in the heartbeat: healthy, pending
+  (`initial`/`draining`), unknown, and unhealthy counts plus the ECS rollout
+  state (`packages/relay/src/ecs-health.ts`, Phase 1.3).
+- ECS counts, rollout state, target counts, and the running image digest in
+  the heartbeat's observed state (`packages/relay/src/poll.ts`, index.ts).
+- `settleEcsDeploy` deferred a rollout that outlived one invocation through
+  the pending marker, and waited for the digest to run with the full task
+  count (`packages/relay/src/deploy.ts`).
+- The control-plane heartbeat handler (INSTALLING to HEALTHY, self-healing
+  of a FAILED-but-running deployment, rollout-failure events) and the digest
+  reconciliation of the release pointer (`apps/api/src/server.ts`).
+- Layer inputs already stored: infrastructure verification
+  (`observedState.infraHealth`), rollout and target fields (observed state),
+  relay connectivity (`deployments.relay_status`).
+- The unified status derivation (`apps/api/src/deployment-status.ts`).
+
+### Added
+
+1. **HTTP probe (§10.2)** — new `packages/relay/src/http-probe.ts`. Each
+   poll the relay GETs the deployment's probe URL and records status code,
+   latency, and check time. A timeout or unreachable host is a FAILED check,
+   never UNKNOWN-forever. The response body is never read. The probe URL is
+   built server-side (latest INSTALL ALB endpoint + the manifest-derived
+   health path) and passed in each poll's deployment meta; the control plane
+   maintains `lastSuccessAt`/`lastFailedAt` across heartbeats in
+   `observedState.httpProbe`.
+
+2. **Layered health (§10.1)** — the derivation now exposes five separate
+   layers in the vendor status (`health.layers`): infrastructure (verifier
+   verdict), ECS rollout state, ALB target counts, the HTTP probe record,
+   and relay connectivity. Each layer reports only what its own source
+   observed; a failing app never appears as a target or rollout problem.
+   New schema `runtimeHealthLayersSchema` in `@deployz/contracts`.
+
+3. **Promotion gate (§10.3)** — two changes, matching the plan's split:
+   - The relay now settles a deploy only when the digest runs, the task
+     count is full, the PRIMARY rollout state is COMPLETED, and every ALB
+     target is healthy. Any other state stays `in-progress` through the
+     pending marker (`packages/relay/src/deploy.ts`, new ELB seam).
+   - The control plane no longer advances the release pointer on the
+     DEPLOY_RELEASE/ROLLBACK job result. The heartbeat's digest
+     reconciliation advances it only when that same heartbeat shows rollout
+     COMPLETED, full counts, healthy targets, and a successful HTTP probe
+     (`apps/api/src/server.ts`). A partially rolled-out or failing release
+     is never promoted.
+   - Phase 1.3's INSTALLING-to-HEALTHY heartbeat behavior is unchanged.
+   - A failed update still preserves the previous release and pointer.
+
+4. **Rollback** — uses the same settle path and never runs migrations
+   (Phase 4 behavior unchanged; regression-tested).
+
+### Tests (focused, per gap)
+
+- `packages/relay/src/http-probe.test.ts` — records code/latency/time;
+  non-2xx and transport/timeout failures are failed checks; a bodyless
+  response is enough (the body is never read).
+- `packages/relay/src/deploy.test.ts` — never settles while the primary
+  rollout is IN_PROGRESS or while targets register; settles once COMPLETED
+  and healthy.
+- `packages/relay/src/poll.test.ts` — the probe record rides the heartbeat's
+  observed state; a failed probe is reported, never dropped; malformed meta
+  is ignored.
+- `apps/api/src/digest-reconciliation.test.ts` — promotion blocked when the
+  rollout is incomplete, targets are pending, or the probe fails; promotion
+  advances when all gates pass; probe timestamps persist across heartbeats
+  with no body ever stored.
+- `apps/api/src/deployment-status.test.ts` — the five layers are visible
+  separately, never collapsed.
+- `apps/api/src/server.test.ts` and `deploy-contract.test.ts` — pointer
+  advance moves from the job result to the gated heartbeat; a failed update
+  keeps the previous release pointer.
+
+Full build (`pnpm build`) passes; relay, contracts, api and web vitest
+suites pass with the changed fixtures.

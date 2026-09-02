@@ -38,6 +38,7 @@ import {
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
+  httpProbeSchema,
   infrastructureResponseSchema,
   regionSchema,
   relayCapabilitiesSchema,
@@ -910,6 +911,35 @@ function resolveAppUrl(
   return endpoint.startsWith('http://') || endpoint.startsWith('https://') ? endpoint : `http://${endpoint}`;
 }
 
+/** The health path the application template checks by default. */
+const DEFAULT_HEALTH_PATH = '/health';
+
+/**
+ * §10.2 the URL the relay probes once per poll: the latest successful
+ * INSTALL's ALB endpoint plus the application's configured health path. The
+ * control plane knows both (the stack's outputs and the manifest-derived
+ * path) and hands the full URL to the relay in each poll's deployment meta,
+ * so the relay never has to resolve either inside the customer account. Null
+ * until an INSTALL produced an endpoint — the relay then omits the probe.
+ * `jobs` must be ascending by createdAt.
+ */
+function resolveProbeUrl(
+  jobs: ReadonlyArray<Pick<DeploymentJobRow, 'type' | 'state' | 'result'>>,
+  healthPath: string | null,
+): string | null {
+  const installs = jobs.filter(
+    (j) => j.type === 'INSTALL' && (j.state === 'SUCCEEDED' || j.state === 'SUCCESS'),
+  );
+  const endpoint = albEndpointFromResult(installs[installs.length - 1]?.result ?? null);
+  if (!endpoint) return null;
+  const base = endpoint.startsWith('http://') || endpoint.startsWith('https://')
+    ? endpoint.replace(/\/+$/, '')
+    : `http://${endpoint.replace(/\/+$/, '')}`;
+  const trimmed = healthPath?.trim() ?? '';
+  const path = trimmed.length > 0 ? trimmed : DEFAULT_HEALTH_PATH;
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 /**
  * Step-timings follow-up shared by both relay-authenticated write paths
  * (POST /api/relay/health and the job-result handler below): re-derive the
@@ -1006,7 +1036,12 @@ const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
   DESTROY: 'DELETED',
 };
 
-/** Job types that carry a release pointer forward on success (§38). */
+/**
+ * Job types whose SUCCESS names a release in the audit event. §10.3: these no
+ * longer advance the release pointer at result time — the heartbeat's digest
+ * reconciliation does, once the HTTP probe and every ECS/ALB gate pass. This
+ * set now only decides which jobs carry a releaseId on their event.
+ */
 const RELEASE_ADVANCING_JOBS = new Set<JobType>(['DEPLOY_RELEASE', 'ROLLBACK']);
 
 /**
@@ -4122,9 +4157,41 @@ export async function buildServer({
   ];
   const ACTIVE_JOB_STATES: readonly JobStateValue[] = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'];
 
+  /**
+   * §10.3 the promotion gate's observational half: whether ONE heartbeat's
+   * observedState shows a fully rolled-out, healthy release. Every layer the
+   * relay reported must pass — ECS rollout COMPLETED, expected task count up,
+   * no unhealthy/pending/unclassified ALB targets, and a successful HTTP
+   * probe. A signal the relay did not report (older relay, unreadable AWS)
+   * is not an obstacle, but a reported failure in any layer blocks promotion:
+   * a partially-rolled-out service must never become current.
+   */
+  function releasePromotionGatesPass(observedState: Record<string, unknown> | null | undefined): boolean {
+    if (!observedState || typeof observedState !== 'object') return false;
+
+    const rollout = observedState['deploymentRolloutState'];
+    if (rollout !== undefined && rollout !== null && rollout !== 'COMPLETED') return false;
+
+    // HTTP probe: when one was taken this poll, only a successful one passes.
+    const probe = observedState['httpProbe'] as { ok?: unknown } | null | undefined;
+    if (probe !== undefined && probe !== null && probe.ok !== true) return false;
+
+    const desired = observedState['desiredCount'];
+    const running = observedState['runningCount'];
+    if (typeof desired === 'number' && typeof running === 'number' && desired > 0 && running < desired) {
+      return false;
+    }
+    for (const key of ['unhealthyTargetCount', 'pendingTargetCount', 'unknownTargetCount']) {
+      const count = observedState[key];
+      if (typeof count === 'number' && count > 0) return false;
+    }
+    return true;
+  }
+
   async function reconcileRunningDigest(
     deployment: DeploymentRow,
     runningImageDigest: string | null,
+    observedState: Record<string, unknown> | null,
   ): Promise<void> {
     const digest = digestSuffix(runningImageDigest);
     if (!digest) return;
@@ -4164,6 +4231,13 @@ export async function buildServer({
     if (matches.length !== 1) return;
     const reconciled = matches[0]!;
     if (reconciled.id === deployment.currentReleaseId) return;
+
+    // §10.3 promotion gate: a release only becomes current on the strength of
+    // THIS heartbeat's observations, and only when every one of them passes —
+    // the ECS rollout completed, the expected task count is up, no ALB target
+    // is unhealthy/pending/unknown, and the HTTP probe succeeded. A
+    // partially-rolled-out or failing application is never promoted.
+    if (!releasePromotionGatesPass(observedState)) return;
 
     await db.transaction(async (tx) => {
       await tx
@@ -4388,10 +4462,18 @@ export async function buildServer({
     // heartbeat runs outside any command, so this poll response is the only
     // channel that reaches it.
     const appRows = await db
-      .select({ redisRequired: schema.applications.redisRequired })
+      .select({ redisRequired: schema.applications.redisRequired, healthPath: schema.applications.healthPath })
       .from(schema.applications)
       .where(eq(schema.applications.id, deployment.applicationId))
       .limit(1);
+
+    // §10.2: the probe URL is built from the stack's PublicEndpoint output
+    // (the successful INSTALL's result) plus the configured health path.
+    const installJobs = await db
+      .select({ result: schema.deploymentJobs.result, state: schema.deploymentJobs.state, type: schema.deploymentJobs.type })
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id))
+      .orderBy(schema.deploymentJobs.createdAt);
 
     return {
       commands: jobs.map((job) => ({
@@ -4401,7 +4483,10 @@ export async function buildServer({
         idempotencyKey: job.idempotencyKey,
         payload: job.payload,
       })),
-      deployment: { redisRequired: appRows[0]?.redisRequired ?? false },
+      deployment: {
+        redisRequired: appRows[0]?.redisRequired ?? false,
+        probeUrl: resolveProbeUrl(installJobs, appRows[0]?.healthPath ?? null),
+      },
     };
   });
 
@@ -4506,6 +4591,13 @@ export async function buildServer({
             ),
           }) ?? undefined)
         : JOB_SUCCESS_STATE[job.type];
+    // The release this job rolled out, for the audit event only. §10.3: a
+    // DEPLOY_RELEASE/ROLLBACK success must NOT advance the release pointers
+    // here — the relay has settled ECS (rollout + targets), but promotion
+    // also needs the observed HTTP probe healthy, which only arrives on the
+    // heartbeat. The heartbeat's digest reconciliation advances the pointer
+    // once every gate passes, so a partially-rolled-out service is never
+    // promoted on the relay's word alone.
     const releaseId =
       state === 'SUCCEEDED' && RELEASE_ADVANCING_JOBS.has(job.type)
         ? ((job.payload as { releaseId?: string } | null)?.releaseId ?? null)
@@ -4532,8 +4624,13 @@ export async function buildServer({
           .update(schema.deployments)
           .set({
             state: nextState,
-            ...(releaseId
-              ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId }
+            // §10.3 keeps CURRENT-release promotion gated on the heartbeat's
+            // digest reconciliation, but the rollback's own bookkeeping is
+            // job truth: the release this rollback replaced is the pointer
+            // the deployment carried into it. currentReleaseId itself still
+            // only moves via the gated reconciliation.
+            ...(state === 'SUCCEEDED' && job.type === 'ROLLBACK'
+              ? { previousReleaseId: deployment.currentReleaseId }
               : {}),
             ...(nextState === 'DELETED' ? { deletedAt: new Date() } : {}),
           })
@@ -4606,12 +4703,12 @@ export async function buildServer({
 
     // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
     // derived from the values THIS request just wrote, not the stale
-    // pre-transaction `deployment`.
+    // pre-transaction `deployment`. The release pointers are deliberately
+    // absent: promotion happens on the heartbeat (§10.3).
     try {
       await advanceStepTimingsAfterWrite(db, {
         ...deployment,
         ...(nextState ? { state: nextState } : {}),
-        ...(releaseId ? { currentReleaseId: releaseId, previousReleaseId: deployment.currentReleaseId } : {}),
       });
     } catch (error) {
       request.log.warn({ err: error }, 'step-timings advance failed');
@@ -4797,6 +4894,36 @@ export async function buildServer({
       (observedState as Record<string, unknown>)['runningImageDigest'] = body.runningImageDigest;
     }
 
+    // §10.2 HTTP probe ingest: the relay reports what it measured this poll
+    // (status/latency/time — never a body); the control plane maintains the
+    // last-success / last-failed timestamps across heartbeats so the record
+    // always answers "when did this app last answer?" as well as "what did it
+    // answer just now?". A malformed probe is dropped untouched — an old relay
+    // sending none keeps whatever was already stored.
+    const rawProbe = (observedState as Record<string, unknown> | null)?.['httpProbe'];
+    const probeParsed = rawProbe === undefined ? undefined : httpProbeSchema.safeParse(rawProbe);
+    if (probeParsed?.success === true) {
+      const previousProbe = (deployment.observedState as { httpProbe?: Record<string, unknown> } | null)
+        ?.httpProbe;
+      const previousLastSuccessAt =
+        typeof previousProbe?.['lastSuccessAt'] === 'string'
+          ? (previousProbe['lastSuccessAt'] as string)
+          : null;
+      const previousLastFailedAt =
+        typeof previousProbe?.['lastFailedAt'] === 'string'
+          ? (previousProbe['lastFailedAt'] as string)
+          : null;
+      (observedState as Record<string, unknown>)['httpProbe'] = {
+        ok: probeParsed.data.ok,
+        statusCode: probeParsed.data.statusCode,
+        latencyMs: probeParsed.data.latencyMs,
+        checkedAt: probeParsed.data.checkedAt,
+        ...(probeParsed.data.error !== undefined ? { error: probeParsed.data.error } : {}),
+        lastSuccessAt: probeParsed.data.ok ? probeParsed.data.checkedAt : previousLastSuccessAt,
+        lastFailedAt: probeParsed.data.ok ? previousLastFailedAt : probeParsed.data.checkedAt,
+      };
+    }
+
     const previousHealth = deployment.healthStatus;
     const nextHealth = healthStatusParsed.success ? healthStatusParsed.data : previousHealth;
     // Edge-triggered: the rollout failure is recorded once per observed
@@ -4922,10 +5049,16 @@ export async function buildServer({
     }
 
     // Runtime truth wins: reconcile the deployment's release pointer to
-    // whatever the relay observed actually running. Failures here must not
+    // whatever the relay observed actually running — but ONLY once §10.3's
+    // promotion gates pass in this very heartbeat (rollout complete, counts
+    // full, targets healthy, HTTP probe successful). Failures here must not
     // fail the heartbeat itself.
     try {
-      await reconcileRunningDigest(deployment, body?.runningImageDigest ?? null);
+      await reconcileRunningDigest(
+        deployment,
+        body?.runningImageDigest ?? null,
+        observedState as Record<string, unknown> | null,
+      );
     } catch (error) {
       request.log.warn({ err: error }, 'runtime digest reconciliation failed');
     }

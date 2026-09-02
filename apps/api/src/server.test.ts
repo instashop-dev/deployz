@@ -1306,41 +1306,109 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(afterHealth!.state).toBe('HEALTHY');
   });
 
-  it('a successful DEPLOY_RELEASE moves to HEALTHY and advances the release pointers', async () => {
-    const release = await insertRelease(db, deployment.applicationId, { version: 'v9.0.0' });
-    const [before] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+  it('a successful DEPLOY_RELEASE moves to HEALTHY but the pointer only advances once the HTTP probe gate passes (§10.3)', async () => {
+    // A dedicated deployment for this lifecycle — the shared fixture above has
+    // jobs left over from earlier relay-flow tests that would block the
+    // heartbeat's promotion.
+    const token = 'relay-promotion-gate-token';
+    const installationId = 'inst-promotion-gate';
+    const fresh = await insertDeployment(db, org.organizationId, deployment.applicationId, deployment.customerId, {
+      state: 'HEALTHY',
+      installationId,
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken(token),
+      relayStatus: 'CONNECTED',
+    });
+
+    const digest = 'sha256:' + 'e'.repeat(64);
+    const release = await insertRelease(db, deployment.applicationId, {
+      imageDigest: `acme/app@${digest}`,
+      releaseStatus: 'READY',
+    });
     const [job] = await db
       .insert(schema.deploymentJobs)
       .values({
-        deploymentId: deployment.id,
+        deploymentId: fresh.id,
         type: 'DEPLOY_RELEASE',
         state: 'RUNNING',
-        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:${release.id}`,
+        idempotencyKey: `${fresh.id}:DEPLOY_RELEASE:${release.id}`,
         payload: { releaseId: release.id },
       })
       .returning();
 
+    // The relay settled the rollout, so the job succeeds and the deployment
+    // becomes HEALTHY — but the release pointers must NOT advance on the job
+    // result alone: a healthy HTTP probe has not been observed yet.
     await postJson(
       app,
       `/api/relay/commands/${job!.id}/result`,
       { success: true },
-      { authorization: `Bearer ${RELAY_TOKEN}` },
+      { authorization: `Bearer ${token}` },
     );
 
-    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
-    expect(updated!.state).toBe('HEALTHY');
+    const [afterResult] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
+    expect(afterResult!.state).toBe('HEALTHY');
+    expect(afterResult!.currentReleaseId).toBeNull();
+
+    // The next heartbeat observes the digest actually running, a completed
+    // rollout, full counts, healthy targets AND a successful HTTP probe —
+    // only then does the pointer advance.
+    await postJson(
+      app,
+      '/api/relay/health',
+      {
+        installationId,
+        healthStatus: 'HEALTHY',
+        runningImageDigest: digest,
+        observedState: {
+          deploymentRolloutState: 'COMPLETED',
+          desiredCount: 1,
+          runningCount: 1,
+          unhealthyTargetCount: 0,
+          pendingTargetCount: 0,
+          unknownTargetCount: 0,
+          httpProbe: {
+            ok: true,
+            statusCode: 200,
+            latencyMs: 12,
+            checkedAt: new Date().toISOString(),
+          },
+        },
+      },
+      { authorization: `Bearer ${token}` },
+    );
+
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
     expect(updated!.currentReleaseId).toBe(release.id);
-    expect(updated!.previousReleaseId).toBe(before!.currentReleaseId);
+    expect(updated!.previousReleaseId).toBeNull();
   });
 
   it('a failed update keeps the deployment live and diagnostics still classify it', async () => {
+    // A dedicated deployment with a running release — the shape a failed
+    // day-2 operation actually happens in.
+    const token = 'relay-failed-update-token';
+    const current = await insertRelease(db, deployment.applicationId, {
+      imageDigest: 'acme/app@sha256:' + 'f'.repeat(64),
+      releaseStatus: 'READY',
+    });
+    const fresh = await insertDeployment(db, org.organizationId, deployment.applicationId, deployment.customerId, {
+      state: 'HEALTHY',
+      currentReleaseId: current.id,
+      installationId: 'inst-failed-update',
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken(token),
+      relayStatus: 'CONNECTED',
+    });
+
     const [job] = await db
       .insert(schema.deploymentJobs)
       .values({
-        deploymentId: deployment.id,
+        deploymentId: fresh.id,
         type: 'DEPLOY_RELEASE',
         state: 'RUNNING',
-        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:state-fail`,
+        idempotencyKey: `${fresh.id}:DEPLOY_RELEASE:state-fail`,
         payload: {},
       })
       .returning();
@@ -1349,20 +1417,21 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       app,
       `/api/relay/commands/${job!.id}/result`,
       { success: false, failureCode: 'IMAGE_HEALTH_CHECK_FAILED' },
-      { authorization: `Bearer ${RELAY_TOKEN}` },
+      { authorization: `Bearer ${token}` },
     );
 
-    // The previous release (advanced by the successful DEPLOY_RELEASE above)
-    // is still serving: a failed day-2 operation must not mark the whole
-    // deployment FAILED. No newer READY release exists here, so HEALTHY.
-    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    // The previous release is still serving: a failed day-2 operation must
+    // not mark the whole deployment FAILED, and the pointer never advances.
+    // No newer READY release exists here, so HEALTHY.
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
     expect(updated!.state).toBe('HEALTHY');
+    expect(updated!.currentReleaseId).toBe(current.id);
 
     // §61: diagnostics must still report the code the relay gave — the gate
     // follows the latest mutating attempt, not only deployment.state.
     const diagnostics = await app.inject({
       method: 'GET',
-      url: `/api/deployments/${deployment.id}/diagnostics`,
+      url: `/api/deployments/${fresh.id}/diagnostics`,
       headers: { cookie: org.cookie },
     });
     expect(diagnostics.statusCode).toBe(200);

@@ -1172,3 +1172,127 @@ describe('vendor stepTimings projection', () => {
     ]);
   });
 });
+
+// §10.1 layered runtime health — each layer reports what ITS source observed,
+// never collapsed into the scalar health status.
+describe('layered runtime health (health.layers)', () => {
+  function observed(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      infraHealth: { verified: true, checks: [] },
+      deploymentRolloutState: 'COMPLETED',
+      desiredCount: 2,
+      runningCount: 2,
+      unhealthyTargetCount: 0,
+      pendingTargetCount: 0,
+      unknownTargetCount: 0,
+      httpProbe: {
+        ok: true,
+        statusCode: 200,
+        latencyMs: 41,
+        checkedAt: '2026-09-02T00:00:00.000Z',
+        lastSuccessAt: '2026-09-02T00:00:00.000Z',
+        lastFailedAt: null,
+      },
+      ...overrides,
+    };
+  }
+
+  it('exposes every layer separately when every source reported', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        relayStatus: 'CONNECTED',
+        observedState: observed(),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+    });
+    expect(status.health.layers).toEqual({
+      infrastructure: 'HEALTHY',
+      rollout: 'COMPLETED',
+      targets: {
+        desiredCount: 2,
+        runningCount: 2,
+        unhealthyTargetCount: 0,
+        pendingTargetCount: 0,
+        unknownTargetCount: 0,
+      },
+      http: {
+        ok: true,
+        statusCode: 200,
+        latencyMs: 41,
+        checkedAt: '2026-09-02T00:00:00.000Z',
+        lastSuccessAt: '2026-09-02T00:00:00.000Z',
+        lastFailedAt: null,
+      },
+      relay: 'CONNECTED',
+    });
+    // And the vendor projection carries them verbatim.
+    expect(toVendorDeploymentStatus(status).health.layers).toEqual(status.health.layers);
+  });
+
+  it('a failing HTTP probe stays a separate layer from healthy ECS/ALB layers', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        relayStatus: 'CONNECTED',
+        observedState: observed({
+          httpProbe: {
+            ok: false,
+            statusCode: 503,
+            latencyMs: 12,
+            checkedAt: '2026-09-02T00:00:01.000Z',
+            lastSuccessAt: null,
+            lastFailedAt: '2026-09-02T00:00:01.000Z',
+          },
+        }),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+    });
+    // ECS still reports every target healthy and the rollout completed — the
+    // app-level failure is visible only in the http layer, not smeared over
+    // the others.
+    expect(status.health.layers.rollout).toBe('COMPLETED');
+    expect(status.health.layers.targets).toMatchObject({ unhealthyTargetCount: 0 });
+    expect(status.health.layers.http).toMatchObject({ ok: false, statusCode: 503 });
+    expect(status.health.status).toBe('HEALTHY');
+  });
+
+  it('an in-progress rollout is visible even while counts and probe look fine', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'DEGRADED',
+        observedState: observed({ deploymentRolloutState: 'IN_PROGRESS' }),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+    });
+    expect(status.health.layers.rollout).toBe('IN_PROGRESS');
+  });
+
+  it('absent observations are honest UNKNOWNs, never healthy-looking zeros', () => {
+    const status = derive({
+      deployment: makeDeployment({ relayStatus: 'UNKNOWN' }),
+    });
+    expect(status.health.layers).toEqual({
+      infrastructure: 'UNKNOWN',
+      rollout: null,
+      targets: null,
+      http: null,
+      relay: 'UNKNOWN',
+    });
+  });
+
+  it('verification failure surfaces as an unhealthy infrastructure layer', () => {
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        observedState: observed({ infraHealth: { verified: false, checks: [] } }),
+      }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+    });
+    expect(status.health.layers.infrastructure).toBe('UNHEALTHY');
+  });
+});
