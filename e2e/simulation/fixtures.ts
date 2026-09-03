@@ -215,6 +215,9 @@ export interface DeployzRelayOptions {
   readonly stopAfterFirstProgress?: boolean;
   /** See relay-harness.ts's `StartSimulatedRelayOptions.dieDuringDestroy`. */
   readonly dieDuringDestroy?: boolean;
+  /** See relay-harness.ts's `StartSimulatedRelayOptions.failConfigureForHostnameRegex`
+   *  (Phase 14 custom-domain failure scenarios). */
+  readonly failConfigureForHostnameRegex?: string;
 }
 
 export const test = base.extend<{

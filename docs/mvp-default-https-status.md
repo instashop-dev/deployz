@@ -33,7 +33,7 @@ Rules that hold for every phase:
 | 11 | Delete / purge reconciliation | In review | #TBD (batched) | — | — | — |
 | 12 | Watchdogs and reconciliation | In review | #TBD (batched) | — | — | — |
 | 13 | Security hardening | In review | #TBD (batched) | — | — | — |
-| 14 | Simulated provider E2E (A–H) | Pending | — | — | — | — |
+| 14 | Simulated provider E2E (A–H) | In review | #TBD | — | — | — |
 | 15 | Static production config verification | Pending | — | — | — | — |
 | 16 | Documentation and cleanup | Pending | — | — | — | — |
 
@@ -240,3 +240,63 @@ never changes the zone setting (no live calls, per the standing rules).
   namespace guard — so custom-domain removal needs no deployz-side record
   cleanup, and default-HTTPS teardown cleans up both of its own records
   (routing + validation).
+
+## Simulated provider E2E (Phase 14)
+
+A fully simulated default-HTTPS E2E suite (`e2e/scenario-default-https.spec.ts`,
+scenarios A–H) over the REAL API: the existing simulated relay harness
+(`e2e/simulation/relay-harness.ts`) installs into a simulated AWS account, the
+fixture HTTPS verifier (`DOMAIN_FIXTURE_MODE`) approves `*.deployz-fixture.test`
+probes, and the default-HTTPS machine writes into a fixture-only, in-memory DNS
+provider instead of Cloudflare. No real request leaves the process.
+
+- **Scenario A — default HTTPS success**: install → DNS reconciliation →
+  ACTIVE → READY; the provider holds exactly one proxied routing CNAME
+  `d-<deploymentId>.deployz-fixture.test` → the fixture ALB plus the unproxied
+  validation CNAME beneath it. Zone assertions use the fixture zone
+  (`deployz-fixture.test`); the PRODUCTION zone hex is Phase 15's static
+  check, deliberately not asserted here.
+- **B — Cloudflare unavailable**: two scripted `CLOUDFLARE_UNAVAILABLE` write
+  failures are state-only (no new INSTALL/DESTROY job, AWS untouched); the
+  heartbeat retries and the machine recovers to ACTIVE/READY with both
+  failures recorded in the watchdog budget (`configureAttempts`).
+- **C — rate limiting**: scripted 429s (`retryAfter 30`) retry without
+  consuming the watchdog budget (`configureAttempts` stays at the clean-path
+  value) and never duplicate records.
+- **D — custom domain**: default ACTIVE → add a `deployz-fixture.test` custom
+  domain → relay ACM two-phase → ACTIVE → `appUrl` flips to the custom
+  hostname while `defaultUrl` stays the `d-*` hostname.
+- **E — custom failure**: a relay-refused custom domain lands in ERROR; the
+  app stays READY/HEALTHY behind the default URL.
+- **F — removal**: DELETE the custom domain → preferred URL reverts to the
+  default; the default record remains.
+- **G — delete/purge**: destroy deletes BOTH default records (routing +
+  validation) via the provider; a subsequent purge finds nothing and never
+  deletes twice.
+- **H — namespace protection**: planted reserved (`app`/`www`/apex) and
+  non-uuid `d-*` names survive the purge-orphan reconciliation untouched;
+  only a true orphan (valid uuid, no live deployment) is deleted.
+
+**Fixture/exposure mechanism.** The API server is a separate process under
+Playwright, so assertions and failure-scripting travel over HTTP, not object
+references. When BOTH `DOMAIN_FIXTURE_MODE` and `DEPLOYZ_DEFAULT_HTTPS_FIXTURE`
+are on, `apps/api/src/server.ts` constructs `createDefaultHttpsFixtureProvider`
+(`apps/api/src/default-https-fixture.ts`) — a `CloudflareDnsClient` backed by
+the same in-memory store as the unit-level fake plus FIFO failure scripting —
+and registers three internal endpoints that exist ONLY in that boot:
+`GET /internal/fixture/default-dns-records` (records snapshot + remaining
+failures + mutation log), `POST /internal/fixture/default-dns-records` (plant a
+raw guarded-unaware record), and `POST /internal/fixture/default-dns-failures`
+(`{ code: 'unavailable' | 'rate_limit', count }`). Production never constructs
+the provider (the flags are off and scrubbed from the deploy env), so those
+routes do not exist there — the same property `e2e/production-safety.spec.ts`
+pins for scenario-control surfaces. The relay harness models ACM's real
+two-phase DNS-01 flow (first PENDING_VALIDATION with the validation/routing
+records, then ISSUED) so the machine genuinely passes through WAITING_FOR_DNS
+and writes records; a `failConfigureForHostnameRegex` knob lets scenario E
+drive a custom domain into ERROR.
+
+The suite skips unless `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true` (the ordinary
+simulated `--scenarios` run keeps HTTP-only behaviour); CI runs the file
+separately with the flag on ("Default-HTTPS simulated scenarios" step in
+`ci.yml`).

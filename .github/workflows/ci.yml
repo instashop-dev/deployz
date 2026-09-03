@@ -69,6 +69,13 @@ jobs:
       - name: Simulated scenario suite
         run: node scripts/e2e.mjs --scenarios
 
+      # Phase 14 — the default-HTTPS simulated-provider suite (scenarios A–H)
+      # needs the fixture default-HTTPS machine ON, which the ordinary
+      # simulated run deliberately keeps off (HTTP-only installs). Boot the
+      # same file against a dedicated server instance with the opt-in flag.
+      - name: Default-HTTPS simulated scenarios
+        run: DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts
+
       - name: Team Admin flows
         run: node scripts/e2e.mjs e2e/admin.spec.ts
 

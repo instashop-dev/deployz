@@ -563,7 +563,14 @@ export async function runDefaultHttpsCheck(
       lastError: null,
     };
     await persistState(db, deployment.id, initial);
-    await ensureDefaultHttpsConfigureJob(db, deployment, initial);
+    const created = await ensureDefaultHttpsConfigureJob(db, deployment, initial);
+    if (created) {
+      // Phase 12 watchdog: the very first configure request is a configure
+      // attempt too — count it against the budget (unit parity: a machine
+      // that mints its initial job and then stalls owes the same accounting
+      // as one that stalls later).
+      await persistState(db, deployment.id, { ...initial, configureAttempts: 1 });
+    }
     return;
   }
 
