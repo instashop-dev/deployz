@@ -133,8 +133,14 @@ export function InfrastructureSummary({
   return (
     <div className="flex flex-col gap-3">
       {infrastructure.snapshotState === 'none' ? (
+        // A failed install that never created a stack's worth of resources
+        // has nothing the inventory could add — say so honestly (the hero
+        // and activity above carry the failure itself). Live states get the
+        // "details appear as they are created" line instead.
         <p className="text-sm text-muted-foreground">
-          Service details appear as they are created.
+          {state === 'FAILED'
+            ? "This deployment isn't running, so there's nothing to report."
+            : 'Service details appear as they are created.'}
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">{SUMMARY_LINE[infrastructure.summary.status]}</p>

@@ -1007,3 +1007,65 @@ writes itself.
 - Constraint: a real (non-fixture) Route53 round trip is validated only by
   the canary/fresh live-AWS policy, never by the default suites.
 
+## Phase 12 — Resource inventory and MVP UX cleanup (2026-09-03)
+
+Phase 12 closes the boundary-plan §16 gaps that earlier phases (1.3/5/6/10)
+and the canary-copy fixes left open. The vendor and customer surfaces tell
+one deployment story; AWS-specific detail stays secondary.
+
+### Audited existing (unchanged)
+
+- **§16.1 Customer resource inventory.** The customer never receives raw
+  AWS inventory rows: the install-link route and the unauthenticated status
+  projection expose only the computed components (application, PostgreSQL,
+  storage, Redis, secure endpoint). VPC/subnet/ALB internals live only in
+  the vendor inventory (`/api/deployments/:id/infrastructure`, behind
+  `requireAuth`) and the vendor deployment page keeps its full inventory,
+  including the raw technical disclosure.
+- **§16.2 Failure visibility.** The vendor deployment page already renders
+  the resource snapshot and the "Infrastructure events" disclosure on
+  failure; the customer install page already shows the friendly failure plus
+  reference id, stage, and component behind "Technical details" (jargon-free
+  `customerStackStatusLabel`, never the raw CloudFormation enum).
+- **§16.3 Jargon reduction.** The customer install page top level, the fleet
+  rows, the home cards, and the customer status projection were audited for
+  leaked enum values and AWS service names. The customer status projection,
+  fleet rows, and home cards are clean; copy maps were already the single
+  source of state/event wording.
+- **§16.4 Disconnected state.** Phase 5 server-side refusals
+  (`RELAY_NOT_CONNECTED` / `RELAY_DISCONNECTED` in `requireDeployableState`)
+  were already in place; the fleet spec already asserted Configuration is
+  disabled while not installed.
+
+### Added
+
+1. **Disconnected-state action gating** (§16.4): day-2 actions
+   (deploy/rollback/restart/config) on the deployment detail page are now
+   also gated on `relayStatus === 'CONNECTED'` and carry an inline reason.
+   `actionsUnavailableReason` mirrors the API's `requireDeployableState`
+   order: lifecycle → never-installed → relay liveness → connector
+   capabilities. Disconnect stays exempt (a failed deployment must remain
+   removable; a lost relay uses the force-complete hatch).
+2. **Failed-install inventory visibility** (§16.2): a FAILED deployment now
+   renders the Infrastructure section even when no release ever ran, so the
+   resource snapshot of a failed first install reaches the vendor. The
+   section's empty-state copy distinguishes a failed install ("No resources
+   were created before the failure.") from a live one.
+3. **Install-link resource list scoping** (§16.1): the customer "Deployz
+   will create" list now names only the application components
+   (application, PostgreSQL database, storage, Redis cache). Networking and
+   Monitoring stay on the §45 security page's exact-resource list.
+4. **Stuck-relay guidance reworded** (§16.3): `RELAY_STUCK_GUIDANCE` no
+   longer names CloudFormation, so the customer install page's stuck state
+   stays jargon-free.
+
+### Verification
+
+- Web unit tests extended for the new disabled-state logic and the
+  failed-install inventory rule; API install-route tests updated for the
+  scoped resource list. Vitest fakes only, no real AWS.
+- `pnpm vitest run apps/web/test` (287 tests) and
+  `apps/api/src/server.test.ts` (172 tests) green; `tsc --noEmit` green for
+  apps/web. Full-suite runs re-run per the Windows EBUSY flake discipline;
+  CI is authoritative.
+

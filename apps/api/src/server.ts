@@ -1579,11 +1579,15 @@ export async function buildServer({
     // set up" state instead — so stop handing the credential to anyone who
     // replays the link out of a mailbox or browser history.
     const alreadyInstalled = row.enrollmentUsedAt !== null;
+    // §16.1: the customer-visible "Deployz will create" list names ONLY the
+    // application components that matter to the reader — application,
+    // database, storage, cache — never the internal AWS plumbing the same
+    // stack creates (network, monitoring). The §45 security page's "Exact
+    // AWS resources created" list is the technical home for that detail.
     const resourcesCreated = ['Application runtime'];
     if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
     if (row.storageRequired) resourcesCreated.push('Storage');
     if (row.redisRequired) resourcesCreated.push('Redis cache');
-    resourcesCreated.push('Networking', 'Monitoring');
     // The expected bootstrap stack name: the persisted one once an attempt
     // has launched (a record of what the customer was told), otherwise the
     // name the link below will prefill. Derived from deployment identity so

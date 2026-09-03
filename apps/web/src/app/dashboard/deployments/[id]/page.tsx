@@ -527,10 +527,13 @@ function Mono({ children }: { children: ReactNode }) {
 
 // The contextual action row. Day-2 actions are gated on the installed relay
 // advertising the matching capability — an enabled button over a stub
-// executor would report success having done nothing — and on the deployment
+// executor would report success having done nothing — on the deployment
 // having ever completed an install (a relay can connect and advertise
-// capabilities before that happens). Disconnect is exempt from the second
-// gate: a deployment that failed to ever come up must still be removable.
+// capabilities before that happens), and on the relay currently being
+// connected (a job queued for an offline relay would sit until the watchdog
+// fails it). Disconnect is exempt from the install and relay gates: a
+// deployment that failed to ever come up must still be removable, and a lost
+// relay routes through the force-complete escape hatch.
 // Rare and destructive actions live behind "More actions" so they never
 // compete with the one thing the vendor should do next.
 function DeploymentActions({
@@ -552,8 +555,16 @@ function DeploymentActions({
     'deploy' | 'rollback' | 'restart' | 'disconnect' | 'retryInstall' | null
   >(null);
   const capabilities: RelayCapabilities | null = detail.relayCapabilities;
-  // Day-2 actions act on a running application: nothing to act on before
-  // the first install has completed (an install in flight included).
+  // §24: day-2 actions act on a running application: nothing to act on
+  // before the first install has completed (an install in flight included),
+  // while another mutating operation owns the deployment (the API answers
+  // DEPLOYMENT_BUSY), or while the relay that must fetch the queued job is
+  // not connected (§9.5 liveness — the API refuses with RELAY_DISCONNECTED /
+  // RELAY_NOT_CONNECTED). Each signal mirrors a server-side gate, so the
+  // buttons are disabled up front with the why, never enabled into a 409.
+  // Disconnect is exempt from the install and relay gates: a deployment that
+  // failed to ever come up must still be removable, and a lost relay routes
+  // through the force-complete escape hatch.
   const everRan =
     everInstalled(detail.state, detail.currentReleaseId) &&
     !INSTALL_STAGES.has(detail.deploymentStatus.stage);
@@ -566,7 +577,8 @@ function DeploymentActions({
   // (requireDeploymentIdle), disconnect included — so every action here is
   // gated on the same signal rather than on the lifecycle state alone.
   const busy = operationInFlight(detail.jobs) !== null;
-  const available = everRan && !disconnecting && !busy && !removed;
+  const relayOnline = detail.relayStatus === 'CONNECTED';
+  const available = relayOnline && everRan && !disconnecting && !busy && !removed;
   const canDeploy = available && actionSupported(capabilities, 'deploy');
   const canRollback = available && actionSupported(capabilities, 'rollback');
   const canRestart = available && actionSupported(capabilities, 'restart');
@@ -576,6 +588,8 @@ function DeploymentActions({
   // Recovery for a failed FIRST install: the API refuses it once any install
   // has succeeded, so it is offered exactly where the day-2 actions are not.
   const canRetryInstall = detail.state === 'FAILED' && !everRan;
+  // Capability copy applies only while the deployment would otherwise be
+  // actionable — an offline/busy/removed deployment reports its own reason.
   const anyCapabilityGatedOff =
     available &&
     (!actionSupported(capabilities, 'deploy') ||
@@ -586,6 +600,7 @@ function DeploymentActions({
   const actionsUnavailable = actionsUnavailableReason({
     state: detail.state,
     everRan,
+    relayStatus: detail.relayStatus,
     busy,
     anyCapabilityGatedOff,
   });

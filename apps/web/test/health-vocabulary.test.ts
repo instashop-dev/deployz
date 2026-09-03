@@ -38,12 +38,18 @@ describe('measured health vocabulary', () => {
     expect(showHealthBadge('DELETED')).toBe(false);
   });
 
-  it('shows infrastructure rows only when something is actually running', () => {
+  it('shows infrastructure rows once anything was attempted, including a failed install', () => {
     expect(showInfrastructureRows('HEALTHY')).toBe(true);
     expect(showInfrastructureRows('UPDATE_AVAILABLE')).toBe(true);
-    expect(showInfrastructureRows('FAILED', null)).toBe(false);
+    // A FAILED install — first attempt or day-2 — always shows its resource
+    // snapshot: the inventory of a failed first install is exactly what a
+    // vendor debugging it needs (the stack may have created real resources
+    // before rolling back). The health badge above stays honest (nothing may
+    // be running), but the rows are not hidden behind that gate.
+    expect(showInfrastructureRows('FAILED', null)).toBe(true);
     expect(showInfrastructureRows('FAILED', 'release-1')).toBe(true);
     expect(showInfrastructureRows('NOT_INSTALLED')).toBe(false);
+    expect(showInfrastructureRows('WAITING_FOR_RELAY')).toBe(false);
     expect(showInfrastructureRows('DELETED')).toBe(false);
   });
 });
