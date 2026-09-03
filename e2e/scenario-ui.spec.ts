@@ -389,14 +389,18 @@ test.describe('update-failure then rollback-success (browser)', () => {
     await deployPanel.getByRole('button', { name: 'Deploy update' }).click();
     await expect(deployPanel).toBeHidden();
 
+    // Poll the release POINTER, not the state: this deployment is already
+    // HEALTHY when the deploy starts, so polling `state` can return on its
+    // very first read and assert the pointer before the deploy has settled
+    // (seen failing in CI while the sibling run passed).
     await expect
-      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+      .poll(async () => (await api.getDeployment(deploymentId)).currentReleaseId, {
         timeout: 15_000,
-        message: 'waiting for the v1 deploy to reach HEALTHY',
+        message: 'waiting for the v1 deploy to advance the release pointer',
       })
-      .toBe('HEALTHY');
+      .toBe(v1ReleaseId);
     const afterV1 = await getDeployment(page, deploymentId);
-    expect(afterV1.currentReleaseId).toBe(v1ReleaseId);
+    expect(afterV1.state).toBe('HEALTHY');
 
     // ── v2 is published (API — same reasoning as v1 above) and deployed
     // through the REAL "Deploy Update" button; the ECS deployment circuit
