@@ -129,6 +129,12 @@ type InfrastructureState =
   | { status: 'loaded'; data: InfrastructureResponse };
 
 const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to.';
+// After a rollback that followed a failed update, the previous successful
+// release IS the running one (the API records the pointer the deployment
+// carried into the rollback). Offering "Rollback" then would roll back to
+// the version already serving.
+const PREVIOUS_IS_CURRENT_COPY =
+  'The previous successful release is the version running now, so there is nothing to roll back to.';
 const INSTALL_STAGES = new Set(['WAITING_FOR_AWS', 'CONNECTING', 'PROVISIONING']);
 
 // §24 deployment detail, laid out as a status page rather than a console:
@@ -583,7 +589,9 @@ function DeploymentActions({
     busy,
     anyCapabilityGatedOff,
   });
-  const hasPreviousRelease = detail.previousReleaseId !== null;
+  const previousIsCurrent =
+    detail.previousReleaseId !== null && detail.previousReleaseId === detail.currentReleaseId;
+  const hasPreviousRelease = detail.previousReleaseId !== null && !previousIsCurrent;
   const deployIsPrimary =
     detail.state === 'UPDATE_AVAILABLE' || hero.kind === 'operation-failed';
 
@@ -668,9 +676,11 @@ function DeploymentActions({
                   onSelect={() => setOpen('rollback')}
                   className="flex-col items-start gap-0"
                 >
-                  <span>Rollback{previousVersion ? ` to v${previousVersion}` : ''}</span>
+                  <span>Rollback{hasPreviousRelease && previousVersion ? ` to v${previousVersion}` : ''}</span>
                   {!hasPreviousRelease ? (
-                    <span className="text-xs text-muted-foreground">{NO_PREVIOUS_RELEASE_COPY}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {previousIsCurrent ? PREVIOUS_IS_CURRENT_COPY : NO_PREVIOUS_RELEASE_COPY}
+                    </span>
                   ) : null}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -905,7 +915,8 @@ function RollbackDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Rollback deployment?</AlertDialogTitle>
           <AlertDialogDescription>
-            The application returns to its previous release.
+            The application returns to its previous release. Data the application has stored is
+            kept as it is.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex flex-col gap-3 rounded-lg border px-3 py-2.5 text-sm">
