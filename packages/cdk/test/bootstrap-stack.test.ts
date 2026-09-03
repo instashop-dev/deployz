@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { BootstrapStack } from '../src/bootstrap/bootstrap-stack.js';
+import { BootstrapStack, IAM_MANAGED_POLICY_MAX_CHARS } from '../src/bootstrap/bootstrap-stack.js';
 
 import { withStableAssetHashes } from './stable-template.js';
 
@@ -543,17 +543,16 @@ describe('BootstrapStack', () => {
     expect(actionsOf('RelayPurgeAcmDiscover')).toEqual(['acm:ListCertificates']);
     expect(findBySid('RelayPurgeAcmDiscover')?.['Condition']).toBeUndefined();
 
-    // The statements sit inside the permissions boundary (the ceiling).
-    const boundary = stack.permissionsBoundary.document.toJSON()[
-      'Statement'
-    ] as Array<Record<string, unknown>>;
+    // The same grants sit inside the permissions boundary (the ceiling) —
+    // matched by action, since the boundary carries no statement ids.
+    const boundary = collectActions(stack.permissionsBoundary.document.toJSON()['Statement']);
     for (const sid of [
       'RelayPurgeRdsDiscover',
       'RelayPurgeSecretsList',
       'RelayPurgeSecretsDelete',
       'RelayPurgeAcmDiscover',
     ]) {
-      expect(boundary.some((s) => s['Sid'] === sid)).toBe(true);
+      for (const action of actionsOf(sid)) expect(boundary).toContain(action);
     }
   });
 
@@ -907,5 +906,31 @@ describe('BootstrapStack — application provisioning', () => {
     for (const action of collectActions(stack.provisionerPolicy.document.toJSON()['Statement'])) {
       expect(boundary).toContain(action);
     }
+  });
+
+  // IAM refuses a managed policy over 6,144 non-whitespace characters, and
+  // CloudFormation reports it as a failed CreateStack for every new install
+  // ("Cannot exceed quota for PolicySize") — seen live once the purge sweeps
+  // pushed the boundary to 6,350. Measured on the synthesized template, the
+  // same document CloudFormation submits.
+  it('keeps both managed policies under the IAM policy-size quota', () => {
+    const { template } = synth();
+    const policies = template.findResources('AWS::IAM::ManagedPolicy');
+    expect(Object.keys(policies).length).toBeGreaterThanOrEqual(2);
+    for (const [logicalId, resource] of Object.entries(policies)) {
+      const size = JSON.stringify(resource['Properties']?.['PolicyDocument']).replace(/\s/g, '').length;
+      expect(size, `${logicalId} policy document is ${size} chars`).toBeLessThan(IAM_MANAGED_POLICY_MAX_CHARS);
+    }
+  });
+
+  it('carries the same grants in the boundary as in the provisioner policy, without statement ids', () => {
+    const { stack } = synth();
+    const boundaryStatements = stack.permissionsBoundary.document.toJSON()['Statement'] as Record<string, unknown>[];
+    expect(boundaryStatements.every((s) => s['Sid'] === undefined)).toBe(true);
+    const provisionerStatements = stack.provisionerPolicy.document.toJSON()['Statement'] as Record<string, unknown>[];
+    expect(provisionerStatements.every((s) => typeof s['Sid'] === 'string')).toBe(true);
+    expect(collectActions(boundaryStatements)).toEqual(
+      expect.arrayContaining(collectActions(provisionerStatements)),
+    );
   });
 });
