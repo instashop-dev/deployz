@@ -28,11 +28,11 @@ Rules that hold for every phase:
 | 6 | Origin TLS architecture | In review | #TBD (batched) | — | — | — |
 | 7 | Custom-domain flow fallback rules | Merged | #140 | 1b34151 | — | — |
 | 8 | Custom-domain health promotion | Merged | #140 | 1b34151 | — | — |
-| 9 | UI/UX default vs custom URL | In review | #TBD (batched) | — | — | — |
+| 9 | UI/UX default vs custom URL | Merged | #141 | 2c57762 | — | — |
 | 10 | Custom domain removal / change | Merged | #140 | 1b34151 | — | — |
-| 11 | Delete / purge reconciliation | Pending | — | — | — | — |
-| 12 | Watchdogs and reconciliation | Pending | — | — | — | — |
-| 13 | Security hardening | Pending | — | — | — | — |
+| 11 | Delete / purge reconciliation | In review | #TBD (batched) | — | — | — |
+| 12 | Watchdogs and reconciliation | In review | #TBD (batched) | — | — | — |
+| 13 | Security hardening | In review | #TBD (batched) | — | — | — |
 | 14 | Simulated provider E2E (A–H) | Pending | — | — | — | — |
 | 15 | Static production config verification | Pending | — | — | — | — |
 | 16 | Documentation and cleanup | Pending | — | — | — | — |

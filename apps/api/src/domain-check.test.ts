@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isPubliclyRoutableAddress } from './domain-check.js';
+import { createRealDomainCheckDeps, isPubliclyRoutableAddress } from './domain-check.js';
 
 // SSRF hardening for `probeHttps`: before fetching a customer's hostname, we
 // resolve it ourselves and refuse to proceed if any answer lands in a
@@ -106,5 +106,77 @@ describe('isPubliclyRoutableAddress', () => {
     it('rejects a NAT64-mapped private address 64:ff9b::10.0.0.1', () => {
       expect(isPubliclyRoutableAddress('64:ff9b::10.0.0.1')).toBe(false);
     });
+  });
+});
+
+// Phase 13 — the real HTTPS probe's SSRF posture, exercised with injected
+// lookup/fetch seams (never real network): it refuses non-routable targets
+// before any fetch, never follows a redirect (redirect:'manual' — at most 0
+// hops, well inside the 2-hop bound), and always sends an abort timeout.
+describe('probeHttps — SSRF and transport bounds (Phase 13)', () => {
+  const lookupAddresses = (addresses: string[]) => async () => {
+    return addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })) as Awaited<
+      ReturnType<typeof import('node:dns/promises')['lookup']>
+    >;
+  };
+
+  function depsWithFetch(fetchImpl: (url: string, init: RequestInit) => Promise<Response>) {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const deps = createRealDomainCheckDeps({
+      lookupFn: (lookupAddresses(['93.184.216.34'])) as never,
+      fetchFn: async (url, init) => {
+        calls.push({ url: String(url), init });
+        return fetchImpl(String(url), init);
+      },
+    });
+    return { deps, calls };
+  }
+
+  it('refuses a private/metadata target before any fetch happens', async () => {
+    let fetched = false;
+    const deps = createRealDomainCheckDeps({
+      lookupFn: (async () => [{ address: '169.254.169.254', family: 4 }]) as never,
+      fetchFn: async () => {
+        fetched = true;
+        throw new Error('must never be reached');
+      },
+    });
+
+    const result = await deps.probeHttps('d-customer.deployz.dev');
+    expect(result).toEqual({ ok: false, reason: 'HTTPS_NOT_REACHABLE' });
+    expect(fetched).toBe(false);
+  });
+
+  it('refuses an unresolvable hostname without a fetch', async () => {
+    let fetched = false;
+    const deps = createRealDomainCheckDeps({
+      lookupFn: (async () => {
+        throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
+      }) as never,
+      fetchFn: async () => {
+        fetched = true;
+        throw new Error('must never be reached');
+      },
+    });
+
+    const result = await deps.probeHttps('d-customer.deployz.dev');
+    expect(result).toEqual({ ok: false, reason: 'HTTPS_NOT_REACHABLE' });
+    expect(fetched).toBe(false);
+  });
+
+  it('probes the https URL with redirect manual and an abort timeout, treating any response as healthy', async () => {
+    const { deps, calls } = depsWithFetch(async () => new Response('ok', { status: 404 }));
+
+    const result = await deps.probeHttps('d-customer.deployz.dev');
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('https://d-customer.deployz.dev/');
+    expect(calls[0]!.init.method).toBe('GET');
+    // redirect:'manual' — the probe never follows a Location header, so a
+    // hostile redirect cannot steer a second request at an internal host.
+    expect(calls[0]!.init.redirect).toBe('manual');
+    // AbortSignal.timeout caps the whole attempt.
+    expect(calls[0]!.init.signal).toBeInstanceOf(AbortSignal);
   });
 });

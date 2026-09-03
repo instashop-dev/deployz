@@ -159,7 +159,14 @@ export function isPubliclyRoutableAddress(address: string): boolean {
   return false; // not a valid IP literal at all
 }
 
-export function createRealDomainCheckDeps(): DomainCheckDeps {
+export function createRealDomainCheckDeps(options?: {
+  /** DNS `lookup` seam (tests inject a deterministic resolver). */
+  lookupFn?: typeof lookup;
+  /** `fetch` seam (tests inject a fake transport — never real network). */
+  fetchFn?: (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
+}): DomainCheckDeps {
+  const lookupFn = options?.lookupFn ?? lookup;
+  const fetchFn = options?.fetchFn ?? ((url: string | URL | Request, init?: RequestInit) => fetch(url, init));
   return {
     minCheckIntervalMs: 30_000,
     async checkCname(name, expectedTarget) {
@@ -183,7 +190,7 @@ export function createRealDomainCheckDeps(): DomainCheckDeps {
       // rebind to "an internal endpoint returns any HTTP response" rather
       // than any data exfiltration.
       try {
-        const addresses = await lookup(hostname, { all: true });
+        const addresses = await lookupFn(hostname, { all: true });
         if (addresses.length === 0) return { ok: false, reason: 'HTTPS_NOT_REACHABLE' };
         if (!addresses.every((entry) => isPubliclyRoutableAddress(entry.address))) {
           return { ok: false, reason: 'HTTPS_NOT_REACHABLE' };
@@ -193,8 +200,12 @@ export function createRealDomainCheckDeps(): DomainCheckDeps {
       }
       try {
         // Any completed HTTPS response proves DNS + TLS + routing; the app's
-        // own status code (401, 302, …) is its business, not ours.
-        await fetch(`https://${hostname}/`, {
+        // own status code (401, 302, …) is its business, not ours. The fetch
+        // is deliberately bounded: redirect:'manual' means the probe never
+        // FOLLOWS a redirect (a hostile Location header cannot steer a second
+        // request at an internal host), and AbortSignal.timeout caps the
+        // whole attempt — no unbounded redirect chain, no unbounded wait.
+        await fetchFn(`https://${hostname}/`, {
           method: 'GET',
           redirect: 'manual',
           signal: AbortSignal.timeout(10_000),
