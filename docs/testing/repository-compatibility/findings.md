@@ -215,22 +215,28 @@ shows where the implementation is broader than the intent.
   `service_completed_successfully`.
 - Status: open
 
-### COMP-010 — A declared worker service rejects an app that can run its jobs in-process
+### COMP-010 — An optional worker service in a reference Compose file is indistinguishable from a mandatory one
 
-- Repositories: repo-005 (`flagsmith-task-processor` in the reference Compose;
-  `TASK_RUN_METHOD` defaults to an in-process thread)
-- Type: CORRECTLY_UNSUPPORTED
+- Repositories: repo-005 (`flagsmith-task-processor` in the reference Compose,
+  same image, `command: run-task-processor`; `TASK_RUN_METHOD` defaults to an
+  in-process thread, so the service is an optional profile)
+- Type: ANALYSIS_MISSING_SIGNAL
 - Expected: NEEDS_CONFIGURATION (in-process mode works without configuration)
-- Actual: NOT_COMPATIBLE `docker-compose-multi-service` (after COMP-009)
-- Evidence: `docs/architecture.md` — a repository that declares a worker
-  process is needs-adaptation by decision (Phase 8, Option B). The analyser
-  cannot tell an optional processor profile from a mandatory one.
-- Customer relevance: medium — conservative by design; the vendor is told
-  why, and an app that truly needs the processor would otherwise fail
-  silently.
-- Recommended action: none now; revisit if the final report ranks
-  "optional worker profiles" as a gap worth a heuristic.
-- Status: accepted
+- Actual: NOT_COMPATIBLE `docker-compose-multi-service` — two application
+  services remain once COMP-009 removes the one-shot `migrate-db`
+- Evidence: `checkDockerComposeMultiService` counts the processor as a second
+  application container; nothing in the file marks it optional (no
+  `profiles:` key), and the worker gate in `readiness-report.ts` is not the
+  path that fires (no worker script resolves). The conservative outcome is
+  consistent with `docs/architecture.md` (a declared worker process is
+  needs-adaptation), but the analyser has no signal to tell an optional
+  profile from a mandatory process.
+- Customer relevance: medium — apps that ship an optional processor service
+  next to an in-process default are rejected; the vendor is told why.
+- Recommended action: none now — a heuristic (a Compose `profiles:` key, or a
+  second service that reuses the web image with a worker-style command) is
+  a Phase 3 candidate only if the pattern recurs.
+- Status: open
 
 ### COMP-011 — Redis is required from non-production Compose files and optional clients
 
@@ -331,18 +337,23 @@ shows where the implementation is broader than the intent.
 
 - Repositories: repo-001 (`CI`, `NODE_ENV`, `VERCEL`,
   `PLAYWRIGHT_SKIP_WEB_SERVER`, `ENABLE_TEST_CONSOLE`, … from
-  `playwright.config.ts` and `scripts/`)
+  `playwright.config.ts` and `scripts/`), repo-002 (`UNLEASH_OPENAPI_URL`,
+  read by the OpenAPI client-generation script), repo-008 (`BASE_URL`, read
+  by the Vue frontend's build tooling under `web/app/`, which the Go
+  Dockerfile never runs)
 - Type: ANALYSIS_BUG
 - Expected: READY (nothing to configure beyond injected values)
 - Actual: `required-env-vars-missing` → NEEDS_CONFIGURATION
 - Evidence: `detectEnvVarModel` treats a bare read in any JS file as a
-  required value; test-runner and build-script reads and platform-provided
-  names (`NODE_ENV`, `CI`, `PORT`, `HOSTNAME`, `VERCEL`, `HOME`, `PATH`) are
-  not excluded.
+  required value; test-runner, build-script and frontend-tooling reads and
+  platform-provided names (`NODE_ENV`, `CI`, `PORT`, `HOSTNAME`, `VERCEL`,
+  `HOME`, `PATH`) are not excluded.
 - Customer relevance: high — the vendor is asked to configure `CI` and
   `NODE_ENV` before deploying.
 - Recommended action: exclude platform-provided names and reads in test,
-  config-tooling and script files from the required set.
+  config-tooling and script files from the required set; a read inside a
+  frontend tree the selected Dockerfile never builds is a residual to
+  measure in Phase 3.
 - Status: open
 
 ### COMP-017 — Environment reads through helper functions and schema libraries are invisible

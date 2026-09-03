@@ -16,7 +16,7 @@ findings:
   - { id: COMP-007, type: ANALYSIS_BUG, facts: [dockerfilePath, appRoot, unsupported] }
   - { id: COMP-008, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
   - { id: COMP-009, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
-  - { id: COMP-010, type: CORRECTLY_UNSUPPORTED, facts: [compatibility, unsupported] }
+  - { id: COMP-010, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
   - { id: COMP-011, type: ANALYSIS_BUG, facts: [redis] }
   - { id: COMP-012, type: ANALYSIS_BUG, facts: [storage] }
   - { id: COMP-013, type: ANALYSIS_MISSING_SIGNAL, facts: [postgres] }
@@ -80,7 +80,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 2
-    findings: [COMP-001, COMP-018, COMP-005]
+    findings: [COMP-001, COMP-018, COMP-016, COMP-005]
     notes:
       - "Root Dockerfile: EXPOSE 4242, CMD [node, dist/server.js]; docker/local-postgres/Dockerfile is a dev database image."
       - "Port default 4242 in src/lib/create-config.ts (HTTP_PORT || PORT). Health: src/lib/routes/index.ts mounts /health."
@@ -253,7 +253,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 1
-    findings: [COMP-002, COMP-009, COMP-012, COMP-001, COMP-005]
+    findings: [COMP-002, COMP-009, COMP-012, COMP-001, COMP-016, COMP-005]
     notes:
       - "Dockerfile: golang:alpine builder -> scratch, ENV PORT=\"8080\", EXPOSE ${PORT}, ENTRYPOINT [/gatus]; config.yaml baked into the image with example endpoints; no required env vars."
       - "web/app has a package.json but its output is embedded via go:embed; the Dockerfile never runs npm. Health: api/api.go app.Get(\"/health\")."

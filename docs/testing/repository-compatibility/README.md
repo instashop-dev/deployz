@@ -51,8 +51,9 @@ among several engines, S3 as an alternative to local disk) is deployable
 and its expectation names the Deployz-compatible configuration
 (`postgres: true`, `storage: true`, `NEEDS_CONFIGURATION` when a value must
 be set). Only an intrinsic requirement — SQLite as the sole database, a
-worker process that must run separately, a second application service —
-makes a repository `NOT_COMPATIBLE`. A Dockerfile that cannot build from
+declared separate worker process (the Phase 8 boundary in
+`docs/architecture.md`), a second application service — makes a repository
+`NOT_COMPATIBLE`. A Dockerfile that cannot build from
 the repository alone (it copies an artifact no build step produces) counts
 as a missing Dockerfile: `NEEDS_CONFIGURATION`.
 
