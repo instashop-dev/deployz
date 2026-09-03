@@ -966,9 +966,11 @@ describe('GET /api/deployments/:id customDomain summary', () => {
 
 // ── GET /api/deployments/:id — appUrl ────────────────────────────────────────
 //
-// An active custom domain always wins; otherwise the latest successful
-// INSTALL job's ALB endpoint (result.output.outputs.
-// ExportDeployzApplicationPublicEndpoint); otherwise null.
+// The plan's preferred-URL model (Phase 7): an ACTIVE custom domain wins;
+// every other custom-domain state (PENDING/WAITING_FOR_DNS/CONFIGURING/ERROR)
+// falls to the default-HTTPS URL once it serves, and only then to the latest
+// successful INSTALL job's ALB endpoint (result.output.outputs.
+// ExportDeployzApplicationPublicEndpoint).
 
 describe('GET /api/deployments/:id appUrl', () => {
   let client: PGlite | undefined;
@@ -1159,10 +1161,10 @@ describe('GET /api/deployments/:id appUrl', () => {
     expect(await getAppUrl(deployment.id)).toBe('http://alb.us-east-1.elb.amazonaws.com');
   });
 
-  it('hides the stale ALB endpoint once the domain is CONFIGURING (redirect is live)', async () => {
-    // CONFIGURE_DOMAIN sets the ALB's port-80 redirect once the certificate
-    // is issued — the ALB endpoint no longer serves the app, so presenting it
-    // would be stale. The pending custom-domain URL is the only honest address.
+  it('a CONFIGURING custom domain does not win: falls back to the ALB endpoint when no default HTTPS serves yet', async () => {
+    // Phase 7: only an ACTIVE custom domain is preferred. A CONFIGURING domain
+    // (cert issued, HTTPS still being verified) is not yet preferred, so with
+    // no default-HTTPS URL the resolution falls to the ALB endpoint.
     const deployment = await seedDeployment();
     await seedInstallJob(deployment.id, {
       result: {
@@ -1175,6 +1177,84 @@ describe('GET /api/deployments/:id appUrl', () => {
       organizationId: org.organizationId,
       hostname,
       status: 'CONFIGURING',
+      createdBy: org.userId,
+    });
+    expect(await getAppUrl(deployment.id)).toBe('http://alb.us-east-1.elb.amazonaws.com');
+  });
+
+  it('prefers the default HTTPS URL over a CONFIGURING custom domain', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'ACTIVE',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname: `configuring-${crypto.randomUUID().slice(0, 8)}.customer.com`,
+      status: 'CONFIGURING',
+      createdBy: org.userId,
+    });
+    expect(await getAppUrl(deployment.id)).toBe(`https://d-${deployment.id}.deployz.dev`);
+  });
+
+  it('uses the default HTTPS URL once it is ACTIVE even with no custom domain', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'ACTIVE',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    expect(await getAppUrl(deployment.id)).toBe(`https://d-${deployment.id}.deployz.dev`);
+  });
+
+  it('prefers an ACTIVE custom domain over an ACTIVE default HTTPS URL', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'ACTIVE',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    const hostname = `active-${crypto.randomUUID().slice(0, 8)}.customer.com`;
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname,
+      status: 'ACTIVE',
       createdBy: org.userId,
     });
     expect(await getAppUrl(deployment.id)).toBe(`https://${hostname}`);

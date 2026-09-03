@@ -168,11 +168,11 @@ export interface DeriveDeploymentStatusInput {
   /** Phase 11 Deployz-owned HTTPS endpoint, or null when not configured. */
   defaultHttps?: DerivationDefaultHttps | null;
   /**
-   * resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE or
-   * CONFIGURING, else http for a bare ALB, else null. Exposed to the
-   * customer only once runtime health confirms the app is reachable (READY,
-   * or VERIFYING with healthStatus HEALTHY) — never from a stack that merely
-   * finished creating.
+   * resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE (its
+   * only preferred state), else the default-HTTPS URL once ACTIVE/CONFIGURING,
+   * else http for a bare ALB, else null. Exposed to the customer only once
+   * runtime health confirms the app is reachable (READY, or VERIFYING with
+   * healthStatus HEALTHY) — never from a stack that merely finished creating.
    */
   appUrl: string | null;
   /**

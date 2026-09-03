@@ -210,6 +210,80 @@ describe('buildInstallParameters', () => {
 
     expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBeUndefined();
   });
+
+  it('prefers an ACTIVE custom domain over an ACTIVE default HTTPS hostname', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'ACTIVE',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname: 'active.example.com',
+      status: 'ACTIVE',
+      createdBy: org.userId,
+    });
+
+    const parameters = await buildInstallParameters(db, deployment.id);
+
+    expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://active.example.com');
+  });
+
+  it('falls back to the ACTIVE default HTTPS hostname when no ACTIVE custom domain exists', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    const hostname = `d-${deployment.id}.deployz.dev`;
+    await db
+      .update(schema.deployments)
+      .set({ defaultHttps: { hostname, status: 'ACTIVE', checkCycle: 0, lastError: null } })
+      .where(eq(schema.deployments.id, deployment.id));
+
+    const parameters = await buildInstallParameters(db, deployment.id);
+
+    expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe(`https://${hostname}`);
+  });
+
+  it('never hands a non-ACTIVE default HTTPS hostname to the app (keeps the custom-domain behavior instead)', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'CONFIGURING',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname: 'pending.example.com',
+      status: 'PENDING',
+      createdBy: org.userId,
+    });
+
+    const parameters = await buildInstallParameters(db, deployment.id);
+
+    // Default HTTPS is not ACTIVE yet, so it never becomes the public URL; the
+    // pre-existing install-time custom-domain value is preserved.
+    expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://pending.example.com');
+  });
 });
 
 // ── Route wiring: relay register and retry-install both attach parameters ──
