@@ -962,14 +962,20 @@ export class BootstrapStack extends Stack {
     // Phase 11 — PURGE's ACM certificate orphan sweep. The default-HTTPS and
     // custom-domain certificates live OUTSIDE the application stack, so a
     // force-completed destroy (relay offline) would leave them orphaned.
-    // ListCertificates is a condition-free discovery read (account-level; the
-    // sweep verifies ownership from the returned tags exactly like the RDS/
-    // secrets sweeps). Deletion needs no new grant — ProvisionerAcmManage's
-    // tag-scoped acm:DeleteCertificate already covers owned certificates.
+    // ListCertificates and ListTagsForCertificate are condition-free
+    // discovery reads (account-level; the sweep verifies ownership from the
+    // returned tags exactly like the RDS/secrets sweeps). The tag read MUST be
+    // condition-free: the sweep reads every certificate's tags to decide
+    // ownership, and a tag-scoped grant is denied on any certificate that is
+    // not ours (e.g. the control plane's own), which the sweep correctly
+    // refuses to treat as "not ours" — so the purge never completed and the
+    // retained network resources leaked (version canary). Deletion needs no
+    // new grant — ProvisionerAcmManage's tag-scoped acm:DeleteCertificate
+    // already covers owned certificates.
     const phase2PurgeAcmDiscover = new PolicyStatement({
       sid: 'RelayPurgeAcmDiscover',
       effect: Effect.ALLOW,
-      actions: ['acm:ListCertificates'],
+      actions: ['acm:ListCertificates', 'acm:ListTagsForCertificate'],
       resources: ['*'],
     });
 

@@ -802,7 +802,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Resource": "*",
             },
             {
-              "Action": "acm:ListCertificates",
+              "Action": [
+                "acm:ListCertificates",
+                "acm:ListTagsForCertificate",
+              ],
               "Effect": "Allow",
               "Resource": "*",
             },
@@ -1470,7 +1473,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Sid": "RelayPurgeSecretsDelete",
             },
             {
-              "Action": "acm:ListCertificates",
+              "Action": [
+                "acm:ListCertificates",
+                "acm:ListTagsForCertificate",
+              ],
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeAcmDiscover",
