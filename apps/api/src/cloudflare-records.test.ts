@@ -632,3 +632,62 @@ describe('listDefaultRecords (Phase 11 sweep)', () => {
     expect(await fake.listDefaultRecords({ perPage: 2, maxPages: 2 })).toHaveLength(4);
   });
 });
+
+// Phase 13 — token hygiene. The zone-scoped API token travels ONLY as the
+// Authorization header; it must never surface in an error message, a
+// CloudflareDnsError field, or any serialization of a thrown object.
+describe('token hygiene (Phase 13)', () => {
+  const SENTINEL = 'sentinel-secret-token-123';
+
+  function sentinelClient(handle: (url: string, init: RequestInit) => Response | Promise<Response>) {
+    const calls: RecordedCall[] = [];
+    const fetchFn: CloudflareFetchFn = async (url, init) => {
+      calls.push({ method: init.method ?? 'GET', url, headers: init.headers as Record<string, string> });
+      return handle(url, init);
+    };
+    const client = createCloudflareDnsClient({
+      token: SENTINEL,
+      zoneId: ZONE_ID,
+      zoneName: ZONE_NAME,
+      apiBaseUrl: API_BASE_URL,
+      fetchFn,
+    });
+    return { client, calls };
+  }
+
+  function assertNoTokenLeak(...values: unknown[]): void {
+    for (const value of values) {
+      expect(String(value)).not.toContain(SENTINEL);
+    }
+    // A thrown error must serialize without the token anywhere.
+    for (const value of values) {
+      if (value instanceof Error) {
+        expect(JSON.stringify({ message: value.message, code: (value as CloudflareDnsError).code })).not.toContain(
+          SENTINEL,
+        );
+      }
+    }
+  }
+
+  it.each([
+    ['auth failure', () => errResponse(401, 9109, 'invalid token')],
+    ['rate limit', () => jsonResponse(429, { success: false, errors: [], messages: [] }, { 'retry-after': '30' })],
+    ['conflict', () => errResponse(409, 81057, 'record exists')],
+  ] as const)('a %s never leaks the token into the error surface', async (_label, respond) => {
+    const { client, calls } = sentinelClient(() => respond());
+
+    try {
+      await client.upsertDefaultDeploymentRecord('dep-1', TARGET);
+      throw new Error('expected the upsert to fail');
+    } catch (error) {
+      assertNoTokenLeak(error);
+      expect(String(error)).not.toContain(SENTINEL);
+      // Every request still carried the sentinel as the credential — proving
+      // the sentinel actually exercised the auth path.
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect(call.headers['Authorization']).toBe(`Bearer ${SENTINEL}`);
+      }
+    }
+  });
+});

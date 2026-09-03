@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -77,6 +77,128 @@ describe('Cloudflare runtime config', () => {
       }
     };
     walk(webRoot);
+    expect(offenders).toEqual([]);
+  });
+});
+
+// Phase 13 security guards — static scans over the workspace, mirroring the
+// apps/web leak guard above. No network, no providers: pure filesystem reads.
+describe('Phase 13 — zone id, token and probe provenance guards', () => {
+  // apps/api/src is this file's directory; the workspace root is three levels up.
+  const apiSrcRoot = fileURLToPath(new URL('.', import.meta.url));
+  const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+  const ZONE_ID_HEX = 'bf69c0d8524ef2c5cfbc6e5d33fb7cae';
+
+  const SKIP_DIRS = new Set(['node_modules', '.git', '.turbo', 'dist', '.next', '.slim']);
+
+  function filesUnder(dir: string, out: string[]): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name)) continue;
+        filesUnder(full, out);
+      } else if (entry.isFile()) {
+        out.push(full);
+      }
+    }
+  }
+
+  it('the production zone id hex never appears in any app/package/e2e source tree', () => {
+    const offenders: string[] = [];
+    for (const pattern of ['apps/*/src', 'apps/*/test', 'packages/*/src', 'packages/*/test', 'e2e']) {
+      const segments = pattern.split('/');
+      // Match 'apps/<name>/src' style globs by scanning each top dir's children.
+      const top = join(repoRoot, segments[0]!);
+      if (!(segments[0] === 'apps' || segments[0] === 'packages')) {
+        // e2e — scan directly.
+        const dir = join(repoRoot, pattern);
+        if (existsSync(dir)) {
+          const files: string[] = [];
+          filesUnder(dir, files);
+          for (const file of files) {
+            // The guard's own fixture constants (this file) are not leaks.
+            if (file.endsWith('.test.ts')) continue;
+            if (readFileSync(file, 'utf8').includes(ZONE_ID_HEX)) offenders.push(relative(repoRoot, file));
+          }
+        }
+        continue;
+      }
+      for (const child of readdirSync(top, { withFileTypes: true })) {
+        if (!child.isDirectory()) continue;
+        const dir = join(top, child.name, segments[2]!);
+        if (!existsSync(dir)) continue;
+        const files: string[] = [];
+        filesUnder(dir, files);
+        for (const file of files) {
+          if (file.endsWith('.test.ts')) continue;
+          if (readFileSync(file, 'utf8').includes(ZONE_ID_HEX)) offenders.push(relative(repoRoot, file));
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the zone id appears only in repo-level configuration (.github, root .env.example)', () => {
+    const offenders: string[] = [];
+    const files: string[] = [];
+    filesUnder(repoRoot, files);
+    for (const file of files) {
+      const rel = relative(repoRoot, file);
+      if (file.endsWith('.test.ts')) continue; // guard fixtures are not leaks
+      if (!readFileSync(file, 'utf8').includes(ZONE_ID_HEX)) continue;
+      const allowed = rel.startsWith('.github') || rel === '.env.example';
+      if (!allowed) offenders.push(rel);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the Cloudflare token value/variable are referenced only at the env + server assembly site', () => {
+    const files: string[] = [];
+    filesUnder(apiSrcRoot, files);
+    const offenders: string[] = [];
+    for (const file of files) {
+      if (file.endsWith('.test.ts')) continue; // tests necessarily drive the env var
+      const rel = relative(apiSrcRoot, file);
+      const allowed = rel === 'env.ts' || rel === 'server.ts';
+      const text = readFileSync(file, 'utf8');
+      if (text.includes('cloudflareZoneApiToken') || text.includes('CLOUDFLARE_ZONE_EDIT_API_TOKEN')) {
+        if (!allowed) offenders.push(rel);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('probeHttps is only ever fed hostnames from machine state, never request bodies', () => {
+    const offenders: string[] = [];
+    const files: string[] = [];
+    filesUnder(apiSrcRoot, files);
+    for (const file of files) {
+      if (file.endsWith('.test.ts')) continue;
+      const rel = relative(apiSrcRoot, file);
+      const text = readFileSync(file, 'utf8');
+      if (!text.includes('.probeHttps(')) continue;
+      if (rel === 'domains.ts') {
+        // The custom-domain machine probes its own stored hostname.
+        if (!text.includes('probeHttps(domain.hostname)')) offenders.push(rel);
+        continue;
+      }
+      if (rel === 'default-https.ts') {
+        // The default-HTTPS machine probes its own stored state hostname.
+        if (!text.includes('probeHttps(working.hostname)')) offenders.push(rel);
+        continue;
+      }
+      if (rel === 'server.ts') {
+        // server.ts only forwards the seam for assembly (fixture/legacy/cloudflare
+        // modes); a request-body or query value must never be probed.
+        const bad = text.split('\n').some((line) => {
+          if (!line.includes('.probeHttps(')) return false;
+          return /request\.body|body\.|params\.|query\.|\.hostname\s*\)/.test(line);
+        });
+        if (bad) offenders.push(rel);
+        continue;
+      }
+      offenders.push(rel);
+    }
     expect(offenders).toEqual([]);
   });
 });
