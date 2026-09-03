@@ -30,11 +30,14 @@ escalation ladder.
 | Version canary (real AWS, full product) | Version deployment, failed-release isolation, rollback, recovery, persistence and cleanup through the deployed control plane and a transient customer install | Yes (opt-in) | `pnpm e2e:canary:versions core` |
 
 A full product-flow live install (install link → a real customer AWS account
-→ HEALTHY → update → delete) is not automated in Phase 1. It stays a
-documented manual escalation — see
+→ HEALTHY → update → rollback → delete/purge) is automated by the **version
+canary** (`pnpm e2e:canary:versions core`) for fixture releases against the
+deployed control plane and a transient customer install. The manual
+full-product walk remains the deepest real-AWS check for arbitrary
+applications and template publishing — see
 [`aws-full-product-canary.md`](aws-full-product-canary.md) for the runbook,
 and [`aws-canary.md`](aws-canary.md) / [`aws-fresh.md`](aws-fresh.md) for
-what canary/fresh actually cover instead.
+what the read-only canary and bootstrap create/destroy modes cover instead.
 
 ## When to use each
 

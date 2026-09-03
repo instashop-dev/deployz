@@ -2205,9 +2205,10 @@ Deployz should configure AWS-native backups rather than creating its own backup 
 
 For PostgreSQL:
 
-- automated RDS backups
+- automated RDS backups (continue while the instance lives)
 - retention policy
-- optional final snapshot on deletion
+- retained-on-disconnect model: the database is retained (no final snapshot
+  is taken); Purge deletes the retained instance
 
 For S3:
 

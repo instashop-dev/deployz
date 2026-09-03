@@ -3,6 +3,20 @@
 Status: shipped (Tasks 1-11 of `docs/superpowers/plans/2026-08-26-redis-mvp.md`, base commit `19b5b98`).
 Spec: `docs/redis-mvp-spec.md`. Progress ledger: `.superpowers/sdd/progress.md`.
 
+> **Read this first — 2026-09-03 status note.** This report records the Redis
+> MVP as delivered in that earlier workstream. The boundary-mvp phases
+> (PRs #72–#125) since superseded parts of it: the relay's INSTALL and
+> DEPLOY_RELEASE executors are real (this report's "no-op stubs" limitation no
+> longer holds — see `docs/mvp-implementation-status.md`), and Phase 13 removed
+> the `packages/cdk/src/jobs/*`, `packages/cdk/src/durable/*`, and
+> `packages/cdk/src/analysis/*` modules this report cites (health-monitor,
+> failure-classifier). Redis provisioning and cache health today run through
+> the published application templates (`application-template-redis-v1.json`),
+> the relay's install/verify executors, and the control plane's server-side
+> failure refinement (`apps/api/src/failure-classification.ts`). The detection
+> rules in §3-§4 below are unchanged and current. See
+> `docs/architecture.md` for the live flow.
+
 This document is the honest as-built record for maintainers: what exists, what
 doesn't, and where the seams are. It is not marketing copy.
 
@@ -16,15 +30,18 @@ repo tree
   → packages/analysis (assessRedis: pure, provider-neutral detection)
   → apps/api (persists redisRequired + failure codes; readiness/install/detail APIs)
   → apps/web (UI copy, readiness card, security-details disclosure)
-  → packages/cdk ApplicationStack (redisRequired: true → provisions ElastiCache Valkey)
+  → packages/cdk ApplicationStack (redisRequired → provisions ElastiCache Valkey; two published template variants)
   → packages/cdk BootstrapStack (IAM: ElastiCache actions in the two-phase policy)
-  → packages/cdk health-monitor + failure-classifier (runtime signal + failure codes)
-  → packages/copy-map (product-language vocabulary for all of the above)
+  → packages/relay (install/verify executors — cache verify check when redisRequired)
+  → apps/api failure-classification + copy-map (server-side failure refinement, vocabulary)
 ```
 
 The detection layer (`packages/analysis/src/redis.ts`) is deliberately
 **provider-neutral** — it never mentions AWS, ElastiCache, or Valkey. Those
-names exist only in `@deployz/cdk`. This mirrors the existing
+AWS names appear only in the CDK application template (`@deployz/cdk`), the
+relay's resource-type expectations (`packages/relay/src/verify.ts`,
+`stack-resources.ts`), and the control-plane inventory/classifier
+vocabulary (`@deployz/contracts`). This mirrors the existing
 database/storage detection pattern rather than introducing a new abstraction
 (a full `ManagedService` interface was considered and rejected as
 over-engineering for a single additional resource type — see the plan's
@@ -43,7 +60,7 @@ By package, relative to base commit `19b5b98`:
 | `packages/analysis` | `src/redis.ts` (new, ~640 lines), `src/analyser.ts`, `src/rejection.ts`, `src/remediation.ts`, `src/rules.ts`, `src/failure-codes.ts`, `src/index.ts` | `assessRedis()` detection + compatibility; wired into the analyser's rejection/remediation tables; two new failure codes |
 | `apps/api` | `src/analysis.ts`, `src/github.ts`, `src/server.ts` | Persists `redisRequired`; readiness/install/detail endpoints report cache status and `resourcesCreated`; file-fetching for Redis-relevant paths |
 | `apps/web` | `src/lib/deployment-vocabulary.ts`, `src/lib/diagnostic-vocabulary.ts`, `src/lib/security-details.ts`, `src/lib/applications.ts`, `src/lib/deployments.ts`, `src/components/application-ready-card.tsx`, `src/app/install/[installLinkId]/security/page.tsx`, `src/app/dashboard/deployments/[id]/page.tsx` | Redis-aware copy, readiness card, install-security disclosure |
-| `packages/cdk` | `src/application/application-stack.ts` (+116), `src/bootstrap/bootstrap-stack.ts` (+88), `src/jobs/health-monitor.ts` (+83/-), `src/analysis/failure-classifier.ts` (+95/-), `src/analysis/rejection.ts` | ElastiCache Valkey provisioning; IAM cache actions; 10th health signal; 2 new classifier rules |
+| `packages/cdk` | `src/application/application-stack.ts`, `src/bootstrap/bootstrap-stack.ts` | ElastiCache Valkey provisioning (published template variants); IAM cache actions; template artifacts `application-template-v1.json` + `application-template-redis-v1.json` |
 | `packages/copy-map` | `src/index.ts` | `redis` event family, cache-setup vocabulary, diagnostic copy |
 | `packages/contracts` | `src/index.ts`, `vitest.config.ts` (new — pre-existing gap filled) | Shared `FailureCode` additions |
 | `packages/db` | `src/enums.ts`, `src/schema/core.ts`, `drizzle/0011_*` | `redisRequired` column + migration |
@@ -123,11 +140,15 @@ in this MVP (additive-only constraint per task scope).
 Gated entirely on `redisRequired` in `packages/cdk/src/application/application-stack.ts`.
 When `true`:
 
-- **`AWS::ElastiCache::CacheCluster`** (`CfnCacheCluster`) — `engine: 'valkey'`,
-  `cacheNodeType: 'cache.t4g.micro'`, `numCacheNodes: 1`, `port: 6379`. No
-  explicit `clusterName` (CFN logical-ID naming is deterministic per stack
-  and avoids ElastiCache's cluster-name length limit — the same unnamed
-  pattern the RDS instance uses).
+- **`AWS::ElastiCache::ReplicationGroup`** (`CfnReplicationGroup`) —
+  `engine: 'valkey'`, `cacheNodeType: 'cache.t4g.micro'`,
+  `numCacheClusters: 1`, `port: 6379`. (The original MVP report's
+  `CfnCacheCluster` is obsolete: ElastiCache's CreateCacheCluster API rejects
+  the Valkey engine, so the construct is a single-node replication group with
+  `automaticFailoverEnabled`/`multiAzEnabled` false.) No explicit
+  `replicationGroupId` (CFN logical-ID naming is deterministic per stack and
+  avoids ElastiCache's name-length limit — the same unnamed pattern the RDS
+  instance uses).
 - **`AWS::ElastiCache::SubnetGroup`** (`CfnSubnetGroup`) — private subnets only
   (`SubnetType.PRIVATE_WITH_EGRESS`).
 - **A dedicated `SecurityGroup`** — ingress on TCP 6379 scoped to the VPC's
@@ -146,8 +167,9 @@ When `true`:
   `RETAIN`. Stack deletion deletes the cache. (Contrast with the RDS
   instance in the same stack, which *is* `RemovalPolicy.RETAIN` — a
   pre-existing, unrelated ApplicationStack behavior.)
-- **Output**: `${stackName}-CacheEndpoint` exports
-  `cache.attrRedisEndpointAddress` — only when `redisRequired` is true.
+- **Output**: the stack's `CacheEndpoint` output
+  (`Fn::GetAtt Cache PrimaryEndPoint.Address`, i.e.
+  `cache.attrPrimaryEndPointAddress`) — only when `redisRequired` is true.
 
 ## 6. Security/networking model
 
@@ -175,8 +197,8 @@ Each detected connection env var name resolves to a `kind`:
 
 | Env var | Kind | Injected value |
 |---|---|---|
-| `REDIS_URL`, `REDIS_URI`, `CACHE_URL`, `QUEUE_REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` | `url` | `redis://${cache.attrRedisEndpointAddress}:6379` |
-| `REDIS_HOST` | `host` | `cache.attrRedisEndpointAddress` |
+| `REDIS_URL`, `REDIS_URI`, `CACHE_URL`, `QUEUE_REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` | `url` | `redis://${cache.attrPrimaryEndPointAddress}:6379` |
+| `REDIS_HOST` | `host` | `cache.attrPrimaryEndPointAddress` |
 | `REDIS_PORT` | `port` | `"6379"` (string) |
 | `REDIS_PASSWORD` | *(none)* | never resolved — no auth in MVP |
 
@@ -189,23 +211,25 @@ process.
 
 ## 8. Redeployment / reconciliation
 
-The cache lives in the **single** `ApplicationStack` — there is no separate
-cache stack or cache-specific lifecycle. It is created once (on first
-deploy, when `redisRequired: true`) and reused on every subsequent redeploy:
-a redeploy re-synths and re-deploys the same stack, and CloudFormation is
-the reconciler — if the cache already exists and its declared properties
-haven't changed, CFN no-ops it; if `redisRequired` flips from `false` to
-`true` between releases, CFN adds the cache as a stack update.
+The cache lives in the **single** application stack the relay installs from
+the published `application-template-redis-v1.json` variant — there is no
+separate cache stack or cache-specific lifecycle. The relay selects the Redis
+or non-Redis template variant from the application's `redisRequired`
+(analysis-derived), and a redeploy (release update) changes the service image,
+never the stack's resource set. CloudFormation is the reconciler: if the
+cache already exists and its declared properties haven't changed, CFN no-ops
+it.
 
 Drift beyond what CloudFormation itself tracks is not separately monitored
-for the cache: the health-monitor's desired-vs-observed diff (`checkCacheStatus`,
-§10 below) is the only drift signal, and it only distinguishes "the cache
-is where we expect it" from "it isn't," not a fine-grained property diff.
+for the cache: the verify-time cache ladder check and the resource-inventory
+snapshot are the only drift signals (§10 below), and they distinguish "the
+cache is where we expect it" from "it isn't," not a fine-grained property
+diff.
 
 ## 9. Deletion
 
 Stack deletion removes the cache — no `RETAIN` override, so CloudFormation's
-default `DeletionPolicy: Delete` applies to both the `CfnCacheCluster` and
+default `DeletionPolicy: Delete` applies to both the `CfnReplicationGroup` and
 its `CfnSubnetGroup`. This is unconditional: there is no separate
 "decommission just the cache" path — deleting the ElastiCache resources
 happens as part of deleting the whole `ApplicationStack`, same as every
@@ -220,38 +244,30 @@ another installation's cache even if it somehow learned the resource ARN.
 
 ## 10. Runtime validation
 
-**Health signal (10th of 10)**: `checkCacheStatus` in
-`packages/cdk/src/jobs/health-monitor.ts`. Inputs: `redisRequired` (desired
-state, mirrors the DB column) and `cacheStatus` (observed ElastiCache
-cluster status, or `null` if not yet reported). Logic:
+> The original "10th health signal" (`checkCacheStatus` in the removed
+> `packages/cdk/src/jobs/health-monitor.ts`) and the two Redis classifier
+> rules in the removed `packages/cdk/src/analysis/failure-classifier.ts`
+> were deleted in Phase 13 of the boundary-mvp work. What replaced them:
 
-- `redisRequired: false` → always `HEALTHY` ("No managed cache is required")
-  — a non-signal for apps that don't use Redis.
-- `cacheStatus` in a terminal-failure set → `UNHEALTHY` ("The cache is
-  unavailable").
-- `cacheStatus === 'available'` → `HEALTHY`.
-- Anything else (missing, still converging) → `DEGRADED` ("The cache is not
-  yet available").
-
-**Failure classifier** (`packages/cdk/src/analysis/failure-classifier.ts`),
-two new rules evaluated in fixed priority order (first match wins):
-
-- **Rule 14 — `REDIS_PROVISIONING_FAILED`**: a CloudFormation-sourced event
-  whose `context.resourceType` starts with `AWS::ElastiCache`, or (fallback)
-  whose error message contains `AWS::ElastiCache`.
-- **Rule 15 — `REDIS_CONNECTION_FAILED`**: a connection-class error code
-  (`ECONNREFUSED`, `ETIMEDOUT`, `ENOTFOUND`, `NOAUTH`, `WRONGPASS`, `MOVED`,
-  `CLUSTERDOWN`) **and** the event identifies the cache as its subject
-  (`source: 'cache' | 'redis' | 'elasticache'`, `context.target === 'redis' |
-  'cache'`, or a `signal` mentioning cache/redis). The `identifiesCache`
-  check is required specifically because `ECONNREFUSED` is also the RDS
-  connection-failure code (`RDS_UNAVAILABLE`) — without it, a database
-  outage would misclassify as a Redis failure.
-
-There is no runtime log-scraping anywhere in the platform (Redis included):
-runtime failures reach the classifier only via structured events (CFN
-events, or events the relay/health-monitor themselves emit), never by
-parsing application stdout/stderr.
+- **Provisioning verification**: the relay's `verifyInstallation`
+  (`packages/relay/src/verify.ts`) treats the cache as a REQUIRED resource
+  whenever `redisRequired` is true — the stack must contain a complete
+  `AWS::ElastiCache::ReplicationGroup` (the `cache` ladder check). When
+  `redisRequired` is false, the cache is still OBSERVED, so "Not
+  provisioned" and "Not reporting" stay distinct in the inventory.
+- **Provisioning-failure classification**: the control plane refines a failed
+  install whose stack events name an `AWS::ElastiCache` resource to
+  `REDIS_PROVISIONING_FAILED` server-side
+  (`apps/api/src/failure-classification.ts`) — the same code the Phase 10
+  audit lists as the live producer.
+- **Runtime health**: runtime cache health is not a separate monitor signal.
+  Health is the layered derivation (infrastructure verification, ECS rollout,
+  ALB targets, HTTP probe, relay connectivity) plus the resource inventory
+  snapshot the heartbeat maintains — see `docs/deployment-resilience.md`.
+- There is still no runtime log-scraping anywhere in the platform: runtime
+  failures reach classification only via structured events (CFN events, or
+  events the relay itself emits), never by parsing application
+  stdout/stderr.
 
 ## 11. Tests added
 
@@ -262,7 +278,7 @@ Redis-specific and incidental test edits.
 | Package | File(s) | Added tests |
 |---|---|---|
 | `packages/analysis` | `redis.test.ts` (new), `analysis.test.ts`, `rules.test.ts` | ~40 |
-| `packages/cdk` | `application-stack.test.ts`, `bootstrap-stack.test.ts`, `failure-classifier.test.ts`, `health-monitor.test.ts` | ~30 |
+| `packages/cdk` | `application-stack.test.ts`, `bootstrap-stack.test.ts` (the `failure-classifier.test.ts`/`health-monitor.test.ts` additions were removed with their modules in Phase 13) | ~30 at the time |
 | `packages/cdk` (Task 11, this task) | `golden-path-live-aws.test.ts` | +7 always-run (fake-path `ElastiCacheClient` + synth proof + `requireLiveImage` fail-fast guard) +1 live-AWS-gated (skipped by default) |
 | `apps/api` | `analysis.test.ts`, `github.test.ts`, `server.test.ts` | ~6 |
 | `apps/web` | `deployment-vocabulary.test.ts`, `diagnostic-vocabulary.test.ts`, `security-details.test.ts` | ~4 |
@@ -391,15 +407,17 @@ findings raised and fixed across Tasks 1-10:
 
 ## 14. Known limitations
 
-- **Relay executors are pre-existing no-op stubs.** The relay's
-  `INSTALL`/`DEPLOY_RELEASE` durable-workflow executors — the things that
-  would actually run `cdk deploy` against a real customer AWS account — are
-  stubs that predate this feature. End-to-end Redis provisioning in a real
-  customer account is therefore not reachable through the normal
-  install/deploy flow today; it's reachable only through the direct,
-  gated live-AWS test path added in this task. Relatedly,
-  `scripts/synth-app.mjs` (the versioned `runtime-v1` artifact generator)
-  still hardcodes `redisRequired: false` — no caller passes `true` yet.
+- **End-to-end provisioning now runs through the real relay executors**
+  (supersedes this report's original "relay executors are no-op stubs"
+  limitation). The boundary-mvp phases made INSTALL/DEPLOY_RELEASE real
+  (`packages/relay/src/install.ts`, `deploy.ts`, `verify.ts`) and the
+  `redis-success` simulated E2E scenario proves a Redis-required install to
+  HEALTHY with the cache in the inventory. `scripts/synth-app.mjs` now
+  synthesizes both template variants (`application-template-v1.json` and
+  `application-template-redis-v1.json`). The live-AWS golden-path suite
+  (`packages/cdk/test/golden-path-live-aws.test.ts`) remains the real-account
+  proof; transient live-AWS verification is the canary runbook's domain
+  (`docs/testing/`).
 - **No deployment-learning or cost-display system exists platform-wide**
   (not Redis-specific — neither exists for any resource type), so neither
   was added for the cache.
@@ -422,9 +440,12 @@ findings raised and fixed across Tasks 1-10:
   declared only for tests scores the same as a production dependency.
   Also, `REQUIREMENTS_FILE_REGEX` matches `requirements-dev.txt`, so a
   Python dev-only requirements file is scanned exactly like the main one.
-- **`database`/`storage` are not wired into the health-monitor at all**
-  (pre-existing gap, unrelated to Redis, noted during Task 9 review) —
-  `cache` is the only optional-resource health signal that exists.
+- **`database`/`storage` are not wired into a runtime health-monitor signal**
+  (pre-existing gap, unrelated to Redis, noted during Task 9 review) — the
+  health-monitor module itself was removed in Phase 13; the cache is
+  verified via the relay's install-time verify ladder, and infrastructure
+  health surfaces through the layered health derivation and resource
+  inventory.
 - **Live-AWS cache-lifecycle test extended but not executed** (this task)
   — see §12 for the exact command and the cost/time note for whoever runs
   it with real credentials. Running it also requires a real, already-
@@ -437,10 +458,12 @@ findings raised and fixed across Tasks 1-10:
 ## 15. AWS IAM changes
 
 `packages/cdk/src/bootstrap/bootstrap-stack.ts` adds `PHASE_2_CACHE_ACTIONS`
-(9 actions): `elasticache:CreateCacheCluster`, `DeleteCacheCluster`,
-`DescribeCacheClusters`, `ModifyCacheCluster`, `CreateCacheSubnetGroup`,
+(11 actions): `elasticache:CreateCacheCluster`, `DeleteCacheCluster`,
+`DescribeCacheClusters`, `ModifyCacheCluster`, `DeleteReplicationGroup`,
+`DescribeReplicationGroups`, `CreateCacheSubnetGroup`,
 `DeleteCacheSubnetGroup`, `DescribeCacheSubnetGroups`, `AddTagsToResource`,
-`ListTagsForResource`.
+`ListTagsForResource`. (The replication-group actions were added with the
+CacheCluster→ReplicationGroup fix; the original report listed 9.)
 
 These are split three ways, following the same precedent the ACM
 (custom-domains) and stack-create/manage statements already established:
@@ -452,13 +475,14 @@ These are split three ways, following the same precedent the ACM
   `RequestTag` condition on create can). Condition: `aws:RequestTag/deployz:installation`
   equals this installation's id.
 - **`ProvisionerCacheManage`** — `DeleteCacheCluster`, `ModifyCacheCluster`,
-  `DeleteCacheSubnetGroup`, `ListTagsForResource`. Condition:
-  `aws:ResourceTag/deployz:installation` equals this installation's id (the
-  resource must already carry the tag).
+  `DeleteReplicationGroup`, `DeleteCacheSubnetGroup`, `ListTagsForResource`.
+  Condition: `aws:ResourceTag/deployz:installation` equals this installation's
+  id (the resource must already carry the tag).
 - **`ProvisionerCacheDescribe`** — `DescribeCacheClusters`,
-  `DescribeCacheSubnetGroups`. Condition-free: ElastiCache's `Describe*`
-  actions don't support resource-level IAM conditions (the same limitation
-  the pre-existing ELB `Describe*` statements already work around).
+  `DescribeReplicationGroups`, `DescribeCacheSubnetGroups`. Condition-free:
+  ElastiCache's `Describe*` actions don't support resource-level IAM
+  conditions (the same limitation the pre-existing ELB `Describe*`
+  statements already work around).
 
 All three statements are included in **both**:
 

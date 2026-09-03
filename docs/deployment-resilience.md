@@ -18,11 +18,14 @@ known state, and provides a deterministic path forward.
   operation and from runtime health (`healthStatus`) and relay connectivity
   (`relayStatus`), which are separate columns.
 - **Release** (`releases` row) — an immutable version/build.
-  `currentReleaseId` points at the last release that actually deployed
-  successfully; it only ever advances on a SUCCEEDED deploy/rollback
-  (`RELEASE_ADVANCING_JOBS`), so after any failure it still names what is
-  really running. There is no separate lastHealthyRelease column because
-  `currentReleaseId` IS that pointer by construction.
+  `currentReleaseId` points at the release that is really running, and only
+  the heartbeat's digest reconciliation advances it — and only when that
+  heartbeat shows the new digest running, rollout COMPLETED, full task
+  counts, healthy ALB targets and a successful HTTP probe (Phase 6, §10.3).
+  A SUCCEEDED DEPLOY_RELEASE/ROLLBACK job result alone never advances the
+  pointer, so after any failure it still names what is really running. There
+  is no separate lastHealthyRelease column because `currentReleaseId` IS that
+  pointer by construction.
 - **Customer** (`customers` row) — who the deployment is for. `name`, `email`
   and `company` are contact metadata the vendor edits freely; the immutable
   `id` is the only thing anything is anchored to (`deployments.customer_id`,
