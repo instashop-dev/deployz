@@ -6,15 +6,15 @@ Monorepo for the Deployz MVP. pnpm workspaces + Turborepo, TypeScript strict, Vi
 
 | Path | Package | Purpose |
 | --- | --- | --- |
-| `apps/web` | `@deployz/web` | Dashboard (Next.js arrives in a later todo; placeholder for now) |
-| `apps/api` | `@deployz/api` | Fastify control-plane API (later todo) |
-| `packages/contracts` | `@deployz/contracts` | Shared Zod contracts between api and web |
+| `apps/web` | `@deployz/web` | Next.js vendor dashboard (applications, releases, customers, deployments), the customer install/security pages, and the Team Admin support console |
+| `apps/api` | `@deployz/api` | Fastify control-plane API (auth, GitHub, analysis, deployment lifecycle, admin) |
+| `packages/contracts` | `@deployz/contracts` | Shared Zod contracts between api, web, and the deployment machinery |
 | `packages/db` | `@deployz/db` | Drizzle schema + migrations |
-| `packages/cdk` | `@deployz/cdk` | Control-plane AWS CDK stack |
-| `packages/analysis` | `@deployz/analysis` | Pure §18/§19/§20 repository analysis core (detectors, rejection checks, rules engine) — shared leaf dependency of `cdk` and `api` |
+| `packages/cdk` | `@deployz/cdk` | Control-plane AWS CDK stack (API/worker Lambda, SQS, CodeBuild pipeline, template publishing) |
+| `packages/analysis` | `@deployz/analysis` | Pure repository-analysis core (detectors, rejection checks, readiness/manifest rules, remediation) — shared leaf dependency of `cdk` and `api` |
 | `packages/fixture` | `@deployz/fixture` | Test fixtures / local dev harness |
-| `packages/relay` | `@deployz/relay` | Relay Lambda (fixed-vocabulary customer-account actor) |
-| `packages/copy-map` | `@deployz/copy-map` | Copy/message mapping helpers |
+| `packages/relay` | `@deployz/relay` | Relay Lambda (fixed-vocabulary customer-account actor: install/deploy/destroy/purge/domain executors) |
+| `packages/copy-map` | `@deployz/copy-map` | Copy/message mapping helpers (failure-code copy, recoverability, event labels) |
 
 ## Commands
 
@@ -86,4 +86,8 @@ Every package builds with `tsc -p tsconfig.json` emitting ESM + declarations to 
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push: `pnpm install --frozen-lockfile`, `pnpm vitest run`, `pnpm build`, `pnpm lint` on Node 24 with pnpm via `pnpm/action-setup`.
+`.github/workflows/ci.yml` runs on every push and PR: `pnpm install
+--frozen-lockfile`, `pnpm build`, `pnpm vitest run`, and `pnpm lint` on Node 24
+with pnpm via `pnpm/action-setup`, plus a simulated-E2E job
+(`node scripts/e2e.mjs` — mode guards, the full scenario suite, Team Admin and
+deployment-detail specs).

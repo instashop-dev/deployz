@@ -27,10 +27,14 @@ For changes under apps/web, follow docs/ui-system.md.
 
 ## Deployment logic
 
-Before changing deployment/job/relay/watchdog logic, read
+For the final live architecture and the MVP support boundary, read
+docs/architecture.md. Before changing deployment/job/relay/watchdog logic, read
 docs/deployment-resilience.md — it documents the invariants (failed-update
 semantics, operation exclusivity, reconcile-before-fail, the relay trust
 boundary) that code in apps/api, packages/relay and the worker must uphold.
+The boundary-mvp implementation record lives in
+docs/mvp-implementation-status.md; the launch report is
+docs/mvp-boundary-implementation-report.md.
 
 ## E2E testing
 

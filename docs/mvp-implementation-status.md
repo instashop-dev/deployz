@@ -49,6 +49,11 @@ that appear when running `pnpm test` without `pnpm build` are the missing
 
 ## Live Runtime Flow
 
+> **Update (2026-09-03):** the flow below is the Phase-0 baseline. Phase 13
+> removed the DynamoDB durable-execution infra and the `jobs/*`/`durable/*`/
+> `analysis/*` modules it mentions; the relay executors and relay command
+> queue described here are the live runtime throughout. See `docs/architecture.md`.
+
 Two actors:
 
 - **Control plane** (vendor AWS account), deployed by `packages/cdk/bin/
@@ -157,6 +162,11 @@ domains (`packages/relay/src/domain.ts`), web app at `apps/web`.
 
 ## Dead/Unwired Subsystems
 
+> **Update (2026-09-03, Phase 13):** every subsystem listed below was removed
+> in Phase 13 (`packages/cdk/src/jobs/*`, `durable/*`, `analysis/*` and their
+> tests). The list is kept as the Phase-0 audit record; the current state is
+> what the later phase sections describe.
+
 Examined on 2026-09-02 against the flow above. "Dead" = no production
 caller outside its own tests.
 
@@ -225,7 +235,7 @@ caller outside its own tests.
 5. **Test discipline**: always run `pnpm build` before `pnpm vitest run`
    (CI order); treat Windows `EBUSY` suite-collection failures as a
    re-run, not a red. Gate on the re-run result.
-## Phase 1.1 � ECR pull grants + auto-deploy on install (2026-09-02)
+## Phase 1.1 — ECR pull grants + auto-deploy on install (2026-09-02)
 
 Wired the previously-dead ECR grant logic into the live flow, control-plane side.
 

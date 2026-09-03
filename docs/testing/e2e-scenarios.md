@@ -1,20 +1,23 @@
 # Simulated E2E scenarios
 
-Seventeen scenarios ship today, registered in
-`e2e/simulation/scenarios/index.ts`. Every terminal-status column below is
-the **honest, observed** production behaviour (verified against the actual
+Eighteen scenario definitions ship today, registered in
+`e2e/simulation/scenarios/index.ts` (the `duplicate-request` and
+`relay-death-destroy` ids in the table are resilience-spec compositions that
+reuse registered definitions). Every terminal-status column below is the
+**honest, observed** production behaviour (verified against the actual
 spec assertions and, where noted, against production logic itself) — not the
 behaviour a naive reading of the scenario name would suggest.
 
 "Main UI expectation" describes what the vendor/customer surfaces would show,
 based on the same `deploymentStatus`/`healthStatus` fields these tests assert
 over the HTTP API (`apps/web/src/lib/deployment-vocabulary.ts` is the single
-source of the UI's wording for these). Phase 1's scenario specs drive the
-real HTTP API only — no browser is involved yet.
+source of the UI's wording for these). The API scenario specs drive the real
+HTTP API; `e2e/scenario-ui.spec.ts` additionally drives four of them through a
+real browser.
 
 | Scenario id | Simulates | Terminal status | Main UI expectation | Main backend expectation | Test file |
 | --- | --- | --- | --- | --- | --- |
-| `happy-path` | Full successful install: network, database, storage, ALB/target-group, ECS service all `CREATE_COMPLETE`; ECS reports every target healthy | `state: HEALTHY`, `healthStatus: HEALTHY`; `deploymentStatus.stage: VERIFYING`, `step: TLS` (holds here — no custom domain configured, so the customer-facing ladder never reaches READY over plain HTTP) | "Waiting for secure domain setup" | Stack events persisted for every resource; resource inventory `technicalResourceCount > 0`; `stepTimings` populated | `e2e/scenario-install.spec.ts` |
+| `happy-path` | Full successful install: network, database, storage, ALB/target-group, ECS service all `CREATE_COMPLETE`; ECS reports every target healthy | `state: HEALTHY`, `healthStatus: HEALTHY`; `deploymentStatus.stage: VERIFYING`, `step: TLS` (holds here — the default fixture suite runs HTTP-only installs with no default-HTTPS opt-in, so the ladder never reaches READY over plain HTTP; Phase 11's default hostname is what takes a real deployment to READY without customer DNS) | "Waiting for secure domain setup" | Stack events persisted for every resource; resource inventory `technicalResourceCount > 0`; `stepTimings` populated | `e2e/scenario-install.spec.ts` |
 | `cloudformation-rollback` | RDS `CREATE_FAILED` (AZ/instance-class mismatch) mid-install; stack rolls back to `ROLLBACK_COMPLETE` | `state: FAILED`; `failure.code: STACK_CREATE_FAILED`, `failure.awsStatus: ROLLBACK_COMPLETE` | "Failed" | Persisted `CREATE_FAILED` event on `ApplicationDatabase` with the AZ-mismatch reason | `e2e/scenario-install.spec.ts` |
 | `ecs-failure` | Infra completes fine; `AWS::ECS::Service` `CREATE_FAILED` ("Service failed health checks"); stack rolls back | `state: FAILED`; `failure.code: STACK_CREATE_FAILED`, `failure.awsStatus: ROLLBACK_COMPLETE` | "Failed" | `ApplicationService` event carries the health-check reason; `ApplicationDatabase` shows `CREATE_COMPLETE` (failure is application-specific, not infra-wide) | `e2e/scenario-install.spec.ts` |
 | `healthcheck-failure` | Stack reaches `CREATE_COMPLETE` and `verifyInstallation` passes, but every ALB target is unhealthy | `state: HEALTHY`, `healthStatus: UNHEALTHY`; `deploymentStatus.stage: VERIFYING`, `step: HEALTH_CHECK`, `failure: null` — install succeeded; runtime health is a separate, honestly-UNHEALTHY signal | "Running health checks" — never Failed, never Ready | No `CREATE_FAILED` events; resource inventory populated | `e2e/scenario-install.spec.ts` |
