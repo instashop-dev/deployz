@@ -319,8 +319,7 @@
                 "logs:PutLogEvents"
               ],
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayWriteLogs"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -332,8 +331,7 @@
               "Effect": "Allow",
               "Resource": {
                 "Ref": "RelayCredential6AA8BC18"
-              },
-              "Sid": "RelayAccessCredential"
+              }
             },
             {
               "Action": [
@@ -368,8 +366,7 @@
                     "/*"
                   ]
                 ]
-              },
-              "Sid": "RelayPendingCommandState"
+              }
             },
             {
               "Action": [
@@ -389,8 +386,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerCreateStacks"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -412,8 +408,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerManageStacks"
+              "Resource": "*"
             },
             {
               "Action": "iam:PassRole",
@@ -423,8 +418,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "arn:aws:iam::*:role/deployz/*",
-              "Sid": "ProvisionerPassRole"
+              "Resource": "arn:aws:iam::*:role/deployz/*"
             },
             {
               "Action": [
@@ -446,8 +440,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerAppResourceManage"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -465,8 +458,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerAcmRequest"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -485,8 +477,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerAcmManage"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -499,8 +490,7 @@
                 "elasticloadbalancing:DescribeRules"
               ],
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerDomainIngressDescribe"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -521,8 +511,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerDomainIngressWrite"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -541,8 +530,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerCacheCreate"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -551,8 +539,7 @@
                 "ecs:DescribeTaskDefinition"
               ],
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayDeployObserve"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -570,14 +557,12 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayDeployRegister"
+              "Resource": "*"
             },
             {
               "Action": "ecs:RunTask",
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayMigrationRun"
+              "Resource": "*"
             },
             {
               "Action": "iam:PassRole",
@@ -593,8 +578,7 @@
               "Resource": [
                 "arn:aws:iam::*:role/deployz/*",
                 "arn:aws:iam::*:role/deployz-app-*"
-              ],
-              "Sid": "RelayDeployPassRole"
+              ]
             },
             {
               "Action": [
@@ -615,8 +599,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerCacheManage"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -625,8 +608,7 @@
                 "elasticache:DescribeCacheSubnetGroups"
               ],
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "ProvisionerCacheDescribe"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -638,8 +620,7 @@
                 "s3:DeleteBucket"
               ],
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayPurgeStorage"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -647,8 +628,7 @@
                 "rds:ListTagsForResource"
               ],
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayPurgeRdsDiscover"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -656,8 +636,7 @@
                 "secretsmanager:DescribeSecret"
               ],
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayPurgeSecretsList"
+              "Resource": "*"
             },
             {
               "Action": "secretsmanager:DeleteSecret",
@@ -672,14 +651,12 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayPurgeSecretsDelete"
+              "Resource": "*"
             },
             {
               "Action": "acm:ListCertificates",
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayPurgeAcmDiscover"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -693,8 +670,7 @@
                 "rds:DescribeDBSubnetGroups"
               ],
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayPurgeNetworkDiscover"
+              "Resource": "*"
             },
             {
               "Action": [
@@ -718,8 +694,7 @@
                 }
               },
               "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayPurgeNetworkDelete"
+              "Resource": "*"
             }
           ],
           "Version": "2012-10-17"

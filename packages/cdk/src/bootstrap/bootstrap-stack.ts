@@ -109,6 +109,18 @@ const PHASE_1_SECRET_ACTIONS = [
   'secretsmanager:DescribeSecret',
 ] as const;
 
+/**
+ * IAM caps a managed policy at this many non-whitespace characters. The
+ * permissions boundary must stay under it (see its construction below).
+ */
+export const IAM_MANAGED_POLICY_MAX_CHARS = 6144;
+
+/** The same grant without its Sid — for the boundary, where ids only cost quota. */
+function withoutSid(statement: PolicyStatement): PolicyStatement {
+  const { Sid: _sid, ...json } = statement.toJSON() as Record<string, unknown>;
+  return PolicyStatement.fromJson(json);
+}
+
 /** Phase 2 — CloudFormation stack create/update within the tag boundary. */
 const PHASE_2_CREATE_STACK_ACTIONS = [
   'cloudformation:CreateStack',
@@ -1076,6 +1088,14 @@ export class BootstrapStack extends Stack {
     // The permissions boundary is the CEILING for the relay role: the union of
     // phase 1 + phase 2. The role can never exceed it, even after the control
     // plane attaches the provisioner policy post-first-contact.
+    //
+    // The boundary is ONE managed policy and IAM caps a managed policy at
+    // 6,144 non-whitespace characters. With the purge sweeps it reached 6,350
+    // and CreateStack failed for every new install ("Cannot exceed quota for
+    // PolicySize"). Statement ids are documentation, and the provisioner
+    // policy below keeps them; the boundary carries the same statements
+    // without them (~550 characters). bootstrap-stack.test.ts pins both
+    // policies under the quota.
     this.permissionsBoundary = new ManagedPolicy(this, 'PermissionsBoundary', {
       description:
         'Maximum permissions for the Deployz relay execution role (union of ' +
@@ -1085,7 +1105,7 @@ export class BootstrapStack extends Stack {
         phase1SecretAccess,
         phase2RelayState,
         ...phase2Statements,
-      ],
+      ].map(withoutSid),
     });
 
     // Phase 2 provisioner policy — DEFINED but NOT attached at install time.
