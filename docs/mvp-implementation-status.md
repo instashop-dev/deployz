@@ -694,7 +694,13 @@ The documented behavior is now:
   backups continue while the instance lives. No final snapshot is taken.
   Charges continue.
 - **Purge (PURGE)**: deletes the retained database, its credential secrets,
-  the stored files (every version), the cache, then the bootstrap stack.
+  the stored files (every version), the cache, and the network orphans a
+  retained database left behind. The bootstrap/relay stack is NOT deleted
+  by the relay: it was created by the customer's Quick Create, the relay's
+  CloudFormation grants are tag-conditioned on an id that stack can never
+  carry, and a stack cannot delete its own execution role — so both the
+  vendor page and the customer's install link tell the customer to delete
+  `deployz-bootstrap-…` in CloudFormation (CANARY-014).
 
 ### Audited existing (verified, changed only where a gap was found)
 

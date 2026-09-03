@@ -128,7 +128,10 @@ never canary-owned.
 8. **Disconnect**, then **Purge** from the vendor UI (the customer-facing
    *Security details* page states what each retains). Disconnect deletes the
    application stack but retains RDS, its credential secrets, the S3 bucket
-   and the subnet group; Purge removes those and the bootstrap stack.
+   and the subnet group (plus the subnet/DB security group/VPC its ENI
+   blocked); Purge removes those. The bootstrap/relay stack is deleted by
+   the customer in CloudFormation — the pages tell them so; in a canary you
+   delete it yourself (`aws cloudformation delete-stack`).
 
 ## 5. Cleanup verification
 

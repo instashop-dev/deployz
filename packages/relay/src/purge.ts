@@ -460,27 +460,21 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
     return { state: 'purging' };
   }
 
-  // Phase 3 — the bootstrap/relay stack, LAST by design. Initiated, not
-  // awaited: the teardown takes minutes while the result of this very
-  // command is reported sub-second after the executor returns, and the
-  // relay cannot outlive its own stack to watch it go.
-  //
-  // Ownership is NOT verified by tag here: the bootstrap stack is created
-  // by the customer's Quick Create BEFORE the installation id is minted
-  // inside it, so it can never carry a readable `deployz:installation` tag
-  // equal to ours (the id is a deploy-time GetAtt token on our own
-  // resources, not a static stack tag). The ownership evidence is the
-  // NAME: `bootstrapStackName` is baked into this relay's environment as
-  // `Ref AWS::StackName` of the very stack we are deleting — the control
-  // plane's `deployments.bootstrap_stack_name` metadata. Deleting a
-  // same-named foreign stack in our own account is out of scope; refusing
-  // on the impossible tag would make the bootstrap removal never run.
-  const bootstrap = await deps.cfn.describeStack(deps.bootstrapStackName);
-  if (bootstrap.found) {
-    if (bootstrap.stack.status !== 'DELETE_IN_PROGRESS') {
-      await deps.deleter.deleteStack(deps.bootstrapStackName);
-    }
-  }
+  // Phase 3 — the bootstrap/relay stack is NOT deleted here (CANARY-014).
+  // It was created by the customer's Quick Create, the relay's CloudFormation
+  // grants are tag-conditioned on an installation id that stack can never
+  // carry (the id is minted inside it), and a stack cannot delete its own
+  // execution role — the old describe-then-delete attempt was AccessDenied on
+  // every real install and, being fail-closed, was silently reported as
+  // "already gone". Say so instead: the control plane tells the customer to
+  // delete the stack in CloudFormation.
+  console.log(
+    JSON.stringify({
+      event: 'relay:purge-bootstrap-retained',
+      installationId: deps.installationId,
+      bootstrapStackName: deps.bootstrapStackName,
+    }),
+  );
 
   return { state: 'succeeded' };
 }
@@ -544,7 +538,12 @@ export function createPurgeExecutor(deps: PurgeDeps): CommandExecutor {
         }),
       );
       return result(command, true, {
-        output: { executed: true, type: command.type, purged: true },
+        output: {
+          executed: true,
+          type: command.type,
+          purged: true,
+          connectorStackRetained: deps.bootstrapStackName,
+        },
       });
     }
 
@@ -616,7 +615,12 @@ export function createPurgeResumer(deps: PurgeDeps): () => Promise<RelayCommandR
             commandId: pending.commandId,
             idempotencyKey: pending.idempotencyKey,
             success: true,
-            output: { executed: true, type: pending.type, purged: true },
+            output: {
+              executed: true,
+              type: pending.type,
+              purged: true,
+              connectorStackRetained: deps.bootstrapStackName,
+            },
           }
         : {
             commandId: pending.commandId,
