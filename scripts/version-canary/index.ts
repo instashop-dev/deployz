@@ -3,6 +3,7 @@
  *
  *   pnpm e2e:canary:versions preflight             identity, region, control plane, fixture tags (no mutation)
  *   pnpm e2e:canary:versions core [--keep]         the golden path (docs/testing/version-rollback-canary.md)
+ *   pnpm e2e:canary:versions resilience [--keep]   duplicate/concurrent requests and relay interruption
  *   pnpm e2e:canary:versions cleanup --run-id <id> product destroy/purge + canary leftovers for a recorded run
  *   pnpm e2e:canary:versions audit --run-id <id>   leak audit for a recorded run (read-only)
  *
@@ -14,12 +15,15 @@ import { parseArgs } from 'node:util';
 import { loadConfig, requireRealAwsOptIn } from './config.js';
 import { ControlPlane } from './control-plane.js';
 import { Evidence, type RunRecord } from './evidence.js';
+import { runResilience } from './resilience.js';
 import { runCore } from './scenarios.js';
 import { preflight, type Canary } from './steps.js';
 import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from './teardown.js';
 
 function usage(): void {
-  console.error('Usage: e2e:canary:versions <preflight|core [--keep]|cleanup --run-id <id>|audit --run-id <id>>');
+  console.error(
+    'Usage: e2e:canary:versions <preflight|core [--keep]|resilience [--keep]|cleanup --run-id <id>|audit --run-id <id>>',
+  );
 }
 
 function newRun(config: ReturnType<typeof loadConfig>, scenario: string): RunRecord {
@@ -60,12 +64,13 @@ async function main(): Promise<void> {
       evidence.finish('PASS');
       return;
     }
-    case 'core': {
-      const evidence = new Evidence(config.resultsDir, newRun(config, 'core'));
+    case 'core':
+    case 'resilience': {
+      const evidence = new Evidence(config.resultsDir, newRun(config, command));
       const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl) };
-      console.log(`Run ${config.runId} — evidence in ${evidence.dir}`);
+      console.log(`Run ${config.runId} (${command}) — evidence in ${evidence.dir}`);
       try {
-        await runCore(canary);
+        await (command === 'core' ? runCore(canary) : runResilience(canary));
         evidence.finish('PASS');
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));

@@ -117,6 +117,28 @@ the job/relay (terminal state, payload digest), AWS (ECS running digest,
 ECR digest for the version tag, ALB target health, stack status) and the
 live app (`/version`, `/health`, markers) sampled several times.
 
+## The resilience scenario
+
+`pnpm e2e:canary:versions resilience` installs v1 the same way, then:
+
+- sends two equivalent deploy requests for v2 at the same time and a retry
+  after an "ambiguous" response — exactly one job may exist (202 once, 200
+  replays after that);
+- while that deploy is in flight, a rollback, a deploy of another release
+  and a restart must all be refused `409 DEPLOYMENT_BUSY`, and ECS must show
+  at most one rollout in progress;
+- lets the v2 deploy settle and verifies it like the core scenario;
+- requests v4, waits for the relay to claim it, then **disables the
+  connector's EventBridge schedule** for two missed polls: the job must not
+  be failed and the deployment must not be marked FAILED while the relay is
+  merely silent; after the schedule is restored the same job resumes from
+  its checkpoint and v4 becomes the serving release with no duplicate
+  mutation;
+- destroys, purges, removes leftovers and audits like the core scenario.
+
+Browser refresh/close during a deploy needs no special step: every page
+reads state from the API, which is what these assertions poll.
+
 ## Evidence
 
 `canary-results/<run-id>/run.json` (identities, releases, jobs, steps),
