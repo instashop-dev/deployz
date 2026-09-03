@@ -27,6 +27,7 @@ escalation ladder.
 | Simulated E2E (default) | The full production pipeline — relay, API routes, DB, status derivation, resource inventory — against a simulated AWS account | No | `pnpm e2e` |
 | Canary (real AWS, read-only) | The relay's real AWS SDK calls still work against a real, persistent installation | Yes (opt-in) | `pnpm e2e:canary` |
 | Fresh (real AWS, create + destroy) | The bootstrap stack's real create/destroy golden path in a real account | Yes (opt-in) | `pnpm e2e:fresh` |
+| Version canary (real AWS, full product) | Version deployment, failed-release isolation, rollback, recovery, persistence and cleanup through the deployed control plane and a transient customer install | Yes (opt-in) | `pnpm e2e:canary:versions core` |
 
 A full product-flow live install (install link → a real customer AWS account
 → HEALTHY → update → delete) is not automated in Phase 1. It stays a
@@ -65,5 +66,6 @@ what canary/fresh actually cover instead.
 | [`aws-canary.md`](aws-canary.md) | The read-only canary mode against the standing installation |
 | [`aws-fresh.md`](aws-fresh.md) | The real-AWS bootstrap create/destroy mode |
 | [`aws-full-product-canary.md`](aws-full-product-canary.md) | The manual full-product walk against the deployed control plane: template publishing, resource ledger, cleanup verification, failure cases seen on real AWS |
+| [`version-rollback-canary.md`](version-rollback-canary.md) | The automated version deployment + rollback canary: product semantics, fixture releases, the core scenario, safety rules, evidence, cleanup and leak audit |
 | [`ai-agent-testing-guide.md`](ai-agent-testing-guide.md) | The escalation policy AI coding agents must follow |
 | [`discovery/README.md`](discovery/README.md) | Point-in-time investigation reports behind the Phase 1 design — reference only, not maintained |

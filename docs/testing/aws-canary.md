@@ -41,10 +41,9 @@ HEALTHY → deploy → disconnect → purge) against the deployed control plane 
 a separate, manual procedure with its own ledger and cleanup checklist:
 [`aws-full-product-canary.md`](aws-full-product-canary.md).
 
-Driving a real update/rollback through the canary installation is out of
-scope for Phase 1 — that stays a documented manual escalation via the live-
-install workflow (see [`aws-fresh.md`](aws-fresh.md) and
-`discovery/live-aws-machinery.md` §5).
+Driving a real update/rollback through a transient installation is the job
+of the version canary — [`version-rollback-canary.md`](version-rollback-canary.md)
+(`pnpm e2e:canary:versions core`).
 
 ## AWS account/region assumptions
 

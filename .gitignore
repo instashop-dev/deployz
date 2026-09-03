@@ -14,4 +14,5 @@ cdk.out/
 packages/db/.pgdata/
 test-results/
 playwright-report/
+canary-results/
 .worktrees/
