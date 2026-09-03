@@ -149,6 +149,11 @@ import {
 import { recordEvent, type DeploymentEventType } from './events.js';
 import { createFixtureDomainCheckDeps, createRealDomainCheckDeps, type DomainCheckDeps } from './domain-check.js';
 import {
+  createDefaultHttpsFixtureProvider,
+  type DefaultHttpsFixtureProvider,
+  type FixtureDnsFailureCode,
+} from './default-https-fixture.js';
+import {
   applyDomainJobResult,
   createCustomDomain,
   findActiveDomain,
@@ -1102,6 +1107,16 @@ export async function buildServer({
   // back to the legacy Route53 writer while it still exists, and is off when
   // no zone is configured. Off means a deployment needs a custom domain for
   // HTTPS, exactly as before Phase 11.
+  // Phase 14 simulated E2E: under BOTH fixture flags the default-HTTPS DNS
+  // provider is an assertable/failure-scriptable in-memory fake (see
+  // default-https-fixture.ts), exposed to scenarios over the gated
+  // `/internal/fixture/default-dns-*` endpoints below. Production never
+  // constructs it (the flags are off and are scrubbed from the deploy env),
+  // so those routes do not exist in production at all.
+  const fixtureDefaultDnsProvider: DefaultHttpsFixtureProvider | null =
+    env.domainFixtureMode && env.defaultHttpsFixtureMode
+      ? createDefaultHttpsFixtureProvider(DEFAULT_HTTPS_FIXTURE_APEX, env.defaultHostnamePrefix)
+      : null;
   const defaultHttpsDeps: DefaultHttpsDeps = (() => {
     if (injectedDefaultHttpsDeps) {
       return injectedDefaultHttpsDeps;
@@ -1112,10 +1127,12 @@ export async function buildServer({
       return {
         enabled: env.defaultHttpsFixtureMode,
         apex: DEFAULT_HTTPS_FIXTURE_APEX,
-        dns: createDnsClientFromNameWriter(noopDnsRecordClient, {
-          zoneName: DEFAULT_HTTPS_FIXTURE_APEX,
-          prefix: env.defaultHostnamePrefix,
-        }),
+        dns:
+          fixtureDefaultDnsProvider?.client ??
+          createDnsClientFromNameWriter(noopDnsRecordClient, {
+            zoneName: DEFAULT_HTTPS_FIXTURE_APEX,
+            prefix: env.defaultHostnamePrefix,
+          }),
         probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
       };
     }
@@ -1225,6 +1242,57 @@ export async function buildServer({
   // Stable, minimal readiness probe for external monitors: no internal or
   // customer detail crosses this boundary — reachability is the whole answer.
   app.get('/api/health', () => ({ status: 'ok' }));
+
+  // ── Fixture-only default-HTTPS DNS surface (Phase 14 simulated E2E) ───────
+  // Registered ONLY when the in-memory provider exists (both fixture flags on,
+  // see `fixtureDefaultDnsProvider` above). In any other boot these routes do
+  // not exist and answer Fastify's default 404 — an internal test surface can
+  // never be enabled in production, exactly like the scenario-control absence
+  // e2e/production-safety.spec.ts pins. They carry no auth: they are gated by
+  // environment, and the simulated suite is the only environment they exist in.
+  if (fixtureDefaultDnsProvider) {
+    const snapshot = () => ({
+      records: fixtureDefaultDnsProvider.records().map((record) => ({
+        name: record.name,
+        content: record.content,
+        type: record.type,
+        proxied: record.proxied,
+        comment: record.comment,
+      })),
+      remainingFailures: fixtureDefaultDnsProvider.remainingFailures(),
+      mutations: fixtureDefaultDnsProvider.mutations(),
+    });
+
+    app.get('/internal/fixture/default-dns-records', async () => snapshot());
+
+    // Plant a RAW record (bypassing the namespace guard) so a scenario can
+    // model exactly what a leftover/hostile zone might hold and prove the
+    // purge reconciliation never mutates it.
+    app.post('/internal/fixture/default-dns-records', async (request) => {
+      const body = request.body as { name?: unknown; content?: unknown; proxied?: unknown };
+      if (typeof body?.name !== 'string' || typeof body?.content !== 'string') {
+        throw new ApiError(400, 'INVALID_REQUEST', 'name and content are required');
+      }
+      fixtureDefaultDnsProvider.plantRecord(body.name, body.content, body.proxied === true);
+      return snapshot();
+    });
+
+    // Script the next `count` DNS operations to fail (FIFO), consumed by the
+    // default-HTTPS machine's writes — drives the Phase 12 watchdog and the
+    // rate-limit path end to end. `deploymentId` scopes the script to one
+    // deployment so parallel simulated scenarios never consume each other's.
+    app.post('/internal/fixture/default-dns-failures', async (request) => {
+      const body = request.body as { code?: unknown; count?: unknown; deploymentId?: unknown };
+      const code = body?.code;
+      const count = typeof body?.count === 'number' && Number.isInteger(body.count) ? body.count : 0;
+      const deploymentId = typeof body?.deploymentId === 'string' ? body.deploymentId : undefined;
+      if (code !== 'unavailable' && code !== 'rate_limit') {
+        throw new ApiError(400, 'INVALID_REQUEST', 'code must be "unavailable" or "rate_limit"');
+      }
+      fixtureDefaultDnsProvider.queueFailures(count, code as FixtureDnsFailureCode, deploymentId);
+      return snapshot();
+    });
+  }
 
   // Webhook signature verification (Stripe + GitHub) needs the RAW body, so
   // register a raw-json parser for those routes before the JSON parser
@@ -5068,10 +5136,14 @@ export async function buildServer({
     }
     // Phase 11 record teardown (see preTxDefaultHttps above): the deployz-zone
     // CNAMEs are the control plane's to remove — the relay never sees them.
+    // The certificate is gone when DESTROY succeeded (whole stack) or when a
+    // DEFAULT-HTTPS REMOVE_DOMAIN succeeded (its own cert). A CUSTOM domain's
+    // REMOVE_DOMAIN never touches the default records — the deployment keeps
+    // its permanent Deployz URL while the custom domain is being removed.
     if (preTxDefaultHttps) {
       const certificateGone =
-        (job.type === 'REMOVE_DOMAIN' && state === 'SUCCEEDED') ||
-        (job.type === 'DESTROY' && state === 'SUCCEEDED');
+        state === 'SUCCEEDED' &&
+        (job.type === 'DESTROY' || (job.type === 'REMOVE_DOMAIN' && isDefaultHttpsJob(job)));
       if (certificateGone) {
         try {
           await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);

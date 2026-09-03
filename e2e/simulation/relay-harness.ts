@@ -64,6 +64,10 @@ import { APPLICATION_TEMPLATE_KEY, DEFAULT_APPLICATION_STACK_NAME } from '@deplo
 import { SimulatedCustomerAccount } from './simulated-account.js';
 import type { ScenarioDefinition } from './types.js';
 
+/** The ALB DNS name every simulated CONFIGURE_DOMAIN reports as the routing
+ *  target — a fixture-zone hostname the control plane may safely CNAME to. */
+const DEFAULT_FIXTURE_ALB_TARGET = 'e2e-alb.deployz-fixture.test';
+
 /**
  * Empty orphan-purge clients for the simulated account. A simulated
  * DESTROY that completed cleanly leaves no modelled orphan RDS / cache /
@@ -202,6 +206,13 @@ export interface StartSimulatedRelayOptions {
    * the completed install and report the stack missing.
    */
   readonly account?: SimulatedCustomerAccount;
+  /**
+   * Phase 14 custom-domain scenarios: hostnames matching this regex have their
+   * CONFIGURE_DOMAIN command FAIL (AWS_PERMISSION_DENIED) instead of being
+   * answered, driving the domain machine into ERROR end to end. Every other
+   * hostname still follows the healthy two-phase ACM flow below.
+   */
+  readonly failConfigureForHostnameRegex?: string;
 }
 
 export interface InstallSettlement {
@@ -260,6 +271,11 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   // `resume` composition below peek a still-pending command's `type` before
   // its own resumer clears it.
   const pending = memoryPendingStore();
+
+  // Two-phase ACM issuance bookkeeping, keyed by lowercased hostname: each
+  // hostname is first answered PENDING_VALIDATION (with the records the
+  // control plane must write) and, on a later configure round, ISSUED.
+  const issuedHostnames = new Set<string>();
 
   const installDeps: InstallExecutorDeps = {
     installationId,
@@ -469,16 +485,50 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       // DNS-validation round trips. Off by default in the fixture suite.
       CONFIGURE_DOMAIN: trackLatest(async (command) => {
         const hostname = (command.payload as { hostname?: unknown }).hostname;
+        const host = typeof hostname === 'string' ? hostname : '';
+        const fullHost = host.toLowerCase();
+        const fail =
+          typeof hostname === 'string' &&
+          options.failConfigureForHostnameRegex !== undefined &&
+          new RegExp(options.failConfigureForHostnameRegex).test(fullHost);
+        if (fail) {
+          return {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: false,
+            error: 'simulated permission denied for this hostname',
+            failureCode: 'AWS_PERMISSION_DENIED',
+          };
+        }
+        // Real ACM over DNS-01 is two-phase: the first describe reports the
+        // cert pending DNS validation (with the validation + routing targets
+        // the control plane reconciles into the zone), and only a LATER
+        // configure round — after the control plane wrote the records — finds
+        // it ISSUED with the 443 listener wired. Modelling that faithfully is
+        // what makes the default-HTTPS machine pass through WAITING_FOR_DNS
+        // and actually WRITE its routing + validation CNAMEs (assertable in
+        // the Phase 14 scenarios), instead of shortcutting straight to ISSUED.
+        const issued = issuedHostnames.has(fullHost);
+        issuedHostnames.add(fullHost);
         return {
           commandId: command.id,
           idempotencyKey: command.idempotencyKey,
           success: true,
-          output: {
-            certificateArn: `arn:aws:acm:us-east-1:123456789012:certificate/${command.id}`,
-            certificateStatus: 'ISSUED',
-            ...(typeof hostname === 'string' ? { routingTarget: 'e2e-alb.deployz-fixture.test' } : {}),
-            httpsConfigured: true,
-          },
+          output: issued
+            ? {
+                certificateArn: `arn:aws:acm:us-east-1:123456789012:certificate/${command.id}`,
+                certificateStatus: 'ISSUED',
+                routingTarget: DEFAULT_FIXTURE_ALB_TARGET,
+                httpsConfigured: true,
+              }
+            : {
+                certificateArn: `arn:aws:acm:us-east-1:123456789012:certificate/${command.id}`,
+                certificateStatus: 'PENDING_VALIDATION',
+                validationName: `_e2e.${fullHost}`,
+                validationValue: '_e2e.acm-validations.aws.',
+                routingTarget: DEFAULT_FIXTURE_ALB_TARGET,
+                httpsConfigured: false,
+              },
         };
       }),
       REMOVE_DOMAIN: trackLatest(async (command) => ({
