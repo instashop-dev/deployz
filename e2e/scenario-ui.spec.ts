@@ -493,6 +493,16 @@ test.describe('update-failure then rollback-success (browser)', () => {
     const afterRollback = await getDeployment(page, deploymentId);
     expect(afterRollback.state).toBe('HEALTHY');
     expect(afterRollback.currentReleaseId).toBe(v1ReleaseId);
+    // The rollback recorded the pointer the deployment carried into it —
+    // v1, the very release it restored — so previous == current. The page
+    // must not offer a rollback to the version already running.
+    expect(afterRollback.previousReleaseId).toBe(v1ReleaseId);
+    await expect(actionsSection.getByRole('button', { name: 'Rollback' })).toBeDisabled();
+    await expect(
+      page.getByText(
+        'The previous successful release is the version running now, so there is nothing to roll back to.',
+      ),
+    ).toBeVisible();
   });
   });
 });
