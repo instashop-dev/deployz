@@ -126,7 +126,9 @@ never canary-owned.
    app log group. A failed update must leave the deployment at
    UPDATE_AVAILABLE/HEALTHY with the old task definition still PRIMARY.
 8. **Disconnect**, then **Purge** from the vendor UI (the customer-facing
-   *Security details* page states what each retains). Disconnect deletes the
+   *Security details* page states what each retains). After Disconnect the
+   deployment leaves Home and the live fleet: open Deployments → status
+   *Removed* (or the "N removed deployments…" link) to reach it. Disconnect deletes the
    application stack but retains RDS, its credential secrets, the S3 bucket
    and the subnet group (plus the subnet/DB security group/VPC its ENI
    blocked); Purge removes those. The bootstrap/relay stack is deleted by
@@ -137,6 +139,10 @@ never canary-owned.
 
 Re-run the baseline commands and diff against the ledger. Specifically:
 
+- The bootstrap stack is not deleted by Purge (see §6): delete
+  `deployz-bootstrap-<app>-<8 chars>` yourself with
+  `aws cloudformation delete-stack` as the customer would from the console,
+  then delete its relay log group.
 - No `deployz-app-*` or `deployz-bootstrap-*` stack in any status other
   than DELETE_COMPLETE (`list-stacks` without a status filter shows deleted
   history for 90 days — that is fine).
@@ -173,6 +179,11 @@ Re-run the baseline commands and diff against the ledger. Specifically:
 | Diagnostics blame a rolled-back resource for a relay-side fault | Relay hardcodes STACK_CREATE_FAILED | `RELAY_STATE_WRITE_FAILED` (DEPLOYZ_ACTION) refinement |
 | `publish:bootstrap` refuses to run | 17 regional buckets required | `BOOTSTRAP_PUBLISH_REGIONS` + `BOOTSTRAP_LEGACY_BUCKET_REGION` |
 | Create-deployment form says "Try again in a moment" and duplicates the customer | Generic catch, customer created before the deployment | Server message + readiness link; customer reused on retry (`e2e/create-deployment.spec.ts`) |
+| Deferred command never resumes (Disconnect stuck RUNNING, stack DELETE_FAILED with nobody retrying) | SecureString marker read without `WithDecryption` — ciphertext parsed as "nothing pending" | Reads decrypt; unreadable markers log `relay:pending-marker-unreadable` (`pending.test.ts`) |
+| No Purge control after a normal Disconnect; API 409 NOT_PURGE_ELIGIBLE | Purge was wired for the force-complete case only | Any DELETED deployment is purgeable until cleanupState COMPLETE; the page says what stays behind |
+| Disconnected deployment unreachable (Home hides it, list shows the empty state) | Fleet list excluded DELETED with no other entry point | *Removed* status filter + "N removed deployments may still have retained resources" link |
+| Purge "succeeds" but the relay stack stays and keeps polling | `DescribeStacks` on the bootstrap stack is AccessDenied (tag condition the stack cannot satisfy), mapped to "already gone" | Purge reports `connectorStackRetained`; vendor page + install link tell the customer to delete `deployz-bootstrap-…` in CloudFormation |
+| VPC, private subnet, DB security group and RDS subnet group survive Disconnect + Purge | Retained-RDS ENI blocks the subnet → DELETE_FAILED cascade; purge swept only RDS/cache/S3/secrets | Tag-verified network + subnet-group sweep with matching relay IAM (`purge.test.ts`) |
 
 ## 7. Driving the dashboard from automation
 
