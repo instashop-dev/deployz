@@ -540,7 +540,12 @@ describe('BootstrapStack', () => {
     // tag-scoped at list time; ownership is verified from the returned tags),
     // deletion already covered by the tag-scoped ProvisionerAcmManage grant.
     expect(findBySid('RelayPurgeAcmDiscover')).toBeDefined();
-    expect(actionsOf('RelayPurgeAcmDiscover')).toEqual(['acm:ListCertificates']);
+    // Both reads condition-free: a tag-scoped ListTagsForCertificate is denied
+    // on every certificate that is not ours, and the sweep (rightly) refuses
+    // to treat a denied tag read as "not ours" — so it never completed.
+    expect(actionsOf('RelayPurgeAcmDiscover').sort()).toEqual(
+      ['acm:ListCertificates', 'acm:ListTagsForCertificate'].sort(),
+    );
     expect(findBySid('RelayPurgeAcmDiscover')?.['Condition']).toBeUndefined();
 
     // The same grants sit inside the permissions boundary (the ceiling) —

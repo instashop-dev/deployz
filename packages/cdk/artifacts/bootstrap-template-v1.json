@@ -654,7 +654,10 @@
               "Resource": "*"
             },
             {
-              "Action": "acm:ListCertificates",
+              "Action": [
+                "acm:ListCertificates",
+                "acm:ListTagsForCertificate"
+              ],
               "Effect": "Allow",
               "Resource": "*"
             },
@@ -1013,7 +1016,10 @@
               "Sid": "RelayPurgeSecretsDelete"
             },
             {
-              "Action": "acm:ListCertificates",
+              "Action": [
+                "acm:ListCertificates",
+                "acm:ListTagsForCertificate"
+              ],
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeAcmDiscover"
