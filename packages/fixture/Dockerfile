@@ -12,15 +12,19 @@
 #
 #   docker build -t deployz-fixture packages/fixture
 
+# The ECR Public mirror of the Docker Hub official image: CodeBuild pulls
+# anonymously from shared egress IPs and Docker Hub answers 429 Too Many
+# Requests often enough to fail a canary build (seen live); the mirror is
+# not rate-limited that way.
 # ── Stage 1: compile TypeScript ──────────────────────────────────────────
-FROM node:22-alpine AS build
+FROM public.ecr.aws/docker/library/node:22-alpine AS build
 WORKDIR /app
 COPY package.json tsconfig.build.json ./
 COPY src ./src
 RUN npm install && npx tsc -p tsconfig.build.json
 
 # ── Stage 2: production runtime ──────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM public.ecr.aws/docker/library/node:22-alpine AS runtime
 WORKDIR /app
 # The ECS task definition's health check shells out to curl, which the base
 # image does not carry. Without it every task is marked unhealthy, the
