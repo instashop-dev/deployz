@@ -21,4 +21,9 @@ export default defineConfig({
     // @deployz/copy-map are not rewritten into src/.
     alias: { '@/': `${srcDir}/` },
   },
+  esbuild: {
+    // Component tests render JSX through vitest's esbuild transform. Use the
+    // automatic runtime so components don't need to import React explicitly.
+    jsx: 'automatic',
+  },
 });
