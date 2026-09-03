@@ -236,7 +236,9 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   await expect(page.getByText('PublicSubnet1')).toHaveCount(0);
 
   // Expand "Infrastructure events" — the raw per-resource rows only live
-  // inside this collapsed disclosure.
+  // inside this collapsed disclosure, itself inside the collapsed Advanced
+  // details section.
+  await page.getByRole('button', { name: 'Advanced details' }).click();
   const eventsTrigger = page.getByRole('button', { name: /Infrastructure events \(7\)/ });
   await expect(eventsTrigger).toBeVisible({ timeout: 15_000 });
   await eventsTrigger.click();
@@ -272,6 +274,7 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   await expect(progressCard.getByText('Creating network')).toBeVisible({ timeout: 15_000 });
   await page.reload();
   await expect(progressCard.getByText('Creating network')).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Advanced details' }).click();
   await expect(page.getByRole('button', { name: /Infrastructure events \(7\)/ })).toBeVisible({
     timeout: 15_000,
   });
@@ -350,7 +353,8 @@ test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while 
   // Vendor: the raw reason lives in the Infrastructure events disclosure.
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-  await expect(progressCard.locator('p[aria-live="polite"]')).toHaveText('Needs attention');
+  await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Deployment failed');
+  await page.getByRole('button', { name: 'Advanced details' }).click();
   const eventsTrigger = page.getByRole('button', { name: /Infrastructure events \(2\)/ });
   await expect(eventsTrigger).toBeVisible({ timeout: 15_000 });
   await eventsTrigger.click();
@@ -407,5 +411,7 @@ test('success path: CloudFormation completion alone advances to VERIFYING, never
 
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-  await expect(progressCard.locator('p[aria-live="polite"]')).toHaveText('Verifying', { timeout: 15_000 });
+  await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Verifying your application', {
+    timeout: 15_000,
+  });
 });

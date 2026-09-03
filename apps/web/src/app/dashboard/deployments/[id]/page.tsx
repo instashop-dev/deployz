@@ -1,15 +1,17 @@
 'use client';
 
-import { AlertTriangle, ArrowLeft, ChevronDown, ExternalLink } from 'lucide-react';
+import { REGION_LABELS, type Region } from '@deployz/contracts';
+import { AlertTriangle, ChevronDown, ExternalLink, MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { ActivityFeed } from '@/components/activity-feed';
-import { DeploymentProgressCard } from '@/components/deployment-progress-card';
+import { DeploymentHero } from '@/components/deployment-hero';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { InfrastructureEvents } from '@/components/infrastructure-events';
+import { InfrastructureSummary } from '@/components/infrastructure-summary';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -22,6 +24,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -37,6 +47,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -48,6 +65,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api-client';
+import { deriveHero, operationInFlight, type HeroModel } from '@/lib/deployment-hero';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
   DeploymentActionError,
@@ -72,15 +90,15 @@ import {
 import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
-  RELAY_STUCK_GUIDANCE,
+  JOB_STATE_LABEL,
+  JOB_TYPE_LABEL,
   RELAY_STATUS_LABEL,
+  RELAY_STUCK_GUIDANCE,
   actionSupported,
   actionsUnavailableReason,
   everInstalled,
   relayWaitingStuck,
   showHealthBadge,
-  showInfrastructureRows,
-  type RelayStatus,
 } from '@/lib/deployment-vocabulary';
 import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
 import { relativeTime } from '@/lib/diagnostics';
@@ -90,7 +108,6 @@ import {
   fetchReleases,
   type Release,
 } from '@/lib/releases';
-import { InfrastructureSection } from '@/components/infrastructure-section';
 import { isTerminalStage } from '@/lib/deployment-progress';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
@@ -100,47 +117,53 @@ type DetailState =
   | {
       status: 'loaded';
       detail: FleetDeploymentDetail;
-      events: ActivityEvent[];
+      /** Null when the activity request failed — the feed says so. */
+      events: ActivityEvent[] | null;
       releases: Release[];
     };
 
-const RELAY_DOT: Record<RelayStatus, string> = {
-  CONNECTED: 'bg-primary',
-  DISCONNECTED: 'bg-destructive',
-  UNKNOWN: 'bg-muted-foreground',
-};
+/** The resource inventory: loading, failed (the page stays up), or loaded. */
+type InfrastructureState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'loaded'; data: InfrastructureResponse };
 
 const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to.';
+const INSTALL_STAGES = new Set(['WAITING_FOR_AWS', 'CONNECTING', 'PROVISIONING']);
 
-// §24 deployment detail — all five required actions (Deploy Update, Rollback,
-// View Diagnostics, Configuration, Disconnect Deployment), the masked AWS
-// account + Created date, and the five named infrastructure rows (Application,
-// Database, Storage, Load Balancer, Deployz Relay), organized into
-// Overview / Infrastructure / Activity tabs. M14: deployment health only — no
-// application observability.
+// §24 deployment detail, laid out as a status page rather than a console:
+// compact header → state-aware hero with contextual actions → metadata →
+// infrastructure summary → recent activity → collapsed technical details.
+// M14: deployment health only — no application observability.
 export default function DeploymentDetailPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const [state, setState] = useState<DetailState>({ status: 'loading' });
-  const [infrastructure, setInfrastructure] = useState<InfrastructureResponse | null>(null);
+  const [infrastructure, setInfrastructure] = useState<InfrastructureState>({ status: 'loading' });
   // Signature of the last (stage, state) pair the poll observed — refetching
   // the activity feed on every 5s tick would hammer it for nothing, so it
   // only happens when this actually moved.
   const lastSignature = useRef<{ stage: string; state: string } | null>(null);
 
-  const load = useCallback(async (): Promise<void> => {
+  const refreshInfrastructure = useCallback(async (): Promise<void> => {
     try {
-      const detail = await fetchDeployment(id);
-      const [events, releases, infrastructure] = await Promise.all([
-        fetchDeploymentEvents(id),
-        fetchReleases(detail.applicationId),
-        fetchDeploymentInfrastructure(id),
-      ]);
-      lastSignature.current = { stage: detail.deploymentStatus.stage, state: detail.state };
-      setState({ status: 'loaded', detail, events, releases });
-      setInfrastructure(infrastructure);
+      const data = await fetchDeploymentInfrastructure(id);
+      setInfrastructure({ status: 'loaded', data });
+    } catch {
+      // Keep the last inventory if there is one; only a first load that
+      // fails shows the section-level warning. The deployment itself is
+      // unaffected either way.
+      setInfrastructure((current) => (current.status === 'loaded' ? current : { status: 'error' }));
+    }
+  }, [id]);
+
+  const load = useCallback(async (): Promise<void> => {
+    let detail: FleetDeploymentDetail;
+    try {
+      detail = await fetchDeployment(id);
     } catch (caught) {
-      // A 404 is permanent for this URL — no retry-oriented copy for it.
+      // Only the deployment itself decides whether this page exists. A 404
+      // is permanent for this URL — no retry-oriented copy for it.
       setState(
         isDeploymentNotFound(caught)
           ? {
@@ -154,8 +177,18 @@ export default function DeploymentDetailPage() {
               message: "We couldn't load this deployment. Try again in a moment.",
             },
       );
+      return;
     }
-  }, [id]);
+    // The supporting requests degrade independently: a failed inventory or
+    // activity fetch marks its own section, never the whole page.
+    const [events, releases] = await Promise.all([
+      fetchDeploymentEvents(id).catch((): ActivityEvent[] | null => null),
+      fetchReleases(detail.applicationId).catch((): Release[] => []),
+      refreshInfrastructure(),
+    ]);
+    lastSignature.current = { stage: detail.deploymentStatus.stage, state: detail.state };
+    setState({ status: 'loaded', detail, events, releases });
+  }, [id, refreshInfrastructure]);
 
   useEffect(() => {
     void load();
@@ -184,27 +217,36 @@ export default function DeploymentDetailPage() {
       lastSignature.current.state !== signature.state;
     lastSignature.current = signature;
     if (moved) {
-      void fetchDeploymentEvents(id).then((events) => {
-        setState((current) => (current.status === 'loaded' ? { ...current, events } : current));
-      });
+      void fetchDeploymentEvents(id)
+        .then((events) => {
+          setState((current) => (current.status === 'loaded' ? { ...current, events } : current));
+        })
+        .catch(() => {
+          // Keep the last feed; a transient failure is not a lifecycle change.
+        });
     }
     // Refresh the infrastructure snapshot on every poll tick so the
     // component list stays live during disconnect.
-    void fetchDeploymentInfrastructure(id).then((infrastructure) => {
-      setInfrastructure(infrastructure);
-    });
-  }, [poll.data, id]);
+    void refreshInfrastructure();
+  }, [poll.data, id, refreshInfrastructure]);
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href="/dashboard/deployments">
-            <ArrowLeft aria-hidden className="size-4" />
-            Deployments
-          </Link>
-        </Button>
-      </div>
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/dashboard/deployments">Deployments</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>
+              {state.status === 'loaded' ? state.detail.applicationName : 'Deployment'}
+            </BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
       {state.status === 'loading' ? <DetailSkeleton /> : null}
       {state.status === 'error' ? (
@@ -239,18 +281,22 @@ function DetailBody({
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
-  events: ActivityEvent[];
+  events: ActivityEvent[] | null;
   releases: Release[];
-  infrastructure: InfrastructureResponse | null;
+  infrastructure: InfrastructureState;
   onChanged: () => void;
 }) {
   const previousVersion = releases.find((r) => r.id === detail.previousReleaseId)?.version ?? null;
+  const hero = deriveHero(detail);
+  const inventory = infrastructure.status === 'loaded' ? infrastructure.data : null;
 
   return (
     <>
-      <div>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{detail.applicationName}</h1>
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="min-w-0 break-words text-2xl font-semibold tracking-tight">
+            {detail.applicationName}
+          </h1>
           <DeploymentStatusBadge state={detail.state} />
           {showHealthBadge(detail.state, detail.currentReleaseId) ? (
             <Badge variant={HEALTH_STATUS_BADGE[detail.healthStatus]}>
@@ -258,208 +304,239 @@ function DetailBody({
             </Badge>
           ) : null}
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">{detail.customerName}</p>
-        {detail.version ? (
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            v{detail.version} · {detail.region}
-          </p>
-        ) : (
-          <p className="mt-0.5 text-sm text-muted-foreground">{detail.region}</p>
-        )}
+        <p className="text-sm text-muted-foreground">
+          {detail.customerName}
+          {detail.version ? (
+            <>
+              {' · '}
+              <span className="tabular-nums">v{detail.version}</span>
+            </>
+          ) : null}
+        </p>
       </div>
 
-      {detail.state === 'DELETED' && detail.cleanupState !== 'COMPLETE' ? (
-        <div className="flex flex-col gap-3">
-          <Alert>
-            <AlertTriangle aria-hidden />
-            {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED' ? (
-              <>
-                <AlertTitle>Resources may remain in the customer AWS account</AlertTitle>
-                <AlertDescription>
-                  AWS resources may still exist because the Deployz Relay was offline during
-                  disconnect.
-                </AlertDescription>
-              </>
-            ) : (
-              <>
-                <AlertTitle>Retained resources remain in the customer AWS account</AlertTitle>
-                <AlertDescription>
-                  The database, its credentials, the stored files and the Deployz connector stay
-                  until you purge them, and may continue to generate AWS charges.
-                </AlertDescription>
-              </>
-            )}
-          </Alert>
-          <PurgeRetainedResources
-            deploymentId={detail.id}
-            applicationName={detail.applicationName}
-            onChanged={onChanged}
-          />
-        </div>
-      ) : null}
-
-      {detail.state === 'DELETED' && detail.cleanupState === 'COMPLETE' && detail.bootstrapStackName ? (
-        <Alert>
-          <AlertTriangle aria-hidden />
-          <AlertTitle>The Deployz connector is still installed in the customer AWS account</AlertTitle>
-          <AlertDescription>
-            Deployz removed everything it created for this deployment. The connector stack{' '}
-            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-              {detail.bootstrapStackName}
-            </code>{' '}
-            was created by your customer, so only they can delete it — ask them to delete that
-            stack in CloudFormation. Their install link shows the same step.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <section aria-labelledby="actions" className="flex flex-col gap-3">
-        <h2 id="actions" className="sr-only">
-          Actions
-        </h2>
-        <DeploymentActions
-          detail={detail}
-          releases={releases}
-          previousVersion={previousVersion}
-          infrastructure={infrastructure}
-          onChanged={onChanged}
-        />
-      </section>
-
       <section aria-labelledby="deployment-progress" className="flex flex-col gap-3">
-        <h2 id="deployment-progress" className="text-base font-semibold">
-          Deployment progress
+        <h2 id="deployment-progress" className="sr-only">
+          Deployment status
         </h2>
-        <DeploymentProgressCard status={detail.deploymentStatus} deploymentState={detail.state} />
-      </section>
-
-      <InfrastructureEvents deploymentId={detail.id} stage={detail.deploymentStatus.stage} />
-
-      {detail.state === 'DELETING' ? (
-        <DisconnectStatusPanel
+        <DeploymentHero
           detail={detail}
-          infrastructure={infrastructure}
-          onChanged={onChanged}
-        />
-      ) : null}
+          hero={hero}
+          actions={
+            <DeploymentActions
+              detail={detail}
+              hero={hero}
+              releases={releases}
+              previousVersion={previousVersion}
+              infrastructure={inventory}
+              onChanged={onChanged}
+            />
+          }
+        >
+          {detail.state === 'DELETING' ? (
+            <DisconnectStatusPanel
+              detail={detail}
+              infrastructure={inventory}
+              onChanged={onChanged}
+            />
+          ) : null}
+          {detail.state === 'DELETED' ? (
+            <RemovedDeploymentNotes detail={detail} onChanged={onChanged} />
+          ) : null}
+        </DeploymentHero>
+      </section>
 
       {detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY' ? (
         <InstallLinkCard detail={detail} />
       ) : null}
 
-      {/* Stacked sections rather than tabs: everything a vendor debugging a
-          deployment needs stays visible without an extra click, and the
-          committed E2E contract reads this page as one scroll. */}
-      <section aria-labelledby="overview" className="flex flex-col gap-3">
-        <h2 id="overview" className="text-base font-semibold">
-          Overview
-        </h2>
-        <Card>
-          <CardContent className="flex flex-col gap-3 py-4">
-            {detail.appUrl ? <AppUrlRow url={detail.appUrl} /> : null}
-            <MetaRow label="AWS account" value={detail.awsAccountId ?? 'Not connected yet'} />
-            <MetaRow label="Region" value={detail.region} />
-            <MetaRow label="Version" value={detail.version ?? 'Not deployed yet'} />
-            <MetaRow
-              label="Created"
-              value={new Date(detail.createdAt).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-            />
-          </CardContent>
-        </Card>
-      </section>
-
-      <DomainSection detail={detail} />
+      <DeploymentMetadata detail={detail} />
 
       <section aria-labelledby="infrastructure" className="flex flex-col gap-3">
         <h2 id="infrastructure" className="text-base font-semibold">
           Infrastructure
         </h2>
-        {showInfrastructureRows(detail.state, detail.currentReleaseId) || detail.state === 'DELETED' ? (
-          <>
-            <InfrastructureSection
-              data={infrastructure}
-              deploymentId={detail.id}
-              deploymentState={detail.state}
-            />
-            <RelayRow status={detail.relayStatus} lastContact={relativeTime(detail.lastHealthAt)} />
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {detail.state === 'NOT_INSTALLED'
-              ? 'This deployment has not been installed yet.'
-              : detail.state === 'FAILED'
-                ? "This deployment isn't running, so there's nothing to report."
-                : 'This deployment has been removed.'}
-          </p>
-        )}
-        <AwsDetails detail={detail} />
+        <InfrastructureSummary
+          detail={detail}
+          infrastructure={inventory}
+          infrastructureError={infrastructure.status === 'error'}
+        />
       </section>
 
       <section aria-labelledby="activity" className="flex flex-col gap-3">
         <h2 id="activity" className="text-base font-semibold">
           Recent activity
         </h2>
-        <ActivityFeed events={events} />
+        {events === null ? (
+          <p className="text-sm text-muted-foreground">
+            Activity is unavailable right now. It refreshes automatically.
+          </p>
+        ) : (
+          <ActivityFeed events={events} />
+        )}
       </section>
+
+      <AdvancedDetails detail={detail} infrastructure={inventory} />
     </>
   );
 }
 
-function RelayRow({ status, lastContact }: { status: RelayStatus; lastContact: string | null }) {
-  return (
-    <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-      <span className={`size-2 shrink-0 rounded-full ${RELAY_DOT[status]}`} aria-hidden />
-      <span className="text-sm font-medium">Deployz Relay</span>
-      <span className="ml-auto text-sm text-muted-foreground">
-        {lastContact ? `${RELAY_STATUS_LABEL[status]} · ${lastContact}` : RELAY_STATUS_LABEL[status]}
-      </span>
-    </li>
-  );
-}
+/**
+ * Compact vendor-level facts. The AWS account, stack status and version
+ * identifiers live under Advanced details — nothing here needs AWS knowledge.
+ */
+function DeploymentMetadata({ detail }: { detail: FleetDeploymentDetail }) {
+  const created = new Date(detail.createdAt);
+  const domain = detail.customDomain;
 
-// §25 — implementation detail progressively disclosed under "AWS details".
-// Nothing here is required reading; the product-level rows above carry the
-// state that matters.
-function AwsDetails({ detail }: { detail: FleetDeploymentDetail }) {
   return (
-    <Collapsible>
-      <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">
-        AWS details
-        <ChevronDown
-          aria-hidden
-          className="size-4 transition-transform group-data-[state=open]:rotate-180"
+    <section aria-labelledby="overview" className="flex flex-col gap-3">
+      <h2 id="overview" className="sr-only">
+        Overview
+      </h2>
+      <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <MetaRow label="Customer" value={detail.customerName} />
+        <MetaRow label="Region" value={REGION_LABELS[detail.region as Region] ?? detail.region} />
+        <MetaRow
+          label="Release"
+          value={detail.version ? <span className="tabular-nums">v{detail.version}</span> : 'Not deployed yet'}
         />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <Card className="mt-2">
-          <CardContent className="flex flex-col gap-2 py-4">
-            <MetaRow label="AWS account" value={detail.awsAccountId ?? 'Not connected yet'} />
-            <MetaRow label="Region" value={detail.region} />
-            {detail.infraVersion ? (
-              <MetaRow label="Infrastructure version" value={detail.infraVersion} />
-            ) : null}
-          </CardContent>
-        </Card>
-      </CollapsibleContent>
-    </Collapsible>
+        <MetaRow
+          label="Created"
+          value={
+            <time dateTime={detail.createdAt} title={created.toLocaleString()}>
+              {created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </time>
+          }
+        />
+        {detail.appUrl ? <AppUrlRow url={detail.appUrl} /> : null}
+        <div className="flex min-w-0 flex-col gap-0.5 sm:col-span-2">
+          <dt className="text-muted-foreground">Custom domain</dt>
+          <dd className="flex min-w-0 flex-wrap items-center gap-2">
+            {domain ? (
+              <>
+                <span className="min-w-0 truncate font-medium">{domain.hostname}</span>
+                <Badge variant={domain.status === 'error' ? 'destructive' : 'secondary'}>
+                  {DOMAIN_STATUS_LABEL[domain.status]}
+                </Badge>
+              </>
+            ) : (
+              <span className="text-muted-foreground">None</span>
+            )}
+            <Link
+              href={`/install/${detail.installLinkId}`}
+              className="inline-flex items-center gap-1 rounded-md text-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              {domain ? 'Manage →' : 'Add domain →'}
+            </Link>
+          </dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
-// §24 the five required actions. Day-2 actions are gated on the installed
-// relay advertising the matching capability — an enabled button over a stub
-// executor would report success having done nothing.
+// Implementation detail progressively disclosed — nothing here is required
+// reading; the hero and metadata above carry the state that matters. The raw
+// CloudFormation event feed lives here too, as the diagnostics-grade
+// complement to the hero's derived step list.
+function AdvancedDetails({
+  detail,
+  infrastructure,
+}: {
+  detail: FleetDeploymentDetail;
+  infrastructure: InfrastructureResponse | null;
+}) {
+  const status = detail.deploymentStatus;
+  return (
+    <section aria-labelledby="advanced" className="flex flex-col gap-3">
+      <Collapsible>
+        <CollapsibleTrigger
+          id="advanced"
+          className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          Advanced details
+          <ChevronDown
+            aria-hidden
+            className="size-4 transition-transform group-data-[state=open]:rotate-180"
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="flex flex-col gap-3 pt-3">
+          <Card>
+            <CardContent>
+              <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+                <MetaRow label="AWS account" value={detail.awsAccountId ?? 'Not connected yet'} />
+                <MetaRow label="AWS region" value={detail.region} />
+                <MetaRow label="Infrastructure version" value={detail.infraVersion} />
+                {detail.relayVersion ? (
+                  <MetaRow label="Connector version" value={detail.relayVersion} />
+                ) : null}
+                {detail.bootstrapStackName ? (
+                  <MetaRow label="Connector stack" value={<Mono>{detail.bootstrapStackName}</Mono>} />
+                ) : null}
+                <MetaRow
+                  label="Stack status"
+                  value={
+                    status.aws.stackStatus ?? infrastructure?.stackStatus ? (
+                      <Mono>{status.aws.stackStatus ?? infrastructure?.stackStatus}</Mono>
+                    ) : (
+                      '—'
+                    )
+                  }
+                />
+                {status.job ? (
+                  <MetaRow
+                    label="Latest job"
+                    value={`${JOB_TYPE_LABEL[status.job.type]} · ${JOB_STATE_LABEL[status.job.status]}`}
+                  />
+                ) : null}
+                {status.failure?.awsStatus ? (
+                  <MetaRow label="Failure status" value={<Mono>{status.failure.awsStatus}</Mono>} />
+                ) : null}
+                <MetaRow
+                  label="Relay"
+                  value={
+                    <span data-testid="status-updated">
+                      {RELAY_STATUS_LABEL[detail.relayStatus]}
+                      {relativeTime(detail.lastHealthAt) ? ` · ${relativeTime(detail.lastHealthAt)}` : ''}
+                    </span>
+                  }
+                />
+                <MetaRow label="Deployment ID" value={<Mono>{detail.id}</Mono>} />
+              </dl>
+            </CardContent>
+          </Card>
+          <InfrastructureEvents deploymentId={detail.id} stage={status.stage} />
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
+  );
+}
+
+function Mono({ children }: { children: ReactNode }) {
+  return (
+    <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{children}</code>
+  );
+}
+
+// The contextual action row. Day-2 actions are gated on the installed relay
+// advertising the matching capability — an enabled button over a stub
+// executor would report success having done nothing — and on the deployment
+// having ever completed an install (a relay can connect and advertise
+// capabilities before that happens). Disconnect is exempt from the second
+// gate: a deployment that failed to ever come up must still be removable.
+// Rare and destructive actions live behind "More actions" so they never
+// compete with the one thing the vendor should do next.
 function DeploymentActions({
   detail,
+  hero,
   releases,
   previousVersion,
   infrastructure,
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
+  hero: HeroModel;
   releases: Release[];
   previousVersion: string | null;
   infrastructure: InfrastructureResponse | null;
@@ -469,106 +546,149 @@ function DeploymentActions({
     'deploy' | 'rollback' | 'restart' | 'disconnect' | 'retryInstall' | null
   >(null);
   const capabilities: RelayCapabilities | null = detail.relayCapabilities;
-  // §24: deploy/rollback/restart/config all act on a running application, so
-  // they are gated on TWO independent signals — the relay-reported
-  // capability, and whether this deployment has ever completed an install
-  // (a relay can connect and advertise capabilities before that happens).
-  // Disconnect is exempt from the second gate: a deployment that failed to
-  // ever come up must still be removable.
-  const everRan = everInstalled(detail.state, detail.currentReleaseId);
+  // Day-2 actions act on a running application: nothing to act on before
+  // the first install has completed (an install in flight included).
+  const everRan =
+    everInstalled(detail.state, detail.currentReleaseId) &&
+    !INSTALL_STAGES.has(detail.deploymentStatus.stage);
   // A pending DESTROY owns the deployment: every other mutating action
-  // targets a stack that is about to disappear underneath it.
+  // targets a stack that is about to disappear underneath it. A running
+  // update owns it the same way (the API answers DEPLOYMENT_BUSY).
   const disconnecting = detail.state === 'DELETING';
-  const canDeploy = everRan && !disconnecting && actionSupported(capabilities, 'deploy');
-  const canRollback = everRan && !disconnecting && actionSupported(capabilities, 'rollback');
-  const canRestart = everRan && !disconnecting && actionSupported(capabilities, 'restart');
-  const canConfig = everRan && !disconnecting && actionSupported(capabilities, 'configUpdate');
-  const canDisconnect = !disconnecting && actionSupported(capabilities, 'disconnect');
+  const removed = detail.state === 'DELETED';
+  // The API refuses a second mutating operation while one is running
+  // (requireDeploymentIdle), disconnect included — so every action here is
+  // gated on the same signal rather than on the lifecycle state alone.
+  const busy = operationInFlight(detail.jobs) !== null;
+  const available = everRan && !disconnecting && !busy && !removed;
+  const canDeploy = available && actionSupported(capabilities, 'deploy');
+  const canRollback = available && actionSupported(capabilities, 'rollback');
+  const canRestart = available && actionSupported(capabilities, 'restart');
+  const canConfig = available && actionSupported(capabilities, 'configUpdate');
+  const canDisconnect =
+    !disconnecting && !removed && !busy && actionSupported(capabilities, 'disconnect');
   // Recovery for a failed FIRST install: the API refuses it once any install
   // has succeeded, so it is offered exactly where the day-2 actions are not.
   const canRetryInstall = detail.state === 'FAILED' && !everRan;
   const anyCapabilityGatedOff =
-    everRan && !disconnecting && (!canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect);
+    available &&
+    (!actionSupported(capabilities, 'deploy') ||
+      !actionSupported(capabilities, 'rollback') ||
+      !actionSupported(capabilities, 'restart') ||
+      !actionSupported(capabilities, 'configUpdate') ||
+      !actionSupported(capabilities, 'disconnect'));
   const actionsUnavailable = actionsUnavailableReason({
     state: detail.state,
     everRan,
+    busy,
     anyCapabilityGatedOff,
   });
   const hasPreviousRelease = detail.previousReleaseId !== null;
+  const deployIsPrimary =
+    detail.state === 'UPDATE_AVAILABLE' || hero.kind === 'operation-failed';
+
+  if (removed) {
+    return (
+      <section aria-labelledby="actions" className="flex flex-col gap-3">
+        <h2 id="actions" className="sr-only">
+          Actions
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>View Diagnostics</Link>
+          </Button>
+        </div>
+      </section>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-3">
+    <section aria-labelledby="actions" className="flex flex-col gap-2">
+      <h2 id="actions" className="sr-only">
+        Actions
+      </h2>
       <div className="flex flex-wrap items-center gap-2">
-        {detail.appUrl ? (
-          <Button asChild size="sm" variant="outline">
-            <a href={detail.appUrl} target="_blank" rel="noreferrer">
-              Open app
-              <ExternalLink aria-hidden />
-            </a>
+        {canRetryInstall ? (
+          <Button size="sm" onClick={() => setOpen(open === 'retryInstall' ? null : 'retryInstall')}>
+            Retry deployment
           </Button>
         ) : null}
-        <Button
-          size="sm"
-          disabled={!canDeploy}
-          onClick={() => setOpen(open === 'deploy' ? null : 'deploy')}
-        >
-          Deploy Update
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!canRollback || !hasPreviousRelease}
-          onClick={() => setOpen(open === 'rollback' ? null : 'rollback')}
-        >
-          Rollback
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!canRestart}
-          onClick={() => setOpen(open === 'restart' ? null : 'restart')}
-        >
-          Restart
-        </Button>
+        {hero.kind === 'removal-failed' ? (
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={!canDisconnect}
+            onClick={() => setOpen('disconnect')}
+          >
+            Retry removal
+          </Button>
+        ) : null}
+        {everRan ? (
+          <Button
+            size="sm"
+            variant={deployIsPrimary ? 'default' : 'outline'}
+            disabled={!canDeploy}
+            onClick={() => setOpen(open === 'deploy' ? null : 'deploy')}
+          >
+            Deploy Update
+          </Button>
+        ) : null}
         <Button asChild size="sm" variant="outline">
           <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>View Diagnostics</Link>
         </Button>
-        {canConfig ? (
-          <Button asChild size="sm" variant="outline">
-            <Link
-              href={`/dashboard/applications/${detail.applicationId}/config?customer=${detail.customerId}`}
-            >
+        {everRan ? (
+          canConfig ? (
+            <Button asChild size="sm" variant="outline">
+              <Link
+                href={`/dashboard/applications/${detail.applicationId}/config?customer=${detail.customerId}`}
+              >
+                Configuration
+              </Link>
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" disabled>
               Configuration
-            </Link>
-          </Button>
-        ) : (
-          <Button size="sm" variant="outline" disabled>
-            Configuration
-          </Button>
-        )}
-        {canRetryInstall ? (
-          <Button
-            size="sm"
-            onClick={() => setOpen(open === 'retryInstall' ? null : 'retryInstall')}
-          >
-            Retry Install
-          </Button>
+            </Button>
+          )
         ) : null}
-        <Button
-          size="sm"
-          variant="destructive"
-          disabled={!canDisconnect}
-          onClick={() => setOpen(open === 'disconnect' ? null : 'disconnect')}
-        >
-          Disconnect Deployment
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="icon-sm" variant="outline" aria-label="More actions" className="ml-auto">
+              <MoreHorizontal aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            {everRan ? (
+              <>
+                <DropdownMenuItem disabled={!canRestart} onSelect={() => setOpen('restart')}>
+                  Restart
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canRollback || !hasPreviousRelease}
+                  onSelect={() => setOpen('rollback')}
+                  className="flex-col items-start gap-0"
+                >
+                  <span>Rollback{previousVersion ? ` to v${previousVersion}` : ''}</span>
+                  {!hasPreviousRelease ? (
+                    <span className="text-xs text-muted-foreground">{NO_PREVIOUS_RELEASE_COPY}</span>
+                  ) : null}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            ) : null}
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={!canDisconnect}
+              onSelect={() => setOpen('disconnect')}
+            >
+              Disconnect Deployment
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {actionsUnavailable ? (
-        <p className="text-sm text-muted-foreground">{actionsUnavailable}</p>
-      ) : null}
-      {!hasPreviousRelease ? (
-        <p className="text-sm text-muted-foreground">{NO_PREVIOUS_RELEASE_COPY}</p>
+        <p className="text-xs text-muted-foreground">{actionsUnavailable}</p>
       ) : null}
 
       <DeployUpdateDialog
@@ -631,7 +751,7 @@ function DeploymentActions({
         }}
         onCancel={() => setOpen(null)}
       />
-    </div>
+    </section>
   );
 }
 
@@ -933,7 +1053,7 @@ function RetryInstallDialog({
     <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
       <AlertDialogContent data-testid="retry-install-panel">
         <AlertDialogHeader>
-          <AlertDialogTitle>Retry installing {applicationName}?</AlertDialogTitle>
+          <AlertDialogTitle>Retry deploying {applicationName}?</AlertDialogTitle>
           <AlertDialogDescription>
             The failed infrastructure from the previous attempt is removed from the
             customer&apos;s account first, then the install runs again. Nothing from this
@@ -966,7 +1086,7 @@ function RetryInstallDialog({
               void onConfirm();
             }}
           >
-            {pending ? 'Starting…' : 'Retry install'}
+            {pending ? 'Starting…' : 'Retry deployment'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -975,11 +1095,11 @@ function RetryInstallDialog({
 }
 
 // P1 dead-relay disconnect: while a DESTROY is pending, the disconnect owns
-// this deployment — the panel keeps its status, the relay's state and last
-// contact visible. When the relay is confirmed offline and the DESTROY has
-// been pending past the shared threshold, the vendor can settle the
-// control-plane side alone. That never claims the AWS resources were
-// removed — the warning at the top of the page stays until a purge runs.
+// this deployment — the hero keeps the relay's state, last contact and the
+// per-service removal progress visible. When the relay is confirmed offline
+// and the DESTROY has been pending past the shared threshold, the vendor can
+// settle the control-plane side alone. That never claims the AWS resources
+// were removed — the retained-resources note stays until a purge runs.
 function DisconnectStatusPanel({
   detail,
   infrastructure,
@@ -1022,53 +1142,46 @@ function DisconnectStatusPanel({
   }
 
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-3 py-4">
-        <div>
-          <p className="text-sm font-medium">Disconnect in progress</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Deployz is waiting for the relay to remove the AWS resources.
-          </p>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {lastContact
-            ? `${RELAY_STATUS_LABEL[detail.relayStatus]} · ${lastContact}`
-            : RELAY_STATUS_LABEL[detail.relayStatus]}
-        </p>
-        {infrastructure ? (
-          <ul className="flex flex-col gap-2">
-            {infrastructure.components.map((component) => (
-              <li
-                key={component.kind}
-                className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
-              >
-                <span className="font-medium">{component.name}</span>
-                <span className="text-muted-foreground">
-                  {disconnectStatusLabel(component.lifecycle)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {forceCompleteEligible ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-destructive/50 p-4">
-            <p className="text-sm font-medium">Relay is offline.</p>
-            <p className="text-sm text-muted-foreground">
-              Deployz cannot verify or remove resources in the customer AWS account.
-            </p>
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={pending}
-              onClick={() => void onForceComplete()}
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        {lastContact
+          ? `${RELAY_STATUS_LABEL[detail.relayStatus]} · ${lastContact}`
+          : RELAY_STATUS_LABEL[detail.relayStatus]}
+      </p>
+      {infrastructure ? (
+        <ul className="flex flex-col divide-y rounded-lg border text-sm">
+          {infrastructure.components.map((component) => (
+            <li
+              key={component.kind}
+              className="flex items-center justify-between gap-3 px-3 py-2"
             >
-              {pending ? 'Completing…' : 'Complete disconnect anyway'}
-            </Button>
-          </div>
-        ) : null}
-        <OperationError error={error} />
-      </CardContent>
-    </Card>
+              <span className="font-medium">{component.name}</span>
+              <span className="text-muted-foreground">
+                {disconnectStatusLabel(component.lifecycle)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {forceCompleteEligible ? (
+        <div className="flex flex-col gap-3 rounded-lg border border-destructive/50 p-4">
+          <p className="text-sm font-medium">Relay is offline.</p>
+          <p className="text-sm text-muted-foreground">
+            Deployz cannot verify or remove resources in the customer AWS account.
+          </p>
+          <Button
+            size="sm"
+            variant="destructive"
+            className="self-start"
+            disabled={pending}
+            onClick={() => void onForceComplete()}
+          >
+            {pending ? 'Completing…' : 'Complete disconnect anyway'}
+          </Button>
+        </div>
+      ) : null}
+      <OperationError error={error} />
+    </div>
   );
 }
 
@@ -1077,6 +1190,66 @@ function disconnectStatusLabel(lifecycle: 'delete' | 'retain' | 'snapshot' | 'co
   if (lifecycle === 'retain') return 'Retained';
   if (lifecycle === 'snapshot') return 'Snapshot retained';
   return 'Retained conditionally';
+}
+
+/** What a removed deployment left behind, and the one action that clears it. */
+function RemovedDeploymentNotes({
+  detail,
+  onChanged,
+}: {
+  detail: FleetDeploymentDetail;
+  onChanged: () => void;
+}) {
+  if (detail.cleanupState !== 'COMPLETE') {
+    return (
+      <div className="flex flex-col gap-3">
+        <Alert>
+          <AlertTriangle aria-hidden />
+          {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED' ? (
+            <>
+              <AlertTitle>Resources may remain in the customer AWS account</AlertTitle>
+              <AlertDescription>
+                AWS resources may still exist because the Deployz Relay was offline during
+                disconnect.
+              </AlertDescription>
+            </>
+          ) : (
+            <>
+              <AlertTitle>Retained resources remain in the customer AWS account</AlertTitle>
+              <AlertDescription>
+                The database, its credentials, the stored files and the Deployz connector stay
+                until you purge them, and may continue to generate AWS charges.
+              </AlertDescription>
+            </>
+          )}
+        </Alert>
+        <PurgeRetainedResources
+          deploymentId={detail.id}
+          applicationName={detail.applicationName}
+          onChanged={onChanged}
+        />
+      </div>
+    );
+  }
+
+  if (detail.bootstrapStackName) {
+    return (
+      <Alert>
+        <AlertTriangle aria-hidden />
+        <AlertTitle>The Deployz connector is still installed in the customer AWS account</AlertTitle>
+        <AlertDescription>
+          Deployz removed everything it created for this deployment. The connector stack{' '}
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+            {detail.bootstrapStackName}
+          </code>{' '}
+          was created by your customer, so only they can delete it — ask them to delete that
+          stack in CloudFormation. Their install link shows the same step.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  return null;
 }
 
 // P2 purge: the explicit destructive action for resources a force-completed
@@ -1289,9 +1462,9 @@ function DisconnectDialog({
 
 function MetaRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium">{value}</dd>
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words font-medium">{value}</dd>
     </div>
   );
 }
@@ -1311,19 +1484,19 @@ function AppUrlRow({ url }: { url: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
-      <dt className="text-sm text-muted-foreground">URL</dt>
-      <dd className="flex items-center gap-2">
+    <div className="flex min-w-0 flex-col gap-0.5 sm:col-span-2">
+      <dt className="text-muted-foreground">URL</dt>
+      <dd className="flex min-w-0 items-center gap-2">
         <a
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+          className="inline-flex min-w-0 items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
         >
-          {url}
-          <ExternalLink aria-hidden className="size-3.5" />
+          <span className="truncate">{url}</span>
+          <ExternalLink aria-hidden className="size-3.5 shrink-0" />
         </a>
-        <Button type="button" size="sm" variant="outline" onClick={copy}>
+        <Button type="button" size="xs" variant="outline" onClick={copy}>
           {copied ? 'Copied' : 'Copy'}
         </Button>
       </dd>
@@ -1338,8 +1511,14 @@ function DetailSkeleton() {
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-4 w-40" />
       </div>
-      <Skeleton className="h-10 w-full rounded-xl" />
-      <Skeleton className="h-48 w-full rounded-xl" />
+      <Skeleton className="h-44 w-full rounded-xl" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+      <Skeleton className="h-32 w-full rounded-xl" />
     </div>
   );
 }
@@ -1431,43 +1610,6 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
               {error}
             </p>
           ) : null}
-        </CardContent>
-      </Card>
-    </section>
-  );
-}
-
-// §8.1 — domain management lives IN the dashboard, but through the install
-// page's manage view: this section is the compact summary (hostname, status,
-// Manage link) — add/check/remove happen where the full card already lives.
-function DomainSection({ detail }: { detail: FleetDeploymentDetail }) {
-  const domain = detail.customDomain;
-
-  return (
-    <section aria-labelledby="custom-domain" className="flex flex-col gap-3">
-      <h2 id="custom-domain" className="text-base font-semibold">
-        Custom domain
-      </h2>
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-3 py-4">
-          {domain ? (
-            <>
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">
-                {domain.hostname}
-              </code>
-              <Badge variant={domain.status === 'error' ? 'destructive' : 'secondary'}>
-                {DOMAIN_STATUS_LABEL[domain.status]}
-              </Badge>
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground">No custom domain.</span>
-          )}
-          <Link
-            href={`/install/${detail.installLinkId}`}
-            className="ml-auto inline-flex items-center gap-1 rounded-md text-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            Manage →
-          </Link>
         </CardContent>
       </Card>
     </section>

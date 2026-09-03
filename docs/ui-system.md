@@ -54,6 +54,39 @@ feature/domain components only where repeated logic justifies them
 - Never communicate state by color alone — pair color with label text (and
   icon/dot where the badge carries one).
 
+## Deployment detail
+
+The vendor deployment detail page (`app/dashboard/deployments/[id]`) is a
+status page, not a console. Top to bottom:
+
+1. Compact header — breadcrumb, application name, status/health badges,
+   customer and running version on one muted line.
+2. `DeploymentHero` — one state-aware card whose headline is the page's only
+   `aria-live` element. The words come from `lib/deployment-hero.ts`
+   (`deriveHero`), which only chooses copy for what the API already derived
+   (`state`, `deploymentStatus`, `jobs`). A failed day-2 operation reads
+   "Update failed … Release vX is still live and unaffected", never as the
+   deployment being down; DELETING is "Removing this deployment", never
+   failed. The install step list (first → last) shows only while an install
+   is in flight or failed; the live URL block shows once the app is reachable.
+3. Contextual actions in the hero footer — one primary action per state
+   (Open application / Deploy Update / Retry deployment), Diagnostics and
+   Configuration as outline buttons, and Restart / Rollback / Disconnect
+   behind a "More actions" menu. Day-2 actions are not rendered before an
+   install has completed.
+4. Compact metadata `dl` (customer, region label, release, created, URL,
+   custom domain). AWS account, stack status and version identifiers live
+   under the collapsed "Advanced details" at the bottom, together with the
+   raw CloudFormation event feed.
+5. `InfrastructureSummary` — one row per service with a plain-English
+   status; services the application does not need read "Not required". The
+   resource-level inventory (`InfrastructureSection`) opens from
+   "View N resources".
+6. Recent activity — newest first, five rows by default, "View full
+   activity" for the rest. The classified failure's plain-English summary is
+   the only failure text at the top level; the relay's raw error stays inside
+   the row's disclosure.
+
 ## Typography
 
 | Level | Classes |

@@ -154,8 +154,12 @@ test.describe('scenario-ui browser suite', () => {
     // CloudFormation event feed behind its own disclosure.
     await page.goto(`/dashboard/deployments/${deploymentId}`);
     await expect(page.getByText('Healthy', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+    // Still VERIFYING on the wire (HTTP-only), but the app is confirmed
+    // healthy and reachable, so the vendor hero reads as live and carries
+    // the address.
     const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-    await expect(progressCard.locator('p[aria-live="polite"]')).toHaveText('Verifying');
+    await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Your application is live');
+    await expect(progressCard.getByRole('link', { name: 'Open application' })).toBeVisible();
 
     const infraSection = page.locator('section[aria-labelledby="infrastructure"]');
     await expect(infraSection.getByText('Application', { exact: true })).toBeVisible({ timeout: 15_000 });
@@ -164,7 +168,9 @@ test.describe('scenario-ui browser suite', () => {
     await expect(infraSection.getByText('Secure endpoint', { exact: true })).toBeVisible();
 
     // Infrastructure events: the raw CFN feed, default-collapsed (§ raw-
-    // diagnostics surface — docs/ui-system.md), behind its own disclosure.
+    // diagnostics surface — docs/ui-system.md), behind its own disclosure
+    // inside the collapsed Advanced details section.
+    await page.getByRole('button', { name: 'Advanced details' }).click();
     const eventsTrigger = page.getByRole('button', { name: /Infrastructure events/ });
     await expect(eventsTrigger).toBeVisible();
     await eventsTrigger.click();
@@ -253,7 +259,7 @@ test.describe('cloudformation-rollback (browser)', () => {
     // ── Vendor detail page.
     await page.goto(`/dashboard/deployments/${deploymentId}`);
     const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-    await expect(progressCard.locator('p[aria-live="polite"]')).toHaveText('Needs attention', {
+    await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Deployment failed', {
       timeout: 15_000,
     });
     // §29 human-readable failure copy (packages/copy-map), not raw AWS jargon
@@ -284,27 +290,26 @@ test.describe('cloudformation-rollback (browser)', () => {
       expect(sectionText).not.toMatch(JARGON);
     }
 
-    // A failed, never-installed deployment: Retry Install is the offered
-    // recovery, day-2 actions are gated off (nothing ever ran), and
-    // Disconnect stays available — the relay registered and reported its
-    // capabilities before the install itself failed, so it is not gated on
-    // having ever completed one (see `everInstalled`/`actionSupported` in
-    // apps/web/src/lib/deployment-vocabulary.ts). Scoped to the Actions
-    // section: Playwright's role-name matching is a case-insensitive
-    // substring match, and the raw CFN failure text surfaced in the Recent
-    // Activity feed below (see the jargon-leak finding above) happens to
-    // contain "Rollback" (from "ROLLBACK_COMPLETE"), which would otherwise
-    // also match an unscoped `getByRole('button', { name: 'Rollback' })`.
+    // A failed, never-installed deployment: Retry deployment is the one
+    // primary action, day-2 actions are not offered at all (nothing ever
+    // ran), and Disconnect stays available in the overflow menu — the relay
+    // registered and reported its capabilities before the install itself
+    // failed, so it is not gated on having ever completed one (see
+    // `everInstalled`/`actionSupported` in
+    // apps/web/src/lib/deployment-vocabulary.ts).
     const actionsSection = page.locator('section[aria-labelledby="actions"]');
-    await expect(actionsSection.getByRole('button', { name: 'Retry Install' })).toBeEnabled();
-    await expect(actionsSection.getByRole('button', { name: 'Deploy Update' })).toBeDisabled();
-    await expect(actionsSection.getByRole('button', { name: 'Rollback' })).toBeDisabled();
-    await expect(actionsSection.getByRole('button', { name: 'Restart' })).toBeDisabled();
-    await expect(actionsSection.getByRole('button', { name: 'Configuration' })).toBeDisabled();
-    await expect(actionsSection.getByRole('button', { name: 'Disconnect Deployment' })).toBeEnabled();
-    await expect(
-      page.getByText("This deployment hasn't completed an install yet, so these actions aren't available."),
-    ).toBeVisible();
+    await expect(actionsSection.getByRole('button', { name: 'Retry deployment' })).toBeEnabled();
+    await expect(actionsSection.getByRole('button', { name: 'Deploy Update' })).toHaveCount(0);
+    await expect(actionsSection.getByRole('button', { name: 'Configuration' })).toHaveCount(0);
+    await actionsSection.getByRole('button', { name: 'More actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Rollback' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Restart' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'Disconnect Deployment' })).toBeEnabled();
+    await page.keyboard.press('Escape');
+    // The activity feed's top level is jargon-free too: the classified
+    // failure's plain-English summary, never the relay's raw error string.
+    const activitySection = page.locator('section[aria-labelledby="activity"]');
+    expect(await activitySection.innerText()).not.toMatch(JARGON);
 
     // Infrastructure: honestly nothing to report — this deployment never ran.
     await expect(
@@ -434,21 +439,21 @@ test.describe('update-failure then rollback-success (browser)', () => {
     expect(afterV2.currentReleaseId).not.toBe(v2ReleaseId);
 
     // ── The vendor page reflects the failed update honestly WITHOUT
-    // presenting the deployment as down: the progress card surfaces the
-    // classified ECS rollout failure while the stage stays live, and the
-    // release pointer never advanced past the last release that actually
-    // deployed (v1) — visible in the Overview section's Version row.
+    // presenting the deployment as down: the hero names the failed update,
+    // says the running release is unaffected, and the release pointer never
+    // advanced past the last release that actually deployed (v1).
     await page.reload();
     const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-    await expect(progressCard.locator('p[aria-live="polite"]')).not.toHaveText('Needs attention', {
+    await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Update failed', {
       timeout: 15_000,
     });
-    // (Same double-render reasoning as the cloudformation-rollback test's
-    // failure-message assertion above — `.first()`.)
     await expect(
-      page.getByText('The new version could not be rolled out.').first(),
+      progressCard.getByText('The new version could not be rolled out.'),
     ).toBeVisible();
-    await expect(page.getByText('v1.0.0')).toBeVisible();
+    await expect(
+      progressCard.getByText('Release v1.0.0 is still live and unaffected.'),
+    ).toBeVisible();
+    await expect(page.getByText('v1.0.0', { exact: true }).first()).toBeVisible();
 
     // The Rollback button targets `previousReleaseId` — production's own
     // "roll back one step" semantics — which stays null here because v2's
@@ -460,10 +465,11 @@ test.describe('update-failure then rollback-success (browser)', () => {
     // limitation, so this test falls back to the API (as
     // scenario-lifecycle.spec.ts's rollback-success test does) for the
     // rollback itself, after first pinning the honest disabled state.
-    await expect(actionsSection.getByRole('button', { name: 'Rollback' })).toBeDisabled();
-    await expect(
-      page.getByText('No previous successful release to roll back to.'),
-    ).toBeVisible();
+    await actionsSection.getByRole('button', { name: 'More actions' }).click();
+    const rollbackItem = page.getByRole('menuitem', { name: /Rollback/ });
+    await expect(rollbackItem).toBeDisabled();
+    await expect(rollbackItem).toContainText('No previous successful release to roll back to.');
+    await page.keyboard.press('Escape');
 
     const rollbackResponse = await request.post(`${API_URL}/api/deployments/${deploymentId}/rollback`, {
       data: { releaseId: v1ReleaseId },
@@ -487,9 +493,9 @@ test.describe('update-failure then rollback-success (browser)', () => {
     // ── The vendor page shows healthy again.
     await page.reload();
     await expect(page.getByText('Healthy', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
-    await expect(progressCard.locator('p[aria-live="polite"]')).not.toHaveText('Needs attention');
+    await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Your application is live');
     await expect(page.getByText('The new version could not be rolled out.')).toHaveCount(0);
-    await expect(page.getByText('v1.0.0')).toBeVisible();
+    await expect(page.getByText('v1.0.0', { exact: true }).first()).toBeVisible();
     const afterRollback = await getDeployment(page, deploymentId);
     expect(afterRollback.state).toBe('HEALTHY');
     expect(afterRollback.currentReleaseId).toBe(v1ReleaseId);
