@@ -6,6 +6,8 @@ import {
   isTerminalStage,
   removedProgress,
   stageRank,
+  stepWaitingOnInput,
+  AWAITING_DOMAIN_STEP_DETAIL,
   stepsFromStatus,
   type ProgressStepState,
 } from '../src/lib/deployment-progress';
@@ -202,5 +204,27 @@ describe('removedProgress', () => {
     for (const state of ['NOT_INSTALLED', 'WAITING_FOR_RELAY', 'INSTALLING', 'HEALTHY', 'UPDATE_AVAILABLE', 'FAILED']) {
       expect(removedProgress(state)).toBeNull();
     }
+  });
+});
+
+// HTTPS is the one step Deployz cannot finish on its own. The canary watched
+// "Setting up HTTPS (in progress)" count past an hour on a healthy
+// deployment that was simply waiting for a domain.
+describe('stepWaitingOnInput', () => {
+  it('is true only for the HTTPS step while a domain is still needed', () => {
+    expect(stepWaitingOnInput({ step: 'TLS', needsDomainSetup: true })).toBe(true);
+    expect(stepWaitingOnInput({ step: 'TLS', needsDomainSetup: false })).toBe(false);
+  });
+
+  it('never claims another step is waiting on someone', () => {
+    for (const step of ['NETWORK', 'DATABASE_STORAGE', 'APPLICATION', 'HEALTH_CHECK', 'READY'] as const) {
+      expect(stepWaitingOnInput({ step, needsDomainSetup: true })).toBe(false);
+    }
+    expect(stepWaitingOnInput({ step: undefined, needsDomainSetup: true })).toBe(false);
+  });
+
+  it('names what it is waiting for, with no duration or nudge', () => {
+    expect(AWAITING_DOMAIN_STEP_DETAIL).toContain('custom domain');
+    expect(AWAITING_DOMAIN_STEP_DETAIL).not.toMatch(/minute|second|usual/i);
   });
 });

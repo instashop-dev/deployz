@@ -208,6 +208,25 @@ export function stepDetailLine({
   return undefined;
 }
 
+/**
+ * Whether the active step is waiting for a person rather than for AWS.
+ *
+ * HTTPS is the one step Deployz cannot finish by itself: without a custom
+ * domain there is nothing to issue a certificate for, so the step sits
+ * "in progress" indefinitely. Its elapsed counter and its "still working"
+ * nudge then read as a stall in Deployz — the canary watched one count past
+ * an hour — when nothing is running at all.
+ */
+export function stepWaitingOnInput(input: {
+  step: DeploymentStep | undefined;
+  needsDomainSetup: boolean;
+}): boolean {
+  return input.step === 'TLS' && input.needsDomainSetup;
+}
+
+/** What that waiting step says instead of a duration or a nudge. */
+export const AWAITING_DOMAIN_STEP_DETAIL = 'Waiting for a custom domain to be added.';
+
 /** True once the stage can no longer advance on its own — polling slows down
  * here rather than stopping, because FAILED can recover via a retried install
  * and READY can regress if health is lost. */
