@@ -24,7 +24,7 @@
  * successful INSTALL result. All transitions are idempotent.
  */
 
-import { and, desc, eq, like } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like } from 'drizzle-orm';
 
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -145,6 +145,27 @@ export function assertMutableDefaultHostname(
   if (RESERVED_DEFAULT_HOSTNAMES.includes(hostname.toLowerCase() as (typeof RESERVED_DEFAULT_HOSTNAMES)[number])) {
     throw new Error(`Refusing to mutate ${JSON.stringify(hostname)}: reserved Deployz hostname.`);
   }
+}
+
+// Deployment ids are uuids (lowercased by the hostname model). Only names that
+// carry a real uuid may ever be treated as owning a live deployment row.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** The deployment id embedded in a default hostname (`d-<id>.<zone>`), or
+ *  null when the name is not a well-formed `d-<uuid>.<zone>` hostname (wrong
+ *  prefix/zone, a reserved or non-uuid id). Pure — the parse gate the purge
+ *  orphan reconciliation deletes through: unparseable names are skipped,
+ *  never deleted. */
+export function parseDefaultDeploymentId(
+  hostname: string,
+  config: DefaultHostnameConfig = {},
+): string | null {
+  const prefix = config.prefix ?? DEFAULT_HOSTNAME_PREFIX;
+  const zone = config.zone ?? DEFAULT_HTTPS_APEX;
+  const lower = hostname.toLowerCase();
+  if (!lower.startsWith(prefix) || !lower.endsWith(`.${zone}`)) return null;
+  const id = lower.slice(prefix.length, -(`.${zone}`.length));
+  return UUID_RE.test(id) ? id : null;
 }
 
 /** The candidate URLs a deployment can serve, resolved by the plan's
@@ -583,4 +604,62 @@ export async function runDefaultHttpsCheck(
       }
     }
   }
+}
+
+// ── Purge orphan reconciliation (Phase 11) ───────────────────────────────────
+
+export interface OrphanedDefaultRecordReconciliation {
+  /** Routing CNAMEs deleted because no live deployment owns them. */
+  deleted: number;
+  /** Records skipped: names that do not parse to a live deployment's uuid,
+   *  or a deployment row that still exists (deletedAt IS NULL). */
+  kept: number;
+}
+
+/**
+ * Purge-time orphan reconciliation (Phase 11). Lists the zone's `d-*` routing
+ * CNAMEs and deletes any whose deployment no longer exists — `deletedAt` set,
+ * or the row gone entirely. Every name is parsed to a `d-<uuid>.<zone>`
+ * deployment id first (parseDefaultDeploymentId); names that fail the parse
+ * (reserved hostnames, wrong zone, non-uuid ids — structurally `app.deployz.dev`
+ * and friends) are SKIPPED and never reach a delete call. Idempotent: a second
+ * pass after a successful one has nothing left to delete; a record that is
+ * already missing deletes as a no-op. Failure is state-only — errors propagate
+ * so the caller logs and continues on the next purge pass; no DB row is
+ * written by this function.
+ */
+export async function reconcileOrphanedDefaultRecords(
+  db: RuntimeDb,
+  dns: CloudflareDnsClient,
+  config: DefaultHostnameConfig = {},
+): Promise<OrphanedDefaultRecordReconciliation> {
+  const records = await dns.listDefaultRecords();
+  let deleted = 0;
+  let kept = 0;
+  const candidateIds: string[] = [];
+  for (const record of records) {
+    const id = parseDefaultDeploymentId(record.name, config);
+    if (!id) {
+      kept += 1;
+      continue;
+    }
+    candidateIds.push(id);
+  }
+  if (candidateIds.length === 0) {
+    return { deleted, kept };
+  }
+  const liveRows = await db
+    .select({ id: schema.deployments.id })
+    .from(schema.deployments)
+    .where(and(inArray(schema.deployments.id, candidateIds), isNull(schema.deployments.deletedAt)));
+  const live = new Set(liveRows.map((row) => row.id));
+  for (const id of candidateIds) {
+    if (live.has(id)) {
+      kept += 1;
+      continue;
+    }
+    await dns.deleteDefaultDeploymentRecord(id);
+    deleted += 1;
+  }
+  return { deleted, kept };
 }

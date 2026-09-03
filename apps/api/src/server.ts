@@ -171,6 +171,7 @@ import {
   beginDefaultHttpsRemoval,
   isDefaultHttpsJob,
   parseDefaultHttps,
+  reconcileOrphanedDefaultRecords,
   runDefaultHttpsCheck,
   type DefaultHttpsDeps,
 } from './default-https.js';
@@ -3625,6 +3626,23 @@ export async function buildServer({
           request.log.warn({ err: error }, 'default-https record cleanup on purge failed');
         }
       }
+    }
+
+    // Phase 11: every purge pass also reconciles ORPHANED default records —
+    // a best-effort teardown delete that failed earlier (destroy, force-
+    // complete, the relay-result safety net) left a routing CNAME whose
+    // deployment row is gone. The sweep lists the zone's d-* CNAMEs, keeps any
+    // a live deployment still owns, and deletes the rest (reserved/unparseable
+    // names are structurally skipped by the parse guard). Bounded by the
+    // client's pagination and failure is state-only — a failure here never
+    // fails the purge request itself; the next purge retries the sweep.
+    try {
+      await reconcileOrphanedDefaultRecords(db, defaultHttpsDeps.dns, {
+        zone: defaultHttpsDeps.apex,
+        prefix: env.defaultHostnamePrefix,
+      });
+    } catch (error) {
+      request.log.warn({ err: error }, 'default-https orphan reconciliation on purge failed');
     }
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });

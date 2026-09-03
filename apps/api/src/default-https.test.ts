@@ -17,7 +17,9 @@ import {
   getDefaultDeploymentUrl,
   isDefaultDeploymentHostname,
   isDefaultHttpsJob,
+  parseDefaultDeploymentId,
   parseDefaultHttps,
+  reconcileOrphanedDefaultRecords,
   RESERVED_DEFAULT_HOSTNAMES,
   resolvePreferredPublicUrl,
   runDefaultHttpsCheck,
@@ -28,6 +30,7 @@ import {
   CloudflareDnsError,
   createFakeCloudflareDnsClient,
   type CloudflareDnsClient,
+  type CloudflareDnsRecord,
 } from './cloudflare-records.js';
 import type { HttpsProbeReason } from './domain-check.js';
 import { createCustomDomain } from './domains.js';
@@ -146,6 +149,7 @@ describe('default-https service', () => {
       this.deletes.push(validationName);
       return { op: 'deleted' as const };
     }
+    listDefaultRecords = async () => [];
   }
 
   function deps(overrides: Partial<DefaultHttpsDeps> = {}): DefaultHttpsDeps {
@@ -670,6 +674,7 @@ describe('default-https service', () => {
         deleteDefaultDeploymentRecord: async (deploymentId) => fake.deleteDefaultDeploymentRecord(deploymentId),
         deleteDefaultValidationRecord: async (deploymentId, validationName) =>
           fake.deleteDefaultValidationRecord(deploymentId, validationName),
+        listDefaultRecords: async (options) => fake.listDefaultRecords(options),
       };
       return {
         client,
@@ -819,6 +824,110 @@ describe('default-https service', () => {
       const hostname = defaultHttpsHostname(deployment.id, apex);
       const routing = fake.listRecords().find((record) => record.name === hostname);
       expect(routing?.content).toBe(newTarget);
+    });
+  });
+
+  // Phase 11 — purge-time orphan reconciliation (reconcileOrphanedDefaultRecords)
+  // over the in-memory fake + PGlite.
+  describe('reconcileOrphanedDefaultRecords (Phase 11)', () => {
+    const orphanId = crypto.randomUUID();
+    const orphanHostname = defaultHttpsHostname(orphanId, apex);
+
+    function clientWithListing(listing: CloudflareDnsRecord[]) {
+      const fake = createFakeCloudflareDnsClient({ zoneId: 'zone-1', zoneName: apex });
+      const deleted: string[] = [];
+      const client: CloudflareDnsClient = {
+        getRecord: async (id) => fake.getRecord(id),
+        upsertDefaultDeploymentRecord: async (id, target) => fake.upsertDefaultDeploymentRecord(id, target),
+        upsertDefaultValidationRecord: async (id, name, value) =>
+          fake.upsertDefaultValidationRecord(id, name, value),
+        deleteDefaultDeploymentRecord: async (id) => {
+          deleted.push(id);
+          return fake.deleteDefaultDeploymentRecord(id);
+        },
+        deleteDefaultValidationRecord: async (id, name) => fake.deleteDefaultValidationRecord(id, name),
+        listDefaultRecords: async () => listing,
+      };
+      return { fake, client, deleted };
+    }
+
+    function listingRecord(name: string, content = 'alb.example.com'): CloudflareDnsRecord {
+      return { id: `rec-${crypto.randomUUID()}`, type: 'CNAME', name, content, ttl: 1, proxied: true };
+    }
+
+    it('deletes a record whose deployment row no longer exists', async () => {
+      const { client, deleted } = clientWithListing([listingRecord(orphanHostname)]);
+      const result = await reconcileOrphanedDefaultRecords(db, client, { zone: apex });
+      expect(result).toEqual({ deleted: 1, kept: 0 });
+      expect(deleted).toEqual([orphanId]);
+    });
+
+    it('keeps the record of a live deployment (row exists, deletedAt null)', async () => {
+      const deployment = await seedDeployment();
+      const { client, deleted } = clientWithListing([
+        listingRecord(defaultHttpsHostname(deployment.id, apex)),
+      ]);
+      const result = await reconcileOrphanedDefaultRecords(db, client, { zone: apex });
+      expect(result).toEqual({ deleted: 0, kept: 1 });
+      expect(deleted).toEqual([]);
+    });
+
+    it('skips reserved/non-uuid/wrong-zone names with zero delete calls', async () => {
+      const { client, deleted } = clientWithListing([
+        listingRecord('app.deployz.test'), // structurally reserved
+        listingRecord(`d-not-a-uuid.${apex}`), // non-uuid id
+        listingRecord(`d-${crypto.randomUUID()}.evil.example`), // wrong zone
+      ]);
+      const result = await reconcileOrphanedDefaultRecords(db, client, { zone: apex });
+      expect(result).toEqual({ deleted: 0, kept: 3 });
+      expect(deleted).toEqual([]);
+    });
+
+    it('is idempotent: a second run after a successful one has nothing left to delete', async () => {
+      const { client, deleted } = clientWithListing([listingRecord(orphanHostname)]);
+      const first = await reconcileOrphanedDefaultRecords(db, client, { zone: apex });
+      expect(first.deleted).toBe(1);
+      // Second run: list still shows the record but it is already gone.
+      const second = await reconcileOrphanedDefaultRecords(db, client, { zone: apex });
+      expect(second).toEqual({ deleted: 1, kept: 0 });
+      expect(deleted).toHaveLength(2);
+    });
+
+    it('already-missing records delete as a noop without error', async () => {
+      const { client, deleted } = clientWithListing([]);
+      const result = await reconcileOrphanedDefaultRecords(db, client, { zone: apex });
+      expect(result).toEqual({ deleted: 0, kept: 0 });
+      expect(deleted).toEqual([]);
+    });
+
+    it('failure is state-only: a listing error propagates and writes nothing', async () => {
+      const before = await db.select({ id: schema.deployments.id }).from(schema.deployments);
+      const { fake } = clientWithListing([]);
+      const failing: CloudflareDnsClient = {
+        getRecord: async (id) => fake.getRecord(id),
+        upsertDefaultDeploymentRecord: async (id, target) => fake.upsertDefaultDeploymentRecord(id, target),
+        upsertDefaultValidationRecord: async (id, name, value) =>
+          fake.upsertDefaultValidationRecord(id, name, value),
+        deleteDefaultDeploymentRecord: async (id) => fake.deleteDefaultDeploymentRecord(id),
+        deleteDefaultValidationRecord: async (id, name) => fake.deleteDefaultValidationRecord(id, name),
+        listDefaultRecords: async () => {
+          throw new CloudflareDnsError('boom', 'CLOUDFLARE_UNAVAILABLE');
+        },
+      };
+      await expect(reconcileOrphanedDefaultRecords(db, failing, { zone: apex })).rejects.toThrow(
+        CloudflareDnsError,
+      );
+      const after = await db.select({ id: schema.deployments.id }).from(schema.deployments);
+      expect(after).toEqual(before);
+    });
+
+    it('parseDefaultDeploymentId accepts only d-<uuid>.<zone> names', () => {
+      const uuid = crypto.randomUUID();
+      expect(parseDefaultDeploymentId(`d-${uuid}.${DEFAULT_HTTPS_APEX}`)).toBe(uuid);
+      expect(parseDefaultDeploymentId(`d-${uuid}.${DEFAULT_HTTPS_FIXTURE_APEX}`, { zone: DEFAULT_HTTPS_FIXTURE_APEX })).toBe(uuid);
+      expect(parseDefaultDeploymentId('d-dep-1.deployz.dev')).toBeNull(); // not a uuid
+      expect(parseDefaultDeploymentId('app.deployz.dev')).toBeNull(); // not d-
+      expect(parseDefaultDeploymentId(`d-${uuid}.evil.example`)).toBeNull(); // wrong zone
     });
   });
 });

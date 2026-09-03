@@ -570,3 +570,65 @@ describe('createCloudflareDnsClient — validation records (ACM DNS-01)', () => 
     expect(fake.listRecords()).toHaveLength(0);
   });
 });
+
+describe('listDefaultRecords (Phase 11 sweep)', () => {
+  it('lists CNAMEs under the d- prefix with one bounded page and stops on a short page', async () => {
+    const listed = [
+      record('rec-1', TARGET, { name: `d-${crypto.randomUUID()}.${ZONE_NAME}` }),
+      record('rec-2', TARGET, { name: `d-${crypto.randomUUID()}.${ZONE_NAME}` }),
+    ];
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(...listed);
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.listDefaultRecords();
+
+    expect(result.map((entry) => entry.id)).toEqual(['rec-1', 'rec-2']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(
+      `${API_BASE_URL}/zones/${ZONE_ID}/dns_records?type=CNAME&name.startswith=d-&per_page=100&page=1`,
+    );
+  });
+
+  it('pages with per_page and stops at maxPages even when every page is full', async () => {
+    const fullPage = Array.from({ length: 100 }, (_, i) =>
+      record(`rec-${i}`, TARGET, { name: `d-${crypto.randomUUID()}.${ZONE_NAME}` }),
+    );
+    let page = 0;
+    const { client, calls } = makeClient(async (url) => {
+      page += 1;
+      expect(url).toContain(`page=${page}`);
+      return okList(...fullPage);
+    });
+
+    const result = await client.listDefaultRecords({ perPage: 100 });
+
+    // 3 pages of 100, then the sweep stops — never a 4th transport call.
+    expect(result).toHaveLength(300);
+    expect(page).toBe(3);
+    expect(calls).toHaveLength(3);
+  });
+
+  it('throws the classified error on a non-success response (state-only for the caller)', async () => {
+    const { client } = makeClient(async () => errResponse(429, 0, 'rate limited', { 'retry-after': '30' }));
+
+    const error = await failure(client.listDefaultRecords());
+    expect(error.code).toBe('CLOUDFLARE_RATE_LIMITED');
+    expect(error.retryAfterSeconds).toBe(30);
+  });
+
+  it('the in-memory fake lists only its own d-* CNAMEs, bounded by perPage * maxPages', async () => {
+    const fake = createFakeCloudflareDnsClient({ zoneId: ZONE_ID, zoneName: ZONE_NAME });
+    for (let i = 0; i < 5; i += 1) {
+      await fake.upsertDefaultDeploymentRecord(`dep-${i}`, TARGET);
+    }
+    await fake.upsertDefaultValidationRecord('dep-1', VALIDATION_NAME, VALIDATION_VALUE);
+
+    const result = await fake.listDefaultRecords();
+    expect(result).toHaveLength(5);
+    expect(result.every((entry) => entry.name.startsWith('d-'))).toBe(true);
+
+    expect(await fake.listDefaultRecords({ perPage: 2, maxPages: 2 })).toHaveLength(4);
+  });
+});

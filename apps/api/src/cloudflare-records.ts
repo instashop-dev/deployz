@@ -105,6 +105,13 @@ export interface CloudflareDnsClient {
   ): Promise<CloudflareDnsUpsertResult>;
   /** Delete the deployment's validation CNAME; already-missing is a no-op. */
   deleteDefaultValidationRecord(deploymentId: string, validationName: string): Promise<CloudflareDnsDeleteResult>;
+  /** List the zone's CNAMEs under this client's default-hostname prefix
+   *  (`d-`), bounded to `perPage` (default 100) records per page and at most
+   *  `maxPages` (default 3) pages — the routing-record sweep the purge
+   *  orphan reconciliation reads. No mutation, and records are returned
+   *  UNGUARDED: a caller must pass each name through its own
+   *  `d-<uuid>.<zone>` parse before deleting anything. */
+  listDefaultRecords(options?: { perPage?: number; maxPages?: number }): Promise<CloudflareDnsRecord[]>;
 }
 
 export interface CloudflareDnsClientOptions {
@@ -345,6 +352,39 @@ export function createCloudflareDnsClient(options: CloudflareDnsClientOptions): 
     return null;
   }
 
+  /**
+   * The routing-record sweep: every CNAME in the zone whose name starts with
+   * the default-hostname prefix. Bounded pagination (per_page=100, at most
+   * `maxPages` pages) so a purge pass can never balloon into an unbounded
+   * scan. Records are returned unguarded — the orphan reconciliation parses
+   * each name itself before it deletes anything.
+   */
+  async function listDefaultRecordsImpl(options?: {
+    perPage?: number;
+    maxPages?: number;
+  }): Promise<CloudflareDnsRecord[]> {
+    const perPage = options?.perPage ?? 100;
+    const maxPages = options?.maxPages ?? 3;
+    const out: CloudflareDnsRecord[] = [];
+    for (let page = 1; page <= maxPages; page += 1) {
+      const path =
+        `/zones/${zoneId}/dns_records?type=CNAME` +
+        `&name.startswith=${encodeURIComponent(prefix)}&per_page=${perPage}&page=${page}`;
+      const { status, payload, retryAfterSeconds } = await callApi('GET', path);
+      if (!isApiSuccess(status, payload)) {
+        throw classifyFailure(status, payload, retryAfterSeconds);
+      }
+      const result = (payload as { result?: unknown })['result'];
+      if (!Array.isArray(result)) break;
+      for (const entry of result) {
+        const record = asRecord(entry);
+        if (record) out.push(record);
+      }
+      if (result.length < perPage) break; // short page = no more records
+    }
+    return out;
+  }
+
   /** The CNAME body shared by routing (proxied) and validation (unproxied) writes. */
   function recordBody(name: string, content: string, proxied: boolean, comment: string): string {
     return JSON.stringify({ type: 'CNAME', name, content, ttl: 1, proxied, comment });
@@ -446,6 +486,7 @@ export function createCloudflareDnsClient(options: CloudflareDnsClientOptions): 
       assertValidationRecordName(hostname, validationName);
       return removeRecord(validationName);
     },
+    listDefaultRecords: listDefaultRecordsImpl,
   };
 }
 
@@ -533,6 +574,13 @@ export function createFakeCloudflareDnsClient(options: {
       assertValidationRecordName(hostname, validationName);
       return deleteRecord(validationName);
     },
+    listDefaultRecords: async (options) => {
+      const perPage = options?.perPage ?? 100;
+      const maxPages = options?.maxPages ?? 3;
+      return [...store.values()]
+        .filter((record) => record.type === 'CNAME' && record.name.toLowerCase().startsWith(prefix))
+        .slice(0, perPage * maxPages);
+    },
   };
 }
 
@@ -573,5 +621,9 @@ export function createDnsClientFromNameWriter(
       await writer.deleteCname(validationName);
       return { op: 'deleted' };
     },
+    // A name-based writer cannot read its records back, so the sweep sees
+    // nothing to reconcile. Legacy Route53 mode only (Phase 16 cleanup); the
+    // Cloudflare path does the real orphan reconciliation.
+    listDefaultRecords: async () => [],
   };
 }
