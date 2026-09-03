@@ -391,6 +391,10 @@ function collectEnvVars(): Record<string, string> {
     'AI_GATEWAY_TOKEN',
     'AWS_SES_ACCESS_KEY_ID',
     'AWS_SES_SECRET_ACCESS_KEY',
+    'CLOUDFLARE_ZONE_ID',
+    'CLOUDFLARE_ZONE_NAME',
+    'DEPLOYZ_DEFAULT_HOSTNAME_PREFIX',
+    'CLOUDFLARE_ZONE_EDIT_API_TOKEN',
   ];
   const env: Record<string, string> = {};
   for (const key of keys) {
