@@ -76,6 +76,7 @@ function detail(overrides: Partial<FleetDeploymentDetail> = {}): FleetDeployment
     jobs: [],
     customDomain: null,
     appUrl: 'https://d-dep-9f1c.deployz.dev',
+    defaultUrl: 'https://d-dep-9f1c.deployz.dev',
     ...overrides,
   };
 }
@@ -100,6 +101,19 @@ describe('DeploymentUrlCard', () => {
     expect(doc.body.textContent).toContain('Custom domain');
     expect(doc.body.textContent).toContain('Not configured');
     expect(doc.querySelector('a[href="/install/link-1"]')?.textContent).toBe('Add custom domain');
+  });
+
+  it('renders the API-provided defaultUrl rather than a client-minted hostname', () => {
+    // The API's real default-HTTPS hostname (from the stored state) must win
+    // over the client-side d-<id>.deployz.dev projection.
+    const d = detail({
+      appUrl: null,
+      defaultUrl: 'https://d-from-api.deployz.dev',
+    });
+    const doc = render(d);
+
+    expect(doc.body.textContent).toContain('https://d-from-api.deployz.dev');
+    expect(doc.body.textContent).not.toContain('https://d-dep-9f1c.deployz.dev');
   });
 
   it('shows a pending custom domain alongside the active Deployz address', () => {

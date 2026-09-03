@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CustomDomainStatus } from '@deployz/contracts';
 
-import { resolveAppUrl } from './fleet-row.js';
+import { resolveAppUrl, resolveDefaultUrl } from './fleet-row.js';
 
 // Phase 7 — resolveAppUrl is the read-time source of truth for the URL the
 // product surfaces (and the relay probes): only an ACTIVE custom domain is
@@ -67,5 +67,20 @@ describe('resolveAppUrl — preferred-URL precedence (Phase 7)', () => {
   it('returns null when no HTTPS route and no ALB endpoint exist', () => {
     expect(resolveAppUrl([], null, null)).toBeNull();
     expect(resolveAppUrl([], CUSTOM, null)).toBe('https://app.customer.com');
+  });
+});
+
+describe('resolveDefaultUrl — canonical Deployz address (Phase 9 completion)', () => {
+  it('uses the hostname stored in the default-HTTPS state, whatever its status', () => {
+    for (const status of ['PENDING', 'CONFIGURING', 'ACTIVE', 'ERROR'] as const) {
+      expect(resolveDefaultUrl({ hostname: 'd-dep-1.deployz.dev', status }), status).toBe(
+        'https://d-dep-1.deployz.dev',
+      );
+    }
+  });
+
+  it('is null when no default-HTTPS state exists yet', () => {
+    expect(resolveDefaultUrl(null)).toBeNull();
+    expect(resolveDefaultUrl(undefined)).toBeNull();
   });
 });

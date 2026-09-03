@@ -125,6 +125,12 @@ export interface FleetDeploymentDetail extends FleetDeployment {
   customDomain: { hostname: string; status: CustomDomainStatus } | null;
   /** The deployment's public application URL, or null if it has none yet. */
   appUrl: string | null;
+  /** The permanent Deployz address (`https://d-<id>…`) once the default-HTTPS
+   *  state exists (any status), else null. Canonical from the moment the
+   *  machine starts; whether it serves is `appUrl`'s job. Null when the
+   *  machine has not started — a stale cached payload can fall back to the
+   *  client-side projection. */
+  defaultUrl: string | null;
 }
 
 // ── Infrastructure inventory (Lane 3 composed component view) ───────────────

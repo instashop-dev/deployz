@@ -11,10 +11,10 @@ import type { FleetDeploymentDetail } from '@/lib/deployments';
 
 /** The permanent Deployz address for a deployment.
  *
- * NOTE: this is a client-side projection. The API does not yet expose a
- * dedicated `defaultUrl` field; the control plane will wire the real
- * default-HTTPS hostname in a later phase. Until then, the UI mints the
- * canonical `d-<id>.deployz.dev` hostname locally. */
+ * FALLBACK ONLY. The API sends the real default-HTTPS hostname as
+ * `detail.defaultUrl`; this projection exists for stale cached payloads that
+ * predate that field (the card always prefers `detail.defaultUrl` when the
+ * API provides one). */
 export function defaultDeployzUrl(deploymentId: string): string {
   return `https://d-${deploymentId}.deployz.dev`;
 }
@@ -39,7 +39,7 @@ interface DeploymentUrlCardProps {
  */
 export function DeploymentUrlCard({ detail }: DeploymentUrlCardProps) {
   const custom = detail.customDomain;
-  const defaultUrl = defaultDeployzUrl(detail.id);
+  const defaultUrl = detail.defaultUrl ?? defaultDeployzUrl(detail.id);
   const appUrl = detail.appUrl ?? defaultUrl;
   const customActive = custom?.status === 'active';
 
@@ -130,7 +130,7 @@ function UrlBlock({
 
 function CustomDomainSection({ detail }: { detail: FleetDeploymentDetail }) {
   const custom = detail.customDomain;
-  const defaultUrl = defaultDeployzUrl(detail.id);
+  const defaultUrl = detail.defaultUrl ?? defaultDeployzUrl(detail.id);
 
   if (!custom) {
     return (
