@@ -102,6 +102,46 @@ export function deploymentStateLabel(state: string): string {
   return DEPLOYMENT_STATE_LABELS[state as DeploymentState] ?? state;
 }
 
+// ── Customer deployment rollup ──────────────────────────────────────────────
+
+/**
+ * The Customers list answers one question per row: has this customer
+ * deployed, and must the vendor act? These six values are that answer — a
+ * read-time rollup of the customer's §46 deployment states, not a new
+ * persisted lifecycle and never a raw CloudFormation status.
+ */
+export const CUSTOMER_DEPLOYMENT_STATUSES = [
+  'NOT_INSTALLED',
+  'INSTALLING',
+  'LIVE',
+  'NEEDS_ATTENTION',
+  'REMOVING',
+  'REMOVED',
+] as const;
+
+export type CustomerDeploymentRollup = (typeof CUSTOMER_DEPLOYMENT_STATUSES)[number];
+
+export const CUSTOMER_DEPLOYMENT_STATUS_LABELS: Record<CustomerDeploymentRollup, string> = {
+  NOT_INSTALLED: 'Not installed',
+  INSTALLING: 'Installing',
+  LIVE: 'Live',
+  NEEDS_ATTENTION: 'Needs attention',
+  REMOVING: 'Removing',
+  REMOVED: 'Removed',
+};
+
+export const CUSTOMER_DEPLOYMENT_STATUS_BADGE: Record<
+  CustomerDeploymentRollup,
+  DeploymentBadgeVariant
+> = {
+  NOT_INSTALLED: 'secondary',
+  INSTALLING: 'outline',
+  LIVE: 'default',
+  NEEDS_ATTENTION: 'destructive',
+  REMOVING: 'outline',
+  REMOVED: 'secondary',
+};
+
 // ── §40 event families ──────────────────────────────────────────────────────
 
 /** The §40 event families (§65): install/deploy/rollback/config/destroy/health/relay/redis. */

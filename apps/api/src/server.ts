@@ -2092,10 +2092,19 @@ export async function buildServer({
 
   const createCustomerBodySchema = z.object({
     organizationId: z.string().min(1).optional(),
-    name: z.string().min(1),
-    email: z.string().email(),
-    company: z.string().nullish(),
+    name: z.string().trim().min(1),
+    email: z.string().trim().email(),
+    company: z.string().trim().nullish(),
     externalReference: z.string().nullish(),
+  });
+
+  // Contact metadata only. externalReference and the customer id itself are
+  // deliberately absent: an edit here never changes what a deployment or an
+  // install link is anchored to.
+  const updateCustomerBodySchema = z.object({
+    name: z.string().trim().min(1),
+    email: z.string().trim().email(),
+    company: z.string().trim().nullish(),
   });
 
   const createDeploymentBodySchema = z.object({
@@ -2418,7 +2427,7 @@ export async function buildServer({
         organizationId,
         name: body.name,
         email: body.email,
-        company: body.company ?? null,
+        company: body.company || null,
         externalReference: body.externalReference ?? null,
       })
       .returning();
@@ -2433,6 +2442,81 @@ export async function buildServer({
       .from(schema.customers)
       .where(eq(schema.customers.organizationId, organizationId));
     return { customers: rows };
+  });
+
+  // GET /api/customers/:id — One customer
+  app.get('/api/customers/:id', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    return await loadOwnedCustomer(db, id, organizationId);
+  });
+
+  // PATCH /api/customers/:id — Edit contact metadata.
+  //
+  // Name, email and company are display metadata, nothing more. The customer
+  // id is the only thing deployments, install links and configs are anchored
+  // to (deployments.customer_id, application_configs.customer_id — both uuid
+  // foreign keys), so this route updates three text columns and touches
+  // nothing else: no install link is reissued, no deployment is re-owned, and
+  // nothing in the customer's AWS account is contacted. The id itself is not
+  // in the body schema, so it cannot be rewritten.
+  app.patch('/api/customers/:id', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = updateCustomerBodySchema.parse(request.body);
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedCustomer(db, id, organizationId);
+    const [row] = await db
+      .update(schema.customers)
+      .set({ name: body.name, email: body.email, company: body.company || null })
+      .where(and(eq(schema.customers.id, id), eq(schema.customers.organizationId, organizationId)))
+      .returning();
+    return row!;
+  });
+
+  // DELETE /api/customers/:id — Remove a customer record (only if it has zero
+  // deployments), mirroring DELETE /api/applications/:id.
+  //
+  // Deleting a customer record must never be a back door into deleting
+  // infrastructure. A customer with any deployment row — including a removed
+  // one, which may still hold retained AWS resources — is refused: Disconnect
+  // and Purge on the deployment are the only paths that touch the customer's
+  // AWS account, and they stay the vendor's explicit choice.
+  app.delete('/api/customers/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const customer = await loadOwnedCustomer(db, id, organizationId);
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.customerId, id))
+      .limit(1);
+    if (deployments.length > 0) {
+      throw new ApiError(
+        409,
+        'CUSTOMER_HAS_DEPLOYMENTS',
+        'This customer has a deployment and cannot be removed. Removing a customer never removes anything from their AWS account — remove the deployment first.',
+      );
+    }
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.eventLogs).values({
+        actorType: 'user',
+        actorId: request.user!.id,
+        organizationId,
+        customerId: id,
+        eventType: 'CUSTOMER_DELETED',
+        payload: { customerId: id, customerName: customer.name },
+      });
+      // A customer with no deployments can still hold customer-scoped config
+      // overrides; they are unreachable without a deployment, and the foreign
+      // key would otherwise reject the delete.
+      await tx
+        .delete(schema.applicationConfigs)
+        .where(eq(schema.applicationConfigs.customerId, id));
+      await tx
+        .delete(schema.customers)
+        .where(and(eq(schema.customers.id, id), eq(schema.customers.organizationId, organizationId)));
+    });
+    return reply.code(204).send();
   });
 
   // ── Deployments (§12, §23–§24, §38) ────────────────────────────────────
