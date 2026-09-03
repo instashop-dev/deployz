@@ -6,6 +6,7 @@ import {
   deriveDeploymentStatus,
   mergeComponentState,
   toCustomerDeploymentStatus,
+  toPlanHttpsState,
   toVendorDeploymentStatus,
   type DerivationApplication,
   type DerivationDeployment,
@@ -1345,6 +1346,24 @@ describe('deriveDeploymentStatus — default HTTPS (Phase 11)', () => {
     expect(status.components.find((c) => c.key === 'https')?.status).toBe('IN_PROGRESS');
   });
 
+  // Phase 5 pin — the CONFIGURING slice of the READY-semantics matrix: the
+  // TLS step is the one in progress while the verifier probes, and the
+  // progression is automatic (no custom domain anywhere), so the "set up a
+  // custom domain" nudge must not fire even while HTTPS is not yet ACTIVE.
+  it('healthy + default HTTPS CONFIGURING (verifier probing) holds VERIFYING on the TLS step with no nudge', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: defaultHttps('CONFIGURING'),
+      appUrl: HTTP_ALB,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.step).toBe('TLS');
+    expect(status.needsDomainSetup).toBe(false);
+    expect(status.currentActivity).toBe('Waiting for a secure address.');
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('IN_PROGRESS');
+  });
+
   it('no default HTTPS and no custom domain keeps the customer-action nudge', () => {
     const status = derive({
       deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
@@ -1403,5 +1422,31 @@ describe('deriveDeploymentStatus — default HTTPS (Phase 11)', () => {
       });
       expect(status.components.find((c) => c.key === 'https')?.status).toBe('IN_PROGRESS');
     }
+  });
+});
+
+// Phase 5 — the internal→plan vocabulary mapper (item 2). Pure view-layer
+// translation; the internal machine enums stay untouched.
+describe('toPlanHttpsState — plan HTTPS vocabulary (Phase 5)', () => {
+  it('collapses PENDING and WAITING_FOR_DNS into DNS_PENDING', () => {
+    expect(toPlanHttpsState('PENDING')).toBe('DNS_PENDING');
+    expect(toPlanHttpsState('WAITING_FOR_DNS')).toBe('DNS_PENDING');
+  });
+
+  it('maps CONFIGURING to TLS_PENDING (the cert/listener step)', () => {
+    expect(toPlanHttpsState('CONFIGURING')).toBe('TLS_PENDING');
+  });
+
+  it('passes VERIFYING, ACTIVE and ERROR through unchanged', () => {
+    expect(toPlanHttpsState('VERIFYING')).toBe('VERIFYING');
+    expect(toPlanHttpsState('ACTIVE')).toBe('ACTIVE');
+    expect(toPlanHttpsState('ERROR')).toBe('ERROR');
+  });
+
+  it('returns null when the plan vocabulary has no word for the status', () => {
+    // REMOVING teardown and unrecognised values are not plan states.
+    expect(toPlanHttpsState('REMOVING')).toBeNull();
+    expect(toPlanHttpsState('PROVISIONING')).toBeNull();
+    expect(toPlanHttpsState('bogus')).toBeNull();
   });
 });

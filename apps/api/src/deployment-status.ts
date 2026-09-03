@@ -371,6 +371,34 @@ function statusFromMerged(
   return 'PENDING';
 }
 
+// ---------------------------------------------------------------------------
+// Phase 5 — plan HTTPS vocabulary. The internal machines speak
+// DefaultHttpsStatus/CustomDomainStatus (PENDING/WAITING_FOR_DNS/CONFIGURING/
+// ACTIVE/ERROR/REMOVING); the plan (docs/mvp-default-https-status.md)
+// presents DNS_PENDING/TLS_PENDING/VERIFYING/ACTIVE/ERROR. This is the
+// read-time translation a status/view payload calls before product copy —
+// exported now (and unit-tested) so the Phase 9 UI-payload integration can
+// reuse it without touching the internal enums.
+// ---------------------------------------------------------------------------
+
+/** The plan's HTTPS-state vocabulary for a deployment's secure address. */
+export type PlanHttpsState = 'DNS_PENDING' | 'TLS_PENDING' | 'VERIFYING' | 'ACTIVE' | 'ERROR';
+
+const PLAN_HTTPS_STATE_BY_INTERNAL: Record<string, PlanHttpsState | undefined> = {
+  PENDING: 'DNS_PENDING',
+  WAITING_FOR_DNS: 'DNS_PENDING',
+  CONFIGURING: 'TLS_PENDING',
+  VERIFYING: 'VERIFYING',
+  ACTIVE: 'ACTIVE',
+  ERROR: 'ERROR',
+};
+
+/** Maps one internal HTTPS status to the plan vocabulary, or null when the
+ *  plan has no word for it (REMOVING teardown, unrecognised values). */
+export function toPlanHttpsState(status: string): PlanHttpsState | null {
+  return PLAN_HTTPS_STATE_BY_INTERNAL[status] ?? null;
+}
+
 function httpsComponentStatus(
   domain: DerivationDomain | null,
   needsDomainSetup: boolean,

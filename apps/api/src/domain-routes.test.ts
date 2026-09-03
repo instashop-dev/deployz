@@ -417,11 +417,10 @@ describe('custom domain check-now and DELETE routes', () => {
   // in beforeAll, so each test point these closures at what it needs rather
   // than rebuilding the server.
   let checkCnameResult: (name: string) => boolean = () => true;
-  const probeHttpsResult = true;
   const domainCheckDeps: DomainCheckDeps = {
     minCheckIntervalMs: 0,
     checkCname: async (name) => checkCnameResult(name),
-    probeHttps: async () => probeHttpsResult,
+    probeHttps: async () => ({ ok: true }),
   };
 
   async function jobsFor(deploymentId: string, type: 'CONFIGURE_DOMAIN' | 'REMOVE_DOMAIN') {
@@ -576,7 +575,7 @@ describe('custom domain link-scoped check route', () => {
   const domainCheckDeps: DomainCheckDeps = {
     minCheckIntervalMs: 0,
     checkCname: async () => true,
-    probeHttps: async () => true,
+    probeHttps: async () => ({ ok: true }),
   };
 
   beforeAll(async () => {
@@ -786,7 +785,7 @@ describe('custom domain relay-heartbeat auto-check', () => {
   const domainCheckDeps: DomainCheckDeps = {
     minCheckIntervalMs: 0,
     checkCname: async (name, expectedTarget) => checkCname(name, expectedTarget),
-    probeHttps: async () => true,
+    probeHttps: async () => ({ ok: true }),
   };
 
   beforeAll(async () => {

@@ -502,7 +502,8 @@ export async function runDomainCheck(
       break;
     }
     case 'CONFIGURING': {
-      if (await deps.probeHttps(domain.hostname)) {
+      const probe = await deps.probeHttps(domain.hostname);
+      if (probe.ok) {
         await db.transaction(async (tx) => {
           await tx
             .update(schema.customDomains)
@@ -522,7 +523,7 @@ export async function runDomainCheck(
       } else {
         await db
           .update(schema.customDomains)
-          .set({ lastError: 'HTTPS_NOT_REACHABLE' })
+          .set({ lastError: probe.reason })
           .where(eq(schema.customDomains.id, domain.id));
       }
       break;

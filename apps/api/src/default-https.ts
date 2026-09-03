@@ -30,6 +30,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { CloudflareDnsClient } from './cloudflare-records.js';
+import type { HttpsProbeResult } from './domain-check.js';
 import { findActiveDomain } from './domains.js';
 import { createOrReuseJob } from './jobs.js';
 
@@ -460,8 +461,10 @@ export interface DefaultHttpsDeps {
   /** Deployment-keyed DNS client (Cloudflare in production; in-memory fake or
    *  a no-op/Route53 adapter under fixture/legacy modes). */
   dns: CloudflareDnsClient;
-  /** HTTPS reachability probe — the same seam runDomainCheck uses. */
-  probeHttps: (hostname: string) => Promise<boolean>;
+  /** HTTPS reachability probe — the same seam runDomainCheck uses. A failed
+   *  probe carries the reason, which the machine persists as lastError so a
+   *  stuck CONFIGURING says WHY instead of a single catch-all code. */
+  probeHttps: (hostname: string) => Promise<HttpsProbeResult>;
 }
 
 const EVER_INSTALLED_STATES = new Set<string>(['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE']);
@@ -559,14 +562,18 @@ export async function runDefaultHttpsCheck(
         await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
         return;
       }
-      case 'CONFIGURING':
-        if (await deps.probeHttps(working.hostname)) {
+      case 'CONFIGURING': {
+        const probe = await deps.probeHttps(working.hostname);
+        if (probe.ok) {
           working = { ...working, status: 'ACTIVE', lastError: null };
           await persistState(db, deployment.id, working);
         } else {
-          await persistState(db, deployment.id, { ...working, lastError: 'HTTPS_NOT_REACHABLE' });
+          // Stay CONFIGURING and say why: a distinguishing reason beats the
+          // single HTTPS_NOT_REACHABLE the boolean probe could express.
+          await persistState(db, deployment.id, { ...working, lastError: probe.reason });
         }
         return;
+      }
       case 'ERROR': {
         // Automatic retry: fall back to the earliest still-plausible stage
         // and re-run, mirroring the custom-domain Retry path.

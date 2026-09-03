@@ -5,9 +5,32 @@ import { isIP } from 'node:net';
 // real network I/O. Deployz only ever READS public DNS — it never writes
 // to a customer's DNS provider.
 
+/**
+ * Why an HTTPS probe was not satisfied — lastError-style codes in the same
+ * vocabulary as the domain machines' `lastError` column, so a failed probe's
+ * reason can be persisted verbatim. The real transport probe reports the
+ * umbrella HTTPS_NOT_REACHABLE for every transport-level failure today; the
+ * distinguishing codes (hostname not resolvable yet, TLS unavailable, invalid
+ * certificate, timeout, an HTTP error status) are produced by richer
+ * verifiers — the fixture-mode fakes and the status-aware probe fakes the
+ * tests drive the default-HTTPS CONFIGURING branch with (Phase 5).
+ */
+export type HttpsProbeReason =
+  | 'HTTPS_NOT_REACHABLE'
+  | 'DNS_UNRESOLVED'
+  | 'TLS_UNAVAILABLE'
+  | 'CERT_INVALID'
+  | 'PROBE_TIMEOUT'
+  | 'HTTP_404'
+  | 'HTTP_500';
+
+/** Result of one HTTPS probe: `ok` says the verifier was satisfied, and a
+ *  failed probe always says why. */
+export type HttpsProbeResult = { ok: true } | { ok: false; reason: HttpsProbeReason };
+
 export interface DomainCheckDeps {
   checkCname(name: string, expectedTarget: string): Promise<boolean>;
-  probeHttps(hostname: string): Promise<boolean>;
+  probeHttps(hostname: string): Promise<HttpsProbeResult>;
   minCheckIntervalMs: number;
 }
 
@@ -147,7 +170,7 @@ export function createRealDomainCheckDeps(): DomainCheckDeps {
         return false; // NXDOMAIN / ENODATA / timeout — record simply not there yet
       }
     },
-    async probeHttps(hostname) {
+    async probeHttps(hostname): Promise<HttpsProbeResult> {
       // SSRF guard: resolve the hostname ourselves first and refuse to probe
       // if it (or any of its answers) points at a private/reserved address —
       // otherwise a customer could point their domain's DNS at
@@ -155,16 +178,18 @@ export function createRealDomainCheckDeps(): DomainCheckDeps {
       // SSRF primitive. Residual TOCTOU: the `fetch` below re-resolves the
       // hostname itself, so a DNS answer could change between our lookup and
       // the fetch (rebinding). Deliberate MVP trade-off — the probe is
-      // boolean-only and blind (the response body/headers are never
+      // reachability-only and blind (the response body/headers are never
       // returned to the caller), which bounds the impact of a successful
       // rebind to "an internal endpoint returns any HTTP response" rather
       // than any data exfiltration.
       try {
         const addresses = await lookup(hostname, { all: true });
-        if (addresses.length === 0) return false;
-        if (!addresses.every((entry) => isPubliclyRoutableAddress(entry.address))) return false;
+        if (addresses.length === 0) return { ok: false, reason: 'HTTPS_NOT_REACHABLE' };
+        if (!addresses.every((entry) => isPubliclyRoutableAddress(entry.address))) {
+          return { ok: false, reason: 'HTTPS_NOT_REACHABLE' };
+        }
       } catch {
-        return false; // couldn't resolve — nothing to probe
+        return { ok: false, reason: 'HTTPS_NOT_REACHABLE' }; // couldn't resolve — nothing to probe
       }
       try {
         // Any completed HTTPS response proves DNS + TLS + routing; the app's
@@ -174,9 +199,9 @@ export function createRealDomainCheckDeps(): DomainCheckDeps {
           redirect: 'manual',
           signal: AbortSignal.timeout(10_000),
         });
-        return true;
+        return { ok: true };
       } catch {
-        return false;
+        return { ok: false, reason: 'HTTPS_NOT_REACHABLE' };
       }
     },
   };
@@ -189,6 +214,7 @@ export function createFixtureDomainCheckDeps(): DomainCheckDeps {
   return {
     minCheckIntervalMs: 0,
     checkCname: async (name) => isFixture(name),
-    probeHttps: async (hostname) => isFixture(hostname),
+    probeHttps: async (hostname) =>
+      isFixture(hostname) ? { ok: true } : { ok: false, reason: 'HTTPS_NOT_REACHABLE' },
   };
 }

@@ -29,6 +29,7 @@ import {
   createFakeCloudflareDnsClient,
   type CloudflareDnsClient,
 } from './cloudflare-records.js';
+import type { HttpsProbeReason } from './domain-check.js';
 import { createCustomDomain } from './domains.js';
 // Phase 11 — the default-HTTPS state machine over a fresh in-memory PGlite
 // (real Postgres semantics, full migrations, including the jsonb column this
@@ -152,7 +153,7 @@ describe('default-https service', () => {
       enabled: true,
       apex,
       dns: new FakeDnsClient(),
-      probeHttps: async () => true,
+      probeHttps: async () => ({ ok: true }),
       ...overrides,
     };
   }
@@ -287,7 +288,7 @@ describe('default-https service', () => {
         .set({ defaultHttps: { ...stateBefore, status: 'CONFIGURING' } })
         .where(eq(schema.deployments.id, deployment.id));
 
-      await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => true }));
+      await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => ({ ok: true }) }));
       const state = await stateOf(deployment.id);
       expect(state?.status).toBe('ACTIVE');
       expect(state?.lastError).toBeNull();
@@ -302,10 +303,64 @@ describe('default-https service', () => {
         .set({ defaultHttps: { ...stateBefore, status: 'CONFIGURING' } })
         .where(eq(schema.deployments.id, deployment.id));
 
-      await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => false }));
+      await runDefaultHttpsCheck(
+        db,
+        deployment,
+        deps({ probeHttps: async () => ({ ok: false, reason: 'HTTPS_NOT_REACHABLE' }) }),
+      );
       const state = await stateOf(deployment.id);
       expect(state?.status).toBe('CONFIGURING');
       expect(state?.lastError).toBe('HTTPS_NOT_REACHABLE');
+    });
+
+    // Phase 5 — the CONFIGURING verifier outcome matrix. The probe is always
+    // a FAKE (never real HTTP): each distinguishable failure must persist its
+    // reason as lastError and hold CONFIGURING; only a healthy probe may
+    // promote to ACTIVE.
+    describe('CONFIGURING verifier outcome matrix (Phase 5)', () => {
+      async function configuringDeployment() {
+        const deployment = await install();
+        await settleNewestConfigureJob(deployment.id, {
+          certificateArn: 'arn:aws:acm:us-east-1:1:certificate/abc',
+          validationName: `_x1.${defaultHttpsHostname(deployment.id, apex)}`,
+          validationValue: '_y1.acm-validations.aws.',
+          routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+        });
+        const stateBefore = await stateOf(deployment.id);
+        await db
+          .update(schema.deployments)
+          .set({ defaultHttps: { ...stateBefore, status: 'CONFIGURING' } })
+          .where(eq(schema.deployments.id, deployment.id));
+        return deployment;
+      }
+
+      it.each<[string, HttpsProbeReason]>([
+        ['DNS still pending (hostname not resolvable)', 'DNS_UNRESOLVED'],
+        ['TLS unavailable on the origin', 'TLS_UNAVAILABLE'],
+        ['an invalid TLS certificate', 'CERT_INVALID'],
+        ['the probe times out', 'PROBE_TIMEOUT'],
+        ['the origin answers HTTP 404', 'HTTP_404'],
+        ['the origin answers HTTP 500', 'HTTP_500'],
+        ['an unclassified transport failure', 'HTTPS_NOT_REACHABLE'],
+      ])('stays CONFIGURING with a distinguishing lastError when %s', async (_label, reason) => {
+        const deployment = await configuringDeployment();
+        await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => ({ ok: false, reason }) }));
+        const state = await stateOf(deployment.id);
+        expect(state?.status).toBe('CONFIGURING');
+        expect(state?.lastError).toBe(reason);
+        // A failed probe never mints a new configure job — the driver retries
+        // on its own cadence.
+        const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+        expect(jobs).toHaveLength(1);
+      });
+
+      it('reaches ACTIVE only on a healthy probe', async () => {
+        const deployment = await configuringDeployment();
+        await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => ({ ok: true }) }));
+        const state = await stateOf(deployment.id);
+        expect(state?.status).toBe('ACTIVE');
+        expect(state?.lastError).toBeNull();
+      });
     });
 
     it('ERROR retries automatically: falls back and re-runs the earliest stage', async () => {

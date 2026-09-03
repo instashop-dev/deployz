@@ -24,8 +24,8 @@ Rules that hold for every phase:
 | 2 | Default hostname model `d-<id>.deployz.dev` | Merged | #136 | 5b18167 | — | — |
 | 3 | Cloudflare DNS client (mocked) | Merged | #136 | 5b18167 | — | — |
 | 4 | Connect default DNS to lifecycle | In review | #TBD (batched) | — | — | — |
-| 5 | Default HTTPS state + READY logic | Pending | — | — | — | — |
-| 6 | Origin TLS architecture | Pending | — | — | — | — |
+| 5 | Default HTTPS state + READY logic | In review | #TBD (batched) | — | — | — |
+| 6 | Origin TLS architecture | In review | #TBD (batched) | — | — | — |
 | 7 | Custom-domain flow fallback rules | Pending | — | — | — | — |
 | 8 | Custom-domain health promotion | Pending | — | — | — | — |
 | 9 | UI/UX default vs custom URL | Pending | — | — | — | — |
