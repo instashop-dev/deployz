@@ -267,9 +267,13 @@ test.describe('cloudformation-rollback (browser)', () => {
       page.getByText('The database could not be created.').first(),
     ).toBeVisible();
     // Scoped to the sections a vendor reads as the primary explanation of
-    // this failure — NOT the whole page. Product finding (not fixed here,
-    // per this task's instructions): the Recent Activity section's
-    // `eventFailureReason` (apps/web/src/lib/deployment-vocabulary.ts),
+    // this failure — NOT the whole page. The infrastructure section is
+    // excluded: since §16.2 it shows the resource snapshot on failed
+    // installs (component story first, AWS service chips and stack status
+    // as the vendor's technical inventory, deeper detail behind each row's
+    // disclosure), which is asserted separately below. Product finding
+    // (not fixed here, per this task's instructions): the Recent Activity
+    // section's `eventFailureReason` (apps/web/src/lib/deployment-vocabulary.ts),
     // rendered at the top level of each ActivityFeed row (apps/web/src/
     // components/activity-feed.tsx), surfaces the relay's raw internal error
     // string — which for a STACK_CREATE_FAILED install embeds a raw CFN
@@ -279,7 +283,7 @@ test.describe('cloudformation-rollback (browser)', () => {
     // a real §65 jargon leak into primary vendor UI, reported separately;
     // this assertion pins the sections that ARE honestly jargon-free rather
     // than silently widening the regex or touching product code.
-    for (const sectionId of ['actions', 'deployment-progress', 'infrastructure', 'overview']) {
+    for (const sectionId of ['actions', 'deployment-progress', 'overview']) {
       const sectionText = await page.locator(`section[aria-labelledby="${sectionId}"]`).innerText();
       expect(sectionText).not.toMatch(JARGON);
     }
@@ -306,13 +310,22 @@ test.describe('cloudformation-rollback (browser)', () => {
       page.getByText("This deployment hasn't completed an install yet, so these actions aren't available."),
     ).toBeVisible();
 
-    // Infrastructure: honestly nothing to report — this deployment never ran.
+    // Infrastructure: §16.2 failure visibility — the resource snapshot is
+    // shown on failed installs so the vendor can debug (component story
+    // first: Database failed with its honest reason, Network, Relay; the
+    // AWS service chips and stack status are the vendor inventory, with
+    // deeper detail behind each row's disclosure).
+    const infrastructureSection = page.locator('section[aria-labelledby="infrastructure"]');
+    await expect(infrastructureSection.getByText('Database', { exact: true })).toBeVisible();
     await expect(
-      page.getByText("This deployment isn't running, so there's nothing to report."),
+      infrastructureSection.getByText('Retained when deployment is removed.'),
     ).toBeVisible();
+    await expect(infrastructureSection.getByText('Deployz Relay', { exact: true })).toBeVisible();
 
     // Diagnostics link is reachable and lands on the real classification.
-    await page.getByRole('link', { name: 'View Diagnostics' }).click();
+    // `.first()`: the failure card and the §16.2 infrastructure snapshot both
+    // offer a diagnostics link (same destination); either proves reachability.
+    await page.getByRole('link', { name: 'View Diagnostics' }).first().click();
     await page.waitForURL(`**/dashboard/deployments/${deploymentId}/diagnostics`);
     await expect(page.getByRole('heading', { name: 'Diagnostics', exact: true })).toBeVisible();
     await expect(page.getByTestId('diagnostic-card')).toBeVisible();

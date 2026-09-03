@@ -218,12 +218,15 @@ describe('eventFailureReason', () => {
 // The reason the day-2 actions are unavailable. A deployment being removed is
 // gated by its own lifecycle, not by the connector: the canary showed
 // "not supported by the currently installed Deployz connector" during a
-// disconnect, sending the vendor to check a connector that was fine.
+// disconnect, sending the vendor to check a connector that was fine. Order
+// mirrors the API's requireDeployableState (apps/api/src/server.ts): lifecycle
+// → never-installed → relay liveness → connector capabilities.
 describe('actionsUnavailableReason', () => {
   it('blames the lifecycle, not the connector, while a deployment is being removed', () => {
     const reason = actionsUnavailableReason({
       state: 'DELETING',
       everRan: true,
+      relayStatus: 'CONNECTED',
       anyCapabilityGatedOff: true,
     });
     expect(reason).toContain('being removed');
@@ -232,22 +235,79 @@ describe('actionsUnavailableReason', () => {
 
   it('says a removed deployment no longer takes actions', () => {
     expect(
-      actionsUnavailableReason({ state: 'DELETED', everRan: true, anyCapabilityGatedOff: false }),
+      actionsUnavailableReason({
+        state: 'DELETED',
+        everRan: true,
+        relayStatus: 'CONNECTED',
+        anyCapabilityGatedOff: false,
+      }),
     ).toContain('has been removed');
   });
 
   it('still explains a never-installed deployment and a gated connector', () => {
     expect(
-      actionsUnavailableReason({ state: 'FAILED', everRan: false, anyCapabilityGatedOff: false }),
+      actionsUnavailableReason({
+        state: 'FAILED',
+        everRan: false,
+        relayStatus: 'CONNECTED',
+        anyCapabilityGatedOff: false,
+      }),
     ).toContain("hasn't completed an install");
     expect(
-      actionsUnavailableReason({ state: 'HEALTHY', everRan: true, anyCapabilityGatedOff: true }),
+      actionsUnavailableReason({
+        state: 'HEALTHY',
+        everRan: true,
+        relayStatus: 'CONNECTED',
+        anyCapabilityGatedOff: true,
+      }),
     ).toContain('connector');
   });
 
   it('is null when every action is available', () => {
     expect(
-      actionsUnavailableReason({ state: 'HEALTHY', everRan: true, anyCapabilityGatedOff: false }),
+      actionsUnavailableReason({
+        state: 'HEALTHY',
+        everRan: true,
+        relayStatus: 'CONNECTED',
+        anyCapabilityGatedOff: false,
+      }),
     ).toBeNull();
+  });
+
+  // §16.4: an offline relay must disable the day-2 actions up front, exactly
+  // as the API refuses them (RELAY_DISCONNECTED / RELAY_NOT_CONNECTED). The
+  // liveness reason outranks the capability copy — a connector that simply
+  // is not there cannot be "not supporting" the action.
+  it('gates on a disconnected relay before the connector capabilities', () => {
+    const reason = actionsUnavailableReason({
+      state: 'HEALTHY',
+      everRan: true,
+      relayStatus: 'DISCONNECTED',
+      anyCapabilityGatedOff: true,
+    });
+    expect(reason).toContain('relay is offline');
+    expect(reason).not.toContain('connector');
+  });
+
+  it('gates on a relay that has never connected', () => {
+    expect(
+      actionsUnavailableReason({
+        state: 'HEALTHY',
+        everRan: true,
+        relayStatus: 'UNKNOWN',
+        anyCapabilityGatedOff: false,
+      }),
+    ).toContain('No relay has connected');
+  });
+
+  it('reports the missing capability only once the relay is online', () => {
+    expect(
+      actionsUnavailableReason({
+        state: 'HEALTHY',
+        everRan: true,
+        relayStatus: 'CONNECTED',
+        anyCapabilityGatedOff: true,
+      }),
+    ).toContain('connector');
   });
 });

@@ -92,8 +92,8 @@ async function seedCustomerAndDeployment(
 /**
  * Drives a fresh deployment to HEALTHY via the real relay job workflow —
  * mirrors fleet.spec.ts's `driveDeploymentToHealthy`. The Infrastructure
- * section (including the Redis row) only renders once the deployment has
- * completed an install (see `showInfrastructureRows` in
+ * section (including the Redis row) only renders once the deployment is past
+ * the pre-install states (see `showInfrastructureRows` in
  * apps/web/src/lib/deployment-vocabulary.ts), so a deployment that was never
  * installed shows the section's empty state instead — no Redis row to find.
  */
@@ -173,7 +173,7 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   // ListStackResources read (including the ElastiCache replication group) is
   // persisted via persistDeploymentResourceSnapshot
   // (packages/db/src/deployment-resources-persist.ts). It also only renders
-  // once the deployment has completed an install (see
+  // once the deployment is past the pre-install states (see
   // `showInfrastructureRows`), so drive a real install through the relay job
   // workflow first — the same sequence fleet.spec.ts's
   // `driveDeploymentToHealthy` uses — then report the inventory.

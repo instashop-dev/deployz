@@ -144,13 +144,22 @@ export function showHealthBadge(
 
 /**
  * Whether the deployment has per-component infrastructure worth listing.
- * Same split as `showHealthBadge`, applied to the Infrastructure rows.
+ *
+ * Not the same split as `showHealthBadge`: a FAILED deployment shows its
+ * infrastructure even when no release ever ran, because the resource
+ * snapshot of a failed first install is exactly what a vendor debugging the
+ * failure needs (the stack may have created real resources before rolling
+ * back). Only deployments nothing has ever tried to provision — or that have
+ * been removed — hide the rows.
  */
 export function showInfrastructureRows(
   state: DeploymentState,
-  currentReleaseId: string | null = null,
+  _currentReleaseId: string | null = null,
 ): boolean {
-  return showHealthBadge(state, currentReleaseId);
+  if (state === 'NOT_INSTALLED' || state === 'WAITING_FOR_RELAY' || state === 'DELETED') {
+    return false;
+  }
+  return true;
 }
 
 // ── Relay connectivity + capability gating ─────────────────────────────────
@@ -221,21 +230,40 @@ export const REMOVING_ACTION_COPY =
 export const REMOVED_ACTION_COPY = 'This deployment has been removed, so these actions no longer apply.';
 
 /**
+ * Why the day-2 actions are gated on a relay that is not currently
+ * connected. The relay must fetch the queued job, so a relay that has never
+ * connected (UNKNOWN) or has gone stale (DISCONNECTED — the API's liveness
+ * sweep flips this after RELAY_STALE_AFTER_MS) would leave the action
+ * REQUESTED until the watchdog fails it. Mirrors the API's
+ * requireDeployableState refusals (RELAY_NOT_CONNECTED / RELAY_DISCONNECTED)
+ * so the disabled button and the server-side refusal can never disagree.
+ */
+export const RELAY_UNREACHABLE_ACTION_COPY: Record<Exclude<RelayStatus, 'CONNECTED'>, string> = {
+  UNKNOWN: "No relay has connected to this deployment yet, so these actions aren't available.",
+  DISCONNECTED: "The relay is offline, so these actions aren't available until it reconnects.",
+};
+
+/**
  * Why the day-2 actions are unavailable, or null when they are not.
  *
- * Order matters: a deployment being removed (or already gone) is gated by
- * its own lifecycle, NOT by the connector's capabilities — reporting the
- * capability sentence there told vendors to check a connector that supports
- * every action.
+ * Order mirrors the API's `requireDeployableState` (apps/api/src/server.ts):
+ * a deployment being removed (or already gone) is gated by its own
+ * lifecycle; one that never completed an install is gated by that; then the
+ * relay's liveness; and only last the connector's capabilities. Reporting a
+ * lifecycle reason sent vendors to check a connector that supports every
+ * action, and reporting a capability reason for an offline relay sent them
+ * to check a connector that is simply not there.
  */
 export function actionsUnavailableReason(input: {
   state: string;
   everRan: boolean;
+  relayStatus: RelayStatus;
   anyCapabilityGatedOff: boolean;
 }): string | null {
   if (input.state === 'DELETED') return REMOVED_ACTION_COPY;
   if (input.state === 'DELETING') return REMOVING_ACTION_COPY;
   if (!input.everRan) return NOT_YET_RUNNING_ACTION_COPY;
+  if (input.relayStatus !== 'CONNECTED') return RELAY_UNREACHABLE_ACTION_COPY[input.relayStatus];
   return input.anyCapabilityGatedOff ? UNSUPPORTED_ACTION_COPY : null;
 }
 
@@ -295,9 +323,12 @@ export function relayWaitingStuck(
   return now - Date.parse(installStartedAt) > RELAY_STALE_AFTER_MS;
 }
 
-/** Guidance shown on both the install page and the dashboard when stuck. */
+/** Guidance shown on both the install page and the dashboard when stuck.
+ *  §65: jargon-free on the customer install page — never names
+ *  CloudFormation; "the setup in your AWS account" is all the customer (or
+ *  vendor) needs to make sense of the wait. */
 export const RELAY_STUCK_GUIDANCE =
-  'Deployz has not connected to AWS yet. The CloudFormation stack may still be running or may have failed before the connector started.';
+  'Deployz has not connected to AWS yet. The setup in your AWS account may still be running, or it may have failed before the connector started.';
 
 /**
  * The §24 component view in install-page display order, with customer

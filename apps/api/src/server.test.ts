@@ -2861,7 +2861,7 @@ describe('server — organization settings, public install page, and bulk deploy
       customerName: 'Acme Analytics',
       region: 'eu-west-1',
       alreadyInstalled: false,
-      resourcesCreated: ['Application runtime', 'PostgreSQL database', 'Networking', 'Monitoring'],
+      resourcesCreated: ['Application runtime', 'PostgreSQL database'],
       // No BOOTSTRAP_TEMPLATE_URL in the test environment: nothing is
       // published, so there is no link to hand out. The enrollment code
       // travels inside that link, never as a field of its own.
@@ -2904,8 +2904,6 @@ describe('server — organization settings, public install page, and bulk deploy
     expect((withRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
       'Application runtime',
       'Redis cache',
-      'Networking',
-      'Monitoring',
     ]);
 
     await db
@@ -2916,8 +2914,6 @@ describe('server — organization settings, public install page, and bulk deploy
     const withoutRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
     expect((withoutRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
       'Application runtime',
-      'Networking',
-      'Monitoring',
     ]);
   });
 

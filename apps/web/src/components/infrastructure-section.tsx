@@ -63,8 +63,14 @@ export function InfrastructureSection({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {data.snapshotState === 'none' ? (
+          // A failed install never created a stack's worth of resources, so
+          // the "will appear as resources are created" line would be a lie —
+          // say what actually happened instead (the progress card and the
+          // activity feed above carry the failure itself).
           <p className="text-sm text-muted-foreground">
-            Infrastructure details will appear as AWS resources are created.
+            {deploymentState === 'FAILED'
+              ? 'No resources were created before the failure.'
+              : 'Infrastructure details will appear as AWS resources are created.'}
           </p>
         ) : (
           <>

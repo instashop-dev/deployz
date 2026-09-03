@@ -88,9 +88,9 @@ const PROGRESS_DOT: Record<ComponentProgressStatus, string> = {
  * customer install page renders, so the two surfaces can never disagree.
  *
  * This is deliberately NOT a duplicate of the page's existing Infrastructure
- * section: that section only appears once a deployment has completed an
- * install (`showInfrastructureRows`), so it renders nothing for the entire
- * WAITING_FOR_AWS / CONNECTING / PROVISIONING run. This card fills that gap
+ * section: that section only appears once a deployment is past the pre-
+ * install states (`showInfrastructureRows`), so it renders nothing for the
+ * entire WAITING_FOR_AWS / CONNECTING run. This card fills that gap
  * with the relay/job/component detail a vendor needs while an install is in
  * flight, and keeps showing it afterwards for continuity.
  */

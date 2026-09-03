@@ -470,28 +470,44 @@ function DeploymentActions({
   >(null);
   const capabilities: RelayCapabilities | null = detail.relayCapabilities;
   // §24: deploy/rollback/restart/config all act on a running application, so
-  // they are gated on TWO independent signals — the relay-reported
-  // capability, and whether this deployment has ever completed an install
-  // (a relay can connect and advertise capabilities before that happens).
-  // Disconnect is exempt from the second gate: a deployment that failed to
-  // ever come up must still be removable.
+  // they are gated on THREE independent signals that mirror the API's
+  // requireDeployableState — the relay-reported capability, whether this
+  // deployment has ever completed an install (a relay can connect and
+  // advertise capabilities before that happens), and the relay's current
+  // liveness. A job queued for a disconnected/stale relay would sit REQUESTED
+  // until the watchdog fails it (§9.5), so the actions are disabled up front
+  // with the why, exactly as the API refuses them (RELAY_DISCONNECTED /
+  // RELAY_NOT_CONNECTED). Disconnect is exempt from the second and third
+  // gates: a deployment that failed to ever come up must still be removable,
+  // and a lost relay routes through the force-complete escape hatch.
+  const relayOnline = detail.relayStatus === 'CONNECTED';
   const everRan = everInstalled(detail.state, detail.currentReleaseId);
   // A pending DESTROY owns the deployment: every other mutating action
   // targets a stack that is about to disappear underneath it.
   const disconnecting = detail.state === 'DELETING';
-  const canDeploy = everRan && !disconnecting && actionSupported(capabilities, 'deploy');
-  const canRollback = everRan && !disconnecting && actionSupported(capabilities, 'rollback');
-  const canRestart = everRan && !disconnecting && actionSupported(capabilities, 'restart');
-  const canConfig = everRan && !disconnecting && actionSupported(capabilities, 'configUpdate');
+  const canDeploy = relayOnline && everRan && !disconnecting && actionSupported(capabilities, 'deploy');
+  const canRollback = relayOnline && everRan && !disconnecting && actionSupported(capabilities, 'rollback');
+  const canRestart = relayOnline && everRan && !disconnecting && actionSupported(capabilities, 'restart');
+  const canConfig = relayOnline && everRan && !disconnecting && actionSupported(capabilities, 'configUpdate');
   const canDisconnect = !disconnecting && actionSupported(capabilities, 'disconnect');
   // Recovery for a failed FIRST install: the API refuses it once any install
   // has succeeded, so it is offered exactly where the day-2 actions are not.
   const canRetryInstall = detail.state === 'FAILED' && !everRan;
+  // Capability copy applies only while the relay is actually there to have
+  // capabilities — an offline relay reports the liveness reason instead.
   const anyCapabilityGatedOff =
-    everRan && !disconnecting && (!canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect);
+    relayOnline &&
+    everRan &&
+    !disconnecting &&
+    (!actionSupported(capabilities, 'deploy') ||
+      !actionSupported(capabilities, 'rollback') ||
+      !actionSupported(capabilities, 'restart') ||
+      !actionSupported(capabilities, 'configUpdate') ||
+      !actionSupported(capabilities, 'disconnect'));
   const actionsUnavailable = actionsUnavailableReason({
     state: detail.state,
     everRan,
+    relayStatus: detail.relayStatus,
     anyCapabilityGatedOff,
   });
   const hasPreviousRelease = detail.previousReleaseId !== null;

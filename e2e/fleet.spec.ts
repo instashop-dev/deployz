@@ -194,8 +194,8 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
   // §24 infrastructure. A deployment nobody has installed has no observed
   // health, so the honest render is the empty state — not four green rows all
   // showing the same column default, which is what this used to assert.
-  // (showInfrastructureRows gates the whole section on the deployment having
-  // completed an install — see apps/web/src/lib/deployment-vocabulary.ts.)
+  // (showInfrastructureRows gates the whole section on the deployment being
+  // past the pre-install states — see apps/web/src/lib/deployment-vocabulary.ts.)
   await expect(page.getByText('This deployment has not been installed yet.')).toBeVisible();
   await expect(page.getByText('Deployz Relay', { exact: true })).toBeVisible();
   await expect(page.getByText('Database', { exact: true })).toHaveCount(0);
