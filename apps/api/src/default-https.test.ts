@@ -24,13 +24,18 @@ import {
   type DefaultHttpsDeps,
   type DefaultHostnameConfig,
 } from './default-https.js';
+import {
+  CloudflareDnsError,
+  createFakeCloudflareDnsClient,
+  type CloudflareDnsClient,
+} from './cloudflare-records.js';
+import type { HttpsProbeReason } from './domain-check.js';
 import { createCustomDomain } from './domains.js';
-import type { DnsRecordClient } from './route53-records.js';
-
 // Phase 11 — the default-HTTPS state machine over a fresh in-memory PGlite
 // (real Postgres semantics, full migrations, including the jsonb column this
-// machine lives in). All AWS interaction is behind the injected seams — no
-// real Route53, ACM or DNS ever runs.
+// machine lives in). All DNS interaction is behind the injected
+// deployment-keyed seam (CloudflareDnsClient) — no real Cloudflare, Route53,
+// ACM or DNS ever runs.
 
 describe('default-https service', () => {
   let client: PGlite | undefined;
@@ -116,27 +121,39 @@ describe('default-https service', () => {
     return db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deploymentId));
   }
 
-  class FakeDnsClient implements DnsRecordClient {
+  const apex = 'deployz.test';
+
+  class FakeDnsClient implements CloudflareDnsClient {
     upserts: Array<{ name: string; value: string }> = [];
     deletes: string[] = [];
     failUpserts = false;
-    async upsertCname(name: string, value: string): Promise<void> {
+    getRecord = async (_deploymentId: string) => null;
+    async upsertDefaultValidationRecord(deploymentId: string, validationName: string, validationValue: string) {
       if (this.failUpserts) throw new Error('boom');
-      this.upserts.push({ name, value });
+      this.upserts.push({ name: validationName, value: validationValue });
+      return { op: 'noop' as const, record: null };
     }
-    async deleteCname(name: string): Promise<void> {
-      this.deletes.push(name);
+    async upsertDefaultDeploymentRecord(deploymentId: string, target: string) {
+      if (this.failUpserts) throw new Error('boom');
+      this.upserts.push({ name: defaultHttpsHostname(deploymentId, apex), value: target });
+      return { op: 'noop' as const, record: null };
+    }
+    async deleteDefaultDeploymentRecord(deploymentId: string) {
+      this.deletes.push(defaultHttpsHostname(deploymentId, apex));
+      return { op: 'deleted' as const };
+    }
+    async deleteDefaultValidationRecord(deploymentId: string, validationName: string) {
+      this.deletes.push(validationName);
+      return { op: 'deleted' as const };
     }
   }
-
-  const apex = 'deployz.test';
 
   function deps(overrides: Partial<DefaultHttpsDeps> = {}): DefaultHttpsDeps {
     return {
       enabled: true,
       apex,
       dns: new FakeDnsClient(),
-      probeHttps: async () => true,
+      probeHttps: async () => ({ ok: true }),
       ...overrides,
     };
   }
@@ -271,7 +288,7 @@ describe('default-https service', () => {
         .set({ defaultHttps: { ...stateBefore, status: 'CONFIGURING' } })
         .where(eq(schema.deployments.id, deployment.id));
 
-      await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => true }));
+      await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => ({ ok: true }) }));
       const state = await stateOf(deployment.id);
       expect(state?.status).toBe('ACTIVE');
       expect(state?.lastError).toBeNull();
@@ -286,10 +303,64 @@ describe('default-https service', () => {
         .set({ defaultHttps: { ...stateBefore, status: 'CONFIGURING' } })
         .where(eq(schema.deployments.id, deployment.id));
 
-      await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => false }));
+      await runDefaultHttpsCheck(
+        db,
+        deployment,
+        deps({ probeHttps: async () => ({ ok: false, reason: 'HTTPS_NOT_REACHABLE' }) }),
+      );
       const state = await stateOf(deployment.id);
       expect(state?.status).toBe('CONFIGURING');
       expect(state?.lastError).toBe('HTTPS_NOT_REACHABLE');
+    });
+
+    // Phase 5 — the CONFIGURING verifier outcome matrix. The probe is always
+    // a FAKE (never real HTTP): each distinguishable failure must persist its
+    // reason as lastError and hold CONFIGURING; only a healthy probe may
+    // promote to ACTIVE.
+    describe('CONFIGURING verifier outcome matrix (Phase 5)', () => {
+      async function configuringDeployment() {
+        const deployment = await install();
+        await settleNewestConfigureJob(deployment.id, {
+          certificateArn: 'arn:aws:acm:us-east-1:1:certificate/abc',
+          validationName: `_x1.${defaultHttpsHostname(deployment.id, apex)}`,
+          validationValue: '_y1.acm-validations.aws.',
+          routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+        });
+        const stateBefore = await stateOf(deployment.id);
+        await db
+          .update(schema.deployments)
+          .set({ defaultHttps: { ...stateBefore, status: 'CONFIGURING' } })
+          .where(eq(schema.deployments.id, deployment.id));
+        return deployment;
+      }
+
+      it.each<[string, HttpsProbeReason]>([
+        ['DNS still pending (hostname not resolvable)', 'DNS_UNRESOLVED'],
+        ['TLS unavailable on the origin', 'TLS_UNAVAILABLE'],
+        ['an invalid TLS certificate', 'CERT_INVALID'],
+        ['the probe times out', 'PROBE_TIMEOUT'],
+        ['the origin answers HTTP 404', 'HTTP_404'],
+        ['the origin answers HTTP 500', 'HTTP_500'],
+        ['an unclassified transport failure', 'HTTPS_NOT_REACHABLE'],
+      ])('stays CONFIGURING with a distinguishing lastError when %s', async (_label, reason) => {
+        const deployment = await configuringDeployment();
+        await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => ({ ok: false, reason }) }));
+        const state = await stateOf(deployment.id);
+        expect(state?.status).toBe('CONFIGURING');
+        expect(state?.lastError).toBe(reason);
+        // A failed probe never mints a new configure job — the driver retries
+        // on its own cadence.
+        const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+        expect(jobs).toHaveLength(1);
+      });
+
+      it('reaches ACTIVE only on a healthy probe', async () => {
+        const deployment = await configuringDeployment();
+        await runDefaultHttpsCheck(db, deployment, deps({ probeHttps: async () => ({ ok: true }) }));
+        const state = await stateOf(deployment.id);
+        expect(state?.status).toBe('ACTIVE');
+        expect(state?.lastError).toBeNull();
+      });
     });
 
     it('ERROR retries automatically: falls back and re-runs the earliest stage', async () => {
@@ -560,6 +631,186 @@ describe('default-https service', () => {
       expect(
         resolvePreferredPublicUrl({ ...base, customUrl: null, customHealthy: true }),
       ).toBe('https://d-dep-1.deployz.dev');
+    });
+  });
+
+  describe('runDefaultHttpsCheck via the Cloudflare DNS client (Phase 4)', () => {
+    const ALB_TARGET = 'alb.us-east-1.elb.amazonaws.com';
+
+    /** A CloudflareDnsClient over the in-memory fake that records every upsert
+     *  result and can fail the validation write once (a simulated outage). */
+    function trackedClient() {
+      const fake = createFakeCloudflareDnsClient({ zoneId: 'zone-1', zoneName: apex });
+      const ops: Array<{ record: 'validation' | 'routing'; op: string }> = [];
+      let failValidationOnce = false;
+      const client: CloudflareDnsClient = {
+        getRecord: async (deploymentId) => fake.getRecord(deploymentId),
+        upsertDefaultDeploymentRecord: async (deploymentId, target) => {
+          const result = await fake.upsertDefaultDeploymentRecord(deploymentId, target);
+          ops.push({ record: 'routing', op: result.op });
+          return result;
+        },
+        upsertDefaultValidationRecord: async (deploymentId, validationName, validationValue) => {
+          if (failValidationOnce) {
+            failValidationOnce = false;
+            throw new CloudflareDnsError('simulated Cloudflare outage', 'CLOUDFLARE_UNAVAILABLE');
+          }
+          const result = await fake.upsertDefaultValidationRecord(deploymentId, validationName, validationValue);
+          ops.push({ record: 'validation', op: result.op });
+          return result;
+        },
+        deleteDefaultDeploymentRecord: async (deploymentId) => fake.deleteDefaultDeploymentRecord(deploymentId),
+        deleteDefaultValidationRecord: async (deploymentId, validationName) =>
+          fake.deleteDefaultValidationRecord(deploymentId, validationName),
+      };
+      return {
+        client,
+        fake,
+        ops,
+        failValidationNext: () => {
+          failValidationOnce = true;
+        },
+      };
+    }
+
+    async function settleConfigure(
+      deploymentId: string,
+      output: Record<string, unknown>,
+      success = true,
+    ) {
+      const jobs = (await jobsFor(deploymentId)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      const job = jobs[jobs.length - 1]!;
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: success ? 'SUCCEEDED' : 'FAILED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.id, job.id));
+      await applyDefaultHttpsJobResult(db, deploymentId, job, { success, output });
+    }
+
+    /** install → PENDING job → relay reports validation fields + the ALB →
+     *  WAITING_FOR_DNS, exactly like the custom-domain machine. */
+    async function installWithAlbTarget(client: CloudflareDnsClient) {
+      const deployment = await seedDeployment();
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      const validationName = `_x1.${defaultHttpsHostname(deployment.id, apex)}`;
+      await settleConfigure(deployment.id, {
+        certificateArn: 'arn:aws:acm:us-east-1:1:certificate/abc',
+        validationName,
+        validationValue: '_y1.acm-validations.aws.',
+        routingTarget: ALB_TARGET,
+      });
+      return { deployment, validationName };
+    }
+
+    function configureJobCount(deploymentId: string) {
+      return jobsFor(deploymentId).then((rows) => rows.filter((job) => job.type === 'CONFIGURE_DOMAIN').length);
+    }
+
+    it('reconciles the proxied routing + unproxied validation records, stamps lastDnsCheckAt, and lets WAITING_FOR_DNS → CONFIGURING ride the relay outcome', async () => {
+      const { client, fake } = trackedClient();
+      const { deployment, validationName } = await installWithAlbTarget(client);
+      expect((await stateOf(deployment.id))?.status).toBe('WAITING_FOR_DNS');
+
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+
+      const state = await stateOf(deployment.id);
+      expect(state?.status).toBe('WAITING_FOR_DNS');
+      expect(state?.lastError).toBeNull();
+      expect(state?.lastDnsCheckAt).toBeTruthy();
+
+      const hostname = defaultHttpsHostname(deployment.id, apex);
+      const records = fake.listRecords();
+      expect(records.some((record) => record.name === hostname && record.content === ALB_TARGET && record.proxied === true)).toBe(
+        true,
+      );
+      expect(
+        records.some(
+          (record) =>
+            record.name === validationName &&
+            record.content === '_y1.acm-validations.aws.' &&
+            record.proxied === false,
+        ),
+      ).toBe(true);
+
+      // DNS is in place → a fresh configure cycle is minted; once the relay
+      // reports the cert ISSUED + listener wired the machine reaches CONFIGURING.
+      expect(await configureJobCount(deployment.id)).toBe(2);
+      await settleConfigure(deployment.id, { certificateStatus: 'ISSUED', httpsConfigured: true });
+      const progressed = await stateOf(deployment.id);
+      expect(progressed?.status).toBe('CONFIGURING');
+      expect(progressed?.lastDnsCheckAt).toBe(state?.lastDnsCheckAt);
+    });
+
+    it('a repeat reconciliation is a noop — one routing + one validation record, never duplicates', async () => {
+      const { client, fake, ops } = trackedClient();
+      const { deployment } = await installWithAlbTarget(client);
+
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      expect(ops.map((entry) => [entry.record, entry.op])).toEqual([
+        ['validation', 'created'],
+        ['routing', 'created'],
+      ]);
+      expect(fake.listRecords()).toHaveLength(2);
+
+      ops.length = 0;
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      expect(ops.map((entry) => [entry.record, entry.op])).toEqual([
+        ['validation', 'noop'],
+        ['routing', 'noop'],
+      ]);
+      expect(fake.listRecords()).toHaveLength(2);
+    });
+
+    it('a Cloudflare outage corrupts nothing and enqueues no AWS job; the next pass retries', async () => {
+      const { client, fake, ops, failValidationNext } = trackedClient();
+      const { deployment } = await installWithAlbTarget(client);
+      expect(await configureJobCount(deployment.id)).toBe(1);
+
+      failValidationNext();
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+
+      const failed = await stateOf(deployment.id);
+      expect(failed?.status).toBe('WAITING_FOR_DNS');
+      expect(failed?.lastError).toBe('DNS_WRITE_FAILED');
+      expect(failed?.lastDnsCheckAt).toBeTruthy();
+      // The failed validation write stopped before the routing write and no
+      // CONFIGURE_DOMAIN job was minted from the DNS failure.
+      expect(ops).toHaveLength(0);
+      expect(await configureJobCount(deployment.id)).toBe(1);
+      expect(fake.listRecords()).toHaveLength(0);
+
+      // The next driver pass reconciles both records and mints the fresh cycle.
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      const recovered = await stateOf(deployment.id);
+      expect(recovered?.status).toBe('WAITING_FOR_DNS');
+      expect(recovered?.lastError).toBeNull();
+      expect(recovered?.lastDnsCheckAt).not.toBe(failed?.lastDnsCheckAt);
+      expect(fake.listRecords()).toHaveLength(2);
+      expect(await configureJobCount(deployment.id)).toBe(2);
+    });
+
+    it('an ALB change (trusted relay-reported routingTarget drift) updates the routing record content', async () => {
+      const { client, fake, ops } = trackedClient();
+      const { deployment } = await installWithAlbTarget(client);
+
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+      const newTarget = 'alb-2.us-east-1.elb.amazonaws.com';
+      const current = await stateOf(deployment.id);
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: { ...current!, routingTarget: newTarget } })
+        .where(eq(schema.deployments.id, deployment.id));
+
+      ops.length = 0;
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: client }));
+
+      expect(ops).toEqual([
+        { record: 'validation', op: 'noop' },
+        { record: 'routing', op: 'updated' },
+      ]);
+      const hostname = defaultHttpsHostname(deployment.id, apex);
+      const routing = fake.listRecords().find((record) => record.name === hostname);
+      expect(routing?.content).toBe(newTarget);
     });
   });
 });

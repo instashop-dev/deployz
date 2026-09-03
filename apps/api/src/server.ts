@@ -175,6 +175,10 @@ import {
   type DefaultHttpsDeps,
 } from './default-https.js';
 import {
+  createCloudflareDnsClient,
+  createDnsClientFromNameWriter,
+} from './cloudflare-records.js';
+import {
   createRoute53RecordClient,
   noopDnsRecordClient,
 } from './route53-records.js';
@@ -1104,23 +1108,69 @@ export async function buildServer({
   // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
   // grant must not fail the install request that owns it (see ecr-pull-grants.ts).
   const ecrGrantDeps: EcrPullGrantDeps = createEcrPullGrantDeps(ecrClient);
-  // Phase 11 default HTTPS. On only when the control plane can actually write
-  // the Deployz Route53 records (zone configured), or under the explicit
-  // DNS-fixture opt-in that E2E default-https scenarios set (the ordinary
-  // fixture suite keeps its HTTP-only behaviour). Off means a deployment
-  // needs a custom domain for HTTPS, exactly as before Phase 11.
-  const defaultHttpsDeps: DefaultHttpsDeps =
-    injectedDefaultHttpsDeps ?? {
-      enabled:
-        Boolean(env.dnsZoneId) ||
-        (env.domainFixtureMode && env.defaultHttpsFixtureMode),
-      apex: env.domainFixtureMode ? DEFAULT_HTTPS_FIXTURE_APEX : DEFAULT_HTTPS_APEX,
-      dns:
-        env.domainFixtureMode || !env.dnsZoneId
-          ? noopDnsRecordClient
-          : createRoute53RecordClient({ hostedZoneId: env.dnsZoneId }),
+  // Phase 11 default HTTPS. Fixture mode (E2E) wins; production uses the
+  // Cloudflare DNS client when the deployz.dev zone is configured, falls
+  // back to the legacy Route53 writer while it still exists, and is off when
+  // no zone is configured. Off means a deployment needs a custom domain for
+  // HTTPS, exactly as before Phase 11.
+  const defaultHttpsDeps: DefaultHttpsDeps = (() => {
+    if (injectedDefaultHttpsDeps) {
+      return injectedDefaultHttpsDeps;
+    }
+    // DNS fixture mode first: the E2E fixture namespace is not real DNS, so
+    // the writer is a no-op regardless of any zone env vars.
+    if (env.domainFixtureMode) {
+      return {
+        enabled: env.defaultHttpsFixtureMode,
+        apex: DEFAULT_HTTPS_FIXTURE_APEX,
+        dns: createDnsClientFromNameWriter(noopDnsRecordClient, {
+          zoneName: DEFAULT_HTTPS_FIXTURE_APEX,
+          prefix: env.defaultHostnamePrefix,
+        }),
+        probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
+      };
+    }
+    const apex = DEFAULT_HTTPS_APEX;
+    const cloudflareToken = env.cloudflareZoneApiToken;
+    const cloudflareZoneId = env.cloudflareZoneId;
+    const cloudflareZoneName = env.cloudflareZoneName;
+    if (cloudflareToken && cloudflareZoneId && cloudflareZoneName) {
+      // Cloudflare is authoritative for the deployz.dev apex.
+      return {
+        enabled: true,
+        apex,
+        dns: createCloudflareDnsClient({
+          token: cloudflareToken,
+          zoneId: cloudflareZoneId,
+          zoneName: cloudflareZoneName,
+          prefix: env.defaultHostnamePrefix,
+        }),
+        probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
+      };
+    }
+    if (env.dnsZoneId) {
+      // Legacy Route53 fallback (Phase 16 cleanup): the name-based writer is
+      // adapted to the deployment-keyed seam at the assembly site.
+      return {
+        enabled: true,
+        apex,
+        dns: createDnsClientFromNameWriter(
+          createRoute53RecordClient({ hostedZoneId: env.dnsZoneId }),
+          { zoneName: apex, prefix: env.defaultHostnamePrefix },
+        ),
+        probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
+      };
+    }
+    return {
+      enabled: false,
+      apex,
+      dns: createDnsClientFromNameWriter(noopDnsRecordClient, {
+        zoneName: apex,
+        prefix: env.defaultHostnamePrefix,
+      }),
       probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
     };
+  })();
   // `logger: false` meant a 500 left NO trace anywhere: not in CloudWatch, not
   // in the response (the envelope is deliberately generic), nowhere. Three
   // production failures in a row could only be diagnosed by reading
@@ -3459,16 +3509,21 @@ export async function buildServer({
     // Phase 11: best-effort drop of the deployz-zone CNAMEs on the same
     // force-complete (the DB state was cleared inside the transaction).
     if (preForceDefaultHttps) {
-      const recordNames = [preForceDefaultHttps.hostname];
-      if (preForceDefaultHttps.validationName) {
-        recordNames.push(preForceDefaultHttps.validationName);
+      try {
+        await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
+      } catch (error) {
+        // swallowed — purge is the authoritative cleanup if this fails.
+        console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name: 'default-record', error: String(error) }));
       }
-      for (const name of recordNames) {
+      if (preForceDefaultHttps.validationName) {
         try {
-          await defaultHttpsDeps.dns.deleteCname(name);
+          await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
+            deployment.id,
+            preForceDefaultHttps.validationName,
+          );
         } catch (error) {
           // swallowed — purge is the authoritative cleanup if this fails.
-          console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name, error: String(error) }));
+          console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name: preForceDefaultHttps.validationName, error: String(error) }));
         }
       }
     }
@@ -3565,13 +3620,17 @@ export async function buildServer({
         .update(schema.deployments)
         .set({ defaultHttps: null })
         .where(eq(schema.deployments.id, deployment.id));
-      const recordNames = [leftoverDefaultHttps.hostname];
-      if (leftoverDefaultHttps.validationName) {
-        recordNames.push(leftoverDefaultHttps.validationName);
+      try {
+        await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
+      } catch (error) {
+        request.log.warn({ err: error }, 'default-https record cleanup on purge failed');
       }
-      for (const name of recordNames) {
+      if (leftoverDefaultHttps.validationName) {
         try {
-          await defaultHttpsDeps.dns.deleteCname(name);
+          await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
+            deployment.id,
+            leftoverDefaultHttps.validationName,
+          );
         } catch (error) {
           request.log.warn({ err: error }, 'default-https record cleanup on purge failed');
         }
@@ -5006,13 +5065,17 @@ export async function buildServer({
         (job.type === 'REMOVE_DOMAIN' && state === 'SUCCEEDED') ||
         (job.type === 'DESTROY' && state === 'SUCCEEDED');
       if (certificateGone) {
-        const recordNames = [preTxDefaultHttps.hostname];
-        if (preTxDefaultHttps.validationName) {
-          recordNames.push(preTxDefaultHttps.validationName);
+        try {
+          await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
+        } catch (error) {
+          request.log.warn({ err: error }, 'default-https record cleanup failed');
         }
-        for (const name of recordNames) {
+        if (preTxDefaultHttps.validationName) {
           try {
-            await defaultHttpsDeps.dns.deleteCname(name);
+            await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
+              deployment.id,
+              preTxDefaultHttps.validationName,
+            );
           } catch (error) {
             request.log.warn({ err: error }, 'default-https record cleanup failed');
           }

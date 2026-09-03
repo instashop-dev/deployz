@@ -20,12 +20,12 @@ Rules that hold for every phase:
 | Phase | Scope | Status | PR | Merged commit | Tests | Notes |
 |---|---|---|---|---|---|---|
 | 0 | Audit existing domain/HTTPS runtime | Merged | #131 | a0f0c0f | none (docs only) | Findings below |
-| 1 | Runtime Cloudflare configuration | In review | #TBD (batched) | — | — | — |
-| 2 | Default hostname model `d-<id>.deployz.dev` | In review | #TBD (batched) | — | — | — |
-| 3 | Cloudflare DNS client (mocked) | In review | #TBD (batched) | — | — | — |
-| 4 | Connect default DNS to lifecycle | Pending | — | — | — | — |
-| 5 | Default HTTPS state + READY logic | Pending | — | — | — | — |
-| 6 | Origin TLS architecture | Pending | — | — | — | — |
+| 1 | Runtime Cloudflare configuration | Merged | #136 | 5b18167 | — | — |
+| 2 | Default hostname model `d-<id>.deployz.dev` | Merged | #136 | 5b18167 | — | — |
+| 3 | Cloudflare DNS client (mocked) | Merged | #136 | 5b18167 | — | — |
+| 4 | Connect default DNS to lifecycle | In review | #TBD (batched) | — | — | — |
+| 5 | Default HTTPS state + READY logic | In review | #TBD (batched) | — | — | — |
+| 6 | Origin TLS architecture | In review | #TBD (batched) | — | — | — |
 | 7 | Custom-domain flow fallback rules | Pending | — | — | — | — |
 | 8 | Custom-domain health promotion | Pending | — | — | — | — |
 | 9 | UI/UX default vs custom URL | Pending | — | — | — | — |
@@ -162,6 +162,14 @@ Verified against current Cloudflare v4 docs:
   (root-level status doc, same pattern as `docs/mvp-implementation-status.md`).
 - D6: No live Cloudflare testing at any phase. The Cloudflare HTTP transport
   is injectable; tests use a fake transport only.
+- D7: The default-HTTPS machine consumes the Phase 3 client's
+  deployment-keyed shape, extended (not loosened) with ACM validation-record
+  ops: `upsert/deleteDefaultValidationRecord(deploymentId, validationName)`.
+  The namespace guard keeps refusing anything that is not a mutable
+  `d-*.<zone>` name or a validation name exactly one label beneath one
+  (`_<label>.d-<id>.<zone>`, unproxied so ACM DNS-01 can see it). Routing
+  records stay proxied with `ttl: 1`. WAITING_FOR_DNS reconciles both
+  records; teardown paths delete both.
 
 ### Known follow-ups
 
@@ -170,3 +178,41 @@ Verified against current Cloudflare v4 docs:
 - Zone SSL/TLS mode: with a valid ACM cert on the ALB 443 listener, Full
   (strict) is the correct zone mode; confirm current zone mode out-of-band
   (no live calls from this work).
+
+## Origin TLS architecture (Phase 6)
+
+The default-HTTPS path in production is HTTPS in two segments:
+
+- **Browser → Cloudflare edge.** The proxied `d-*.deployz.dev` records
+  terminate TLS at the Cloudflare edge on an automatic (edge) certificate for
+  the `d-*` hostname. The browser never sees the origin (ALB) directly.
+- **Cloudflare → ALB.** The per-deployment ACM certificate the relay's
+  `CONFIGURE_DOMAIN` executor issues lands on the deployment ALB's 443
+  listener (packages/relay/src/domain.ts: once the cert is `ISSUED` it calls
+  `createHttpsListener`, or `addListenerCertificate` when a 443 listener
+  already exists, then flips the 80 listener to a 301 HTTPS redirect).
+  `REMOVE_DOMAIN` reverses this: delete the 443 listener (or remove just this
+  SNI cert), revert the 80 listener to a forward, delete the cert.
+
+The stack's synth-time `certificateArn` branch
+(packages/cdk/src/application/application-stack.ts:1114) is NOT the
+default-HTTPS path. A deployment installs with no certificate — the `d-<id>`
+hostname and its cert do not exist until after install — so the stack is
+synthesized on the plain HTTP:80 branch (:1137) with the 443 security-group
+rule opened up front (:1107) for the listener the relay adds later over the
+ELBv2 API. The CDK synth pins for both listener shapes already live in
+packages/cdk/test/application-stack.test.ts ("HTTPS endpoint contract"): no
+certificate → exactly one HTTP:80 listener; certificate supplied → the
+HTTPS:443 listener carries the cert and HTTP:80 redirects to it.
+
+Preferred configuration: **full HTTPS end-to-end**, i.e. the zone SSL/TLS
+mode set to **Full (strict)** — Cloudflare connects to the ALB on 443 and
+validates the ACM certificate it finds there against a public CA.
+
+Documented security limitation: if the `deployz.dev` zone SSL/TLS mode stays
+**Flexible**, Cloudflare connects to the origin over plain HTTP and the path
+is NOT end-to-end TLS — browser→edge is HTTPS, edge→origin is plaintext
+behind a Cloudflare IP, so the customer data the ALB serves is only protected
+for the first hop. Verifying (and, if needed, correcting) the zone mode is an
+out-of-band operator task — this work never calls the Cloudflare API and
+never changes the zone setting (no live calls, per the standing rules).

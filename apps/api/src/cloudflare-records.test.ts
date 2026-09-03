@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CloudflareDnsError,
   CLOUDFLARE_RECORD_COMMENT,
+  CLOUDFLARE_VALIDATION_RECORD_COMMENT,
   createCloudflareDnsClient,
   createFakeCloudflareDnsClient,
   type CloudflareDnsRecord,
@@ -20,6 +21,8 @@ const TOKEN = 'test-secret-token';
 const API_BASE_URL = 'https://cloudflare.test';
 const TARGET = 'alb.example.com';
 const HOSTNAME = 'd-dep-1.deployz.dev';
+const VALIDATION_NAME = `_abc123.${HOSTNAME}`;
+const VALIDATION_VALUE = '_v.acm-validations.aws.';
 
 function record(
   id: string,
@@ -411,6 +414,157 @@ describe('createFakeCloudflareDnsClient', () => {
       'CLOUDFLARE_DNS_CONFLICT',
     );
     expect((await failure(fake.deleteDefaultDeploymentRecord('deployz.dev'))).code).toBe(
+      'CLOUDFLARE_DNS_CONFLICT',
+    );
+    expect(fake.listRecords()).toHaveLength(0);
+  });
+});
+
+describe('createCloudflareDnsClient — validation records (ACM DNS-01)', () => {
+  const validationRecord = (
+    id: string,
+    overrides: Partial<CloudflareDnsRecord> = {},
+  ): CloudflareDnsRecord => ({
+    ...record(id, VALIDATION_VALUE, { name: VALIDATION_NAME, proxied: false }),
+    ...overrides,
+  });
+
+  it('refuses validation names outside the deployment namespace before any transport call', async () => {
+    const { client, calls } = makeClient(async () => {
+      throw new Error('the transport must never be reached');
+    });
+    const hostileNames = [
+      '_abc.www.deployz.dev', // suffix is a reserved hostname
+      '_abc.d-dep-1.evil.com', // wrong zone
+      '_abc.d-dep-2.deployz.dev', // another deployment's hostname
+      'www.deployz.dev', // bare reserved name
+      'deployz.dev', // bare apex
+      `.${HOSTNAME}`, // empty label
+    ];
+
+    for (const name of hostileNames) {
+      expect((await failure(client.upsertDefaultValidationRecord('dep-1', name, VALIDATION_VALUE))).code).toBe(
+        'CLOUDFLARE_DNS_CONFLICT',
+      );
+      expect((await failure(client.deleteDefaultValidationRecord('dep-1', name))).code).toBe(
+        'CLOUDFLARE_DNS_CONFLICT',
+      );
+    }
+
+    expect(calls).toHaveLength(0);
+  });
+
+  it('creates an UNPROXIED CNAME (ACM must see it) with the validation comment', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList();
+      if (init.method === 'POST') {
+        const body = JSON.parse(init.body as string) as Record<string, unknown>;
+        return okResult(validationRecord('rec-v', { content: body['content'] as string }));
+      }
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultValidationRecord('dep-1', VALIDATION_NAME, VALIDATION_VALUE);
+
+    expect(result.op).toBe('created');
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'POST']);
+    const post = calls[1]!;
+    expect(post.url).toBe(`${API_BASE_URL}/zones/${ZONE_ID}/dns_records`);
+    expect(JSON.parse(post.body!)).toEqual({
+      type: 'CNAME',
+      name: VALIDATION_NAME,
+      content: VALIDATION_VALUE,
+      ttl: 1,
+      proxied: false,
+      comment: CLOUDFLARE_VALIDATION_RECORD_COMMENT,
+    });
+  });
+
+  it('identical unproxied validation record → noop (list call only)', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(validationRecord('rec-v'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultValidationRecord('dep-1', VALIDATION_NAME, VALIDATION_VALUE);
+
+    expect(result).toEqual({ op: 'noop', record: validationRecord('rec-v') });
+    expect(calls.map((call) => call.method)).toEqual(['GET']);
+  });
+
+  it('a proxied validation record (hidden from ACM) → PUT to restore proxied:false', async () => {
+    const seenBodies: string[] = [];
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(validationRecord('rec-v', { proxied: true }));
+      if (init.method === 'PUT') {
+        seenBodies.push(init.body as string);
+        return okResult(validationRecord('rec-v'));
+      }
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultValidationRecord('dep-1', VALIDATION_NAME, VALIDATION_VALUE);
+
+    expect(result.op).toBe('updated');
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'PUT']);
+    expect(JSON.parse(seenBodies[0]!)).toMatchObject({ name: VALIDATION_NAME, proxied: false });
+  });
+
+  it('deletes the validation record by its Cloudflare id', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(validationRecord('rec-v'));
+      if (init.method === 'DELETE') return okResult(validationRecord('rec-v'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.deleteDefaultValidationRecord('dep-1', VALIDATION_NAME);
+
+    expect(result).toEqual({ op: 'deleted' });
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'DELETE']);
+    expect(calls[1]!.url).toBe(`${API_BASE_URL}/zones/${ZONE_ID}/dns_records/rec-v`);
+  });
+
+  it('delete-miss (81044) → noop', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(validationRecord('rec-v'));
+      if (init.method === 'DELETE') return errResponse(400, 81044, 'Record does not exist.');
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    expect(await client.deleteDefaultValidationRecord('dep-1', VALIDATION_NAME)).toEqual({ op: 'noop' });
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'DELETE']);
+  });
+
+  it('round-trips in the in-memory fake', async () => {
+    const fake = createFakeCloudflareDnsClient({ zoneId: ZONE_ID, zoneName: ZONE_NAME });
+
+    const created = await fake.upsertDefaultValidationRecord('dep-1', VALIDATION_NAME, VALIDATION_VALUE);
+    expect(created.op).toBe('created');
+    expect(created.record).toMatchObject({
+      name: VALIDATION_NAME,
+      content: VALIDATION_VALUE,
+      ttl: 1,
+      proxied: false,
+      comment: CLOUDFLARE_VALIDATION_RECORD_COMMENT,
+    });
+    expect(fake.listRecords()).toHaveLength(1);
+
+    const repeated = await fake.upsertDefaultValidationRecord('dep-1', VALIDATION_NAME, VALIDATION_VALUE);
+    expect(repeated.op).toBe('noop');
+    expect(fake.listRecords()).toHaveLength(1);
+
+    expect(await fake.deleteDefaultValidationRecord('dep-1', VALIDATION_NAME)).toEqual({ op: 'deleted' });
+    expect(await fake.deleteDefaultValidationRecord('dep-1', VALIDATION_NAME)).toEqual({ op: 'noop' });
+    expect(fake.listRecords()).toHaveLength(0);
+  });
+
+  it('the fake refuses validation names outside the deployment namespace too', async () => {
+    const fake = createFakeCloudflareDnsClient({ zoneId: ZONE_ID, zoneName: ZONE_NAME });
+
+    expect((await failure(fake.upsertDefaultValidationRecord('dep-1', '_abc.www.deployz.dev', VALIDATION_VALUE))).code).toBe(
+      'CLOUDFLARE_DNS_CONFLICT',
+    );
+    expect((await failure(fake.deleteDefaultValidationRecord('dep-1', '_abc.d-dep-1.evil.com'))).code).toBe(
       'CLOUDFLARE_DNS_CONFLICT',
     );
     expect(fake.listRecords()).toHaveLength(0);

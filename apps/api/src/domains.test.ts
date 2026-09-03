@@ -447,7 +447,7 @@ describe('domains (custom-domain service)', () => {
       return {
         minCheckIntervalMs: 0,
         checkCname: async () => true,
-        probeHttps: async () => true,
+        probeHttps: async () => ({ ok: true }),
         ...overrides,
       };
     }
@@ -556,7 +556,7 @@ describe('domains (custom-domain service)', () => {
         .where(eq(schema.customDomains.id, domain.id));
       const configuring = await reload(domain.id);
 
-      const fresh = await runDomainCheck(db, deployment, configuring, fakeDeps({ probeHttps: async () => true }));
+      const fresh = await runDomainCheck(db, deployment, configuring, fakeDeps({ probeHttps: async () => ({ ok: true }) }));
 
       expect(fresh.status).toBe('ACTIVE');
       expect(fresh.lastError).toBeNull();
@@ -581,7 +581,12 @@ describe('domains (custom-domain service)', () => {
         .where(eq(schema.customDomains.id, domain.id));
       const configuring = await reload(domain.id);
 
-      const fresh = await runDomainCheck(db, deployment, configuring, fakeDeps({ probeHttps: async () => false }));
+      const fresh = await runDomainCheck(
+        db,
+        deployment,
+        configuring,
+        fakeDeps({ probeHttps: async () => ({ ok: false, reason: 'HTTPS_NOT_REACHABLE' }) }),
+      );
 
       expect(fresh.status).toBe('CONFIGURING');
       expect(fresh.lastError).toBe('HTTPS_NOT_REACHABLE');
@@ -723,7 +728,7 @@ describe('domains (custom-domain service)', () => {
         fakeDeps({
           probeHttps: async () => {
             probed = true;
-            return true;
+            return { ok: true };
           },
         }),
       );

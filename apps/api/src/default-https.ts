@@ -4,8 +4,9 @@
  * executors and job vocabulary (packages/relay/src/domain.ts) with a
  * Deployz-owned hostname (`d-<deploymentId>.deployz.dev`) whose DNS lives in a
  * Deployz-controlled zone: the CONTROL PLANE writes the ACM validation CNAME
- * and the ALB routing CNAME itself (apps/api/src/route53-records.ts), so the
- * customer never owns or configures a domain.
+ * and the ALB routing CNAME itself through the deployment-keyed DNS client
+ * (apps/api/src/cloudflare-records.ts; legacy Route53 path kept until Phase
+ * 16), so the customer never owns or configures a domain.
  *
  * State is persisted in `deployments.default_https` — deliberately separate
  * from `custom_domains` (customer DNS). Statuses mirror the custom-domain
@@ -28,9 +29,10 @@ import { and, desc, eq, like } from 'drizzle-orm';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import type { CloudflareDnsClient } from './cloudflare-records.js';
+import type { HttpsProbeResult } from './domain-check.js';
 import { findActiveDomain } from './domains.js';
 import { createOrReuseJob } from './jobs.js';
-import type { DnsRecordClient } from './route53-records.js';
 
 // ── State shape ──────────────────────────────────────────────────────────────
 
@@ -53,6 +55,8 @@ export interface DefaultHttpsState {
   routingTarget?: string;
   checkCycle: number;
   lastError: string | null;
+  /** ISO timestamp of the last DNS-reconciliation attempt (success or failure). */
+  lastDnsCheckAt?: string;
 }
 
 /**
@@ -194,6 +198,7 @@ export function parseDefaultHttps(raw: unknown): DefaultHttpsState | null {
   const validationName = readString('validationName');
   const validationValue = readString('validationValue');
   const routingTarget = readString('routingTarget');
+  const lastDnsCheckAt = readString('lastDnsCheckAt');
   const lastError = typeof record['lastError'] === 'string' ? record['lastError'] : null;
   return {
     hostname: record['hostname'],
@@ -204,6 +209,7 @@ export function parseDefaultHttps(raw: unknown): DefaultHttpsState | null {
     ...(routingTarget ? { routingTarget } : {}),
     checkCycle: typeof record['checkCycle'] === 'number' ? record['checkCycle'] : 0,
     lastError,
+    ...(lastDnsCheckAt ? { lastDnsCheckAt } : {}),
   };
 }
 
@@ -238,6 +244,7 @@ function stateToRecord(state: DefaultHttpsState): Record<string, unknown> {
     ...(state.routingTarget ? { routingTarget: state.routingTarget } : {}),
     checkCycle: state.checkCycle,
     lastError: state.lastError,
+    ...(state.lastDnsCheckAt ? { lastDnsCheckAt: state.lastDnsCheckAt } : {}),
   };
 }
 
@@ -446,14 +453,18 @@ export async function applyDefaultHttpsJobResult(
 
 export interface DefaultHttpsDeps {
   /** Off switch: default HTTPS runs only when the control plane is configured
-   *  with a Route53 zone (or under DNS fixture mode). */
+   *  with a DNS provider (Cloudflare zone, legacy Route53 zone) or under DNS
+   *  fixture mode. */
   enabled: boolean;
   /** The DNS apex the deployz hostname is minted under. */
   apex: string;
-  /** Route53 record writer (real client in production, no-op in fixture mode). */
-  dns: DnsRecordClient;
-  /** HTTPS reachability probe — the same seam runDomainCheck uses. */
-  probeHttps: (hostname: string) => Promise<boolean>;
+  /** Deployment-keyed DNS client (Cloudflare in production; in-memory fake or
+   *  a no-op/Route53 adapter under fixture/legacy modes). */
+  dns: CloudflareDnsClient;
+  /** HTTPS reachability probe — the same seam runDomainCheck uses. A failed
+   *  probe carries the reason, which the machine persists as lastError so a
+   *  stuck CONFIGURING says WHY instead of a single catch-all code. */
+  probeHttps: (hostname: string) => Promise<HttpsProbeResult>;
 }
 
 const EVER_INSTALLED_STATES = new Set<string>(['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE']);
@@ -523,28 +534,46 @@ export async function runDefaultHttpsCheck(
           await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
           return;
         }
+        const attemptedAt = new Date().toISOString();
         try {
-          await deps.dns.upsertCname(working.validationName, working.validationValue);
-          await deps.dns.upsertCname(working.hostname, working.routingTarget);
+          // The validation CNAME must stay unproxied for ACM's DNS-01 probe;
+          // the routing CNAME is the proxied default record.
+          await deps.dns.upsertDefaultValidationRecord(
+            deployment.id,
+            working.validationName,
+            working.validationValue,
+          );
+          await deps.dns.upsertDefaultDeploymentRecord(deployment.id, working.routingTarget);
         } catch {
-          await persistState(db, deployment.id, { ...working, lastError: 'DNS_WRITE_FAILED' });
+          // A DNS failure only touches default-HTTPS state: no AWS job is
+          // enqueued and no infrastructure is recreated — the next driver
+          // pass retries the reconciliation.
+          await persistState(db, deployment.id, {
+            ...working,
+            lastError: 'DNS_WRITE_FAILED',
+            lastDnsCheckAt: attemptedAt,
+          });
           return;
         }
-        working = { ...working, lastError: null };
+        working = { ...working, lastError: null, lastDnsCheckAt: attemptedAt };
         await persistState(db, deployment.id, working);
         // DNS is in place — nudge the relay to re-describe the cert and wire
         // the 443 listener once ACM issues it.
         await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
         return;
       }
-      case 'CONFIGURING':
-        if (await deps.probeHttps(working.hostname)) {
+      case 'CONFIGURING': {
+        const probe = await deps.probeHttps(working.hostname);
+        if (probe.ok) {
           working = { ...working, status: 'ACTIVE', lastError: null };
           await persistState(db, deployment.id, working);
         } else {
-          await persistState(db, deployment.id, { ...working, lastError: 'HTTPS_NOT_REACHABLE' });
+          // Stay CONFIGURING and say why: a distinguishing reason beats the
+          // single HTTPS_NOT_REACHABLE the boolean probe could express.
+          await persistState(db, deployment.id, { ...working, lastError: probe.reason });
         }
         return;
+      }
       case 'ERROR': {
         // Automatic retry: fall back to the earliest still-plausible stage
         // and re-run, mirroring the custom-domain Retry path.
