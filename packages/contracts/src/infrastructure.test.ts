@@ -203,4 +203,84 @@ describe('aggregateInfrastructureComponents', () => {
     // Raw technical detail survives the override unchanged.
     expect(result.components[0]!.resources[0]).toMatchObject({ status: 'CREATE_COMPLETE', type: 'AWS::ECS::Service' });
   });
+
+  it('delete — an observed-retained row (DELETE_SKIPPED) is never overwritten to removed', () => {
+    const result = aggregateInfrastructureComponents(
+      [
+        row({
+          componentKind: 'network',
+          logicalResourceId: 'DbSecurityGroupE9D701AD',
+          resourceRole: 'supporting',
+          resourceType: 'AWS::EC2::SecurityGroup',
+          lifecyclePolicy: 'delete',
+          resourceStatus: 'retained',
+          rawResourceStatus: 'DELETE_SKIPPED',
+        }),
+      ],
+      { deploymentState: 'DELETED', region: 'us-east-1' },
+    );
+
+    expect(result.components[0]!.status).toBe('retained');
+    expect(result.summaryStatus).toBe('retained');
+    // The technical disclosure must not hide it as removed either.
+    expect(result.components[0]!.resources[0]).toMatchObject({ status: 'DELETE_SKIPPED' });
+  });
+
+  it('delete — a genuinely deleted delete-policy row still reports removed', () => {
+    const result = aggregateInfrastructureComponents(
+      [
+        row({
+          componentKind: 'network',
+          logicalResourceId: 'PublicSubnet',
+          resourceRole: 'supporting',
+          resourceType: 'AWS::EC2::Subnet',
+          lifecyclePolicy: 'delete',
+          resourceStatus: 'removed',
+          rawResourceStatus: 'DELETE_COMPLETE',
+        }),
+      ],
+      { deploymentState: 'DELETED', region: 'us-east-1' },
+    );
+
+    expect(result.components[0]!.status).toBe('removed');
+  });
+
+  it('delete — a mixed component with one retained-on-failure row still reports retained', () => {
+    const result = aggregateInfrastructureComponents(
+      [
+        row({
+          componentKind: 'network',
+          logicalResourceId: 'DbSecurityGroupE9D701AD',
+          resourceRole: 'supporting',
+          resourceType: 'AWS::EC2::SecurityGroup',
+          lifecyclePolicy: 'delete',
+          resourceStatus: 'retained',
+          rawResourceStatus: 'DELETE_SKIPPED',
+        }),
+        row({
+          componentKind: 'network',
+          logicalResourceId: 'PublicSubnet',
+          resourceRole: 'supporting',
+          resourceType: 'AWS::EC2::Subnet',
+          lifecyclePolicy: 'delete',
+          resourceStatus: 'removed',
+          rawResourceStatus: 'DELETE_COMPLETE',
+        }),
+        row({
+          componentKind: 'network',
+          logicalResourceId: 'RouteTable',
+          resourceRole: 'supporting',
+          resourceType: 'AWS::EC2::RouteTable',
+          lifecyclePolicy: 'delete',
+          resourceStatus: 'removed',
+          rawResourceStatus: 'DELETE_COMPLETE',
+        }),
+      ],
+      { deploymentState: 'DELETED', region: 'us-east-1' },
+    );
+
+    expect(result.components).toHaveLength(1);
+    expect(result.components[0]!.status).toBe('retained');
+    expect(result.summaryStatus).toBe('retained');
+  });
 });
