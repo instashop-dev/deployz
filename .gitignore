@@ -16,3 +16,4 @@ test-results/
 playwright-report/
 canary-results/
 .worktrees/
+docs/testing/repository-compatibility/.cache/

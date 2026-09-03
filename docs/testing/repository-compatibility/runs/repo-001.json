@@ -1,0 +1,180 @@
+{
+  "id": "repo-001",
+  "repository": "umami-software/umami",
+  "commit": "ca661c7057984aa98ed4f7083d84dae2f65bfcb0",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "5b1816790641fe37cd1ecb3fcc9c72be0f1a2abe",
+  "analysisVersion": 6,
+  "tree": {
+    "files": 201,
+    "entries": 1981,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": true,
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "healthPath": "/api/heartbeat",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "startCommand": "CMD: [\"sh\", \"scripts/start-docker.sh\"]",
+    "healthDetected": true,
+    "healthPath": "/api/heartbeat",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "prisma migrate",
+    "externalServices": [],
+    "requiredEnvVars": [
+      "CI",
+      "COLLECT_API_ENDPOINT",
+      "DATABASE_URL",
+      "DISABLE_LOGIN",
+      "ENABLE_TEST_CONSOLE",
+      "GEO_DATABASE_URL",
+      "MAXMIND_LICENSE_KEY",
+      "NODE_ENV",
+      "PLAYWRIGHT_SKIP_WEB_SERVER",
+      "TRACKER_SCRIPT_NAME",
+      "TRACKER_SCRIPT_URL",
+      "VERCEL"
+    ],
+    "unsupported": [
+      "kafka",
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "unsupported-message-queue",
+      "local-file-storage"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": []
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "match": false,
+      "kind": "false-rejection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/heartbeat",
+      "actual": "/api/heartbeat",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "kafka",
+        "local-filesystem"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-rejection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "finding": null
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [],
+      "actual": [
+        "kafka",
+        "local-filesystem"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}
