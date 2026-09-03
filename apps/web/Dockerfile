@@ -45,10 +45,14 @@ COPY packages/contracts ./packages/contracts
 COPY packages/copy-map ./packages/copy-map
 COPY apps/web ./apps/web
 
-# apps/web has value imports from @deployz/contracts, and the package resolves
-# through its compiled dist/ (see its exports map) — it must be built before
-# `next build` can bundle it.
+# apps/web has value imports from @deployz/contracts and @deployz/copy-map,
+# and both packages resolve through their compiled dist/ (see their exports
+# maps) — they must be built before `next build` can bundle them. .dockerignore
+# strips **/dist, so a package whose build is missing here fails to resolve at
+# all, and only in the image: `pnpm build` runs turbo, which builds every
+# workspace package, so CI stays green.
 RUN pnpm --filter @deployz/contracts build
+RUN pnpm --filter @deployz/copy-map build
 
 # NEXT_PUBLIC_* IS INLINED INTO THE CLIENT BUNDLE AT THIS STEP. A container
 # environment variable cannot change them afterwards — a new value needs a new
