@@ -18,7 +18,8 @@
     "e2e:fresh": "node scripts/e2e.mjs --mode=fresh",
     "lint": "turbo run lint",
     "dev": "turbo run dev",
-    "admin:customer-cleanup": "tsx scripts/customer-reset/index.ts"
+    "admin:customer-cleanup": "tsx scripts/customer-reset/index.ts",
+    "canary:fixture-repo": "tsx scripts/version-canary/fixture-repo.ts"
   },
   "devDependencies": {
     "@aws-sdk/client-cloudformation": "^3.1115.0",
