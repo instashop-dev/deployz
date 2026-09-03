@@ -417,6 +417,42 @@ describe('deploy contract, busy gate and restart', () => {
     expect(secondJobId).not.toBe(firstJobId);
   });
 
+  it('a release deployed before is deployable again as a fresh attempt once its job settled', async () => {
+    // Version canary: after v2 SUCCEEDED and a rollback to v1, "Deploy
+    // Update" to v2 handed back the old succeeded v2 job (200) and nothing
+    // ran — v1 kept serving. Only an ACTIVE attempt absorbs a replay.
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, 'SUCCEEDED');
+    const releaseId = await seedRelease('v7.0.0');
+
+    const first = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(first.statusCode, first.body).toBe(202);
+    const { jobId: firstJobId } = first.json() as { jobId: string };
+
+    // A double-click while the attempt is active replays it.
+    const replay = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(replay.statusCode, replay.body).toBe(200);
+    expect((replay.json() as { jobId: string }).jobId).toBe(firstJobId);
+
+    const result = await app.inject({
+      method: 'POST',
+      url: `/api/relay/commands/${firstJobId}/result`,
+      headers: { authorization: `Bearer ${deployment.token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({ success: true, output: { executed: true } }),
+    });
+    expect(result.statusCode, result.body).toBe(200);
+
+    const again = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(again.statusCode, again.body).toBe(202);
+    const { jobId: secondJobId } = again.json() as { jobId: string };
+    expect(secondJobId).not.toBe(firstJobId);
+    const jobs = await db
+      .select({ idempotencyKey: schema.deploymentJobs.idempotencyKey })
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.id, secondJobId));
+    expect(jobs[0]!.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:${releaseId}:RETRY:1`);
+  });
+
   it('advances pointers v1 → v2 → v3 → rollback → v2 only after each rollout passes the promotion gate', async () => {
     const deployment = await seedDeployment();
     const v1 = await seedRelease('v4.0.0');

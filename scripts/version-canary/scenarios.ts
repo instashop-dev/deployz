@@ -19,16 +19,17 @@ import {
   createDeploymentAndInstall,
   deployAndVerify,
   deployExpectingFailure,
-  expectBusyOrReplay,
   preflight,
   publishCanaryTemplate,
   rollbackAndVerify,
   seedMarker,
   setUpVendorAndApplication,
   snapshotInfrastructure,
+  waitForJob,
   waitForPointer,
   type Canary,
 } from './steps.js';
+import { describeRunningService } from './aws.js';
 import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from './teardown.js';
 
 export async function runCore(canary: Canary): Promise<void> {
@@ -77,13 +78,24 @@ export async function runCore(canary: Canary): Promise<void> {
   });
 
   // Phase 8 — recovery, then a normal release after the failure.
-  await evidence.step('Re-deploying the running release replays idempotently (no second mutation)', async (details) => {
+  await evidence.step('Re-deploying the running release is a fresh attempt that changes nothing in ECS', async (details) => {
     const v2 = evidence.run.releases['v2']!;
-    const succeededJob = [...(await api.getDeployment(evidence.run.deploymentId!)).jobs]
-      .reverse()
-      .find((j) => j.type === 'DEPLOY_RELEASE' && j.state === 'SUCCEEDED' && j.payload?.['releaseId'] === v2.id);
-    if (!succeededJob) throw new Error('no succeeded v2 deploy job to replay');
-    await expectBusyOrReplay(canary, () => api.deploy(evidence.run.deploymentId!, v2.id), succeededJob.id, details, 'redeploy-v2');
+    const before = await describeRunningService(canary.config.region, evidence.run.applicationStackName!);
+    const requested = await api.deploy(evidence.run.deploymentId!, v2.id);
+    details['request'] = requested;
+    if (requested.status !== 202) throw new Error(`re-deploy of the running release -> ${requested.status}, expected a fresh attempt (202)`);
+    evidence.run.jobs.push({ id: requested.jobId, type: 'DEPLOY_RELEASE', releaseTag: 'v2' });
+    evidence.save();
+    const settled = await waitForJob(canary, requested.jobId, 20 * 60_000);
+    const job = settled.jobs.find((j) => j.id === requested.jobId)!;
+    details['job'] = { state: job.state, failureCode: job.failureCode, result: job.result };
+    if (job.state !== 'SUCCEEDED') throw new Error(`re-deploy job ${job.state}`);
+    const output = (job.result as { output?: { alreadyRunning?: boolean } } | null)?.output;
+    if (output?.alreadyRunning !== true) throw new Error('the relay mutated ECS for a release that was already running');
+    const after = await describeRunningService(canary.config.region, evidence.run.applicationStackName!);
+    details['taskDefinition'] = { before: before?.taskDefinition, after: after?.taskDefinition };
+    if (before?.taskDefinition !== after?.taskDefinition) throw new Error('a new task-definition revision was registered for an already-running release');
+    await assertServing(canary, { serving: 'v2', previous: 'v1' }, details);
   });
   await rollbackAndVerify(canary, 'v1', 'v2');
   await buildRelease(canary, 'v4');
