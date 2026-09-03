@@ -178,3 +178,41 @@ Verified against current Cloudflare v4 docs:
 - Zone SSL/TLS mode: with a valid ACM cert on the ALB 443 listener, Full
   (strict) is the correct zone mode; confirm current zone mode out-of-band
   (no live calls from this work).
+
+## Origin TLS architecture (Phase 6)
+
+The default-HTTPS path in production is HTTPS in two segments:
+
+- **Browser → Cloudflare edge.** The proxied `d-*.deployz.dev` records
+  terminate TLS at the Cloudflare edge on an automatic (edge) certificate for
+  the `d-*` hostname. The browser never sees the origin (ALB) directly.
+- **Cloudflare → ALB.** The per-deployment ACM certificate the relay's
+  `CONFIGURE_DOMAIN` executor issues lands on the deployment ALB's 443
+  listener (packages/relay/src/domain.ts: once the cert is `ISSUED` it calls
+  `createHttpsListener`, or `addListenerCertificate` when a 443 listener
+  already exists, then flips the 80 listener to a 301 HTTPS redirect).
+  `REMOVE_DOMAIN` reverses this: delete the 443 listener (or remove just this
+  SNI cert), revert the 80 listener to a forward, delete the cert.
+
+The stack's synth-time `certificateArn` branch
+(packages/cdk/src/application/application-stack.ts:1114) is NOT the
+default-HTTPS path. A deployment installs with no certificate — the `d-<id>`
+hostname and its cert do not exist until after install — so the stack is
+synthesized on the plain HTTP:80 branch (:1137) with the 443 security-group
+rule opened up front (:1107) for the listener the relay adds later over the
+ELBv2 API. The CDK synth pins for both listener shapes already live in
+packages/cdk/test/application-stack.test.ts ("HTTPS endpoint contract"): no
+certificate → exactly one HTTP:80 listener; certificate supplied → the
+HTTPS:443 listener carries the cert and HTTP:80 redirects to it.
+
+Preferred configuration: **full HTTPS end-to-end**, i.e. the zone SSL/TLS
+mode set to **Full (strict)** — Cloudflare connects to the ALB on 443 and
+validates the ACM certificate it finds there against a public CA.
+
+Documented security limitation: if the `deployz.dev` zone SSL/TLS mode stays
+**Flexible**, Cloudflare connects to the origin over plain HTTP and the path
+is NOT end-to-end TLS — browser→edge is HTTPS, edge→origin is plaintext
+behind a Cloudflare IP, so the customer data the ALB serves is only protected
+for the first hop. Verifying (and, if needed, correcting) the zone mode is an
+out-of-band operator task — this work never calls the Cloudflare API and
+never changes the zone setting (no live calls, per the standing rules).
