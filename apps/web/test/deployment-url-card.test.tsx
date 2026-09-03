@@ -150,6 +150,14 @@ describe('DeploymentUrlCard', () => {
     expect(doc.body.textContent).toContain('Deployz address');
     expect(doc.body.textContent).toContain('https://d-dep-9f1c.deployz.dev');
 
+    // The secondary Deployz address is an address, not a duplicate CTA:
+    // exactly one "Open application" affordance, pointing at the primary URL.
+    const openLinks = [...doc.querySelectorAll('a')].filter((a) =>
+      a.textContent?.includes('Open application'),
+    );
+    expect(openLinks).toHaveLength(1);
+    expect(openLinks[0]?.getAttribute('href')).toBe('https://app.customer.com');
+
     expect(doc.body.textContent).toContain('Custom domain');
     expect(doc.body.textContent).toContain('Active');
     expect(doc.querySelector('a[href="/install/link-1"]')?.textContent).toBe('Manage custom domain');

@@ -59,7 +59,7 @@ export function DeploymentUrlCard({ detail }: DeploymentUrlCardProps) {
       />
 
       {customActive ? (
-        <UrlBlock label="Deployz address" url={defaultUrl} secure healthy={false} active />
+        <UrlBlock label="Deployz address" url={defaultUrl} secure healthy={false} active showOpen={false} />
       ) : null}
 
       <CustomDomainSection detail={detail} />
@@ -73,12 +73,15 @@ function UrlBlock({
   healthy,
   secure,
   active,
+  showOpen = true,
 }: {
   label: string;
   url: string;
   healthy: boolean;
   secure: boolean;
   active: boolean;
+  /** The secondary Deployz address is an address, not a duplicate CTA. */
+  showOpen?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -114,12 +117,14 @@ function UrlBlock({
         {active ? <Badge variant="secondary">Active</Badge> : null}
         {healthy ? <Badge variant="secondary">Healthy</Badge> : null}
         {secure ? <Badge variant="secondary">Secure</Badge> : null}
-        <Button asChild size="sm">
-          <a href={url} target="_blank" rel="noreferrer">
-            Open application
-            <ExternalLink aria-hidden className="size-3.5" />
-          </a>
-        </Button>
+        {showOpen ? (
+          <Button asChild size="sm">
+            <a href={url} target="_blank" rel="noreferrer">
+              Open application
+              <ExternalLink aria-hidden className="size-3.5" />
+            </a>
+          </Button>
+        ) : null}
         <Button type="button" size="sm" variant="outline" onClick={copy}>
           {copied ? 'Copied' : 'Copy'}
         </Button>
