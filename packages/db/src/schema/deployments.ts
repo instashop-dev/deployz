@@ -37,7 +37,7 @@ export const deployments = pgTable('deployments', {
   // Phase 11 — the Deployz-managed HTTPS state machine (see
   // apps/api/src/default-https.ts). Owned entirely by the control plane: the
   // hostname, certificate and DNS-validation facts for this deployment's
-  // default `<id>.apps.deployz.dev` endpoint. A separate document from
+  // default `d-<id>.deployz.dev` endpoint. A separate document from
   // custom_domains because it is NOT customer DNS — the customer never
   // configures or owns it.
   defaultHttps: jsonb('default_https').$type<Record<string, unknown> | null>(),

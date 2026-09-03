@@ -53,6 +53,15 @@ jobs:
       EMAIL_FROM: info@e.deployz.dev
       API_DOMAIN_NAME: api.deployz.dev
       API_CERTIFICATE_ARN: ${{ secrets.API_CERTIFICATE_ARN }}
+      # Cloudflare DNS (Phase 1 runtime config). The deployz.dev zone lives on
+      # Cloudflare, so the API needs the zone id/name plus a scoped edit token
+      # before any default-HTTPS DNS flow can write records. Zone id/name and
+      # hostname prefix are public (hardcoded); the edit token is a secret and
+      # required — the completeness gate below fails the deploy if it is missing.
+      CLOUDFLARE_ZONE_ID: bf69c0d8524ef2c5cfbc6e5d33fb7cae
+      CLOUDFLARE_ZONE_NAME: deployz.dev
+      DEPLOYZ_DEFAULT_HOSTNAME_PREFIX: d-
+      CLOUDFLARE_ZONE_EDIT_API_TOKEN: ${{ secrets.CLOUDFLARE_ZONE_EDIT_API_TOKEN }}
       BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
       BETTER_AUTH_URL: https://api.deployz.dev
       GITHUB_CLIENT_ID: ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
@@ -120,7 +129,9 @@ jobs:
                      GITHUB_APP_INSTALL_URL STRIPE_SECRET_KEY \
                      STRIPE_WEBHOOK_SECRET STRIPE_PRICE_BASE \
                      STRIPE_PRICE_METERED AWS_SES_ACCESS_KEY_ID \
-                     AWS_SES_SECRET_ACCESS_KEY; do
+                     AWS_SES_SECRET_ACCESS_KEY CLOUDFLARE_ZONE_ID \
+                     CLOUDFLARE_ZONE_NAME DEPLOYZ_DEFAULT_HOSTNAME_PREFIX \
+                     CLOUDFLARE_ZONE_EDIT_API_TOKEN; do
             if [ -z "${!key:-}" ]; then missing+=("$key"); fi
           done
           if [ ${#missing[@]} -ne 0 ]; then

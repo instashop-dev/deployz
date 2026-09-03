@@ -7,14 +7,22 @@ import * as schema from '@deployz/db/schema';
 
 import {
   applyDefaultHttpsJobResult,
+  assertMutableDefaultHostname,
   beginDefaultHttpsRemoval,
   DEFAULT_HTTPS_APEX,
+  DEFAULT_HTTPS_FIXTURE_APEX,
   defaultHttpsHostname,
   ensureDefaultHttpsConfigureJob,
+  getDefaultDeploymentHostname,
+  getDefaultDeploymentUrl,
+  isDefaultDeploymentHostname,
   isDefaultHttpsJob,
   parseDefaultHttps,
+  RESERVED_DEFAULT_HOSTNAMES,
+  resolvePreferredPublicUrl,
   runDefaultHttpsCheck,
   type DefaultHttpsDeps,
+  type DefaultHostnameConfig,
 } from './default-https.js';
 import { createCustomDomain } from './domains.js';
 import type { DnsRecordClient } from './route53-records.js';
@@ -121,7 +129,7 @@ describe('default-https service', () => {
     }
   }
 
-  const apex = 'apps.deployz.test';
+  const apex = 'deployz.test';
 
   function deps(overrides: Partial<DefaultHttpsDeps> = {}): DefaultHttpsDeps {
     return {
@@ -336,14 +344,14 @@ describe('default-https service', () => {
         success: true,
         output: {
           certificateArn: 'arn:aws:acm:us-east-1:1:certificate/abc',
-          validationName: '_x.apps.deployz.test',
+          validationName: '_x.deployz.test',
           validationValue: '_y.acm-validations.aws.',
         },
       });
       const state = await stateOf(deployment.id);
       expect(state?.status).toBe('WAITING_FOR_DNS');
       expect(state?.certificateArn).toBe('arn:aws:acm:us-east-1:1:certificate/abc');
-      expect(state?.validationName).toBe('_x.apps.deployz.test');
+      expect(state?.validationName).toBe('_x.deployz.test');
     });
 
     it('moves WAITING_FOR_DNS -> CONFIGURING when the cert is ISSUED and HTTPS is wired', async () => {
@@ -468,7 +476,90 @@ describe('default-https service', () => {
     });
 
     it('uses the production apex by default', () => {
-      expect(defaultHttpsHostname('dep-1', DEFAULT_HTTPS_APEX)).toBe('dep-1.apps.deployz.dev');
+      expect(defaultHttpsHostname('dep-1', DEFAULT_HTTPS_APEX)).toBe('d-dep-1.deployz.dev');
+    });
+  });
+
+  describe('default hostname model (Phase 2)', () => {
+    it('mints a deterministic d-<id>.deployz.dev hostname and URL', () => {
+      expect(getDefaultDeploymentHostname('dep-1')).toBe('d-dep-1.deployz.dev');
+      // Deterministic: same id → same hostname, every time.
+      expect(getDefaultDeploymentHostname('dep-1')).toBe(getDefaultDeploymentHostname('dep-1'));
+      expect(getDefaultDeploymentUrl('dep-1')).toBe('https://d-dep-1.deployz.dev');
+      // A real deployment id (Postgres uuid, lowercase hex + hyphens) round-trips.
+      const uuid = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+      expect(getDefaultDeploymentHostname(uuid)).toBe(`d-${uuid}.deployz.dev`);
+    });
+
+    it('lower-cases the deployment id before minting', () => {
+      expect(getDefaultDeploymentHostname('DEP-1')).toBe('d-dep-1.deployz.dev');
+      expect(getDefaultDeploymentHostname('Deployment-A')).toBe('d-deployment-a.deployz.dev');
+    });
+
+    it('rejects deployment ids that are not DNS-safe after lower-casing', () => {
+      expect(() => getDefaultDeploymentHostname('')).toThrow();
+      expect(() => getDefaultDeploymentHostname('../etc/passwd')).toThrow();
+      expect(() => getDefaultDeploymentHostname('has space')).toThrow();
+      expect(() => getDefaultDeploymentHostname('under_score')).toThrow();
+      // Mixed case is fine (lower-cased); a dot or slash is not.
+      expect(() => getDefaultDeploymentHostname('DEP.1')).toThrow();
+    });
+
+    it('honours prefix/zone overrides and stays in the fixture namespace', () => {
+      const fixtureConfig: DefaultHostnameConfig = { zone: DEFAULT_HTTPS_FIXTURE_APEX };
+      expect(getDefaultDeploymentHostname('dep-1', fixtureConfig)).toBe(
+        `d-dep-1.${DEFAULT_HTTPS_FIXTURE_APEX}`,
+      );
+      expect(getDefaultDeploymentHostname('dep-1', fixtureConfig)).toMatch(/\.deployz-fixture\.test$/);
+      expect(defaultHttpsHostname('dep-1', DEFAULT_HTTPS_FIXTURE_APEX)).toBe(
+        getDefaultDeploymentHostname('dep-1', fixtureConfig),
+      );
+      // prefix + zone together.
+      expect(getDefaultDeploymentHostname('dep-1', { prefix: 'app-', zone: 'example.test' })).toBe(
+        'app-dep-1.example.test',
+      );
+    });
+
+    it('isDefaultDeploymentHostname exact-matches the minted scheme, case-insensitively', () => {
+      expect(isDefaultDeploymentHostname('d-dep-1.deployz.dev')).toBe(true);
+      expect(isDefaultDeploymentHostname('D-DEP-1.DEPLOYZ.DEV')).toBe(true);
+      expect(isDefaultDeploymentHostname('d-dep-1.deployz-fixture.test')).toBe(false);
+      expect(isDefaultDeploymentHostname('dep-1.deployz.dev')).toBe(false); // missing prefix
+      expect(isDefaultDeploymentHostname('d-dep-1.evil.com')).toBe(false); // wrong zone
+      expect(isDefaultDeploymentHostname('d-../x.deployz.dev')).toBe(false); // unsafe id
+      expect(isDefaultDeploymentHostname('app.deployz.dev')).toBe(false); // not a d- id
+    });
+
+    it('assertMutableDefaultHostname refuses reserved hostnames and non-default zones', () => {
+      for (const reserved of RESERVED_DEFAULT_HOSTNAMES) {
+        expect(() => assertMutableDefaultHostname(reserved)).toThrow();
+      }
+      expect(() => assertMutableDefaultHostname('www.deployz.dev')).toThrow();
+      expect(() => assertMutableDefaultHostname('evil.com')).toThrow();
+      expect(() => assertMutableDefaultHostname('d-dep-1.deployz.dev')).not.toThrow();
+    });
+
+    it('resolvePreferredPublicUrl falls back to the default URL unless the custom domain is ACTIVE and healthy', () => {
+      const base = { defaultUrl: getDefaultDeploymentUrl('dep-1') };
+      // no custom → default; pending → default; ACTIVE+healthy → custom;
+      // failed → default; removed → default.
+      expect(resolvePreferredPublicUrl(base)).toBe('https://d-dep-1.deployz.dev');
+      expect(resolvePreferredPublicUrl({ ...base, customUrl: 'https://app.customer.com' })).toBe(
+        'https://d-dep-1.deployz.dev',
+      );
+      expect(
+        resolvePreferredPublicUrl({
+          ...base,
+          customUrl: 'https://app.customer.com',
+          customHealthy: true,
+        }),
+      ).toBe('https://app.customer.com');
+      expect(
+        resolvePreferredPublicUrl({ ...base, customUrl: 'https://app.customer.com', customHealthy: false }),
+      ).toBe('https://d-dep-1.deployz.dev');
+      expect(
+        resolvePreferredPublicUrl({ ...base, customUrl: null, customHealthy: true }),
+      ).toBe('https://d-dep-1.deployz.dev');
     });
   });
 });

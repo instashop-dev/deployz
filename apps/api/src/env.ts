@@ -180,6 +180,17 @@ export const env = {
   // OFF — a deployment then needs a custom domain for HTTPS, exactly like
   // before Phase 11. Route53 is a global service; the zone id is region-free.
   dnsZoneId: process.env.DEPLOYZ_DNS_ZONE_ID,
+  // Phase 1 Cloudflare runtime config — the deployz.dev zone lives on
+  // Cloudflare, and a later phase's default-HTTPS DNS client targets this
+  // zone instead of Route53. Zone id/name are public; the API token is a
+  // secret scoped to Zone.DNS edit on exactly this zone. All unset → the
+  // Cloudflare flow stays OFF (same degrade-not-crash rule as dnsZoneId).
+  cloudflareZoneId: process.env.CLOUDFLARE_ZONE_ID,
+  cloudflareZoneName: process.env.CLOUDFLARE_ZONE_NAME,
+  // Prefix for the permanent d-<deployment-id>.deployz.dev URL scheme. The
+  // plan's default is `d-`; override only to migrate the scheme away from it.
+  defaultHostnamePrefix: process.env.DEPLOYZ_DEFAULT_HOSTNAME_PREFIX ?? 'd-',
+  cloudflareZoneApiToken: process.env.CLOUDFLARE_ZONE_EDIT_API_TOKEN,
   githubFixtureMode:
     process.env.GITHUB_FIXTURE_MODE === 'true' || process.env.GITHUB_FIXTURE_MODE === '1',
   // Custom-domains MVP E2E fixture mode — see domain-check.ts's

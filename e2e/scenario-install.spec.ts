@@ -85,7 +85,7 @@ test.describe('happy-path', () => {
         })
         .toBe('READY');
       const ready = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-      expect(ready.deploymentStatus.url).toMatch(/^https:\/\/.+\.apps\.deployz-fixture\.test$/);
+      expect(ready.deploymentStatus.url).toMatch(/^https:\/\/d-.+\.deployz-fixture\.test$/);
     } else {
       expect(deployment.deploymentStatus.stage).toBe('VERIFYING');
       expect(deployment.deploymentStatus.step).toBe('TLS');

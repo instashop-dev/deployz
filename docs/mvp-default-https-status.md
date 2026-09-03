@@ -19,10 +19,10 @@ Rules that hold for every phase:
 
 | Phase | Scope | Status | PR | Merged commit | Tests | Notes |
 |---|---|---|---|---|---|---|
-| 0 | Audit existing domain/HTTPS runtime | In review | #TBD | — | none (docs only) | Findings below |
-| 1 | Runtime Cloudflare configuration | Pending | — | — | — | — |
-| 2 | Default hostname model `d-<id>.deployz.dev` | Pending | — | — | — | — |
-| 3 | Cloudflare DNS client (mocked) | Pending | — | — | — | — |
+| 0 | Audit existing domain/HTTPS runtime | Merged | #131 | a0f0c0f | none (docs only) | Findings below |
+| 1 | Runtime Cloudflare configuration | In review | #TBD (batched) | — | — | — |
+| 2 | Default hostname model `d-<id>.deployz.dev` | In review | #TBD (batched) | — | — | — |
+| 3 | Cloudflare DNS client (mocked) | In review | #TBD (batched) | — | — | — |
 | 4 | Connect default DNS to lifecycle | Pending | — | — | — | — |
 | 5 | Default HTTPS state + READY logic | Pending | — | — | — | — |
 | 6 | Origin TLS architecture | Pending | — | — | — | — |
