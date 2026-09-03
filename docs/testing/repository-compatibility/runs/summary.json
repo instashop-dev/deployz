@@ -1,0 +1,64 @@
+{
+  "deployzSha": "5b1816790641fe37cd1ecb3fcc9c72be0f1a2abe",
+  "analysisVersion": 6,
+  "total": 1,
+  "analysed": 1,
+  "failed": 0,
+  "fullMatch": 0,
+  "verdictMatch": 0,
+  "verdictAccuracy": 0,
+  "falseAcceptances": 0,
+  "falseRejections": 1,
+  "configurationMismatches": 0,
+  "factMismatches": {
+    "compatibility": 1,
+    "redis": 1,
+    "unsupported": 1
+  },
+  "byFindingType": {
+    "ANALYSIS_BUG": 0,
+    "ANALYSIS_MISSING_SIGNAL": 0,
+    "MVP_CAPABILITY_GAP": 0,
+    "CORRECTLY_UNSUPPORTED": 0,
+    "REPO_INVALID": 0
+  },
+  "unexplained": [
+    {
+      "id": "repo-001",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE"
+    },
+    {
+      "id": "repo-001",
+      "fact": "redis",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-001",
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "kafka",
+        "local-filesystem"
+      ]
+    }
+  ],
+  "bySet": {
+    "improvement": {
+      "total": 1,
+      "analysed": 1,
+      "verdictMatch": 0,
+      "fullMatch": 0
+    }
+  },
+  "byCohort": {
+    "realistic": {
+      "total": 1,
+      "analysed": 1,
+      "verdictMatch": 0,
+      "fullMatch": 0
+    }
+  }
+}

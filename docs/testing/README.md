@@ -71,4 +71,5 @@ what the read-only canary and bootstrap create/destroy modes cover instead.
 | [`aws-full-product-canary.md`](aws-full-product-canary.md) | The manual full-product walk against the deployed control plane: template publishing, resource ledger, cleanup verification, failure cases seen on real AWS |
 | [`version-rollback-canary.md`](version-rollback-canary.md) | The automated version deployment + rollback canary: product semantics, fixture releases, the core scenario, safety rules, evidence, cleanup and leak audit |
 | [`ai-agent-testing-guide.md`](ai-agent-testing-guide.md) | The escalation policy AI coding agents must follow |
+| [`repository-compatibility/README.md`](repository-compatibility/README.md) | The Stage A repository-compatibility audit: the pinned OSS corpus, expected facts, findings, how to rerun it (`pnpm benchmark:compat`) — analysis only, no AWS |
 | [`discovery/README.md`](discovery/README.md) | Point-in-time investigation reports behind the Phase 1 design — reference only, not maintained |

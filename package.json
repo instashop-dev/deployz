@@ -20,7 +20,8 @@
     "lint": "turbo run lint",
     "dev": "turbo run dev",
     "admin:customer-cleanup": "tsx scripts/customer-reset/index.ts",
-    "canary:fixture-repo": "tsx scripts/version-canary/fixture-repo.ts"
+    "canary:fixture-repo": "tsx scripts/version-canary/fixture-repo.ts",
+    "benchmark:compat": "tsx scripts/repository-compatibility/index.ts"
   },
   "devDependencies": {
     "@aws-sdk/client-cloudformation": "^3.1115.0",
@@ -28,9 +29,12 @@
     "@aws-sdk/client-eventbridge": "^3.1115.0",
     "@aws-sdk/client-rds": "^3.1115.0",
     "@aws-sdk/client-s3": "^3.1115.0",
+    "@deployz/analysis": "workspace:*",
+    "@deployz/api": "workspace:*",
     "@deployz/contracts": "workspace:*",
     "@deployz/db": "workspace:*",
     "@deployz/relay": "workspace:*",
+    "@electric-sql/pglite": "^0.5.5",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.49.0",
     "@types/node": "^24.0.0",
@@ -44,6 +48,8 @@
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.18.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "yaml": "^2.8.0",
+    "zod": "^4.4.3"
   }
 }

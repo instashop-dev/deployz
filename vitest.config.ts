@@ -5,6 +5,6 @@ export default defineConfig({
     // Vitest 3 projects: each workspace package is a project rooted at its
     // own directory. Per-package overrides (e.g. jsdom for apps/web) arrive
     // with later todos via a vitest.config.ts inside that package.
-    projects: ['packages/*', 'apps/*', 'scripts/version-canary'],
+    projects: ['packages/*', 'apps/*', 'scripts/version-canary', 'scripts/repository-compatibility'],
   },
 });
