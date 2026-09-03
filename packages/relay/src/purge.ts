@@ -33,12 +33,30 @@ import {
   ListTagsForCertificateCommand,
 } from '@aws-sdk/client-acm';
 import {
+  DeleteInternetGatewayCommand,
+  DeleteNatGatewayCommand,
+  DeleteRouteTableCommand,
+  DeleteSecurityGroupCommand,
+  DeleteSubnetCommand,
+  DeleteVpcCommand,
+  DescribeInternetGatewaysCommand,
+  DescribeNatGatewaysCommand,
+  DescribeRouteTablesCommand,
+  DescribeSecurityGroupsCommand,
+  DescribeSubnetsCommand,
+  DescribeVpcsCommand,
+  DetachInternetGatewayCommand,
+  EC2Client,
+} from '@aws-sdk/client-ec2';
+import {
   DescribeReplicationGroupsCommand,
   ElastiCacheClient,
   ListTagsForResourceCommand,
 } from '@aws-sdk/client-elasticache';
 import {
+  DeleteDBSubnetGroupCommand,
   DescribeDBInstancesCommand,
+  DescribeDBSubnetGroupsCommand,
   ListTagsForResourceCommand as ListRdsTagsCommand,
   RDSClient,
 } from '@aws-sdk/client-rds';
@@ -74,6 +92,44 @@ import type { StackDeleter } from './destroy.js';
 export interface RdsPurgeClient extends RdsCleanupClient {
   /** Owned (tag-verified) instances only; anything else is omitted, not attempted. */
   listOwnedInstances(): Promise<{ identifier: string; status: string }[]>;
+  /**
+   * Owned (tag-verified) DB subnet groups — RETAIN-ed alongside the database
+   * (CANARY-015). Deletable only once no DB instance still references them;
+   * the instance sweep above already guarantees that by running first.
+   */
+  listOwnedSubnetGroups(): Promise<string[]>;
+  /** Deletes a subnet group by name. An in-use rejection is the caller's to retry. */
+  deleteSubnetGroup(name: string): Promise<void>;
+}
+
+/**
+ * The orphaned VPC network (CANARY-015) a data-preserving Disconnect can
+ * leave behind: the retained RDS instance's ENI keeps a private subnet and
+ * the DB security group alive through the application stack's DeleteStack,
+ * which then strands the VPC itself. Every list is tag-verified — same rule
+ * as every other purge client: a resource whose tag is unreadable or
+ * mismatched is omitted, never deleted.
+ */
+export interface NetworkPurgeClient {
+  /** Owned (tag-verified) VPC ids only. */
+  listOwnedVpcs(): Promise<string[]>;
+  /** Owned (tag-verified), non-default security groups in a VPC. */
+  listOwnedSecurityGroups(vpcId: string): Promise<string[]>;
+  deleteSecurityGroup(groupId: string): Promise<void>;
+  /** Owned (tag-verified) subnets in a VPC. */
+  listOwnedSubnets(vpcId: string): Promise<string[]>;
+  deleteSubnet(subnetId: string): Promise<void>;
+  /** Owned (tag-verified) custom route tables in a VPC. Normally already gone. */
+  listOwnedRouteTables(vpcId: string): Promise<string[]>;
+  deleteRouteTable(routeTableId: string): Promise<void>;
+  /** Owned (tag-verified) internet gateways attached to a VPC. Normally already gone. */
+  listOwnedInternetGateways(vpcId: string): Promise<string[]>;
+  detachInternetGateway(gatewayId: string, vpcId: string): Promise<void>;
+  deleteInternetGateway(gatewayId: string): Promise<void>;
+  /** Owned (tag-verified) NAT gateways in a VPC. Normally already gone. */
+  listOwnedNatGateways(vpcId: string): Promise<string[]>;
+  deleteNatGateway(natGatewayId: string): Promise<void>;
+  deleteVpc(vpcId: string): Promise<void>;
 }
 
 /** ElastiCache resources this installation owns, plus the deletion surface. */
@@ -138,6 +194,7 @@ export interface PurgeDeps {
   readonly s3: S3PurgeClient;
   readonly secrets: SecretsPurgeClient;
   readonly acm: AcmPurgeClient;
+  readonly network: NetworkPurgeClient;
   readonly now?: () => string;
   readonly wait?: WaitOptions;
 }
@@ -170,6 +227,30 @@ export function isAccessDenied(error: unknown): boolean {
     code.includes('AccessDenied') ||
     code.includes('UnauthorizedOperation')
   );
+}
+
+/**
+ * Whether an AWS error means a network resource is still referenced by
+ * something else — the ENI a just-deleted RDS instance leaves behind for a
+ * few seconds, a security group still referenced by another's rule, or a
+ * gateway mid-detach. Retryable: the purge stays `purging` so the next poll
+ * finds it cleared, never a purge failure.
+ */
+function isDependencyViolation(error: unknown): boolean {
+  const code = typeof (error as { Code?: unknown } | undefined)?.Code === 'string'
+    ? (error as { Code: string }).Code
+    : typeof (error as { name?: unknown } | undefined)?.name === 'string'
+      ? (error as { name: string }).name
+      : '';
+  return code.includes('DependencyViolation');
+}
+
+/** Whether an RDS error means the subnet group is still referenced by a DB instance. */
+function isSubnetGroupInUse(error: unknown): boolean {
+  const name = typeof (error as { name?: unknown } | undefined)?.name === 'string'
+    ? (error as { name: string }).name
+    : '';
+  return name.includes('InvalidDBSubnetGroupStateFault');
 }
 
 /**
@@ -276,10 +357,12 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
     return { state: 'purging' };
   }
 
-  // Phase 2e — orphaned ACM certificates (Phase 11 default HTTPS + custom
-  // domains). The application stack is gone, so no listener can hold them
-  // any more; the bootstrap stack is deleted LAST (below), and this relay
-  // itself holds no certificate — only the destroyed deployment's did.
+  // ACM orphan sweep (Phase 11) — default-HTTPS and custom-domain
+  // certificates live OUTSIDE the application stack, so a force-completed
+  // destroy would leave them orphaned in the customer account. The
+  // application stack is gone by now, so no ALB listener can hold them any
+  // more; this relay itself holds no certificate — only the destroyed
+  // deployment's did.
   const certificates = await deps.acm.listOwnedCertificates();
   if (certificates.length > 0) {
     for (const certificateArn of certificates) {
@@ -288,27 +371,145 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
     return { state: 'purging' };
   }
 
-  // Phase 3 — the bootstrap/relay stack, LAST by design. Initiated, not
-  // awaited: the teardown takes minutes while the result of this very
-  // command is reported sub-second after the executor returns, and the
-  // relay cannot outlive its own stack to watch it go.
-  //
-  // Ownership is NOT verified by tag here: the bootstrap stack is created
-  // by the customer's Quick Create BEFORE the installation id is minted
-  // inside it, so it can never carry a readable `deployz:installation` tag
-  // equal to ours (the id is a deploy-time GetAtt token on our own
-  // resources, not a static stack tag). The ownership evidence is the
-  // NAME: `bootstrapStackName` is baked into this relay's environment as
-  // `Ref AWS::StackName` of the very stack we are deleting — the control
-  // plane's `deployments.bootstrap_stack_name` metadata. Deleting a
-  // same-named foreign stack in our own account is out of scope; refusing
-  // on the impossible tag would make the bootstrap removal never run.
-  const bootstrap = await deps.cfn.describeStack(deps.bootstrapStackName);
-  if (bootstrap.found) {
-    if (bootstrap.stack.status !== 'DELETE_IN_PROGRESS') {
-      await deps.deleter.deleteStack(deps.bootstrapStackName);
+  // Phase 2e — the RETAIN-ed RDS subnet group (CANARY-015). Only removable
+  // once no DB instance references it — the instance sweep above already
+  // guarantees that by running first and staying `purging` until every
+  // owned instance is gone.
+  const subnetGroups = await deps.rds.listOwnedSubnetGroups();
+  if (subnetGroups.length > 0) {
+    for (const name of subnetGroups) {
+      try {
+        await deps.rds.deleteSubnetGroup(name);
+      } catch (error) {
+        // Still referenced by a DB instance mid-deletion — wait, don't fail.
+        if (!isSubnetGroupInUse(error)) throw error;
+      }
     }
+    console.log(
+      JSON.stringify({ event: 'relay:purge-orphans-swept', kind: 'rds-subnet-group', ids: subnetGroups }),
+    );
+    return { state: 'purging' };
   }
+
+  // Phase 2f — the orphaned VPC network (CANARY-015). A data-preserving
+  // Disconnect's retained RDS instance keeps its ENI, its subnet and its DB
+  // security group alive through the application stack's DeleteStack,
+  // stranding the VPC too. Each list is tag-verified like every sweep
+  // above; deletion order (security groups, then subnets, then the
+  // rarely-present route-table/gateway leftovers, then the VPC itself)
+  // follows CloudFormation's own dependency order for these resources. Only
+  // the first VPC still carrying work is touched per pass — the next pass
+  // sees it gone and moves to any sibling, or falls through to Phase 3.
+  const vpcs = await deps.network.listOwnedVpcs();
+  for (const vpcId of vpcs) {
+    const securityGroups = await deps.network.listOwnedSecurityGroups(vpcId);
+    if (securityGroups.length > 0) {
+      const blocked: string[] = [];
+      for (const groupId of securityGroups) {
+        try {
+          await deps.network.deleteSecurityGroup(groupId);
+        } catch (error) {
+          if (!isDependencyViolation(error)) throw error;
+          blocked.push(groupId);
+        }
+      }
+      // A security group referenced by another's own rule fails on the
+      // first pass and clears once its sibling is gone — one more pass
+      // before deferring the rest to the next poll.
+      for (const groupId of blocked) {
+        try {
+          await deps.network.deleteSecurityGroup(groupId);
+        } catch (error) {
+          if (!isDependencyViolation(error)) throw error;
+        }
+      }
+      console.log(
+        JSON.stringify({ event: 'relay:purge-orphans-swept', kind: 'security-group', ids: securityGroups }),
+      );
+      return { state: 'purging' };
+    }
+
+    const subnets = await deps.network.listOwnedSubnets(vpcId);
+    if (subnets.length > 0) {
+      for (const subnetId of subnets) {
+        try {
+          await deps.network.deleteSubnet(subnetId);
+        } catch (error) {
+          if (!isDependencyViolation(error)) throw error;
+        }
+      }
+      console.log(
+        JSON.stringify({ event: 'relay:purge-orphans-swept', kind: 'subnet', ids: subnets }),
+      );
+      return { state: 'purging' };
+    }
+
+    // Route tables, internet gateways and NAT gateways are normally already
+    // gone — the application stack's own DELETE_COMPLETE removed them
+    // before the retained RDS instance ever blocked the subnet/SG/VPC.
+    // Swept only when present, so a clean install's purge never touches
+    // them.
+    const routeTables = await deps.network.listOwnedRouteTables(vpcId);
+    const internetGateways = await deps.network.listOwnedInternetGateways(vpcId);
+    const natGateways = await deps.network.listOwnedNatGateways(vpcId);
+    if (routeTables.length > 0 || internetGateways.length > 0 || natGateways.length > 0) {
+      for (const routeTableId of routeTables) {
+        try {
+          await deps.network.deleteRouteTable(routeTableId);
+        } catch (error) {
+          if (!isDependencyViolation(error)) throw error;
+        }
+      }
+      for (const gatewayId of internetGateways) {
+        try {
+          await deps.network.detachInternetGateway(gatewayId, vpcId);
+          await deps.network.deleteInternetGateway(gatewayId);
+        } catch (error) {
+          if (!isDependencyViolation(error)) throw error;
+        }
+      }
+      for (const natGatewayId of natGateways) {
+        try {
+          await deps.network.deleteNatGateway(natGatewayId);
+        } catch (error) {
+          if (!isDependencyViolation(error)) throw error;
+        }
+      }
+      console.log(
+        JSON.stringify({
+          event: 'relay:purge-orphans-swept',
+          kind: 'route-table-gateway',
+          ids: [...routeTables, ...internetGateways, ...natGateways],
+        }),
+      );
+      return { state: 'purging' };
+    }
+
+    try {
+      await deps.network.deleteVpc(vpcId);
+    } catch (error) {
+      if (!isDependencyViolation(error)) throw error;
+      return { state: 'purging' };
+    }
+    console.log(JSON.stringify({ event: 'relay:purge-orphans-swept', kind: 'vpc', ids: [vpcId] }));
+    return { state: 'purging' };
+  }
+
+  // Phase 3 — the bootstrap/relay stack is NOT deleted here (CANARY-014).
+  // It was created by the customer's Quick Create, the relay's CloudFormation
+  // grants are tag-conditioned on an installation id that stack can never
+  // carry (the id is minted inside it), and a stack cannot delete its own
+  // execution role — the old describe-then-delete attempt was AccessDenied on
+  // every real install and, being fail-closed, was silently reported as
+  // "already gone". Say so instead: the control plane tells the customer to
+  // delete the stack in CloudFormation.
+  console.log(
+    JSON.stringify({
+      event: 'relay:purge-bootstrap-retained',
+      installationId: deps.installationId,
+      bootstrapStackName: deps.bootstrapStackName,
+    }),
+  );
 
   return { state: 'succeeded' };
 }
@@ -372,7 +573,12 @@ export function createPurgeExecutor(deps: PurgeDeps): CommandExecutor {
         }),
       );
       return result(command, true, {
-        output: { executed: true, type: command.type, purged: true },
+        output: {
+          executed: true,
+          type: command.type,
+          purged: true,
+          connectorStackRetained: deps.bootstrapStackName,
+        },
       });
     }
 
@@ -444,7 +650,12 @@ export function createPurgeResumer(deps: PurgeDeps): () => Promise<RelayCommandR
             commandId: pending.commandId,
             idempotencyKey: pending.idempotencyKey,
             success: true,
-            output: { executed: true, type: pending.type, purged: true },
+            output: {
+              executed: true,
+              type: pending.type,
+              purged: true,
+              connectorStackRetained: deps.bootstrapStackName,
+            },
           }
         : {
             commandId: pending.commandId,
@@ -471,6 +682,7 @@ export function createRealPurgeClients(installationId: string): {
   s3: S3PurgeClient;
   secrets: SecretsPurgeClient;
   acm: AcmPurgeClient;
+  network: NetworkPurgeClient;
 } {
   const rdsBase = createRealRdsCleanupClient();
   const rds = new RDSClient({});
@@ -516,6 +728,25 @@ export function createRealPurgeClients(installationId: string): {
           }
         }
         return owned;
+      },
+      async listOwnedSubnetGroups() {
+        const response = await rds.send(new DescribeDBSubnetGroupsCommand({}));
+        const owned: string[] = [];
+        for (const group of response.DBSubnetGroups ?? []) {
+          if (!group.DBSubnetGroupName || !group.DBSubnetGroupArn) continue;
+          try {
+            const tags = await rds.send(
+              new ListRdsTagsCommand({ ResourceName: group.DBSubnetGroupArn }),
+            );
+            if (owns(tags.TagList ?? [])) owned.push(group.DBSubnetGroupName);
+          } catch (error) {
+            if (isAccessDenied(error)) throw error;
+          }
+        }
+        return owned;
+      },
+      async deleteSubnetGroup(name) {
+        await rds.send(new DeleteDBSubnetGroupCommand({ DBSubnetGroupName: name }));
       },
     },
     cache: {
@@ -657,5 +888,144 @@ export function createRealPurgeClients(installationId: string): {
         await acm.send(new DeleteCertificateCommand({ CertificateArn: certificateArn }));
       },
     },
+    network: createRealNetworkPurgeClient(installationId),
   };
+}
+
+/** The one method of the SDK client `toNetworkPurgeClient` uses. */
+interface SendsEc2Commands {
+  send(command: unknown): Promise<unknown>;
+}
+
+interface TaggedEc2Resource {
+  Tags?: { Key?: string; Value?: string }[];
+}
+
+/**
+ * Wrap an EC2 client as a `NetworkPurgeClient`. Split out from
+ * `createRealNetworkPurgeClient` so it can be tested against a fake client
+ * with no SDK construction — same shape as `toReader`/`toInstaller`.
+ *
+ * Every list narrows with the request's own tag filter AND re-checks the
+ * returned `Tags`: the filter is the fast path, the re-check is the same
+ * fail-closed guarantee every other purge client makes — an untagged or
+ * mismatched resource that somehow surfaces here is still omitted, never
+ * deleted.
+ */
+export function toNetworkPurgeClient(
+  client: SendsEc2Commands,
+  installationId: string,
+): NetworkPurgeClient {
+  const owns = (resource: TaggedEc2Resource) =>
+    (resource.Tags ?? []).some(
+      (tag) => tag.Key === INSTALLATION_TAG && tag.Value === installationId,
+    );
+  const installationFilter = { Name: `tag:${INSTALLATION_TAG}`, Values: [installationId] };
+
+  return {
+    async listOwnedVpcs() {
+      const response = (await client.send(
+        new DescribeVpcsCommand({ Filters: [installationFilter] }),
+      )) as { Vpcs?: (TaggedEc2Resource & { VpcId?: string })[] };
+      return (response.Vpcs ?? []).flatMap((vpc) =>
+        vpc.VpcId && owns(vpc) ? [vpc.VpcId] : [],
+      );
+    },
+    async listOwnedSecurityGroups(vpcId) {
+      const response = (await client.send(
+        new DescribeSecurityGroupsCommand({
+          Filters: [installationFilter, { Name: 'vpc-id', Values: [vpcId] }],
+        }),
+      )) as { SecurityGroups?: (TaggedEc2Resource & { GroupId?: string; GroupName?: string })[] };
+      return (response.SecurityGroups ?? []).flatMap((group) =>
+        group.GroupId && group.GroupName !== 'default' && owns(group) ? [group.GroupId] : [],
+      );
+    },
+    async deleteSecurityGroup(groupId) {
+      await client.send(new DeleteSecurityGroupCommand({ GroupId: groupId }));
+    },
+    async listOwnedSubnets(vpcId) {
+      const response = (await client.send(
+        new DescribeSubnetsCommand({
+          Filters: [installationFilter, { Name: 'vpc-id', Values: [vpcId] }],
+        }),
+      )) as { Subnets?: (TaggedEc2Resource & { SubnetId?: string })[] };
+      return (response.Subnets ?? []).flatMap((subnet) =>
+        subnet.SubnetId && owns(subnet) ? [subnet.SubnetId] : [],
+      );
+    },
+    async deleteSubnet(subnetId) {
+      await client.send(new DeleteSubnetCommand({ SubnetId: subnetId }));
+    },
+    async listOwnedRouteTables(vpcId) {
+      const response = (await client.send(
+        new DescribeRouteTablesCommand({
+          Filters: [installationFilter, { Name: 'vpc-id', Values: [vpcId] }],
+        }),
+      )) as {
+        RouteTables?: (TaggedEc2Resource & {
+          RouteTableId?: string;
+          Associations?: { Main?: boolean }[];
+        })[];
+      };
+      return (response.RouteTables ?? []).flatMap((table) =>
+        table.RouteTableId &&
+        owns(table) &&
+        !(table.Associations ?? []).some((assoc) => assoc.Main)
+          ? [table.RouteTableId]
+          : [],
+      );
+    },
+    async deleteRouteTable(routeTableId) {
+      await client.send(new DeleteRouteTableCommand({ RouteTableId: routeTableId }));
+    },
+    async listOwnedInternetGateways(vpcId) {
+      const response = (await client.send(
+        new DescribeInternetGatewaysCommand({
+          Filters: [installationFilter, { Name: 'attachment.vpc-id', Values: [vpcId] }],
+        }),
+      )) as { InternetGateways?: (TaggedEc2Resource & { InternetGatewayId?: string })[] };
+      return (response.InternetGateways ?? []).flatMap((gateway) =>
+        gateway.InternetGatewayId && owns(gateway) ? [gateway.InternetGatewayId] : [],
+      );
+    },
+    async detachInternetGateway(gatewayId, vpcId) {
+      await client.send(
+        new DetachInternetGatewayCommand({ InternetGatewayId: gatewayId, VpcId: vpcId }),
+      );
+    },
+    async deleteInternetGateway(gatewayId) {
+      await client.send(new DeleteInternetGatewayCommand({ InternetGatewayId: gatewayId }));
+    },
+    async listOwnedNatGateways(vpcId) {
+      const response = (await client.send(
+        // DescribeNatGateways uses `Filter` (singular) — a naming quirk of
+        // this one action, unlike every other Describe* used here.
+        new DescribeNatGatewaysCommand({
+          Filter: [installationFilter, { Name: 'vpc-id', Values: [vpcId] }],
+        }),
+      )) as {
+        NatGateways?: (TaggedEc2Resource & { NatGatewayId?: string; State?: string })[];
+      };
+      return (response.NatGateways ?? []).flatMap((gateway) =>
+        gateway.NatGatewayId &&
+        owns(gateway) &&
+        gateway.State !== 'deleting' &&
+        gateway.State !== 'deleted'
+          ? [gateway.NatGatewayId]
+          : [],
+      );
+    },
+    async deleteNatGateway(natGatewayId) {
+      await client.send(new DeleteNatGatewayCommand({ NatGatewayId: natGatewayId }));
+    },
+    async deleteVpc(vpcId) {
+      await client.send(new DeleteVpcCommand({ VpcId: vpcId }));
+    },
+  };
+}
+
+/** Production network purge client — credentials come from the standard SDK chain. */
+export function createRealNetworkPurgeClient(installationId: string): NetworkPurgeClient {
+  return toNetworkPurgeClient(new EC2Client({}), installationId);
 }

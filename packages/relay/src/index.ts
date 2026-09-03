@@ -68,6 +68,7 @@ import {
   createRealPurgeClients,
   type AcmPurgeClient,
   type CachePurgeClient,
+  type NetworkPurgeClient,
   type PurgeDeps,
   type RdsPurgeClient,
   type S3PurgeClient,
@@ -238,6 +239,7 @@ let purgeClients:
       s3: S3PurgeClient;
       secrets: SecretsPurgeClient;
       acm: AcmPurgeClient;
+      network: NetworkPurgeClient;
     }
   | undefined;
 
@@ -247,6 +249,7 @@ function getPurgeClients(installationId: string): {
   s3: S3PurgeClient;
   secrets: SecretsPurgeClient;
   acm: AcmPurgeClient;
+  network: NetworkPurgeClient;
 } {
   if (!purgeClients) {
     purgeClients = createRealPurgeClients(installationId);
@@ -851,7 +854,7 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
       type: command.type,
       stackName,
       startedAt,
-      payload: command.payload,
+      payload: compactPendingInstallPayload(command.payload),
       ...(lastEventAt !== null ? { stackEventsCursor: { lastEventAt } } : {}),
     });
 
@@ -1121,6 +1124,35 @@ export function readVerifyOptionsFromPayload(
   return {
     ...(typeof redisRequired === 'boolean' ? { redisRequired } : {}),
     ...(typeof stackName === 'string' && stackName.length > 0 ? { stackName } : {}),
+  };
+}
+
+/**
+ * Build the payload the INSTALL pending marker actually needs to keep.
+ *
+ * `command.payload` can carry the canonical manifest — ~16 KB in production
+ * since it started riding the job (PR #73) — so `settleInstall` can derive
+ * the create-time parameters and Redis variant from it. None of that is
+ * needed to resume: only the merged `parameters` (which `settleInstall`
+ * would otherwise recompute from the manifest every time) and the resolved
+ * `redisRequired` are. Dropping the manifest is what keeps the marker under
+ * SSM's 4096-character Standard-tier limit (`PENDING_MARKER_MAX_LENGTH` in
+ * `./pending.js`) — carrying it is what silently failed the deferral write.
+ */
+export function compactPendingInstallPayload(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const { manifest: _manifest, ...rest } = payload;
+  const manifest = readDeploymentManifest(payload);
+  const verifyOptions = readVerifyOptionsFromPayload(payload);
+
+  return {
+    ...rest,
+    parameters: {
+      ...readInstallParametersFromPayload(payload),
+      ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
+    },
+    redisRequired: verifyOptions.redisRequired ?? manifest?.redis.required ?? false,
   };
 }
 

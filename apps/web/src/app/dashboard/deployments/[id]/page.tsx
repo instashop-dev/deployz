@@ -72,11 +72,10 @@ import {
 import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
-  NOT_YET_RUNNING_ACTION_COPY,
   RELAY_STUCK_GUIDANCE,
   RELAY_STATUS_LABEL,
-  UNSUPPORTED_ACTION_COPY,
   actionSupported,
+  actionsUnavailableReason,
   everInstalled,
   relayWaitingStuck,
   showHealthBadge,
@@ -269,15 +268,27 @@ function DetailBody({
         )}
       </div>
 
-      {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED' ? (
+      {detail.state === 'DELETED' && detail.cleanupState !== 'COMPLETE' ? (
         <div className="flex flex-col gap-3">
           <Alert>
             <AlertTriangle aria-hidden />
-            <AlertTitle>Resources may remain in the customer AWS account</AlertTitle>
-            <AlertDescription>
-              AWS resources may still exist because the Deployz Relay was offline during
-              disconnect.
-            </AlertDescription>
+            {detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED' ? (
+              <>
+                <AlertTitle>Resources may remain in the customer AWS account</AlertTitle>
+                <AlertDescription>
+                  AWS resources may still exist because the Deployz Relay was offline during
+                  disconnect.
+                </AlertDescription>
+              </>
+            ) : (
+              <>
+                <AlertTitle>Retained resources remain in the customer AWS account</AlertTitle>
+                <AlertDescription>
+                  The database, its credentials, the stored files and the Deployz connector stay
+                  until you purge them, and may continue to generate AWS charges.
+                </AlertDescription>
+              </>
+            )}
           </Alert>
           <PurgeRetainedResources
             deploymentId={detail.id}
@@ -285,6 +296,21 @@ function DetailBody({
             onChanged={onChanged}
           />
         </div>
+      ) : null}
+
+      {detail.state === 'DELETED' && detail.cleanupState === 'COMPLETE' && detail.bootstrapStackName ? (
+        <Alert>
+          <AlertTriangle aria-hidden />
+          <AlertTitle>The Deployz connector is still installed in the customer AWS account</AlertTitle>
+          <AlertDescription>
+            Deployz removed everything it created for this deployment. The connector stack{' '}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+              {detail.bootstrapStackName}
+            </code>{' '}
+            was created by your customer, so only they can delete it — ask them to delete that
+            stack in CloudFormation. Their install link shows the same step.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       <section aria-labelledby="actions" className="flex flex-col gap-3">
@@ -304,7 +330,7 @@ function DetailBody({
         <h2 id="deployment-progress" className="text-base font-semibold">
           Deployment progress
         </h2>
-        <DeploymentProgressCard status={detail.deploymentStatus} />
+        <DeploymentProgressCard status={detail.deploymentStatus} deploymentState={detail.state} />
       </section>
 
       <InfrastructureEvents deploymentId={detail.id} stage={detail.deploymentStatus.stage} />
@@ -462,7 +488,12 @@ function DeploymentActions({
   // has succeeded, so it is offered exactly where the day-2 actions are not.
   const canRetryInstall = detail.state === 'FAILED' && !everRan;
   const anyCapabilityGatedOff =
-    everRan && (!canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect);
+    everRan && !disconnecting && (!canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect);
+  const actionsUnavailable = actionsUnavailableReason({
+    state: detail.state,
+    everRan,
+    anyCapabilityGatedOff,
+  });
   const hasPreviousRelease = detail.previousReleaseId !== null;
 
   return (
@@ -533,10 +564,8 @@ function DeploymentActions({
         </Button>
       </div>
 
-      {!everRan ? (
-        <p className="text-sm text-muted-foreground">{NOT_YET_RUNNING_ACTION_COPY}</p>
-      ) : anyCapabilityGatedOff ? (
-        <p className="text-sm text-muted-foreground">{UNSUPPORTED_ACTION_COPY}</p>
+      {actionsUnavailable ? (
+        <p className="text-sm text-muted-foreground">{actionsUnavailable}</p>
       ) : null}
       {!hasPreviousRelease ? (
         <p className="text-sm text-muted-foreground">{NO_PREVIOUS_RELEASE_COPY}</p>
@@ -1220,7 +1249,9 @@ function DisconnectDialog({
               </p>
             </>
           ) : (
-            <p>Your database, stored files, and backups will be retained.</p>
+            <p>
+              Your database, its credentials, stored files, and backups will be retained.
+            </p>
           )}
           <p>The Deployz connector remains installed.</p>
           <p>This stops the $19/month charge for this deployment.</p>

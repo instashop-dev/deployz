@@ -345,11 +345,16 @@ type MigrationOutcome =
 /**
  * Runs (or resumes) the migration stage: one one-off ECS task on the SAME
  * cluster/VPC/subnets/security groups as the app service, running the NEW
- * digest with the command overridden, no load balancer. Polls DescribeTasks
- * until STOPPED; a task that outlives the invocation is resumed by ARN on a
- * later poll, never re-run. Exit code 0 completes the stage; anything else
- * fails the job with MIGRATION_FAILED (exit code + stoppedReason as detail —
- * never log bodies: the relay role deliberately has no logs:GetLogEvents).
+ * digest with the command overridden, no load balancer. The vendor's
+ * `migrationCommand` is a shell command line — the same thing a Dockerfile
+ * `CMD "…"` string or a Procfile line is — so it runs as `sh -c <command>`
+ * inside the container, exactly as written: PATH lookup, `npx`, `&&`, env-var
+ * prefixes and quoting all behave the way the vendor's own start script
+ * expects. Polls DescribeTasks until STOPPED; a task that outlives the
+ * invocation is resumed by ARN on a later poll, never re-run. Exit code 0
+ * completes the stage; anything else fails the job with MIGRATION_FAILED
+ * (exit code + stoppedReason as detail — never log bodies: the relay role
+ * deliberately has no logs:GetLogEvents).
  */
 async function settleMigration(
   deps: EcsDeployDeps,
@@ -435,7 +440,7 @@ async function settleMigration(
         containerOverrides:
           appContainer === undefined || appContainer.name === undefined
             ? []
-            : [{ name: appContainer.name, command: migrationCommand.split(' ') }],
+            : [{ name: appContainer.name, command: ['sh', '-c', migrationCommand.trim()] }],
       },
     });
     taskArn = taskArns[0] ?? null;

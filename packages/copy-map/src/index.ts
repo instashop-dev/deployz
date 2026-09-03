@@ -262,6 +262,7 @@ export const FAILURE_CODES = [
   'REDIS_PROVISIONING_FAILED',
   'REDIS_CONNECTION_FAILED',
   'DOMAIN_OPERATION_TIMEOUT',
+  'RELAY_STATE_WRITE_FAILED',
 ] as const;
 
 /** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */
@@ -313,6 +314,7 @@ export const FAILURE_RECOVERABILITY: Record<FailureCode, FailureRecoverability> 
   REDIS_PROVISIONING_FAILED: 'DEPLOYZ_ACTION',
   REDIS_CONNECTION_FAILED: 'RECONCILE_FIRST',
   DOMAIN_OPERATION_TIMEOUT: 'RECONCILE_FIRST',
+  RELAY_STATE_WRITE_FAILED: 'DEPLOYZ_ACTION',
 };
 
 /** §65 one-liner per recoverability class, shown on the diagnostic card. */
@@ -448,6 +450,11 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     label: 'Custom domain update timed out',
     description: 'The custom domain change did not finish in time. It can be retried.',
     severity: 'warning',
+  },
+  RELAY_STATE_WRITE_FAILED: {
+    label: 'Deployz lost track of the install',
+    description: 'The Deployz connector could not save its progress, even though setup was still running.',
+    severity: 'critical',
   },
 };
 
@@ -585,6 +592,11 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
     what: 'A custom domain change stopped responding and was timed out.',
     why: 'The helper did not finish the domain update within the allowed window.',
     fix: 'Wait for the next automatic check, or press Check now on the custom domain card, to retry. The deployment itself is unaffected.',
+  },
+  RELAY_STATE_WRITE_FAILED: {
+    what: 'Deployz lost track of an install that was still running in your customer’s cloud account.',
+    why: 'The Deployz connector could not save its own progress marker.',
+    fix: 'The setup may have finished on its own — check its status, then retry the install. Contact Deployz support if it happens again.',
   },
 };
 

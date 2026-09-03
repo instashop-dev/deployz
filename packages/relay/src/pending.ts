@@ -77,6 +77,14 @@ export function pendingParameterName(installationId: string): string {
   return `/deployz/${installationId}/pending-command`;
 }
 
+/**
+ * SSM Standard-tier's maximum parameter value length. A marker over this
+ * would fail `PutParameterCommand` with `ValidationException` anyway — the
+ * guard in `write` below checks it first so an oversized marker is rejected
+ * cheaply, with a clear reason, instead of via an SDK round trip.
+ */
+export const PENDING_MARKER_MAX_LENGTH = 4096;
+
 /** In-memory store — the fallback when no parameter name is configured. */
 export function memoryPendingStore(): PendingStore {
   let pending: PendingCommand | null = null;
@@ -100,6 +108,13 @@ interface SendsCommands {
   send(command: unknown): Promise<unknown>;
 }
 
+/** `{ name, message }` for a structured log line — never the pending value itself. */
+function describeError(err: unknown): { name: string; message: string } {
+  return err instanceof Error
+    ? { name: err.name, message: err.message }
+    : { name: 'UnknownError', message: String(err) };
+}
+
 /**
  * Wrap an SSM client as a pending-command store.
  *
@@ -111,13 +126,22 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
   return {
     async read(): Promise<PendingCommand | null> {
       try {
+        // The marker is a SecureString (see `write`): without
+        // `WithDecryption` SSM hands back the KMS ciphertext, which parses
+        // as nothing pending and silently strands every deferred command.
         const response = (await client.send(
-          new GetParameterCommand({ Name: parameterName }),
+          new GetParameterCommand({ Name: parameterName, WithDecryption: true }),
         )) as { Parameter?: { Value?: string } };
 
         const value = response.Parameter?.Value;
         if (value === undefined) return null;
-        return parse(value);
+        const pending = parse(value);
+        if (pending === null) {
+          console.error(
+            JSON.stringify({ event: 'relay:pending-marker-unreadable', parameterName }),
+          );
+        }
+        return pending;
       } catch {
         // `ParameterNotFound` and `AccessDenied` are the same answer to
         // "is there something to resume?" — no.
@@ -126,6 +150,20 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
     },
 
     async write(pending: PendingCommand): Promise<boolean> {
+      const value = JSON.stringify(pending);
+      if (value.length > PENDING_MARKER_MAX_LENGTH) {
+        // Cheaper and clearer than letting SSM reject it: `PutParameter`
+        // would throw this exact ValidationException anyway.
+        console.error(
+          JSON.stringify({
+            event: 'relay:pending-marker-too-large',
+            parameterName,
+            length: value.length,
+          }),
+        );
+        return false;
+      }
+
       try {
         await client.send(
           new PutParameterCommand({
@@ -134,12 +172,19 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
             // secret parameter values; the marker itself is never worth
             // forfeiting if the parameter leaks out of the account's SSM.
             Type: 'SecureString',
-            Value: JSON.stringify(pending),
+            Value: value,
             Overwrite: true,
           }),
         );
         return true;
-      } catch {
+      } catch (err) {
+        console.error(
+          JSON.stringify({
+            event: 'relay:pending-write-failed',
+            parameterName,
+            error: describeError(err),
+          }),
+        );
         return false;
       }
     },
@@ -150,7 +195,15 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
         return true;
       } catch (err) {
         // Already gone is the state we wanted.
-        return err instanceof Error && err.name === 'ParameterNotFound';
+        if (err instanceof Error && err.name === 'ParameterNotFound') return true;
+        console.error(
+          JSON.stringify({
+            event: 'relay:pending-clear-failed',
+            parameterName,
+            error: describeError(err),
+          }),
+        );
+        return false;
       }
     },
   };

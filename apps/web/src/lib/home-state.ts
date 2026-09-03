@@ -4,6 +4,7 @@
 // have. Kept pure (no fetching, no React) so it is unit-testable.
 
 import type { Application } from './applications';
+import type { DeploymentState } from './deployment-vocabulary';
 import type { FleetDeployment } from './deployments';
 
 // ── Deployments that need the vendor to act ────────────────────────────────
@@ -179,6 +180,37 @@ export type HomeState =
     };
 
 /** Rows shown on the homepage before "View all deployments" takes over. */
+/**
+ * Headline and supporting line for the homepage's single-deployment card.
+ *
+ * The three cases are three different asks. NOT_INSTALLED is the only one
+ * where the vendor still has to send the link; once the customer has opened
+ * it and approved the stack the deployment is WAITING_FOR_RELAY, and telling
+ * the vendor to send a link they already sent reads as if nothing happened
+ * (observed on a live install whose connector was already being created).
+ */
+export function firstDeploymentCopy(input: {
+  state: DeploymentState;
+  customerName: string;
+}): { title: string; body: string } {
+  if (input.state === 'NOT_INSTALLED') {
+    return {
+      title: `Waiting for ${input.customerName} to install`,
+      body: 'Send them their install link, then this deployment sets itself up.',
+    };
+  }
+  if (input.state === 'WAITING_FOR_RELAY') {
+    return {
+      title: `Connecting ${input.customerName}'s AWS account`,
+      body: 'They approved the setup. AWS is creating the Deployz connector — this updates itself.',
+    };
+  }
+  return {
+    title: `Deploying ${input.customerName}`,
+    body: 'Setting up this deployment in your customer’s AWS account.',
+  };
+}
+
 export const HOMEPAGE_DEPLOYMENT_LIMIT = 5;
 
 /** Attention items shown on the homepage; the rest live on the deployments page. */

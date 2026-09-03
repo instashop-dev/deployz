@@ -173,8 +173,9 @@ function CreateReleaseForm({
               <Label htmlFor="migrationCommand">Migration command (optional)</Label>
               <Input id="migrationCommand" name="migrationCommand" placeholder="npm run migrate" />
               <p className="text-xs text-muted-foreground">
-                Recorded with the release for reference. Deployz does not run database
-                migrations — your application handles them on startup.
+                Runs inside the customer&apos;s account before this release starts, as a
+                one-off task. Leave empty to use the command Deployz detected for this
+                application.
               </p>
             </div>
           <div className="flex items-center gap-3">

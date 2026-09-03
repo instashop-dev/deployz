@@ -477,6 +477,13 @@ export function classifyFailure(event: StructuredEvent): FailureCode {
     return 'DOMAIN_OPERATION_TIMEOUT';
   }
 
+  // 18c. RELAY_STATE_WRITE_FAILED — the relay could not persist its own
+  // deferral marker for an operation still running in the customer account
+  // (CANARY-006): a Deployz-side fault, never a customer resource failure.
+  if (event.source === 'relay' && event.signal === 'relay-state-write-failed') {
+    return 'RELAY_STATE_WRITE_FAILED';
+  }
+
   // 19. UNKNOWN — fallback when no rule matches.
   return 'UNKNOWN';
 }

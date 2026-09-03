@@ -71,6 +71,13 @@ describe('failureCodeSchema (§61 stable taxonomy)', () => {
     expect(failureCodeSchema.options).toContain('REDIS_PROVISIONING_FAILED');
     expect(failureCodeSchema.options).toContain('REDIS_CONNECTION_FAILED');
   });
+
+  // CANARY-006: the relay's own state-persistence failure is a Deployz-side
+  // fault, not a customer resource failure — it needs its own code so it
+  // stops being reported as STACK_CREATE_FAILED.
+  it('includes the relay state-write failure code', () => {
+    expect(failureCodeSchema.options).toContain('RELAY_STATE_WRITE_FAILED');
+  });
 });
 
 // Round-trip law: a db row (Date objects) crosses the wire as JSON, so the

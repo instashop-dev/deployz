@@ -293,8 +293,9 @@ A DEPLOY_RELEASE with a migration command runs the migration before the
 service update. Without a command, the deploy is exactly as before.
 
 - The deploy payload now carries `migrationCommand` when one resolves: the
-  stored manifest's `migration.command` first, else the release row's
-  `migrationCommand`. The key is omitted for a no-migration deploy, so that
+  release row's `migrationCommand` first (the vendor's explicit per-release
+  override — the stored manifest is a creation-time snapshot that is never
+  refreshed, CANARY-010), else the stored manifest's `migration.command`. The key is omitted for a no-migration deploy, so that
   payload is byte-for-byte unchanged. Bulk deploys resolve the manifest half
   per target deployment.
 - The relay runs the migration as a one-off ECS RunTask BEFORE the service
@@ -302,6 +303,9 @@ service update. Without a command, the deploy is exactly as before.
   env/secrets as the app service, command overridden, no load balancer. It
   polls DescribeTasks until STOPPED. Exit code 0 continues the normal
   task-definition registration and service update.
+- The command override runs as `sh -c <migrationCommand>` (CANARY-009), not a
+  whitespace split, so PATH lookup, `npx`, `&&` and quoting behave as the
+  vendor's own start script expects.
 - A non-zero exit fails the job with `MIGRATION_FAILED`; the error carries
   the exit code and stoppedReason (never raw log bodies — the relay role
   still has no `logs:GetLogEvents`).
@@ -690,7 +694,13 @@ The documented behavior is now:
   backups continue while the instance lives. No final snapshot is taken.
   Charges continue.
 - **Purge (PURGE)**: deletes the retained database, its credential secrets,
-  the stored files (every version), the cache, then the bootstrap stack.
+  the stored files (every version), the cache, and the network orphans a
+  retained database left behind. The bootstrap/relay stack is NOT deleted
+  by the relay: it was created by the customer's Quick Create, the relay's
+  CloudFormation grants are tag-conditioned on an id that stack can never
+  carry, and a stack cannot delete its own execution role — so both the
+  vendor page and the customer's install link tell the customer to delete
+  `deployz-bootstrap-…` in CloudFormation (CANARY-014).
 
 ### Audited existing (verified, changed only where a gap was found)
 

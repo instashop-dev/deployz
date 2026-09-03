@@ -535,13 +535,15 @@ async function requireDeployableRelease(
     imageRepository,
     imageDigest,
   };
-  // Phase 4: the migration command, stored-manifest first (the canonical
-  // snapshot the deployment was created with), else the release's own
-  // override. Absent → the key is omitted so a no-migration deploy carries
-  // byte-for-byte the payload it always did. A bulk deploy resolves the
-  // manifest half per target (each target has its own stored manifest).
+  // Phase 4: the migration command — the release's own command first (the
+  // vendor's explicit per-release override), else the stored manifest's (the
+  // snapshot the deployment was created with, which is never refreshed, so
+  // it must not outrank a deliberate correction — CANARY-010). Absent → the
+  // key is omitted so a no-migration deploy carries byte-for-byte the payload
+  // it always did. A bulk deploy resolves the manifest half per target (each
+  // target has its own stored manifest).
   const manifestCommand = deployment ? (readStoredManifest(deployment.desiredState)?.migration.command ?? null) : null;
-  const migrationCommand = manifestCommand ?? release.migrationCommand ?? null;
+  const migrationCommand = release.migrationCommand ?? manifestCommand ?? null;
   if (migrationCommand !== null && migrationCommand.trim().length > 0) {
     payload.migrationCommand = migrationCommand.trim();
   }
@@ -2995,12 +2997,13 @@ export async function buildServer({
         continue;
       }
       // Phase 4: each target resolves its own migration command — the shared
-      // `payload` carries the release-level command; a target's stored
-      // manifest command overrides it (same precedence as single deploys).
+      // `payload` carries the release-level command when the release has one;
+      // otherwise a target's stored manifest command fills in (same precedence
+      // as single deploys).
       let targetPayload = payload;
       const manifestCommand = readStoredManifest(deployment.desiredState)?.migration.command ?? null;
-      if (manifestCommand !== null && manifestCommand !== payload['migrationCommand']) {
-        targetPayload = { ...payload, migrationCommand: manifestCommand };
+      if (payload['migrationCommand'] === undefined && manifestCommand !== null && manifestCommand.trim().length > 0) {
+        targetPayload = { ...payload, migrationCommand: manifestCommand.trim() };
       }
       const { job, created } = await createOrReuseJob(db, {
         deploymentId: deployment.id,
@@ -3406,14 +3409,16 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
 
-    if (
-      deployment.state !== 'DELETED' ||
-      (deployment.cleanupState !== 'SKIPPED_RELAY_OFFLINE' && deployment.cleanupState !== 'PURGE_FAILED')
-    ) {
+    // Purge is the second step of every removal, not only the force-complete
+    // escape hatch: a normal Disconnect retains the database, its credential
+    // secrets, the stored files and the relay stack (docs/deployment-resilience.md),
+    // so a DELETED deployment stays purgeable until a purge has COMPLETEd
+    // (CANARY-013).
+    if (deployment.state !== 'DELETED' || deployment.cleanupState === 'COMPLETE') {
       throw new ApiError(
         409,
         'NOT_PURGE_ELIGIBLE',
-        'Only a disconnected deployment with retained resources can be purged.',
+        'Only a disconnected deployment whose retained resources have not been purged can be purged.',
       );
     }
     // One mutating operation per deployment: a purge already in flight must
@@ -4709,13 +4714,18 @@ export async function buildServer({
     // A failed day-2 operation on a deployment with a running release keeps
     // the deployment in a live state (deploymentStateAfterFailedJob): the
     // previous release is still serving, and the FAILED job itself carries
-    // the failure for the status derivation to surface.
+    // the failure for the status derivation to surface. currentReleaseId
+    // alone under-counts this: a first install runs the template-pinned
+    // image with no release row ever deployed (CANARY-008), so a SUCCEEDED
+    // install also counts as a running workload.
     const nextState = isDomainJobType(job.type)
       ? undefined
       : state === 'FAILED'
         ? (deploymentStateAfterFailedJob({
             jobType: job.type,
-            hasCurrentRelease: deployment.currentReleaseId !== null,
+            hasCurrentRelease:
+              deployment.currentReleaseId !== null ||
+              (await hasSucceededInstall(db, deployment.id)),
             newerReadyReleaseExists: await newerReadyReleaseExists(
               db,
               deployment.applicationId,

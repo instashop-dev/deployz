@@ -163,6 +163,31 @@ export default async function InstallPage({
               This deployment no longer exists. Contact {data.publisherName} if you did not expect
               this.
             </p>
+            {data.deploymentState === 'DELETED' && data.bootstrapStackName ? (
+              // The connector stack was created by the customer's own Quick
+              // Create, so Deployz cannot delete it for them (CANARY-014).
+              <>
+                <p className="text-sm text-muted-foreground">
+                  One item remains: the Deployz connector stack{' '}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                    {data.bootstrapStackName}
+                  </code>{' '}
+                  that you created in your AWS account. Delete that stack in CloudFormation to
+                  finish. If you already deleted it, there is nothing else to do.
+                </p>
+                <div>
+                  <Button asChild variant="outline">
+                    <a
+                      href={`https://${data.region}.console.aws.amazon.com/cloudformation/home?region=${data.region}#/stacks?filteringText=${encodeURIComponent(data.bootstrapStackName)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open AWS CloudFormation
+                    </a>
+                  </Button>
+                </div>
+              </>
+            ) : null}
           </section>
         ) : (
           // CONNECTING through READY, plus a terminal FAILED, all live here:
@@ -181,9 +206,10 @@ export default async function InstallPage({
         )}
 
         <p className="text-xs text-muted-foreground">
-          {removed
-            ? `This setup link has been used. To install again, ask ${data.publisherName} for a new link.`
-            : `This setup link has been used — ${data.applicationName} is already installed. To install again, ask ${data.publisherName} for a new link.`}
+          {/* The link is consumed as soon as the connector trades its
+              enrollment code — long before the install finishes — so this
+              says the link is spent without claiming the app is running. */}
+          {`This setup link has been used. To install again, ask ${data.publisherName} for a new link.`}
         </p>
       </div>
     );

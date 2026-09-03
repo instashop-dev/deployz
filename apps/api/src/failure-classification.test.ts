@@ -128,6 +128,46 @@ describe('refineFailureCode', () => {
     ).toBe('DATABASE_CREATE_FAILED');
   });
 
+  it("classifies the relay's own state-persistence failure as Deployz-side, not a stack rollback (CANARY-006)", () => {
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText:
+          'Stack "deployz-app-af4ecb86" is still CREATE_IN_PROGRESS, but the relay could not record that it must report back — failing now rather than leaving the install unaccounted for',
+        stackEvents: [
+          {
+            resourceType: 'AWS::ECS::Service',
+            resourceStatus: 'CREATE_IN_PROGRESS',
+            resourceStatusReason: null,
+          },
+          {
+            resourceType: 'AWS::RDS::DBInstance',
+            resourceStatus: 'CREATE_COMPLETE',
+            resourceStatusReason: null,
+          },
+        ],
+      }),
+    ).toBe('RELAY_STATE_WRITE_FAILED');
+    expect(
+      refineFailureCode({
+        reported: 'UNKNOWN',
+        errorText: 'Install could not run: the deferral marker write failed',
+        stackEvents: [],
+      }),
+    ).toBe('RELAY_STATE_WRITE_FAILED');
+  });
+
+  it('still sharpens a genuine CREATE_FAILED event set to its resource-specific code (no regression)', () => {
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText:
+          'Stack "deployz-app-af4ecb86" is still CREATE_IN_PROGRESS, but the relay could not record that it must report back — failing now rather than leaving the install unaccounted for',
+        stackEvents: [rdsFailed('Instance class db.t3.micro is not supported in this Availability Zone')],
+      }),
+    ).toBe('DATABASE_CREATE_FAILED');
+  });
+
   it('gives an unclassified failure a code when the evidence supports one, else leaves it', () => {
     expect(
       refineFailureCode({

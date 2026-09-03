@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { memoryPendingStore, toPendingStore, type PendingCommand } from './pending.js';
+import {
+  memoryPendingStore,
+  toPendingStore,
+  PENDING_MARKER_MAX_LENGTH,
+  type PendingCommand,
+} from './pending.js';
 
 const PENDING: PendingCommand = {
   commandId: 'cmd-1',
@@ -106,6 +111,33 @@ describe('toPendingStore', () => {
     await expect(toPendingStore({ send }, '/p').read()).resolves.toEqual(PENDING);
   });
 
+  it('reads the SecureString marker with decryption — SSM returns ciphertext otherwise (CANARY-011)', async () => {
+    // A fake that behaves like SSM: the plaintext only comes back when the
+    // read asks for decryption; a plain read gets the KMS ciphertext.
+    const send = vi.fn(async (command: { input: Record<string, unknown> }) => ({
+      Parameter: {
+        Type: 'SecureString',
+        Value: command.input['WithDecryption'] === true ? JSON.stringify(PENDING) : 'AQICAHhMYO+ciphertext',
+      },
+    }));
+
+    await expect(toPendingStore({ send }, '/p').read()).resolves.toEqual(PENDING);
+    const input = (send.mock.calls[0]![0] as { input: Record<string, unknown> }).input;
+    expect(input).toMatchObject({ Name: '/p', WithDecryption: true });
+  });
+
+  it('logs and reports nothing pending when the stored marker cannot be parsed', async () => {
+    const send = vi.fn().mockResolvedValue({ Parameter: { Value: 'AQICAHhMYO+ciphertext' } });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(toPendingStore({ send }, '/p').read()).resolves.toBeNull();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      JSON.stringify({ event: 'relay:pending-marker-unreadable', parameterName: '/p' }),
+    );
+    errorSpy.mockRestore();
+  });
+
   it('reports no pending command when the parameter has never been written', async () => {
     const error = new Error('not found');
     error.name = 'ParameterNotFound';
@@ -150,12 +182,59 @@ describe('toPendingStore', () => {
     await expect(toPendingStore({ send }, '/p').write(PENDING)).resolves.toBe(false);
   });
 
+  it('logs the swallowed error when the write is refused', async () => {
+    const error = new Error('User is not authorized to perform ssm:PutParameter');
+    error.name = 'AccessDeniedException';
+    const send = vi.fn().mockRejectedValue(error);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(toPendingStore({ send }, '/p').write(PENDING)).resolves.toBe(false);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      JSON.stringify({
+        event: 'relay:pending-write-failed',
+        parameterName: '/p',
+        error: { name: 'AccessDeniedException', message: error.message },
+      }),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('refuses an oversized marker without calling SSM', async () => {
+    const send = vi.fn();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const oversized: PendingCommand = {
+      ...PENDING,
+      payload: { blob: 'x'.repeat(PENDING_MARKER_MAX_LENGTH) },
+    };
+
+    await expect(toPendingStore({ send }, '/p').write(oversized)).resolves.toBe(false);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"relay:pending-marker-too-large"'),
+    );
+    errorSpy.mockRestore();
+  });
+
   it('treats clearing an absent parameter as done', async () => {
     const error = new Error('not found');
     error.name = 'ParameterNotFound';
     const send = vi.fn().mockRejectedValue(error);
 
     await expect(toPendingStore({ send }, '/p').clear()).resolves.toBe(true);
+  });
+
+  it('logs the swallowed error when a clear is refused for a reason other than already-gone', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('AccessDeniedException'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(toPendingStore({ send }, '/p').clear()).resolves.toBe(false);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"relay:pending-clear-failed"'),
+    );
+    errorSpy.mockRestore();
   });
 
   it('reports a failed clear so the caller does not assume it is gone', async () => {

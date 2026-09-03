@@ -18,6 +18,8 @@ import {
   isTerminalStage,
   STAGE_HEADLINE,
   stepDetailLine,
+  stepWaitingOnInput,
+  AWAITING_DOMAIN_STEP_DETAIL,
   stepsFromStatus,
 } from '@/lib/deployment-progress';
 import { fetchInstallStatus } from '@/lib/install-status';
@@ -30,19 +32,25 @@ import { useStatusPoll } from '@/lib/use-status-poll';
  * never carry a detail — no percentages, no countdowns, no per-step ETAs.
  */
 function activeStepDetail(status: CustomerDeploymentStatus) {
-  return stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) =>
-    step.state === 'current'
-      ? {
-          ...step,
-          detail: stepDetailLine({
-            takingLongerThanUsual: status.takingLongerThanUsual,
-            typicalDurationSeconds: status.typicalDurationSeconds,
-            longerMessage: 'Taking longer than usual, but AWS is still working.',
-            typicalLabel: (range) => `Usually takes ${range}`,
-          }),
-        }
-      : step,
-  );
+  // HTTPS waits for a domain, not for AWS: the nudge below would otherwise
+  // promise that "AWS is still working" on a step nothing is working on.
+  const waitingOnInput = stepWaitingOnInput({
+    step: status.step,
+    needsDomainSetup: status.needsDomainSetup,
+  });
+  return stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) => {
+    if (step.state !== 'current') return step;
+    if (waitingOnInput) return { ...step, detail: AWAITING_DOMAIN_STEP_DETAIL };
+    return {
+      ...step,
+      detail: stepDetailLine({
+        takingLongerThanUsual: status.takingLongerThanUsual,
+        typicalDurationSeconds: status.typicalDurationSeconds,
+        longerMessage: 'Taking longer than usual, but AWS is still working.',
+        typicalLabel: (range) => `Usually takes ${range}`,
+      }),
+    };
+  });
 }
 
 /**

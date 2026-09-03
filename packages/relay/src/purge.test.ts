@@ -1,12 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createPurgeExecutor,
   createPurgeResumer,
   isAccessDenied,
   settlePurge,
+  toNetworkPurgeClient,
   type AcmPurgeClient,
   type CachePurgeClient,
+  type NetworkPurgeClient,
   type PurgeDeps,
   type RdsPurgeClient,
   type S3PurgeClient,
@@ -59,6 +61,7 @@ interface FakedClients {
   s3: S3PurgeClient;
   secrets: SecretsPurgeClient;
   acm: AcmPurgeClient;
+  network: NetworkPurgeClient;
   deleter: StackDeleter;
 }
 
@@ -68,6 +71,13 @@ function clients(calls: string[], owned: {
   buckets?: string[];
   secrets?: string[];
   certificates?: string[];
+  subnetGroups?: string[];
+  vpcs?: string[];
+  securityGroups?: string[];
+  subnets?: string[];
+  routeTables?: string[];
+  internetGateways?: string[];
+  natGateways?: string[];
 } = {}): FakedClients {
   const rds: RdsPurgeClient = {
     async listOwnedInstances() {
@@ -78,6 +88,53 @@ function clients(calls: string[], owned: {
     },
     async deleteInstance(identifier) {
       calls.push(`rds:delete:${identifier}`);
+    },
+    async listOwnedSubnetGroups() {
+      return owned.subnetGroups ?? [];
+    },
+    async deleteSubnetGroup(name) {
+      calls.push(`rds:delete-subnet-group:${name}`);
+    },
+  };
+  const network: NetworkPurgeClient = {
+    async listOwnedVpcs() {
+      return owned.vpcs ?? [];
+    },
+    async listOwnedSecurityGroups() {
+      return owned.securityGroups ?? [];
+    },
+    async deleteSecurityGroup(groupId) {
+      calls.push(`network:delete-sg:${groupId}`);
+    },
+    async listOwnedSubnets() {
+      return owned.subnets ?? [];
+    },
+    async deleteSubnet(subnetId) {
+      calls.push(`network:delete-subnet:${subnetId}`);
+    },
+    async listOwnedRouteTables() {
+      return owned.routeTables ?? [];
+    },
+    async deleteRouteTable(routeTableId) {
+      calls.push(`network:delete-route-table:${routeTableId}`);
+    },
+    async listOwnedInternetGateways() {
+      return owned.internetGateways ?? [];
+    },
+    async detachInternetGateway(gatewayId) {
+      calls.push(`network:detach-igw:${gatewayId}`);
+    },
+    async deleteInternetGateway(gatewayId) {
+      calls.push(`network:delete-igw:${gatewayId}`);
+    },
+    async listOwnedNatGateways() {
+      return owned.natGateways ?? [];
+    },
+    async deleteNatGateway(natGatewayId) {
+      calls.push(`network:delete-nat:${natGatewayId}`);
+    },
+    async deleteVpc(vpcId) {
+      calls.push(`network:delete-vpc:${vpcId}`);
     },
   };
   const cache: CachePurgeClient = {
@@ -120,7 +177,7 @@ function clients(calls: string[], owned: {
       calls.push(`stack:delete:${stackName}`);
     },
   };
-  return { calls, rds, cache, s3, secrets, acm, deleter };
+  return { calls, rds, cache, s3, secrets, acm, network, deleter };
 }
 
 function depsWith(cfn: CloudFormationReader, calls: string[], extra: Partial<PurgeDeps> = {}): PurgeDeps {
@@ -137,6 +194,7 @@ function depsWith(cfn: CloudFormationReader, calls: string[], extra: Partial<Pur
     s3: faked.s3,
     secrets: faked.secrets,
     acm: faked.acm,
+    network: faked.network,
     ...extra,
   };
 }
@@ -371,6 +429,251 @@ describe('settlePurge — orphan sweep', () => {
   });
 });
 
+// ── settlePurge: orphaned network sweep (CANARY-015) ───────────────────────
+
+describe('settlePurge — orphaned network sweep (CANARY-015)', () => {
+  function cfnAppAbsent(): CloudFormationReader {
+    return {
+      async describeStack() {
+        return { found: false };
+      },
+      async describeStackResources() {
+        return [];
+      },
+    };
+  }
+
+  it('deletes the RETAIN-ed RDS subnet group once no RDS/cache/S3/secrets orphan remains', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      rds: clients(calls, { subnetGroups: ['deployz-app-databasesubnetgroup'] }).rds,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual(['rds:delete-subnet-group:deployz-app-databasesubnetgroup']);
+  });
+
+  it('keeps the purge `purging` (not failed) when the subnet group is still referenced by a DB instance', async () => {
+    const calls: string[] = [];
+    const inUse = Object.assign(new Error('still has instances'), {
+      name: 'InvalidDBSubnetGroupStateFault',
+    });
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      rds: {
+        ...clients(calls).rds,
+        async listOwnedSubnetGroups() {
+          return ['deployz-app-databasesubnetgroup'];
+        },
+        async deleteSubnetGroup() {
+          throw inUse;
+        },
+      },
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+  });
+
+  it('deletes owned security groups, then subnets, then the VPC once the subnet group is gone', async () => {
+    const calls: string[] = [];
+    const base = clients(calls, { vpcs: ['vpc-1'], securityGroups: ['sg-1'] });
+    const deps = depsWith(cfnAppAbsent(), calls, { network: base.network });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual(['network:delete-sg:sg-1']);
+  });
+
+  it('moves on to subnets once no owned security group remains', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      network: clients(calls, { vpcs: ['vpc-1'], subnets: ['subnet-1'] }).network,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual(['network:delete-subnet:subnet-1']);
+  });
+
+  it('deletes the VPC once no security group, subnet, route table, or gateway remains', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      network: clients(calls, { vpcs: ['vpc-1'] }).network,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual(['network:delete-vpc:vpc-1']);
+  });
+
+  it('falls through to the bootstrap stack once no owned VPC remains', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(
+      {
+        async describeStack(stackName) {
+          if (stackName === APP_STACK) return { found: false };
+          return bootstrapStack();
+        },
+        async describeStackResources() {
+          return [];
+        },
+      },
+      calls,
+    );
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'succeeded' });
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps the purge `purging`, not failed, on a DependencyViolation deleting a security group', async () => {
+    const calls: string[] = [];
+    const dependencyViolation = Object.assign(new Error('still referenced'), {
+      name: 'DependencyViolation',
+    });
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      network: {
+        ...clients(calls).network,
+        async listOwnedVpcs() {
+          return ['vpc-1'];
+        },
+        async listOwnedSecurityGroups() {
+          return ['sg-1'];
+        },
+        async deleteSecurityGroup() {
+          throw dependencyViolation;
+        },
+      },
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+  });
+
+  it('retries a security group blocked by a sibling rule once within the same pass', async () => {
+    // A security group referenced by another security group's own rule fails
+    // its first delete attempt and clears once its sibling is gone — the
+    // sweep gives it one more try in the same pass rather than waiting a
+    // full extra poll cycle.
+    const calls: string[] = [];
+    const dependencyViolation = Object.assign(new Error('still referenced'), {
+      name: 'DependencyViolation',
+    });
+    let sgAAttempts = 0;
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      network: {
+        ...clients(calls).network,
+        async listOwnedVpcs() {
+          return ['vpc-1'];
+        },
+        async listOwnedSecurityGroups() {
+          return ['sg-a', 'sg-b'];
+        },
+        async deleteSecurityGroup(groupId) {
+          if (groupId === 'sg-a') {
+            sgAAttempts += 1;
+            if (sgAAttempts === 1) throw dependencyViolation;
+          }
+          calls.push(`network:delete-sg:${groupId}`);
+        },
+      },
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(sgAAttempts).toBe(2);
+    expect(calls).toEqual(['network:delete-sg:sg-b', 'network:delete-sg:sg-a']);
+  });
+
+  it('sweeps route tables, internet gateways, and NAT gateways only when present, detaching the gateway first', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      network: {
+        ...clients(calls).network,
+        async listOwnedVpcs() {
+          return ['vpc-1'];
+        },
+        async listOwnedRouteTables() {
+          return ['rtb-1'];
+        },
+        async deleteRouteTable(routeTableId) {
+          calls.push(`network:delete-route-table:${routeTableId}`);
+        },
+        async listOwnedInternetGateways() {
+          return ['igw-1'];
+        },
+        async detachInternetGateway(gatewayId) {
+          calls.push(`network:detach-igw:${gatewayId}`);
+        },
+        async deleteInternetGateway(gatewayId) {
+          calls.push(`network:delete-igw:${gatewayId}`);
+        },
+        async listOwnedNatGateways() {
+          return ['nat-1'];
+        },
+        async deleteNatGateway(natGatewayId) {
+          calls.push(`network:delete-nat:${natGatewayId}`);
+        },
+      },
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual([
+      'network:delete-route-table:rtb-1',
+      'network:detach-igw:igw-1',
+      'network:delete-igw:igw-1',
+      'network:delete-nat:nat-1',
+    ]);
+  });
+
+  it('keeps the purge `purging` on a DependencyViolation while a gateway is still detaching', async () => {
+    const calls: string[] = [];
+    const dependencyViolation = Object.assign(new Error('still detaching'), {
+      name: 'DependencyViolation',
+    });
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      network: {
+        ...clients(calls).network,
+        async listOwnedVpcs() {
+          return ['vpc-1'];
+        },
+        async listOwnedInternetGateways() {
+          return ['igw-1'];
+        },
+        async detachInternetGateway() {
+          throw dependencyViolation;
+        },
+      },
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+  });
+
+  it('keeps the purge `purging` on a DependencyViolation deleting the VPC itself', async () => {
+    const calls: string[] = [];
+    const dependencyViolation = Object.assign(new Error('still has dependencies'), {
+      name: 'DependencyViolation',
+    });
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      network: {
+        ...clients(calls).network,
+        async listOwnedVpcs() {
+          return ['vpc-1'];
+        },
+        async deleteVpc() {
+          throw dependencyViolation;
+        },
+      },
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+  });
+});
+
 // ── settlePurge: bootstrap stack, last ────────────────────────────────────
 
 describe('settlePurge — bootstrap stack, last', () => {
@@ -386,43 +689,36 @@ describe('settlePurge — bootstrap stack, last', () => {
     };
   }
 
-  it('deletes the tagged bootstrap stack once everything else is gone', async () => {
+  it('leaves the bootstrap stack to the customer: no describe, no delete, one honest log line (CANARY-014)', async () => {
+    // The relay's CloudFormation grants are tag-conditioned on an id the
+    // bootstrap stack can never carry and a stack cannot delete its own
+    // execution role, so the old describe-then-delete was AccessDenied on
+    // every real install and silently reported as "already gone".
     const calls: string[] = [];
-    const deps = depsWith(cfnSweptClean(bootstrapStack()), calls);
+    const describeCalls: string[] = [];
+    const cfn = cfnSweptClean(bootstrapStack());
+    const spied: CloudFormationReader = {
+      ...cfn,
+      async describeStack(stackName) {
+        describeCalls.push(stackName);
+        return cfn.describeStack(stackName);
+      },
+    };
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    const outcome = await settlePurge(deps);
+    const outcome = await settlePurge(depsWith(spied, calls));
+
     expect(outcome).toEqual({ state: 'succeeded' });
-    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
-  });
-
-  it('treats an absent or already-deleting bootstrap stack as done', async () => {
-    const calls: string[] = [];
-    const deleting = depsWith(cfnSweptClean(bootstrapStack('DELETE_IN_PROGRESS')), calls);
-    expect(await settlePurge(deleting)).toEqual({ state: 'succeeded' });
-
-    const absent = depsWith(cfnSweptClean({ found: false }), calls);
-    expect(await settlePurge(absent)).toEqual({ state: 'succeeded' });
     expect(calls).toEqual([]);
-  });
-
-  it('deletes the bootstrap stack by its known name even when it carries no installation tag', async () => {
-    // Phase 5 §9.1: the bootstrap stack is created BEFORE the installation
-    // id exists, so it can never carry a readable `deployz:installation`
-    // tag. Refusing on that impossible tag made the bootstrap removal never
-    // run in production; ownership is the NAME baked into the relay's env.
-    const calls: string[] = [];
-    const untagged = depsWith(cfnSweptClean(bootstrapStack('CREATE_COMPLETE')), calls);
-
-    const outcome = await settlePurge(untagged);
-    expect(outcome).toEqual({ state: 'succeeded' });
-    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
-
-    // A mismatched tag is equally impossible in practice and equally ignored:
-    // the deciding fact is the trusted stack name, not a tag that cannot be.
-    const mismatched = depsWith(cfnSweptClean(bootstrapStack('CREATE_COMPLETE', 'someone-else')), calls);
-    calls.length = 0;
-    expect(await settlePurge(mismatched)).toEqual({ state: 'succeeded' });
-    expect(calls).toEqual([`stack:delete:${BOOTSTRAP_STACK}`]);
+    expect(describeCalls).not.toContain(BOOTSTRAP_STACK);
+    expect(logSpy).toHaveBeenCalledWith(
+      JSON.stringify({
+        event: 'relay:purge-bootstrap-retained',
+        installationId: INSTALLATION_ID,
+        bootstrapStackName: BOOTSTRAP_STACK,
+      }),
+    );
+    logSpy.mockRestore();
   });
 });
 
@@ -445,6 +741,10 @@ describe('full purge across passes', () => {
       groups: [{ identifier: 'cache-1', status: 'available' }],
       buckets: ['bucket-1'],
       secrets: ['DatabaseSecret-ABC', 'DatabaseUrlSecret-DEF'],
+      subnetGroups: ['deployz-app-databasesubnetgroup'],
+      vpcs: ['vpc-1'],
+      securityGroups: ['sg-1'],
+      subnets: ['subnet-1'],
     };
     const cfn: CloudFormationReader = {
       async describeStack(stackName) {
@@ -473,6 +773,49 @@ describe('full purge across passes', () => {
       async deleteInstance(identifier) {
         calls.push(`rds:delete:${identifier}`);
         state.instances = [];
+      },
+      async listOwnedSubnetGroups() {
+        return [...state.subnetGroups];
+      },
+      async deleteSubnetGroup(name) {
+        calls.push(`rds:delete-subnet-group:${name}`);
+        state.subnetGroups = [];
+      },
+    };
+    const network: NetworkPurgeClient = {
+      async listOwnedVpcs() {
+        return [...state.vpcs];
+      },
+      async listOwnedSecurityGroups() {
+        return [...state.securityGroups];
+      },
+      async deleteSecurityGroup(groupId) {
+        calls.push(`network:delete-sg:${groupId}`);
+        state.securityGroups = [];
+      },
+      async listOwnedSubnets() {
+        return [...state.subnets];
+      },
+      async deleteSubnet(subnetId) {
+        calls.push(`network:delete-subnet:${subnetId}`);
+        state.subnets = [];
+      },
+      async listOwnedRouteTables() {
+        return [];
+      },
+      async deleteRouteTable() {},
+      async listOwnedInternetGateways() {
+        return [];
+      },
+      async detachInternetGateway() {},
+      async deleteInternetGateway() {},
+      async listOwnedNatGateways() {
+        return [];
+      },
+      async deleteNatGateway() {},
+      async deleteVpc(vpcId) {
+        calls.push(`network:delete-vpc:${vpcId}`);
+        state.vpcs = [];
       },
     };
     const cache: CachePurgeClient = {
@@ -532,6 +875,7 @@ describe('full purge across passes', () => {
         s3,
         secrets,
         acm,
+        network,
       },
       setAppStack(status) {
         state.app = status;
@@ -542,7 +886,7 @@ describe('full purge across passes', () => {
     };
   }
 
-  it('makes forward progress each pass and removes the bootstrap stack last', async () => {
+  it('makes forward progress each pass, sweeps the network orphans, and removes the bootstrap stack last', async () => {
     const w = world();
 
     // Pass 1: application stack present — delete it, wait.
@@ -558,7 +902,15 @@ describe('full purge across passes', () => {
     expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
     // Pass 5: owned retained DB-credential secrets — delete, wait.
     expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
-    // Pass 6: everything swept — bootstrap stack goes LAST.
+    // Pass 6: RETAIN-ed RDS subnet group (CANARY-015) — delete, wait.
+    expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
+    // Pass 7: orphaned VPC network (CANARY-015) — security group first.
+    expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
+    // Pass 8: — then the subnet.
+    expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
+    // Pass 9: — no route tables/gateways present, so the VPC itself, last.
+    expect(await settlePurge(w.deps)).toEqual({ state: 'purging' });
+    // Pass 10: everything swept — the bootstrap stack stays for the customer.
     expect(await settlePurge(w.deps)).toEqual({ state: 'succeeded' });
 
     expect(w.calls).toEqual([
@@ -570,9 +922,13 @@ describe('full purge across passes', () => {
       's3:delete:bucket-1',
       'secrets:delete:DatabaseSecret-ABC',
       'secrets:delete:DatabaseUrlSecret-DEF',
-      `stack:delete:${BOOTSTRAP_STACK}`,
+      'rds:delete-subnet-group:deployz-app-databasesubnetgroup',
+      'network:delete-sg:sg-1',
+      'network:delete-subnet:subnet-1',
+      'network:delete-vpc:vpc-1',
     ]);
-    expect(w.calls[w.calls.length - 1]).toBe(`stack:delete:${BOOTSTRAP_STACK}`);
+    // The bootstrap stack is the customer's to delete (CANARY-014).
+    expect(w.calls).not.toContain(`stack:delete:${BOOTSTRAP_STACK}`);
 
     // Re-running the completed purge is a clean no-op (idempotent retry).
     w.setBootstrap(null);
@@ -605,7 +961,7 @@ describe('createPurgeExecutor', () => {
       commandId: 'cmd-1',
       idempotencyKey: 'key-1',
       success: true,
-      output: { executed: true, type: 'PURGE', purged: true },
+      output: { executed: true, type: 'PURGE', purged: true, connectorStackRetained: BOOTSTRAP_STACK },
     });
     expect(calls).toEqual([]);
   });
@@ -742,6 +1098,77 @@ describe('createPurgeExecutor', () => {
     });
     expect(calls).toEqual([]);
   });
+
+  it('classifies a permission failure while reading owned RDS subnet groups as retryable AWS_PERMISSION_DENIED', async () => {
+    // CANARY-015: same rule as every other orphan read — an access-denied
+    // while verifying subnet-group ownership must fail the purge retryably.
+    const accessDenied = Object.assign(new Error('Access denied'), {
+      name: 'AccessDenied',
+      code: 'AccessDenied',
+    });
+    const calls: string[] = [];
+    const deps = depsWith(
+      {
+        async describeStack() {
+          return { found: false };
+        },
+        async describeStackResources() {
+          return [];
+        },
+      },
+      calls,
+      {
+        rds: {
+          ...clients(calls).rds,
+          async listOwnedSubnetGroups() {
+            throw accessDenied;
+          },
+        },
+      },
+    );
+
+    const result = await createPurgeExecutor(deps)(command());
+    expect(result).toMatchObject({
+      success: false,
+      failureCode: 'AWS_PERMISSION_DENIED',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('classifies a permission failure while reading owned VPCs as retryable AWS_PERMISSION_DENIED', async () => {
+    // CANARY-015: same rule as every other orphan read.
+    const accessDenied = Object.assign(new Error('Access denied'), {
+      name: 'AccessDenied',
+      code: 'AccessDenied',
+    });
+    const calls: string[] = [];
+    const deps = depsWith(
+      {
+        async describeStack() {
+          return { found: false };
+        },
+        async describeStackResources() {
+          return [];
+        },
+      },
+      calls,
+      {
+        network: {
+          ...clients(calls).network,
+          async listOwnedVpcs() {
+            throw accessDenied;
+          },
+        },
+      },
+    );
+
+    const result = await createPurgeExecutor(deps)(command());
+    expect(result).toMatchObject({
+      success: false,
+      failureCode: 'AWS_PERMISSION_DENIED',
+    });
+    expect(calls).toEqual([]);
+  });
 });
 
 describe('createPurgeResumer', () => {
@@ -816,9 +1243,138 @@ describe('createPurgeResumer', () => {
         commandId: 'cmd-1',
         idempotencyKey: 'key-1',
         success: true,
-        output: { executed: true, type: 'PURGE', purged: true },
+        output: { executed: true, type: 'PURGE', purged: true, connectorStackRetained: BOOTSTRAP_STACK },
       },
     ]);
     expect(await deps.pending.read()).toBeNull();
+  });
+});
+
+// ── toNetworkPurgeClient (CANARY-015) ──────────────────────────────────────
+
+describe('toNetworkPurgeClient', () => {
+  const INSTALLATION = 'inst-net-7';
+
+  it('filters DescribeVpcs by the installation tag and re-verifies the returned tags', async () => {
+    const send = vi.fn().mockResolvedValue({
+      Vpcs: [
+        { VpcId: 'vpc-1', Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }] },
+        // Refused even if somehow returned: the value does not match ours —
+        // ownership is never inferred from presence alone.
+        { VpcId: 'vpc-2', Tags: [{ Key: 'deployz:installation', Value: 'someone-else' }] },
+        { VpcId: 'vpc-3', Tags: [] },
+      ],
+    });
+
+    const owned = await toNetworkPurgeClient({ send }, INSTALLATION).listOwnedVpcs();
+
+    expect(owned).toEqual(['vpc-1']);
+    const input = (send.mock.calls[0]![0] as { input: Record<string, unknown> }).input;
+    expect(input).toMatchObject({
+      Filters: [{ Name: 'tag:deployz:installation', Values: [INSTALLATION] }],
+    });
+  });
+
+  it('excludes the default security group even when it carries the installation tag', async () => {
+    const send = vi.fn().mockResolvedValue({
+      SecurityGroups: [
+        {
+          GroupId: 'sg-default',
+          GroupName: 'default',
+          Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }],
+        },
+        {
+          GroupId: 'sg-app',
+          GroupName: 'app-db',
+          Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }],
+        },
+      ],
+    });
+
+    const owned = await toNetworkPurgeClient({ send }, INSTALLATION).listOwnedSecurityGroups('vpc-1');
+
+    expect(owned).toEqual(['sg-app']);
+  });
+
+  it('refuses an untagged or foreign-tagged security group', async () => {
+    const send = vi.fn().mockResolvedValue({
+      SecurityGroups: [
+        { GroupId: 'sg-untagged', GroupName: 'app-db', Tags: [] },
+        {
+          GroupId: 'sg-foreign',
+          GroupName: 'app-db',
+          Tags: [{ Key: 'deployz:installation', Value: 'someone-else' }],
+        },
+      ],
+    });
+
+    const owned = await toNetworkPurgeClient({ send }, INSTALLATION).listOwnedSecurityGroups('vpc-1');
+
+    expect(owned).toEqual([]);
+  });
+
+  it('excludes the main route table even when it carries the installation tag', async () => {
+    const send = vi.fn().mockResolvedValue({
+      RouteTables: [
+        {
+          RouteTableId: 'rtb-main',
+          Associations: [{ Main: true }],
+          Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }],
+        },
+        {
+          RouteTableId: 'rtb-custom',
+          Associations: [{ Main: false }],
+          Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }],
+        },
+      ],
+    });
+
+    const owned = await toNetworkPurgeClient({ send }, INSTALLATION).listOwnedRouteTables('vpc-1');
+
+    expect(owned).toEqual(['rtb-custom']);
+  });
+
+  it('excludes a NAT gateway that is already deleting or deleted', async () => {
+    const send = vi.fn().mockResolvedValue({
+      NatGateways: [
+        { NatGatewayId: 'nat-1', State: 'available', Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }] },
+        { NatGatewayId: 'nat-2', State: 'deleting', Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }] },
+        { NatGatewayId: 'nat-3', State: 'deleted', Tags: [{ Key: 'deployz:installation', Value: INSTALLATION }] },
+      ],
+    });
+
+    const owned = await toNetworkPurgeClient({ send }, INSTALLATION).listOwnedNatGateways('vpc-1');
+
+    expect(owned).toEqual(['nat-1']);
+    // DescribeNatGateways uses `Filter` (singular) — the one exception among
+    // every other Describe* action used here, which all take `Filters`.
+    const input = (send.mock.calls[0]![0] as { input: Record<string, unknown> }).input;
+    expect(input).toHaveProperty('Filter');
+  });
+
+  it('sends the delete/detach commands with exactly the ids passed', async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const client = toNetworkPurgeClient({ send }, INSTALLATION);
+
+    await client.deleteVpc('vpc-1');
+    await client.deleteSubnet('subnet-1');
+    await client.deleteSecurityGroup('sg-1');
+    await client.detachInternetGateway('igw-1', 'vpc-1');
+    await client.deleteInternetGateway('igw-1');
+    await client.deleteNatGateway('nat-1');
+    await client.deleteRouteTable('rtb-1');
+
+    const inputs = send.mock.calls.map(
+      (call) => (call[0] as { input: Record<string, unknown> }).input,
+    );
+    expect(inputs).toEqual([
+      { VpcId: 'vpc-1' },
+      { SubnetId: 'subnet-1' },
+      { GroupId: 'sg-1' },
+      { InternetGatewayId: 'igw-1', VpcId: 'vpc-1' },
+      { InternetGatewayId: 'igw-1' },
+      { NatGatewayId: 'nat-1' },
+      { RouteTableId: 'rtb-1' },
+    ]);
   });
 });
