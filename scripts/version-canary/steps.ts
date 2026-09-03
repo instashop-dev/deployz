@@ -162,6 +162,7 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
       startCommand: 'node dist/server.js',
       databaseRequired: true,
     });
+    await api.triggerAnalysis(applicationId);
     const readiness = await waitFor(
       'application readiness',
       () => api.getReadiness(applicationId),

@@ -239,6 +239,11 @@ export class ControlPlane {
     return body;
   }
 
+  /** The dashboard triggers analysis explicitly after connecting a repository. */
+  async triggerAnalysis(id: string): Promise<void> {
+    await this.request('POST', `/api/applications/${id}/analyse`, {});
+  }
+
   async patchApplication(id: string, patch: Record<string, unknown>): Promise<void> {
     await this.request('PATCH', `/api/applications/${id}`, patch);
   }
