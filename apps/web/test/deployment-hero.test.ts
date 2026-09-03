@@ -122,14 +122,30 @@ describe('deriveHero', () => {
     expect(hero.showSteps).toBe(false);
   });
 
-  it('a healthy HTTP-only deployment is live but nudges toward a custom domain', () => {
-    const hero = deriveHero(
+  it('a healthy HTTP-only deployment nudges toward a custom domain only when the customer must act', () => {
+    const nudged = deriveHero(
       input({
         deploymentStatus: status({ stage: 'VERIFYING', needsDomainSetup: true, url: 'http://alb.example' }),
       }),
     );
-    expect(hero.kind).toBe('live');
-    expect(hero.description).toContain('custom domain');
+    expect(nudged.kind).toBe('live');
+    expect(nudged.description).toContain('temporary address');
+    expect(nudged.description).toContain('custom domain');
+
+    // A secure address being brought up on its own asks nothing of anyone.
+    const automatic = deriveHero(
+      input({
+        deploymentStatus: status({ stage: 'VERIFYING', needsDomainSetup: false, url: 'http://alb.example' }),
+      }),
+    );
+    expect(automatic.kind).toBe('live');
+    expect(automatic.description).toContain('temporary address');
+    expect(automatic.description).not.toContain('custom domain');
+  });
+
+  it('says nothing about addresses once the app is on an HTTPS URL', () => {
+    const hero = deriveHero(input({ deploymentStatus: status({ url: 'https://app.example.com' }) }));
+    expect(hero.description).toBe('Release v1.2.0 is running and passing health checks.');
   });
 
   it('UPDATE_AVAILABLE is still live, with a newer release to deploy', () => {

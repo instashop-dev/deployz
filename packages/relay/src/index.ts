@@ -66,6 +66,7 @@ import {
   createPurgeExecutor,
   createPurgeResumer,
   createRealPurgeClients,
+  type AcmPurgeClient,
   type CachePurgeClient,
   type NetworkPurgeClient,
   type PurgeDeps,
@@ -237,6 +238,7 @@ let purgeClients:
       cache: CachePurgeClient;
       s3: S3PurgeClient;
       secrets: SecretsPurgeClient;
+      acm: AcmPurgeClient;
       network: NetworkPurgeClient;
     }
   | undefined;
@@ -246,6 +248,7 @@ function getPurgeClients(installationId: string): {
   cache: CachePurgeClient;
   s3: S3PurgeClient;
   secrets: SecretsPurgeClient;
+  acm: AcmPurgeClient;
   network: NetworkPurgeClient;
 } {
   if (!purgeClients) {

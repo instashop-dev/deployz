@@ -105,14 +105,17 @@ test.describe('update-failure', () => {
     const v1ReleaseId = await createRelease(request, applicationId, '1.0.0');
     const deployV1 = await deployRelease(request, deploymentId, v1ReleaseId);
     expect(deployV1.status()).toBe(202);
+    // Poll the release POINTER, not the state: this deployment is already
+    // HEALTHY when the deploy starts, so polling `state` can return on its
+    // very first read and assert the pointer before the deploy has settled.
     await expect
-      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+      .poll(async () => (await api.getDeployment(deploymentId)).currentReleaseId, {
         timeout: 15_000,
-        message: 'waiting for the v1 deploy to reach HEALTHY',
+        message: 'waiting for the v1 deploy to advance the release pointer',
       })
-      .toBe('HEALTHY');
+      .toBe(v1ReleaseId);
     const afterV1 = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(afterV1.currentReleaseId).toBe(v1ReleaseId);
+    expect(afterV1.state).toBe('HEALTHY');
 
     // v2's release creation flips this (already-HEALTHY) deployment to
     // UPDATE_AVAILABLE — the same synchronous write every HEALTHY deployment

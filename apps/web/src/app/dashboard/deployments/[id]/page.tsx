@@ -1422,7 +1422,9 @@ function DisconnectDialog({
               </p>
             </>
           ) : (
-            <p>Your database, stored files, and backups will be retained.</p>
+            <p>
+              Your database, its credentials, stored files, and backups will be retained.
+            </p>
           )}
           <p>The Deployz connector remains installed.</p>
           <p>This stops the $19/month charge for this deployment.</p>

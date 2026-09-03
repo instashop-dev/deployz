@@ -34,6 +34,13 @@ export const deployments = pgTable('deployments', {
   healthStatus: healthStatusEnum('health_status').notNull().default('UNKNOWN'),
   desiredState: jsonb('desired_state').$type<Record<string, unknown>>().notNull().default({}),
   observedState: jsonb('observed_state').$type<Record<string, unknown>>(),
+  // Phase 11 — the Deployz-managed HTTPS state machine (see
+  // apps/api/src/default-https.ts). Owned entirely by the control plane: the
+  // hostname, certificate and DNS-validation facts for this deployment's
+  // default `<id>.apps.deployz.dev` endpoint. A separate document from
+  // custom_domains because it is NOT customer DNS — the customer never
+  // configures or owns it.
+  defaultHttps: jsonb('default_https').$type<Record<string, unknown> | null>(),
   // Write-once observational timestamps for the derived deployment `step`
   // (apps/api/src/deployment-status.ts) — NOT a persisted lifecycle. Keyed by
   // DeploymentStep, `{ startedAt, completedAt? }` per step. Populated by

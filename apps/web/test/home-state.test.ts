@@ -6,6 +6,7 @@ import type { DeploymentState } from '../src/lib/deployment-vocabulary';
 import {
   attentionReason,
   deriveHomeState,
+  firstDeploymentCopy,
   isApplicationReady,
   preparationChecks,
   primaryApplication,
@@ -290,5 +291,29 @@ describe('deriveHomeState', () => {
     expect(home.attention[0]?.reason).toBe('Deployment failed');
     expect(home.showApplication).toBe(true);
     expect(home.deployments[0]?.id).toBe('bad');
+  });
+});
+
+// The homepage's single-deployment card. Telling a vendor to send a link the
+// customer has already used reads as if their install never started — the
+// canary saw exactly that while the connector stack was being created.
+describe('firstDeploymentCopy', () => {
+  it('asks the vendor to send the link only before the customer opens it', () => {
+    const copy = firstDeploymentCopy({ state: 'NOT_INSTALLED', customerName: 'Acme' });
+    expect(copy.title).toBe('Waiting for Acme to install');
+    expect(copy.body).toContain('install link');
+  });
+
+  it('says the customer approved the setup once the connector is being created', () => {
+    const copy = firstDeploymentCopy({ state: 'WAITING_FOR_RELAY', customerName: 'Acme' });
+    expect(copy.title).toContain('Connecting');
+    expect(copy.body).not.toContain('install link');
+    expect(copy.body).toContain('approved');
+  });
+
+  it('falls back to deploying for every state past the connector', () => {
+    for (const state of ['INSTALLING', 'HEALTHY', 'UPDATE_AVAILABLE'] as const) {
+      expect(firstDeploymentCopy({ state, customerName: 'Acme' }).title).toBe('Deploying Acme');
+    }
   });
 });

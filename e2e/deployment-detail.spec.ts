@@ -527,6 +527,31 @@ test('live over a temporary address: the hero nudges toward a custom domain and 
   await shoot(page, 'live-temporary-address');
 });
 
+test('live while a secure address is being set up: no nudge to do work nobody needs to do', async ({
+  page,
+}) => {
+  // Phase 11 brings up HTTPS without the customer touching DNS, and the API
+  // signals that by leaving needsDomainSetup false while it progresses.
+  const { headline, hero } = await open(page, {
+    detail: detail({
+      customDomain: null,
+      appUrl: 'http://deployz-alb-1a2b3c4d.us-east-2.elb.amazonaws.com',
+      deploymentStatus: vendorStatus({
+        stage: 'VERIFYING',
+        step: 'TLS',
+        currentActivity: 'Waiting for a secure address.',
+        needsDomainSetup: false,
+        url: 'http://deployz-alb-1a2b3c4d.us-east-2.elb.amazonaws.com',
+      }),
+    }),
+  });
+
+  await expect(headline).toHaveText('Your application is live');
+  await expect(hero).toContainText('A secure address is being set up.');
+  expect(await hero.innerText()).not.toContain('Add a custom domain');
+  await shoot(page, 'live-securing-address');
+});
+
 test('failed first install: retry is the primary action and the raw AWS reason stays in the disclosure', async ({
   page,
 }) => {

@@ -329,6 +329,35 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       DEPLOY_RELEASE: trackLatest(deployExecutor),
       ROLLBACK: trackLatest(deployExecutor),
       DESTROY: trackLatest(destroyExecutor),
+      // Phase 11 default HTTPS — the healthy simulated path. When the control
+      // plane's automatic default-HTTPS machine is on (DEPLOYZ_DNS_ZONE_ID in
+      // production, or the DEPLOYZ_DEFAULT_HTTPS_FIXTURE opt-in under the E2E
+      // fixture DNS), it mints CONFIGURE_DOMAIN/REMOVE_DOMAIN jobs right after
+      // a successful INSTALL. These executors answer them as if ACM had
+      // already issued the certificate and the ALB 443 listener were wired,
+      // so a scenario exercises the full control-plane state machine
+      // (request -> records -> activate -> READY) without modelling ACM's
+      // DNS-validation round trips. Off by default in the fixture suite.
+      CONFIGURE_DOMAIN: trackLatest(async (command) => {
+        const hostname = (command.payload as { hostname?: unknown }).hostname;
+        return {
+          commandId: command.id,
+          idempotencyKey: command.idempotencyKey,
+          success: true,
+          output: {
+            certificateArn: `arn:aws:acm:us-east-1:123456789012:certificate/${command.id}`,
+            certificateStatus: 'ISSUED',
+            ...(typeof hostname === 'string' ? { routingTarget: 'e2e-alb.deployz-fixture.test' } : {}),
+            httpsConfigured: true,
+          },
+        };
+      }),
+      REMOVE_DOMAIN: trackLatest(async (command) => ({
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        success: true,
+        output: { removed: true },
+      })),
     },
     idempotency,
     // Mirrors createRelayHandler's default observe hook, over the simulated

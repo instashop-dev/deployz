@@ -27,6 +27,12 @@
  */
 
 import {
+  ACMClient,
+  DeleteCertificateCommand,
+  ListCertificatesCommand,
+  ListTagsForCertificateCommand,
+} from '@aws-sdk/client-acm';
+import {
   DeleteInternetGatewayCommand,
   DeleteNatGatewayCommand,
   DeleteRouteTableCommand,
@@ -162,6 +168,20 @@ export interface SecretsPurgeClient {
   deleteSecret(secretName: string): Promise<void>;
 }
 
+/**
+ * ACM certificates this installation owns — the Phase 11 default-HTTPS (and
+ * custom-domain) certificates live OUTSIDE the application stack, so a
+ * normal destroy removes them via a REMOVE_DOMAIN job and a force-completed
+ * destroy (relay offline) would otherwise leave them orphaned in the
+ * customer account forever. Ownership is verified in code (ListTags) exactly
+ * like the RDS/secrets sweeps.
+ */
+export interface AcmPurgeClient {
+  /** Owned (tag-verified) certificate ARNs only. */
+  listOwnedCertificates(): Promise<string[]>;
+  deleteCertificate(certificateArn: string): Promise<void>;
+}
+
 export interface PurgeDeps {
   readonly cfn: CloudFormationReader;
   readonly deleter: StackDeleter;
@@ -173,6 +193,7 @@ export interface PurgeDeps {
   readonly cache: CachePurgeClient;
   readonly s3: S3PurgeClient;
   readonly secrets: SecretsPurgeClient;
+  readonly acm: AcmPurgeClient;
   readonly network: NetworkPurgeClient;
   readonly now?: () => string;
   readonly wait?: WaitOptions;
@@ -332,6 +353,20 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
   if (secrets.length > 0) {
     for (const secret of secrets) {
       await deps.secrets.deleteSecret(secret);
+    }
+    return { state: 'purging' };
+  }
+
+  // ACM orphan sweep (Phase 11) — default-HTTPS and custom-domain
+  // certificates live OUTSIDE the application stack, so a force-completed
+  // destroy would leave them orphaned in the customer account. The
+  // application stack is gone by now, so no ALB listener can hold them any
+  // more; this relay itself holds no certificate — only the destroyed
+  // deployment's did.
+  const certificates = await deps.acm.listOwnedCertificates();
+  if (certificates.length > 0) {
+    for (const certificateArn of certificates) {
+      await deps.acm.deleteCertificate(certificateArn);
     }
     return { state: 'purging' };
   }
@@ -646,6 +681,7 @@ export function createRealPurgeClients(installationId: string): {
   cache: CachePurgeClient;
   s3: S3PurgeClient;
   secrets: SecretsPurgeClient;
+  acm: AcmPurgeClient;
   network: NetworkPurgeClient;
 } {
   const rdsBase = createRealRdsCleanupClient();
@@ -654,6 +690,7 @@ export function createRealPurgeClients(installationId: string): {
   const elasticache = new ElastiCacheClient({});
   const s3 = new S3Client({});
   const secrets = new SecretsManagerClient({});
+  const acm = new ACMClient({});
   const owns = (
     tags: readonly { readonly Key?: string | undefined; readonly Value?: string | undefined }[],
   ) => tags.some((tag) => tag.Key === INSTALLATION_TAG && tag.Value === installationId);
@@ -822,6 +859,33 @@ export function createRealPurgeClients(installationId: string): {
         await secrets.send(
           new DeleteSecretCommand({ SecretId: secretName, ForceDeleteWithoutRecovery: true }),
         );
+      },
+    },
+    acm: {
+      async listOwnedCertificates() {
+        const owned: string[] = [];
+        let marker: string | undefined;
+        do {
+          const response = await acm.send(new ListCertificatesCommand({ NextToken: marker }));
+          for (const certificate of response.CertificateSummaryList ?? []) {
+            if (!certificate.CertificateArn) continue;
+            try {
+              const tags = await acm.send(
+                new ListTagsForCertificateCommand({ CertificateArn: certificate.CertificateArn }),
+              );
+              if (owns(tags.Tags ?? [])) owned.push(certificate.CertificateArn);
+            } catch (error) {
+              // Same rule: an access-denied while reading tags must fail the
+              // purge, not be silently treated as "not ours".
+              if (isAccessDenied(error)) throw error;
+            }
+          }
+          marker = response.NextToken;
+        } while (marker !== undefined);
+        return owned;
+      },
+      async deleteCertificate(certificateArn) {
+        await acm.send(new DeleteCertificateCommand({ CertificateArn: certificateArn }));
       },
     },
     network: createRealNetworkPurgeClient(installationId),

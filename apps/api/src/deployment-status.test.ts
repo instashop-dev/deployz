@@ -1296,3 +1296,112 @@ describe('layered runtime health (health.layers)', () => {
     expect(status.health.layers.infrastructure).toBe('UNHEALTHY');
   });
 });
+
+// Phase 11 — the Deployz-owned default-HTTPS endpoint. Precedence with a
+// customer domain lives in resolveAppUrl (apps/api/src/fleet-row.ts); this
+// block locks what the derivation does once that URL is chosen.
+describe('deriveDeploymentStatus — default HTTPS (Phase 11)', () => {
+  const HTTPS_DEFAULT = 'https://dep-1.apps.deployz.dev';
+  const HTTP_ALB = 'http://alb-123.us-east-1.elb.amazonaws.com';
+  const defaultHttps = (status: string, hostname = 'dep-1.apps.deployz.dev') => ({ hostname, status });
+
+  it('healthy + ACTIVE default-HTTPS URL → READY, with the https component READY', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: defaultHttps('ACTIVE'),
+      appUrl: HTTPS_DEFAULT,
+    });
+    expect(status.stage).toBe('READY');
+    expect(status.needsDomainSetup).toBe(false);
+    expect(status.result).toEqual({ url: HTTPS_DEFAULT });
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('READY');
+  });
+
+  it('healthy + default HTTPS progressing (WAITING_FOR_DNS) holds VERIFYING/TLS with no customer-action nudge', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: defaultHttps('WAITING_FOR_DNS'),
+      appUrl: HTTP_ALB,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.step).toBe('TLS');
+    // No custom domain is needed — the default HTTPS is progressing on its
+    // own, so the "set up a custom domain" copy must not fire.
+    expect(status.needsDomainSetup).toBe(false);
+    expect(status.currentActivity).toBe('Waiting for a secure address.');
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('IN_PROGRESS');
+  });
+
+  it('healthy + default HTTPS stuck PENDING still needs no customer action (it is being driven)', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: defaultHttps('PENDING'),
+      appUrl: HTTP_ALB,
+    });
+    expect(status.needsDomainSetup).toBe(false);
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('IN_PROGRESS');
+  });
+
+  it('no default HTTPS and no custom domain keeps the customer-action nudge', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: null,
+      appUrl: HTTP_ALB,
+    });
+    expect(status.needsDomainSetup).toBe(true);
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('PENDING');
+  });
+
+  it('a default-HTTPS ERROR leaves the deployment VERIFYING with a failing https component', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: defaultHttps('ERROR'),
+      appUrl: HTTP_ALB,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('FAILED');
+    expect(status.needsDomainSetup).toBe(true);
+  });
+
+  it('a customer domain outranks default HTTPS once ACTIVE (its URL is the serving one)', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      domain: makeDomain({ hostname: 'app.customer.com', status: 'ACTIVE' }),
+      defaultHttps: defaultHttps('ACTIVE'),
+      appUrl: 'https://app.customer.com',
+    });
+    expect(status.stage).toBe('READY');
+    expect(status.result).toEqual({ url: 'https://app.customer.com' });
+  });
+
+  it('a customer domain awaiting DNS (custom domain present) keeps needsDomainSetup true even while default HTTPS progresses', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      domain: makeDomain({ hostname: 'app.customer.com', status: 'WAITING_FOR_DNS' }),
+      defaultHttps: defaultHttps('PENDING'),
+      appUrl: HTTP_ALB,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.needsDomainSetup).toBe(true);
+    expect(status.step).toBe('TLS');
+  });
+
+  it('the https component tracks the default HTTPS machine through WAITING_FOR_DNS and CONFIGURING', () => {
+    for (const phase of ['WAITING_FOR_DNS', 'CONFIGURING'] as const) {
+      const status = derive({
+        deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+        jobs: [makeJob({ state: 'SUCCEEDED' })],
+        defaultHttps: defaultHttps(phase),
+        appUrl: HTTP_ALB,
+      });
+      expect(status.components.find((c) => c.key === 'https')?.status).toBe('IN_PROGRESS');
+    }
+  });
+});

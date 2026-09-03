@@ -31,6 +31,7 @@ interface InfrastructureResponse {
 interface VendorDeploymentStatus {
   stage: string;
   step: string;
+  url: string | null;
   failure: {
     code: string | null;
     component: string | null;
@@ -67,15 +68,28 @@ test.describe('happy-path', () => {
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.healthStatus).toBe('HEALTHY');
-    // No custom domain is configured in this phase, so the base install
-    // stays HTTP-only — production's real ladder
-    // (apps/api/src/deployment-status.ts's `everInstalled` branch) requires
-    // an https:// URL for the customer-facing READY stage, so an
-    // installed-and-healthy deployment with no domain legitimately holds at
-    // VERIFYING/TLS ("Waiting for secure domain setup.") rather than READY.
-    // See docs/testing/discovery/deployment-lifecycle.md §5.
-    expect(deployment.deploymentStatus.stage).toBe('VERIFYING');
-    expect(deployment.deploymentStatus.step).toBe('TLS');
+    // Phase 11 default HTTPS is an opt-in in the fixture environment
+    // (DEPLOYZ_DEFAULT_HTTPS_FIXTURE): a dedicated default-https run drives
+    // the automatic Deployz-owned endpoint to ACTIVE and the deployment to
+    // READY on its own. The ordinary fixture suite keeps the HTTP-only
+    // behaviour — an installed-and-healthy deployment with no custom domain
+    // legitimately holds at VERIFYING/TLS ("Waiting for secure domain
+    // setup.") rather than READY. See
+    // docs/testing/discovery/deployment-lifecycle.md §5.
+    const defaultHttpsEnabled = process.env.DEPLOYZ_DEFAULT_HTTPS_FIXTURE === 'true';
+    if (defaultHttpsEnabled) {
+      await expect
+        .poll(async () => (await api.getDeployment(deploymentId)).deploymentStatus.stage, {
+          timeout: 20_000,
+          message: 'waiting for the default-HTTPS endpoint to carry the deployment to READY',
+        })
+        .toBe('READY');
+      const ready = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+      expect(ready.deploymentStatus.url).toMatch(/^https:\/\/.+\.apps\.deployz-fixture\.test$/);
+    } else {
+      expect(deployment.deploymentStatus.stage).toBe('VERIFYING');
+      expect(deployment.deploymentStatus.step).toBe('TLS');
+    }
 
     // Stack events came from the ingest route (persisted rows), not
     // fabricated by the test — every resource in the scenario's timeline

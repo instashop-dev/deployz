@@ -206,9 +206,10 @@ export default async function InstallPage({
         )}
 
         <p className="text-xs text-muted-foreground">
-          {removed
-            ? `This setup link has been used. To install again, ask ${data.publisherName} for a new link.`
-            : `This setup link has been used — ${data.applicationName} is already installed. To install again, ask ${data.publisherName} for a new link.`}
+          {/* The link is consumed as soon as the connector trades its
+              enrollment code — long before the install finishes — so this
+              says the link is spent without claiming the app is running. */}
+          {`This setup link has been used. To install again, ask ${data.publisherName} for a new link.`}
         </p>
       </div>
     );

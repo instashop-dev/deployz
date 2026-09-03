@@ -58,6 +58,11 @@ export default defineConfig({
         // *.deployz-fixture.test names, with no check throttle — lets the
         // custom-domain E2E drive the state machine without real DNS/network.
         DOMAIN_FIXTURE_MODE: 'true',
+        // Phase 11 default HTTPS under the fixture DNS (opt-in): the existing
+        // fixture suite is written against HTTP-only installs, so the
+        // automatic default-HTTPS flow stays off unless an operator sets this
+        // for a dedicated default-https run.
+        DEPLOYZ_DEFAULT_HTTPS_FIXTURE: process.env.DEPLOYZ_DEFAULT_HTTPS_FIXTURE ?? 'false',
         // A published bootstrap template is what turns the install page's
         // "Deploy to AWS" button into a real Quick Create link. The value is
         // a stand-in for the URL `publish:bootstrap` prints; the E2E only

@@ -261,12 +261,20 @@ export function deriveHero(detail: HeroInput): HeroModel {
       };
     }
     if (status.stage === 'READY' || health === 'HEALTHY') {
+      // Until the address is HTTPS the app is reachable, but only over the
+      // temporary one. `needsDomainSetup` is the API's signal that the
+      // CUSTOMER has to act; when a secure address is being brought up on
+      // its own, saying "add a custom domain" would ask for work nobody
+      // needs to do.
+      const secure = status.url !== null && status.url.startsWith('https://');
       const description =
         state === 'UPDATE_AVAILABLE'
           ? `${releaseLabel(detail.version)} is running and healthy. A newer release is ready to deploy.`
-          : status.needsDomainSetup
-            ? `${releaseLabel(detail.version)} is running and healthy over a temporary address. Add a custom domain to serve it over HTTPS.`
-            : `${releaseLabel(detail.version)} is running and passing health checks.`;
+          : secure
+            ? `${releaseLabel(detail.version)} is running and passing health checks.`
+            : status.needsDomainSetup
+              ? `${releaseLabel(detail.version)} is running and healthy over a temporary address. Add a custom domain to serve it over HTTPS.`
+              : `${releaseLabel(detail.version)} is running and healthy over a temporary address. A secure address is being set up.`;
       return {
         kind: 'live',
         tone: 'success',
