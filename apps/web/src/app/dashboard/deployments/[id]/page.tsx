@@ -72,11 +72,10 @@ import {
 import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
-  NOT_YET_RUNNING_ACTION_COPY,
   RELAY_STUCK_GUIDANCE,
   RELAY_STATUS_LABEL,
-  UNSUPPORTED_ACTION_COPY,
   actionSupported,
+  actionsUnavailableReason,
   everInstalled,
   relayWaitingStuck,
   showHealthBadge,
@@ -331,7 +330,7 @@ function DetailBody({
         <h2 id="deployment-progress" className="text-base font-semibold">
           Deployment progress
         </h2>
-        <DeploymentProgressCard status={detail.deploymentStatus} />
+        <DeploymentProgressCard status={detail.deploymentStatus} deploymentState={detail.state} />
       </section>
 
       <InfrastructureEvents deploymentId={detail.id} stage={detail.deploymentStatus.stage} />
@@ -489,7 +488,12 @@ function DeploymentActions({
   // has succeeded, so it is offered exactly where the day-2 actions are not.
   const canRetryInstall = detail.state === 'FAILED' && !everRan;
   const anyCapabilityGatedOff =
-    everRan && (!canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect);
+    everRan && !disconnecting && (!canDeploy || !canRollback || !canRestart || !canConfig || !canDisconnect);
+  const actionsUnavailable = actionsUnavailableReason({
+    state: detail.state,
+    everRan,
+    anyCapabilityGatedOff,
+  });
   const hasPreviousRelease = detail.previousReleaseId !== null;
 
   return (
@@ -560,10 +564,8 @@ function DeploymentActions({
         </Button>
       </div>
 
-      {!everRan ? (
-        <p className="text-sm text-muted-foreground">{NOT_YET_RUNNING_ACTION_COPY}</p>
-      ) : anyCapabilityGatedOff ? (
-        <p className="text-sm text-muted-foreground">{UNSUPPORTED_ACTION_COPY}</p>
+      {actionsUnavailable ? (
+        <p className="text-sm text-muted-foreground">{actionsUnavailable}</p>
       ) : null}
       {!hasPreviousRelease ? (
         <p className="text-sm text-muted-foreground">{NO_PREVIOUS_RELEASE_COPY}</p>

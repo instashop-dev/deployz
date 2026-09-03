@@ -4,6 +4,7 @@ import {
   formatDurationRange,
   formatElapsedSeconds,
   isTerminalStage,
+  removedProgress,
   stageRank,
   stepsFromStatus,
   type ProgressStepState,
@@ -179,5 +180,27 @@ describe('formatElapsedSeconds', () => {
   it('renders an hour or more as hours and minutes, dropping seconds', () => {
     expect(formatElapsedSeconds(3600)).toBe('1h 0m');
     expect(formatElapsedSeconds(3600 + 4 * 60)).toBe('1h 4m');
+  });
+});
+
+// A removed deployment keeps the stage it last earned, so every surface that
+// renders a stage has to ask for the removed copy first — the canary showed a
+// deleted deployment reading "Verifying · Running health checks" while its
+// infrastructure was already gone.
+describe('removedProgress', () => {
+  it('describes a deployment that is being removed', () => {
+    expect(removedProgress('DELETING')?.title).toBe('Removing deployment');
+  });
+
+  it('describes a deployment that is gone', () => {
+    const removed = removedProgress('DELETED');
+    expect(removed?.title).toBe('Deployment removed');
+    expect(removed?.body).toContain('no longer running');
+  });
+
+  it('is null for every live state, so the stage keeps rendering', () => {
+    for (const state of ['NOT_INSTALLED', 'WAITING_FOR_RELAY', 'INSTALLING', 'HEALTHY', 'UPDATE_AVAILABLE', 'FAILED']) {
+      expect(removedProgress(state)).toBeNull();
+    }
   });
 });
