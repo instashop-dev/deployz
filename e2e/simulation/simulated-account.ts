@@ -117,6 +117,13 @@ export class SimulatedCustomerAccount {
   private readonly desiredCount = 2;
   private readonly runningCount = 2;
 
+  // ── Phase 14 observability ───────────────────────────────────────────────
+  /** How many one-off migration tasks the relay's deploy stage has actually
+   *  started (see `runTask` below). E2E-observable proof that a deploy with a
+   *  migration command exercised the Phase 4 migration stage, not just a
+   *  plain service update. */
+  migrationRuns = 0;
+
   // ── Destroy state (D2) ──────────────────────────────────────────────────
   private deleteStartRealMs: number | null = null;
 
@@ -609,6 +616,7 @@ export class SimulatedCustomerAccount {
         this.ensureEcsDeployInitialized();
         // Simulated migrations succeed instantly: the task answers STOPPED
         // with exit code 0 on the next poll (see describeSimulatedTasks).
+        this.migrationRuns += 1;
         this.migrationTaskArn = 'arn:aws:ecs:us-east-1:123456789012:task/simulated/migration-1';
         return { taskArns: [this.migrationTaskArn] };
       },
