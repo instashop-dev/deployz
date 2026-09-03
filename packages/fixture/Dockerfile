@@ -28,6 +28,9 @@ WORKDIR /app
 RUN apk add --no-cache curl
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
+# The release identity (/version, health mode) is baked in at build time —
+# the canary tags differ only in this file, never in a mutable image tag.
+COPY release.json ./release.json
 RUN npm install --omit=dev && npm cache clean --force
 ENV NODE_ENV=production
 ENV PORT=3000
