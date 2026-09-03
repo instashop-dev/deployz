@@ -1,0 +1,225 @@
+{
+  "id": "repo-013",
+  "repository": "louislam/uptime-kuma",
+  "commit": "5df2a3c0a8c883f362dd48f6fd422b3ee60e685b",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "medium",
+  "difficulty": 3,
+  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
+  "analysisVersion": 6,
+  "tree": {
+    "files": 201,
+    "entries": 857,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/dockerfile",
+    "port": 3001,
+    "unsupported": [
+      "sqlite"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": "docker",
+    "dockerfilePath": "docker/dockerfile",
+    "port": 3001,
+    "startCommand": "CMD: [\"node\", \"server/server.js\"]",
+    "healthDetected": true,
+    "healthPath": "/server/model/heartbeat",
+    "postgres": false,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "node extra/reset-migrate-aggregate-table-state.js",
+    "externalServices": [
+      "smtp"
+    ],
+    "requiredEnvVars": [
+      "CI",
+      "DEBUG",
+      "GITHUB_RUN_ID",
+      "HOST",
+      "LOCALAPPDATA",
+      "NODE_TLS_REJECT_UNAUTHORIZED",
+      "PORT",
+      "PROGRAMFILES",
+      "PR_NUMBER",
+      "RELEASE_BETA_VERSION",
+      "RELEASE_GITHUB_TOKEN",
+      "RELEASE_IS_BETA",
+      "RELEASE_PREVIOUS_VERSION",
+      "RELEASE_REPO_NAMES",
+      "RELEASE_VERSION",
+      "SSL_KEY_PASSPHRASE",
+      "UPTIME_KUMA_DB_POOL_MAX_CONNECTIONS",
+      "UPTIME_KUMA_DEMO_CWD",
+      "UPTIME_KUMA_DEMO_HOST",
+      "UPTIME_KUMA_DEMO_PORT",
+      "UPTIME_KUMA_DEMO_PRIVATE_KEY_PATH",
+      "UPTIME_KUMA_DEMO_USERNAME",
+      "UPTIME_KUMA_GH_REPO",
+      "UPTIME_KUMA_HOST",
+      "UPTIME_KUMA_PORT",
+      "UPTIME_KUMA_SSL_KEY_PASSPHRASE"
+    ],
+    "unsupported": [
+      "kafka",
+      "local-filesystem",
+      "mongodb",
+      "mysql"
+    ],
+    "readinessFindings": [
+      "unsupported-database-mysql",
+      "unsupported-database-mongo",
+      "unsupported-message-queue",
+      "local-file-storage",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "unsupported",
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "database-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": "docker",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/dockerfile",
+      "actual": "docker/dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3001,
+      "actual": 3001,
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "sqlite"
+      ],
+      "actual": [
+        "kafka",
+        "local-filesystem",
+        "mongodb",
+        "mysql"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-011",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": ".",
+      "actual": "docker",
+      "finding": {
+        "id": "COMP-020",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "sqlite"
+      ],
+      "actual": [
+        "kafka",
+        "local-filesystem",
+        "mongodb",
+        "mysql"
+      ],
+      "finding": {
+        "id": "COMP-002",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

@@ -1,64 +1,62 @@
 {
-  "deployzSha": "5b1816790641fe37cd1ecb3fcc9c72be0f1a2abe",
+  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
   "analysisVersion": 6,
-  "total": 1,
-  "analysed": 1,
+  "total": 15,
+  "analysed": 15,
   "failed": 0,
-  "fullMatch": 0,
-  "verdictMatch": 0,
-  "verdictAccuracy": 0,
+  "fullMatch": 1,
+  "verdictMatch": 8,
+  "verdictAccuracy": 53.3,
   "falseAcceptances": 0,
-  "falseRejections": 1,
-  "configurationMismatches": 0,
+  "falseRejections": 5,
+  "configurationMismatches": 2,
   "factMismatches": {
-    "compatibility": 1,
-    "redis": 1,
-    "unsupported": 1
+    "appRoot": 6,
+    "compatibility": 7,
+    "dockerfilePath": 3,
+    "healthPath": 9,
+    "migration": 4,
+    "port": 11,
+    "postgres": 4,
+    "redis": 4,
+    "storage": 3,
+    "unsupported": 7,
+    "worker": 2
   },
   "byFindingType": {
-    "ANALYSIS_BUG": 0,
-    "ANALYSIS_MISSING_SIGNAL": 0,
+    "ANALYSIS_BUG": 42,
+    "ANALYSIS_MISSING_SIGNAL": 18,
     "MVP_CAPABILITY_GAP": 0,
     "CORRECTLY_UNSUPPORTED": 0,
     "REPO_INVALID": 0
   },
-  "unexplained": [
-    {
-      "id": "repo-001",
-      "fact": "compatibility",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE"
-    },
-    {
-      "id": "repo-001",
-      "fact": "redis",
-      "expected": false,
-      "actual": true
-    },
-    {
-      "id": "repo-001",
-      "fact": "unsupported",
-      "expected": [],
-      "actual": [
-        "kafka",
-        "local-filesystem"
-      ]
-    }
-  ],
+  "unexplained": [],
   "bySet": {
     "improvement": {
-      "total": 1,
-      "analysed": 1,
-      "verdictMatch": 0,
-      "fullMatch": 0
+      "total": 15,
+      "analysed": 15,
+      "verdictMatch": 8,
+      "fullMatch": 1
     }
   },
   "byCohort": {
-    "realistic": {
-      "total": 1,
-      "analysed": 1,
-      "verdictMatch": 0,
+    "boundary": {
+      "total": 3,
+      "analysed": 3,
+      "verdictMatch": 3,
       "fullMatch": 0
+    },
+    "messy": {
+      "total": 3,
+      "analysed": 3,
+      "verdictMatch": 3,
+      "fullMatch": 0
+    },
+    "realistic": {
+      "total": 9,
+      "analysed": 9,
+      "verdictMatch": 2,
+      "fullMatch": 1
     }
   }
 }

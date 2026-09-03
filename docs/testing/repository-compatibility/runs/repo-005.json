@@ -1,0 +1,252 @@
+{
+  "id": "repo-005",
+  "repository": "Flagsmith/flagsmith",
+  "commit": "4a8a84a34e71f981cfbba5afa5b11d6d945d891a",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
+  "analysisVersion": 6,
+  "tree": {
+    "files": 175,
+    "entries": 4660,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "python",
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": true,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8000,
+    "healthPath": "/health/liveness",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": null,
+    "startCommand": "CMD: [\"migrate-and-serve\"]",
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "sendgrid",
+      "sentry"
+    ],
+    "requiredEnvVars": [
+      "DJANGO_DB_HOST",
+      "DJANGO_DB_HOST_ANALYTICS",
+      "DJANGO_DB_NAME",
+      "DJANGO_DB_NAME_ANALYTICS",
+      "DJANGO_DB_PASSWORD",
+      "DJANGO_DB_PASSWORD_ANALYTICS",
+      "DJANGO_DB_PORT",
+      "DJANGO_DB_PORT_ANALYTICS",
+      "DJANGO_DB_USER",
+      "DJANGO_DB_USER_ANALYTICS"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service",
+      "local-filesystem",
+      "redis-unsupported"
+    ],
+    "readinessFindings": [
+      "unsupported-redis-setup",
+      "unsupported-multi-service",
+      "local-file-storage",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "unsupported",
+      "port-missing",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "match": false,
+      "kind": "false-rejection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/health/liveness",
+      "actual": "/health",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "docker-compose-multi-service",
+        "local-filesystem",
+        "redis-unsupported"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-rejection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "finding": {
+        "id": "COMP-009",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-012",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8000,
+      "actual": null,
+      "finding": {
+        "id": "COMP-001",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/health/liveness",
+      "actual": "/health",
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [],
+      "actual": [
+        "docker-compose-multi-service",
+        "local-filesystem",
+        "redis-unsupported"
+      ],
+      "finding": {
+        "id": "COMP-009",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

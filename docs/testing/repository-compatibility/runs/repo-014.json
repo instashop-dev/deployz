@@ -1,0 +1,204 @@
+{
+  "id": "repo-014",
+  "repository": "automatisch/automatisch",
+  "commit": "41f3c56a163103cae761bb44f03638cb84e859ee",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
+  "analysisVersion": 6,
+  "tree": {
+    "files": 204,
+    "entries": 4678,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 3000,
+    "healthPath": "/healthcheck",
+    "unsupported": [
+      "background-worker",
+      "docker-compose-multi-service"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".devcontainer",
+    "dockerfilePath": ".devcontainer/Dockerfile",
+    "port": null,
+    "startCommand": "ENTRYPOINT: [\"sh\", \"/entrypoint.sh\"]",
+    "healthDetected": true,
+    "healthPath": "/packages/backend/controllers/healthcheck",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": true,
+    "workerCommand": "nodemon --loader ./alias-loader.mjs src/worker.js",
+    "migration": true,
+    "migrationCommand": "node --loader ./alias-loader.mjs ./node_modules/.bin/knex migrate:latest",
+    "externalServices": [
+      "anthropic",
+      "sentry",
+      "smtp"
+    ],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "background-worker",
+      "docker-compose-multi-service"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "background-worker-unsupported"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "port-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".devcontainer",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/Dockerfile",
+      "actual": ".devcontainer/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/healthcheck",
+      "actual": "/packages/backend/controllers/healthcheck",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "background-worker",
+        "docker-compose-multi-service"
+      ],
+      "actual": [
+        "background-worker",
+        "docker-compose-multi-service"
+      ],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": ".",
+      "actual": ".devcontainer",
+      "finding": {
+        "id": "COMP-007",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "docker/Dockerfile",
+      "actual": ".devcontainer/Dockerfile",
+      "finding": {
+        "id": "COMP-007",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3000,
+      "actual": null,
+      "finding": {
+        "id": "COMP-001",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/healthcheck",
+      "actual": "/packages/backend/controllers/healthcheck",
+      "finding": {
+        "id": "COMP-004",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

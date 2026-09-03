@@ -1,7 +1,7 @@
 {
-  "id": "repo-001",
-  "repository": "umami-software/umami",
-  "commit": "ca661c7057984aa98ed4f7083d84dae2f65bfcb0",
+  "id": "repo-003",
+  "repository": "thedevs-network/kutt",
+  "commit": "279b491b53bbd01fbae70f603222526962772061",
   "set": "improvement",
   "cohort": "realistic",
   "customerRealism": "high",
@@ -9,25 +9,25 @@
   "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
   "analysisVersion": 6,
   "tree": {
-    "files": 201,
-    "entries": 1981,
+    "files": 70,
+    "entries": 258,
     "truncated": false
   },
   "expected": {
-    "compatibility": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
     "runtime": [
       "node"
     ],
     "monorepo": false,
     "postgres": true,
     "redis": false,
-    "worker": false,
+    "worker": true,
     "storage": false,
     "migration": true,
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 3000,
-    "healthPath": "/api/heartbeat",
+    "healthPath": "/api/health",
     "unsupported": []
   },
   "status": "analysed",
@@ -39,54 +39,55 @@
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": 3000,
-    "startCommand": "CMD: [\"sh\", \"scripts/start-docker.sh\"]",
-    "healthDetected": true,
-    "healthPath": "/api/heartbeat",
-    "postgres": true,
+    "port": null,
+    "startCommand": "CMD: npm run migrate && npm start",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
     "postgresDetected": true,
     "redis": true,
     "redisDetected": true,
     "redisConfidence": "high",
     "storage": false,
-    "worker": false,
+    "worker": true,
     "workerCommand": null,
     "migration": true,
-    "migrationCommand": "prisma migrate",
-    "externalServices": [],
+    "migrationCommand": "knex migrate:latest",
+    "externalServices": [
+      "smtp"
+    ],
     "requiredEnvVars": [
-      "CI",
-      "COLLECT_API_ENDPOINT",
-      "DATABASE_URL",
-      "DISABLE_LOGIN",
-      "ENABLE_TEST_CONSOLE",
-      "GEO_DATABASE_URL",
-      "MAXMIND_LICENSE_KEY",
-      "NODE_ENV",
-      "PLAYWRIGHT_SKIP_WEB_SERVER",
-      "TRACKER_SCRIPT_NAME",
-      "TRACKER_SCRIPT_URL",
-      "VERCEL"
+      "ADMIN_EMAILS",
+      "NODE_ENV"
     ],
     "unsupported": [
-      "kafka",
-      "local-filesystem"
+      "local-filesystem",
+      "mysql",
+      "sqlite"
     ],
     "readinessFindings": [
-      "unsupported-message-queue",
-      "local-file-storage"
+      "unsupported-database-mysql",
+      "unsupported-database-sqlite",
+      "local-file-storage",
+      "health-check",
+      "worker-command"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
+      "unsupported",
+      "port-missing",
       "required-env-vars-missing"
     ],
-    "unresolvedQuestions": []
+    "unresolvedQuestions": [
+      "build-command-unknown",
+      "database-requirement-unclear"
+    ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
-      "expected": "READY",
+      "expected": "NEEDS_CONFIGURATION",
       "actual": "NOT_COMPATIBLE",
       "match": false,
       "kind": "false-rejection"
@@ -94,8 +95,9 @@
     {
       "fact": "postgres",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "redis",
@@ -106,8 +108,8 @@
     },
     {
       "fact": "worker",
-      "expected": false,
-      "actual": false,
+      "expected": true,
+      "actual": true,
       "match": true
     },
     {
@@ -137,21 +139,24 @@
     {
       "fact": "port",
       "expected": 3000,
-      "actual": 3000,
-      "match": true
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "healthPath",
-      "expected": "/api/heartbeat",
-      "actual": "/api/heartbeat",
-      "match": true
+      "expected": "/api/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "kafka",
-        "local-filesystem"
+        "local-filesystem",
+        "mysql",
+        "sqlite"
       ],
       "match": false,
       "kind": "fact"
@@ -161,11 +166,21 @@
     {
       "fact": "compatibility",
       "kind": "false-rejection",
-      "expected": "READY",
+      "expected": "NEEDS_CONFIGURATION",
       "actual": "NOT_COMPATIBLE",
       "finding": {
         "id": "COMP-002",
         "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-013",
+        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
     {
@@ -179,12 +194,33 @@
       }
     },
     {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3000,
+      "actual": null,
+      "finding": {
+        "id": "COMP-001",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/api/health",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
       "fact": "unsupported",
       "kind": "fact",
       "expected": [],
       "actual": [
-        "kafka",
-        "local-filesystem"
+        "local-filesystem",
+        "mysql",
+        "sqlite"
       ],
       "finding": {
         "id": "COMP-002",

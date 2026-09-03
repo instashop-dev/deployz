@@ -1,0 +1,188 @@
+{
+  "id": "repo-011",
+  "repository": "healthchecks/healthchecks",
+  "commit": "69dbd2a0801dfbcfcd554af8cbbdaaab0b39e2a3",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 4,
+  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
+  "analysisVersion": 6,
+  "tree": {
+    "files": 191,
+    "entries": 1475,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": true,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 8000,
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "unknown",
+    "appRoot": "docker",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": null,
+    "startCommand": "CMD: [ \"uwsgi\", \"/opt/healthchecks/docker/uwsgi.ini\"]",
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": false,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "port-missing"
+    ],
+    "unresolvedQuestions": [
+      "database-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": "docker",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/Dockerfile",
+      "actual": "docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-013",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": ".",
+      "actual": "docker",
+      "finding": {
+        "id": "COMP-020",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8000,
+      "actual": null,
+      "finding": {
+        "id": "COMP-001",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}
