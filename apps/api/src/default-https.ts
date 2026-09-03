@@ -4,9 +4,9 @@
  * executors and job vocabulary (packages/relay/src/domain.ts) with a
  * Deployz-owned hostname (`d-<deploymentId>.deployz.dev`) whose DNS lives in a
  * Deployz-controlled zone: the CONTROL PLANE writes the ACM validation CNAME
- * and the ALB routing CNAME itself through the deployment-keyed DNS client
- * (apps/api/src/cloudflare-records.ts; legacy Route53 path kept until Phase
- * 16), so the customer never owns or configures a domain.
+ * and the ALB routing CNAME itself through the deployment-keyed Cloudflare
+ * DNS client (apps/api/src/cloudflare-records.ts), so the customer never owns
+ * or configures a domain.
  *
  * State is persisted in `deployments.default_https` — deliberately separate
  * from `custom_domains` (customer DNS). Statuses mirror the custom-domain
@@ -486,13 +486,12 @@ export async function applyDefaultHttpsJobResult(
 
 export interface DefaultHttpsDeps {
   /** Off switch: default HTTPS runs only when the control plane is configured
-   *  with a DNS provider (Cloudflare zone, legacy Route53 zone) or under DNS
-   *  fixture mode. */
+   *  with the Cloudflare deployz.dev zone, or under DNS fixture mode. */
   enabled: boolean;
   /** The DNS apex the deployz hostname is minted under. */
   apex: string;
-  /** Deployment-keyed DNS client (Cloudflare in production; in-memory fake or
-   *  a no-op/Route53 adapter under fixture/legacy modes). */
+  /** Deployment-keyed DNS client (Cloudflare in production; the fixture
+   *  provider under E2E; the no-op writer when off). */
   dns: CloudflareDnsClient;
   /** HTTPS reachability probe — the same seam runDomainCheck uses. A failed
    *  probe carries the reason, which the machine persists as lastError so a

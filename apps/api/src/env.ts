@@ -174,17 +174,12 @@ export const env = {
   // Created by the BuildPipeline (default `deployz-images`); the stack wires
   // the real name into the Lambda environment so a rename cannot drift.
   ecrRepositoryName: process.env.DEPLOYZ_ECR_REPOSITORY_NAME ?? 'deployz-images',
-  // Phase 11 default HTTPS: the Deployz-controlled Route53 hosted zone the
-  // control plane writes each deployment's DNS-validation and routing CNAME
-  // records into. Unset (or empty) turns the automatic default-HTTPS flow
-  // OFF — a deployment then needs a custom domain for HTTPS, exactly like
-  // before Phase 11. Route53 is a global service; the zone id is region-free.
-  dnsZoneId: process.env.DEPLOYZ_DNS_ZONE_ID,
   // Phase 1 Cloudflare runtime config — the deployz.dev zone lives on
-  // Cloudflare, and a later phase's default-HTTPS DNS client targets this
-  // zone instead of Route53. Zone id/name are public; the API token is a
-  // secret scoped to Zone.DNS edit on exactly this zone. All unset → the
-  // Cloudflare flow stays OFF (same degrade-not-crash rule as dnsZoneId).
+  // Cloudflare and is where the default-HTTPS flow writes each deployment's
+  // DNS-validation and routing CNAMEs. Zone id/name are public; the API token
+  // is a secret scoped to Zone.DNS edit on exactly this zone. All unset → the
+  // Cloudflare flow stays OFF (a deployment then needs a custom domain for
+  // HTTPS, exactly like before Phase 11).
   cloudflareZoneId: process.env.CLOUDFLARE_ZONE_ID,
   cloudflareZoneName: process.env.CLOUDFLARE_ZONE_NAME,
   // Prefix for the permanent d-<deployment-id>.deployz.dev URL scheme. The
@@ -197,11 +192,11 @@ export const env = {
   // createFixtureDomainCheckDeps. Mirrors githubFixtureMode.
   domainFixtureMode: process.env.DOMAIN_FIXTURE_MODE === 'true',
   // Phase 11 default HTTPS under DNS fixture mode. The automatic
-  // default-HTTPS flow needs the Deployz Route53 zone in production
-  // (DEPLOYZ_DNS_ZONE_ID); under the E2E fixture environment there is no real
-  // zone, so it stays OFF unless this explicit opt-in is set — the existing
-  // fixture suite (custom-domain, app-url, deployment-progress…) is written
-  // against HTTP-only installs and must not silently change behaviour.
+  // default-HTTPS flow needs Cloudflare config in production; under the E2E
+  // fixture environment there is no real zone, so it stays OFF unless this
+  // explicit opt-in is set — the existing fixture suite (custom-domain,
+  // app-url, deployment-progress…) is written against HTTP-only installs and
+  // must not silently change behaviour.
   defaultHttpsFixtureMode: process.env.DEPLOYZ_DEFAULT_HTTPS_FIXTURE === 'true',
   // AI fixture mode — canned gateway responses so the E2E suite can drive
   // the fix-instructions flow without a live model. Mirrors githubFixtureMode.

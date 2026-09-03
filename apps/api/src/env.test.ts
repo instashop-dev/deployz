@@ -202,3 +202,47 @@ describe('Phase 13 — zone id, token and probe provenance guards', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// Phase 15 — static verification of the PRODUCTION Cloudflare configuration.
+// Pure text scans of .github/workflows/deploy-api.yml: no network, no
+// provider call, and no secret value is ever read or printed (the token is
+// asserted only as the `${{ secrets.… }}` expression the workflow itself
+// carries).
+describe('Phase 15 — production Cloudflare deploy configuration', () => {
+  const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+  const workflowPath = join(repoRoot, '.github', 'workflows', 'deploy-api.yml');
+  // Normalise line endings — the file is checked out CRLF on Windows.
+  const workflow = readFileSync(workflowPath, 'utf8').replace(/\r\n/g, '\n');
+  const ZONE_ID_HEX = 'bf69c0d8524ef2c5cfbc6e5d33fb7cae';
+  const CLOUDFLARE_KEYS = [
+    'CLOUDFLARE_ZONE_ID',
+    'CLOUDFLARE_ZONE_NAME',
+    'DEPLOYZ_DEFAULT_HOSTNAME_PREFIX',
+    'CLOUDFLARE_ZONE_EDIT_API_TOKEN',
+  ];
+
+  it('the Lambda env block binds all four Cloudflare keys with the plan-mandated values', () => {
+    const envStart = workflow.indexOf('\n    env:\n');
+    const envEnd = workflow.indexOf('\n    steps:\n', envStart);
+    expect(envStart, 'could not locate the job-level env: block').toBeGreaterThan(-1);
+    expect(envEnd, 'could not locate the steps: block after env:').toBeGreaterThan(envStart);
+    const envBlock = workflow.slice(envStart, envEnd);
+
+    expect(envBlock).toContain(`CLOUDFLARE_ZONE_ID: ${ZONE_ID_HEX}`);
+    expect(envBlock).toContain('CLOUDFLARE_ZONE_NAME: deployz.dev');
+    expect(envBlock).toContain('DEPLOYZ_DEFAULT_HOSTNAME_PREFIX: d-');
+    expect(envBlock).toContain('CLOUDFLARE_ZONE_EDIT_API_TOKEN: ${{ secrets.CLOUDFLARE_ZONE_EDIT_API_TOKEN }}');
+  });
+
+  it('the deploy completeness-gate loop lists all four Cloudflare keys (a missing binding fails the deploy)', () => {
+    // The gate is a `for key in …; do` loop; find the occurrence that carries
+    // the Cloudflare keys (there is also a later Stripe-price loop).
+    const loops = [...workflow.matchAll(/for key in ([\s\S]*?); do/g)];
+    const completeness = loops.find((match) => match[1]!.includes('CLOUDFLARE_ZONE_EDIT_API_TOKEN'));
+    expect(completeness, 'could not locate the completeness-gate key loop').toBeDefined();
+    const loopBody = completeness![1]!;
+    for (const key of CLOUDFLARE_KEYS) {
+      expect(loopBody, `completeness gate must list ${key}`).toContain(key);
+    }
+  });
+});

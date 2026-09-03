@@ -111,13 +111,14 @@ never canary-owned.
    (`/aws/lambda/<bootstrap stack>--RelayFunction…`).
 5. **Healthy**: the deployment reaches HEALTHY only after a heartbeat with
    full task counts, healthy ALB targets and a successful HTTP probe. Check
-   the app yourself: `curl http://<ALB DNS>/api/health` (use curl — the ALB
-   is plain HTTP until the HTTPS endpoint is active, and HTTPS-First
-   browsers refuse http). Since Phase 11, HTTPS is provisioned automatically
-   on the Deployz-owned default hostname (`<deploymentId>.apps.deployz.dev`,
-   `DEPLOYZ_DNS_ZONE_ID`) with zero customer DNS; a customer custom domain,
-   when added, keeps precedence. The vendor detail shows *Open app* and the
-   URL once the deployment is READY.
+    the app yourself: `curl http://<ALB DNS>/api/health` (use curl — the ALB
+    is plain HTTP until the HTTPS endpoint is active, and HTTPS-First
+    browsers refuse http). Since Phase 11, HTTPS is provisioned automatically
+    on the permanent Deployz-owned hostname `d-<deployment-id>.deployz.dev`
+    (reconciled through the deployz.dev Cloudflare zone, configured by the
+    `CLOUDFLARE_ZONE_*` deploy env) with zero customer DNS; a customer custom
+    domain, once ACTIVE, takes precedence. The vendor detail shows *Open app*
+    and the URL once the deployment is READY.
 6. **Inventory**: `aws cloudformation list-stack-resources` per-type counts
    must equal the vendor *Infrastructure* section / `deployment_resources`
    rows (50 for the Redis variant of the documenso preset).

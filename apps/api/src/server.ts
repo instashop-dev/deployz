@@ -183,11 +183,8 @@ import {
 import {
   createCloudflareDnsClient,
   createDnsClientFromNameWriter,
-} from './cloudflare-records.js';
-import {
-  createRoute53RecordClient,
   noopDnsRecordClient,
-} from './route53-records.js';
+} from './cloudflare-records.js';
 import {
   resolveAppUrl,
   resolveDefaultUrl,
@@ -1154,19 +1151,9 @@ export async function buildServer({
         probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
       };
     }
-    if (env.dnsZoneId) {
-      // Legacy Route53 fallback (Phase 16 cleanup): the name-based writer is
-      // adapted to the deployment-keyed seam at the assembly site.
-      return {
-        enabled: true,
-        apex,
-        dns: createDnsClientFromNameWriter(
-          createRoute53RecordClient({ hostedZoneId: env.dnsZoneId }),
-          { zoneName: apex, prefix: env.defaultHostnamePrefix },
-        ),
-        probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
-      };
-    }
+    // Phase 16: the legacy Route53 default-HTTPS writer was removed — the
+    // Cloudflare client is the only provider. Without Cloudflare config the
+    // flow is off (a deployment then needs a custom domain for HTTPS).
     return {
       enabled: false,
       apex,

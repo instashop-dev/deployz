@@ -475,7 +475,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       // PURGE of a cleanly-deleted deployment settles to success.
       PURGE: trackLatest(createPurgeExecutor(purgeDeps)),
       // Phase 11 default HTTPS — the healthy simulated path. When the control
-      // plane's automatic default-HTTPS machine is on (DEPLOYZ_DNS_ZONE_ID in
+      // plane's automatic default-HTTPS machine is on (Cloudflare config in
       // production, or the DEPLOYZ_DEFAULT_HTTPS_FIXTURE opt-in under the E2E
       // fixture DNS), it mints CONFIGURE_DOMAIN/REMOVE_DOMAIN jobs right after
       // a successful INSTALL. These executors answer them as if ACM had

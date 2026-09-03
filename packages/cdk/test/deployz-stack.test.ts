@@ -218,54 +218,53 @@ describe('DeployzStack', () => {
     });
   });
 
-  // Phase 11 default HTTPS: the control-plane API writes per-deployment CNAME
-  // records into a Deployz-owned Route53 zone. The zone is referenced by id
-  // (hosted out of band), and the API role's route53 grant is scoped to that
-  // one zone.
-  describe('default HTTPS DNS zone', () => {
-    it('adds no zone env or route53 grant when no zone id is configured', () => {
-      const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
-      const policies = template.findResources('AWS::IAM::Policy');
-      const hasRoute53Grant = Object.values(policies).some(
-        (policy) =>
-          JSON.stringify((policy.Properties as { PolicyDocument?: unknown }).PolicyDocument ?? '').includes(
-            'route53:ChangeResourceRecordSets',
-          ),
-      );
-      expect(hasRoute53Grant).toBe(false);
-      const environments = Object.values(template.findResources('AWS::Lambda::Function')).map(
-        (resource) => (resource.Properties as { Environment?: { Variables?: Record<string, unknown> } })
-          .Environment?.Variables ?? {},
-      );
-      expect(environments.some((env) => 'DEPLOYZ_DNS_ZONE_ID' in env)).toBe(false);
+  // Phase 15 — static verification that the control plane's Lambda
+  // environment allowlist (collectEnvVars in deployz-stack.ts) carries the
+  // four Cloudflare config keys the default-HTTPS flow needs in production.
+  // Each is passed through only when set; the deploy-api.yml completeness gate
+  // is what refuses a missing one at deploy time.
+  describe('Phase 15 — Cloudflare runtime env keys', () => {
+    const KEYS = [
+      'CLOUDFLARE_ZONE_ID',
+      'CLOUDFLARE_ZONE_NAME',
+      'DEPLOYZ_DEFAULT_HOSTNAME_PREFIX',
+      'CLOUDFLARE_ZONE_EDIT_API_TOKEN',
+    ];
+
+    it('passes all four Cloudflare keys into the API Lambda environment when set', () => {
+      for (const key of KEYS) process.env[key] = `test-value-${key}`;
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        const expected = Object.fromEntries(KEYS.map((key) => [key, `test-value-${key}`]));
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          Environment: Match.objectLike({ Variables: Match.objectLike(expected) }),
+        });
+      } finally {
+        for (const key of KEYS) delete process.env[key];
+      }
     });
 
-    it('passes the zone id to the API and scopes the route53 grant to that hosted zone when configured', () => {
-      const app = new App({ context: { dnsZoneId: 'Z0123456789ABCDEF' } });
-      const template = Template.fromStack(new DeployzStack(app, 'DeployzTest'));
-
-      template.hasResourceProperties('AWS::Lambda::Function', {
-        Environment: Match.objectLike({
-          Variables: Match.objectLike({ DEPLOYZ_DNS_ZONE_ID: 'Z0123456789ABCDEF' }),
-        }),
-      });
-
-      const policies = template.findResources('AWS::IAM::Policy');
-      const grantPolicy = Object.values(policies).find((policy) =>
-        JSON.stringify((policy.Properties as { PolicyDocument?: unknown }).PolicyDocument ?? '').includes(
-          'route53:ChangeResourceRecordSets',
-        ),
-      );
-      expect(grantPolicy).toBeDefined();
-      const document = (grantPolicy!.Properties as { PolicyDocument: unknown }).PolicyDocument as {
-        Statement: { Action: string | string[]; Resource: string | string[] }[];
-      };
-      const statement = document.Statement.find((entry) =>
-        JSON.stringify(entry).includes('route53:ChangeResourceRecordSets'),
-      );
-      expect(statement).toBeDefined();
-      expect(statement!.Action).toContain('route53:ChangeResourceRecordSets');
-      expect(statement!.Resource).toEqual('arn:aws:route53:::hostedzone/Z0123456789ABCDEF');
+    it('omits the Cloudflare keys when unset (absent = flow off, not stale)', () => {
+      const previous = new Map<string, string | undefined>();
+      for (const key of KEYS) {
+        previous.set(key, process.env[key]);
+        delete process.env[key];
+      }
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        const environments = Object.values(template.findResources('AWS::Lambda::Function')).map(
+          (resource) =>
+            (resource.Properties as { Environment?: { Variables?: Record<string, unknown> } })
+              .Environment?.Variables ?? {},
+        );
+        expect(environments.some((env) => KEYS.some((key) => key in env))).toBe(false);
+      } finally {
+        for (const key of KEYS) {
+          const value = previous.get(key);
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
     });
   });
 });

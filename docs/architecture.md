@@ -12,9 +12,10 @@ see `docs/deployment-resilience.md`. For the launch recommendation, see
 
 - **Control plane** (vendor AWS account): Fastify API (`apps/api`), the worker
   Lambda with the reconcile watchdog, the SQS job queue, the CodeBuild release
-  pipeline, the public template bucket, and the Route53 DNS zone writer. The
-  vendor surfaces (`apps/web`) and Team Admin (`docs/admin/team-admin.md`)
-  live on top of it.
+  pipeline, the public template bucket, and the Cloudflare DNS writer for the
+  deployz.dev zone (the default-HTTPS records live there; see the runtime flow
+  below). The vendor surfaces (`apps/web`) and Team Admin
+  (`docs/admin/team-admin.md`) live on top of it.
 - **Customer side** (the customer's AWS account): the bootstrap stack created
   from the customer's Quick Create, containing the relay Lambda on a 5-minute
   EventBridge schedule. The relay talks to the control plane **egress-only**
@@ -56,10 +57,20 @@ The flow a deployment follows, end to end:
    state, ALB target health, the HTTP probe, and the running digest. The
    control plane promotes the release pointer only when every gate passes
    (rollout COMPLETED, full counts, healthy targets, successful probe).
-10. **HTTPS** — every successful deployment gets the Deployz default hostname
-    (`<deploymentId>.apps.deployz.dev`) with a customer-account ACM
-    certificate DNS-validated through the Deployz Route53 zone — zero customer
-    DNS input. A customer custom domain, when added, keeps precedence.
+10. **HTTPS (default URL)** — every deployment gets a permanent Deployz-owned
+    URL. The runtime flow: the deployment's ALB exists in the customer account
+    after INSTALL; the control plane's default-HTTPS machine reconciles two
+    CNAMEs into the deployz.dev Cloudflare zone (an unproxied ACM DNS-01
+    validation record and a proxied routing record `d-<deployment-id>.deployz.dev`
+    → the ALB), the customer-account ACM certificate is DNS-validated through
+    that record, and once the HTTPS probe verifies the endpoint the machine is
+    ACTIVE and the deployment is READY behind
+    `https://d-<deployment-id>.deployz.dev` — zero customer DNS input. URL
+    model: `defaultUrl` is the permanent `d-*` address once the machine starts
+    (any status); `resolveAppUrl` surfaces the preferred URL — the custom
+    domain only once it is ACTIVE and healthy, otherwise the default URL once
+    ACTIVE/CONFIGURING, otherwise the bare ALB endpoint. See
+    `docs/mvp-default-https-status.md` for the full phase record.
 11. **Day-2 Operations** — config updates, further deploys, rollback, restart,
     and relay re-enrollment run through the same command queue, gated on relay
     connectivity and operation exclusivity.
@@ -68,7 +79,9 @@ The flow a deployment follows, end to end:
     RETAIN decision — no final snapshot is ever taken). Purge (PURGE) deletes
     the retained database, credentials, stored files, and network orphans; the
     customer deletes the bootstrap stack itself in CloudFormation
-    (CANARY-014).
+    (CANARY-014). Default-HTTPS teardown removes both deployz-zone CNAMEs
+    (routing + validation) as the deployment is destroyed, and the purge
+    backstop reconciles any orphaned records.
 
 ## The MVP support boundary
 

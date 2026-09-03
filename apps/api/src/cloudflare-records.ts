@@ -1,14 +1,14 @@
 /**
- * Cloudflare DNS record client — the CNAME surface the default-HTTPS feature
- * uses once the deployz.dev zone's DNS lives on Cloudflare (Phase 3).
+ * Cloudflare DNS record client — the deployz-zone CNAME surface the
+ * default-HTTPS feature uses (Phase 3).
  *
- * Mirrors the house idiom of route53-records.ts (narrow injectable seam +
- * real implementation + in-memory fake): one record type (CNAME), four
- * operations (look up a deployment record, upsert/delete a deployment's
- * routing CNAME, upsert/delete its ACM validation CNAME), and an injectable
- * transport so a test never reaches api.cloudflare.com. The single
- * credential is a zone-scoped API token sent as `Authorization: Bearer` —
- * it never appears in an error message or thrown field.
+ * Follows the house idiom (narrow injectable seam + real implementation +
+ * in-memory fake): one record type (CNAME), four operations (look up a
+ * deployment record, upsert/delete a deployment's routing CNAME, upsert/
+ * delete its ACM validation CNAME), and an injectable transport so a test
+ * never reaches api.cloudflare.com. The single credential is a zone-scoped
+ * API token sent as `Authorization: Bearer` — it never appears in an error
+ * message or thrown field.
  *
  * Cloudflare has no server-side DNS upsert and create is NOT idempotent (a
  * duplicate POST fails with 81057), so upsert is search → create/update —
@@ -29,7 +29,27 @@ import {
   DEFAULT_HOSTNAME_PREFIX,
   getDefaultDeploymentHostname,
 } from './default-https.js';
-import type { DnsRecordClient } from './route53-records.js';
+
+// ── Name-writer seam (no-op / legacy-adjacent writers) ───────────────────────
+//
+// A narrow CNAME-writer shape for DNS providers that cannot read records back
+// (Phase 16: the real Route53 writer was removed, so the only remaining
+// writer is the no-op used when the default-HTTPS flow is off or running
+// under the fixture namespace). createDnsClientFromNameWriter adapts it to
+// the deployment-keyed CloudflareDnsClient seam.
+
+export interface DnsRecordClient {
+  /** Create or overwrite one CNAME record. */
+  upsertCname(name: string, value: string): Promise<void>;
+  /** Delete one CNAME record; a record that is already gone is not an error. */
+  deleteCname(name: string): Promise<void>;
+}
+
+/** A no-op writer — DNS fixture mode and the off configuration. */
+export const noopDnsRecordClient: DnsRecordClient = {
+  async upsertCname() {},
+  async deleteCname() {},
+};
 
 const DEFAULT_API_BASE_URL = 'https://api.cloudflare.com/client/v4';
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -584,14 +604,14 @@ export function createFakeCloudflareDnsClient(options: {
   };
 }
 
-// ── Legacy name-writer adapter ──────────────────────────────────────────────
+// ── Name-writer adapter ──────────────────────────────────────────────────────
 
 /**
- * Adapts a name-based record writer (the legacy Route53 client, or the no-op
- * fixture writer) to the deployment-keyed machine seam. The Route53 UPSERT is
- * already idempotent per name and cannot be read back, so the deployment ops
- * forward straight to the minted FQDN / given validation name. Kept only
- * while the legacy Route53 writer remains; Phase 16 cleanup removes both.
+ * Adapts a name-based record writer (the no-op used when the default-HTTPS
+ * flow is off or under the fixture namespace) to the deployment-keyed machine
+ * seam. The no-op UPSERT is idempotent per name and cannot be read back, so
+ * the deployment ops forward straight to the minted FQDN / given validation
+ * name.
  */
 export function createDnsClientFromNameWriter(
   writer: DnsRecordClient,
@@ -622,8 +642,7 @@ export function createDnsClientFromNameWriter(
       return { op: 'deleted' };
     },
     // A name-based writer cannot read its records back, so the sweep sees
-    // nothing to reconcile. Legacy Route53 mode only (Phase 16 cleanup); the
-    // Cloudflare path does the real orphan reconciliation.
+    // nothing to reconcile; the Cloudflare path does the real reconciliation.
     listDefaultRecords: async () => [],
   };
 }

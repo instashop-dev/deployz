@@ -75,6 +75,29 @@ of `<API_URL>/api/github/setup`. It is on the web app rather than the API
 because a vendor who installs the App while signed out has to be offered
 sign-in, not handed an error.
 
+## Deployment URLs (default HTTPS)
+
+Every deployment gets a permanent Deployz-owned URL:
+`https://d-<deployment-id>.deployz.dev`. The control plane reconciles the
+`d-*` CNAMEs into the deployz.dev **Cloudflare** zone (no Route53 anywhere in
+this flow), ACM-validates the per-deployment certificate through them, and
+promotes the deployment to READY once the HTTPS probe verifies the endpoint.
+A customer custom domain, once ACTIVE and healthy, takes precedence as the
+deployment's preferred URL; the default URL remains the permanent fallback and
+is never disabled while the custom domain exists. See
+[`docs/mvp-default-https-status.md`](docs/mvp-default-https-status.md) for the
+full phase record.
+
+The four production Cloudflare config keys (names only — never a token value in
+this repo) are supplied to the API Lambda by the
+`.github/workflows/deploy-api.yml` environment, whose completeness gate refuses
+a deploy if any is missing:
+
+- `CLOUDFLARE_ZONE_ID`
+- `CLOUDFLARE_ZONE_NAME`
+- `DEPLOYZ_DEFAULT_HOSTNAME_PREFIX`
+- `CLOUDFLARE_ZONE_EDIT_API_TOKEN`
+
 ## Module-resolution scheme
 
 One base config (`tsconfig.base.json`, `strict: true` plus strict-adjacent flags), two per-package flavors:
