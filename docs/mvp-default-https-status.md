@@ -27,7 +27,7 @@ Rules that hold for every phase:
 | 5 | Default HTTPS state + READY logic | In review | #TBD (batched) | — | — | — |
 | 6 | Origin TLS architecture | In review | #TBD (batched) | — | — | — |
 | 7 | Custom-domain flow fallback rules | In review | #TBD (batched) | — | — | — |
-| 8 | Custom-domain health promotion | Pending | — | — | — | — |
+| 8 | Custom-domain health promotion | In review | #TBD (batched) | — | — | — |
 | 9 | UI/UX default vs custom URL | Pending | — | — | — | — |
 | 10 | Custom domain removal / change | Pending | — | — | — | — |
 | 11 | Delete / purge reconciliation | Pending | — | — | — | — |

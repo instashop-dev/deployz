@@ -1450,3 +1450,77 @@ describe('toPlanHttpsState — plan HTTPS vocabulary (Phase 5)', () => {
     expect(toPlanHttpsState('bogus')).toBeNull();
   });
 });
+
+// Phase 8 — custom-domain promotion gating. The machine already sequences the
+// domain's own gates (PENDING → WAITING_FOR_DNS after DNS is visible →
+// CONFIGURING after the cert is ISSUED → ACTIVE only after a successful HTTPS
+// probe); the deployment-status derivation contributes the separate app-health
+// gate. These pins lock the separation: domain status, certificate status and
+// application health never collapse into each other, and a failing custom
+// domain never fails the application while the default URL is healthy.
+describe('custom-domain promotion gating (Phase 8)', () => {
+  const CUSTOM = { hostname: 'app.customer.com', status: 'ACTIVE' as const };
+  const CUSTOM_URL = 'https://app.customer.com';
+  const DEFAULT = { hostname: 'd-dep-1.deployz.dev', status: 'ACTIVE' as const };
+  const DEFAULT_URL = 'https://d-dep-1.deployz.dev';
+
+  const readyDeployment = (healthStatus: 'HEALTHY' | 'UNHEALTHY' | 'UNKNOWN') =>
+    makeDeployment({ state: 'HEALTHY', healthStatus });
+
+  it('an ACTIVE custom domain is the serving URL only while the app is HEALTHY (READY)', () => {
+    const status = derive({
+      deployment: readyDeployment('HEALTHY'),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      domain: CUSTOM,
+      defaultHttps: DEFAULT,
+      appUrl: CUSTOM_URL,
+    });
+    expect(status.stage).toBe('READY');
+    expect(status.result).toEqual({ url: CUSTOM_URL });
+  });
+
+  it('a failing app behind an ACTIVE custom domain is VERIFYING, not READY (app health is its own gate)', () => {
+    const status = derive({
+      deployment: readyDeployment('UNHEALTHY'),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      domain: CUSTOM,
+      defaultHttps: DEFAULT,
+      appUrl: CUSTOM_URL,
+    });
+    // The domain is ACTIVE, but an ACTIVE domain never stands in for a healthy
+    // app: the deployment drops to VERIFYING on the health-check step and no
+    // address is presented as working.
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.step).toBe('HEALTH_CHECK');
+    expect(status.health.status).toBe('UNHEALTHY');
+    expect(status.result).toBeNull();
+  });
+
+  it('a failing custom domain (ERROR) never fails the deployment while the default URL is healthy', () => {
+    const status = derive({
+      deployment: readyDeployment('HEALTHY'),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      domain: { hostname: 'app.customer.com', status: 'ERROR' },
+      defaultHttps: DEFAULT,
+      appUrl: DEFAULT_URL,
+    });
+    // The domain machine reverted the custom URL to non-preferred; the app
+    // keeps serving READY behind the default URL, and stays HEALTHY.
+    expect(status.stage).toBe('READY');
+    expect(status.health.status).toBe('HEALTHY');
+    expect(status.result).toEqual({ url: DEFAULT_URL });
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('FAILED');
+  });
+
+  it('a domain stuck CONFIGURING on a failed HTTPS probe never stands in for the default URL', () => {
+    const status = derive({
+      deployment: readyDeployment('HEALTHY'),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      domain: { hostname: 'app.customer.com', status: 'CONFIGURING' },
+      defaultHttps: DEFAULT,
+      appUrl: DEFAULT_URL,
+    });
+    expect(status.stage).toBe('READY');
+    expect(status.result).toEqual({ url: DEFAULT_URL });
+  });
+});
