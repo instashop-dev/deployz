@@ -250,6 +250,40 @@ describe('custom domain routes', () => {
     expect(envelope.error.code).toBe('DOMAIN_TAKEN');
     expect(envelope.error.message).not.toContain(firstOrgRow!.name);
   });
+
+  it('a custom-domain request body can never write the default-HTTPS routing target', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const victim = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    // A hostile body laces the customer-owned fields with default-HTTPS DNS
+    // fields. The route only reads `hostname`; the default-HTTPS state machine
+    // (deployments.default_https) is driven exclusively by relay job results.
+    const response = await postJson(
+      app,
+      `/api/deployments/${victim.id}/domain`,
+      {
+        hostname: `app.${crypto.randomUUID().slice(0, 8)}.customer.com`,
+        routingTarget: 'attacker-controlled-alb.example.com',
+        validationName: '_x.attacker.example.com',
+        validationValue: '_y.acm-validations.aws.',
+        defaultHttps: {
+          hostname: 'd-evil.deployz.dev',
+          status: 'ACTIVE',
+          routingTarget: 'attacker-controlled-alb.example.com',
+        },
+      },
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(201);
+
+    const rows = await db
+      .select({ defaultHttps: schema.deployments.defaultHttps })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, victim.id))
+      .limit(1);
+    expect(rows[0]?.defaultHttps ?? null).toBeNull();
+  });
 });
 
 // ── Relay result integration ─────────────────────────────────────────────────

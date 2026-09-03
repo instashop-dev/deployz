@@ -3,18 +3,25 @@
  * uses once the deployz.dev zone's DNS lives on Cloudflare (Phase 3).
  *
  * Mirrors the house idiom of route53-records.ts (narrow injectable seam +
- * real implementation + in-memory fake): one record type (CNAME), three
- * operations (look up, upsert, delete), and an injectable transport so a
- * test never reaches api.cloudflare.com. The single credential is a
- * zone-scoped API token sent as `Authorization: Bearer` — it never appears
- * in an error message or thrown field.
+ * real implementation + in-memory fake): one record type (CNAME), four
+ * operations (look up a deployment record, upsert/delete a deployment's
+ * routing CNAME, upsert/delete its ACM validation CNAME), and an injectable
+ * transport so a test never reaches api.cloudflare.com. The single
+ * credential is a zone-scoped API token sent as `Authorization: Bearer` —
+ * it never appears in an error message or thrown field.
  *
  * Cloudflare has no server-side DNS upsert and create is NOT idempotent (a
  * duplicate POST fails with 81057), so upsert is search → create/update —
  * and a lost concurrent-create race is settled with one re-look-up (2 POSTs
  * max) before falling back to the update path. Every operation resolves the
  * target hostname through the Phase 2 default-hostname model and refuses to
- * touch anything outside `d-*.<zone>` BEFORE the transport is invoked.
+ * touch anything outside `d-*.<zone>` (or an ACM validation name directly
+ * beneath one) BEFORE the transport is invoked.
+ *
+ * The routing CNAME (`d-<id>.<zone>` → ALB) is proxied, so `ttl: 1` is
+ * forced. The validation CNAME (`_<label>.d-<id>.<zone>` → ACM value) must
+ * NOT be proxied — a proxied record hides the record from ACM's DNS-01
+ * validation — and carries its own static comment.
  */
 
 import {
@@ -22,12 +29,16 @@ import {
   DEFAULT_HOSTNAME_PREFIX,
   getDefaultDeploymentHostname,
 } from './default-https.js';
+import type { DnsRecordClient } from './route53-records.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.cloudflare.com/client/v4';
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-/** Static comment on every Deployz-owned default-HTTPS record (no secrets). */
+/** Static comment on every Deployz-owned default-HTTPS routing record (no secrets). */
 export const CLOUDFLARE_RECORD_COMMENT = 'deployz-default-https';
+
+/** Static comment on every ACM validation record the client writes. */
+export const CLOUDFLARE_VALIDATION_RECORD_COMMENT = 'deployz-default-https-validation';
 
 // ── Error taxonomy ──────────────────────────────────────────────────────────
 
@@ -86,6 +97,14 @@ export interface CloudflareDnsClient {
   upsertDefaultDeploymentRecord(deploymentId: string, target: string): Promise<CloudflareDnsUpsertResult>;
   /** Delete the deployment's record; an already-missing record is a no-op. */
   deleteDefaultDeploymentRecord(deploymentId: string): Promise<CloudflareDnsDeleteResult>;
+  /** Reconcile the ACM validation CNAME (`_<label>.d-<id>.<zone>`), unproxied. */
+  upsertDefaultValidationRecord(
+    deploymentId: string,
+    validationName: string,
+    validationValue: string,
+  ): Promise<CloudflareDnsUpsertResult>;
+  /** Delete the deployment's validation CNAME; already-missing is a no-op. */
+  deleteDefaultValidationRecord(deploymentId: string, validationName: string): Promise<CloudflareDnsDeleteResult>;
 }
 
 export interface CloudflareDnsClientOptions {
@@ -120,6 +139,30 @@ function makeHostnameGuard(prefix: string, zoneName: string) {
       );
     }
   };
+}
+
+/**
+ * Refuses an ACM validation name unless it is exactly `<label>.<hostname>`
+ * where `hostname` is the deployment's already-guarded mutable default
+ * hostname. The ACM CNAME for a deployment is always one label beneath the
+ * hostname it validates (`_<digest>.d-<id>.<zone>`), so anything else —
+ * a reserved hostname, a wrong zone, a multi-label prefix — never reaches
+ * the transport. `hostname` MUST already have passed the mutable-hostname
+ * guard.
+ */
+function assertValidationRecordName(hostname: string, validationName: string): void {
+  const lowerHostname = hostname.toLowerCase();
+  const lowerName = validationName.toLowerCase();
+  const suffix = `.${lowerHostname}`;
+  const label = lowerName.length > suffix.length && lowerName.endsWith(suffix)
+    ? lowerName.slice(0, -suffix.length)
+    : '';
+  if (label.length === 0 || label.includes('.')) {
+    throw new CloudflareDnsError(
+      `Refusing to touch DNS for ${JSON.stringify(validationName)}: not a validation record of a mutable default deployment hostname.`,
+      'CLOUDFLARE_DNS_CONFLICT',
+    );
+  }
 }
 
 // ── Response classification (single place) ─────────────────────────────────
@@ -302,24 +345,13 @@ export function createCloudflareDnsClient(options: CloudflareDnsClientOptions): 
     return null;
   }
 
-  async function writeRecord(
-    method: 'POST' | 'PUT',
-    path: string,
-    hostname: string,
-    target: string,
-  ): Promise<CloudflareDnsRecord> {
-    const { status, payload, retryAfterSeconds } = await callApi(
-      method,
-      path,
-      JSON.stringify({
-        type: 'CNAME',
-        name: hostname,
-        content: target,
-        ttl: 1, // proxied records force TTL auto
-        proxied: true,
-        comment: CLOUDFLARE_RECORD_COMMENT,
-      }),
-    );
+  /** The CNAME body shared by routing (proxied) and validation (unproxied) writes. */
+  function recordBody(name: string, content: string, proxied: boolean, comment: string): string {
+    return JSON.stringify({ type: 'CNAME', name, content, ttl: 1, proxied, comment });
+  }
+
+  async function writeRecord(method: 'POST' | 'PUT', path: string, body: string): Promise<CloudflareDnsRecord> {
+    const { status, payload, retryAfterSeconds } = await callApi(method, path, body);
     if (!isApiSuccess(status, payload)) {
       throw classifyFailure(status, payload, retryAfterSeconds);
     }
@@ -333,21 +365,36 @@ export function createCloudflareDnsClient(options: CloudflareDnsClientOptions): 
     return record;
   }
 
-  async function reconcile(hostname: string, existing: CloudflareDnsRecord, target: string) {
-    if (existing.content === target && existing.proxied === true) {
-      return { op: 'noop' as const, record: existing };
+  async function reconcile(
+    existing: CloudflareDnsRecord,
+    name: string,
+    content: string,
+    proxied: boolean,
+    comment: string,
+  ): Promise<CloudflareDnsUpsertResult> {
+    if (existing.content === content && existing.proxied === proxied) {
+      return { op: 'noop', record: existing };
     }
-    const record = await writeRecord('PUT', `/zones/${zoneId}/dns_records/${encodeURIComponent(existing.id)}`, hostname, target);
-    return { op: 'updated' as const, record };
+    const record = await writeRecord(
+      'PUT',
+      `/zones/${zoneId}/dns_records/${encodeURIComponent(existing.id)}`,
+      recordBody(name, content, proxied, comment),
+    );
+    return { op: 'updated', record };
   }
 
-  async function upsert(hostname: string, target: string): Promise<CloudflareDnsUpsertResult> {
-    const existing = await listRecord(hostname);
+  async function ensureRecord(
+    name: string,
+    content: string,
+    proxied: boolean,
+    comment: string,
+  ): Promise<CloudflareDnsUpsertResult> {
+    const existing = await listRecord(name);
     if (existing) {
-      return reconcile(hostname, existing, target);
+      return reconcile(existing, name, content, proxied, comment);
     }
     try {
-      const record = await writeRecord('POST', `/zones/${zoneId}/dns_records`, hostname, target);
+      const record = await writeRecord('POST', `/zones/${zoneId}/dns_records`, recordBody(name, content, proxied, comment));
       return { op: 'created', record };
     } catch (error) {
       if (!(error instanceof CloudflareDnsError && error.code === 'CLOUDFLARE_DNS_CONFLICT')) {
@@ -356,17 +403,17 @@ export function createCloudflareDnsClient(options: CloudflareDnsClientOptions): 
       // A lost concurrent-create race (81057). Re-look-up once: adopt the
       // winner if it is now visible, otherwise one more create (2 POSTs max)
       // and let that outcome stand.
-      const winner = await listRecord(hostname);
+      const winner = await listRecord(name);
       if (winner) {
-        return reconcile(hostname, winner, target);
+        return reconcile(winner, name, content, proxied, comment);
       }
-      const record = await writeRecord('POST', `/zones/${zoneId}/dns_records`, hostname, target);
+      const record = await writeRecord('POST', `/zones/${zoneId}/dns_records`, recordBody(name, content, proxied, comment));
       return { op: 'created', record };
     }
   }
 
-  async function remove(hostname: string): Promise<CloudflareDnsDeleteResult> {
-    const existing = await listRecord(hostname);
+  async function removeRecord(name: string): Promise<CloudflareDnsDeleteResult> {
+    const existing = await listRecord(name);
     if (!existing) {
       return { op: 'noop' };
     }
@@ -386,8 +433,19 @@ export function createCloudflareDnsClient(options: CloudflareDnsClientOptions): 
 
   return {
     getRecord: async (deploymentId) => listRecord(hostnameFor(deploymentId)),
-    upsertDefaultDeploymentRecord: async (deploymentId, target) => upsert(hostnameFor(deploymentId), target),
-    deleteDefaultDeploymentRecord: async (deploymentId) => remove(hostnameFor(deploymentId)),
+    upsertDefaultDeploymentRecord: async (deploymentId, target) =>
+      ensureRecord(hostnameFor(deploymentId), target, true, CLOUDFLARE_RECORD_COMMENT),
+    deleteDefaultDeploymentRecord: async (deploymentId) => removeRecord(hostnameFor(deploymentId)),
+    upsertDefaultValidationRecord: async (deploymentId, validationName, validationValue) => {
+      const hostname = hostnameFor(deploymentId);
+      assertValidationRecordName(hostname, validationName);
+      return ensureRecord(validationName, validationValue, false, CLOUDFLARE_VALIDATION_RECORD_COMMENT);
+    },
+    deleteDefaultValidationRecord: async (deploymentId, validationName) => {
+      const hostname = hostnameFor(deploymentId);
+      assertValidationRecordName(hostname, validationName);
+      return removeRecord(validationName);
+    },
   };
 }
 
@@ -410,51 +468,109 @@ export function createFakeCloudflareDnsClient(options: {
   const store = new Map<string, CloudflareDnsRecord>();
   let nextId = 1;
 
-  function recordFor(hostname: string): CloudflareDnsRecord | null {
-    return store.get(hostname.toLowerCase()) ?? null;
+  function recordFor(name: string): CloudflareDnsRecord | null {
+    return store.get(name.toLowerCase()) ?? null;
   }
 
   function save(record: CloudflareDnsRecord): void {
     store.set(record.name.toLowerCase(), record);
   }
 
-  function putRecord(hostname: string, content: string): CloudflareDnsRecord {
+  function putRecord(name: string, content: string, proxied: boolean, comment: string): CloudflareDnsRecord {
     const record: CloudflareDnsRecord = {
       id: `rec-${nextId++}`,
       type: 'CNAME',
-      name: hostname,
+      name,
       content,
       ttl: 1,
-      proxied: true,
-      comment: CLOUDFLARE_RECORD_COMMENT,
+      proxied,
+      comment,
     };
     save(record);
     return record;
   }
 
+  function upsertRecord(
+    name: string,
+    content: string,
+    proxied: boolean,
+    comment: string,
+  ): CloudflareDnsUpsertResult {
+    const existing = recordFor(name);
+    if (!existing) {
+      return { op: 'created', record: putRecord(name, content, proxied, comment) };
+    }
+    if (existing.content === content && existing.proxied === proxied) {
+      return { op: 'noop', record: existing };
+    }
+    const updated: CloudflareDnsRecord = { ...existing, content, proxied };
+    save(updated);
+    return { op: 'updated', record: updated };
+  }
+
+  function deleteRecord(name: string): CloudflareDnsDeleteResult {
+    const existing = recordFor(name);
+    if (!existing) {
+      return { op: 'noop' };
+    }
+    store.delete(name.toLowerCase());
+    return { op: 'deleted' };
+  }
+
   return {
     listRecords: () => [...store.values()],
     getRecord: async (deploymentId) => recordFor(hostnameFor(deploymentId)),
-    upsertDefaultDeploymentRecord: async (deploymentId, target) => {
+    upsertDefaultDeploymentRecord: async (deploymentId, target) =>
+      upsertRecord(hostnameFor(deploymentId), target, true, CLOUDFLARE_RECORD_COMMENT),
+    deleteDefaultDeploymentRecord: async (deploymentId) => deleteRecord(hostnameFor(deploymentId)),
+    upsertDefaultValidationRecord: async (deploymentId, validationName, validationValue) => {
       const hostname = hostnameFor(deploymentId);
-      const existing = recordFor(hostname);
-      if (!existing) {
-        return { op: 'created', record: putRecord(hostname, target) };
-      }
-      if (existing.content === target && existing.proxied === true) {
-        return { op: 'noop', record: existing };
-      }
-      const updated: CloudflareDnsRecord = { ...existing, content: target, proxied: true };
-      save(updated);
-      return { op: 'updated', record: updated };
+      assertValidationRecordName(hostname, validationName);
+      return upsertRecord(validationName, validationValue, false, CLOUDFLARE_VALIDATION_RECORD_COMMENT);
+    },
+    deleteDefaultValidationRecord: async (deploymentId, validationName) => {
+      const hostname = hostnameFor(deploymentId);
+      assertValidationRecordName(hostname, validationName);
+      return deleteRecord(validationName);
+    },
+  };
+}
+
+// ── Legacy name-writer adapter ──────────────────────────────────────────────
+
+/**
+ * Adapts a name-based record writer (the legacy Route53 client, or the no-op
+ * fixture writer) to the deployment-keyed machine seam. The Route53 UPSERT is
+ * already idempotent per name and cannot be read back, so the deployment ops
+ * forward straight to the minted FQDN / given validation name. Kept only
+ * while the legacy Route53 writer remains; Phase 16 cleanup removes both.
+ */
+export function createDnsClientFromNameWriter(
+  writer: DnsRecordClient,
+  options: { zoneName: string; prefix?: string },
+): CloudflareDnsClient {
+  const hostnameFor = makeHostnameGuard(options.prefix ?? DEFAULT_HOSTNAME_PREFIX, options.zoneName);
+  return {
+    getRecord: async (deploymentId) => {
+      hostnameFor(deploymentId); // guard the id even though a name writer cannot read records back
+      return null;
+    },
+    upsertDefaultDeploymentRecord: async (deploymentId, target) => {
+      await writer.upsertCname(hostnameFor(deploymentId), target);
+      return { op: 'updated', record: null };
     },
     deleteDefaultDeploymentRecord: async (deploymentId) => {
-      const hostname = hostnameFor(deploymentId);
-      const existing = recordFor(hostname);
-      if (!existing) {
-        return { op: 'noop' };
-      }
-      store.delete(hostname.toLowerCase());
+      await writer.deleteCname(hostnameFor(deploymentId));
+      return { op: 'deleted' };
+    },
+    upsertDefaultValidationRecord: async (deploymentId, validationName, validationValue) => {
+      hostnameFor(deploymentId); // the name writer itself is unguarded; keep the id valid
+      await writer.upsertCname(validationName, validationValue);
+      return { op: 'updated', record: null };
+    },
+    deleteDefaultValidationRecord: async (deploymentId, validationName) => {
+      hostnameFor(deploymentId);
+      await writer.deleteCname(validationName);
       return { op: 'deleted' };
     },
   };

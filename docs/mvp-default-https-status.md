@@ -20,10 +20,10 @@ Rules that hold for every phase:
 | Phase | Scope | Status | PR | Merged commit | Tests | Notes |
 |---|---|---|---|---|---|---|
 | 0 | Audit existing domain/HTTPS runtime | Merged | #131 | a0f0c0f | none (docs only) | Findings below |
-| 1 | Runtime Cloudflare configuration | In review | #TBD (batched) | — | — | — |
-| 2 | Default hostname model `d-<id>.deployz.dev` | In review | #TBD (batched) | — | — | — |
-| 3 | Cloudflare DNS client (mocked) | In review | #TBD (batched) | — | — | — |
-| 4 | Connect default DNS to lifecycle | Pending | — | — | — | — |
+| 1 | Runtime Cloudflare configuration | Merged | #136 | 5b18167 | — | — |
+| 2 | Default hostname model `d-<id>.deployz.dev` | Merged | #136 | 5b18167 | — | — |
+| 3 | Cloudflare DNS client (mocked) | Merged | #136 | 5b18167 | — | — |
+| 4 | Connect default DNS to lifecycle | In review | #TBD (batched) | — | — | — |
 | 5 | Default HTTPS state + READY logic | Pending | — | — | — | — |
 | 6 | Origin TLS architecture | Pending | — | — | — | — |
 | 7 | Custom-domain flow fallback rules | Pending | — | — | — | — |
@@ -162,6 +162,14 @@ Verified against current Cloudflare v4 docs:
   (root-level status doc, same pattern as `docs/mvp-implementation-status.md`).
 - D6: No live Cloudflare testing at any phase. The Cloudflare HTTP transport
   is injectable; tests use a fake transport only.
+- D7: The default-HTTPS machine consumes the Phase 3 client's
+  deployment-keyed shape, extended (not loosened) with ACM validation-record
+  ops: `upsert/deleteDefaultValidationRecord(deploymentId, validationName)`.
+  The namespace guard keeps refusing anything that is not a mutable
+  `d-*.<zone>` name or a validation name exactly one label beneath one
+  (`_<label>.d-<id>.<zone>`, unproxied so ACM DNS-01 can see it). Routing
+  records stay proxied with `ttl: 1`. WAITING_FOR_DNS reconciles both
+  records; teardown paths delete both.
 
 ### Known follow-ups
 
