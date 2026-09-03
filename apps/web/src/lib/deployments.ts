@@ -279,6 +279,17 @@ export async function fetchDeploymentsForApplication(
   return body.deployments ?? [];
 }
 
+/** Fetch one customer's deployments, keyed by the immutable customer id.
+ *  Removed ones are included so the customer page can still say what happened. */
+export async function fetchDeploymentsForCustomer(
+  customerId: string,
+): Promise<FleetDeployment[]> {
+  const body = await getJson<{ deployments?: FleetDeployment[] }>(
+    `/api/deployments?customerId=${encodeURIComponent(customerId)}&includeDeleted=true`,
+  );
+  return body.deployments ?? [];
+}
+
 /** Fetch one deployment detail (§24). */
 export function fetchDeployment(id: string): Promise<FleetDeploymentDetail> {
   return getJson<FleetDeploymentDetail>(`/api/deployments/${encodeURIComponent(id)}`);

@@ -1,10 +1,11 @@
 'use client';
 
-import { ArrowLeft, CheckCircle2, ExternalLink } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Copy, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 
+import { copyInstallLink } from '@/components/copy-install-link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -122,6 +123,7 @@ function NewDeploymentScreen() {
     const form = new FormData(event.currentTarget);
     const customerName = String(form.get('customerName') ?? '').trim();
     const customerEmail = String(form.get('customerEmail') ?? '').trim();
+    const customerCompany = String(form.get('customerCompany') ?? '').trim();
     const applicationId = String(form.get('application') ?? '');
     const region = String(form.get('region') ?? regions[0]?.value ?? '');
 
@@ -132,7 +134,11 @@ function NewDeploymentScreen() {
       if (matchesRememberedCustomer(rememberedCustomer, customerName, customerEmail)) {
         customerId = rememberedCustomer.id;
       } else {
-        const customer = await createCustomerRecord({ name: customerName, email: customerEmail });
+        const customer = await createCustomerRecord({
+          name: customerName,
+          email: customerEmail,
+          company: customerCompany || null,
+        });
         customerId = customer.id;
         setRememberedCustomer({ id: customer.id, name: customerName, email: customerEmail });
       }
@@ -220,6 +226,10 @@ function NewDeploymentScreen() {
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="customerEmail">Customer email</Label>
                   <Input id="customerEmail" name="customerEmail" type="email" required />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="customerCompany">Company (optional)</Label>
+                  <Input id="customerCompany" name="customerCompany" />
                 </div>
               </div>
 
@@ -322,6 +332,10 @@ function InstallLinkCard({
       <CardContent className="flex flex-col gap-4">
         <div className="flex items-center gap-2 rounded-lg border bg-muted px-3 py-2.5">
           <code className="flex-1 break-all font-mono text-sm">{link}</code>
+          <Button size="sm" onClick={() => void copyInstallLink(link)}>
+            <Copy aria-hidden className="size-4" />
+            Copy install link
+          </Button>
           <Button asChild variant="outline" size="sm">
             <a href={link} target="_blank" rel="noopener noreferrer">
               <ExternalLink aria-hidden className="size-4" />

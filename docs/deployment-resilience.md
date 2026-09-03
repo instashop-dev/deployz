@@ -23,6 +23,17 @@ known state, and provides a deterministic path forward.
   (`RELEASE_ADVANCING_JOBS`), so after any failure it still names what is
   really running. There is no separate lastHealthyRelease column because
   `currentReleaseId` IS that pointer by construction.
+- **Customer** (`customers` row) — who the deployment is for. `name`, `email`
+  and `company` are contact metadata the vendor edits freely; the immutable
+  `id` is the only thing anything is anchored to (`deployments.customer_id`,
+  `application_configs.customer_id`, `event_logs.customer_id`). Email is never
+  an identifier and is not unique. So `PATCH /api/customers/:id` writes three
+  text columns and nothing else: no install link is reissued, no deployment
+  changes hands, nothing in AWS is touched. `DELETE /api/customers/:id`
+  refuses any customer that still has a deployment row — including a `DELETED`
+  one, which may hold retained resources — because removing a record must
+  never become a path to removing infrastructure. Disconnect and Purge on the
+  deployment stay the only things that reach a customer's AWS account.
 - **Operation** (`deployment_jobs` row) — one durable mutation (INSTALL,
   DEPLOY_RELEASE, ROLLBACK, RESTART, CONFIG_UPDATE, DESTROY, PURGE, domain
   jobs). Carries identity (`idempotencyKey`), lifecycle

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   COMPATIBILITY_VERDICTS,
+  CUSTOMER_DEPLOYMENT_STATUS_BADGE,
+  CUSTOMER_DEPLOYMENT_STATUS_LABELS,
+  CUSTOMER_DEPLOYMENT_STATUSES,
   DEPLOYMENT_STATE_BADGE,
   DEPLOYMENT_STATE_LABELS as COPY_MAP_DEPLOYMENT_STATE_LABELS,
   DEPLOYMENT_STATES,
@@ -248,6 +251,17 @@ describe('§65 jargon-free parity', () => {
     for (const state of READINESS_STATES) {
       expect(WEB_READINESS_STATE_PRESENTATION[state].heading).not.toMatch(JARGON_PATTERN);
       expect(WEB_READINESS_STATE_PRESENTATION[state].label).not.toMatch(JARGON_PATTERN);
+    }
+  });
+});
+
+describe('customer deployment rollup vocabulary parity (§65 jargon-free)', () => {
+  it('every rollup status has a jargon-free label and a badge variant', () => {
+    for (const status of CUSTOMER_DEPLOYMENT_STATUSES) {
+      expect(CUSTOMER_DEPLOYMENT_STATUS_LABELS[status], `label for ${status}`).not.toMatch(
+        JARGON_PATTERN,
+      );
+      expect(CUSTOMER_DEPLOYMENT_STATUS_BADGE[status], `badge for ${status}`).toBeDefined();
     }
   });
 });
