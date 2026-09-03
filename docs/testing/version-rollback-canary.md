@@ -106,7 +106,8 @@ preflight → vendor + application → build v1 → publish canary template
 → seed CANARY_DATA_<run> → build v2 → deploy v2 → data + infra unchanged
 → rollback to v1 (digest chain) → data + infra unchanged
 → deploy v2 → build v3-bad-health → deploy v3 FAILS, v2 keeps serving
-→ re-deploy v2 replays idempotently → rollback to v1 → build v4 → deploy v4
+→ re-deploy of the running v2 is a fresh attempt that mutates nothing
+→ rollback to v1 → build v4 → deploy v4
 → history keeps the failed v3 → Disconnect → Purge → connector stack,
   log groups, run images, task definitions, template objects → leak audit
 ```

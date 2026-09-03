@@ -595,13 +595,15 @@ async function requireDeploymentIdle(
 }
 
 /**
- * Derived idempotency key that a FAILED prior attempt does not poison. The
+ * Derived idempotency key that a settled prior attempt does not poison. The
  * fixed derived keys exist to absorb double-clicks and replays, but
  * createOrReuseJob hands the same row back regardless of state — so once an
- * attempt failed, every later user-initiated retry silently received the
- * dead job and nothing ran (observed live on a deploy retry). When the
- * newest attempt under this base key is FAILED, mint an attempt-scoped key;
- * otherwise the base key keeps its replay-absorbing behavior.
+ * attempt settled, every later user-initiated request silently received the
+ * old job and nothing ran: a retry after a FAILED deploy (observed live), and
+ * a re-deploy of v2 after rolling back to v1, which handed back the earlier
+ * SUCCEEDED v2 job while v1 kept serving (version canary). When the newest
+ * attempt under this base key is terminal, mint an attempt-scoped key; while
+ * it is still active the base key keeps its replay-absorbing behavior.
  */
 async function retryAwareIdempotencyKey(
   db: RuntimeDb,
@@ -631,8 +633,12 @@ async function retryAwareIdempotencyKey(
       b.createdAt.getTime() - a.createdAt.getTime() ||
       b.idempotencyKey.localeCompare(a.idempotencyKey),
   )[0];
-  return newest?.state === 'FAILED' ? `${baseKey}:RETRY:${attempts.length}` : baseKey;
+  return newest !== undefined && SETTLED_JOB_STATES.has(newest.state)
+    ? `${baseKey}:RETRY:${attempts.length}`
+    : baseKey;
 }
+
+const SETTLED_JOB_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS', 'FAILED', 'CANCELLED']);
 
 // maskAwsAccountId/toFleetRow live in ./fleet-row.js — shared with Team
 // Admin's cross-tenant deployment queries (apps/api/src/admin/queries.ts)
