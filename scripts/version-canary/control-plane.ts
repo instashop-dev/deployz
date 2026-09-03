@@ -87,7 +87,11 @@ export function isTerminalJobState(state: string): boolean {
 export class ControlPlane {
   private readonly cookies = new Map<string, string>();
 
-  constructor(readonly apiUrl: string) {}
+  /** `origin` is the dashboard origin better-auth trusts — the API refuses auth calls without one. */
+  constructor(
+    readonly apiUrl: string,
+    readonly origin: string,
+  ) {}
 
   async request<T>(
     method: string,

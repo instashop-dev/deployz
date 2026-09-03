@@ -22,6 +22,8 @@ export const CANARY_TAGS = {
 export interface CanaryConfig {
   readonly runId: string;
   readonly apiUrl: string;
+  /** The dashboard origin, sent as the Origin header (the API only accepts auth calls from it). */
+  readonly webUrl: string;
   readonly region: string;
   readonly expectedAccountId: string;
   readonly githubInstallationId: string;
@@ -55,6 +57,7 @@ export function loadConfig(
   return {
     runId: overrides.runId ?? env['DEPLOYZ_CANARY_RUN_ID'] ?? mintRunId(),
     apiUrl: (env['DEPLOYZ_CANARY_API_URL'] ?? 'https://api.deployz.dev').replace(/\/$/, ''),
+    webUrl: (env['DEPLOYZ_CANARY_WEB_URL'] ?? 'https://app.deployz.dev').replace(/\/$/, ''),
     region: env['AWS_REGION'] ?? 'us-east-1',
     expectedAccountId: env['DEPLOYZ_CANARY_EXPECTED_ACCOUNT'] ?? '151955775369',
     githubInstallationId: env['DEPLOYZ_CANARY_GITHUB_INSTALLATION_ID'] ?? '156387233',
