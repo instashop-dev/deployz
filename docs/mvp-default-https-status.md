@@ -29,7 +29,7 @@ Rules that hold for every phase:
 | 7 | Custom-domain flow fallback rules | In review | #TBD (batched) | — | — | — |
 | 8 | Custom-domain health promotion | In review | #TBD (batched) | — | — | — |
 | 9 | UI/UX default vs custom URL | Pending | — | — | — | — |
-| 10 | Custom domain removal / change | Pending | — | — | — | — |
+| 10 | Custom domain removal / change | In review | #TBD (batched) | — | — | — |
 | 11 | Delete / purge reconciliation | Pending | — | — | — | — |
 | 12 | Watchdogs and reconciliation | Pending | — | — | — | — |
 | 13 | Security hardening | Pending | — | — | — | — |
@@ -216,3 +216,27 @@ behind a Cloudflare IP, so the customer data the ALB serves is only protected
 for the first hop. Verifying (and, if needed, correcting) the zone mode is an
 out-of-band operator task — this work never calls the Cloudflare API and
 never changes the zone setting (no live calls, per the standing rules).
+
+## Custom-domain removal / change (Phase 10)
+
+- **Removal is the only change path.** There is no in-place hostname-change
+  route (POST creates, DELETE removes — no PATCH/PUT on a domain). Changing a
+  custom domain is remove → add, the MVP path. After the DELETE flow completes
+  (`removedAt` set on the `custom_domains` row), `findActiveDomain` no longer
+  returns the domain, so the preferred URL reverts to the permanent
+  default-HTTPS URL — which Phase 7 kept reconciling throughout, so the
+  fallback is always already there. A fresh domain can be added to the same
+  deployment immediately: the partial unique indexes cover non-removed rows
+  only, and the new row's machine starts a new cycle-0 (`checkCycle`), so job
+  idempotency is per-domain and never collides with the removed domain's
+  history.
+- **Custom domains write nothing in the deployz zone.** The custom-domain
+  machine never calls the Cloudflare DNS client: it only READS public DNS
+  (`checkCname` for the customer's validation/routing CNAMEs, `probeHttps`)
+  and drives the relay's ACM/ELB executors inside the customer account. The
+  deployz-zone writes (`upsertDefaultDeploymentRecord` /
+  `upsertDefaultValidationRecord` / their deletes) belong exclusively to the
+  default-HTTPS machine and are deployment-keyed to `d-*` names behind the
+  namespace guard — so custom-domain removal needs no deployz-side record
+  cleanup, and default-HTTPS teardown cleans up both of its own records
+  (routing + validation).
