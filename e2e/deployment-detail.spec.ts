@@ -465,10 +465,44 @@ test('deploying: the hero shows the phase, the step list and per-step timing, an
   await expect(hero.getByText('Start application')).toBeVisible();
   await expect(hero).toContainText('Typical: 3–12 minutes');
   expect(await hero.innerText()).not.toContain('%');
+  // Completed steps carry their recorded durations (the API's stepTimings) —
+  // the per-step history is not silently dropped once a step finishes.
+  await expect(hero.getByText('2m 22s')).toBeVisible(); // AWS_SETUP (142s)
+  await expect(hero.getByText('1m 1s')).toBeVisible(); // RELAY_CONNECT (61s)
+  await expect(hero.getByText('33s')).toBeVisible(); // PREPARING (33s)
+  await expect(hero.getByText('3m 4s')).toBeVisible(); // NETWORK (184s)
   // Nothing that mutates a half-created stack is offered mid-install.
   await expect(actions.getByRole('button', { name: 'Deploy Update' })).toHaveCount(0);
   await expect(infrastructure).toContainText('Services are being created.');
   await shoot(page, 'deploying');
+});
+
+test('a slow install names the stuck step instead of a typical range', async ({ page }) => {
+  const { headline, hero } = await open(page, {
+    detail: {
+      ...DEPLOYING,
+      deploymentStatus: {
+        ...(DEPLOYING.deploymentStatus as Record<string, unknown>),
+        takingLongerThanUsual: true,
+        aws: { stackStatus: 'CREATE_IN_PROGRESS' },
+      },
+    },
+    infra: infra({
+      summary: { status: 'provisioning', componentCount: 3, technicalResourceCount: 5 },
+      components: [
+        component('application', 'Application', 'pending'),
+        component('database', 'Database', 'provisioning', 'retain', 'RDS'),
+        component('network', 'Network', 'ready', 'delete', 'VPC'),
+      ],
+    }),
+  });
+
+  await expect(headline).toHaveText('Deploying');
+  // takingLongerThanUsual replaces the typical-duration line on the active
+  // step; the raw stack status stays vendor-visible in the nudge.
+  await expect(hero).toContainText('Taking longer than usual · AWS: CREATE_IN_PROGRESS');
+  expect(await hero.innerText()).not.toContain('Typical');
+  await shoot(page, 'deploying-slow');
 });
 
 test('live: the address is the primary action, and the metadata stays compact', async ({ page }) => {
@@ -580,6 +614,18 @@ test('failed first install: retry is the primary action and the raw AWS reason s
   await activity.locator('[data-testid="activity-feed"] button').first().click();
   await expect(activity).toContainText('AWS::RDS::DBInstance');
   await shoot(page, 'failed-install');
+});
+
+test('failed install: the raw failure status stays behind Advanced details', async ({ page }) => {
+  const { hero } = await open(page, { detail: FAILED_INSTALL });
+
+  // The API's failure.awsStatus (ROLLBACK_COMPLETE) must not leak into the
+  // hero — the headline carries the classified message and the reference only.
+  expect(await hero.innerText()).not.toContain('ROLLBACK_COMPLETE');
+  await page.getByRole('button', { name: 'Advanced details' }).click();
+  await expect(page.getByText('Failure status')).toBeVisible();
+  await expect(page.getByText('ROLLBACK_COMPLETE')).toBeVisible();
+  await shoot(page, 'failed-install-advanced');
 });
 
 test('failed update: the running release is named as still live, and the address stays reachable', async ({

@@ -2,25 +2,22 @@
  * §61 failure vocabulary — the stable failure taxonomy and the structured
  * event shape that carries a failure signal.
  *
- * This lives in `@deployz/analysis` rather than alongside the classifier
- * because BOTH sides of the monorepo need the vocabulary and neither may
- * import the other: `@deployz/cdk` classifies failures (it owns
- * `failure-classifier.ts`, which depends on `jobs/preflight.js`), while
- * `apps/api` explains a failure code it has already read back from the
- * database. `@deployz/cdk` depends on `@deployz/api`, so the API importing
- * the classifier directly would close a dependency cycle.
- *
- * The classifier re-exports these symbols, so there remains exactly ONE
- * definition of the taxonomy.
+ * This is the single home of the taxonomy, importable by every consumer
+ * without a workspace cycle: `@deployz/cdk` and `@deployz/api` both depend
+ * on `@deployz/analysis`. The classifier that once lived in `@deployz/cdk`
+ * (packages/cdk/src/analysis) was removed in Phase 13 — failure refinement
+ * now runs in `apps/api` (failure-classification.ts), which consumes the
+ * codes from here.
  */
 
 // ── §61 failure taxonomy ───────────────────────────────────────────────────
 
 /**
- * The twenty §61 stable failure codes, copied verbatim from
+ * The §61 stable failure codes, copied verbatim from
  * `packages/db/src/enums.ts` `failureCodeEnum`. Do not reorder, rename, or
- * extend without updating that enum and the parity test in
- * `packages/cdk/test/failure-classifier.test.ts`.
+ * extend without updating that enum and the parity tests in
+ * `packages/contracts/src/index.test.ts` and
+ * `packages/db/src/contracts-parity.test.ts`.
  */
 export const FAILURE_CODES = [
   'AWS_SCP_BLOCKED',

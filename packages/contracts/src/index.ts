@@ -87,7 +87,7 @@ export function isSupportedRegion(value: string): value is Region {
 }
 
 // §46 deployment states — product vocabulary. Customers never see raw
-// CFN/ECS internals; these nine states are the whole user-facing model.
+// CFN/ECS internals; these ten states are the whole user-facing model.
 export const deploymentStateSchema = z.enum([
   'NOT_INSTALLED',
   'WAITING_FOR_RELAY',
@@ -124,6 +124,10 @@ export type JobType = z.infer<typeof jobTypeSchema>;
 
 // §39 job states. WAITING semantics: the job is waiting on customer approval
 // OR on relay pickup — the payload/result disambiguates which.
+// SUCCESS is legacy: rows recorded before the CANARY fixes wrote it, so
+// every reader accepts SUCCEEDED and SUCCESS alike. New writes always use
+// SUCCEEDED; do not drop SUCCESS from the schema without a data migration
+// first.
 export const jobStateSchema = z.enum([
   'REQUESTED',
   'QUEUED',

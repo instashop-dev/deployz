@@ -34,7 +34,6 @@ import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations
 import { Construct } from 'constructs';
 
 import { ApiLambda } from './api-lambda.js';
-import { DurableExecution } from './durable/durable-stack.js';
 import { BuildPipeline } from './pipeline/build-pipeline.js';
 import { WorkerLambda } from './worker-lambda.js';
 
@@ -49,7 +48,6 @@ import { WorkerLambda } from './worker-lambda.js';
  * - SQS queue + worker Lambda for async job processing
  * - CodeBuild + ECR release build pipeline, and the public bucket the
  *   customer bootstrap template is published to
- * - DynamoDB-backed durable execution framework (U1 spike)
  *
  * Region: us-east-1 (hardcoded per plan §32 region allowlist).
  *
@@ -315,13 +313,6 @@ export class DeployzStack extends Stack {
       targets: [new LambdaFunction(worker.function)],
     });
 
-    // ── Durable Execution (U1 spike) ─────────────────────────────────────
-    const durable = new DurableExecution(this, 'DurableExecution', {
-      vpc: vpcResource,
-      httpApi,
-      ...(apiDomainName ? { publicBaseUrl: `https://${apiDomainName}` } : {}),
-    });
-
     // ── Stack outputs ────────────────────────────────────────────────────
     this.exportValue(dbInstance.instanceEndpoint.hostname, {
       name: `${this.stackName}-DbHost`,
@@ -343,9 +334,6 @@ export class DeployzStack extends Stack {
     });
     this.exportValue(sourceBucket.bucketName, {
       name: `${this.stackName}-BuildSourceBucket`,
-    });
-    this.exportValue(durable.callbackUrl, {
-      name: `${this.stackName}-DurableCallbackUrl`,
     });
 
     if (apiDomain) {

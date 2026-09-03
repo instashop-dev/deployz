@@ -521,10 +521,11 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'rollback.health': 'Health check after rollback',
   'rollback.state.healthy': 'Rolled back and healthy',
 
-  // The vocabulary the API emits at its own transition points. The entries
-  // below this block are the durable workflows' finer-grained vocabulary,
-  // kept because those events are still the intended shape once the workflow
-  // layer runs.
+  // The API emits only the coarse transition points it records itself
+  // (install.requested, deploy.completed, ...). The finer-grained step events
+  // above — and the config/redis step vocabulary further below — belong to
+  // the durable-workflow layer removed in Phase 13; their labels are kept so
+  // event rows recorded while that layer existed still render.
   'install.requested': 'Installation started',
   'install.launched': 'AWS install launched',
   'install.completed': 'Installed and healthy',

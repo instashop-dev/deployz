@@ -376,8 +376,8 @@ const MIGRATION_SCRIPT_KEY_REGEX = /migrat/i;
 const WORKER_SCRIPT_KEY_REGEX = /^worker$|worker[:-]?start|start[:-]?worker/i;
 
 // A dev-mode migration command must never reach `migrationCommand` — it runs
-// unattended against the production database on every deploy
-// (deploy-release-workflow.ts), and a dev-mode command is built to prompt
+// unattended against the production database on every deploy (the relay's
+// DEPLOY_RELEASE executor runs it), and a dev-mode command is built to prompt
 // interactively / reset data, not to run unattended. Matches "migrate dev",
 // "migrate-dev", and "migrate:dev" (which also covers a ":migrate-dev"
 // script-key form, since that substring contains "migrate-dev").
@@ -393,8 +393,8 @@ const DEPLOY_MIGRATION_REGEX =
 
 /**
  * Resolve the migration command to persist as the §35 `migrationCommand`
- * contract field — the command deploy-release-workflow.ts runs unattended
- * against the production database on every deploy, so this picks
+ * contract field — the command the relay's DEPLOY_RELEASE executor runs
+ * unattended against the production database on every deploy, so this picks
  * defensively:
  *
  *   1. Drop every dev-shaped candidate outright (`DEV_MIGRATION_REGEX`) —
