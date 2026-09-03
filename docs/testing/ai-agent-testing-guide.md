@@ -62,6 +62,12 @@ When a new real-world AWS failure is discovered:
   [`aws-canary.md`](aws-canary.md).
 - Fresh (real AWS, create + destroy): `pnpm e2e:fresh` — see
   [`aws-fresh.md`](aws-fresh.md).
+- Version canary (real AWS, full product, automated):
+  `pnpm e2e:canary:versions core` or the `AWS version canary` workflow — see
+  [`version-rollback-canary.md`](version-rollback-canary.md). Required for
+  changes to release/rollback logic, deployment orchestration, the relay's
+  deploy/destroy/purge executors, and before an MVP release (three
+  consecutive passes).
 - Full-product canary (manual, deployed control plane + real customer
   install): [`aws-full-product-canary.md`](aws-full-product-canary.md) —
   required before calling a release ready; it is the only check that runs
