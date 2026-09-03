@@ -183,7 +183,6 @@ import {
   noopDnsRecordClient,
 } from './route53-records.js';
 import {
-  albEndpointFromResult,
   resolveAppUrl,
   toFleetRow,
   type DeploymentJobRow,
@@ -873,14 +872,15 @@ const DEFAULT_HEALTH_PATH = '/health';
 
 /**
  * §10.2 + Phase 11 the URL the relay probes once per poll: whatever endpoint
- * currently serves the deployment (ACTIVE/CONFIGURING custom domain, then
- * ACTIVE/CONFIGURING default-HTTPS hostname, then the ALB) plus the
- * application's configured health path. The control plane knows all of these
- * and hands the full URL to the relay in each poll's deployment meta, so the
- * relay never has to resolve either inside the customer account. Once the
- * default-HTTPS (or custom) endpoint is ACTIVE, the probe verifies the HTTPS
- * URL; before that it probes the interim HTTP ALB. Null when no endpoint
- * exists yet — the relay then omits the probe.
+ * currently serves the deployment, plus the application's configured health
+ * path. Single source of truth: the base is resolveAppUrl (fleet-row.ts) —
+ * the exact URL the product surfaces (ACTIVE custom domain, else the
+ * default-HTTPS hostname once ACTIVE/CONFIGURING, else the ALB) — so the
+ * relay probes precisely what a customer would click. The control plane
+ * knows all of these and hands the full URL to the relay in each poll's
+ * deployment meta, so the relay never has to resolve either inside the
+ * customer account. Null when no endpoint exists yet — the relay then omits
+ * the probe.
  * `jobs` must be ascending by createdAt.
  */
 function resolveProbeUrl(
@@ -889,24 +889,11 @@ function resolveProbeUrl(
   domain: Pick<CustomDomainRow, 'hostname' | 'status'> | null,
   defaultHttps: { hostname: string; status: string } | null,
 ): string | null {
-  let base: string | null = null;
-  if (domain && (domain.status === 'ACTIVE' || domain.status === 'CONFIGURING')) {
-    base = `https://${domain.hostname}`;
-  } else if (defaultHttps && (defaultHttps.status === 'ACTIVE' || defaultHttps.status === 'CONFIGURING')) {
-    base = `https://${defaultHttps.hostname}`;
-  } else {
-    const installs = jobs.filter(
-      (j) => j.type === 'INSTALL' && (j.state === 'SUCCEEDED' || j.state === 'SUCCESS'),
-    );
-    const endpoint = albEndpointFromResult(installs[installs.length - 1]?.result ?? null);
-    if (!endpoint) return null;
-    base = endpoint.startsWith('http://') || endpoint.startsWith('https://')
-      ? endpoint.replace(/\/+$/, '')
-      : `http://${endpoint.replace(/\/+$/, '')}`;
-  }
+  const base = resolveAppUrl(jobs, domain, defaultHttps);
+  if (!base) return null;
   const trimmed = healthPath?.trim() ?? '';
   const path = trimmed.length > 0 ? trimmed : DEFAULT_HEALTH_PATH;
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  return `${base.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 /**

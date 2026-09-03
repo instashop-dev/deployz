@@ -6,6 +6,7 @@ import { DOCUMENSO_PARAMETERS } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import { parseDefaultHttps } from './default-https.js';
 import { findActiveDomain } from './domains.js';
 
 function generateSecret(): string {
@@ -31,10 +32,11 @@ export async function readRedisRequired(db: RuntimeDb, applicationId: string): P
  * Builds the CloudFormation parameter values for an INSTALL job (§31).
  * Phase 1: the runtime-v1 template is Documenso-shaped, so every install
  * receives these; unrelated images simply ignore the injected env vars.
- * - publicUrl comes from the deployment's custom domain when one exists
- *   before INSTALL. When no domain exists the key is omitted and the
- *   template falls back to the load balancer's own URL (see
- *   SecretParameterSpec.fallbackToLoadBalancerUrl), so a domain-less
+ * - publicUrl follows the preferred-URL model (Phase 7): an ACTIVE custom
+ *   domain, else the ACTIVE default-HTTPS hostname, else a pre-created custom
+ *   domain's hostname (legacy install-time behavior). When no URL applies the
+ *   key is omitted and the template falls back to the load balancer's own URL
+ *   (see SecretParameterSpec.fallbackToLoadBalancerUrl), so a domain-less
  *   install still boots with a usable URL.
  * - Auth/encryption secrets are generated per install and travel only
  *   through the job payload into NoEcho parameters and Secrets Manager.
@@ -46,12 +48,16 @@ export async function buildInstallParameters(
   deploymentId: string,
 ): Promise<Record<string, string>> {
   const rows = await db
-    .select({ healthPath: schema.applications.healthPath })
+    .select({
+      healthPath: schema.applications.healthPath,
+      defaultHttps: schema.deployments.defaultHttps,
+    })
     .from(schema.deployments)
     .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
     .where(eq(schema.deployments.id, deploymentId))
     .limit(1);
   const domain = await findActiveDomain(db, deploymentId);
+  const defaultHttps = parseDefaultHttps(rows[0]?.defaultHttps ?? null);
   const parameters: Record<string, string> = {
     [DOCUMENSO_PARAMETERS.nextauthSecret]: generateSecret(),
     [DOCUMENSO_PARAMETERS.encryptionKey]: generateSecret(),
@@ -63,8 +69,23 @@ export async function buildInstallParameters(
     // param_HealthCheckPath parameter (CDK strips the underscore).
     parameters['paramHealthCheckPath'] = rows[0].healthPath;
   }
-  if (domain) {
-    parameters[DOCUMENSO_PARAMETERS.publicUrl] = `https://${domain.hostname}`;
+  // Phase 7 — publicUrl follows the plan's preferred-URL model so a (re)install
+  // configures the app with the address that will actually serve it: an ACTIVE
+  // custom domain, else the permanent default-HTTPS hostname once IT is ACTIVE.
+  // A default URL that is only PENDING/CONFIGURING/ERROR is never handed to the
+  // app (it does not serve yet) — that falls back to the pre-existing behavior:
+  // a pre-created custom domain's hostname, else no publicUrl at all (the
+  // template then falls back to the load balancer's own URL).
+  let publicUrl: string | null = null;
+  if (domain?.status === 'ACTIVE') {
+    publicUrl = `https://${domain.hostname}`;
+  } else if (defaultHttps?.status === 'ACTIVE') {
+    publicUrl = `https://${defaultHttps.hostname}`;
+  } else if (domain) {
+    publicUrl = `https://${domain.hostname}`;
+  }
+  if (publicUrl) {
+    parameters[DOCUMENSO_PARAMETERS.publicUrl] = publicUrl;
   }
   return parameters;
 }

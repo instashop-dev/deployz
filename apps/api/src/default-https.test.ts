@@ -185,15 +185,23 @@ describe('default-https service', () => {
       });
     });
 
-    it('does not start while an ACTIVE/CONFIGURING custom domain is the serving URL', async () => {
+    it('starts even while an ACTIVE custom domain serves (the default URL is the permanent fallback)', async () => {
       const deployment = await seedDeployment();
       await createCustomDomain(db, deployment, `app.${crypto.randomUUID().slice(0, 8)}.customer.com`, 'user-1');
       await db
         .update(schema.customDomains)
         .set({ status: 'ACTIVE' })
         .where(eq(schema.customDomains.deploymentId, deployment.id));
+      // Phase 7: the default must keep reconciling while a custom domain is
+      // active — a custom domain can fail or be removed later, and the default
+      // is the always-present fallback, so it is never disabled.
       await runDefaultHttpsCheck(db, deployment, deps());
-      expect(await stateOf(deployment.id)).toBeNull();
+      const state = await stateOf(deployment.id);
+      expect(state?.status).toBe('PENDING');
+      const jobs = (await jobsFor(deployment.id)).filter(
+        (job) => job.type === 'CONFIGURE_DOMAIN' && job.idempotencyKey.includes(':default-https:'),
+      );
+      expect(jobs).toHaveLength(1);
     });
 
     it('does nothing for deployments that are not installed', async () => {

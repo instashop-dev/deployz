@@ -83,21 +83,21 @@ export function albEndpointFromResult(result: DeploymentJobRow['result']): strin
 }
 
 /**
- * The deployment-detail page's first-class application URL. Precedence:
- * an ACTIVE/CONFIGURING custom domain always wins; otherwise the Phase 11
- * default-HTTPS endpoint (Deployz-owned hostname) once it is ACTIVE or
- * CONFIGURING; otherwise the latest successful INSTALL job's ALB endpoint;
- * otherwise null. Once the relay starts CONFIGURING whichever HTTPS route
- * serves, the ALB port-80 listener redirects to HTTPS, so the bare-ALB
- * endpoint no longer serves the app and the pending HTTPS URL replaces it;
- * the stale ALB endpoint stays hidden. `jobs` must be ascending by createdAt.
+ * The deployment-detail page's first-class application URL — the plan's
+ * precedence (Phase 7): a custom domain is preferred ONLY once it is ACTIVE
+ * (ACTIVE requires a successful HTTPS probe, so it is healthy by
+ * construction — no second health check here). Every other custom-domain
+ * state (PENDING, WAITING_FOR_DNS, CONFIGURING, ERROR, removed) falls to the
+ * Phase 11 default-HTTPS endpoint (Deployz-owned hostname) once that is
+ * ACTIVE or CONFIGURING; otherwise the latest successful INSTALL job's ALB
+ * endpoint; otherwise null. `jobs` must be ascending by createdAt.
  */
 export function resolveAppUrl(
-  jobs: DeploymentJobRow[],
+  jobs: ReadonlyArray<Pick<DeploymentJobRow, 'type' | 'state' | 'result'>>,
   domain: Pick<CustomDomainRow, 'hostname' | 'status'> | null,
   defaultHttps?: Pick<{ hostname: string; status: string }, 'hostname' | 'status'> | null,
 ): string | null {
-  if (domain?.status === 'ACTIVE' || domain?.status === 'CONFIGURING') {
+  if (domain?.status === 'ACTIVE') {
     return `https://${domain.hostname}`;
   }
   if (defaultHttps?.status === 'ACTIVE' || defaultHttps?.status === 'CONFIGURING') {

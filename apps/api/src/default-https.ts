@@ -31,7 +31,6 @@ import * as schema from '@deployz/db/schema';
 
 import type { CloudflareDnsClient } from './cloudflare-records.js';
 import type { HttpsProbeResult } from './domain-check.js';
-import { findActiveDomain } from './domains.js';
 import { createOrReuseJob } from './jobs.js';
 
 // ── State shape ──────────────────────────────────────────────────────────────
@@ -501,15 +500,12 @@ export async function runDefaultHttpsCheck(
   }
 
   const state = await reloadState(db, deployment.id);
-  const custom = await findActiveDomain(db, deployment.id);
-  const customServing = custom?.status === 'ACTIVE' || custom?.status === 'CONFIGURING';
 
   if (!state) {
-    // Nothing requested yet. Skip while a custom domain is the serving URL —
-    // a per-deployment cert that will never be the primary URL is pure waste.
-    if (customServing) {
-      return;
-    }
+    // Nothing requested yet. The default URL is permanent (Phase 7): it keeps
+    // reconciling even while a custom domain serves — a custom domain can
+    // later fail or be removed, and the default is the always-present
+    // fallback, so it must never be disabled while a custom domain exists.
     const initial: DefaultHttpsState = {
       hostname: defaultHttpsHostname(deployment.id, deps.apex),
       status: 'PENDING',

@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -966,9 +966,11 @@ describe('GET /api/deployments/:id customDomain summary', () => {
 
 // ── GET /api/deployments/:id — appUrl ────────────────────────────────────────
 //
-// An active custom domain always wins; otherwise the latest successful
-// INSTALL job's ALB endpoint (result.output.outputs.
-// ExportDeployzApplicationPublicEndpoint); otherwise null.
+// The plan's preferred-URL model (Phase 7): an ACTIVE custom domain wins;
+// every other custom-domain state (PENDING/WAITING_FOR_DNS/CONFIGURING/ERROR)
+// falls to the default-HTTPS URL once it serves, and only then to the latest
+// successful INSTALL job's ALB endpoint (result.output.outputs.
+// ExportDeployzApplicationPublicEndpoint).
 
 describe('GET /api/deployments/:id appUrl', () => {
   let client: PGlite | undefined;
@@ -1159,10 +1161,10 @@ describe('GET /api/deployments/:id appUrl', () => {
     expect(await getAppUrl(deployment.id)).toBe('http://alb.us-east-1.elb.amazonaws.com');
   });
 
-  it('hides the stale ALB endpoint once the domain is CONFIGURING (redirect is live)', async () => {
-    // CONFIGURE_DOMAIN sets the ALB's port-80 redirect once the certificate
-    // is issued — the ALB endpoint no longer serves the app, so presenting it
-    // would be stale. The pending custom-domain URL is the only honest address.
+  it('a CONFIGURING custom domain does not win: falls back to the ALB endpoint when no default HTTPS serves yet', async () => {
+    // Phase 7: only an ACTIVE custom domain is preferred. A CONFIGURING domain
+    // (cert issued, HTTPS still being verified) is not yet preferred, so with
+    // no default-HTTPS URL the resolution falls to the ALB endpoint.
     const deployment = await seedDeployment();
     await seedInstallJob(deployment.id, {
       result: {
@@ -1177,6 +1179,224 @@ describe('GET /api/deployments/:id appUrl', () => {
       status: 'CONFIGURING',
       createdBy: org.userId,
     });
+    expect(await getAppUrl(deployment.id)).toBe('http://alb.us-east-1.elb.amazonaws.com');
+  });
+
+  it('prefers the default HTTPS URL over a CONFIGURING custom domain', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'ACTIVE',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname: `configuring-${crypto.randomUUID().slice(0, 8)}.customer.com`,
+      status: 'CONFIGURING',
+      createdBy: org.userId,
+    });
+    expect(await getAppUrl(deployment.id)).toBe(`https://d-${deployment.id}.deployz.dev`);
+  });
+
+  it('uses the default HTTPS URL once it is ACTIVE even with no custom domain', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'ACTIVE',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    expect(await getAppUrl(deployment.id)).toBe(`https://d-${deployment.id}.deployz.dev`);
+  });
+
+  it('prefers an ACTIVE custom domain over an ACTIVE default HTTPS URL', async () => {
+    const deployment = await seedDeployment();
+    await seedInstallJob(deployment.id, {
+      result: {
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'ACTIVE',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    const hostname = `active-${crypto.randomUUID().slice(0, 8)}.customer.com`;
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname,
+      status: 'ACTIVE',
+      createdBy: org.userId,
+    });
     expect(await getAppUrl(deployment.id)).toBe(`https://${hostname}`);
+  });
+});
+
+// ── Custom-domain removal and re-add (Phase 10) ──────────────────────────────
+//
+// Removal is the only domain-change path (there is no in-place hostname
+// change — the MVP is remove → add). Once the DELETE flow completes
+// (removedAt set), findActiveDomain no longer sees the domain and the
+// preferred URL reverts to the permanent default-HTTPS URL, which Phase 7
+// kept reconciling the whole time. A fresh domain can then be added to the
+// same deployment; its machine starts a new cycle-0 and is preferred only
+// once ACTIVE again.
+
+describe('custom domain removal and re-add (Phase 10)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db });
+    org = await signUpAndGetOrg(auth, db, 'domain-remove-owner@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  /** A deployment with a successful INSTALL (ALB endpoint) and an ACTIVE
+   *  default-HTTPS URL — the permanent fallback the removal reverts to. */
+  async function seedWithDefaultActive(): Promise<typeof schema.deployments.$inferSelect> {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+    });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deployment.id}:INSTALL:${crypto.randomUUID()}`,
+      finishedAt: new Date(),
+      result: {
+        success: true,
+        output: { outputs: { ExportDeployzApplicationPublicEndpoint: 'alb.us-east-1.elb.amazonaws.com' } },
+      },
+    });
+    await db
+      .update(schema.deployments)
+      .set({
+        defaultHttps: {
+          hostname: `d-${deployment.id}.deployz.dev`,
+          status: 'ACTIVE',
+          checkCycle: 0,
+          lastError: null,
+        },
+      })
+      .where(eq(schema.deployments.id, deployment.id));
+    return deployment;
+  }
+
+  async function getAppUrl(deploymentId: string): Promise<unknown> {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deploymentId}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json().appUrl;
+  }
+
+  it('after the removal flow completes (removedAt set) the preferred URL reverts to the default', async () => {
+    const deployment = await seedWithDefaultActive();
+    const oldHostname = `old-${crypto.randomUUID().slice(0, 8)}.customer.com`;
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname: oldHostname,
+      status: 'ACTIVE',
+      createdBy: org.userId,
+    });
+    expect(await getAppUrl(deployment.id)).toBe(`https://${oldHostname}`);
+
+    // The REMOVE_DOMAIN relay result success is what sets removedAt; write the
+    // terminal state directly, exactly as applyDomainJobResult does.
+    await db
+      .update(schema.customDomains)
+      .set({ removedAt: new Date() })
+      .where(and(eq(schema.customDomains.deploymentId, deployment.id), isNull(schema.customDomains.removedAt)));
+
+    expect(await getAppUrl(deployment.id)).toBe(`https://d-${deployment.id}.deployz.dev`);
+  });
+
+  it('a new domain can be added after removal (remove → add), starting a fresh cycle, and ACTIVE is preferred again', async () => {
+    const deployment = await seedWithDefaultActive();
+    await db.insert(schema.customDomains).values({
+      deploymentId: deployment.id,
+      organizationId: org.organizationId,
+      hostname: `old-${crypto.randomUUID().slice(0, 8)}.customer.com`,
+      status: 'ACTIVE',
+      createdBy: org.userId,
+    });
+    await db
+      .update(schema.customDomains)
+      .set({ removedAt: new Date() })
+      .where(eq(schema.customDomains.deploymentId, deployment.id));
+
+    const newHostname = `new-${crypto.randomUUID().slice(0, 8)}.customer.com`;
+    const created = await postJson(
+      app,
+      `/api/deployments/${deployment.id}/domain`,
+      { hostname: newHostname },
+      { cookie: org.cookie },
+    );
+    expect(created.statusCode).toBe(201);
+    expect((created.json() as { domain: { status: string } }).domain.status).toBe('pending');
+
+    // The fresh machine starts at cycle-0 — the removed domain's cycle history
+    // is not reused, so its job idempotency keys can never collide.
+    const [freshRow] = await db
+      .select()
+      .from(schema.customDomains)
+      .where(eq(schema.customDomains.deploymentId, deployment.id));
+    expect(freshRow!.checkCycle).toBe(0);
+
+    // The default URL is preferred while the fresh domain is still PENDING.
+    expect(await getAppUrl(deployment.id)).toBe(`https://d-${deployment.id}.deployz.dev`);
+
+    // Once the new domain reaches ACTIVE, its machine is preferred again.
+    await db
+      .update(schema.customDomains)
+      .set({ status: 'ACTIVE' })
+      .where(eq(schema.customDomains.deploymentId, deployment.id));
+    expect(await getAppUrl(deployment.id)).toBe(`https://${newHostname}`);
   });
 });
