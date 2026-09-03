@@ -45,7 +45,10 @@ export async function destroyThroughProduct(canary: Canary): Promise<void> {
       'destroy',
       () => api.getDeployment(deploymentId),
       (d) => (d.state === 'DELETED' || d.state === 'FAILED' ? d : null),
-      { timeoutMs: 40 * MINUTE, describe: describeDeployment },
+      // A Disconnect that retains RDS goes DELETE_FAILED twice (the retained
+      // instance's ENI blocks the subnet, then the security group) before the
+      // relay's retain-resources retries finish it — observed at 45+ minutes.
+      { timeoutMs: 80 * MINUTE, describe: describeDeployment },
     );
     const destroyJob = [...settled.jobs].reverse().find((j) => j.type === 'DESTROY');
     details['destroyJob'] = destroyJob ? { id: destroyJob.id, state: destroyJob.state, failureCode: destroyJob.failureCode, result: destroyJob.result } : null;
