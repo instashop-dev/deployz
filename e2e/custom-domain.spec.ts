@@ -248,19 +248,18 @@ test('custom domain: add, verify DNS, connect, activate, appear on the dashboard
   ).toBeVisible();
   await expect(card.getByRole('link', { name: 'Open domain' })).toBeVisible();
 
-  // ── 10. Dashboard: the compact Custom domain section + Overview URL row.
+  // ── 10. Dashboard: the compact metadata's Custom domain + URL rows.
   await page.goto(`/dashboard/deployments/${deploymentId}`);
-  const domainSection = page.locator('section[aria-labelledby="custom-domain"]');
+  const overviewSection = page.locator('section[aria-labelledby="overview"]');
   // Generous timeout: when this is the first dashboard visit of the run, the
   // dev server's cold compile of the detail route alone can eat the default.
-  await expect(domainSection.getByText(hostname, { exact: true })).toBeVisible({
+  await expect(overviewSection.getByText(hostname, { exact: true })).toBeVisible({
     timeout: 15_000,
   });
-  await expect(domainSection.getByText('Active', { exact: true })).toBeVisible();
-  const manageLink = domainSection.getByRole('link', { name: 'Manage →' });
+  await expect(overviewSection.getByText('Active', { exact: true })).toBeVisible();
+  const manageLink = overviewSection.getByRole('link', { name: 'Manage →' });
   await expect(manageLink).toHaveAttribute('href', `/install/${installLinkId}`);
 
-  const overviewSection = page.locator('section[aria-labelledby="overview"]');
   await expect(overviewSection.getByText('URL', { exact: true })).toBeVisible();
   await expect(overviewSection.getByText(`https://${hostname}`, { exact: true })).toBeVisible();
 

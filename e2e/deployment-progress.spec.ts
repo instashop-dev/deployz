@@ -170,11 +170,10 @@ async function expectStageEverywhere(
 
   await page.goto(`/dashboard/deployments/${opts.deploymentId}`);
   const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-  // The stage label sits in the card's one `aria-live` element — targeted
-  // directly rather than by text, since a component row can carry the same
-  // word (e.g. a READY component's own "Ready" status text) and turn a plain
-  // text search into a strict-mode multi-match failure.
-  await expect(progressCard.locator('p[aria-live="polite"]')).toHaveText(opts.vendorLabel, {
+  // The vendor headline sits in the hero's one `aria-live` element — targeted
+  // directly rather than by text, since a status row can carry the same
+  // word and turn a plain text search into a strict-mode multi-match failure.
+  await expect(progressCard.locator('[aria-live="polite"]')).toHaveText(opts.vendorLabel, {
     timeout: 15_000,
   });
 }
@@ -201,7 +200,9 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     deploymentId,
     stage: 'WAITING_FOR_AWS',
     customerHeading: 'Setting up your AWS connection',
-    vendorLabel: 'Waiting for AWS',
+    // The customer has not launched the install yet, so the vendor hero
+    // says what to do (send the link), not that AWS is working.
+    vendorLabel: 'Waiting for your customer to install',
   });
   await page.goto(`/install/${installLinkId}`);
   await expect(page.getByRole('link', { name: 'Deploy to AWS' })).toBeVisible();
@@ -219,7 +220,7 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     deploymentId,
     stage: 'CONNECTING',
     customerHeading: 'Connecting your AWS account',
-    vendorLabel: 'Connecting',
+    vendorLabel: 'Connecting to AWS',
   });
   // The enrollment code is spent — running the setup again would fail after
   // the customer already approved a stack, so the CTA is gone entirely.
@@ -236,7 +237,7 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     deploymentId,
     stage: 'PROVISIONING',
     customerHeading: 'Creating application infrastructure',
-    vendorLabel: 'Creating infrastructure',
+    vendorLabel: 'Deploying',
   });
 
   // ── 3b. A relay heartbeat reports a mid-PROVISIONING snapshot: the network
@@ -306,7 +307,7 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     deploymentId,
     stage: 'VERIFYING',
     customerHeading: 'Checking your application',
-    vendorLabel: 'Verifying',
+    vendorLabel: 'Verifying your application',
   });
   const verifyingStatus = await fetchStatus(page, installLinkId);
   expect(verifyingStatus.needsDomainSetup).toBe(false);
@@ -319,12 +320,15 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
   });
   expect(healthResponse.ok()).toBeTruthy();
 
+  // Still VERIFYING on the wire, but the app is confirmed healthy and
+  // reachable, so the vendor hero already reads as live (with the
+  // custom-domain nudge in its description).
   await expectStageEverywhere(page, {
     installLinkId,
     deploymentId,
     stage: 'VERIFYING',
     customerHeading: 'Checking your application',
-    vendorLabel: 'Verifying',
+    vendorLabel: 'Your application is live',
   });
   const healthyHttpOnlyStatus = await fetchStatus(page, installLinkId);
   expect(healthyHttpOnlyStatus.needsDomainSetup).toBe(true);
@@ -391,7 +395,7 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     deploymentId,
     stage: 'READY',
     customerHeading: 'Your application is ready',
-    vendorLabel: 'Ready',
+    vendorLabel: 'Your application is live',
   });
   const readyStatus = await fetchStatus(page, installLinkId);
   expect(readyStatus.url).toBe(`https://${hostname}`);
@@ -462,13 +466,12 @@ test('failure path: a failed INSTALL shows a customer-safe message with no jargo
   expect(html).not.toContain('e2e-progress-fail');
   expect(html).not.toContain('RDS CreateDBInstance');
 
-  // Vendor detail: stage label + the gated Retry Install action. Targeted at
-  // the card's one `aria-live` element rather than by text — a FAILED
-  // component row can carry the identical "Needs attention" status text.
+  // Vendor detail: the failed headline + the gated retry action. Targeted at
+  // the hero's one `aria-live` element rather than by text.
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-  await expect(progressCard.locator('p[aria-live="polite"]')).toHaveText('Needs attention');
-  await expect(page.getByRole('button', { name: 'Retry Install' })).toBeVisible();
+  await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Deployment failed');
+  await expect(page.getByRole('button', { name: 'Retry deployment' })).toBeVisible();
 });
 
 test('refresh and reopen: a mid-flow stage renders identically from server truth', async ({

@@ -1,0 +1,260 @@
+import { describe, expect, it } from 'vitest';
+
+import type { VendorDeploymentStatus } from '@deployz/contracts';
+
+import { deriveHero, type HeroInput } from '../src/lib/deployment-hero';
+import type { DeploymentJob } from '../src/lib/deployments';
+
+// The hero chooses words for what the server already derived — these tests
+// pin the state → headline mapping, in particular that a failed update on a
+// live deployment never reads as the deployment being down.
+
+function status(overrides: Partial<VendorDeploymentStatus> = {}): VendorDeploymentStatus {
+  return {
+    stage: 'READY',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    currentActivity: 'Live and healthy.',
+    step: 'READY',
+    steps: ['AWS_SETUP', 'RELAY_CONNECT', 'PREPARING', 'NETWORK', 'APPLICATION', 'HEALTH_CHECK', 'TLS', 'READY'],
+    typicalDurationSeconds: null,
+    takingLongerThanUsual: false,
+    stepStartedAt: null,
+    stepTimings: [],
+    statusUpdatesUnavailable: false,
+    needsDomainSetup: false,
+    components: [],
+    relay: { connected: true, lastSeenAt: null },
+    job: null,
+    aws: { stackStatus: null },
+    health: {
+      status: 'HEALTHY',
+      layers: { infrastructure: 'UNKNOWN', rollout: null, targets: null, http: null, relay: 'CONNECTED' },
+    },
+    url: 'https://app.example.com',
+    failure: null,
+    ...overrides,
+  };
+}
+
+function job(overrides: Partial<DeploymentJob>): DeploymentJob {
+  return {
+    id: 'job-1',
+    deploymentId: 'dep-1',
+    type: 'DEPLOY_RELEASE',
+    state: 'FAILED',
+    idempotencyKey: 'k',
+    payload: {},
+    result: null,
+    requestedBy: null,
+    failureCode: null,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    startedAt: null,
+    lastProgressAt: null,
+    finishedAt: null,
+    ...overrides,
+  };
+}
+
+function input(overrides: Partial<HeroInput> = {}): HeroInput {
+  return {
+    state: 'HEALTHY',
+    currentReleaseId: 'rel-1',
+    version: '1.2.0',
+    cleanupState: null,
+    customerName: 'Acme',
+    relayStatus: 'CONNECTED',
+    jobs: [],
+    deploymentStatus: status(),
+    ...overrides,
+  };
+}
+
+const FAILURE = {
+  code: 'ECS_DEPLOYMENT_FAILED' as const,
+  component: 'runtime',
+  reference: 'DEP-ABCDEF01',
+  message: 'The new version could not be rolled out.',
+  awsStatus: null,
+};
+
+describe('deriveHero', () => {
+  it('a not-installed deployment waits for the customer', () => {
+    const hero = deriveHero(
+      input({
+        state: 'NOT_INSTALLED',
+        currentReleaseId: null,
+        version: null,
+        deploymentStatus: status({ stage: 'WAITING_FOR_AWS', health: { ...status().health, status: 'UNKNOWN' }, url: null }),
+      }),
+    );
+    expect(hero.kind).toBe('not-installed');
+    expect(hero.title).toBe('Waiting for your customer to install');
+    expect(hero.description).toContain('Acme');
+  });
+
+  it('an in-flight install shows the deploying headline with the step list', () => {
+    const hero = deriveHero(
+      input({
+        state: 'INSTALLING',
+        currentReleaseId: null,
+        version: null,
+        deploymentStatus: status({
+          stage: 'PROVISIONING',
+          currentActivity: 'Creating the database and storage.',
+          health: { ...status().health, status: 'UNKNOWN' },
+          url: null,
+        }),
+      }),
+    );
+    expect(hero.kind).toBe('installing');
+    expect(hero.title).toBe('Deploying');
+    expect(hero.description).toBe('Creating the database and storage.');
+    expect(hero.showSteps).toBe(true);
+  });
+
+  it('READY is live, naming the running release', () => {
+    const hero = deriveHero(input());
+    expect(hero.kind).toBe('live');
+    expect(hero.tone).toBe('success');
+    expect(hero.title).toBe('Your application is live');
+    expect(hero.description).toContain('v1.2.0');
+    expect(hero.showSteps).toBe(false);
+  });
+
+  it('a healthy HTTP-only deployment is live but nudges toward a custom domain', () => {
+    const hero = deriveHero(
+      input({
+        deploymentStatus: status({ stage: 'VERIFYING', needsDomainSetup: true, url: 'http://alb.example' }),
+      }),
+    );
+    expect(hero.kind).toBe('live');
+    expect(hero.description).toContain('custom domain');
+  });
+
+  it('UPDATE_AVAILABLE is still live, with a newer release to deploy', () => {
+    const hero = deriveHero(input({ state: 'UPDATE_AVAILABLE' }));
+    expect(hero.kind).toBe('live');
+    expect(hero.description).toContain('newer release');
+  });
+
+  it('a first install that failed is a failed deployment, not a failed update', () => {
+    const hero = deriveHero(
+      input({
+        state: 'FAILED',
+        currentReleaseId: null,
+        version: null,
+        jobs: [job({ type: 'INSTALL', failureCode: 'DATABASE_CREATE_FAILED' })],
+        deploymentStatus: status({
+          stage: 'FAILED',
+          health: { ...status().health, status: 'UNKNOWN' },
+          url: null,
+          failure: { ...FAILURE, code: 'DATABASE_CREATE_FAILED', message: 'The database could not be created.' },
+        }),
+      }),
+    );
+    expect(hero.kind).toBe('install-failed');
+    expect(hero.title).toBe('Deployment failed');
+    expect(hero.description).toBe('The database could not be created.');
+    expect(hero.liveReleaseNote).toBeNull();
+  });
+
+  it('a failed update on a live stage says the previous release is unaffected', () => {
+    const hero = deriveHero(
+      input({
+        state: 'UPDATE_AVAILABLE',
+        jobs: [job({ type: 'DEPLOY_RELEASE' })],
+        deploymentStatus: status({ failure: FAILURE }),
+      }),
+    );
+    expect(hero.kind).toBe('operation-failed');
+    expect(hero.title).toBe('Update failed');
+    expect(hero.description).toBe('The new version could not be rolled out.');
+    expect(hero.liveReleaseNote).toBe('Release v1.2.0 is still live and unaffected.');
+  });
+
+  it('a failed rollback and a failed restart are named for what they were', () => {
+    expect(
+      deriveHero(input({ jobs: [job({ type: 'ROLLBACK' })], deploymentStatus: status({ failure: FAILURE }) })).title,
+    ).toBe('Rollback failed');
+    expect(
+      deriveHero(input({ jobs: [job({ type: 'RESTART' })], deploymentStatus: status({ failure: FAILURE }) })).title,
+    ).toBe('Restart failed');
+  });
+
+  it('UPDATING names the running operation and keeps the live release in view', () => {
+    const hero = deriveHero(
+      input({
+        state: 'UPDATING',
+        jobs: [job({ type: 'DEPLOY_RELEASE', state: 'RUNNING' })],
+      }),
+    );
+    expect(hero.kind).toBe('updating');
+    expect(hero.title).toBe('Updating your application');
+    expect(hero.description).toContain('Release v1.2.0');
+    expect(hero.showSteps).toBe(false);
+  });
+
+  it('a live deployment whose relay went quiet reports lost contact, never failure', () => {
+    const hero = deriveHero(
+      input({ relayStatus: 'DISCONNECTED', deploymentStatus: status({ statusUpdatesUnavailable: true }) }),
+    );
+    expect(hero.kind).toBe('lost-contact');
+    expect(hero.tone).toBe('warning');
+  });
+
+  it('runtime health drives unhealthy and degraded headlines', () => {
+    expect(
+      deriveHero(input({ deploymentStatus: status({ stage: 'VERIFYING', health: { ...status().health, status: 'UNHEALTHY' } }) }))
+        .kind,
+    ).toBe('unhealthy');
+    expect(
+      deriveHero(input({ deploymentStatus: status({ stage: 'VERIFYING', health: { ...status().health, status: 'DEGRADED' } }) }))
+        .kind,
+    ).toBe('degraded');
+  });
+
+  it('VERIFYING without a health signal is still verifying', () => {
+    const hero = deriveHero(
+      input({
+        deploymentStatus: status({
+          stage: 'VERIFYING',
+          currentActivity: 'Running health checks.',
+          health: { ...status().health, status: 'UNKNOWN' },
+          url: null,
+        }),
+      }),
+    );
+    expect(hero.kind).toBe('installing');
+    expect(hero.title).toBe('Verifying your application');
+    expect(hero.description).toBe('Running health checks.');
+  });
+
+  it('DELETING is removal in progress, never a failure', () => {
+    const hero = deriveHero(input({ state: 'DELETING' }));
+    expect(hero.kind).toBe('deleting');
+    expect(hero.tone).toBe('progress');
+    expect(hero.title).toBe('Removing this deployment');
+  });
+
+  it('DELETED explains what is left behind per cleanup state', () => {
+    expect(deriveHero(input({ state: 'DELETED', cleanupState: 'COMPLETE' })).description).toContain(
+      'removed everything',
+    );
+    expect(deriveHero(input({ state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE' })).description).toContain(
+      'may still exist',
+    );
+    expect(deriveHero(input({ state: 'DELETED', cleanupState: null })).description).toContain('stored files');
+  });
+
+  it('a failed removal is named as such', () => {
+    const hero = deriveHero(
+      input({
+        state: 'FAILED',
+        jobs: [job({ type: 'DESTROY', failureCode: 'STACK_DELETE_FAILED' })],
+        deploymentStatus: status({ stage: 'FAILED', failure: { ...FAILURE, message: 'Removal was blocked.' } }),
+      }),
+    );
+    expect(hero.kind).toBe('removal-failed');
+    expect(hero.title).toBe('Removal failed');
+  });
+});

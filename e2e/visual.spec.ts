@@ -285,6 +285,13 @@ async function signUp(page: Page): Promise<void> {
 }
 
 async function mockFleet(page: Page, deployments: DeploymentFixture[]): Promise<void> {
+  // A glob, not the bare path: the deployments list asks for
+  // `?includeDeleted=true` (CANARY-012), and an exact-string route never
+  // matches a query string — the page then hit the real API and rendered the
+  // empty state instead of the mocked fleet.
+  await page.route(`${API_URL}/api/deployments?*`, (route) =>
+    route.fulfill({ json: { deployments } }),
+  );
   await page.route(`${API_URL}/api/deployments`, (route) =>
     route.fulfill({ json: { deployments } }),
   );
