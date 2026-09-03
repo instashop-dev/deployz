@@ -151,12 +151,22 @@ export interface DerivationDomain {
   status: CustomDomainStatus;
 }
 
+/** Phase 11 — the deployment's Deployz-owned HTTPS endpoint (parsed from
+ *  `deployments.default_https` by the caller). Status mirrors the custom-
+ *  domain vocabulary. */
+export interface DerivationDefaultHttps {
+  hostname: string;
+  status: string;
+}
+
 export interface DeriveDeploymentStatusInput {
   deployment: DerivationDeployment;
   application: DerivationApplication;
   /** This deployment's jobs — at minimum every INSTALL job, the latest job overall, and the latest FAILED job. */
   jobs: DerivationJob[];
   domain: DerivationDomain | null;
+  /** Phase 11 Deployz-owned HTTPS endpoint, or null when not configured. */
+  defaultHttps?: DerivationDefaultHttps | null;
   /**
    * resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE or
    * CONFIGURING, else http for a bare ALB, else null. Exposed to the
@@ -363,6 +373,7 @@ function statusFromMerged(
 function httpsComponentStatus(
   domain: DerivationDomain | null,
   needsDomainSetup: boolean,
+  defaultHttps: DerivationDefaultHttps | null,
 ): ComponentProgressStatus | null {
   if (domain) {
     switch (domain.status) {
@@ -371,6 +382,21 @@ function httpsComponentStatus(
       case 'ERROR':
         // Component-level only — an HTTPS setup failure never fails the
         // whole deployment; the app itself may be perfectly healthy.
+        return 'FAILED';
+      case 'PENDING':
+      case 'WAITING_FOR_DNS':
+      case 'CONFIGURING':
+      case 'REMOVING':
+        return 'IN_PROGRESS';
+      default:
+        return 'IN_PROGRESS';
+    }
+  }
+  if (defaultHttps) {
+    switch (defaultHttps.status) {
+      case 'ACTIVE':
+        return 'READY';
+      case 'ERROR':
         return 'FAILED';
       case 'PENDING':
       case 'WAITING_FOR_DNS':
@@ -390,6 +416,7 @@ function buildComponents(params: {
   application: DerivationApplication;
   domain: DerivationDomain | null;
   needsDomainSetup: boolean;
+  defaultHttps: DerivationDefaultHttps | null;
   failureResult: Record<string, unknown> | null | undefined;
 }): ComponentProgress[] {
   const merged = mergeComponentState(params.observedState, params.application) ?? {};
@@ -409,7 +436,7 @@ function buildComponents(params: {
   push('storage', 'storage', params.application.storageRequired ?? false);
   push('redis', 'redis', params.application.redisRequired ?? false);
 
-  const httpsStatus = httpsComponentStatus(params.domain, params.needsDomainSetup);
+  const httpsStatus = httpsComponentStatus(params.domain, params.needsDomainSetup, params.defaultHttps);
   if (httpsStatus !== null) {
     components.push({ key: 'https', label: COMPONENT_LABELS.https!, status: httpsStatus });
   }
@@ -850,7 +877,7 @@ function buildHealthLayers(
  * chrome around a real last-known stage instead of a placeholder.
  */
 export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): DerivedDeploymentStatus {
-  const { deployment, application, jobs, domain, appUrl, now = new Date() } = input;
+  const { deployment, application, jobs, domain, defaultHttps = null, appUrl, now = new Date() } = input;
 
   // deployments.state 'DISCONNECTED' is a valid enum value that nothing in
   // this codebase currently writes (the persisted liveness sweep flips
@@ -892,8 +919,25 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       if (deployment.healthStatus !== 'HEALTHY') {
         currentActivity = 'Running health checks.';
       } else {
-        needsDomainSetup = true;
-        currentActivity = 'Waiting for secure domain setup.';
+        // Healthy but not yet on an HTTPS URL. needsDomainSetup is reserved
+        // for the cases where the CUSTOMER must act (they added a custom
+        // domain that needs DNS, or nothing automatic is going to produce a
+        // secure address). While the Phase 11 default HTTPS is progressing
+        // on its own, no customer action is required.
+        const httpsProgressing =
+          (defaultHttps !== null &&
+            (defaultHttps.status === 'PENDING' ||
+              defaultHttps.status === 'WAITING_FOR_DNS' ||
+              defaultHttps.status === 'CONFIGURING')) ||
+          (domain !== null &&
+            (domain.status === 'PENDING' ||
+              domain.status === 'WAITING_FOR_DNS' ||
+              domain.status === 'CONFIGURING'));
+        needsDomainSetup =
+          domain !== null || !httpsProgressing;
+        currentActivity = needsDomainSetup
+          ? 'Waiting for secure domain setup.'
+          : 'Waiting for a secure address.';
       }
     }
   } else if (installJobState !== undefined && PROVISIONING_JOB_STATES.has(installJobState)) {
@@ -943,7 +987,11 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       currentActivity = PROVISIONING_STEP_ACTIVITY[step as keyof typeof PROVISIONING_STEP_ACTIVITY];
       break;
     case 'VERIFYING':
-      step = needsDomainSetup ? 'TLS' : 'HEALTH_CHECK';
+      // A healthy app not yet behind an HTTPS URL is still on the TLS step
+      // (a customer domain awaiting DNS, or the Phase 11 default endpoint
+      // being brought up). An unhealthy app — or one already behind its
+      // HTTPS URL with a health problem — reports the health-check step.
+      step = deployment.healthStatus === 'HEALTHY' && !httpsUrl ? 'TLS' : 'HEALTH_CHECK';
       break;
     case 'READY':
       step = 'READY';
@@ -1016,6 +1064,7 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     application,
     domain,
     needsDomainSetup,
+    defaultHttps,
     failureResult: latestFailed?.result,
   });
 

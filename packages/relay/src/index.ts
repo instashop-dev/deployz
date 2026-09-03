@@ -66,6 +66,7 @@ import {
   createPurgeExecutor,
   createPurgeResumer,
   createRealPurgeClients,
+  type AcmPurgeClient,
   type CachePurgeClient,
   type PurgeDeps,
   type RdsPurgeClient,
@@ -231,7 +232,13 @@ function getStackDeleter(): StackDeleter {
 // Purge clients are lazy the same way: no SDK client is constructed until a
 // PURGE command actually runs, so importing this module stays AWS-free.
 let purgeClients:
-  | { rds: RdsPurgeClient; cache: CachePurgeClient; s3: S3PurgeClient; secrets: SecretsPurgeClient }
+  | {
+      rds: RdsPurgeClient;
+      cache: CachePurgeClient;
+      s3: S3PurgeClient;
+      secrets: SecretsPurgeClient;
+      acm: AcmPurgeClient;
+    }
   | undefined;
 
 function getPurgeClients(installationId: string): {
@@ -239,6 +246,7 @@ function getPurgeClients(installationId: string): {
   cache: CachePurgeClient;
   s3: S3PurgeClient;
   secrets: SecretsPurgeClient;
+  acm: AcmPurgeClient;
 } {
   if (!purgeClients) {
     purgeClients = createRealPurgeClients(installationId);

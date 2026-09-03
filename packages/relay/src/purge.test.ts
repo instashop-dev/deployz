@@ -5,6 +5,7 @@ import {
   createPurgeResumer,
   isAccessDenied,
   settlePurge,
+  type AcmPurgeClient,
   type CachePurgeClient,
   type PurgeDeps,
   type RdsPurgeClient,
@@ -57,6 +58,7 @@ interface FakedClients {
   cache: CachePurgeClient;
   s3: S3PurgeClient;
   secrets: SecretsPurgeClient;
+  acm: AcmPurgeClient;
   deleter: StackDeleter;
 }
 
@@ -65,6 +67,7 @@ function clients(calls: string[], owned: {
   groups?: { identifier: string; status: string }[];
   buckets?: string[];
   secrets?: string[];
+  certificates?: string[];
 } = {}): FakedClients {
   const rds: RdsPurgeClient = {
     async listOwnedInstances() {
@@ -104,12 +107,20 @@ function clients(calls: string[], owned: {
       calls.push(`secrets:delete:${secretName}`);
     },
   };
+  const acm: AcmPurgeClient = {
+    async listOwnedCertificates() {
+      return owned.certificates ?? [];
+    },
+    async deleteCertificate(certificateArn) {
+      calls.push(`acm:delete:${certificateArn}`);
+    },
+  };
   const deleter: StackDeleter = {
     async deleteStack(stackName) {
       calls.push(`stack:delete:${stackName}`);
     },
   };
-  return { calls, rds, cache, s3, secrets, deleter };
+  return { calls, rds, cache, s3, secrets, acm, deleter };
 }
 
 function depsWith(cfn: CloudFormationReader, calls: string[], extra: Partial<PurgeDeps> = {}): PurgeDeps {
@@ -125,6 +136,7 @@ function depsWith(cfn: CloudFormationReader, calls: string[], extra: Partial<Pur
     cache: faked.cache,
     s3: faked.s3,
     secrets: faked.secrets,
+    acm: faked.acm,
     ...extra,
   };
 }
@@ -307,6 +319,39 @@ describe('settlePurge — orphan sweep', () => {
     expect(calls).toEqual(['secrets:delete:DatabaseSecret-ABC', 'secrets:delete:DatabaseUrlSecret-DEF']);
   });
 
+  it('deletes owned orphaned ACM certificates once no RDS, cache, bucket, or secret remains', async () => {
+    // Phase 11: the default-HTTPS (and custom-domain) certificates live
+    // outside the application stack. After a force-completed destroy they
+    // would otherwise stay in the customer account forever.
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      acm: clients(calls, { certificates: ['arn:aws:acm:us-east-1:1:certificate/abc'] }).acm,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual(['acm:delete:arn:aws:acm:us-east-1:1:certificate/abc']);
+  });
+
+  it('does not delete owned certificates while a retained resource is still being deleted', async () => {
+    // Ordering guarantee: the certificate sweep must not run on the same pass
+    // that still sees an owned bucket — the application stack (and with it
+    // the ALB listeners holding the certificate) is already gone by the time
+    // this phase runs, but the retained-resource sweeps still run first.
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      ...clients(calls, {
+        buckets: ['bucket-1'],
+        certificates: ['arn:aws:acm:us-east-1:1:certificate/abc'],
+      }),
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual(['s3:empty:bucket-1', 's3:delete:bucket-1']);
+    expect(calls).not.toContain('acm:delete:arn:aws:acm:us-east-1:1:certificate/abc');
+  });
+
   it('leaves the retained DB-credential secrets untouched while the retained database is still being deleted', async () => {
     // Ordering guarantee: the credential sweep must not run on the same pass
     // that still sees an owned RDS instance — the secrets stay reachable for
@@ -457,8 +502,14 @@ describe('full purge across passes', () => {
       },
       async deleteSecret(secretName) {
         calls.push(`secrets:delete:${secretName}`);
-        state.secrets = [];
+        state.secrets = state.secrets.filter((name) => name !== secretName);
       },
+    };
+    const acm: AcmPurgeClient = {
+      async listOwnedCertificates() {
+        return [];
+      },
+      async deleteCertificate() {},
     };
     const deleter: StackDeleter = {
       async deleteStack(stackName) {
@@ -480,6 +531,7 @@ describe('full purge across passes', () => {
         cache,
         s3,
         secrets,
+        acm,
       },
       setAppStack(status) {
         state.app = status;

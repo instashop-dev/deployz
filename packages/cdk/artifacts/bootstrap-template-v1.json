@@ -674,6 +674,12 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeSecretsDelete"
+            },
+            {
+              "Action": "acm:ListCertificates",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeAcmDiscover"
             }
           ],
           "Version": "2012-10-17"
@@ -990,6 +996,12 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeSecretsDelete"
+            },
+            {
+              "Action": "acm:ListCertificates",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeAcmDiscover"
             }
           ],
           "Version": "2012-10-17"
@@ -1496,7 +1508,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "8d7db820d669fea9144a267c4c534d9e40524277157126d0d2b996ee52b5514c.zip"
+          "S3Key": "96575f2074dd90fe175e081d058ac91fffd8fe0e3c8e93fe844e041926868fd8.zip"
         },
         "Environment": {
           "Variables": {

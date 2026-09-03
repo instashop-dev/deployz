@@ -165,6 +165,20 @@ import {
   toVendorDeploymentStatus,
 } from './deployment-status.js';
 import {
+  DEFAULT_HTTPS_APEX,
+  DEFAULT_HTTPS_FIXTURE_APEX,
+  applyDefaultHttpsJobResult,
+  beginDefaultHttpsRemoval,
+  isDefaultHttpsJob,
+  parseDefaultHttps,
+  runDefaultHttpsCheck,
+  type DefaultHttpsDeps,
+} from './default-https.js';
+import {
+  createRoute53RecordClient,
+  noopDnsRecordClient,
+} from './route53-records.js';
+import {
   albEndpointFromResult,
   resolveAppUrl,
   toFleetRow,
@@ -221,6 +235,11 @@ export interface ServerDeps {
   // Defaults to env.domainFixtureMode's real-vs-fixture split; tests inject a
   // fake so no real DNS lookup or HTTPS probe ever leaves the machine.
   domainCheckDeps?: DomainCheckDeps | undefined;
+  // Injectable Phase 11 default-HTTPS seam. Defaults to env: the flow is ON
+  // only when a Route53 zone is configured (or under DNS fixture mode), the
+  // record writer is then the real Route53 client, and the HTTPS probe reuses
+  // domainCheckDeps. Tests inject fakes so nothing touches real AWS.
+  defaultHttpsDeps?: DefaultHttpsDeps | undefined;
   // Injectable Team Admin identity (docs/admin/team-admin.md). Defaults to
   // env; tests override to enable env-grants without a Lambda-shaped env.
   teamAdminEmails?: string[] | undefined;
@@ -841,26 +860,38 @@ async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise
 const DEFAULT_HEALTH_PATH = '/health';
 
 /**
- * §10.2 the URL the relay probes once per poll: the latest successful
- * INSTALL's ALB endpoint plus the application's configured health path. The
- * control plane knows both (the stack's outputs and the manifest-derived
- * path) and hands the full URL to the relay in each poll's deployment meta,
- * so the relay never has to resolve either inside the customer account. Null
- * until an INSTALL produced an endpoint — the relay then omits the probe.
+ * §10.2 + Phase 11 the URL the relay probes once per poll: whatever endpoint
+ * currently serves the deployment (ACTIVE/CONFIGURING custom domain, then
+ * ACTIVE/CONFIGURING default-HTTPS hostname, then the ALB) plus the
+ * application's configured health path. The control plane knows all of these
+ * and hands the full URL to the relay in each poll's deployment meta, so the
+ * relay never has to resolve either inside the customer account. Once the
+ * default-HTTPS (or custom) endpoint is ACTIVE, the probe verifies the HTTPS
+ * URL; before that it probes the interim HTTP ALB. Null when no endpoint
+ * exists yet — the relay then omits the probe.
  * `jobs` must be ascending by createdAt.
  */
 function resolveProbeUrl(
   jobs: ReadonlyArray<Pick<DeploymentJobRow, 'type' | 'state' | 'result'>>,
   healthPath: string | null,
+  domain: Pick<CustomDomainRow, 'hostname' | 'status'> | null,
+  defaultHttps: { hostname: string; status: string } | null,
 ): string | null {
-  const installs = jobs.filter(
-    (j) => j.type === 'INSTALL' && (j.state === 'SUCCEEDED' || j.state === 'SUCCESS'),
-  );
-  const endpoint = albEndpointFromResult(installs[installs.length - 1]?.result ?? null);
-  if (!endpoint) return null;
-  const base = endpoint.startsWith('http://') || endpoint.startsWith('https://')
-    ? endpoint.replace(/\/+$/, '')
-    : `http://${endpoint.replace(/\/+$/, '')}`;
+  let base: string | null = null;
+  if (domain && (domain.status === 'ACTIVE' || domain.status === 'CONFIGURING')) {
+    base = `https://${domain.hostname}`;
+  } else if (defaultHttps && (defaultHttps.status === 'ACTIVE' || defaultHttps.status === 'CONFIGURING')) {
+    base = `https://${defaultHttps.hostname}`;
+  } else {
+    const installs = jobs.filter(
+      (j) => j.type === 'INSTALL' && (j.state === 'SUCCEEDED' || j.state === 'SUCCESS'),
+    );
+    const endpoint = albEndpointFromResult(installs[installs.length - 1]?.result ?? null);
+    if (!endpoint) return null;
+    base = endpoint.startsWith('http://') || endpoint.startsWith('https://')
+      ? endpoint.replace(/\/+$/, '')
+      : `http://${endpoint.replace(/\/+$/, '')}`;
+  }
   const trimmed = healthPath?.trim() ?? '';
   const path = trimmed.length > 0 ? trimmed : DEFAULT_HEALTH_PATH;
   return `${base}${path.startsWith('/') ? path : `/${path}`}`;
@@ -908,9 +939,10 @@ async function advanceStepTimingsAfterWrite(
     .where(eq(schema.deploymentJobs.deploymentId, freshDeployment.id))
     .orderBy(schema.deploymentJobs.createdAt);
   const domain = knownDomain !== undefined ? knownDomain : await findActiveDomain(db, freshDeployment.id);
-  const appUrl = resolveAppUrl(jobs, domain);
+  const defaultHttps = parseDefaultHttps(freshDeployment.defaultHttps);
+  const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
 
-  const derived = deriveDeploymentStatus({ deployment: freshDeployment, application, jobs, domain, appUrl });
+  const derived = deriveDeploymentStatus({ deployment: freshDeployment, application, jobs, domain, defaultHttps, appUrl });
   const { next, changed, completedSteps } = advanceStepTimings(freshDeployment.stepTimings, derived, new Date());
   if (!changed) return;
 
@@ -1056,6 +1088,7 @@ export async function buildServer({
   githubAppPrivateKey: injectedGithubAppPrivateKey,
   aiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.aiGateway),
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
+  defaultHttpsDeps: injectedDefaultHttpsDeps,
   teamAdminEmails = env.teamAdminEmails,
   teamAdminEnvGrantsEnabled = env.teamAdminEnvGrantsEnabled,
   loggerInstance,
@@ -1063,6 +1096,23 @@ export async function buildServer({
   // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
   // grant must not fail the install request that owns it (see ecr-pull-grants.ts).
   const ecrGrantDeps: EcrPullGrantDeps = createEcrPullGrantDeps(ecrClient);
+  // Phase 11 default HTTPS. On only when the control plane can actually write
+  // the Deployz Route53 records (zone configured), or under the explicit
+  // DNS-fixture opt-in that E2E default-https scenarios set (the ordinary
+  // fixture suite keeps its HTTP-only behaviour). Off means a deployment
+  // needs a custom domain for HTTPS, exactly as before Phase 11.
+  const defaultHttpsDeps: DefaultHttpsDeps =
+    injectedDefaultHttpsDeps ?? {
+      enabled:
+        Boolean(env.dnsZoneId) ||
+        (env.domainFixtureMode && env.defaultHttpsFixtureMode),
+      apex: env.domainFixtureMode ? DEFAULT_HTTPS_FIXTURE_APEX : DEFAULT_HTTPS_APEX,
+      dns:
+        env.domainFixtureMode || !env.dnsZoneId
+          ? noopDnsRecordClient
+          : createRoute53RecordClient({ hostedZoneId: env.dnsZoneId }),
+      probeHttps: (hostname) => domainCheckDeps.probeHttps(hostname),
+    };
   // `logger: false` meant a 500 left NO trace anywhere: not in CloudWatch, not
   // in the response (the envelope is deliberately generic), nowhere. Three
   // production failures in a row could only be diagnosed by reading
@@ -1651,12 +1701,14 @@ export async function buildServer({
         .where(eq(schema.deploymentJobs.deploymentId, row.deployment.id))
         .orderBy(schema.deploymentJobs.createdAt);
       const domain = await findActiveDomain(db, row.deployment.id);
-      const appUrl = resolveAppUrl(jobs, domain);
+      const defaultHttps = parseDefaultHttps(row.deployment.defaultHttps);
+      const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
       const derived = deriveDeploymentStatus({
         deployment: row.deployment,
         application: row,
         jobs,
         domain,
+        defaultHttps,
         appUrl,
       });
       return toCustomerDeploymentStatus(derived);
@@ -2561,8 +2613,9 @@ export async function buildServer({
       deployments: rows.map((row) => {
         const jobs = jobsByDeployment.get(row.deployment.id) ?? [];
         const domain = domainByDeployment.get(row.deployment.id) ?? null;
-        const appUrl = resolveAppUrl(jobs, domain);
-        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: row, jobs, domain, appUrl });
+        const defaultHttps = parseDefaultHttps(row.deployment.defaultHttps);
+        const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
+        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: row, jobs, domain, defaultHttps, appUrl });
         return { ...toFleetRow(row), deploymentStatus: toVendorDeploymentStatus(derived) };
       }),
     };
@@ -2603,12 +2656,14 @@ export async function buildServer({
     // doesn't pick up an extra per-row domain query.
     const domain = await findActiveDomain(db, rows[0]!.deployment.id);
     const customDomain = domain ? { hostname: domain.hostname, status: domain.status.toLowerCase() } : null;
-    const appUrl = resolveAppUrl(jobs, domain);
+    const defaultHttps = parseDefaultHttps(rows[0]!.deployment.defaultHttps);
+    const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
     const derived = deriveDeploymentStatus({
       deployment: rows[0]!.deployment,
       application: rows[0]!,
       jobs,
       domain,
+      defaultHttps,
       appUrl,
     });
     return {
@@ -3132,6 +3187,15 @@ export async function buildServer({
       await removeCustomDomain(db, deployment, activeDomain);
     }
 
+    // Phase 11: same teardown for the deployment's default-HTTPS state — the
+    // relay removes the customer-side certificate and 443 listener via a
+    // REMOVE_DOMAIN job; the control-plane route53 records are removed by the
+    // DESTROY-success (or REMOVE-success, or purge) handlers.
+    const defaultHttpsState = parseDefaultHttps(deployment.defaultHttps);
+    if (defaultHttpsState) {
+      await beginDefaultHttpsRemoval(db, deployment, defaultHttpsState);
+    }
+
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
 
@@ -3157,6 +3221,7 @@ export async function buildServer({
     //      DESTROY jobs whose latest is the deployment's newest job — the
     //      delete itself is wedged on a relay that keeps reporting failure
     //      (even while technically connected).
+    const preForceDefaultHttps = parseDefaultHttps(deployment.defaultHttps);
     const destroys = await db
       .select()
       .from(schema.deploymentJobs)
@@ -3267,6 +3332,13 @@ export async function buildServer({
           .set({ removedAt: new Date() })
           .where(eq(schema.customDomains.id, danglingDomain.id));
       }
+      // Phase 11: same for the default-HTTPS state — the relay is offline, so
+      // the customer-side certificate will be swept by a later purge, but the
+      // control-plane record is ours to drop now.
+      await tx
+        .update(schema.deployments)
+        .set({ defaultHttps: null })
+        .where(eq(schema.deployments.id, deployment.id));
       await recordEvent(tx, {
         organizationId: deployment.organizationId,
         eventType: 'destroy.force_completed',
@@ -3286,6 +3358,23 @@ export async function buildServer({
         },
       });
     });
+
+    // Phase 11: best-effort drop of the deployz-zone CNAMEs on the same
+    // force-complete (the DB state was cleared inside the transaction).
+    if (preForceDefaultHttps) {
+      const recordNames = [preForceDefaultHttps.hostname];
+      if (preForceDefaultHttps.validationName) {
+        recordNames.push(preForceDefaultHttps.validationName);
+      }
+      for (const name of recordNames) {
+        try {
+          await defaultHttpsDeps.dns.deleteCname(name);
+        } catch (error) {
+          // swallowed — purge is the authoritative cleanup if this fails.
+          console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name, error: String(error) }));
+        }
+      }
+    }
 
     return { state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE', jobId: settleJobId };
   }
@@ -3364,6 +3453,30 @@ export async function buildServer({
         result: 'pending',
         payload: {},
       });
+    }
+
+    // Phase 11: a purge is the authorized final teardown — drop the
+    // deployment's deployz-zone CNAMEs and its default-HTTPS state now
+    // (the relay's ACM sweep handles the customer-side certificate). A
+    // normal destroy already cleared these; this is the force-complete /
+    // relay-offline backstop.
+    const leftoverDefaultHttps = parseDefaultHttps(deployment.defaultHttps);
+    if (leftoverDefaultHttps) {
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: null })
+        .where(eq(schema.deployments.id, deployment.id));
+      const recordNames = [leftoverDefaultHttps.hostname];
+      if (leftoverDefaultHttps.validationName) {
+        recordNames.push(leftoverDefaultHttps.validationName);
+      }
+      for (const name of recordNames) {
+        try {
+          await defaultHttpsDeps.dns.deleteCname(name);
+        } catch (error) {
+          request.log.warn({ err: error }, 'default-https record cleanup on purge failed');
+        }
+      }
     }
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
@@ -4482,13 +4595,17 @@ export async function buildServer({
       .where(eq(schema.applications.id, deployment.applicationId))
       .limit(1);
 
-    // §10.2: the probe URL is built from the stack's PublicEndpoint output
-    // (the successful INSTALL's result) plus the configured health path.
+    // §10.2 + Phase 11: the probe URL is where the app is ACTUALLY served —
+    // the custom domain / default-HTTPS hostname once HTTPS is configured,
+    // otherwise the successful INSTALL's ALB endpoint — plus the configured
+    // health path.
     const installJobs = await db
       .select({ result: schema.deploymentJobs.result, state: schema.deploymentJobs.state, type: schema.deploymentJobs.type })
       .from(schema.deploymentJobs)
       .where(eq(schema.deploymentJobs.deploymentId, deployment.id))
       .orderBy(schema.deploymentJobs.createdAt);
+    const activeDomain = await findActiveDomain(db, deployment.id);
+    const defaultHttps = parseDefaultHttps(deployment.defaultHttps);
 
     return {
       commands: jobs.map((job) => ({
@@ -4500,7 +4617,7 @@ export async function buildServer({
       })),
       deployment: {
         redisRequired: appRows[0]?.redisRequired ?? false,
-        probeUrl: resolveProbeUrl(installJobs, appRows[0]?.healthPath ?? null),
+        probeUrl: resolveProbeUrl(installJobs, appRows[0]?.healthPath ?? null, activeDomain, defaultHttps),
       },
     };
   });
@@ -4618,6 +4735,12 @@ export async function buildServer({
         ? ((job.payload as { releaseId?: string } | null)?.releaseId ?? null)
         : null;
 
+    // Phase 11 teardown: the Route53 records this deployment's default HTTPS
+    // owns, captured pre-transaction (the row is cleared inside it). Removed
+    // best-effort after the commit once the certificate is gone (a default
+    // REMOVE_DOMAIN success) or the whole stack is gone (DESTROY success).
+    const preTxDefaultHttps = parseDefaultHttps(deployment.defaultHttps);
+
     await db.transaction(async (tx) => {
       await tx
         .update(schema.deploymentJobs)
@@ -4631,7 +4754,14 @@ export async function buildServer({
         .where(eq(schema.deploymentJobs.id, id));
 
       if (isDomainJobType(job.type)) {
-        await applyDomainJobResult(tx, deployment, job, body);
+        // Phase 11: default-HTTPS jobs (idempotency keys under the
+        // `:default-https:` namespace) drive the deployments.default_https
+        // machine; every other domain job drives the custom_domains row.
+        if (isDefaultHttpsJob(job)) {
+          await applyDefaultHttpsJobResult(tx, deployment.id, job, body);
+        } else {
+          await applyDomainJobResult(tx, deployment, job, body);
+        }
       }
 
       if (nextState) {
@@ -4656,7 +4786,8 @@ export async function buildServer({
       // custom domain's ALB listener/routing) is gone regardless of whether
       // its own REMOVE_DOMAIN job ever reported back. Force it removed so it
       // never lingers as a phantom "removing" row for a deployment that no
-      // longer exists.
+      // longer exists. Same for the Phase 11 default-HTTPS state: the stack's
+      // certificate and listener are gone with it.
       if (job.type === 'DESTROY' && nextState === 'DELETED') {
         const danglingDomain = await findActiveDomain(tx, deployment.id);
         if (danglingDomain) {
@@ -4665,6 +4796,10 @@ export async function buildServer({
             .set({ removedAt: new Date() })
             .where(eq(schema.customDomains.id, danglingDomain.id));
         }
+        await tx
+          .update(schema.deployments)
+          .set({ defaultHttps: null })
+          .where(eq(schema.deployments.id, deployment.id));
       }
 
       // A successful PURGE is what clears the retained-resources warning:
@@ -4743,10 +4878,41 @@ export async function buildServer({
         request.log.warn({ err: error }, 'auto-deploy after install failed');
       }
     }
+    // Phase 11: a successful INSTALL means the ALB exists — start (or nudge)
+    // the default-HTTPS machine so the deployment earns its own HTTPS URL
+    // without any customer DNS input. Best-effort: the heartbeat driver is
+    // the cadence that keeps it moving, this is just the earliest kick.
+    if (job.type === 'INSTALL' && state === 'SUCCEEDED') {
+      try {
+        await runDefaultHttpsCheck(db, { ...deployment, state: 'HEALTHY' }, defaultHttpsDeps);
+      } catch (error) {
+        request.log.warn({ err: error }, 'default-https start after install failed');
+      }
+    }
     if ((job.type === 'DESTROY' || job.type === 'PURGE') && state === 'SUCCEEDED') {
       const installationId = deployment.installationId;
       if (installationId) {
         await revokePullFromCustomer(ecrGrantDeps, installationId);
+      }
+    }
+    // Phase 11 record teardown (see preTxDefaultHttps above): the deployz-zone
+    // CNAMEs are the control plane's to remove — the relay never sees them.
+    if (preTxDefaultHttps) {
+      const certificateGone =
+        (job.type === 'REMOVE_DOMAIN' && state === 'SUCCEEDED') ||
+        (job.type === 'DESTROY' && state === 'SUCCEEDED');
+      if (certificateGone) {
+        const recordNames = [preTxDefaultHttps.hostname];
+        if (preTxDefaultHttps.validationName) {
+          recordNames.push(preTxDefaultHttps.validationName);
+        }
+        for (const name of recordNames) {
+          try {
+            await defaultHttpsDeps.dns.deleteCname(name);
+          } catch (error) {
+            request.log.warn({ err: error }, 'default-https record cleanup failed');
+          }
+        }
       }
     }
 
@@ -5102,6 +5268,18 @@ export async function buildServer({
     ) {
       try {
         await runDomainCheck(db, deployment, activeDomain, domainCheckDeps);
+      } catch {
+        // swallowed — heartbeat must succeed regardless
+      }
+    }
+
+    // Phase 11 default-HTTPS driver rides the same cadence: every heartbeat
+    // on an installed deployment nudges the machine one step (request the
+    // cert, write the deployz-zone records, re-describe, probe, activate).
+    // Best-effort for the same reason as the custom-domain check above.
+    if (['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE'].includes(deployment.state)) {
+      try {
+        await runDefaultHttpsCheck(db, deployment, defaultHttpsDeps);
       } catch {
         // swallowed — heartbeat must succeed regardless
       }
