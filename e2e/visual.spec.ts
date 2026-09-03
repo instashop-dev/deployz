@@ -302,12 +302,40 @@ async function mockFleet(page: Page, deployments: DeploymentFixture[]): Promise<
   );
 }
 
+/**
+ * The job list a deployment in this state really carries. UPDATING is set by
+ * the API at the moment it creates the deploy job, so an UPDATING deployment
+ * with no active job is not a state that exists — and the detail page reads
+ * the job list, not `state`, to decide which actions an in-flight operation
+ * has taken over.
+ */
+function jobsFor(state: string): Record<string, unknown>[] {
+  if (state !== 'UPDATING') return [];
+  return [
+    {
+      id: 'vis-job-1',
+      deploymentId: 'vis-dep-1',
+      type: 'DEPLOY_RELEASE',
+      state: 'RUNNING',
+      idempotencyKey: 'vis-dep-1:DEPLOY_RELEASE:vis-rel-2',
+      payload: {},
+      result: null,
+      requestedBy: null,
+      failureCode: null,
+      createdAt: UPDATED_AT,
+      startedAt: UPDATED_AT,
+      lastProgressAt: UPDATED_AT,
+      finishedAt: null,
+    },
+  ];
+}
+
 async function mockDetail(page: Page, detail: DeploymentFixture): Promise<void> {
   await page.route(`${API_URL}/api/deployments/${detail.id}`, (route) =>
     route.fulfill({
       json: {
         ...detail,
-        jobs: [],
+        jobs: jobsFor(detail.state),
         customDomain: null,
         appUrl: 'http://acme-alb.us-east-1.elb.amazonaws.com',
         relayCapabilities: CAPABILITIES,

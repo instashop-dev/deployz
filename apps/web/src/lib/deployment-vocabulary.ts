@@ -215,6 +215,40 @@ export function everInstalled(state: DeploymentState, currentReleaseId: string |
 export const NOT_YET_RUNNING_ACTION_COPY =
   "This deployment hasn't completed an install yet, so these actions aren't available.";
 
+export const REMOVING_ACTION_COPY =
+  'These actions are unavailable while this deployment is being removed.';
+
+export const REMOVED_ACTION_COPY = 'This deployment has been removed, so these actions no longer apply.';
+
+export const BUSY_ACTION_COPY =
+  'Other actions become available when this operation finishes.';
+
+/**
+ * Why the day-2 actions are unavailable, or null when they are not.
+ *
+ * Order matters: a deployment being removed (or already gone), or busy with
+ * an operation that owns it, is gated by its own lifecycle — NOT by the
+ * connector's capabilities. Reporting the capability sentence there told
+ * vendors to check a connector that supports every action.
+ *
+ * `busy` is whether a mutating job currently owns the deployment, which the
+ * API decides from the job table (requireDeploymentIdle), not from `state` —
+ * so callers pass it rather than having it inferred from a state value that
+ * can lag behind.
+ */
+export function actionsUnavailableReason(input: {
+  state: string;
+  everRan: boolean;
+  busy?: boolean;
+  anyCapabilityGatedOff: boolean;
+}): string | null {
+  if (input.state === 'DELETED') return REMOVED_ACTION_COPY;
+  if (input.state === 'DELETING') return REMOVING_ACTION_COPY;
+  if (!input.everRan) return NOT_YET_RUNNING_ACTION_COPY;
+  if (input.busy) return BUSY_ACTION_COPY;
+  return input.anyCapabilityGatedOff ? UNSUPPORTED_ACTION_COPY : null;
+}
+
 // ── §39 job vocabulary ──────────────────────────────────────────────────────
 
 /** Human-readable §39 job type labels — the vendor progress card's "Latest

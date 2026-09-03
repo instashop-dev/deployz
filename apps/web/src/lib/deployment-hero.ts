@@ -1,5 +1,6 @@
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
+import { REMOVED_PROGRESS } from './deployment-progress';
 import type { DeploymentState } from './deployment-vocabulary';
 import { everInstalled } from './deployment-vocabulary';
 import type { DeploymentJob, FleetDeploymentDetail } from './deployments';
@@ -53,6 +54,36 @@ export type HeroInput = Pick<
 
 const ACTIVE_JOB_STATES = new Set(['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']);
 const DAY_TWO_JOB_TYPES = new Set(['DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'CONFIG_UPDATE']);
+
+/**
+ * The job types the API refuses to start a second operation alongside —
+ * mirrors requireDeploymentIdle's list in apps/api/src/server.ts. Mirrored
+ * rather than imported: the web image stages no workspace packages beyond
+ * copy-map, the same reason DESTROY_PENDING_STALE_AFTER_MS is mirrored.
+ */
+const EXCLUSIVE_JOB_TYPES = new Set([
+  'INSTALL',
+  'DEPLOY_RELEASE',
+  'ROLLBACK',
+  'RESTART',
+  'CONFIG_UPDATE',
+  'DESTROY',
+  'MIGRATION',
+  'INFRA_UPGRADE',
+]);
+
+/**
+ * The mutating job currently running on this deployment, or null when it is
+ * idle. Every action the API gates on `requireDeploymentIdle` has to ask
+ * this first — an enabled button over a busy deployment buys the vendor a
+ * confirmation dialog and a 409.
+ */
+export function operationInFlight(jobs: DeploymentJob[]): DeploymentJob | null {
+  return latestJob(
+    jobs,
+    (job) => EXCLUSIVE_JOB_TYPES.has(job.type) && ACTIVE_JOB_STATES.has(job.state),
+  );
+}
 
 function latestJob(jobs: DeploymentJob[], keep: (job: DeploymentJob) => boolean): DeploymentJob | null {
   return (
@@ -113,7 +144,7 @@ export function deriveHero(detail: HeroInput): HeroModel {
     return {
       kind: 'deleted',
       tone: 'neutral',
-      title: 'Deployment removed',
+      title: REMOVED_PROGRESS.DELETED.title,
       description,
       liveReleaseNote: null,
       showSteps: false,
@@ -124,7 +155,7 @@ export function deriveHero(detail: HeroInput): HeroModel {
     return {
       kind: 'deleting',
       tone: 'progress',
-      title: 'Removing this deployment',
+      title: REMOVED_PROGRESS.DELETING.title,
       description: `Deployz is removing the application and its networking from ${detail.customerName}'s AWS account. The database and stored files are kept.`,
       liveReleaseNote: null,
       showSteps: false,

@@ -89,6 +89,8 @@ async function driveDeploymentToHealthy(
   page: Page,
   installationId: string,
   enrollmentCode: string,
+  /** Capabilities the relay advertises, for tests that assert a gated action. */
+  capabilities?: Record<string, boolean>,
 ): Promise<void> {
   const authHeaders = { Authorization: `Bearer ${installationId}` };
 
@@ -98,7 +100,7 @@ async function driveDeploymentToHealthy(
   // the vendor's deployment, and it is spent on this call.
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
     headers: authHeaders,
-    data: { installationId, enrollmentCode },
+    data: { installationId, enrollmentCode, ...(capabilities ? { capabilities } : {}) },
   });
   expect(registerResponse.ok()).toBeTruthy();
 
@@ -312,26 +314,21 @@ test('disconnect requires typing the customer name to confirm (§63)', async ({ 
   await signUp(page);
   const { deploymentId, customerName, installationId, enrollmentCode } = await seedDeployment(page);
 
-  // Disconnect is capability-gated (see `canDisconnect`/`actionSupported` in
-  // the detail page) — a deployment with no relay ever connected reports no
-  // capabilities, so the button stays disabled with nothing to click. A real
-  // relay reports capabilities on registration; simulate that here.
-  const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
-    headers: { Authorization: `Bearer ${installationId}` },
-    data: {
-      installationId,
-      enrollmentCode,
-      capabilities: {
-        deployRelease: true,
-        rollback: true,
-        restart: true,
-        configUpdate: true,
-        destroy: true,
-        domainManagement: true,
-      },
-    },
+  // Disconnect is gated twice (see `canDisconnect` in the detail page): on
+  // the relay advertising the capability, and on no other operation owning
+  // the deployment — the API refuses a destroy while an install or a day-2
+  // job is active (requireDeploymentIdle), so the button is disabled rather
+  // than buying the vendor a confirmation dialog and a 409. Driving the
+  // install to completion satisfies both: the relay reports its
+  // capabilities on registration, and the INSTALL job settles.
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode, {
+    deployRelease: true,
+    rollback: true,
+    restart: true,
+    configUpdate: true,
+    destroy: true,
+    domainManagement: true,
   });
-  expect(registerResponse.ok()).toBeTruthy();
 
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   // Destructive actions live behind the overflow menu, never beside the

@@ -614,6 +614,12 @@ test('updating: the running operation is named, and other actions say why they a
   await expect(actions).toContainText(
     'Other actions become available when this operation finishes.',
   );
+  // Disconnect is refused by the API while another operation owns the
+  // deployment (requireDeploymentIdle), so it is disabled rather than
+  // offering the vendor a confirmation dialog and a 409.
+  await actions.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Disconnect Deployment' })).toBeDisabled();
+  await page.keyboard.press('Escape');
   await shoot(page, 'updating');
 });
 
@@ -644,7 +650,7 @@ test('deleting: cleanup progress, never a failure', async ({ page }) => {
     }),
   });
 
-  await expect(headline).toHaveText('Removing this deployment');
+  await expect(headline).toHaveText('Removing deployment');
   expect(await hero.innerText()).not.toContain('failed');
   await expect(hero).toContainText('The database and stored files are kept.');
   // Per-service removal progress, in product words.

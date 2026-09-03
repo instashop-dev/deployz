@@ -65,7 +65,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api-client';
-import { deriveHero, type HeroModel } from '@/lib/deployment-hero';
+import { deriveHero, operationInFlight, type HeroModel } from '@/lib/deployment-hero';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
   DeploymentActionError,
@@ -94,8 +94,8 @@ import {
   JOB_TYPE_LABEL,
   RELAY_STATUS_LABEL,
   RELAY_STUCK_GUIDANCE,
-  UNSUPPORTED_ACTION_COPY,
   actionSupported,
+  actionsUnavailableReason,
   everInstalled,
   relayWaitingStuck,
   showHealthBadge,
@@ -130,7 +130,6 @@ type InfrastructureState =
 
 const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to.';
 const INSTALL_STAGES = new Set(['WAITING_FOR_AWS', 'CONNECTING', 'PROVISIONING']);
-const BUSY_ACTION_COPY = 'Other actions become available when this operation finishes.';
 
 // §24 deployment detail, laid out as a status page rather than a console:
 // compact header → state-aware hero with contextual actions → metadata →
@@ -556,14 +555,18 @@ function DeploymentActions({
   // targets a stack that is about to disappear underneath it. A running
   // update owns it the same way (the API answers DEPLOYMENT_BUSY).
   const disconnecting = detail.state === 'DELETING';
-  const busy = detail.state === 'UPDATING';
   const removed = detail.state === 'DELETED';
+  // The API refuses a second mutating operation while one is running
+  // (requireDeploymentIdle), disconnect included — so every action here is
+  // gated on the same signal rather than on the lifecycle state alone.
+  const busy = operationInFlight(detail.jobs) !== null;
   const available = everRan && !disconnecting && !busy && !removed;
   const canDeploy = available && actionSupported(capabilities, 'deploy');
   const canRollback = available && actionSupported(capabilities, 'rollback');
   const canRestart = available && actionSupported(capabilities, 'restart');
   const canConfig = available && actionSupported(capabilities, 'configUpdate');
-  const canDisconnect = !disconnecting && !removed && actionSupported(capabilities, 'disconnect');
+  const canDisconnect =
+    !disconnecting && !removed && !busy && actionSupported(capabilities, 'disconnect');
   // Recovery for a failed FIRST install: the API refuses it once any install
   // has succeeded, so it is offered exactly where the day-2 actions are not.
   const canRetryInstall = detail.state === 'FAILED' && !everRan;
@@ -574,6 +577,12 @@ function DeploymentActions({
       !actionSupported(capabilities, 'restart') ||
       !actionSupported(capabilities, 'configUpdate') ||
       !actionSupported(capabilities, 'disconnect'));
+  const actionsUnavailable = actionsUnavailableReason({
+    state: detail.state,
+    everRan,
+    busy,
+    anyCapabilityGatedOff,
+  });
   const hasPreviousRelease = detail.previousReleaseId !== null;
   const deployIsPrimary =
     detail.state === 'UPDATE_AVAILABLE' || hero.kind === 'operation-failed';
@@ -678,10 +687,8 @@ function DeploymentActions({
         </DropdownMenu>
       </div>
 
-      {busy ? (
-        <p className="text-xs text-muted-foreground">{BUSY_ACTION_COPY}</p>
-      ) : anyCapabilityGatedOff ? (
-        <p className="text-xs text-muted-foreground">{UNSUPPORTED_ACTION_COPY}</p>
+      {actionsUnavailable ? (
+        <p className="text-xs text-muted-foreground">{actionsUnavailable}</p>
       ) : null}
 
       <DeployUpdateDialog

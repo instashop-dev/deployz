@@ -35,7 +35,7 @@ import type { VendorDeploymentStatus } from '@deployz/contracts';
 
 import { fetchDeployments, listedUnderStatus, type FleetDeployment } from '@/lib/deployments';
 import { DEPLOYMENT_STATES, deploymentStateLabel } from '@/lib/deployment-vocabulary';
-import { STAGE_LABEL, STEP_LABEL } from '@/lib/deployment-progress';
+import { STAGE_LABEL, STEP_LABEL, removedProgress } from '@/lib/deployment-progress';
 import { relativeTime } from '@/lib/diagnostics';
 import { attentionReason } from '@/lib/home-state';
 import { useStatusPoll } from '@/lib/use-status-poll';
@@ -393,8 +393,8 @@ function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
                 <TableCell>
                   <DeploymentStatusBadge state={deployment.state} />
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {STAGE_LABEL[deployment.deploymentStatus.stage]} ·{' '}
-                    {progressDetail(deployment.deploymentStatus)}
+                    {removedProgress(deployment.state)?.body ??
+                      `${STAGE_LABEL[deployment.deploymentStatus.stage]} · ${progressDetail(deployment.deploymentStatus)}`}
                   </p>
                   {relativeTime(deployment.deploymentStatus.updatedAt) ? (
                     // data-testid: masked in visual regression — relative

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
-import { deriveHero, type HeroInput } from '../src/lib/deployment-hero';
+import { deriveHero, operationInFlight, type HeroInput } from '../src/lib/deployment-hero';
+import { REMOVED_PROGRESS } from '../src/lib/deployment-progress';
 import type { DeploymentJob } from '../src/lib/deployments';
 
 // The hero chooses words for what the server already derived — these tests
@@ -233,7 +234,7 @@ describe('deriveHero', () => {
     const hero = deriveHero(input({ state: 'DELETING' }));
     expect(hero.kind).toBe('deleting');
     expect(hero.tone).toBe('progress');
-    expect(hero.title).toBe('Removing this deployment');
+    expect(hero.title).toBe(REMOVED_PROGRESS.DELETING.title);
   });
 
   it('DELETED explains what is left behind per cleanup state', () => {
@@ -256,5 +257,36 @@ describe('deriveHero', () => {
     );
     expect(hero.kind).toBe('removal-failed');
     expect(hero.title).toBe('Removal failed');
+  });
+});
+
+describe('operationInFlight', () => {
+  it('is null when nothing mutating is running', () => {
+    expect(operationInFlight([])).toBeNull();
+    expect(operationInFlight([job({ type: 'INSTALL', state: 'SUCCEEDED' })])).toBeNull();
+    // Health and domain work never owns the deployment.
+    expect(operationInFlight([job({ type: 'HEALTH_REPORT', state: 'RUNNING' })])).toBeNull();
+    expect(operationInFlight([job({ type: 'CONFIGURE_DOMAIN', state: 'RUNNING' })])).toBeNull();
+  });
+
+  it('names the running operation for every type the API refuses to run alongside', () => {
+    for (const type of [
+      'INSTALL',
+      'DEPLOY_RELEASE',
+      'ROLLBACK',
+      'RESTART',
+      'CONFIG_UPDATE',
+      'DESTROY',
+      'MIGRATION',
+      'INFRA_UPGRADE',
+    ]) {
+      expect(operationInFlight([job({ type, state: 'RUNNING' })])?.type, type).toBe(type);
+    }
+  });
+
+  it('counts a job the relay has not picked up yet', () => {
+    for (const state of ['REQUESTED', 'QUEUED', 'WAITING']) {
+      expect(operationInFlight([job({ type: 'DESTROY', state })])).not.toBeNull();
+    }
   });
 });

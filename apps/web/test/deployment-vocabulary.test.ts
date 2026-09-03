@@ -10,6 +10,7 @@ import {
   eventResultLabel,
   eventTypeLabel,
   everInstalled,
+  actionsUnavailableReason,
   relayWaitingStuck,
   showHealthBadge,
   showInfrastructureRows,
@@ -211,5 +212,64 @@ describe('eventFailureReason', () => {
     expect(eventFailureReason('failed:MIGRATION_FAILED', { error: '' })).toBeNull();
     expect(eventFailureReason('failed:MIGRATION_FAILED', { error: '   ' })).toBeNull();
     expect(eventFailureReason('failed:MIGRATION_FAILED', { error: 42 })).toBeNull();
+  });
+});
+
+// The reason the day-2 actions are unavailable. A deployment being removed is
+// gated by its own lifecycle, not by the connector: the canary showed
+// "not supported by the currently installed Deployz connector" during a
+// disconnect, sending the vendor to check a connector that was fine.
+describe('actionsUnavailableReason', () => {
+  it('blames the lifecycle, not the connector, while a deployment is being removed', () => {
+    const reason = actionsUnavailableReason({
+      state: 'DELETING',
+      everRan: true,
+      anyCapabilityGatedOff: true,
+    });
+    expect(reason).toContain('being removed');
+    expect(reason).not.toContain('connector');
+  });
+
+  it('says a removed deployment no longer takes actions', () => {
+    expect(
+      actionsUnavailableReason({ state: 'DELETED', everRan: true, anyCapabilityGatedOff: false }),
+    ).toContain('has been removed');
+  });
+
+  it('blames the running operation, not the connector, while one owns the deployment', () => {
+    const reason = actionsUnavailableReason({
+      state: 'UPDATING',
+      everRan: true,
+      busy: true,
+      anyCapabilityGatedOff: true,
+    });
+    expect(reason).toContain('when this operation finishes');
+    expect(reason).not.toContain('connector');
+  });
+
+  it('falls back to the connector once the operation settles', () => {
+    expect(
+      actionsUnavailableReason({
+        state: 'UPDATING',
+        everRan: true,
+        busy: false,
+        anyCapabilityGatedOff: true,
+      }),
+    ).toContain('connector');
+  });
+
+  it('still explains a never-installed deployment and a gated connector', () => {
+    expect(
+      actionsUnavailableReason({ state: 'FAILED', everRan: false, anyCapabilityGatedOff: false }),
+    ).toContain("hasn't completed an install");
+    expect(
+      actionsUnavailableReason({ state: 'HEALTHY', everRan: true, anyCapabilityGatedOff: true }),
+    ).toContain('connector');
+  });
+
+  it('is null when every action is available', () => {
+    expect(
+      actionsUnavailableReason({ state: 'HEALTHY', everRan: true, anyCapabilityGatedOff: false }),
+    ).toBeNull();
   });
 });

@@ -324,8 +324,10 @@ function componentLifecycle(rows: readonly InfrastructureResourceRow[]): Infrast
  * Post-deletion override: when the deployment state is DELETED, every row's
  * effective status is re-derived from its lifecycle BEFORE aggregation —
  * retain/snapshot → 'retained', delete → 'removed', conditional keeps its
- * last mapped status. This yields the "Application→Removed,
- * Database→Retained" view from the preserved final snapshot.
+ * last mapped status — UNLESS the row's observed status is already
+ * 'retained' (CloudFormation DELETE_SKIPPED), which is kept as-is: the
+ * resource is still live in the customer's account regardless of what its
+ * policy predicted.
  */
 export function aggregateInfrastructureComponents(
   rows: readonly InfrastructureResourceRow[],
@@ -333,6 +335,7 @@ export function aggregateInfrastructureComponents(
 ): AggregateInfrastructureResult {
   const effectiveRows = rows.map((row) => {
     if (options.deploymentState !== 'DELETED') return row;
+    if (row.resourceStatus === 'retained') return row;
     if (row.lifecyclePolicy === 'retain' || row.lifecyclePolicy === 'snapshot') {
       return { ...row, resourceStatus: 'retained' as const };
     }
