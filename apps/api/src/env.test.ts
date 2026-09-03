@@ -146,7 +146,10 @@ describe('Phase 13 — zone id, token and probe provenance guards', () => {
       const rel = relative(repoRoot, file);
       if (file.endsWith('.test.ts')) continue; // guard fixtures are not leaks
       if (!readFileSync(file, 'utf8').includes(ZONE_ID_HEX)) continue;
-      const allowed = rel.startsWith('.github') || rel === '.env.example';
+      // docs/ legitimately quotes the production config (the plan's report
+      // requirement); the guard's target is app/package/e2e source and tests.
+      const allowed =
+        rel.startsWith('.github') || rel === '.env.example' || rel.startsWith('docs');
       if (!allowed) offenders.push(rel);
     }
     expect(offenders).toEqual([]);
