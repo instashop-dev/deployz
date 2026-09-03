@@ -1,0 +1,418 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  CloudflareDnsError,
+  CLOUDFLARE_RECORD_COMMENT,
+  createCloudflareDnsClient,
+  createFakeCloudflareDnsClient,
+  type CloudflareDnsRecord,
+  type CloudflareFetchFn,
+} from './cloudflare-records.js';
+
+// Phase 3 — the control plane's Cloudflare DNS surface. Pure unit tests: the
+// transport is always injected and every scenario runs against fake
+// Responses, so no request ever reaches api.cloudflare.com (this file does
+// not even mention the production base URL).
+
+const ZONE_ID = 'zone-test-1';
+const ZONE_NAME = 'deployz.dev';
+const TOKEN = 'test-secret-token';
+const API_BASE_URL = 'https://cloudflare.test';
+const TARGET = 'alb.example.com';
+const HOSTNAME = 'd-dep-1.deployz.dev';
+
+function record(
+  id: string,
+  content: string,
+  overrides: Partial<CloudflareDnsRecord> = {},
+): CloudflareDnsRecord {
+  return {
+    id,
+    type: 'CNAME',
+    name: HOSTNAME,
+    content,
+    ttl: 1,
+    proxied: true,
+    comment: CLOUDFLARE_RECORD_COMMENT,
+    ...overrides,
+  };
+}
+
+function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
+function okList(...records: CloudflareDnsRecord[]): Response {
+  return jsonResponse(200, {
+    success: true,
+    result: records,
+    errors: [],
+    messages: [],
+    result_info: { count: records.length },
+  });
+}
+
+function okResult(recordResult: CloudflareDnsRecord): Response {
+  return jsonResponse(200, { success: true, result: recordResult, errors: [], messages: [] });
+}
+
+function errResponse(status: number, code: number, message: string, headers: Record<string, string> = {}): Response {
+  return jsonResponse(status, { success: false, errors: [{ code, message }], messages: [] }, headers);
+}
+
+interface RecordedCall {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body?: string;
+}
+
+function makeClient(
+  handle: (url: string, init: RequestInit) => Response | Promise<Response>,
+): { client: ReturnType<typeof createCloudflareDnsClient>; calls: RecordedCall[] } {
+  const calls: RecordedCall[] = [];
+  const fetchFn: CloudflareFetchFn = async (url, init) => {
+    calls.push({
+      method: init.method ?? 'GET',
+      url,
+      headers: init.headers as Record<string, string>,
+      body: typeof init.body === 'string' ? init.body : undefined,
+    });
+    return handle(url, init);
+  };
+  const client = createCloudflareDnsClient({
+    token: TOKEN,
+    zoneId: ZONE_ID,
+    zoneName: ZONE_NAME,
+    apiBaseUrl: API_BASE_URL,
+    fetchFn,
+  });
+  return { client, calls };
+}
+
+async function failure(promise: Promise<unknown>): Promise<CloudflareDnsError> {
+  try {
+    await promise;
+  } catch (error) {
+    expect(error).toBeInstanceOf(CloudflareDnsError);
+    return error as CloudflareDnsError;
+  }
+  throw new Error('expected the call to throw a CloudflareDnsError');
+}
+
+describe('createCloudflareDnsClient — upsert idempotency', () => {
+  it('missing → POSTs a proxied CNAME with the Bearer token and zone path', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList();
+      if (init.method === 'POST') {
+        const body = JSON.parse(init.body as string) as Record<string, unknown>;
+        return okResult(record('rec-new', body['content'] as string));
+      }
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultDeploymentRecord('dep-1', TARGET);
+
+    expect(result.op).toBe('created');
+    expect(result.record?.content).toBe(TARGET);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.method).toBe('GET');
+    expect(calls[0]!.url).toBe(
+      `${API_BASE_URL}/zones/${ZONE_ID}/dns_records?type=CNAME&name.exact=${HOSTNAME}`,
+    );
+    const post = calls[1]!;
+    expect(post.method).toBe('POST');
+    expect(post.url).toBe(`${API_BASE_URL}/zones/${ZONE_ID}/dns_records`);
+    expect(post.headers['Authorization']).toBe(`Bearer ${TOKEN}`);
+    expect(JSON.parse(post.body!)).toEqual({
+      type: 'CNAME',
+      name: HOSTNAME,
+      content: TARGET,
+      ttl: 1,
+      proxied: true,
+      comment: CLOUDFLARE_RECORD_COMMENT,
+    });
+  });
+
+  it('identical record → noop (transport sees the list call only)', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(record('rec-1', TARGET));
+      throw new Error(`unexpected ${init.method} on an identical record`);
+    });
+
+    const result = await client.upsertDefaultDeploymentRecord('dep-1', TARGET);
+
+    expect(result).toEqual({ op: 'noop', record: record('rec-1', TARGET) });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe('GET');
+  });
+
+  it('drifting target → PUT to the record id with the new content', async () => {
+    const seenBodies: string[] = [];
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(record('rec-1', 'old-alb.example.com'));
+      if (init.method === 'PUT') {
+        seenBodies.push(init.body as string);
+        return okResult(record('rec-1', TARGET));
+      }
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultDeploymentRecord('dep-1', TARGET);
+
+    expect(result.op).toBe('updated');
+    expect(calls).toHaveLength(2);
+    const put = calls[1]!;
+    expect(put.method).toBe('PUT');
+    expect(put.url).toBe(`${API_BASE_URL}/zones/${ZONE_ID}/dns_records/rec-1`);
+    expect(JSON.parse(seenBodies[0]!)).toMatchObject({ name: HOSTNAME, content: TARGET, proxied: true });
+  });
+
+  it('an unproxied record with the right content → PUT to restore proxying', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(record('rec-1', TARGET, { proxied: false }));
+      if (init.method === 'PUT') return okResult(record('rec-1', TARGET));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultDeploymentRecord('dep-1', TARGET);
+
+    expect(result.op).toBe('updated');
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'PUT']);
+  });
+
+  it('returns the first exact-name match when Cloudflare lists several', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') {
+        return okList(
+          record('rec-first', TARGET),
+          { ...record('rec-second', TARGET), id: 'rec-second' },
+        );
+      }
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const found = await client.getRecord('dep-1');
+
+    expect(found?.id).toBe('rec-first');
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('createCloudflareDnsClient — delete', () => {
+  it('existing → DELETE by record id', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(record('rec-1', TARGET));
+      if (init.method === 'DELETE') return okResult(record('rec-1', TARGET));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.deleteDefaultDeploymentRecord('dep-1');
+
+    expect(result).toEqual({ op: 'deleted' });
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'DELETE']);
+    expect(calls[1]!.url).toBe(`${API_BASE_URL}/zones/${ZONE_ID}/dns_records/rec-1`);
+  });
+
+  it('missing → noop without calling DELETE', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList();
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.deleteDefaultDeploymentRecord('dep-1');
+
+    expect(result).toEqual({ op: 'noop' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('a DELETE answered with 81044 (record does not exist) → noop', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(record('rec-1', TARGET));
+      if (init.method === 'DELETE') return errResponse(400, 81044, 'Record does not exist.');
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.deleteDefaultDeploymentRecord('dep-1');
+
+    expect(result).toEqual({ op: 'noop' });
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'DELETE']);
+  });
+});
+
+describe('createCloudflareDnsClient — error mapping', () => {
+  async function expectCode(handle: (url: string, init: RequestInit) => Response | Promise<Response>) {
+    const { client } = makeClient(handle);
+    return failure(client.getRecord('dep-1'));
+  }
+
+  it('error code 9109 (invalid token) → CLOUDFLARE_AUTH_FAILED, token never leaked', async () => {
+    const error = await expectCode(() => errResponse(403, 9109, 'Invalid API token.'));
+
+    expect(error.code).toBe('CLOUDFLARE_AUTH_FAILED');
+    expect(error.status).toBe(403);
+    expect(error.message).not.toContain(TOKEN);
+  });
+
+  it('HTTP 403 permission → CLOUDFLARE_PERMISSION_DENIED', async () => {
+    const error = await expectCode(() => errResponse(403, 1000, 'Zone.DNS permission denied.'));
+
+    expect(error.code).toBe('CLOUDFLARE_PERMISSION_DENIED');
+  });
+
+  it('HTTP 429 → CLOUDFLARE_RATE_LIMITED with the retry-after seconds', async () => {
+    const error = await expectCode(() => errResponse(429, 0, 'Too many requests.', { 'retry-after': '30' }));
+
+    expect(error.code).toBe('CLOUDFLARE_RATE_LIMITED');
+    expect(error.retryAfterSeconds).toBe(30);
+  });
+
+  it('error code 81053 → CLOUDFLARE_DNS_CONFLICT', async () => {
+    const error = await expectCode(() => errResponse(409, 81053, 'Duplicate record.'));
+
+    expect(error.code).toBe('CLOUDFLARE_DNS_CONFLICT');
+  });
+
+  it('HTTP 500 → CLOUDFLARE_UNAVAILABLE', async () => {
+    const error = await expectCode(() => errResponse(500, 0, 'Internal server error.'));
+
+    expect(error.code).toBe('CLOUDFLARE_UNAVAILABLE');
+  });
+
+  it('a transport throw (network down) → CLOUDFLARE_UNAVAILABLE', async () => {
+    const error = await expectCode(() => {
+      throw new Error('connection reset');
+    });
+
+    expect(error.code).toBe('CLOUDFLARE_UNAVAILABLE');
+    expect(error.message).not.toContain(TOKEN);
+  });
+
+  it('a transport abort (timeout) → CLOUDFLARE_UNAVAILABLE', async () => {
+    const error = await expectCode(() => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    });
+
+    expect(error.code).toBe('CLOUDFLARE_UNAVAILABLE');
+  });
+
+  it('a non-JSON 5xx body (HTML error page) → CLOUDFLARE_UNAVAILABLE, not a crash', async () => {
+    const { client } = makeClient(async () => new Response('<html>Bad Gateway</html>', { status: 502 }));
+
+    const error = await failure(client.getRecord('dep-1'));
+
+    expect(error.code).toBe('CLOUDFLARE_UNAVAILABLE');
+    expect(error.status).toBe(502);
+  });
+});
+
+describe('createCloudflareDnsClient — namespace protection before transport', () => {
+  it('refuses reserved and out-of-zone names for every operation without a single call', async () => {
+    const { client, calls } = makeClient(async () => {
+      throw new Error('the transport must never be reached');
+    });
+    const hostileNames = [
+      'app.deployz.dev',
+      'www.deployz.dev',
+      'deployz.dev',
+      'admin.deployz.dev',
+      'd-1.evil.com', // a default-looking name in the wrong zone
+    ];
+
+    for (const name of hostileNames) {
+      expect((await failure(client.getRecord(name))).code).toBe('CLOUDFLARE_DNS_CONFLICT');
+      expect((await failure(client.upsertDefaultDeploymentRecord(name, TARGET))).code).toBe(
+        'CLOUDFLARE_DNS_CONFLICT',
+      );
+      expect((await failure(client.deleteDefaultDeploymentRecord(name))).code).toBe(
+        'CLOUDFLARE_DNS_CONFLICT',
+      );
+    }
+
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('createCloudflareDnsClient — concurrent-create race (81057)', () => {
+  it('lost create, re-look-up still empty → a second POST succeeds (2 POSTs total)', async () => {
+    let posts = 0;
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList();
+      if (init.method === 'POST') {
+        posts += 1;
+        if (posts === 1) return errResponse(409, 81057, 'Another object with the same name already exists.');
+        return okResult(record('rec-new', TARGET));
+      }
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultDeploymentRecord('dep-1', TARGET);
+
+    expect(result.op).toBe('created');
+    expect(posts).toBe(2);
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'POST', 'GET', 'POST']);
+  });
+
+  it('lost create, re-look-up finds the winner → reconciles with PUT (1 POST total)', async () => {
+    let gets = 0;
+    let posts = 0;
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') {
+        gets += 1;
+        return gets === 1 ? okList() : okList(record('rec-winner', 'winner-alb.example.com'));
+      }
+      if (init.method === 'POST') {
+        posts += 1;
+        return errResponse(409, 81057, 'Another object with the same name already exists.');
+      }
+      if (init.method === 'PUT') return okResult(record('rec-winner', TARGET));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultDeploymentRecord('dep-1', TARGET);
+
+    expect(result).toMatchObject({ op: 'updated' });
+    expect(posts).toBe(1);
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'POST', 'GET', 'PUT']);
+  });
+});
+
+describe('createFakeCloudflareDnsClient', () => {
+  it('round-trips create → get → delete → get-null in memory', async () => {
+    const fake = createFakeCloudflareDnsClient({ zoneId: ZONE_ID, zoneName: ZONE_NAME });
+
+    const created = await fake.upsertDefaultDeploymentRecord('dep-1', TARGET);
+    expect(created.op).toBe('created');
+    expect(created.record).toMatchObject({
+      type: 'CNAME',
+      name: HOSTNAME,
+      content: TARGET,
+      ttl: 1,
+      proxied: true,
+    });
+
+    const found = await fake.getRecord('dep-1');
+    expect(found).toEqual(created.record);
+
+    // A repeat upsert of the identical record is a noop, never a duplicate.
+    const repeated = await fake.upsertDefaultDeploymentRecord('dep-1', TARGET);
+    expect(repeated.op).toBe('noop');
+    expect(fake.listRecords()).toHaveLength(1);
+
+    expect(await fake.deleteDefaultDeploymentRecord('dep-1')).toEqual({ op: 'deleted' });
+    expect(await fake.getRecord('dep-1')).toBeNull();
+    expect(fake.listRecords()).toHaveLength(0);
+  });
+
+  it('applies the same namespace guard as the real client', async () => {
+    const fake = createFakeCloudflareDnsClient({ zoneId: ZONE_ID, zoneName: ZONE_NAME });
+
+    expect((await failure(fake.upsertDefaultDeploymentRecord('www.deployz.dev', TARGET))).code).toBe(
+      'CLOUDFLARE_DNS_CONFLICT',
+    );
+    expect((await failure(fake.deleteDefaultDeploymentRecord('deployz.dev'))).code).toBe(
+      'CLOUDFLARE_DNS_CONFLICT',
+    );
+    expect(fake.listRecords()).toHaveLength(0);
+  });
+});
