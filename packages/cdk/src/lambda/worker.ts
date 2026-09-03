@@ -65,7 +65,7 @@ export interface CodeBuildStateChangeEvent {
 /**
  * Everything the worker touches outside its own process. Injected so the
  * dispatch logic is testable without AWS, GitHub, or Secrets Manager — the
- * same seam pattern as the §30 preflight engine and the publisher.
+ * same seam pattern as the publisher.
  */
 export interface WorkerDeps {
   readonly db: RuntimeDb;

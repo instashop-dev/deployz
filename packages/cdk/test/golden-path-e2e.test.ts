@@ -370,10 +370,11 @@ describe('§67 Golden Path E2E', () => {
       expect(true).toBe(true);
     });
 
-    it('step 20: DEPLOY_RELEASE (preflight gates)', () => {
-      // PENDING-AWS: requires the DEPLOY_RELEASE durable workflow + preflight engine.
-      // When available: dispatch DEPLOY_RELEASE → assert preflight checks pass →
-      // assert the workflow transitions through UPDATING → HEALTHY.
+    it('step 20: DEPLOY_RELEASE (relay command)', () => {
+      // PENDING-AWS: requires a real relay round-trip. The control plane
+      // enqueues a DEPLOY_RELEASE job and the customer-account relay executes
+      // it; the worker settles the job. When available: dispatch DEPLOY_RELEASE
+      // → assert the deployment transitions through UPDATING → HEALTHY.
       expect(true).toBe(true);
     });
 

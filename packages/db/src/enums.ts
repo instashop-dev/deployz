@@ -47,7 +47,7 @@ export const regionEnum = pgEnum('region', [
 ]);
 
 // §46 deployment states — product vocabulary. Customers never see raw
-// CFN/ECS internals; these nine states are the whole user-facing model.
+// CFN/ECS internals; these ten states are the whole user-facing model.
 export const deploymentStateEnum = pgEnum('deployment_state', [
   'NOT_INSTALLED',
   'WAITING_FOR_RELAY',
@@ -83,7 +83,10 @@ export const jobTypeEnum = pgEnum('job_type', [
 
 // §39 job states. WAITING semantics: the job is waiting on customer approval
 // OR on relay pickup — the payload/result disambiguates which.
-// QUEUED and SUCCESS are the brief's original names (§39).
+// QUEUED and SUCCESS are the brief's original names (§39). SUCCESS is
+// legacy: rows recorded before the CANARY fixes wrote it, so every reader
+// accepts SUCCEEDED and SUCCESS alike. New writes always use SUCCEEDED; do
+// not drop SUCCESS from the enum without a data migration first.
 export const jobStateEnum = pgEnum('job_state', [
   'REQUESTED',
   'QUEUED',

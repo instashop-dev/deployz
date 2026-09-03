@@ -40,8 +40,8 @@ describe('DeployzStack', () => {
     const stack = new DeployzStack(app, 'DeployzTest');
     const template = Template.fromStack(stack);
 
-    // API + worker + durable + log retention custom resource
-    template.resourceCountIs('AWS::Lambda::Function', 4);
+    // API + worker + log retention custom resource
+    template.resourceCountIs('AWS::Lambda::Function', 3);
   });
 
   it('creates the job queue with a dead-letter queue', () => {
@@ -149,19 +149,6 @@ describe('DeployzStack', () => {
     });
   });
 
-  it('creates a DynamoDB table for durable execution state', () => {
-    const app = new App();
-    const stack = new DeployzStack(app, 'DeployzTest');
-    const template = Template.fromStack(stack);
-
-    template.resourceCountIs('AWS::DynamoDB::Table', 1);
-    template.hasResourceProperties('AWS::DynamoDB::Table', {
-      KeySchema: [
-        { AttributeName: 'executionId', KeyType: 'HASH' },
-      ],
-    });
-  });
-
   it('exports stack outputs', () => {
     const app = new App();
     const stack = new DeployzStack(app, 'DeployzTest');
@@ -174,7 +161,6 @@ describe('DeployzStack', () => {
     expect(outputKeys).toContain('ExportDeployzTestJobQueueArn');
     expect(outputKeys).toContain('ExportDeployzTestTemplateBucket');
     expect(outputKeys).toContain('ExportDeployzTestBuildSourceBucket');
-    expect(outputKeys).toContain('ExportDeployzTestDurableCallbackUrl');
   });
 
   // The custom domain is opt-in. Everything above synthesises without it, and
@@ -228,20 +214,6 @@ describe('DeployzStack', () => {
 
       expect(Object.keys(template.findOutputs('*'))).toContain(
         'ExportDeployzTestApiRegionalDomainName',
-      );
-    });
-
-    // Customer bootstrap templates bake this URL in, so it has to follow the
-    // custom domain rather than the generated execute-api endpoint.
-    it('builds the durable callback URL from the custom domain', () => {
-      const template = synth({
-        apiDomainName: 'api.deployz.dev',
-        apiCertificateArn: CERT_ARN,
-      });
-
-      const output = template.findOutputs('ExportDeployzTestDurableCallbackUrl');
-      expect(Object.values(output)[0]?.Value).toBe(
-        'https://api.deployz.dev/durable/{workflowName}/{executionId}/callback',
       );
     });
   });

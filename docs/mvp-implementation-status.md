@@ -1069,3 +1069,92 @@ one deployment story; AWS-specific detail stays secondary.
   apps/web. Full-suite runs re-run per the Windows EBUSY flake discipline;
   CI is authoritative.
 
+## Phase 13 — Dead code, state-model, and test cleanup (2026-09-03)
+
+Phase 13 removes the unreachable systems the Phase 0 audit listed. Their
+green tests implied product functions that did not exist. Nothing in
+production code imported any of them. `tsc` (the package build) was the gate:
+the repo builds after every removal.
+
+### Removed
+
+1. **`packages/cdk/src/jobs/*` (11 files)** — install, deploy-release,
+   config-update, destroy, and rollback workflows, health-monitor,
+   event-emitter, notifications, preflight, preflight-engine, and
+   region-enforcement. No production importer existed. The live install and
+   day-2 operations run through the relay command queue and the worker, not
+   these modules.
+2. **`packages/cdk/src/durable/*` (4 files)** — durable-runtime,
+   durable-handler, durable-stack, and the `DurableExecution` construct that
+   `DeployzStack` deployed. The construct registered no live workflow and
+   nothing invoked it. The DynamoDB table and the `/durable/...` HTTP route
+   disappear on the next control-plane deploy; this shrinks the deployed AWS
+   surface.
+3. **`packages/cdk/src/analysis/*` (6 files + 1 test)** — failure-classifier
+   (the 19-rule chain), ai-explainer, diagnostic-explainer, rules,
+   diagnostic-event-schema, and the remediation barrel. Failure refinement
+   already lives in `apps/api/src/failure-classification.ts`, fed by the
+   relay and the persisted stack events. Nothing imported the `@deployz/cdk`
+   analysis paths (the `remediation.ts` barrel re-exported `@deployz/analysis`
+   for an import path nothing used).
+4. **The test suites that covered the removed modules** — 15 files under
+   `packages/cdk/test` plus the removed modules' 458 test cases in total
+   (444 in deleted files, 14 in trimmed sections of security-hardening).
+   The trimmed `security-hardening.test.ts` keeps its two live proof areas:
+   relay token rotation and the bootstrap permissions boundary.
+
+### Kept, and why
+
+- **`packages/cdk/src/integration/`** — the live-AWS harness. Its
+  `regions.ts` imported `ALLOWED_REGIONS` from `jobs/preflight.ts`; that
+  import now points at `SUPPORTED_AWS_REGIONS` in `@deployz/contracts`, the
+  canonical §32 list (parity-locked to `packages/db` `regionEnum`). No copy
+  of the region list remains in `@deployz/cdk`.
+- **`packages/cdk/src/index.ts`** — dropped only the durable exports; the
+  quick-create, pipeline, and integration surfaces are unchanged (the
+  publish/synth scripts import them).
+- **`copy-map` event-type labels** — the labels for the removed durable
+  workflow step events stay: they are inert display vocabulary, mirrored by
+  apps/web, and deleting them would be cross-package churn with no behavior
+  change. Their comment now says they belong to the removed layer and are
+  kept so older event rows still render.
+- **State enums and schemas** — every deployment-state, job-state, and
+  job-type member is load-bearing (read or written by the API, the relay,
+  the worker, or stored rows). Nothing was removed.
+
+### State-model decisions
+
+- The model already separates the four concepts: deployment lifecycle
+  (`deployment_state`), runtime health (`health_status`), relay connectivity
+  (`relay_status`), and cleanup state (`cleanup_state`). No merge was needed.
+- **SUCCESS vs SUCCEEDED** (job state) is a load-bearing pair: rows recorded
+  before the CANARY fixes wrote `SUCCEEDED`, and every reader accepts both.
+  Dropping `SUCCESS` from the DB enum or the contracts schema needs a data
+  migration, so it stays. The comments on `jobStateEnum` and
+  `jobStateSchema` now say so.
+- Stale doc counts corrected: the §46 deployment state comments said "nine
+  states"; there are ten.
+
+### Tests
+
+- Vitest test cases removed: 458 (444 in deleted files, 14 in trimmed
+  security-hardening sections). No vitest tests were added. The @deployz/cdk
+  package totals 843 test cases before and 385 after (static per-file count).
+- Before (full run on this branch, Windows): 144 files, 2404 tests.
+- After (full run, Windows): 128 files; the most complete run measured 2454
+  tests (2449 passed, 3 skipped). Full-run totals are noisy: the Windows
+  vitest worker-timeout flake (documented in `packages/cdk/vitest.config.ts`)
+  drops whole cdk synth suites from some runs, so every cdk suite was
+  re-run green in isolation. Two failures are a local-only condition (an
+  expired AWS SSO session in the two "resolves a live identity" seam tests,
+  present before this phase too); CI is authoritative.
+- Playwright DOM tests added: 3 (in `e2e/deployment-detail.spec.ts`, 22 to
+  25). They lock payloads the API computes that no DOM test asserted before:
+  the recorded per-step durations (`stepTimings`), the slow-install nudge
+  (`takingLongerThanUsual` with the raw stack status), and the failure's
+  raw AWS status staying behind Advanced details (`failure.awsStatus`).
+- Verification: `pnpm build` 9/9 packages (unchanged — code was removed from
+  packages, not packages removed), `pnpm lint` 9/9, and the full vitest run
+  above. The e2e addition runs under Playwright in CI.
+
+
