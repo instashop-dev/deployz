@@ -1,0 +1,382 @@
+/**
+ * The vendor-side control-plane client the canary drives — the same HTTP
+ * routes the dashboard uses (sign-up, GitHub binding, applications,
+ * releases, customers, deployments, deploy/rollback/destroy/purge, events),
+ * never a database write. A cookie jar carries the better-auth session.
+ */
+
+export interface DeploymentJob {
+  id: string;
+  type: string;
+  state: string;
+  idempotencyKey: string;
+  payload: Record<string, unknown> | null;
+  failureCode: string | null;
+  result: Record<string, unknown> | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export interface DeploymentDetail {
+  id: string;
+  state: string;
+  applicationId: string;
+  customerId: string;
+  installLinkId: string;
+  installationId: string | null;
+  bootstrapStackName: string | null;
+  currentReleaseId: string | null;
+  previousReleaseId: string | null;
+  version: string | null;
+  relayStatus: string;
+  healthStatus: string;
+  cleanupState: string | null;
+  runningImageDigest: string | null;
+  appUrl: string | null;
+  jobs: DeploymentJob[];
+  deploymentStatus: {
+    stage: string;
+    currentActivity: string;
+    url: string | null;
+    health: { status: string };
+    failure: {
+      code: string | null;
+      component: string | null;
+      reference: string;
+      message: string;
+      awsStatus: string | null;
+    } | null;
+    job: { type: string; status: string } | null;
+  };
+}
+
+export interface ReleaseSummary {
+  id: string;
+  version: string;
+  status: 'BUILDING' | 'READY' | 'FAILED';
+  failureReason: string | null;
+}
+
+export interface EventRow {
+  id: string;
+  eventType: string;
+  occurredAt: string;
+  releaseId?: string | null;
+  jobId?: string | null;
+  result?: string | null;
+  payload?: Record<string, unknown> | null;
+}
+
+export class ControlPlaneError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | null,
+    message: string,
+    readonly body: unknown,
+  ) {
+    super(message);
+  }
+}
+
+const TERMINAL_JOB_STATES = new Set(['SUCCEEDED', 'SUCCESS', 'FAILED', 'CANCELLED']);
+
+export function isTerminalJobState(state: string): boolean {
+  return TERMINAL_JOB_STATES.has(state);
+}
+
+export class ControlPlane {
+  private readonly cookies = new Map<string, string>();
+
+  constructor(readonly apiUrl: string) {}
+
+  async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    options: { headers?: Record<string, string>; allowStatus?: number[] } = {},
+  ): Promise<{ status: number; body: T; headers: Headers }> {
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      ...(this.cookies.size > 0
+        ? { cookie: [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; ') }
+        : {}),
+      ...options.headers,
+    };
+    const response = await fetch(`${this.apiUrl}${path}`, {
+      method,
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      redirect: 'manual',
+    });
+    for (const cookie of response.headers.getSetCookie()) {
+      const pair = cookie.split(';')[0] ?? '';
+      const eq = pair.indexOf('=');
+      if (eq > 0) this.cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+    }
+    const text = await response.text();
+    let parsed: unknown = null;
+    try {
+      parsed = text.length > 0 ? JSON.parse(text) : null;
+    } catch {
+      parsed = text;
+    }
+    const ok = response.status >= 200 && response.status < 400;
+    if (!ok && !(options.allowStatus ?? []).includes(response.status)) {
+      const envelope = parsed as { error?: { code?: string; message?: string } } | null;
+      throw new ControlPlaneError(
+        response.status,
+        envelope?.error?.code ?? null,
+        `${method} ${path} -> ${response.status}: ${envelope?.error?.message ?? text.slice(0, 300)}`,
+        parsed,
+      );
+    }
+    return { status: response.status, body: parsed as T, headers: response.headers };
+  }
+
+  // ── Vendor session ──────────────────────────────────────────────────────
+
+  async signUp(input: { name: string; email: string; password: string }): Promise<void> {
+    await this.request('POST', '/api/auth/sign-up/email', input);
+    if (!this.cookies.size) throw new Error('sign-up returned no session cookie');
+  }
+
+  async signIn(input: { email: string; password: string }): Promise<void> {
+    await this.request('POST', '/api/auth/sign-in/email', input);
+    if (!this.cookies.size) throw new Error('sign-in returned no session cookie');
+  }
+
+  /** The dashboard's post-install redirect target — binds the App installation to this org. */
+  async bindGithubInstallation(installationId: string): Promise<string> {
+    const { status, headers } = await this.request<unknown>(
+      'GET',
+      `/api/github/setup?installation_id=${encodeURIComponent(installationId)}`,
+      undefined,
+      { allowStatus: [302, 303, 307] },
+    );
+    const location = headers.get('location') ?? '';
+    if (status < 300 || !location.includes('github=connected')) {
+      throw new Error(`GitHub binding did not report connected (status ${status}, location ${location})`);
+    }
+    return location;
+  }
+
+  async listGithubInstallations(): Promise<{ id: string; accountLogin?: string }[]> {
+    const { body } = await this.request<{ installations: { id: string; accountLogin?: string }[] }>(
+      'GET',
+      '/api/github/installations',
+    );
+    return body.installations;
+  }
+
+  // ── Applications and releases ───────────────────────────────────────────
+
+  async createApplication(input: {
+    name: string;
+    githubInstallationId: string;
+    repoFullName: string;
+    repoUrl: string;
+    defaultBranch: string;
+    containerPort?: number;
+    healthPath?: string;
+    databaseRequired?: boolean;
+  }): Promise<{ id: string }> {
+    const { body } = await this.request<{ id: string }>('POST', '/api/applications', input);
+    return body;
+  }
+
+  async getApplication(id: string): Promise<Record<string, unknown>> {
+    const { body } = await this.request<Record<string, unknown>>('GET', `/api/applications/${id}`);
+    return body;
+  }
+
+  async patchApplication(id: string, patch: Record<string, unknown>): Promise<void> {
+    await this.request('PATCH', `/api/applications/${id}`, patch);
+  }
+
+  async getReadiness(id: string): Promise<{ state: string; analysisStatus: string; findings: unknown[] }> {
+    const { body } = await this.request<{ state: string; analysisStatus: string; findings: unknown[] }>(
+      'GET',
+      `/api/applications/${id}/readiness`,
+    );
+    return body;
+  }
+
+  async createRelease(
+    applicationId: string,
+    input: { version: string; gitSha: string; migrationCommand?: string },
+  ): Promise<{ id: string; version: string }> {
+    const { body } = await this.request<{ id: string; version: string }>(
+      'POST',
+      `/api/applications/${applicationId}/releases`,
+      input,
+    );
+    return body;
+  }
+
+  async listReleases(applicationId: string): Promise<ReleaseSummary[]> {
+    const { body } = await this.request<{ releases: ReleaseSummary[] }>(
+      'GET',
+      `/api/applications/${applicationId}/releases`,
+    );
+    return body.releases;
+  }
+
+  // ── Customers and deployments ───────────────────────────────────────────
+
+  async createCustomer(input: { name: string; email: string }): Promise<{ id: string }> {
+    const { body } = await this.request<{ id: string }>('POST', '/api/customers', input);
+    return body;
+  }
+
+  async createDeployment(input: {
+    applicationId: string;
+    customerId: string;
+    region: string;
+  }): Promise<{ id: string; installLinkId: string }> {
+    const { body } = await this.request<{ id: string; installLinkId: string }>('POST', '/api/deployments', {
+      ...input,
+      isTestDeployment: true,
+    });
+    return body;
+  }
+
+  async getDeployment(id: string): Promise<DeploymentDetail> {
+    const { body } = await this.request<DeploymentDetail>('GET', `/api/deployments/${id}`);
+    return body;
+  }
+
+  async getInstallInfo(installLinkId: string): Promise<{
+    quickCreateUrl: string | null;
+    bootstrapStackName: string;
+    deploymentId: string;
+    alreadyInstalled: boolean;
+  }> {
+    const { body } = await this.request<{
+      quickCreateUrl: string | null;
+      bootstrapStackName: string;
+      deploymentId: string;
+      alreadyInstalled: boolean;
+    }>('GET', `/api/install/${installLinkId}`);
+    return body;
+  }
+
+  async markInstallLaunched(installLinkId: string): Promise<{ state: string }> {
+    const { body } = await this.request<{ state: string }>('POST', `/api/install/${installLinkId}/launched`, {});
+    return body;
+  }
+
+  async deploy(
+    deploymentId: string,
+    releaseId: string,
+    idempotencyKey?: string,
+  ): Promise<{ status: number; jobId: string; state: string }> {
+    const { status, body } = await this.request<{ jobId: string; state: string }>(
+      'POST',
+      `/api/deployments/${deploymentId}/deploy`,
+      { releaseId },
+      { ...(idempotencyKey ? { headers: { 'idempotency-key': idempotencyKey } } : {}) },
+    );
+    return { status, ...body };
+  }
+
+  async rollback(deploymentId: string, releaseId: string): Promise<{ status: number; jobId: string; state: string }> {
+    const { status, body } = await this.request<{ jobId: string; state: string }>(
+      'POST',
+      `/api/deployments/${deploymentId}/rollback`,
+      { releaseId },
+    );
+    return { status, ...body };
+  }
+
+  async restart(deploymentId: string): Promise<{ status: number; jobId: string; state: string }> {
+    const { status, body } = await this.request<{ jobId: string; state: string }>(
+      'POST',
+      `/api/deployments/${deploymentId}/restart`,
+      {},
+    );
+    return { status, ...body };
+  }
+
+  async destroy(deploymentId: string): Promise<{ status: number; body: unknown }> {
+    return this.request('POST', `/api/deployments/${deploymentId}/destroy`, {});
+  }
+
+  async purge(deploymentId: string): Promise<{ status: number; body: unknown }> {
+    return this.request('POST', `/api/deployments/${deploymentId}/purge`, {});
+  }
+
+  async events(deploymentId: string): Promise<EventRow[]> {
+    const { body } = await this.request<{ events: EventRow[] }>(
+      'GET',
+      `/api/deployments/${deploymentId}/events?limit=200`,
+    );
+    return body.events;
+  }
+
+  async infrastructure(deploymentId: string): Promise<Record<string, unknown>> {
+    const { body } = await this.request<Record<string, unknown>>(
+      'GET',
+      `/api/deployments/${deploymentId}/infrastructure`,
+    );
+    return body;
+  }
+
+  async diagnostics(deploymentId: string): Promise<Record<string, unknown>> {
+    const { body } = await this.request<Record<string, unknown>>(
+      'GET',
+      `/api/deployments/${deploymentId}/diagnostics`,
+    );
+    return body;
+  }
+}
+
+// ── Waiting ───────────────────────────────────────────────────────────────
+
+export async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Polls `read` until `done` returns a value, logging a heartbeat line so a
+ * long wait is visibly alive. Throws with the last observation on timeout.
+ */
+export async function waitFor<T, R>(
+  label: string,
+  read: () => Promise<T>,
+  done: (value: T) => R | null | undefined,
+  options: { timeoutMs: number; intervalMs?: number; describe?: (value: T) => string },
+): Promise<R> {
+  const started = Date.now();
+  const interval = options.intervalMs ?? 20_000;
+  let last: T | undefined;
+  let lastLine = '';
+  for (;;) {
+    last = await read();
+    const result = done(last);
+    if (result !== null && result !== undefined) return result;
+    const elapsed = Math.round((Date.now() - started) / 1000);
+    const line = options.describe ? options.describe(last) : '';
+    if (line !== lastLine) {
+      console.log(`  … ${label}: ${line} (${elapsed}s)`);
+      lastLine = line;
+    }
+    if (Date.now() - started > options.timeoutMs) {
+      throw new Error(
+        `Timed out after ${Math.round(options.timeoutMs / 1000)}s waiting for ${label}; last: ${
+          options.describe ? options.describe(last) : JSON.stringify(last).slice(0, 500)
+        }`,
+      );
+    }
+    await sleep(interval);
+  }
+}
+
+export function findJob(detail: DeploymentDetail, jobId: string): DeploymentJob | undefined {
+  return detail.jobs.find((job) => job.id === jobId);
+}
+
+export function describeDeployment(detail: DeploymentDetail): string {
+  const job = detail.jobs.at(-1);
+  return `state=${detail.state} stage=${detail.deploymentStatus.stage} health=${detail.healthStatus} relay=${detail.relayStatus} current=${detail.version ?? detail.currentReleaseId ?? '-'} lastJob=${job ? `${job.type}:${job.state}` : '-'}`;
+}

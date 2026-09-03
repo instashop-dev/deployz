@@ -16,6 +16,7 @@
     "e2e:scenarios": "node scripts/e2e.mjs --scenarios",
     "e2e:canary": "node scripts/e2e.mjs --mode=canary",
     "e2e:fresh": "node scripts/e2e.mjs --mode=fresh",
+    "e2e:canary:versions": "node scripts/e2e.mjs --mode=canary-versions",
     "lint": "turbo run lint",
     "dev": "turbo run dev",
     "admin:customer-cleanup": "tsx scripts/customer-reset/index.ts",

@@ -72,6 +72,13 @@ jobs:
       - name: Team Admin flows
         run: node scripts/e2e.mjs e2e/admin.spec.ts
 
+      # Per-state coverage of the vendor deployment detail page, rendered from
+      # mocked API responses — the states a live relay cannot cheaply be driven
+      # to (a failed update over a live release, a removed deployment with
+      # retained resources, a relay that went quiet, degraded fetches).
+      - name: Deployment detail states
+        run: node scripts/e2e.mjs e2e/deployment-detail.spec.ts
+
       - name: Upload traces on failure
         uses: actions/upload-artifact@v4
         if: failure()

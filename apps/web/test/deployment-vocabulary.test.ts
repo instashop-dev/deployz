@@ -236,6 +236,28 @@ describe('actionsUnavailableReason', () => {
     ).toContain('has been removed');
   });
 
+  it('blames the running operation, not the connector, while one owns the deployment', () => {
+    const reason = actionsUnavailableReason({
+      state: 'UPDATING',
+      everRan: true,
+      busy: true,
+      anyCapabilityGatedOff: true,
+    });
+    expect(reason).toContain('when this operation finishes');
+    expect(reason).not.toContain('connector');
+  });
+
+  it('falls back to the connector once the operation settles', () => {
+    expect(
+      actionsUnavailableReason({
+        state: 'UPDATING',
+        everRan: true,
+        busy: false,
+        anyCapabilityGatedOff: true,
+      }),
+    ).toContain('connector');
+  });
+
   it('still explains a never-installed deployment and a gated connector', () => {
     expect(
       actionsUnavailableReason({ state: 'FAILED', everRan: false, anyCapabilityGatedOff: false }),
