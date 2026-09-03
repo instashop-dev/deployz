@@ -231,7 +231,7 @@ function DetailBody({
         <h2 id="progress" className="text-base font-semibold">
           Deployment progress
         </h2>
-        <DeploymentProgressCard status={detail.deploymentStatus} />
+        <DeploymentProgressCard status={detail.deploymentStatus} deploymentState={detail.state} />
       </section>
 
       <section aria-labelledby="infrastructure" className="flex flex-col gap-3">

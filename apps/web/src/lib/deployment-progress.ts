@@ -47,6 +47,28 @@ export const STAGE_LABEL: Record<DeploymentStage, string> = {
   FAILED: 'Needs attention',
 };
 
+/**
+ * A removed deployment keeps whatever stage it last earned (the derivation
+ * documents this deliberately), so every surface that renders a stage must
+ * ask for this copy first — otherwise a deployment whose infrastructure is
+ * gone still reads "Verifying · Running health checks".
+ */
+export const REMOVED_PROGRESS: Record<'DELETING' | 'DELETED', { title: string; body: string }> = {
+  DELETING: {
+    title: 'Removing deployment',
+    body: "Deployz is removing this deployment's infrastructure from your customer's cloud account.",
+  },
+  DELETED: {
+    title: 'Deployment removed',
+    body: 'This deployment is no longer running. Anything Deployz kept is listed under Infrastructure.',
+  },
+};
+
+/** The removed copy for a deployment state, or null while it is still live. */
+export function removedProgress(state: string): { title: string; body: string } | null {
+  return state === 'DELETING' || state === 'DELETED' ? REMOVED_PROGRESS[state] : null;
+}
+
 /** Customer headline + supporting sentence per stage (§ progress spec copy).
  * FAILED gets its own alert layout, so its entry is the fallback headline. */
 export const STAGE_HEADLINE: Record<DeploymentStage, { title: string; body: string }> = {

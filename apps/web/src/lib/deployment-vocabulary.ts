@@ -215,6 +215,30 @@ export function everInstalled(state: DeploymentState, currentReleaseId: string |
 export const NOT_YET_RUNNING_ACTION_COPY =
   "This deployment hasn't completed an install yet, so these actions aren't available.";
 
+export const REMOVING_ACTION_COPY =
+  'These actions are unavailable while this deployment is being removed.';
+
+export const REMOVED_ACTION_COPY = 'This deployment has been removed, so these actions no longer apply.';
+
+/**
+ * Why the day-2 actions are unavailable, or null when they are not.
+ *
+ * Order matters: a deployment being removed (or already gone) is gated by
+ * its own lifecycle, NOT by the connector's capabilities — reporting the
+ * capability sentence there told vendors to check a connector that supports
+ * every action.
+ */
+export function actionsUnavailableReason(input: {
+  state: string;
+  everRan: boolean;
+  anyCapabilityGatedOff: boolean;
+}): string | null {
+  if (input.state === 'DELETED') return REMOVED_ACTION_COPY;
+  if (input.state === 'DELETING') return REMOVING_ACTION_COPY;
+  if (!input.everRan) return NOT_YET_RUNNING_ACTION_COPY;
+  return input.anyCapabilityGatedOff ? UNSUPPORTED_ACTION_COPY : null;
+}
+
 // ── §39 job vocabulary ──────────────────────────────────────────────────────
 
 /** Human-readable §39 job type labels — the vendor progress card's "Latest

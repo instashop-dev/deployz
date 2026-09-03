@@ -15,6 +15,7 @@ import {
   stepDetailLine,
   stepsFromStatus,
   STAGE_LABEL,
+  removedProgress,
 } from '@/lib/deployment-progress';
 import { JOB_STATE_LABEL, JOB_TYPE_LABEL } from '@/lib/deployment-vocabulary';
 
@@ -82,7 +83,16 @@ const PROGRESS_DOT: Record<ComponentProgressStatus, string> = {
  * with the relay/job/component detail a vendor needs while an install is in
  * flight, and keeps showing it afterwards for continuity.
  */
-export function DeploymentProgressCard({ status }: { status: VendorDeploymentStatus }) {
+export function DeploymentProgressCard({
+  status,
+  deploymentState,
+}: {
+  status: VendorDeploymentStatus;
+  /** The lifecycle state, so a removed deployment is not announced with the
+   *  live stage it last earned (`removedProgress`). */
+  deploymentState: string;
+}) {
+  const removed = removedProgress(deploymentState);
   const lastSeen = relativeTime(status.relay.lastSeenAt);
   const lastUpdate = relativeTime(status.updatedAt);
   // Rendered whenever the API surfaces one — the FAILED stage, but also a
@@ -102,9 +112,11 @@ export function DeploymentProgressCard({ status }: { status: VendorDeploymentSta
               so assistive tech announces a transition without re-reading
               the whole card on every poll tick. */}
           <p aria-live="polite" className="text-sm font-semibold">
-            {STAGE_LABEL[status.stage]}
+            {removed ? removed.title : STAGE_LABEL[status.stage]}
           </p>
-          <p className="mt-0.5 text-sm text-muted-foreground">{status.currentActivity}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {removed ? removed.body : status.currentActivity}
+          </p>
         </div>
 
         {status.statusUpdatesUnavailable ? (
