@@ -159,6 +159,39 @@ tag, stack names, RDS, ALB, S3, secrets, log groups, SSM, ACM, ECR) and
 fails on anything disposable. INACTIVE ECS clusters/services/task
 definitions that the tagging API keeps listing are ignored.
 
+## Release gate and CI
+
+The canary is never part of the PR check set: it creates a real customer
+install, takes 60–90 minutes and costs money. Default CI keeps the fast
+proofs of the same semantics — state transitions, release selection,
+rollback logic, idempotency and health semantics live in
+`apps/api/src/*.test.ts` (`deploy-contract`, `failure-semantics`,
+`digest-reconciliation`), `packages/relay/src/*.test.ts`,
+`packages/cdk/test/bootstrap-stack.test.ts` (IAM grants and the policy-size
+quota) and the simulated scenario suite (`pnpm e2e:scenarios`).
+
+Run the real canary on demand:
+
+- **GitHub Actions**: `AWS version canary` (`.github/workflows/aws-canary.yml`,
+  `workflow_dispatch`, scenario `preflight` / `core` / `resilience`). It needs
+  `AWS_CANARY_ACCESS_KEY_ID` / `AWS_CANARY_SECRET_ACCESS_KEY` repository
+  secrets for an identity with administrative access to the **test account
+  only**; the harness refuses any other account. Evidence is uploaded as a
+  workflow artifact. One run at a time (concurrency group).
+- **Locally**: the commands above, with the `aws` CLI authenticated to the
+  test account.
+
+When to run it — before an MVP release, and for any change touching:
+`packages/relay`, deployment orchestration (`apps/api/src/server.ts` job and
+result routes, `jobs.ts`, `deployment-status.ts`), `packages/cdk`
+(bootstrap/application stacks, CloudFormation templates), health
+verification, release/version or rollback logic, polling/watchdog, or the
+resource lifecycle (destroy/purge). Republish the templates from the commit
+under test first (`aws-full-product-canary.md` §2).
+
+The MVP gate is **three consecutive `core` passes from fresh transient
+infrastructure**; any failure fixes the root cause and restarts the count.
+
 ## Troubleshooting
 
 - **Preflight refuses the account** — you are not authenticated to the test

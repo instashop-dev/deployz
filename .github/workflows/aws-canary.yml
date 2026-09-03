@@ -1,0 +1,73 @@
+name: AWS version canary
+
+# The real-AWS version deployment + rollback canary
+# (docs/testing/version-rollback-canary.md). Deliberately NOT part of the PR
+# check set: it creates a real customer install in the test account, takes
+# 60–90 minutes and costs money. Run it on demand before a release and after
+# changes to the relay, deployment orchestration, CDK/CloudFormation, health
+# verification, release/rollback logic, polling or resource lifecycle.
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Which scenario to run
+        type: choice
+        default: preflight
+        options: [preflight, core, resilience]
+
+# One canary at a time: two installs in the same account would share the
+# connector-stack exports and the run ids would race the leak audit.
+concurrency:
+  group: aws-version-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: ${{ inputs.scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      # An IAM identity with administrative access to the TEST account only.
+      # The harness refuses any other account (DEPLOYZ_CANARY_EXPECTED_ACCOUNT).
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CANARY_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CANARY_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-1
+      DEPLOYZ_E2E_ALLOW_REAL_AWS: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The template publisher imports the compiled CDK package.
+      - name: Build workspace packages
+        run: pnpm build
+
+      - name: Refuse to run without the canary credentials
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+            echo "AWS_CANARY_ACCESS_KEY_ID / AWS_CANARY_SECRET_ACCESS_KEY are not configured" >&2
+            exit 1
+          fi
+
+      - name: Run the canary
+        run: pnpm e2e:canary:versions ${{ inputs.scenario }}
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canary-results-${{ inputs.scenario }}-${{ github.run_id }}
+          path: canary-results/
+          retention-days: 30
