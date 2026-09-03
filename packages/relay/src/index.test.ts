@@ -13,6 +13,7 @@ import {
   createVerifyingExecutor,
   readDeploymentManifest,
   readInstallParametersFromPayload,
+  readTemplateParameterNames,
   readVerifyOptionsFromPayload,
   relayApplicationStackName,
   relayBootstrapStackName,
@@ -1486,6 +1487,87 @@ describe('settleInstall derives parameters and the Redis variant from the manife
         'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
       parameters: {},
     });
+  });
+
+  // The control plane sends the Documenso-preset secrets on every install
+  // (install-parameters.ts) because it does not know which template the
+  // relay will use; a template that does not declare them makes
+  // CloudFormation refuse the whole CreateStack. The relay is the one that
+  // knows the template, so it drops what the template does not declare.
+  it('drops parameters the application template does not declare, and keeps the ones it does', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+    const readTemplateParameters = vi.fn(
+      async () => new Set(['paramContainerPort', 'paramHealthCheckPath', 'paramAppApiKey']),
+    );
+
+    await createInstallExecutor({ ...makeInstallDeps(install), readTemplateParameters })({
+      ...command,
+      payload: {
+        parameters: {
+          paramAppApiKey: 'k',
+          paramNextauthSecret: 'documenso-only',
+          paramEncryptionKey: 'documenso-only',
+        },
+        manifest: manifestPayload(),
+      },
+    });
+
+    // Read from the variant that will actually be created (the manifest
+    // requires redis), never from the base URL.
+    expect(readTemplateParameters).toHaveBeenCalledWith(
+      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+    );
+    expect(install.mock.calls[0]![0]!.parameters).toEqual({
+      paramAppApiKey: 'k',
+      paramContainerPort: '8080',
+      paramHealthCheckPath: '/api/health',
+    });
+  });
+
+  it('passes every parameter through unchanged when the template cannot be read', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor({ ...makeInstallDeps(install), readTemplateParameters: async () => null })({
+      ...command,
+      payload: { parameters: { paramAppApiKey: 'k', paramNextauthSecret: 's' } },
+    });
+
+    expect(install.mock.calls[0]![0]!.parameters).toEqual({ paramAppApiKey: 'k', paramNextauthSecret: 's' });
+  });
+});
+
+describe('readTemplateParameterNames', () => {
+  const fetchTemplate = (status: number, body: unknown) => async () => ({
+    status,
+    headers: { get: () => null },
+    json: async () => body,
+  });
+
+  it('reads the declared parameter names from the published template', async () => {
+    const names = await readTemplateParameterNames(
+      fetchTemplate(200, { Parameters: { paramContainerPort: { Type: 'String' }, BootstrapVersion: {} } }),
+      'https://example.com/t.json',
+    );
+    expect([...(names ?? [])].sort()).toEqual(['BootstrapVersion', 'paramContainerPort']);
+  });
+
+  it('is null — keep the pass-through — when the template is unreachable, not JSON, or has no Parameters', async () => {
+    expect(await readTemplateParameterNames(fetchTemplate(403, {}), 'u')).toBeNull();
+    expect(await readTemplateParameterNames(fetchTemplate(200, { Resources: {} }), 'u')).toBeNull();
+    expect(await readTemplateParameterNames(fetchTemplate(200, { Parameters: ['x'] }), 'u')).toBeNull();
+    expect(
+      await readTemplateParameterNames(async () => {
+        throw new Error('ECONNRESET');
+      }, 'u'),
+    ).toBeNull();
   });
 });
 

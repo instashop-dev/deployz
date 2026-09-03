@@ -596,6 +596,17 @@ export interface InstallExecutorDeps {
   /** Clock for the pending marker's `startedAt`. */
   readonly now?: () => string;
   /**
+   * The parameter names the application template at `templateUrl` declares,
+   * or null when they cannot be read. The control plane resolves install
+   * parameters without knowing which template variant the relay will use
+   * (the Documenso-preset secrets ride along on every install), and
+   * CloudFormation refuses a CreateStack that names a parameter the template
+   * does not declare — so undeclared parameters are dropped before the call.
+   * Null keeps the historical pass-through: an unreadable template must not
+   * turn a working install into a failed one.
+   */
+  readonly readTemplateParameters?: (templateUrl: string) => Promise<ReadonlySet<string> | null>;
+  /**
    * Builds a stack-event collector for one INSTALL attempt. Optional: when
    * absent (older wiring, or a test that doesn't care about progress
    * reporting), the executor and resumer behave exactly as they did before
@@ -671,18 +682,29 @@ async function settleInstall(
     templateUrl = redisTemplateUrl;
   }
 
+  // Manifest-derived template parameters win over whatever the control
+  // plane resolved ad-hoc (health path / port columns); the control plane's
+  // secret parameters (paramAppApiKey, Documenso secrets) still flow through
+  // unchanged underneath them.
+  const parameters = {
+    ...readInstallParametersFromPayload(request.payload),
+    ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
+  };
+  const declared = deps.readTemplateParameters ? await deps.readTemplateParameters(templateUrl) : null;
+  if (declared !== null) {
+    const dropped = Object.keys(parameters).filter((name) => !declared.has(name));
+    for (const name of dropped) delete parameters[name];
+    if (dropped.length > 0) {
+      // Names only — the values are secrets.
+      console.log(JSON.stringify({ event: 'relay:install-parameters-dropped', templateUrl, dropped }));
+    }
+  }
+
   const outcome = await deps.install({
     installationId: deps.installationId,
     templateUrl,
     stackName: request.stackName,
-    // Manifest-derived template parameters win over whatever the control
-    // plane resolved ad-hoc (health path / port columns); the control plane's
-    // secret parameters (paramAppApiKey, Documenso secrets) still flow through
-    // unchanged underneath them.
-    parameters: {
-      ...readInstallParametersFromPayload(request.payload),
-      ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
-    },
+    parameters,
     ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),
     ...(collector ? { onPoll: (stackName: string) => collector.poll(stackName) } : {}),
   });
@@ -1084,6 +1106,28 @@ export function readInstallParametersFromPayload(
 }
 
 /**
+ * The parameter names the published application template declares, read
+ * from the same public URL CloudFormation fetches it from. Null on any
+ * failure (unreachable, non-JSON, no `Parameters` object) so the caller
+ * keeps the historical pass-through instead of guessing.
+ */
+export async function readTemplateParameterNames(
+  fetchFn: FetchFn,
+  templateUrl: string,
+): Promise<ReadonlySet<string> | null> {
+  try {
+    const response = await fetchFn(templateUrl);
+    if (response.status !== 200) return null;
+    const body = (await response.json()) as { Parameters?: unknown } | null;
+    const declared = body?.Parameters;
+    if (typeof declared !== 'object' || declared === null || Array.isArray(declared)) return null;
+    return new Set(Object.keys(declared));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extract the canonical deployment manifest from a command's payload.
  *
  * The manifest is the Phase 2 replacement for ad-hoc detector columns: it is
@@ -1198,6 +1242,12 @@ function createDefaultInstallDeps(
       }),
     verify: (options) => verifyInstallation({ ...options, cfn: getCloudFormationReader() }),
     pending: getPendingStore(installationId),
+    ...(reportContext
+      ? {
+          readTemplateParameters: (templateUrl: string) =>
+            readTemplateParameterNames(reportContext.fetchFn, templateUrl),
+        }
+      : {}),
     recover: (stackName) =>
       recoverFailedInstallStack(
         {
