@@ -7,7 +7,9 @@ import { deleteFailure } from './delete-failure.js';
 import { ecsFailure } from './ecs-failure.js';
 import { happyPath } from './happy-path.js';
 import { healthcheckFailure } from './healthcheck-failure.js';
+import { lifecycleSweep } from './lifecycle-sweep.js';
 import { redisFailure } from './redis-failure.js';
+import { redisSuccess } from './redis-success.js';
 import { relayDisconnect } from './relay-disconnect.js';
 import { retainedResources } from './retained-resources.js';
 import { rollbackFailure } from './rollback-failure.js';
@@ -23,16 +25,20 @@ import { updateFailure } from './update-failure.js';
  * original happy-path/cloudformation-rollback/ecs-failure/healthcheck-failure
  * four. Phase 1 D2 (lifecycle: update/rollback/destroy) adds update-failure,
  * rollback-success, rollback-failure, delete-failure and retained-resources.
+ * Phase 14 adds lifecycle-sweep (one continuous lifecycle over a single
+ * deployment) and redis-success (a successful Redis install).
  */
 const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [happyPath.id]: happyPath,
   [cloudformationRollback.id]: cloudformationRollback,
   [ecsFailure.id]: ecsFailure,
   [healthcheckFailure.id]: healthcheckFailure,
+  [lifecycleSweep.id]: lifecycleSweep,
   [slowProvision.id]: slowProvision,
   [cloudformationFailure.id]: cloudformationFailure,
   [databaseFailure.id]: databaseFailure,
   [redisFailure.id]: redisFailure,
+  [redisSuccess.id]: redisSuccess,
   [bootstrapFailure.id]: bootstrapFailure,
   [relayDisconnect.id]: relayDisconnect,
   [updateFailure.id]: updateFailure,
@@ -62,7 +68,9 @@ export {
   ecsFailure,
   happyPath,
   healthcheckFailure,
+  lifecycleSweep,
   redisFailure,
+  redisSuccess,
   relayDisconnect,
   retainedResources,
   rollbackFailure,

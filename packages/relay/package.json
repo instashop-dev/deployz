@@ -65,6 +65,10 @@
     "./ecs-observe": {
       "types": "./dist/ecs-observe.d.ts",
       "import": "./dist/ecs-observe.js"
+    },
+    "./purge": {
+      "types": "./dist/purge.d.ts",
+      "import": "./dist/purge.js"
     }
   },
   "scripts": {

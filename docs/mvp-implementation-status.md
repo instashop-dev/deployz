@@ -1157,4 +1157,84 @@ the repo builds after every removal.
   packages, not packages removed), `pnpm lint` 9/9, and the full vitest run
   above. The e2e addition runs under Playwright in CI.
 
+## Phase 14 — Full-lifecycle E2E hardening (2026-09-03)
+
+Phase 14 proves the complete MVP lifecycle at the simulated E2E level. The
+single new product file is the fixture-store addition below (fixture mode
+only). Everything else is tests plus additive test-harness seams. No runtime
+product defect surfaced; none was fixed.
+
+### Coverage matrix (§18 → existing test → Phase 14 test)
+
+| §18 item | Existing coverage | Phase 14 addition |
+| --- | --- | --- |
+| Continuous full lifecycle over ONE deployment | Pieces in separate specs: scenario-install (install), scenario-lifecycle (update/rollback/delete), scenario-resilience (duplicate/transient/death) | `e2e/scenario-sweep.spec.ts` (`@scenario:lifecycle-sweep`): analyse → readiness → required-config refused → value entered → install → healthy → config write → successful update → failed update (previous stays live) → rollback → relay reset (reconnect) → day-2 action refused until reconnected → successful update again → delete → purge. |
+| A — simple SaaS install | happy-path (`e2e/scenario-install.spec.ts`) | The sweep's install leg (config-required-app fixture, Postgres + migration). |
+| B — Redis + migration through one install | redis.spec (Redis detection/UI), redis-failure (provisioning failure), Phase 4 relay unit tests | `redis-success` scenario + `e2e/scenario-matrix.spec.ts` `@scenario:redis-success`: analysed bullmq-worker installs to HEALTHY with the cache in the inventory, and a real DEPLOY_RELEASE runs the migration (asserted via the account's migration counter). |
+| C — monorepo classification → build+deploy | Phase 7 unit classification, fix-instructions UI | `@scenario:monorepo-deploy` in the matrix spec: real analysis of deployz-demo/monorepo, then a real install + deploy to HEALTHY with no vendor overrides. |
+| D — unsupported repo blocked with no provisioning | server.test.ts + manifest.test.ts unit gates | `@scenario:unsupported-mongodb` in the matrix spec: deployz-demo/mongodb-app (real analysis) refuses 422 MANIFEST_NOT_COMPATIBLE at deployment creation; zero deployment rows, so no INSTALL job can ever exist. |
+| E — repairable repo blocked with repair guidance | fix-instructions.spec.ts UI flow (monorepo), readiness unit tests | `@scenario:repairable-local-fs` in the matrix spec: deployz-demo/local-fs-app (real analysis) refuses 422 MANIFEST_NOT_COMPATIBLE AND the fix-instructions route surfaces the object-storage repair outcome. |
+
+### Added
+
+- **Fixture repos** (apps/api/src/github.ts, fixture mode only — never in
+  GITHUB_FIXTURE_INSTALLATIONS, so the repo picker does not offer them):
+  - `deployz-demo/config-required-app` — express-api's READY shape plus a
+    genuine required env var (SESSION_SECRET read with no fallback). The
+    §11.2 missing-required-config gate fires at deployment creation until
+    the vendor enters a value: the "configuration" leg of the sweep is real.
+  - `deployz-demo/mongodb-app` — READY shape plus mongoose: the ONLY blocker
+    is the unsupported database.
+  - `deployz-demo/local-fs-app` — READY shape plus a persistent local
+    filesystem write: the ONLY blocker is the local-disk storage finding.
+- **Scenarios**: `redis-success` (happy-path + ElastiCache) and
+  `lifecycle-sweep` (happy-path install + updateRollouts
+  succeed/fail/succeed/succeed + clean destroy), registered in
+  `e2e/simulation/scenarios/index.ts`.
+- **Relay-harness seams** (e2e/simulation/relay-harness.ts): an `account`
+  option lets a re-registered relay reuse the existing
+  SimulatedCustomerAccount (a rebuilt relay re-enrolls into the SAME
+  customer account); a PURGE executor + resumer is wired with empty orphan
+  clients so a purge of a cleanly-deleted deployment settles through the
+  real executor path. The simulated account counts migration task starts
+  (`migrationRuns`) so an E2E test can prove a deploy ran the Phase 4
+  migration stage and a rollback did not.
+- **`packages/relay/package.json`**: added the `./purge` subpath export
+  (mirrors `./destroy`, `./deploy`) so the harness can compose the real
+  purge executor. Build artifact only; no runtime behaviour change.
+
+### Boundaries the simulated suite cannot cross (worker-domain)
+
+- The live-deployment CONFIG_UPDATE fan-out runs in the control-plane worker
+  Lambda, which this harness deliberately does not boot. The sweep proves
+  the reachable half: a customer-scoped config write is accepted and
+  persisted while the relay is connected and the deployment stays live.
+- DISCONNECTED relay status is written by the worker's
+  `sweepRelayLiveness` at RELAY_STALE_AFTER_MS (unit-covered in
+  packages/cdk/test/worker.test.ts). The sweep proves the API-visible half
+  of the same product boundary: after `relay/reset` clears a dead binding,
+  a day-2 deploy is refused 409 RELAY_NOT_CONNECTED until the new relay
+  registers with the fresh enrollment code.
+- The transient live-AWS verification (Route53 round trips, real ECR/ACM,
+  real customer-account teardown) remains the canary runbook's job
+  (`pnpm e2e:canary` / `pnpm e2e:fresh`, `docs/testing/`), never the
+  simulated suite. Simulated E2E (`pnpm e2e`) stays the default and stayed
+  green for every pre-existing scenario spec after the harness changes.
+
+### Verification
+
+- New specs green under Playwright: `e2e/scenario-matrix.spec.ts` (4 tests:
+  D, E, B, C) and `e2e/scenario-sweep.spec.ts` (1 continuous lifecycle
+  test, ~30s).
+- Pre-existing scenario specs re-run green after the harness changes:
+  scenario-install, scenario-provisioning, scenario-lifecycle,
+  scenario-resilience (18 tests) and scenario-ui (4 browser tests; its
+  first-run sign-up failure was the documented cold-dev-server flake — the
+  serial re-run passed). One combined `--grep "@scenario"` run with 4
+  workers: 27 passed.
+- `pnpm build` green for @deployz/relay and @deployz/api; `eslint` green on
+  every touched file; apps/api github + analysis vitest suites green (85
+  tests). No real AWS was used. Windows EBUSY/onTaskUpdate flakes re-run per
+  the Phase 0 discipline; CI is authoritative.
+
 

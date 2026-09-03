@@ -914,6 +914,16 @@ export async function buildFileTreeForAnalysis(
 // whose only application (and only Dockerfile) lives under apps/api, with no
 // root start script — it exercises Dockerfile-candidate ranking across
 // nested paths and the §15 'monorepo-target' unresolved question.
+// Phase 14 adds three fixture trees that only ever appear as
+// repoFullName-driven analysis targets (NOT in GITHUB_FIXTURE_INSTALLATIONS,
+// so the repo picker never offers them): config-required-app is
+// express-api's shape plus a genuine required env var (SESSION_SECRET read
+// with no fallback) — the §11.2 missing-required-config gate fires at
+// deployment creation until the vendor enters a value; mongodb-app is the
+// same READY shape plus a mongoose dependency, so its only blocker is the
+// unsupported database (§10); local-fs-app is the same READY shape plus a
+// persistent local filesystem write, so its only blocker is the local-disk
+// storage finding (§11.4).
 export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   'deployz-demo/express-api': {
     'Dockerfile': [
@@ -1093,6 +1103,114 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'apps/api/src/index.js': [
       "const express = require('express');",
       'const app = express();',
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+  },
+  // Express-api's exact READY shape (Dockerfile + HEALTHCHECK + /health +
+  // Postgres + migration script) plus one genuine required env var: the code
+  // READS SESSION_SECRET with no fallback and no guard, and the sample file
+  // only declares it (no usable default). Analysis-level readiness stays READY
+  // (required env values are unknowable to the analyser); the §11.2
+  // deployment-creation gate refuses MANIFEST_NEEDS_CONFIGURATION until the
+  // vendor enters a value on the Configuration screen.
+  'deployz-demo/config-required-app': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'config-required-app',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      "import crypto from 'node:crypto';",
+      'const app = express();',
+      // A required read: no `??`/`||` fallback, no presence guard. The app
+      // cannot start without a signing secret, so the var is genuinely
+      // required (detectEnvVarModel's narrow rule).
+      'const signingKey = process.env.SESSION_SECRET;',
+      'function sign(value: string): string {',
+      '  return crypto.createHmac("sha256", signingKey).update(value).digest("hex");',
+      '}',
+      "app.get('/health', (_req, res) => res.json({ ok: true, tag: sign('health') }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+    '.env.example': 'DATABASE_URL=\nSESSION_SECRET=\n',
+  },
+  // The same otherwise-READY express-api shape with a mongoose dependency —
+  // a MongoDB app whose ONLY blocker is the unsupported database. Used by
+  // the Phase 14 scenario-matrix spec to prove an unsupported repo is
+  // refused at deployment creation with NO AWS provisioning.
+  'deployz-demo/mongodb-app': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'mongodb-app',
+      scripts: { start: 'node dist/index.js' },
+      dependencies: { express: '^4.18.0', mongoose: '^8.0.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      'const app = express();',
+      "app.get('/health', (_req, res) => res.json({ ok: true }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+  },
+  // The same otherwise-READY express-api shape plus one persistent local
+  // filesystem write — an app whose ONLY blocker is the ephemeral-disk
+  // storage finding. Used by the Phase 14 scenario-matrix spec to prove a
+  // repairable repo is refused at deployment creation with the repair
+  // guidance surfaced (fix-instructions).
+  'deployz-demo/local-fs-app': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'local-fs-app',
+      scripts: { start: 'node dist/index.js' },
+      dependencies: { express: '^4.18.0' },
+    }),
+    'src/storage.ts': [
+      "import fs from 'node:fs';",
+      '// Persistent state written to the local disk — unsupported in',
+      '// Deployz\u2019s ephemeral container model (wipe-on-every-deploy).',
+      'export function saveUpload(file: Buffer): string {',
+      "  const path = '/data/' + Date.now();",
+      '  fs.writeFileSync(path, file);',
+      '  return path;',
+      '}',
+      '',
+    ].join('\n'),
+    'src/index.ts': [
+      "import express from 'express';",
+      'const app = express();',
+      "app.get('/health', (_req, res) => res.json({ ok: true }));",
       'app.listen(process.env.PORT || 3000);',
       '',
     ].join('\n'),

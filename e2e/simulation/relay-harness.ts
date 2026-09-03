@@ -31,6 +31,17 @@ import {
   createObserveHook,
   type InstallExecutorDeps,
 } from '@deployz/relay';
+import {
+  createPurgeExecutor,
+  createPurgeResumer,
+  type AcmPurgeClient,
+  type CachePurgeClient,
+  type NetworkPurgeClient,
+  type PurgeDeps,
+  type RdsPurgeClient,
+  type S3PurgeClient,
+  type SecretsPurgeClient,
+} from '@deployz/relay/purge';
 import { buildAuthHeaders, createAuthState, type AuthState, type FetchFn } from '@deployz/relay/auth';
 import { type CommandExecutor, IdempotencyStore } from '@deployz/relay/commands';
 import {
@@ -52,6 +63,91 @@ import { APPLICATION_TEMPLATE_KEY, DEFAULT_APPLICATION_STACK_NAME } from '@deplo
 
 import { SimulatedCustomerAccount } from './simulated-account.js';
 import type { ScenarioDefinition } from './types.js';
+
+/**
+ * Empty orphan-purge clients for the simulated account. A simulated
+ * DESTROY that completed cleanly leaves no modelled orphan RDS / cache /
+ * bucket / secret / certificate / VPC behind (the account never materialises
+ * them as separate resources), so every ownership list is empty and a PURGE
+ * falls straight through to its success path — the same end state a real
+ * purge reaches once its sweeps have run. The ownership-verification methods
+ * exist so settlePurge compiles and would behave honestly if a future
+ * scenario ever modelled retained leftovers.
+ */
+function emptyPurgeClients(): {
+  rds: RdsPurgeClient;
+  cache: CachePurgeClient;
+  s3: S3PurgeClient;
+  secrets: SecretsPurgeClient;
+  acm: AcmPurgeClient;
+  network: NetworkPurgeClient;
+} {
+  return {
+    rds: {
+      async listOwnedInstances() {
+        return [];
+      },
+      async disableDeletionProtection() {},
+      async deleteInstance() {},
+      async listOwnedSubnetGroups() {
+        return [];
+      },
+      async deleteSubnetGroup() {},
+    },
+    cache: {
+      async listOwnedReplicationGroups() {
+        return [];
+      },
+      async deleteReplicationGroup() {},
+    },
+    s3: {
+      async listOwnedBuckets() {
+        return [];
+      },
+      async emptyBucket() {},
+      async deleteBucket() {},
+    },
+    secrets: {
+      async listOwnedSecrets() {
+        return [];
+      },
+      async deleteSecret() {},
+    },
+    acm: {
+      async listOwnedCertificates() {
+        return [];
+      },
+      async deleteCertificate() {},
+    },
+    network: {
+      async listOwnedVpcs() {
+        return [];
+      },
+      async listOwnedSecurityGroups() {
+        return [];
+      },
+      async deleteSecurityGroup() {},
+      async listOwnedSubnets() {
+        return [];
+      },
+      async deleteSubnet() {},
+      async listOwnedRouteTables() {
+        return [];
+      },
+      async deleteRouteTable() {},
+      async listOwnedInternetGateways() {
+        return [];
+      },
+      async detachInternetGateway() {},
+      async deleteInternetGateway() {},
+      async listOwnedNatGateways() {
+        return [];
+      },
+      async deleteNatGateway() {},
+      async deleteVpc() {},
+    },
+  };
+}
 
 export interface StartSimulatedRelayOptions {
   readonly scenario: ScenarioDefinition;
@@ -95,6 +191,17 @@ export interface StartSimulatedRelayOptions {
    * escape hatch), never a false DELETED or FAILED.
    */
   readonly dieDuringDestroy?: boolean;
+  /**
+   * Additive knob for the Phase 14 reconnection flow (relay reset): when
+   * given, the harness runs against this EXISTING `SimulatedCustomerAccount`
+   * instead of constructing a fresh one. A re-registered relay is a new
+   * process but the SAME customer AWS account — the stack, the ECS service,
+   * the registered task definitions and the running digest all persist there,
+   * exactly like a real rebuilt relay re-enrolling into the account a first
+   * relay already installed into. Without this, a fresh account would forget
+   * the completed install and report the stack missing.
+   */
+  readonly account?: SimulatedCustomerAccount;
 }
 
 export interface InstallSettlement {
@@ -131,7 +238,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   const fetchFn = options.fetchFn ?? (globalThis.fetch as unknown as FetchFn);
   const pollTickMs = options.pollTickMs ?? 100;
 
-  const account = new SimulatedCustomerAccount(scenario);
+  const account = options.account ?? new SimulatedCustomerAccount(scenario);
   const authState: AuthState = createAuthState(installationId, relayToken);
   const idempotency = new IdempotencyStore();
 
@@ -247,6 +354,23 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       }),
   };
 
+  // The PURGE write seam — same shared cfn reader and stack-name getter as
+  // DESTROY, plus the empty orphan clients (see `emptyPurgeClients`). The
+  // bootstrap/relay stack is not modelled (CANARY-014: a purge never deletes
+  // it — it tells the customer to remove it), so `bootstrapStackName` is a
+  // plain identifier that only ever appears in the success output.
+  const purgeDeps: PurgeDeps = {
+    cfn: account.cloudFormationReader(),
+    deleter: account.stackDeleter(),
+    pending,
+    installationId,
+    get stackName() {
+      return stackNameOrDefault();
+    },
+    bootstrapStackName: `deployz-bootstrap-${installationId}`,
+    ...emptyPurgeClients(),
+  };
+
   let settlement: InstallSettlement | null = null;
   let waiters: Array<(result: InstallSettlement) => void> = [];
 
@@ -329,6 +453,11 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       DEPLOY_RELEASE: trackLatest(deployExecutor),
       ROLLBACK: trackLatest(deployExecutor),
       DESTROY: trackLatest(destroyExecutor),
+      // Phase 14: PURGE — the post-DESTROY retained-resource sweep, executed
+      // by the same real executor production composes (see the `purgeDeps`
+      // comment). Over the simulated account the orphan lists are empty, so a
+      // PURGE of a cleanly-deleted deployment settles to success.
+      PURGE: trackLatest(createPurgeExecutor(purgeDeps)),
       // Phase 11 default HTTPS — the healthy simulated path. When the control
       // plane's automatic default-HTTPS machine is on (DEPLOYZ_DNS_ZONE_ID in
       // production, or the DEPLOYZ_DEFAULT_HTTPS_FIXTURE opt-in under the E2E
@@ -421,6 +550,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       let results = await createInstallResumer(installDeps)();
       if (results.length === 0) results = await createEcsDeployResumer(deployDeps)();
       if (results.length === 0) results = await createDestroyResumer(destroyDeps)();
+      if (results.length === 0) results = await createPurgeResumer(purgeDeps)();
       if (results.length > 0 && pendingBefore) {
         recordLatestSettlement(pendingBefore.type, results[0]!.success);
       }
