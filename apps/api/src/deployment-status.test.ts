@@ -1301,9 +1301,9 @@ describe('layered runtime health (health.layers)', () => {
 // customer domain lives in resolveAppUrl (apps/api/src/fleet-row.ts); this
 // block locks what the derivation does once that URL is chosen.
 describe('deriveDeploymentStatus — default HTTPS (Phase 11)', () => {
-  const HTTPS_DEFAULT = 'https://dep-1.apps.deployz.dev';
+  const HTTPS_DEFAULT = 'https://d-dep-1.deployz.dev';
   const HTTP_ALB = 'http://alb-123.us-east-1.elb.amazonaws.com';
-  const defaultHttps = (status: string, hostname = 'dep-1.apps.deployz.dev') => ({ hostname, status });
+  const defaultHttps = (status: string, hostname = 'd-dep-1.deployz.dev') => ({ hostname, status });
 
   it('healthy + ACTIVE default-HTTPS URL → READY, with the https component READY', () => {
     const status = derive({

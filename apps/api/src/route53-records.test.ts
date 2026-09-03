@@ -75,15 +75,15 @@ describe('signV4', () => {
 
 describe('changeRecordSetBody', () => {
   it('builds an UPSERT body with the record value and a CNAME type', () => {
-    const body = changeRecordSetBody('UPSERT', '_abc.dep.apps.deployz.dev', '_xyz.acm-validations.aws.');
+    const body = changeRecordSetBody('UPSERT', '_abc.d-dep.deployz.dev', '_xyz.acm-validations.aws.');
     expect(body).toContain('<Action>UPSERT</Action>');
-    expect(body).toContain('<Name>_abc.dep.apps.deployz.dev</Name>');
+    expect(body).toContain('<Name>_abc.d-dep.deployz.dev</Name>');
     expect(body).toContain('<Type>CNAME</Type>');
     expect(body).toContain('<Value>_xyz.acm-validations.aws.</Value>');
   });
 
   it('builds a DELETE body with no ResourceRecords', () => {
-    const body = changeRecordSetBody('DELETE', '_abc.dep.apps.deployz.dev');
+    const body = changeRecordSetBody('DELETE', '_abc.d-dep.deployz.dev');
     expect(body).toContain('<Action>DELETE</Action>');
     expect(body).not.toContain('<ResourceRecords>');
   });
@@ -113,7 +113,7 @@ describe('createRoute53RecordClient', () => {
 
   it('upserts against the hosted-zone rrset endpoint with SigV4 headers', async () => {
     const { calls, client } = fakeFetch(() => ({ status: 200 }));
-    await client.upsertCname('_abc.dep.apps.deployz.dev', '_xyz.acm-validations.aws.');
+    await client.upsertCname('_abc.d-dep.deployz.dev', '_xyz.acm-validations.aws.');
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe('https://route53.amazonaws.com/2013-04-01/hostedzone/Z0123/rrset/');
@@ -130,7 +130,7 @@ describe('createRoute53RecordClient', () => {
         '<?xml version="1.0"?><ErrorResponse><Error><Code>InvalidChangeBatch</Code>' +
         '<Message>record not found</Message></Error></ErrorResponse>',
     }));
-    await expect(client.deleteCname('gone.apps.deployz.dev')).resolves.toBeUndefined();
+    await expect(client.deleteCname('d-gone.deployz.dev')).resolves.toBeUndefined();
   });
 
   it('propagates real failures (403 access denied) instead of swallowing them', async () => {
@@ -138,8 +138,8 @@ describe('createRoute53RecordClient', () => {
       status: 403,
       body: '<?xml version="1.0"?><ErrorResponse><Error><Code>AccessDenied</Code></Error></ErrorResponse>',
     }));
-    await expect(client.upsertCname('x.apps.deployz.dev', 'y')).rejects.toThrow();
-    await expect(client.deleteCname('x.apps.deployz.dev')).rejects.toThrow();
+    await expect(client.upsertCname('d-x.deployz.dev', 'y')).rejects.toThrow();
+    await expect(client.deleteCname('d-x.deployz.dev')).rejects.toThrow();
   });
 
   it('isInvalidChangeBatch matches the Route53 error body', () => {

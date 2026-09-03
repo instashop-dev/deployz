@@ -2,10 +2,10 @@
  * Default-HTTPS state machine — Deployz-owned secure address for every
  * deployment (Phase 11). Reuses the relay's CONFIGURE_DOMAIN / REMOVE_DOMAIN
  * executors and job vocabulary (packages/relay/src/domain.ts) with a
- * Deployz-owned hostname (`<deploymentId>.apps.deployz.dev`) whose DNS lives
- * in a Deployz-controlled Route53 zone: the CONTROL PLANE writes the ACM
- * validation CNAME and the ALB routing CNAME itself (apps/api/src/
- * route53-records.ts), so the customer never owns or configures a domain.
+ * Deployz-owned hostname (`d-<deploymentId>.deployz.dev`) whose DNS lives in a
+ * Deployz-controlled zone: the CONTROL PLANE writes the ACM validation CNAME
+ * and the ALB routing CNAME itself (apps/api/src/route53-records.ts), so the
+ * customer never owns or configures a domain.
  *
  * State is persisted in `deployments.default_https` — deliberately separate
  * from `custom_domains` (customer DNS). Statuses mirror the custom-domain
@@ -55,15 +55,118 @@ export interface DefaultHttpsState {
   lastError: string | null;
 }
 
+/**
+ * Phase 2 default-hostname model — the deterministic `d-<id>.deployz.dev`
+ * helpers. Pure and side-effect free: no DNS/provider I/O here, so these can
+ * (and do) back the state machine, the URL resolver and mutation guards alike.
+ *
+ * A default hostname is `d-<deploymentId>.<zone>` where the deployment id is
+ * normalized to lower-case and must be DNS-safe (`[a-z0-9-]+` — never
+ * customer-controlled, so anything else is a programming error worth
+ * throwing over). Production zone/prefix are the defaults; the optional
+ * config override exists for tests and the E2E fixture namespace.
+ */
+
 /** The default HTTPS apex in production — a Deployz-registered domain. */
-export const DEFAULT_HTTPS_APEX = 'apps.deployz.dev';
+export const DEFAULT_HTTPS_APEX = 'deployz.dev';
 
 /** The apex used under DNS fixture mode (E2E), mirroring
  *  createFixtureDomainCheckDeps's `.deployz-fixture.test` namespace. */
-export const DEFAULT_HTTPS_FIXTURE_APEX = 'apps.deployz-fixture.test';
+export const DEFAULT_HTTPS_FIXTURE_APEX = 'deployz-fixture.test';
 
+export interface DefaultHostnameConfig {
+  /** Hostname label prefix (default `d-`). */
+  prefix?: string;
+  /** Registrable zone the hostname is minted under (default `deployz.dev`). */
+  zone?: string;
+}
+
+export const DEFAULT_HOSTNAME_PREFIX = 'd-';
+
+const DNS_SAFE_ID = /^[a-z0-9-]+$/;
+
+function normalizedDeploymentId(deploymentId: string): string {
+  const normalized = deploymentId.toLowerCase();
+  if (!DNS_SAFE_ID.test(normalized)) {
+    throw new Error(`Invalid deployment id for a default hostname: ${JSON.stringify(deploymentId)}`);
+  }
+  return normalized;
+}
+
+/** The deterministic default hostname for a deployment: `d-<id>.deployz.dev`. */
+export function getDefaultDeploymentHostname(
+  deploymentId: string,
+  config: DefaultHostnameConfig = {},
+): string {
+  const prefix = config.prefix ?? DEFAULT_HOSTNAME_PREFIX;
+  const zone = config.zone ?? DEFAULT_HTTPS_APEX;
+  return `${prefix}${normalizedDeploymentId(deploymentId)}.${zone}`;
+}
+
+/** The default HTTPS URL for a deployment: `https://d-<id>.deployz.dev`. */
+export function getDefaultDeploymentUrl(deploymentId: string, config?: DefaultHostnameConfig): string {
+  return `https://${getDefaultDeploymentHostname(deploymentId, config)}`;
+}
+
+/** Exact-match guard: true iff `hostname` equals the default hostname of some
+ *  valid deployment id (case-insensitive; the zone/prefix must match). */
+export function isDefaultDeploymentHostname(hostname: string, config: DefaultHostnameConfig = {}): boolean {
+  const prefix = config.prefix ?? DEFAULT_HOSTNAME_PREFIX;
+  const zone = config.zone ?? DEFAULT_HTTPS_APEX;
+  const lower = hostname.toLowerCase();
+  if (!lower.startsWith(prefix) || !lower.endsWith(`.${zone}`)) return false;
+  const id = lower.slice(prefix.length, -(`.${zone}`.length));
+  return DNS_SAFE_ID.test(id) && id.length > 0;
+}
+
+/** Hostnames the default-HTTPS mutation guard must never touch: they are the
+ *  marketing site, the dashboard, and the control-plane hosts. */
+export const RESERVED_DEFAULT_HOSTNAMES = [
+  'deployz.dev',
+  'app.deployz.dev',
+  'www.deployz.dev',
+  'api.deployz.dev',
+  'admin.deployz.dev',
+] as const;
+
+/** Throws unless `hostname` is a mutable default hostname — i.e. it passes
+ *  isDefaultDeploymentHostname AND is not a reserved Deployz hostname. Pure;
+ *  call before any provider mutation. */
+export function assertMutableDefaultHostname(
+  hostname: string,
+  config: DefaultHostnameConfig = {},
+): void {
+  if (!isDefaultDeploymentHostname(hostname, config)) {
+    throw new Error(`Refusing to mutate ${JSON.stringify(hostname)}: not a default deployment hostname.`);
+  }
+  if (RESERVED_DEFAULT_HOSTNAMES.includes(hostname.toLowerCase() as (typeof RESERVED_DEFAULT_HOSTNAMES)[number])) {
+    throw new Error(`Refusing to mutate ${JSON.stringify(hostname)}: reserved Deployz hostname.`);
+  }
+}
+
+/** The candidate URLs a deployment can serve, resolved by the plan's
+ *  precedence (Phase 7 wires this into resolveAppUrl's replacement). */
+export interface DefaultUrls {
+  /** The permanent default-HTTPS URL (`https://d-<id>.deployz.dev`). */
+  defaultUrl: string;
+  /** The custom-domain URL once one exists (else null/undefined). */
+  customUrl?: string | null;
+  /** Whether the custom domain is ACTIVE and healthy enough to serve. */
+  customHealthy?: boolean;
+}
+
+/** The plan's URL model: the custom URL serves ONLY when it is ACTIVE and
+ *  healthy; every other state (none, pending, failed, removed) falls back to
+ *  the deployment's permanent default URL. */
+export function resolvePreferredPublicUrl(urls: DefaultUrls): string {
+  return urls.customUrl && urls.customHealthy ? urls.customUrl : urls.defaultUrl;
+}
+
+/** Back-compat seam used by the default-HTTPS state machine (hostname minted
+ *  when a PENDING state is first created). Wraps the Phase 2 helper with the
+ *  state machine's apex as the zone. */
 export function defaultHttpsHostname(deploymentId: string, apex: string): string {
-  return `${deploymentId}.${apex}`;
+  return getDefaultDeploymentHostname(deploymentId, { zone: apex });
 }
 
 const DEFAULT_HTTPS_STATUSES: ReadonlySet<string> = new Set([
