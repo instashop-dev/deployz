@@ -56,6 +56,14 @@ export interface DefaultHttpsState {
   lastError: string | null;
   /** ISO timestamp of the last DNS-reconciliation attempt (success or failure). */
   lastDnsCheckAt?: string;
+  /** Phase 12 watchdog — configure attempts consumed within the current
+   *  budget: fresh configure cycles minted plus unavailable DNS-write
+   *  failures since the last timeout/ERROR recovery. A rate-limited attempt
+   *  NEVER consumes it (Cloudflare said stop; no progress was made). At
+   *  MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES the machine times out to ERROR with
+   *  DEFAULT_DNS_TIMEOUT; the ERROR retry resets it to 0 so recovery gets a
+   *  fresh budget. Absent = 0. */
+  configureAttempts?: number;
 }
 
 /**
@@ -229,6 +237,7 @@ export function parseDefaultHttps(raw: unknown): DefaultHttpsState | null {
     ...(routingTarget ? { routingTarget } : {}),
     checkCycle: typeof record['checkCycle'] === 'number' ? record['checkCycle'] : 0,
     lastError,
+    configureAttempts: typeof record['configureAttempts'] === 'number' ? record['configureAttempts'] : 0,
     ...(lastDnsCheckAt ? { lastDnsCheckAt } : {}),
   };
 }
@@ -264,6 +273,7 @@ function stateToRecord(state: DefaultHttpsState): Record<string, unknown> {
     ...(state.routingTarget ? { routingTarget: state.routingTarget } : {}),
     checkCycle: state.checkCycle,
     lastError: state.lastError,
+    configureAttempts: state.configureAttempts ?? 0,
     ...(state.lastDnsCheckAt ? { lastDnsCheckAt: state.lastDnsCheckAt } : {}),
   };
 }
@@ -315,18 +325,20 @@ const IN_FLIGHT_JOB_STATES = new Set(['REQUESTED', 'QUEUED', 'RUNNING']);
  * default HTTPS toward its next state — the same cycle bookkeeping as the
  * custom-domain `ensureConfigureJob`. A finished job at the current cycle
  * (or an explicit force) bumps the cycle so the relay sees a fresh
- * idempotency key instead of replaying a stale one.
+ * idempotency key instead of replaying a stale one. Returns whether a new
+ * job row was created (the Phase 12 watchdog counts only real attempts — an
+ * in-flight or already-finished job that gets reused is not one).
  */
 export async function ensureDefaultHttpsConfigureJob(
   db: RuntimeDb,
   deployment: { id: string },
   state: DefaultHttpsState,
   opts?: { forceNewCycle?: boolean },
-): Promise<void> {
+): Promise<boolean> {
   const prefix = configureJobPrefix(deployment.id);
   const newest = await newestMachineJob(db, deployment.id, 'CONFIGURE_DOMAIN', prefix);
   if (newest && IN_FLIGHT_JOB_STATES.has(newest.state)) {
-    return;
+    return false;
   }
   const newestCycle = newest ? Number(newest.idempotencyKey.slice(prefix.length)) : undefined;
   const shouldBump = opts?.forceNewCycle === true || (newest !== undefined && newestCycle === state.checkCycle);
@@ -338,7 +350,7 @@ export async function ensureDefaultHttpsConfigureJob(
       .where(eq(schema.deployments.id, deployment.id));
     state.checkCycle = cycle;
   }
-  await createOrReuseJob(db, {
+  const { created } = await createOrReuseJob(db, {
     deploymentId: deployment.id,
     type: 'CONFIGURE_DOMAIN',
     idempotencyKey: `${prefix}${cycle}`,
@@ -349,6 +361,7 @@ export async function ensureDefaultHttpsConfigureJob(
     },
     requestedBy: null,
   });
+  return created;
 }
 
 /**
@@ -494,6 +507,22 @@ const EVER_INSTALLED_STATES = new Set<string>(['HEALTHY', 'UPDATING', 'UPDATE_AV
 const NOT_RUNNING_STATES = new Set<string>(['FAILED', 'DELETING', 'DELETED', 'NOT_INSTALLED', 'WAITING_FOR_RELAY']);
 
 /**
+ * Phase 12 watchdog — the maximum configure attempts (fresh configure cycles
+ * minted or unavailable DNS-write failures) the machine may consume within
+ * one budget before it gives up with `DEFAULT_DNS_TIMEOUT`. The machine has
+ * no clock seam, so this cycle bound IS the time base (one attempt per relay
+ * heartbeat kick, ~5 min). Rate-limited attempts never consume it.
+ */
+export const MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES = 5;
+
+/** Whether a DNS-write failure is Cloudflare telling us to slow down (429).
+ *  Duck-typed on the error code so the real CloudflareDnsError, legacy
+ *  writers and test fakes that mirror the taxonomy all classify the same. */
+function isCloudflareRateLimited(error: unknown): boolean {
+  return (error as { code?: unknown } | null | undefined)?.code === 'CLOUDFLARE_RATE_LIMITED';
+}
+
+/**
  * Drives the deployment's default HTTPS one step forward. Idempotent and
  * safe to call on every relay heartbeat (plus once after a successful
  * INSTALL result): any in-flight job blocks a duplicate, every write is an
@@ -540,15 +569,45 @@ export async function runDefaultHttpsCheck(
 
   let working: DefaultHttpsState = state;
   while (working.status !== 'ACTIVE' && working.status !== 'REMOVING') {
+    // Phase 12 watchdog: a pre-ACTIVE machine that has consumed its whole
+    // configure budget (MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES attempts) without
+    // reaching ACTIVE stops minting and reports DEFAULT_DNS_TIMEOUT. The
+    // ERROR branch below is the recovery — it resets the budget so a fresh
+    // attempt can still reach ACTIVE once the provider recovers. CONFIGURING
+    // is exempt: it spends no budget (the probe is not a configure attempt).
+    if (
+      (working.status === 'PENDING' || working.status === 'WAITING_FOR_DNS') &&
+      (working.configureAttempts ?? 0) >= MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES
+    ) {
+      await persistState(db, deployment.id, {
+        ...working,
+        status: 'ERROR',
+        lastError: 'DEFAULT_DNS_TIMEOUT',
+      });
+      return;
+    }
     switch (working.status) {
-      case 'PENDING':
-        await ensureDefaultHttpsConfigureJob(db, deployment, working);
+      case 'PENDING': {
+        const created = await ensureDefaultHttpsConfigureJob(db, deployment, working);
+        if (created) {
+          await persistState(db, deployment.id, {
+            ...working,
+            configureAttempts: (working.configureAttempts ?? 0) + 1,
+          });
+        }
         return;
+      }
       case 'WAITING_FOR_DNS': {
         if (!working.validationName || !working.validationValue || !working.routingTarget) {
           // The cert was requested but the relay has not yet reported the
           // validation record — nudge it to describe the cert again.
-          await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
+          const created = await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
+          if (created) {
+            await persistState(db, deployment.id, {
+              ...working,
+              configureAttempts: (working.configureAttempts ?? 0) + 1,
+            });
+          }
           return;
         }
         const attemptedAt = new Date().toISOString();
@@ -561,22 +620,43 @@ export async function runDefaultHttpsCheck(
             working.validationValue,
           );
           await deps.dns.upsertDefaultDeploymentRecord(deployment.id, working.routingTarget);
-        } catch {
+        } catch (error) {
           // A DNS failure only touches default-HTTPS state: no AWS job is
           // enqueued and no infrastructure is recreated — the next driver
           // pass retries the reconciliation.
-          await persistState(db, deployment.id, {
+          const rateLimited = isCloudflareRateLimited(error);
+          const next: DefaultHttpsState = {
             ...working,
-            lastError: 'DNS_WRITE_FAILED',
+            // Phase 12: a RATE-LIMITED attempt made no progress (Cloudflare
+            // said stop) and must NOT consume the watchdog budget — it is
+            // stored distinctly and retried on the next pass. Temporary /
+            // unavailable failures DO consume the budget: bounded retries
+            // instead of infinite heartbeat hammering. The ≥180s heartbeat
+            // throttle is the backoff — no sleeper is added.
+            lastError: rateLimited ? 'CLOUDFLARE_RATE_LIMITED' : 'DNS_WRITE_FAILED',
             lastDnsCheckAt: attemptedAt,
-          });
+            ...(rateLimited
+              ? {}
+              : { configureAttempts: (working.configureAttempts ?? 0) + 1 }),
+          };
+          if (!rateLimited && (next.configureAttempts ?? 0) >= MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES) {
+            next.status = 'ERROR';
+            next.lastError = 'DEFAULT_DNS_TIMEOUT';
+          }
+          await persistState(db, deployment.id, next);
           return;
         }
         working = { ...working, lastError: null, lastDnsCheckAt: attemptedAt };
         await persistState(db, deployment.id, working);
         // DNS is in place — nudge the relay to re-describe the cert and wire
         // the 443 listener once ACM issues it.
-        await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
+        const created = await ensureDefaultHttpsConfigureJob(db, deployment, working, { forceNewCycle: true });
+        if (created) {
+          await persistState(db, deployment.id, {
+            ...working,
+            configureAttempts: (working.configureAttempts ?? 0) + 1,
+          });
+        }
         return;
       }
       case 'CONFIGURING': {
@@ -593,10 +673,15 @@ export async function runDefaultHttpsCheck(
       }
       case 'ERROR': {
         // Automatic retry: fall back to the earliest still-plausible stage
-        // and re-run, mirroring the custom-domain Retry path.
+        // and re-run, mirroring the custom-domain Retry path. Phase 12: the
+        // retry also RESETS the watchdog budget (configureAttempts) so a
+        // DEFAULT_DNS_TIMEOUT is followed by one fresh budget of configure
+        // cycles that can still reach ACTIVE; checkCycle keeps rising so the
+        // new job's idempotency key never collides with an old one.
         working = {
           ...working,
           status: working.validationName ? 'WAITING_FOR_DNS' : 'PENDING',
+          configureAttempts: 0,
           lastError: null,
         };
         await persistState(db, deployment.id, working);

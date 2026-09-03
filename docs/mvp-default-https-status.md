@@ -31,7 +31,7 @@ Rules that hold for every phase:
 | 9 | UI/UX default vs custom URL | Merged | #141 | 2c57762 | — | — |
 | 10 | Custom domain removal / change | Merged | #140 | 1b34151 | — | — |
 | 11 | Delete / purge reconciliation | In review | #TBD (batched) | — | — | — |
-| 12 | Watchdogs and reconciliation | Pending | — | — | — | — |
+| 12 | Watchdogs and reconciliation | In review | #TBD (batched) | — | — | — |
 | 13 | Security hardening | Pending | — | — | — | — |
 | 14 | Simulated provider E2E (A–H) | Pending | — | — | — | — |
 | 15 | Static production config verification | Pending | — | — | — | — |
