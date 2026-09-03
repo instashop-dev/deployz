@@ -30,12 +30,12 @@ Rules that hold for every phase:
 | 8 | Custom-domain health promotion | Merged | #140 | 1b34151 | — | — |
 | 9 | UI/UX default vs custom URL | Merged | #141 | 2c57762 | — | — |
 | 10 | Custom domain removal / change | Merged | #140 | 1b34151 | — | — |
-| 11 | Delete / purge reconciliation | In review | #TBD (batched) | — | — | — |
-| 12 | Watchdogs and reconciliation | In review | #TBD (batched) | — | — | — |
-| 13 | Security hardening | In review | #TBD (batched) | — | — | — |
-| 14 | Simulated provider E2E (A–H) | In review | #TBD | — | — | — |
+| 11 | Delete / purge reconciliation | Merged | #142 | 5b3c957 | — | — |
+| 12 | Watchdogs and reconciliation | Merged | #142 | 5b3c957 | — | — |
+| 13 | Security hardening | Merged | #142 | 5b3c957 | — | — |
+| 14 | Simulated provider E2E (A–H) | Merged | #143 | d5b10d3 | — | — |
 | 15 | Static production config verification | In review | #TBD (batched) | — | — | — |
-| 16 | Documentation and cleanup | Pending | — | — | — | — |
+| 16 | Documentation and cleanup | In review | #TBD (batched) | — | — | — |
 
 ## Phase 0 — Audit findings
 
@@ -300,3 +300,42 @@ The suite skips unless `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true` (the ordinary
 simulated `--scenarios` run keeps HTTP-only behaviour); CI runs the file
 separately with the flag on ("Default-HTTPS simulated scenarios" step in
 `ci.yml`).
+
+## Documentation and cleanup (Phase 16)
+
+**Legacy Route53 path removed.** The reference graph was fully contained, so
+the Route53 default-HTTPS writer was deleted rather than documented as
+legacy:
+
+- `apps/api/src/route53-records.ts` + `route53-records.test.ts` — the SigV4
+  Route53 CNAME writer (deleted). The narrow `DnsRecordClient` interface and
+  the no-op writer it also hosted moved into `apps/api/src/cloudflare-records.ts`
+  beside `createDnsClientFromNameWriter`, because the no-op writer is still the
+  DNS seam when the flow is off or under the fixture namespace.
+- `apps/api/src/env.ts` — `dnsZoneId` (`DEPLOYZ_DNS_ZONE_ID`) removed.
+- `apps/api/src/server.ts` — the legacy Route53 assembly branch removed;
+  assembly is now fixture provider → Cloudflare → off (no other provider).
+- `.env.example` — the `DEPLOYZ_DNS_ZONE_ID` block removed.
+- `packages/cdk/src/deployz-stack.ts` + its test — the zone-id context/env
+  var and the scoped `route53:ChangeResourceRecordSets` IAM grant removed.
+
+No consumer outside those files referenced the path (verified by grep); the
+fixture default-HTTPS provider (`default-https-fixture.ts`) and the E2E
+scenario suite already rode the Cloudflare-shaped seam, so the removal changes
+no fixture behaviour.
+
+**Documentation updates.** `README.md` and `docs/architecture.md` now describe
+the permanent `https://d-<deployment-id>.deployz.dev` model, the
+defaultUrl/preferred-URL precedence, the runtime flow (deployment → ALB →
+deployz.dev Cloudflare DNS reconciliation → HTTPS verification → READY), and
+the four production config key NAMES (never a token value);
+`docs/testing/aws-full-product-canary.md` was brought in line with the
+Cloudflare reconciliation model.
+
+**Phase 15 verification note.** Phase 15 is static-only: it scans the deploy
+workflow and the CDK env allowlist text for the production Cloudflare bindings
+and never reads or prints a secret value and never makes a provider call.
+
+Automated implementation testing does not modify the production Cloudflare
+zone. Cloudflare API behavior is covered through provider mocks and simulated
+E2E tests.

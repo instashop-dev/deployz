@@ -168,14 +168,6 @@ export class DeployzStack extends Stack {
       (this.node.tryGetContext('deployableAwsRegions') as string | undefined) ??
       process.env.DEPLOYABLE_AWS_REGIONS;
 
-    // Phase 11 default HTTPS: the Deployz-owned Route53 hosted zone the API
-    // writes per-deployment validation/routing CNAMEs into. Hosted out of
-    // band (the zone apex must already resolve in production), referenced by
-    // id so CDK can scope the API role's route53 grant to exactly that zone.
-    const dnsZoneId =
-      (this.node.tryGetContext('dnsZoneId') as string | undefined) ??
-      process.env.DEPLOYZ_DNS_ZONE_ID;
-
     const apiLambda = new ApiLambda(this, 'ApiLambda', {
       vpc: vpcResource,
       dbSecurityGroup,
@@ -194,9 +186,6 @@ export class DeployzStack extends Stack {
         // Phase 1.1 ECR pull-grant lifecycle: the repository whose policy the
         // API mutates when an installation is granted/revoked.
         DEPLOYZ_ECR_REPOSITORY_NAME: buildPipeline.repository.repositoryName,
-        // Phase 11 default HTTPS: the deployz Route53 zone id, when one is
-        // configured (absent → the default-HTTPS flow stays off).
-        ...(dnsZoneId ? { DEPLOYZ_DNS_ZONE_ID: dnsZoneId } : {}),
       },
     });
 
@@ -215,18 +204,6 @@ export class DeployzStack extends Stack {
         resources: [buildPipeline.repository.repositoryArn],
       }),
     );
-
-    // Phase 11: scoped to the single Deployz-owned hosted zone the API writes
-    // CNAME records into — not route53:* on everything. Route53 has no VPC/
-    // region concept; the resource ARN is the zone itself.
-    if (dnsZoneId) {
-      apiLambda.function.addToRolePolicy(
-        new PolicyStatement({
-          actions: ['route53:ChangeResourceRecordSets'],
-          resources: [`arn:aws:route53:::hostedzone/${dnsZoneId}`],
-        }),
-      );
-    }
 
     dbSecurityGroup.addIngressRule(
       apiLambda.function.connections.securityGroups[0] ?? Peer.anyIpv4(),
