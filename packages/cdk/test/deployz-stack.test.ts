@@ -218,6 +218,56 @@ describe('DeployzStack', () => {
     });
   });
 
+  // Phase 15 — static verification that the control plane's Lambda
+  // environment allowlist (collectEnvVars in deployz-stack.ts) carries the
+  // four Cloudflare config keys the default-HTTPS flow needs in production.
+  // Each is passed through only when set; the deploy-api.yml completeness gate
+  // is what refuses a missing one at deploy time.
+  describe('Phase 15 — Cloudflare runtime env keys', () => {
+    const KEYS = [
+      'CLOUDFLARE_ZONE_ID',
+      'CLOUDFLARE_ZONE_NAME',
+      'DEPLOYZ_DEFAULT_HOSTNAME_PREFIX',
+      'CLOUDFLARE_ZONE_EDIT_API_TOKEN',
+    ];
+
+    it('passes all four Cloudflare keys into the API Lambda environment when set', () => {
+      for (const key of KEYS) process.env[key] = `test-value-${key}`;
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        const expected = Object.fromEntries(KEYS.map((key) => [key, `test-value-${key}`]));
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          Environment: Match.objectLike({ Variables: Match.objectLike(expected) }),
+        });
+      } finally {
+        for (const key of KEYS) delete process.env[key];
+      }
+    });
+
+    it('omits the Cloudflare keys when unset (absent = flow off, not stale)', () => {
+      const previous = new Map<string, string | undefined>();
+      for (const key of KEYS) {
+        previous.set(key, process.env[key]);
+        delete process.env[key];
+      }
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        const environments = Object.values(template.findResources('AWS::Lambda::Function')).map(
+          (resource) =>
+            (resource.Properties as { Environment?: { Variables?: Record<string, unknown> } })
+              .Environment?.Variables ?? {},
+        );
+        expect(environments.some((env) => KEYS.some((key) => key in env))).toBe(false);
+      } finally {
+        for (const key of KEYS) {
+          const value = previous.get(key);
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
+    });
+  });
+
   // Phase 11 default HTTPS: the control-plane API writes per-deployment CNAME
   // records into a Deployz-owned Route53 zone. The zone is referenced by id
   // (hosted out of band), and the API role's route53 grant is scoped to that

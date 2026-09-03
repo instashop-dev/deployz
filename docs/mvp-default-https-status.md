@@ -34,7 +34,7 @@ Rules that hold for every phase:
 | 12 | Watchdogs and reconciliation | In review | #TBD (batched) | — | — | — |
 | 13 | Security hardening | In review | #TBD (batched) | — | — | — |
 | 14 | Simulated provider E2E (A–H) | In review | #TBD | — | — | — |
-| 15 | Static production config verification | Pending | — | — | — | — |
+| 15 | Static production config verification | In review | #TBD (batched) | — | — | — |
 | 16 | Documentation and cleanup | Pending | — | — | — | — |
 
 ## Phase 0 — Audit findings
