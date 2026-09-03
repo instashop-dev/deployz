@@ -5,6 +5,54 @@
  * never a database write. A cookie jar carries the better-auth session.
  */
 
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+
+interface RawResponse {
+  readonly status: number;
+  readonly headers: Headers;
+  readonly setCookie: string[];
+  readonly text: string;
+}
+
+function rawRequest(
+  url: string,
+  method: string,
+  headers: Record<string, string>,
+  body: string | undefined,
+): Promise<RawResponse> {
+  const target = new URL(url);
+  const make = target.protocol === 'https:' ? httpsRequest : httpRequest;
+  return new Promise((resolve, reject) => {
+    const req = make(
+      target,
+      {
+        method,
+        headers: {
+          ...headers,
+          ...(body !== undefined ? { 'content-length': String(Buffer.byteLength(body)) } : {}),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const out = new Headers();
+          for (const [name, value] of Object.entries(res.headers)) {
+            if (typeof value === 'string') out.set(name, value);
+            else if (Array.isArray(value)) out.set(name, value.join(', '));
+          }
+          const setCookie = res.headers['set-cookie'] ?? [];
+          resolve({ status: res.statusCode ?? 0, headers: out, setCookie, text: Buffer.concat(chunks).toString('utf8') });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
 export interface DeploymentJob {
   id: string;
   type: string;
@@ -87,7 +135,11 @@ export function isTerminalJobState(state: string): boolean {
 export class ControlPlane {
   private readonly cookies = new Map<string, string>();
 
-  constructor(readonly apiUrl: string) {}
+  /** `origin` is the dashboard origin better-auth trusts — the API refuses auth calls without one. */
+  constructor(
+    readonly apiUrl: string,
+    readonly origin: string,
+  ) {}
 
   async request<T>(
     method: string,
@@ -103,18 +155,15 @@ export class ControlPlane {
         : {}),
       ...options.headers,
     };
-    const response = await fetch(`${this.apiUrl}${path}`, {
-      method,
-      headers,
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      redirect: 'manual',
-    });
-    for (const cookie of response.headers.getSetCookie()) {
+    // node:https rather than fetch: the fetch spec forbids setting Origin,
+    // which better-auth requires on every auth call.
+    const response = await rawRequest(`${this.apiUrl}${path}`, method, headers, body === undefined ? undefined : JSON.stringify(body));
+    for (const cookie of response.setCookie) {
       const pair = cookie.split(';')[0] ?? '';
       const eq = pair.indexOf('=');
       if (eq > 0) this.cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
     }
-    const text = await response.text();
+    const text = response.text;
     let parsed: unknown = null;
     try {
       parsed = text.length > 0 ? JSON.parse(text) : null;
@@ -188,6 +237,11 @@ export class ControlPlane {
   async getApplication(id: string): Promise<Record<string, unknown>> {
     const { body } = await this.request<Record<string, unknown>>('GET', `/api/applications/${id}`);
     return body;
+  }
+
+  /** The dashboard triggers analysis explicitly after connecting a repository. */
+  async triggerAnalysis(id: string): Promise<void> {
+    await this.request('POST', `/api/applications/${id}/analyse`, {});
   }
 
   async patchApplication(id: string, patch: Record<string, unknown>): Promise<void> {

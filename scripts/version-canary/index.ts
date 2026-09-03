@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   switch (command) {
     case 'preflight': {
       const evidence = new Evidence(config.resultsDir, newRun(config, 'preflight'));
-      const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl) };
+      const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl, config.webUrl) };
       await preflight(canary);
       evidence.finish('PASS');
       return;
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     case 'core':
     case 'resilience': {
       const evidence = new Evidence(config.resultsDir, newRun(config, command));
-      const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl) };
+      const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl, config.webUrl) };
       console.log(`Run ${config.runId} (${command}) — evidence in ${evidence.dir}`);
       try {
         await (command === 'core' ? runCore(canary) : runResilience(canary));
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
       if (!values['run-id']) throw new Error('cleanup needs --run-id');
       const evidence = Evidence.open(config.resultsDir, values['run-id']);
       evidence.run.scenario = 'cleanup';
-      const api = new ControlPlane(config.apiUrl);
+      const api = new ControlPlane(config.apiUrl, config.webUrl);
       if (evidence.run.vendor) await api.signIn(evidence.run.vendor);
       const canary: Canary = { config, evidence, api };
       try {
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
       if (!values['run-id']) throw new Error('audit needs --run-id');
       const evidence = Evidence.open(config.resultsDir, values['run-id']);
       evidence.run.scenario = 'audit';
-      const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl) };
+      const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl, config.webUrl) };
       try {
         await leakAudit(canary);
         evidence.finish('PASS');
