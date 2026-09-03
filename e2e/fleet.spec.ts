@@ -89,6 +89,8 @@ async function driveDeploymentToHealthy(
   page: Page,
   installationId: string,
   enrollmentCode: string,
+  /** Capabilities the relay advertises, for tests that assert a gated action. */
+  capabilities?: Record<string, boolean>,
 ): Promise<void> {
   const authHeaders = { Authorization: `Bearer ${installationId}` };
 
@@ -98,7 +100,7 @@ async function driveDeploymentToHealthy(
   // the vendor's deployment, and it is spent on this call.
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
     headers: authHeaders,
-    data: { installationId, enrollmentCode },
+    data: { installationId, enrollmentCode, ...(capabilities ? { capabilities } : {}) },
   });
   expect(registerResponse.ok()).toBeTruthy();
 
@@ -181,15 +183,25 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
   await expect(page.getByRole('heading', { name: applicationName })).toBeVisible();
   await expect(page.getByText(customerName, { exact: true }).first()).toBeVisible();
 
-  // §24 the five required actions. Configuration is capability-gated (see
-  // `canConfig` in the detail page) — a deployment with no relay ever
-  // connected has no reported capabilities, so it renders as a disabled
-  // button rather than a link.
-  await expect(page.getByRole('button', { name: 'Deploy Update' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Rollback' })).toBeVisible();
+  // The hero says what to do next for a deployment nobody has installed.
+  const hero = page.locator('section[aria-labelledby="deployment-progress"]');
+  await expect(hero.locator('[aria-live="polite"]')).toHaveText(
+    'Waiting for your customer to install',
+  );
+  await expect(page.getByRole('heading', { name: 'Install link' })).toBeVisible();
+
+  // Actions are contextual: day-2 actions (deploy/rollback/restart/config)
+  // act on a running application, so they are not offered before an
+  // install. Diagnostics is always reachable; Disconnect lives behind the
+  // overflow menu and is capability-gated (a deployment with no relay ever
+  // connected has no reported capabilities, so it is disabled).
   await expect(page.getByRole('link', { name: 'View Diagnostics' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Configuration' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Disconnect Deployment' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Deploy Update' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Configuration' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Rollback' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Disconnect Deployment' })).toBeDisabled();
+  await page.keyboard.press('Escape');
 
   // §24 infrastructure. A deployment nobody has installed has no observed
   // health, so the honest render is the empty state — not four green rows all
@@ -253,16 +265,22 @@ test('infrastructure rows appear only for the components the relay reports', asy
   expect(health.ok()).toBeTruthy();
 
   await page.goto(`/dashboard/deployments/${deploymentId}`);
-  // Scoped to the Infrastructure section — the deployment-progress card
-  // elsewhere on the page renders its own derived component list and must
-  // not be conflated with the inventory-backed rows asserted here.
+  // Scoped to the Infrastructure section — the hero elsewhere on the page
+  // renders its own derived component list and must not be conflated with
+  // the inventory-backed rows asserted here.
   const infraSection = page.locator('section[aria-labelledby="infrastructure"]');
   await expect(infraSection.getByText('Application', { exact: true })).toBeVisible();
   await expect(infraSection.getByText('Database', { exact: true })).toBeVisible();
   await expect(infraSection.getByText('Secure endpoint', { exact: true })).toBeVisible();
-  // No storage or cache resource was reported, so neither row is invented.
-  await expect(infraSection.getByText('Storage', { exact: true })).toHaveCount(0);
-  await expect(infraSection.getByText('Cache', { exact: true })).toHaveCount(0);
+  // No storage or cache resource was reported and the application requires
+  // neither, so each reads "Not required" — never a missing or failed row.
+  await expect(infraSection.getByText('Storage', { exact: true })).toBeVisible();
+  await expect(infraSection.getByText('Cache', { exact: true })).toBeVisible();
+  await expect(infraSection.getByText('Not required', { exact: true })).toHaveCount(2);
+  // The resource-level inventory stays behind its own disclosure.
+  await expect(infraSection.getByText('ECS', { exact: true })).toHaveCount(0);
+  await infraSection.getByRole('button', { name: /View \d+ resources?/ }).click();
+  await expect(infraSection.getByText('Runs your application', { exact: true })).toBeVisible();
 });
 
 test('deployment detail top-level copy is jargon-free', async ({ page }) => {
@@ -274,48 +292,49 @@ test('deployment detail top-level copy is jargon-free', async ({ page }) => {
   expect(text).not.toMatch(JARGON);
 });
 
-test('rollback confirmation shows the required §26 migration warning', async ({ page }) => {
+test('rollback is offered, disabled, until a previous successful release exists', async ({
+  page,
+}) => {
   await signUp(page);
-  const { deploymentId } = await seedDeployment(page);
+  const { deploymentId, installationId, enrollmentCode } = await seedDeployment(page);
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode);
 
   await page.goto(`/dashboard/deployments/${deploymentId}`);
-  // A brand-new deployment has no previous release, so Rollback is disabled —
-  // this proves the §26 warning copy exists in the codebase and would render
-  // once a previous release exists. Reaching that state now takes TWO
-  // successful relay DEPLOY_RELEASE jobs (see the HEALTHY/bulk-deploy test
-  // below for the single-job relay sequence this spec does drive) — a full
-  // rollback-eligible deployment is still out of scope for this assertion,
-  // which only needs the disabled-state copy.
-  await expect(page.getByRole('button', { name: 'Rollback' })).toBeDisabled();
+  // A freshly installed deployment has no previous release, so Rollback is
+  // disabled in the overflow menu and says why. Reaching a rollback-eligible
+  // state takes TWO successful relay DEPLOY_RELEASE jobs — the §26 migration
+  // warning itself is exercised by e2e/scenario-ui.spec.ts.
+  await page.getByRole('button', { name: 'More actions' }).click();
+  const rollback = page.getByRole('menuitem', { name: /Rollback/ });
+  await expect(rollback).toBeDisabled();
+  await expect(rollback).toContainText('No previous successful release to roll back to.');
 });
 
 test('disconnect requires typing the customer name to confirm (§63)', async ({ page }) => {
   await signUp(page);
   const { deploymentId, customerName, installationId, enrollmentCode } = await seedDeployment(page);
 
-  // Disconnect is capability-gated (see `canDisconnect`/`actionSupported` in
-  // the detail page) — a deployment with no relay ever connected reports no
-  // capabilities, so the button stays disabled with nothing to click. A real
-  // relay reports capabilities on registration; simulate that here.
-  const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
-    headers: { Authorization: `Bearer ${installationId}` },
-    data: {
-      installationId,
-      enrollmentCode,
-      capabilities: {
-        deployRelease: true,
-        rollback: true,
-        restart: true,
-        configUpdate: true,
-        destroy: true,
-        domainManagement: true,
-      },
-    },
+  // Disconnect is gated twice (see `canDisconnect` in the detail page): on
+  // the relay advertising the capability, and on no other operation owning
+  // the deployment — the API refuses a destroy while an install or a day-2
+  // job is active (requireDeploymentIdle), so the button is disabled rather
+  // than buying the vendor a confirmation dialog and a 409. Driving the
+  // install to completion satisfies both: the relay reports its
+  // capabilities on registration, and the INSTALL job settles.
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode, {
+    deployRelease: true,
+    rollback: true,
+    restart: true,
+    configUpdate: true,
+    destroy: true,
+    domainManagement: true,
   });
-  expect(registerResponse.ok()).toBeTruthy();
 
   await page.goto(`/dashboard/deployments/${deploymentId}`);
-  await page.getByRole('button', { name: 'Disconnect Deployment' }).click();
+  // Destructive actions live behind the overflow menu, never beside the
+  // primary action.
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Disconnect Deployment' }).click();
 
   const confirmButton = page.getByRole('button', { name: 'Disconnect Deployment' }).last();
   await expect(confirmButton).toBeDisabled();

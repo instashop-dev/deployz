@@ -219,8 +219,9 @@ describe('eventFailureReason', () => {
 // gated by its own lifecycle, not by the connector: the canary showed
 // "not supported by the currently installed Deployz connector" during a
 // disconnect, sending the vendor to check a connector that was fine. Order
-// mirrors the API's requireDeployableState (apps/api/src/server.ts): lifecycle
-// → never-installed → relay liveness → connector capabilities.
+// mirrors the API's gates in call order (apps/api/src/server.ts): lifecycle
+// → never-installed → relay liveness → busy operation → connector
+// capabilities.
 describe('actionsUnavailableReason', () => {
   it('blames the lifecycle, not the connector, while a deployment is being removed', () => {
     const reason = actionsUnavailableReason({
@@ -242,6 +243,30 @@ describe('actionsUnavailableReason', () => {
         anyCapabilityGatedOff: false,
       }),
     ).toContain('has been removed');
+  });
+
+  it('blames the running operation, not the connector, while one owns the deployment', () => {
+    const reason = actionsUnavailableReason({
+      state: 'UPDATING',
+      everRan: true,
+      relayStatus: 'CONNECTED',
+      busy: true,
+      anyCapabilityGatedOff: true,
+    });
+    expect(reason).toContain('when this operation finishes');
+    expect(reason).not.toContain('connector');
+  });
+
+  it('falls back to the connector once the operation settles', () => {
+    expect(
+      actionsUnavailableReason({
+        state: 'UPDATING',
+        everRan: true,
+        relayStatus: 'CONNECTED',
+        busy: false,
+        anyCapabilityGatedOff: true,
+      }),
+    ).toContain('connector');
   });
 
   it('still explains a never-installed deployment and a gated connector', () => {

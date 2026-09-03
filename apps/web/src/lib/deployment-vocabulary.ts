@@ -229,6 +229,9 @@ export const REMOVING_ACTION_COPY =
 
 export const REMOVED_ACTION_COPY = 'This deployment has been removed, so these actions no longer apply.';
 
+export const BUSY_ACTION_COPY =
+  'Other actions become available when this operation finishes.';
+
 /**
  * Why the day-2 actions are gated on a relay that is not currently
  * connected. The relay must fetch the queued job, so a relay that has never
@@ -246,24 +249,34 @@ export const RELAY_UNREACHABLE_ACTION_COPY: Record<Exclude<RelayStatus, 'CONNECT
 /**
  * Why the day-2 actions are unavailable, or null when they are not.
  *
- * Order mirrors the API's `requireDeployableState` (apps/api/src/server.ts):
+ * Order mirrors the API's refusals in call order (apps/api/src/server.ts):
  * a deployment being removed (or already gone) is gated by its own
- * lifecycle; one that never completed an install is gated by that; then the
- * relay's liveness; and only last the connector's capabilities. Reporting a
- * lifecycle reason sent vendors to check a connector that supports every
- * action, and reporting a capability reason for an offline relay sent them
- * to check a connector that is simply not there.
+ * lifecycle; one that never completed an install by that; then the relay's
+ * liveness (`requireDeployableState` → RELAY_DISCONNECTED /
+ * RELAY_NOT_CONNECTED); then an operation that owns the deployment
+ * (`requireDeploymentIdle` → DEPLOYMENT_BUSY); and only last the connector's
+ * capabilities. Reporting a lifecycle reason sent vendors to check a
+ * connector that supports every action, and reporting a capability reason
+ * for an offline (or busy) relay sent them to check a connector that is
+ * simply not there.
+ *
+ * `busy` is whether a mutating job currently owns the deployment, which the
+ * API decides from the job table (requireDeploymentIdle), not from `state` —
+ * so callers pass it rather than having it inferred from a state value that
+ * can lag behind.
  */
 export function actionsUnavailableReason(input: {
   state: string;
   everRan: boolean;
   relayStatus: RelayStatus;
+  busy?: boolean;
   anyCapabilityGatedOff: boolean;
 }): string | null {
   if (input.state === 'DELETED') return REMOVED_ACTION_COPY;
   if (input.state === 'DELETING') return REMOVING_ACTION_COPY;
   if (!input.everRan) return NOT_YET_RUNNING_ACTION_COPY;
   if (input.relayStatus !== 'CONNECTED') return RELAY_UNREACHABLE_ACTION_COPY[input.relayStatus];
+  if (input.busy) return BUSY_ACTION_COPY;
   return input.anyCapabilityGatedOff ? UNSUPPORTED_ACTION_COPY : null;
 }
 

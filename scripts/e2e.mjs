@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 
 import { scrubEnv } from './e2e-env.mjs';
 
-const VALID_MODES = ['simulated', 'canary', 'fresh'];
+const VALID_MODES = ['simulated', 'canary', 'fresh', 'canary-versions'];
 
 const REFUSAL = `Real AWS E2E is disabled.
 Set DEPLOYZ_E2E_ALLOW_REAL_AWS=1
@@ -45,12 +45,37 @@ if (!VALID_MODES.includes(mode)) {
 
 // Guard runs before dry-run handling — dry-run must not be a way to peek at
 // what a real-AWS run would do without the opt-in.
-if ((mode === 'canary' || mode === 'fresh') && process.env.DEPLOYZ_E2E_ALLOW_REAL_AWS !== '1') {
+if (
+  (mode === 'canary' || mode === 'fresh' || mode === 'canary-versions') &&
+  process.env.DEPLOYZ_E2E_ALLOW_REAL_AWS !== '1'
+) {
   console.error(REFUSAL);
   process.exit(1);
 }
 
-if (mode === 'canary' || mode === 'fresh') {
+if (mode === 'canary-versions') {
+  // The version/rollback canary (docs/testing/version-rollback-canary.md):
+  // a tsx script that drives the deployed control plane and the test AWS
+  // account end to end. Subcommand and flags pass straight through.
+  const scriptArgs = ['tsx', 'scripts/version-canary/index.ts', ...passthrough];
+  const addedEnv = { DEPLOYZ_E2E_MODE: mode };
+  if (dryRun) {
+    console.log(JSON.stringify({ mode, command: 'pnpm', args: ['exec', ...scriptArgs], envKeys: Object.keys(addedEnv) }));
+    process.exit(0);
+  }
+  const child = spawn('pnpm', ['exec', ...scriptArgs], {
+    env: { ...process.env, ...addedEnv },
+    stdio: 'inherit',
+    shell: true,
+  });
+  child.on('exit', (code, signal) => {
+    process.exit(code ?? (signal ? 1 : 0));
+  });
+  child.on('error', (err) => {
+    console.error(err);
+    process.exit(1);
+  });
+} else if (mode === 'canary' || mode === 'fresh') {
   // Guard already satisfied above. D5: canary/fresh wrap
   // packages/cdk/test/{canary,fresh}-e2e.live.test.ts — real-AWS vitest
   // suites, not Playwright — so they run through `pnpm --filter @deployz/cdk
