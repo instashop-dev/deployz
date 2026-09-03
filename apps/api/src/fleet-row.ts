@@ -110,3 +110,17 @@ export function resolveAppUrl(
   if (!endpoint) return null;
   return endpoint.startsWith('http://') || endpoint.startsWith('https://') ? endpoint : `http://${endpoint}`;
 }
+
+/**
+ * The deployment's permanent Deployz address (Phase 9 completion): `https://`
+ * + the default-HTTPS hostname whenever a default-HTTPS state exists — ANY
+ * status, because the URL is canonical from the moment the machine starts;
+ * whether it actually SERVES is `appUrl`'s job, never this field's. The
+ * hostname comes from the stored state (single source of truth — parseDefaultHttps
+ * requires it), so no hostname-minting helper is needed here. Null when the
+ * machine has never started, so a view keeps its own projection as fallback.
+ * Pure field derivation — it must never gate appUrl/url exposure.
+ */
+export function resolveDefaultUrl(defaultHttps: { hostname: string } | null | undefined): string | null {
+  return defaultHttps?.hostname ? `https://${defaultHttps.hostname}` : null;
+}

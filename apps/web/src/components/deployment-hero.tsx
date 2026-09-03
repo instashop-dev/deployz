@@ -7,14 +7,13 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
-  ExternalLink,
   Loader2,
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
+import { DeploymentUrlCard } from '@/components/deployment-url-card';
 import { ElapsedTime, PROGRESS_DOT, timedSteps } from '@/components/deployment-progress-card';
 import { DeploymentProgressSteps } from '@/components/deployment-progress-steps';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { HeroModel, HeroTone } from '@/lib/deployment-hero';
@@ -93,7 +92,7 @@ export function DeploymentHero({
           </div>
         </div>
 
-        {showUrl && detail.appUrl ? <ApplicationUrl url={detail.appUrl} /> : null}
+        {showUrl && detail.appUrl ? <DeploymentUrlCard detail={detail} /> : null}
 
         {hero.kind === 'updating' ? <OperationProgress detail={detail} /> : null}
 
@@ -111,48 +110,6 @@ export function DeploymentHero({
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2">{actions}</CardFooter>
     </Card>
-  );
-}
-
-function ApplicationUrl({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard access can fail (permissions, insecure context); the link
-      // itself still lets the user open or select the URL by hand.
-    }
-  }
-
-  return (
-    <div
-      className="flex flex-col gap-3 rounded-lg bg-muted/50 px-3 py-2.5 sm:flex-row sm:items-center"
-      data-testid="app-url"
-    >
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="min-w-0 flex-1 truncate text-sm font-medium text-primary underline-offset-4 hover:underline"
-      >
-        {url}
-      </a>
-      <div className="flex shrink-0 items-center gap-2">
-        <Button asChild size="sm">
-          <a href={url} target="_blank" rel="noreferrer">
-            Open application
-            <ExternalLink aria-hidden />
-          </a>
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={copy}>
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
-      </div>
-    </div>
   );
 }
 

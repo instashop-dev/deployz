@@ -184,6 +184,7 @@ import {
 } from './route53-records.js';
 import {
   resolveAppUrl,
+  resolveDefaultUrl,
   toFleetRow,
   type DeploymentJobRow,
   type DeploymentRow,
@@ -2791,6 +2792,7 @@ export async function buildServer({
     const customDomain = domain ? { hostname: domain.hostname, status: domain.status.toLowerCase() } : null;
     const defaultHttps = parseDefaultHttps(rows[0]!.deployment.defaultHttps);
     const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
+    const defaultUrl = resolveDefaultUrl(defaultHttps);
     const derived = deriveDeploymentStatus({
       deployment: rows[0]!.deployment,
       application: rows[0]!,
@@ -2804,6 +2806,7 @@ export async function buildServer({
       jobs,
       customDomain,
       appUrl,
+      defaultUrl,
       deploymentStatus: toVendorDeploymentStatus(derived),
     };
   });

@@ -1259,6 +1259,35 @@ describe('GET /api/deployments/:id appUrl', () => {
     });
     expect(await getAppUrl(deployment.id)).toBe(`https://${hostname}`);
   });
+
+  it('exposes defaultUrl from the stored default-HTTPS hostname, whatever its status', async () => {
+    const deployment = await seedDeployment();
+    const hostname = `d-${deployment.id}.deployz.dev`;
+    await db
+      .update(schema.deployments)
+      .set({ defaultHttps: { hostname, status: 'CONFIGURING', checkCycle: 0, lastError: null } })
+      .where(eq(schema.deployments.id, deployment.id));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { defaultUrl: string | null }).defaultUrl).toBe(`https://${hostname}`);
+  });
+
+  it('leaves defaultUrl null when no default-HTTPS state exists', async () => {
+    const deployment = await seedDeployment();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { defaultUrl: string | null }).defaultUrl).toBeNull();
+  });
 });
 
 // ── Custom-domain removal and re-add (Phase 10) ──────────────────────────────
