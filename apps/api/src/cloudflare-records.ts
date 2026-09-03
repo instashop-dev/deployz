@@ -403,7 +403,9 @@ export function createFakeCloudflareDnsClient(options: {
   readonly zoneName: string;
   readonly prefix?: string;
 }): FakeCloudflareDnsClient {
-  const { zoneId, zoneName, prefix = DEFAULT_HOSTNAME_PREFIX } = options;
+  // `zoneId` is accepted for call-site symmetry with the real client but an
+  // in-memory store never needs it.
+  const { zoneName, prefix = DEFAULT_HOSTNAME_PREFIX } = options;
   const hostnameFor = makeHostnameGuard(prefix, zoneName);
   const store = new Map<string, CloudflareDnsRecord>();
   let nextId = 1;
