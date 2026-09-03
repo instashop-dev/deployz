@@ -947,6 +947,20 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // Phase 11 — PURGE's ACM certificate orphan sweep. The default-HTTPS and
+    // custom-domain certificates live OUTSIDE the application stack, so a
+    // force-completed destroy (relay offline) would leave them orphaned.
+    // ListCertificates is a condition-free discovery read (account-level; the
+    // sweep verifies ownership from the returned tags exactly like the RDS/
+    // secrets sweeps). Deletion needs no new grant — ProvisionerAcmManage's
+    // tag-scoped acm:DeleteCertificate already covers owned certificates.
+    const phase2PurgeAcmDiscover = new PolicyStatement({
+      sid: 'RelayPurgeAcmDiscover',
+      effect: Effect.ALLOW,
+      actions: ['acm:ListCertificates'],
+      resources: ['*'],
+    });
+
     // CANARY-015 — PURGE's orphaned-network sweep. Condition-free reads (see
     // the const): the sweep verifies ownership itself from the returned tags
     // before touching anything, same as every other purge client above.
@@ -1054,6 +1068,7 @@ export class BootstrapStack extends Stack {
       phase2PurgeRdsDiscover,
       phase2PurgeSecretsList,
       phase2PurgeSecretsDelete,
+      phase2PurgeAcmDiscover,
       phase2PurgeNetworkDiscover,
       phase2PurgeNetworkDelete,
     ];

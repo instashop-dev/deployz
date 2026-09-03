@@ -883,3 +883,127 @@ Verification: `pnpm build` passes for relay; focused vitest suites pass —
 server (green), `packages/copy-map` (green). No real AWS was used. No new
 failure code, enum, migration, copy-map entry, classifier rule, or
 remediation count changed.
+
+## Phase 11 — Default HTTPS without customer DNS (2026-09-03)
+
+Phase 11 gives every successful deployment its own HTTPS address and READY
+state with ZERO customer DNS input. The customer never owns or configures a
+domain. A custom domain, when the customer adds one, keeps working and keeps
+precedence.
+
+### Decision: Option A — Deployz-owned hostname per deployment
+
+**Decision:** Option A (`<deploymentId>.apps.deployz.dev`), a per-deployment
+ACM certificate requested IN the customer account/region, DNS-validated via
+CNAME records in a Deployz-controlled Route53 zone that the CONTROL PLANE
+writes itself.
+
+**Evidence:**
+
+- ACM certificates are region+account-bound and cannot be exported. A shared
+  wildcard certificate in the Deployz account cannot terminate TLS for ALBs
+  in customer accounts. Option B's CloudFront distribution avoids that only
+  by inserting a Deployz-account proxy hop in front of a customer-origin
+  HTTP ALB.
+- The relay already provisions customer stacks only from fixed published
+  templates and executes a real CONFIGURE_DOMAIN/REMOVE_DOMAIN vocabulary
+  (packages/relay/src/domain.ts): request ACM cert, read the DNS-validation
+  record, wire the ALB 443 listener and the port-80 redirect, delete the
+  cert on removal. That machinery is account-agnostic — it operates on a
+  payload hostname — so a Deployz hostname needs NO relay change.
+- The only thing that made the custom-domain flow require the customer was
+  the DNS record ownership. Option A moves that ownership to a Deployz
+  Route53 zone (referenced by id, out of band) and makes the control plane
+  the record writer. This is the single new control-plane surface: a
+  scoped `route53:ChangeResourceRecordSets` grant and two record operations
+  (upsert/delete a CNAME).
+- Option B adds a cross-account CloudFront lifecycle (Phase 5/9 destroy and
+  purge must track and delete distributions in the DEPLOYZ account that
+  Phase 9's customer-account machinery cannot reach), a second TLS hop, and
+  origin-access identity wiring. It is the larger and less contained change
+  for an architecture whose teardown machinery is deliberately
+  customer-account-shaped.
+- Route53 is implemented without a new dependency: `@aws-sdk/client-route-53`
+  is not installed in this workspace and Phase 11 must not add one, so the
+  record client (apps/api/src/route53-records.ts) signs the Route53 REST
+  call with SigV4 using only `node:crypto` and the Lambda-provided
+  credentials — the same env-credential idiom apps/api/src/email.ts already
+  uses for SES. This is NOT a general DNS platform: one record type (CNAME),
+  two operations.
+
+### Audited existing (unchanged)
+
+- Relay CONFIGURE_DOMAIN/REMOVE_DOMAIN executors, ACM/ELB seam and job
+  result shapes (packages/relay/src/domain.ts) — reused as-is.
+- Custom-domain state machine (`custom_domains`, CONFIGURE_DOMAIN/
+  REMOVE_DOMAIN jobs, runDomainCheck, the relay-heartbeat auto-check,
+  "Check now") — untouched; custom domains keep full precedence.
+- The application template (fixed published artifacts) — unchanged; the 443
+  listener is wired at runtime by the relay, never in the template.
+- Bootstrap-stack ACM/ELB IAM grants — unchanged; the new flow requests the
+  same tag-scoped certificates. One new purge discovery read was ADDED (see
+  Teardown below).
+- The status derivation's READY rule (installed + healthy + an `https://`
+  URL) — reused; this phase simply makes an https URL appear without a
+  customer domain.
+- Install-progress label honesty: the interim HTTP ALB copy stays exactly as
+  it is ("temporary / not secure") until the HTTPS endpoint serves; once the
+  default hostname is ACTIVE the customer URL is the HTTPS one.
+- Phase 5/9 watchdog coverage for CONFIGURE_DOMAIN / REMOVE_DOMAIN jobs —
+  default-HTTPS jobs use the same job types, so the same bounds apply.
+
+### Added
+
+1. **Default-HTTPS state machine** (apps/api/src/default-https.ts). State
+   lives on `deployments.default_https` (jsonb, migration `0027`), separate
+   from `custom_domains` because it is NOT customer DNS. Statuses mirror the
+   custom-domain machine: PENDING -> WAITING_FOR_DNS -> CONFIGURING ->
+   ACTIVE (ERROR at any step, automatic retry; REMOVING on destroy).
+   Job idempotency keys are namespaced `:default-https:` so the result route
+   dispatches default vs custom domain results.
+2. **Driver** — the relay heartbeat (the existing ~5-minute cadence the
+   custom-domain check already rides) plus one immediate kick after a
+   successful INSTALL result. Idempotent: in-flight jobs block duplicates,
+   record writes are upserts. While a custom domain is ACTIVE/CONFIGURING the
+   driver does not start a wasteful per-deployment cert.
+3. **Record API** (apps/api/src/route53-records.ts) — upsert/delete CNAME
+   against the deployz Route53 zone. Off unless `DEPLOYZ_DNS_ZONE_ID` is
+   configured; under the fixture DNS, a no-op writer is used.
+4. **URL precedence** (apps/api/src/fleet-row.ts `resolveAppUrl`, the probe
+   URL in server.ts, admin queries): ACTIVE/CONFIGURING custom domain, then
+   ACTIVE/CONFIGURING default hostname, then the interim HTTP ALB endpoint.
+   The Phase 6 probe therefore verifies the HTTPS URL once it serves.
+5. **Status derivation** — the https component and `needsDomainSetup` now
+   read the default-HTTPS machine: no customer-action nudge ("set up a
+   custom domain") while the default endpoint is progressing on its own.
+6. **Teardown** — destroy enqueues a REMOVE_DOMAIN job for the default
+   hostname (relay removes the cert + listener); DESTROY success, REMOVE
+   success, force-complete and purge each clear the state and best-effort
+   delete the deployz-zone records. The relay PURGE now also sweeps orphaned
+   ACM certificates (tag-verified, Phase 11 default-HTTPS and custom-domain
+   certs alike) after the application stack is gone; the bootstrap stack
+   gains one condition-free discovery read `acm:ListCertificates`
+   (`RelayPurgeAcmDiscover`) inside the permissions boundary. Bootstrap
+   artifact regenerated (`synth:bootstrap`).
+7. **Control-plane stack** — `DEPLOYZ_DNS_ZONE_ID` passes to the API Lambda
+   and a role grant scoped to that one hosted zone ARN (not route53:*).
+8. **Fixture mode** — the simulated E2E harness answers
+   CONFIGURE_DOMAIN/REMOVE_DOMAIN with a healthy simulated HTTPS path. The
+   automatic flow is an OPT-IN under the fixture DNS
+   (`DEPLOYZ_DEFAULT_HTTPS_FIXTURE`): the existing fixture suite is written
+   against HTTP-only installs and keeps its behaviour. When the opt-in is
+   set, the scenario happy path exercises default HTTPS end to end to READY.
+
+### Verification
+
+- Vitest fakes only, no real AWS: apps/api (default-https state machine over
+  PGlite incl. the full migrations, route53 SigV4/XML/not-found semantics,
+  deployment-status precedence and https-component additions), packages/relay
+  (purge ACM sweep), packages/cdk (bootstrap purge-grant + DeployzStack zone
+  env/grant synth tests; artifacts + snapshot regenerated).
+- `pnpm build` passes for the touched packages. Full-suite vitest run on the
+  affected packages is green (Windows `onTaskUpdate`/EBUSY flakes re-run per
+  the Phase 0 discipline; CI is authoritative).
+- Constraint: a real (non-fixture) Route53 round trip is validated only by
+  the canary/fresh live-AWS policy, never by the default suites.
+

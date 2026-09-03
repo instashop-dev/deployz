@@ -536,7 +536,14 @@ describe('BootstrapStack', () => {
       ]?.['aws:ResourceTag/deployz:installation'],
     ).toBeDefined();
 
-    // Both statements sit inside the permissions boundary (the ceiling).
+    // Phase 11 ACM orphan sweep: condition-free list (ACM certs cannot be
+    // tag-scoped at list time; ownership is verified from the returned tags),
+    // deletion already covered by the tag-scoped ProvisionerAcmManage grant.
+    expect(findBySid('RelayPurgeAcmDiscover')).toBeDefined();
+    expect(actionsOf('RelayPurgeAcmDiscover')).toEqual(['acm:ListCertificates']);
+    expect(findBySid('RelayPurgeAcmDiscover')?.['Condition']).toBeUndefined();
+
+    // The statements sit inside the permissions boundary (the ceiling).
     const boundary = stack.permissionsBoundary.document.toJSON()[
       'Statement'
     ] as Array<Record<string, unknown>>;
@@ -544,6 +551,7 @@ describe('BootstrapStack', () => {
       'RelayPurgeRdsDiscover',
       'RelayPurgeSecretsList',
       'RelayPurgeSecretsDelete',
+      'RelayPurgeAcmDiscover',
     ]) {
       expect(boundary.some((s) => s['Sid'] === sid)).toBe(true);
     }

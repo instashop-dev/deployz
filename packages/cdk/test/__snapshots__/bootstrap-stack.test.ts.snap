@@ -824,6 +824,12 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Sid": "RelayPurgeSecretsDelete",
             },
             {
+              "Action": "acm:ListCertificates",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeAcmDiscover",
+            },
+            {
               "Action": [
                 "ec2:DescribeVpcs",
                 "ec2:DescribeSubnets",
@@ -1487,6 +1493,12 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeSecretsDelete",
+            },
+            {
+              "Action": "acm:ListCertificates",
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayPurgeAcmDiscover",
             },
             {
               "Action": [

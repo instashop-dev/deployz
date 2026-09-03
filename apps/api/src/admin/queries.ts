@@ -12,6 +12,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { deriveDeploymentStatus, toVendorDeploymentStatus } from '../deployment-status.js';
+import { parseDefaultHttps } from '../default-https.js';
 import { findActiveDomain } from '../domains.js';
 import { resolveAppUrl, toFleetRow } from '../fleet-row.js';
 
@@ -378,6 +379,12 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
 
   const deployments = deploymentJoinRows.map((row) => {
     const domain = domainByDeployment.get(row.deployment.id) ?? null;
+    const defaultHttps = parseDefaultHttps(row.deployment.defaultHttps);
+    const https = domain?.status === 'ACTIVE'
+      ? `https://${domain.hostname}`
+      : defaultHttps?.status === 'ACTIVE'
+        ? `https://${defaultHttps.hostname}`
+        : null;
     return {
       id: row.deployment.id,
       customerName: row.customerName,
@@ -387,7 +394,7 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
       state: row.deployment.state,
       healthStatus: row.deployment.healthStatus,
       relayStatus: row.deployment.relayStatus,
-      appUrl: domain?.status === 'ACTIVE' ? `https://${domain.hostname}` : null,
+      appUrl: https,
       domain: domain?.hostname ?? null,
       updatedAt: row.deployment.updatedAt,
     };
@@ -591,7 +598,8 @@ export async function getDeploymentDetail(db: RuntimeDb, id: string, now: Date =
     .where(eq(schema.deploymentJobs.deploymentId, id))
     .orderBy(asc(schema.deploymentJobs.createdAt));
   const domain = await findActiveDomain(db, id);
-  const appUrl = resolveAppUrl(jobs, domain);
+  const defaultHttps = parseDefaultHttps(row.deployment.defaultHttps);
+  const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
   const application = {
     databaseRequired: row.databaseRequired,
     storageRequired: row.storageRequired,
@@ -602,6 +610,7 @@ export async function getDeploymentDetail(db: RuntimeDb, id: string, now: Date =
     application,
     jobs,
     domain,
+    defaultHttps,
     appUrl,
     now,
   });
