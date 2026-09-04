@@ -4,12 +4,22 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
+import type { DeployLinkToken } from '@/lib/deploy-link-flow';
+import { retryDeployLinkAttempt } from '@/lib/deploy-link-flow';
 import { InstallRetryError, retryInstallAttempt } from '@/lib/install-data';
 
 // Customer-facing retry for an install that never connected: starts a fresh
 // attempt (new enrollment code, new stack name) and refreshes the page so it
 // re-renders the pre-install state with the new Quick Create link.
-export function InstallRetryButton({ installLinkId }: { installLinkId: string }) {
+export function InstallRetryButton({
+  installLinkId,
+  deployLink = null,
+}: {
+  installLinkId: string;
+  /** Set on the /deploy page: the retry resolves through the deploy link
+   *  (token header) instead of the install link. */
+  deployLink?: DeployLinkToken | null;
+}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +28,11 @@ export function InstallRetryButton({ installLinkId }: { installLinkId: string })
     setPending(true);
     setError(null);
     try {
-      await retryInstallAttempt(installLinkId);
+      if (deployLink) {
+        await retryDeployLinkAttempt(deployLink.publicId, deployLink.token);
+      } else {
+        await retryInstallAttempt(installLinkId);
+      }
       router.refresh();
     } catch (caught) {
       setError(

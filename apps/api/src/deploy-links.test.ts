@@ -516,4 +516,193 @@ describe('deploy links', () => {
     expect(manual.statusCode, manual.body).toBe(201);
     expect((manual.json() as { source: string }).source).toBe('manual');
   });
+
+  // ── Phase 3: the hosted customer page's public flow routes ────────────────
+
+  function launched(publicId: string, token: string) {
+    return app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/launched`,
+      headers: { 'x-deployz-token': token },
+    });
+  }
+
+  function status(publicId: string, token: string) {
+    return app.inject({
+      method: 'GET',
+      url: `/api/deploy-links/${publicId}/status`,
+      headers: { 'x-deployz-token': token },
+    });
+  }
+
+  function retry(publicId: string, token: string) {
+    return app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/retry`,
+      headers: { 'x-deployz-token': token },
+    });
+  }
+
+  function domainCheck(publicId: string, token: string) {
+    return app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/domain/check`,
+      headers: { 'x-deployz-token': token },
+    });
+  }
+
+  it('resolve exposes the Quick Create link and page fields without internals', async () => {
+    const { publicId, token } = await createLink();
+    const response = await resolveLink(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      quickCreateUrl: string | null;
+      bootstrapStackName: string;
+      waitingForRelay: boolean;
+      relayStuck: boolean;
+      deploymentState: string;
+    };
+    // us-east-1 has a published bootstrap template, so the page gets a link.
+    expect(typeof body.quickCreateUrl).toBe('string');
+    expect(body.bootstrapStackName).toMatch(/^deployz-bootstrap-/);
+    expect(body.waitingForRelay).toBe(false);
+    expect(body.relayStuck).toBe(false);
+    expect(body.deploymentState).toBe('NOT_INSTALLED');
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('enrollmentCode');
+    expect(serialized).not.toContain('installLinkId');
+    expect(serialized).not.toContain('organizationId');
+  });
+
+  it('launched moves NOT_INSTALLED to WAITING_FOR_RELAY and records the event', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    const response = await launched(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({ state: 'WAITING_FOR_RELAY' });
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    expect(deployment!.state).toBe('WAITING_FOR_RELAY');
+    expect(deployment!.installStartedAt).not.toBeNull();
+    expect(deployment!.bootstrapStackName).toMatch(/^deployz-bootstrap-/);
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy_link.launched'), eq(schema.eventLogs.deploymentId, deploymentId)));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.actorId).toBe(`deploy-link:${publicId}`);
+  });
+
+  it('launched is idempotent once the deployment left NOT_INSTALLED', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    await launched(publicId, token);
+    const again = await launched(publicId, token);
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toEqual({ state: 'WAITING_FOR_RELAY' });
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy_link.launched'), eq(schema.eventLogs.deploymentId, deploymentId)));
+    expect(events).toHaveLength(1);
+  });
+
+  it('a wrong token cannot launch (404) and a revoked link can never start a deployment (410)', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+
+    const wrong = await launched(publicId, '0'.repeat(64));
+    expect(wrong.statusCode).toBe(404);
+
+    await db.update(schema.deployLinks).set({ revokedAt: new Date() }).where(eq(schema.deployLinks.id, publicId));
+    const revoked = await launched(publicId, token);
+    expect(revoked.statusCode).toBe(410);
+    expect(revoked.json()).toMatchObject({ error: { code: 'DEPLOY_LINK_REVOKED' } });
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    expect(deployment!.state).toBe('NOT_INSTALLED');
+  });
+
+  it('status reflects live job progress and hides internals', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+
+    const before = await status(publicId, token);
+    expect(before.statusCode, before.body).toBe(200);
+    expect((before.json() as { stage: string }).stage).toBe('WAITING_FOR_AWS');
+
+    // Relay registered: INSTALLING plus a claimed INSTALL job reads as PROVISIONING.
+    await db.update(schema.deployments).set({ state: 'INSTALLING' }).where(eq(schema.deployments.id, deploymentId));
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId,
+      type: 'INSTALL',
+      state: 'RUNNING',
+      idempotencyKey: `${deploymentId}:INSTALL`,
+      payload: {},
+    });
+    const after = await status(publicId, token);
+    expect(after.statusCode).toBe(200);
+    expect((after.json() as { stage: string }).stage).toBe('PROVISIONING');
+
+    const serialized = JSON.stringify(after.json());
+    expect(serialized).not.toContain('enrollmentCode');
+    expect(serialized).not.toContain('installLinkId');
+    expect(serialized).not.toContain('organizationId');
+
+    const wrong = await status(publicId, '0'.repeat(64));
+    expect(wrong.statusCode).toBe(404);
+  });
+
+  it('retry mints a fresh attempt, clears the relay binding, and records the event', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    const [original] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    await db
+      .update(schema.deployments)
+      .set({ state: 'WAITING_FOR_RELAY', installationId: 'inst-stale', relayTokenHash: 'stale-hash' })
+      .where(eq(schema.deployments.id, deploymentId));
+
+    const response = await retry(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      state: string;
+      attemptNumber: number;
+      bootstrapStackName: string;
+      quickCreateUrl: string | null;
+    };
+    expect(body.state).toBe('NOT_INSTALLED');
+    expect(body.attemptNumber).toBe(original!.attemptNumber + 1);
+    expect(body.bootstrapStackName).toMatch(/^deployz-bootstrap-/);
+    expect(typeof body.quickCreateUrl).toBe('string');
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    expect(deployment!.enrollmentCode).not.toBe(original!.enrollmentCode);
+    expect(deployment!.installationId).toBeNull();
+    expect(deployment!.relayTokenHash).toBeNull();
+    expect(deployment!.attemptNumber).toBe(body.attemptNumber);
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy_link.retry.requested'), eq(schema.eventLogs.deploymentId, deploymentId)));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.actorId).toBe(`deploy-link:${publicId}`);
+  });
+
+  it('retry refuses a deployment that ever installed successfully (409)', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId,
+      type: 'INSTALL',
+      state: 'SUCCEEDED',
+      idempotencyKey: `${deploymentId}:INSTALL`,
+      payload: {},
+    });
+    const response = await retry(publicId, token);
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'INSTALL_ALREADY_SUCCEEDED' } });
+  });
+
+  it('domain/check without a custom domain 404s', async () => {
+    const { publicId, token } = await createLink();
+    const response = await domainCheck(publicId, token);
+    expect(response.statusCode).toBe(404);
+  });
 });
