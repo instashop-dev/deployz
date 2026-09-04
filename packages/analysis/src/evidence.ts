@@ -250,6 +250,21 @@ export function deriveAmbiguities(tree: FileTree, analysis: AnalysisResult): Ana
     }
   }
 
+  // Phase 10: a docker-compose-multi-service rejection whose second service
+  // carries NO deterministic optional signal (profiles / replicas: 0 would
+  // already have filtered it) is genuinely contested — the AI may help decide
+  // whether it is truly required or only an optional/reference service.
+  const composeRejection = analysis.rejections?.find(
+    (rejection) => rejection.dependency === 'docker-compose-multi-service' && rejection.detected,
+  );
+  if (composeRejection !== undefined) {
+    ambiguities.push({
+      kind: 'ARCHITECTURE_REQUIREMENT',
+      detail:
+        'A production Compose file declares multiple application services with no deterministic optional signal; which ones the deployment truly requires is contested.',
+    });
+  }
+
   return ambiguities;
 }
 

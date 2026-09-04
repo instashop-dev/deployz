@@ -46,9 +46,10 @@ export interface InfrastructureBinding {
   /**
    * `explicit` — the app's own config/code names this variable (a code read,
    * or a Deployz standard name it is documented to receive); `detected` — the
-   * name was only seen in env/sample files.
+   * name was only seen in env/sample files; `ai` — an AI-suggested alias
+   * (Phase 9), never a deterministic detection.
    */
-  source: 'explicit' | 'detected';
+  source: 'explicit' | 'detected' | 'ai';
   /** How sure the detection is. Standard/explicit names are always high. */
   confidence: 'high' | 'medium' | 'low';
 }

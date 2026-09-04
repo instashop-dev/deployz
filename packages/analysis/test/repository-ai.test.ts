@@ -635,3 +635,75 @@ describe("phase 8 typed-ambiguity resolver", () => {
     expect(kept.aiResolved).not.toContain("storageRequired");
   });
 });
+
+
+// ==========================================================================
+// Phase 9 — AI binding candidates
+// ==========================================================================
+
+describe("phase 9 AI binding candidates", () => {
+  function analysisWithBindings(bindings: unknown): RepositoryAiAnalysis {
+    return repositoryAiSchema.parse(structuredAi({ bindings }));
+  }
+
+  it("adds a high-confidence binding as source ai and serializes to infrastructureBindings", () => {
+    const outcome = mergeAiAnalysis(
+      { infrastructureBindings: [] },
+      analysisWithBindings({
+        postgres: { applicationVariable: "MEMOS_DSN", confidence: 0.95, evidencePaths: ["src/config.ts"], explanation: "app reads MEMOS_DSN" },
+      }),
+    );
+    const bindings = outcome.metadata["infrastructureBindings"] as Array<Record<string, unknown>>;
+    expect(bindings).toEqual([
+      expect.objectContaining({
+        resource: "postgres",
+        applicationVariable: "MEMOS_DSN",
+        source: "ai",
+        confidence: "high",
+      }),
+    ]);
+    expect(outcome.aiResolved).toContain("bindings.postgres");
+  });
+
+  it("deterministic high-confidence bindings always win (no AI candidate added)", () => {
+    const existing = [
+      { resource: "redis", semantic: "url", applicationVariable: "REDIS_URL", source: "explicit", confidence: "high" },
+    ];
+    const outcome = mergeAiAnalysis(
+      { infrastructureBindings: existing },
+      analysisWithBindings({ redis: { applicationVariable: "QUEUE_REDIS_URL", confidence: 0.95, evidencePaths: ["x"], explanation: "x" } }),
+    );
+    expect(outcome.metadata["infrastructureBindings"]).toEqual(existing);
+    expect(outcome.aiResolved).not.toContain("bindings.redis");
+  });
+
+  it("0.7-0.89 records a suggestion only; <0.7 is ignored", () => {
+    const suggested = mergeAiAnalysis(
+      { infrastructureBindings: [] },
+      analysisWithBindings({ s3: { applicationVariable: "S3_ATTACHMENTS_BUCKET", confidence: 0.8, evidencePaths: ["x"], explanation: "x" } }),
+    );
+    expect(suggested.metadata["infrastructureBindings"]).toEqual([]);
+    expect(suggested.metadata["aiSuggestions"]).toMatchObject({
+      bindings: { s3: { applicationVariable: "S3_ATTACHMENTS_BUCKET", confidence: 0.8 } },
+    });
+
+    const ignored = mergeAiAnalysis(
+      { infrastructureBindings: [] },
+      analysisWithBindings({ postgres: { applicationVariable: "MEMOS_DSN", confidence: 0.5, evidencePaths: ["x"], explanation: "x" } }),
+    );
+    expect(ignored.metadata["infrastructureBindings"]).toEqual([]);
+    expect(ignored.metadata["aiSuggestions"]).toBeUndefined();
+  });
+
+  it("rejects a non-env-shaped applicationVariable at the schema boundary", () => {
+    expect(() =>
+      analysisWithBindings({ postgres: { applicationVariable: "db url", confidence: 0.95, evidencePaths: ["x"], explanation: "x" } }),
+    ).toThrow();
+  });
+
+  it("an absent bindings field has zero effect", () => {
+    const outcome = mergeAiAnalysis({ infrastructureBindings: [] }, baseAiAnalysis({}));
+    expect(outcome.metadata["infrastructureBindings"]).toEqual([]);
+    expect(outcome.aiResolved.filter((k) => k.startsWith("bindings"))).toEqual([]);
+  });
+});

@@ -178,8 +178,21 @@ export async function runApplicationAnalysis(
     // §15 AI fallback: only runs when the deterministic scanner left a real
     // question unresolved, and can never fail the analysis — any AI error
     // degrades to the deterministic metadata plus a warning.
-    const { metadata, aiResolved } = await applyAiFallback(deps.aiGateway, tree, analysis);
-    const mergedAnalysis: AnalysisResult = { ...analysis, metadata };
+    const { metadata, aiResolved, multiServiceDowngraded } = await applyAiFallback(deps.aiGateway, tree, analysis);
+    const mergedAnalysis: AnalysisResult = multiServiceDowngraded
+      ? {
+          ...analysis,
+          metadata,
+          // Phase 10: the AI confidently classified every contested compose
+          // service as optional/dev/integration — the deterministic
+          // NOT_COMPATIBLE rejection is downgraded here (post-AI seam), never
+          // in the pure analyser. A recommended/readiness verdict recomputes
+          // from this adjusted rejection list.
+          rejections: analysis.rejections.filter(
+            (r) => !(r.dependency === 'docker-compose-multi-service' && r.detected),
+          ),
+        }
+      : { ...analysis, metadata };
     const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, mergedAnalysis, aiResolved);
 
     // The semantic readiness report is built from the MERGED metadata, so a
@@ -330,6 +343,18 @@ function buildRepositoryAiInput(
   };
 }
 
+/** Read the collected aiSuggestions object (merged across phases). */
+function collectSuggestions(metadata: Record<string, unknown>): Record<string, unknown> {
+  const raw = metadata['aiSuggestions'];
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 /**
  * Runs the §15 AI fallback when (and only when) `collectUnresolvedQuestions`
  * finds something the deterministic scanner could not resolve, then merges
@@ -342,7 +367,7 @@ async function applyAiFallback(
   aiGateway: AiGateway,
   tree: FileTree,
   analysis: AnalysisResult,
-): Promise<{ metadata: Record<string, unknown>; aiResolved: string[] }> {
+): Promise<{ metadata: Record<string, unknown>; aiResolved: string[]; multiServiceDowngraded?: boolean }> {
   const unresolved = collectUnresolvedQuestions(tree, analysis);
   if (unresolved.length === 0) {
     return { metadata: analysis.metadata, aiResolved: [] };
@@ -354,26 +379,50 @@ async function applyAiFallback(
     const input = buildRepositoryAiInput(tree, analysis, unresolved);
     const ai = await analyseRepositoryWithAi(input, aiGateway, { abortSignal: controller.signal });
     const outcome = mergeAiAnalysis(analysis.metadata, ai);
-    const suggestions =
-      outcome.metadata['aiSuggestions'] !== undefined &&
-      typeof outcome.metadata['aiSuggestions'] === 'object' &&
-      outcome.metadata['aiSuggestions'] !== null
-        ? (outcome.metadata['aiSuggestions'] as Record<string, unknown>)
-        : {};
+    const suggestions = collectSuggestions(outcome.metadata);
+    const aiResolved = [...outcome.aiResolved];
+    // Phase 10: the AI's architecture answers. A compose multi-service
+    // rejection may be downgraded ONLY when the AI confidently (>=0.9, with
+    // evidence) classifies every contested service optional/dev/integration;
+    // 0.7–0.89 records a vendor-review suggestion while the rejection stands.
+    const hasComposeRejection = analysis.rejections?.some(
+      (r) => r.dependency === 'docker-compose-multi-service' && r.detected,
+    );
+    const architectureAnswers = ai.architectureRequirements ?? {};
+    let multiServiceDowngraded = false;
+    if (hasComposeRejection) {
+      const allOptional = Object.values(architectureAnswers).every((entry) => {
+        if (entry.requirement !== 'optional' && entry.requirement !== 'development_only' && entry.requirement !== 'integration_only') {
+          return false;
+        }
+        return entry.confidence >= 0.9 && entry.evidencePaths.length > 0;
+      });
+      multiServiceDowngraded = allOptional && Object.keys(architectureAnswers).length > 0;
+      for (const [service, entry] of Object.entries(architectureAnswers)) {
+        if (entry.confidence >= 0.7 && entry.confidence < 0.9 && entry.requirement !== 'required') {
+          suggestions.architecture = {
+            ...asRecord(suggestions.architecture),
+            [service]: entry,
+          };
+          aiResolved.push(`suggestion:architecture.${service}`);
+        }
+      }
+    }
     return {
       metadata: {
         ...outcome.metadata,
         aiAnalysis: {
           unresolved,
           ambiguities: deriveAmbiguities(tree, analysis),
-          aiResolved: outcome.aiResolved,
+          aiResolved,
           suggestions,
           warnings: outcome.warnings,
           promptVersion: REPOSITORY_AI_PROMPT_VERSION,
           generatedAt: new Date().toISOString(),
         },
       },
-      aiResolved: outcome.aiResolved,
+      aiResolved,
+      multiServiceDowngraded,
     };
   } catch {
     return {
