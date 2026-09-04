@@ -1,0 +1,201 @@
+{
+  "id": "repo-099",
+  "repository": "BookStackApp/BookStack",
+  "commit": "13a1883b6c0baad8912d4990f562c6ed9f0276be",
+  "set": "unseen",
+  "cohort": "boundary",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 201,
+    "entries": 2972,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "php"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "dev/docker/Dockerfile",
+    "port": 80,
+    "healthPath": "/status",
+    "unsupported": [
+      "mysql"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "dev/docker/Dockerfile",
+    "port": null,
+    "startCommand": null,
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": true,
+    "redisConfidence": "medium",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "docker-compose-multi-service"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "health-check"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "port-missing",
+      "start-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "start-command-unknown",
+      "redis-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "dev/docker/Dockerfile",
+      "actual": "dev/docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 80,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/status",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "mysql"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 80,
+      "actual": null,
+      "finding": {
+        "id": "COMP-030",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/status",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "mysql"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "finding": {
+        "id": "COMP-037",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

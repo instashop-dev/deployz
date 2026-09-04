@@ -1,0 +1,206 @@
+{
+  "id": "repo-084",
+  "repository": "NangoHQ/nango",
+  "commit": "f9667ac2be24667df6ee89259c08748f4b08cf9e",
+  "set": "unseen",
+  "cohort": "realistic",
+  "customerRealism": "medium",
+  "difficulty": 4,
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 206,
+    "entries": 12127,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile.self_hosted",
+    "port": 3003,
+    "healthPath": "/health",
+    "unsupported": [
+      "background-worker"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080,
+    "startCommand": "start: tsc && node dist/app.js",
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "cd packages/database/lib && knex migrate:make $1 --esm --knexfile ./knexfile.cjs",
+    "externalServices": [
+      "sentry",
+      "smtp",
+      "stripe"
+    ],
+    "requiredEnvVars": [
+      "LOCAL_NANGO_USER_ID",
+      "NANGO_ADMIN_KEY"
+    ],
+    "unsupported": [],
+    "readinessFindings": [],
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile.self_hosted",
+      "actual": "Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 3003,
+      "actual": 8080,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/health",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "background-worker"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "Dockerfile.self_hosted",
+      "actual": "Dockerfile",
+      "finding": {
+        "id": "COMP-027",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3003,
+      "actual": 8080,
+      "finding": {
+        "id": "COMP-027",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "background-worker"
+      ],
+      "actual": [],
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

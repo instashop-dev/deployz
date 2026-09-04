@@ -1,0 +1,153 @@
+{
+  "id": "repo-092",
+  "repository": "Lissy93/dashy",
+  "commit": "1d78e1490f58ea2e0cf88ebd72f54167b34309b7",
+  "set": "unseen",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 121,
+    "entries": 633,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "READY",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": false,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080,
+    "healthPath": "/healthz",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080,
+    "startCommand": "CMD: [\"node\", \"server.js\"]",
+    "healthDetected": true,
+    "healthPath": "/healthz",
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "sentry"
+    ],
+    "requiredEnvVars": [
+      "API_TOKEN",
+      "IS_SERVER",
+      "VUE_APP_CONFIG_VALID"
+    ],
+    "unsupported": [],
+    "readinessFindings": [],
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": []
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "configuration-detection"
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": 8080,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/healthz",
+      "actual": "/healthz",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": {
+        "id": "COMP-023",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

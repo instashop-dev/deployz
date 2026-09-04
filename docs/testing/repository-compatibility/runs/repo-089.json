@@ -1,0 +1,250 @@
+{
+  "id": "repo-089",
+  "repository": "Stirling-Tools/Stirling-PDF",
+  "commit": "153da239c3751f1d94591f9d80ac667cdf83156b",
+  "set": "unseen",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 5,
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 202,
+    "entries": 8524,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "java",
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/embedded/Dockerfile",
+    "port": 8080,
+    "healthPath": "/api/v1/info/status",
+    "unsupported": [
+      "other-database"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": "engine",
+    "dockerfilePath": "engine/Dockerfile",
+    "port": 5001,
+    "startCommand": "CMD: [\"sh\", \"-c\", \"exec uvicorn stirling.api.app:app --host 0.0.0.0 --port ${STIRLING_ENGINE_PORT:-5001} --workers ${STIRLING_ENGINE_WORKERS:-4}\"]",
+    "healthDetected": true,
+    "healthPath": "/api/v1/ai/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "openai"
+    ],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target",
+      "build-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "READY",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": "engine",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/embedded/Dockerfile",
+      "actual": "engine/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": 5001,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/v1/info/status",
+      "actual": "/api/v1/ai/health",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "other-database"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "READY",
+      "finding": {
+        "id": "COMP-037",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-029",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-012",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": ".",
+      "actual": "engine",
+      "finding": {
+        "id": "COMP-020",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "docker/embedded/Dockerfile",
+      "actual": "engine/Dockerfile",
+      "finding": {
+        "id": "COMP-027",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8080,
+      "actual": 5001,
+      "finding": {
+        "id": "COMP-027",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/api/v1/info/status",
+      "actual": "/api/v1/ai/health",
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "other-database"
+      ],
+      "actual": [],
+      "finding": {
+        "id": "COMP-037",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

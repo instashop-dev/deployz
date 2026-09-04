@@ -126,6 +126,55 @@ Where the remaining mismatches sit:
   conventions (COMP-005, 36), non-Node worker code (COMP-015, 29), and
   Redis provisioning from optional clients (COMP-011, 25).
 
+## Unseen-set results (Phase 4, 20 repositories, analysis version 9 frozen at 2266c14)
+
+Twenty repositories nobody had inspected during the fixes (repo-081..100:
+10 `realistic`, 5 `messy`, 5 `boundary`; `set: unseen`) were pinned,
+inspected twice by independent sub-agents (one correction: nango's
+Compose file runs one application container, so only `background-worker`
+applies), and analysed once with the analyser frozen at the phase-3 merge.
+One planned repository (ajnart/homarr) is archived and was replaced by its
+maintained successor homarr-labs/homarr. No analyser change was made until
+all twenty were reported.
+
+Frozen result: 10 of 20 verdicts match (improvement set: 39 of 80), 1
+repository matches on every fact (sosedoff/pgweb), 4 false rejections, 5
+false acceptances, 1 configuration-detection mismatch, 0 failed analyses,
+and every mismatch carries a finding. The verdict rate on unseen
+repositories (50%) is the same as on the repositories the fixes were
+tuned on (49%), so the phase-3 rules generalise rather than overfit; the
+open signals dominate the fact mismatches in the same order (migration 14,
+health path 13, worker 12, storage 8).
+
+- False rejections (4): mattermost — a development stack under
+  `server/docker-compose.yaml` counted as 17 application services
+  (COMP-026 residual) and the production `server/build/Dockerfile` never
+  reached the analyser because hundreds of workspace `package.json` files
+  fill the 200-file cap ahead of it (COMP-038, new); windmill — the
+  reference Compose file declares worker containers the standalone image
+  also runs in-process (COMP-010), a Pulumi package under `benchmarks/`
+  (COMP-036, new) and a cache volume (COMP-024); TandoorRecipes — a media
+  `VOLUME` whose S3 alternative is django-storages, invisible to the S3
+  detector (COMP-024 via COMP-012); homarr — `VOLUME /appdata` backs the
+  SQLite default but the PostgreSQL driver's own `DB_URL` naming keeps
+  `postgres.required` false, so the database-volume exemption does not
+  apply (COMP-024 via COMP-029).
+- False acceptances (5): nango and netbox declare their worker process in
+  a workspace package or documentation, not the root manifest (COMP-015);
+  Stirling-PDF (H2) and plausible (ClickHouse) declare their unsupported
+  engine in a JVM or Elixir manifest (COMP-037, new); thelounge keeps all
+  state under `$THELOUNGE_HOME` with no Dockerfile at all (COMP-025).
+- Configuration detection (1): dashy — `API_TOKEN` is a bare secret-named
+  read for an optional API (COMP-023).
+- Matches (10): hedgedoc, teable, wger, pgweb, nextcloud, openstatus,
+  mastodon, wekan, BookStack and penpot — six of them NOT_COMPATIBLE for the
+  expected reason, though BookStack rejects on a Compose family where the
+  entry expected `mysql` (COMP-037: a MySQL-only Laravel app has no Node
+  driver to detect).
+
+The three new findings are recorded below and left open for the Phase 6
+hardening batch.
+
 ## Findings
 
 ### COMP-001 — Dockerfile `EXPOSE` / `ENV PORT` and Compose `ports` are not port evidence
@@ -901,3 +950,60 @@ Where the remaining mismatches sit:
 - Fix: those directories map to the repository root. Regression:
   stage-a-phase3.test.ts COMP-035.
 - Status: fixed
+
+### COMP-036 — Pulumi and other IaC packages in non-runtime directories reject the app
+
+- Repositories: repo-083 (windmill: `@pulumi/aws` in `benchmarks/pulumi/package.json`)
+- Type: ANALYSIS_BUG
+- Expected: no rejection — a benchmark harness that provisions its own test
+  fleet is not the application's deployment
+- Actual: `pulumi` → NOT_COMPATIBLE
+- Evidence: `checkPulumi` reads every package manifest; the non-runtime
+  path filter (`isRuntimeSourcePath`, COMP-003/COMP-016) is not applied to
+  the IaC checks.
+- Customer relevance: low-medium — rare, but a hard false rejection when it
+  happens.
+- Recommended action: Phase 6 — apply the runtime-path filter to the
+  Pulumi, Terraform, CloudFormation, Serverless and cloud-file checks.
+- Status: open
+
+### COMP-037 — Unsupported database engines declared outside Node manifests are invisible
+
+- Repositories: repo-089 (Stirling-PDF: H2 in `build.gradle`, PostgreSQL
+  gated behind a paid licence), repo-097 (plausible: ClickHouse via
+  `ecto_ch` in `mix.exs`), repo-099 (BookStack: a MySQL-only Laravel app
+  with no Node driver)
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NOT_COMPATIBLE `[other-database]` / `[mysql]`
+- Actual: READY, NEEDS_CONFIGURATION, or NOT_COMPATIBLE on a Compose family
+  instead of the engine
+- Evidence: the MySQL, MongoDB, Elasticsearch and other-database checks read
+  Node dependency names, Prisma providers and Go modules only; the JVM,
+  Elixir and PHP manifests COMP-029 now fetches carry no unsupported-engine
+  tokens yet.
+- Customer relevance: medium — a JVM or Elixir app on the wrong engine is
+  accepted and fails at first deploy.
+- Recommended action: Phase 6 — engine tokens per manifest family
+  (`com.h2database`, `mysql-connector-j`, `mariadb-java-client`, `ecto_ch`,
+  `myxql`, Laravel `DB_CONNECTION=mysql` samples with no `pgsql` driver),
+  with the same configurable-engine exemption COMP-002 applies.
+- Status: open
+
+### COMP-038 — Workspace manifests fill the 200-file cap ahead of the production Dockerfile
+
+- Repositories: repo-082 (mattermost: `server/build/Dockerfile` absent from
+  the fetched tree; `.cursor/Dockerfile` selected, port 5432)
+- Type: ANALYSIS_BUG
+- Expected: `server/build/Dockerfile`, port 8065
+- Actual: an editor container image and its database port
+- Evidence: manifests, Dockerfiles, Compose files and env samples share
+  relevance tier 0 and sort alphabetically inside it; a large workspace
+  ships more than 200 `package.json` files, so a Dockerfile late in the
+  alphabet never enters the tree (COMP-018 handled the source tiers, not
+  tier 0).
+- Customer relevance: medium — large monorepos are a real customer shape;
+  the consequence is a wrong image, port and root.
+- Recommended action: Phase 6 — rank Dockerfiles, Compose files and env
+  samples above package manifests inside tier 0, and cap the number of
+  manifests fetched from non-runtime paths.
+- Status: open

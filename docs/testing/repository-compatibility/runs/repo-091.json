@@ -1,0 +1,194 @@
+{
+  "id": "repo-091",
+  "repository": "nextcloud/server",
+  "commit": "132944d52ffaa91986210a1e4d5b71acf00f8117",
+  "set": "unseen",
+  "cohort": "messy",
+  "customerRealism": "high",
+  "difficulty": 5,
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 201,
+    "entries": 14911,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "php"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": true,
+    "storage": true,
+    "migration": true,
+    "port": 80,
+    "healthPath": "/status.php",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": ".devcontainer/Dockerfile",
+    "port": null,
+    "startCommand": null,
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "health-check"
+    ],
+    "gateFindings": [
+      "port-missing",
+      "start-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "start-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 80,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/status.php",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-029",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-012",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 80,
+      "actual": null,
+      "finding": {
+        "id": "COMP-030",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/status.php",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

@@ -42,6 +42,9 @@ findings:
   - { id: COMP-033, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
   - { id: COMP-034, type: ANALYSIS_BUG, facts: [healthPath] }
   - { id: COMP-035, type: ANALYSIS_BUG, facts: [appRoot] }
+  - { id: COMP-036, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
+  - { id: COMP-037, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
+  - { id: COMP-038, type: ANALYSIS_BUG, facts: [dockerfilePath, appRoot, port] }
 
 repositories:
   - id: repo-001
@@ -2512,6 +2515,7 @@ repositories:
         - docker-compose-multi-service
     customer_realism: high
     difficulty: 4
+    findings: [COMP-024, COMP-012, COMP-014, COMP-020, COMP-005]
     notes:
       - This is the HedgeDoc 2.0-alpha rewrite on the `develop` default branch (package.json version 2.0.0-alpha.3), not the classic HedgeDoc 1.x single-server app; a yarn workspace monorepo (backend, frontend, commons, database, ...).
       - "docker/docker-compose.yml (the vendor's own reference deployment) declares FOUR containers: backend, frontend, db (postgres:15 sidecar), proxy (caddy). backend and frontend are both real application processes, not sidecars."
@@ -2547,6 +2551,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
+    findings: [COMP-026, COMP-015, COMP-014, COMP-038, COMP-005]
     notes:
       - "server/build/Dockerfile does not build the Mattermost server from repository source: its only 'build' step is `curl -L $MM_PACKAGE | tar -xvz` where MM_PACKAGE defaults to https://latest.mattermost.com/mattermost-enterprise-linux, a prebuilt release tarball downloaded from Mattermost's own release server. No `go build`/`make` step compiles server/ or webapp/ in this Dockerfile -> counts as 'a Dockerfile that copies an artifact no build step produces' -> NEEDS_CONFIGURATION."
       - "No other Dockerfile in the repo builds the app from source: .cursor/Dockerfile is a dev/tooling image (installs Go/Node/Docker CLI for the Cursor agent sandbox) and webapp/channels/build/Dockerfile is only a Node 14 build-tool base image with `CMD [node]`, not a runnable server image."
@@ -2581,6 +2586,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 4
+    findings: [COMP-010, COMP-036, COMP-024, COMP-015, COMP-014, COMP-005]
     notes:
       - "Root Dockerfile is a full multi-stage build from repository source: builds the Rust backend (cargo/cargo-chef), the windmill-duckdb-ffi-internal helper crate, and the Svelte/Node frontend (npm run build), then assembles the final Debian-based runtime image. EXPOSE 8000, CMD [windmill]."
       - "backend/src/main.rs --help text: `MODE = standalone Mode: standalone | worker | server | agent`; log message 'Running in standalone mode' confirms MODE defaults to standalone, which runs the API server AND job execution together in one process -> worker: true with no separate process required."
@@ -2614,6 +2620,7 @@ repositories:
         - background-worker
     customer_realism: medium
     difficulty: 4
+    findings: [COMP-015, COMP-027, COMP-028]
     notes:
       - "docs/guides/platform/self-hosting.mdx states the architecture explicitly: 'Nango consists of several core services' — Server, Orchestrator, Jobs, Runner, Persist (all separate Node services), plus Postgres, Redis, Object Storage (S3) and ElasticSearch. Recommended config lists '5 Node services (Server, Persist, Runner, Jobs, Orchestrator)' and default deployment is via Helm charts. Self-hosting itself is gated behind an Enterprise plan."
       - Dockerfile (repo root) builds the FULL monorepo (all packages, backend + frontend) from source but ends at `EXPOSE 8080` with no CMD/ENTRYPOINT at all — it inherits the base node image's default `CMD ["node"]`, which does not start the app. It is a base layer other images build on, not a runnable production image by itself.
@@ -2647,6 +2654,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 4
+    findings: [COMP-030, COMP-005]
     notes:
       - 'dockers/teable/Dockerfile is a single unified image: it builds and packages BOTH apps/nextjs-app and apps/nestjs-backend (plus a small plugins server) from repository source in one multi-stage build, context = repository root (COPY --link package.json pnpm-workspace.yaml pnpm-lock.yaml ./ at the very first stage). ENV PORT=${NEXTJS_APP_PORT:-3000}, EXPOSE ${PORT}, ENTRYPOINT ["scripts/start.sh"].'
       - "scripts/start.sh runs the DB migration by default (`node scripts/db-migrate.mjs`, skippable only via an explicit 'skip-migrate' arg) then launches `node ./apps/nestjs-backend/dist/index.js` and `node ./plugins/server.js` as two processes inside the SAME container/CMD -> single container, migration: true; the two node processes are an internal implementation detail of one image, not a Compose-declared second service."
@@ -2679,6 +2687,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
+    findings: [COMP-011, COMP-015, COMP-012, COMP-014, COMP-027, COMP-028]
     notes:
       - "extras/docker/production/Dockerfile: comment 'you MUST build this image from the project's root' and 'docker build -f extras/docker/production/Dockerfile --tag wger/server .' -> appRoot: . . Multi-stage FROM wger/base:latest (a publicly published Docker Hub image, pulled automatically like any base image, not something the build must produce itself). EXPOSE 8000, CMD [\"/home/wger/entrypoint.sh\"]."
       - "settings/main.py:65-73: DATABASES is built from DJANGO_DB_ENGINE (env.str with NO default) when PS_DATABASE_URI is unset. DJANGO_DB_ENGINE is a required engine-selector env var with no default -> NEEDS_CONFIGURATION (Deployz's injected DATABASE_URL/DATABASE_HOST etc. are not read directly; the vendor must set DJANGO_DB_ENGINE=django.db.backends.postgresql plus DJANGO_DB_DATABASE/USER/PASSWORD/HOST/PORT from the injected values). PostgreSQL is fully supported once configured -> postgres: true."
@@ -2710,6 +2719,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
+    findings: [COMP-024, COMP-012, COMP-014]
     notes:
       - Default branch is 'develop' (GitHub default_branch), not 'master'; commit pinned from repos/.../commits/develop.
       - "Root Dockerfile: single-stage python:3.13-alpine3.23 + nginx (reverse proxy in front of a gunicorn unix socket). EXPOSE 80 8080; ENTRYPOINT tini -> boot.sh. boot.sh: 'export TANDOOR_PORT=${TANDOOR_PORT:-80}' and nginx listens on TANDOOR_PORT -> port: 80. HEALTHCHECK is present in the Dockerfile but commented out pending https://github.com/TandoorRecipes/recipes/issues/3478 (would have been GET http://127.0.0.1:8080/openapi); docs/install/docker/*/docker-compose.yml define no healthcheck either -> healthPath omitted (disabled, not active)."
@@ -2739,6 +2749,7 @@ repositories:
         - background-worker
     customer_realism: high
     difficulty: 3
+    findings: [COMP-015, COMP-014]
     notes:
       - This repository (netbox-community/netbox, the application source) has NO Dockerfile, docker-compose file, or any 'docker' path anywhere in the tree at this commit -- official container images are built from the separate netbox-community/netbox-docker repository, not from here. Taken alone this is 'no Dockerfile' -> NEEDS_CONFIGURATION, but see the background-worker finding below for why the overall verdict is NOT_COMPATIBLE regardless -> dockerfilePath/appRoot/port omitted (no in-repo build path exists to point at).
       - "docs/installation/index.md ships an explicit architecture diagram: 'nginx -> gunicorn -> netbox', 'rqworker -> netbox', both feeding the same Django app / Postgres / Redis -- rqworker (the RQ background worker, netbox/core/management/commands/rqworker.py) is documented as a first-class, always-present component of the stack, not an optional add-on."
@@ -2771,6 +2782,7 @@ repositories:
         - other-database
     customer_realism: high
     difficulty: 5
+    findings: [COMP-037, COMP-029, COMP-012, COMP-014, COMP-020, COMP-027, COMP-028, COMP-005]
     notes:
       - "Large Gradle monorepo (app/core, app/common, app/proprietary, app/saas, engine/, frontend/) with many Dockerfiles (docker/embedded/*, docker/backend/, docker/frontend/, docker/unoserver/, engine/Dockerfile). docker/embedded/Dockerfile is the documented, most-widely-used self-hosted image ('Full version with Calibre, LibreOffice, Tesseract, OCRmyPDF', embedded frontend+backend in one container) -> monorepo: true, appRoot: . (COPY . . build context is the repo root), dockerfilePath: docker/embedded/Dockerfile. FROM ${BASE_IMAGE} = stirlingtools/stirling-pdf-base:1.0.2@sha256:... is a publicly pullable, digest-pinned Docker Hub image (built by docker/base/Dockerfile in CI, not required to be built locally) -> buildable from the repository alone via a normal FROM pull. EXPOSE 8080; HEALTHCHECK 'curl http://localhost:8080${SYSTEM_ROOTURIPATH:-''}/api/v1/info/status' -> port: 8080, healthPath: /api/v1/info/status."
       - "Decisive finding: app/core/src/main/resources/application.properties hardcodes 'spring.datasource.url=jdbc:h2:file:./configs/stirling-pdf-DB-2.3.232;...MODE=PostgreSQL' (an embedded, local-file H2 database in PostgreSQL-compatibility mode, NOT real PostgreSQL). app/proprietary/.../DatabaseConfig.java (bundled into BOTH the embedded and backend-only images -- the Dockerfile COPYs app/proprietary/build.gradle and the full source tree) shows the actual gate: 'if (!runningProOrHigher || !datasource.isEnableCustomDatabase()) return useDefaultDataSource(...)' -- i.e. a real Postgres connection (org.postgresql:postgresql is on the classpath, app/proprietary/build.gradle:71) is reachable ONLY when 'runningProOrHigher' (a paid Pro/Enterprise license check) is true AND settings.yml has enableCustomDatabase=true; settings.yml.template:214 documents this explicitly: 'Enterprise users ONLY, set this property to true if you would like to use your own custom database configuration'. For the free/self-hosted product there is no environment-variable path to PostgreSQL -- the app is permanently on the local H2 file database -> unsupported: [other-database] (H2, not literally sqlite, but the same 'sole local-file database with no free Postgres option' shape), compatibility: NOT_COMPATIBLE."
@@ -2827,6 +2839,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 5
+    findings: [COMP-029, COMP-015, COMP-012, COMP-014, COMP-030, COMP-005]
     notes:
       - "No production Dockerfile: only .devcontainer/Dockerfile (a bind-mount dev container with no COPY of app code); the official image is built in the separate nextcloud/docker repository from a release tarball -> dockerfilePath/appRoot omitted, NEEDS_CONFIGURATION like repo-020."
       - "config/config.sample.php: dbtype sqlite3 (default), mysql, pgsql -> postgres: true behind a required engine selector; memcache.local defaults to APCu, Redis optional -> redis: false; objectstore S3 optional over the local datadirectory -> storage: true."
@@ -2853,6 +2866,7 @@ repositories:
       unsupported: []
     customer_realism: medium
     difficulty: 2
+    findings: [COMP-023]
     notes:
       - "Single root Dockerfile (node:24-alpine, three stages): ENV PORT=8080 HOST=0.0.0.0, EXPOSE 8080, HEALTHCHECK node services/healthcheck.js (requests /healthz), CMD node server.js. No VOLUME."
       - services/app.js registers GET /healthz. Every .env value is optional (auth, API, SSL); the app runs with the bundled user-data/conf.yml. No database, cache or queue library.
@@ -2878,6 +2892,7 @@ repositories:
         - local-filesystem
     customer_realism: medium
     difficulty: 3
+    findings: [COMP-025, COMP-015, COMP-014, COMP-005]
     notes:
       - No Dockerfile or compose file anywhere (465 blobs); Docker packaging lives in thelounge/thelounge-docker. dockerfilePath and port omitted (defaults/config.js documents port 9000).
       - All durable state is local disk under $THELOUNGE_HOME (server/config.ts getUsersPath/getUserLogsPath/getStoragePath/getFileUploadPath; defaults/config.js messageStorage sqlite+text); no object-storage option exists in any dependency -> local-filesystem, the intrinsic blocker beyond the missing Dockerfile.
@@ -2904,6 +2919,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 4
+    findings: [COMP-024, COMP-029, COMP-015, COMP-005]
     notes:
       - Planned entry ajnart/homarr is archived and its README redirects to homarr-labs/homarr (v1+), the maintained continuation -> inspected the successor at its dev branch.
       - "Root Dockerfile (node:24.18.0-alpine): EXPOSE 7575, VOLUME /appdata, ENV DB_URL=/appdata/db/db.sqlite DB_DIALECT=sqlite DB_DRIVER=better-sqlite3 REDIS_IS_EXTERNAL=false; run.sh migrates (node db/migrations/$DB_DIALECT/migrate.cjs), starts nginx (7575 -> 3000/3001), an internal redis-server, then Next.js."
@@ -2935,6 +2951,7 @@ repositories:
         - background-worker
     customer_realism: high
     difficulty: 5
+    findings: [COMP-015, COMP-029, COMP-012, COMP-020, COMP-027, COMP-028, COMP-005]
     notes:
       - pnpm/Turborepo monorepo with ten apps (Next.js dashboard/status-page/web, Deno server/workflows, four Go services); apps/dashboard/Dockerfile (EXPOSE 3000, HEALTHCHECK curl http://localhost:3000/, CMD node server.js) recorded as the primary surface.
       - packages/db/drizzle.config.ts dialect turso with @libsql/client only (a SQLite fork, no PostgreSQL driver anywhere); every compose variant runs ghcr.io/tursodatabase/libsql-server as the datastore -> sqlite.
@@ -2965,6 +2982,7 @@ repositories:
         - docker-compose-multi-service
     customer_realism: high
     difficulty: 2
+    findings: [COMP-015, COMP-014, COMP-005]
     notes:
       - "docker-compose.yml declares three application containers built from repository code: web (image ghcr.io/mastodon/mastodon, command bundle exec puma -C config/puma.rb), streaming (image ghcr.io/mastodon/mastodon-streaming, built from streaming/Dockerfile, command node ./streaming/index.js, its own package.json, port 4000), and sidekiq (same web image, command bundle exec sidekiq) -> docker-compose-multi-service (3 app containers, well over the 2+ threshold; db/redis are infra sidecars and excluded)."
       - "Procfile: 'web: bin/heroku-web' (bin/heroku-web runs puma unless RUN_STREAMING=true, then runs the Node streaming server) and 'worker: bundle exec sidekiq' -> a separate declared worker start command -> background-worker, independent of the multi-service finding."
@@ -2997,6 +3015,7 @@ repositories:
         - other-database
     customer_realism: high
     difficulty: 3
+    findings: [COMP-037, COMP-015, COMP-012, COMP-014, COMP-005]
     notes:
       - "README.md, 'Technology': 'Databases: PostgreSQL (general data), ClickHouse (analytics)'. ClickHouse is a mandatory second database engine (all event/analytics data), not an optional backend -> unsupported: [other-database], intrinsic (Deployz offers only managed PostgreSQL)."
       - "config/runtime.exs: CLICKHOUSE_DATABASE_URL (default 'http://plausible_events_db:8123/plausible_events_db', line ~120) configures the ClickHouse connection; config :plausible, Plausible.ClickhouseRepo (~line 662) wires it as a second Ecto repo alongside the Postgres Repo. The default value points at a ClickHouse container hostname, confirming it must be a real, separately-run ClickHouse instance."
@@ -3029,6 +3048,7 @@ repositories:
         - mongodb
     customer_realism: high
     difficulty: 3
+    findings: [COMP-026, COMP-014]
     notes:
       - "Dockerfile (root, Debian trixie base): downloads a per-arch prebuilt Meteor bundle release asset, EXPOSE $PORT (ENV PORT=8080), CMD ['bash','/build/wekan-entrypoint.sh']. Builds from the repository's own release process (not a local compile) but is a self-sufficient production image."
       - "releases/ferretdb/wekan-entrypoint.sh: WeKan ALWAYS speaks the MongoDB wire protocol via MONGO_URL — either to a real external MongoDB (WEKAN_DB=mongodb, the amd64/arm64 default) or to the image's bundled FerretDB v1 process (WEKAN_DB=ferretdb) which itself only stores data in local SQLite files (FERRETDB_SQLITE_DIR under WRITABLE_PATH). No code path connects WeKan to PostgreSQL directly."
@@ -3061,6 +3081,7 @@ repositories:
         - mysql
     customer_realism: high
     difficulty: 2
+    findings: [COMP-037, COMP-026, COMP-014, COMP-030, COMP-005]
     notes:
       - GitHub repository description reads 'NOW MANAGED ON CODEBERG'; readme.md badges (release, CI, license source, issues) all point at codeberg.org/bookstack/bookstack. The GitHub mirror is nonetheless a complete, current, buildable snapshot (pushed_at same day, full app/composer/config tree present) — treated as a valid, if noteworthy, benchmark member rather than REPO_INVALID; flagging the mirror status for awareness.
       - "app/Config/database.php: 'default' => env('DB_CONNECTION', 'mysql'); 'connections' has only 'mysql' and 'mysql_testing' entries, both driver 'mysql'. File comment: 'Many of those shown here are unsupported by BookStack.' No pgsql/sqlite connection is defined anywhere -> MySQL/MariaDB is the ONLY supported relational database, intrinsically -> unsupported: [mysql], NOT_COMPATIBLE regardless of any other axis."
@@ -3094,6 +3115,7 @@ repositories:
         - docker-compose-multi-service
     customer_realism: high
     difficulty: 3
+    findings: [COMP-024, COMP-029, COMP-015, COMP-012, COMP-014, COMP-027, COMP-028, COMP-005]
     notes:
       - "docker/images/docker-compose.yaml declares four application containers built from this repository's own Dockerfiles/source: penpot-frontend (nginx + compiled SPA, port 8080/9001), penpot-backend (Clojure/JVM API+websockets, depends_on postgres+valkey), penpot-mcp (MCP server image), penpot-exporter (Clojure/JS export worker service using headless rendering, depends_on valkey). Four custom application containers, none of them database/cache sidecars or one-shot jobs -> unsupported: [docker-compose-multi-service], well over the 2+ threshold; this alone makes the repository NOT_COMPATIBLE regardless of any single service's own readiness."
       - docker/images/Dockerfile.backend and Dockerfile.frontend both COPY a prebuilt bundle directory (ARG BUNDLE_PATH='./bundle-backend/' / './bundle-frontend/') that does not exist in this repository and is produced by a separate, out-of-Dockerfile build step (backend/scripts/build, frontend/scripts/build, wired through .github/workflows/build-bundle.yml) — neither Dockerfile builds its image from the repository alone. Noted for completeness; the multi-service finding is the controlling one.

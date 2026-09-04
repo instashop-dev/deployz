@@ -1,0 +1,240 @@
+{
+  "id": "repo-082",
+  "repository": "mattermost/mattermost",
+  "commit": "240b9bed8b371430dd112e2ff51eaf336ce4fd0f",
+  "set": "unseen",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 206,
+    "entries": 17733,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "go",
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": true,
+    "storage": true,
+    "migration": true,
+    "appRoot": "server/build",
+    "dockerfilePath": "server/build/Dockerfile",
+    "port": 8065,
+    "healthPath": "/api/v4/system/ping",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".cursor",
+    "dockerfilePath": ".cursor/Dockerfile",
+    "port": 5432,
+    "startCommand": "start: docusaurus start",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": true,
+    "redisConfidence": "medium",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "docker-compose-multi-service"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "health-check",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target",
+      "redis-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "match": false,
+      "kind": "false-rejection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": "server/build",
+      "actual": ".cursor",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "server/build/Dockerfile",
+      "actual": ".cursor/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 8065,
+      "actual": 5432,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/v4/system/ping",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-rejection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "finding": {
+        "id": "COMP-026",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": "server/build",
+      "actual": ".cursor",
+      "finding": {
+        "id": "COMP-038",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "server/build/Dockerfile",
+      "actual": ".cursor/Dockerfile",
+      "finding": {
+        "id": "COMP-038",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8065,
+      "actual": 5432,
+      "finding": {
+        "id": "COMP-038",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/api/v4/system/ping",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "finding": {
+        "id": "COMP-026",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}
