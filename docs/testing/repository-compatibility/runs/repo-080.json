@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 1,
-  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
-  "analysisVersion": 9,
+  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
+  "analysisVersion": 10,
   "tree": {
-    "files": 198,
+    "files": 195,
     "entries": 7819,
     "truncated": false
   },
@@ -59,25 +59,21 @@
       "openai"
     ],
     "requiredEnvVars": [
-      "HIP_VISIBLE_DEVICES",
-      "LOCAL_RANK",
       "PYTORCH_NVML_BASED_CUDA_CHECK",
       "RANK",
-      "ROCR_VISIBLE_DEVICES",
       "SETUPTOOLS_SCM_PRETEND_VERSION",
+      "TORCHINDUCTOR_CACHE_DIR",
       "TORCHINDUCTOR_COMPILE_THREADS",
-      "VLLM_ALLREDUCE_USE_SYMM_MEM",
-      "VLLM_BATCH_INVARIANT",
+      "TRITON_CACHE_DIR",
+      "UCX_RCACHE_MAX_UNRELEASED",
       "VLLM_DISABLED_KERNELS",
       "VLLM_ENABLE_V1_MULTIPROCESSING",
       "VLLM_FLASHINFER_AUTOTUNE_SKIP_OPS",
       "VLLM_PLUGINS",
       "VLLM_PREFIX_CACHE_RETENTION_INTERVAL",
       "VLLM_USE_BREAKABLE_CUDAGRAPH",
-      "VLLM_USE_DEEP_GEMM",
       "VLLM_USE_DEEP_GEMM_E8M0",
-      "VLLM_USE_FLASHINFER_SAMPLER",
-      "WORLD_SIZE"
+      "VLLM_USE_FLASHINFER_SAMPLER"
     ],
     "unsupported": [
       "gpu"

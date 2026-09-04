@@ -13,6 +13,7 @@ import {
   composeServices,
   detectEnvVarModel,
   detectPostgresql,
+  findDependencyEvidence,
   isRuntimeSourcePath,
   listDockerfileCandidates,
 } from './detectors.js';
@@ -37,6 +38,8 @@ export const DATABASE_REJECTION_TOKENS = new Set<string>([
   'cassandra-driver',
   'neo4j-driver',
   'sqlite',
+  'clickhouse',
+  'h2',
 ]);
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -88,6 +91,23 @@ export function checkRedisUnsupported(tree: FileTree, precomputed?: RedisRequire
 
 /** MySQL: mysql2, mysql, @prisma/client with mysql provider */
 const MYSQL_DEPS = ['mysql2', 'mysql'] as const;
+// MySQL/MariaDB drivers in Python, Go, Ruby, JVM and Elixir manifests, and a
+// Laravel database config whose default connection is MySQL (Stage A COMP-037).
+const MYSQL_LANGUAGE_TOKENS = [
+  'mysqlclient',
+  'PyMySQL',
+  'pymysql',
+  'mysql-connector-python',
+  'aiomysql',
+  'github.com/go-sql-driver/mysql',
+  'mysql-connector-j',
+  'mysql-connector-java',
+  'mariadb-java-client',
+  'r2dbc-mysql',
+  'myxql',
+] as const;
+const LARAVEL_MYSQL_DEFAULT_REGEX = /env\(\s*['"]DB_CONNECTION['"]\s*,\s*['"](?:mysql|mariadb)['"]\s*\)/;
+const LARAVEL_MYSQL_ENV_REGEX = /^DB_CONNECTION\s*=\s*(?:mysql|mariadb)\s*$/m;
 
 /**
  * A SQL-engine driver next to a PostgreSQL driver means the engine is a
@@ -129,6 +149,33 @@ export function checkMysql(tree: FileTree): RejectionFinding {
       dependency: '@prisma/client',
       reason: 'Unsupported database: Prisma configured with MySQL provider. Deployz requires PostgreSQL.',
     };
+  }
+
+  if (!engineIsConfigurable(tree)) {
+    for (const token of MYSQL_LANGUAGE_TOKENS) {
+      const evidence = findDependencyEvidence(tree, token).filter(isRuntimeSourcePath);
+      if (evidence.length > 0) {
+        return {
+          detected: true,
+          dependency: 'mysql',
+          reason: `Unsupported database dependency: ${token} declared in ${evidence[0]}. Deployz does not support MySQL. Use PostgreSQL.`,
+        };
+      }
+    }
+    const laravel = Object.entries(tree).find(
+      ([path, content]) =>
+        !!content &&
+        isRuntimeSourcePath(path) &&
+        ((/(?:^|\/)config\/database\.php$/.test(path) && LARAVEL_MYSQL_DEFAULT_REGEX.test(content)) ||
+          (/(?:^|\/)\.env\.(?:example|sample|template)$/i.test(path) && LARAVEL_MYSQL_ENV_REGEX.test(content))),
+    );
+    if (laravel) {
+      return {
+        detected: true,
+        dependency: 'mysql',
+        reason: `Unsupported database: ${laravel[0]} sets DB_CONNECTION to MySQL and no PostgreSQL driver is declared. Deployz requires PostgreSQL.`,
+      };
+    }
   }
 
   return { detected: false, dependency: 'none', reason: 'No MySQL dependency detected' };
@@ -223,6 +270,18 @@ export function checkElasticsearch(tree: FileTree): RejectionFinding {
 /** Other unsupported databases: cassandra-driver, neo4j-driver */
 const OTHER_UNSUPPORTED_DB_DEPS = ['cassandra-driver', 'neo4j-driver'] as const;
 const OTHER_DB_ENV_REGEX = /^(?:CASSANDRA_(?:HOSTS?|CONTACT_POINTS|URL)|NEO4J_(?:URI|URL|HOST))$/;
+const CLICKHOUSE_TOKENS = [
+  '@clickhouse/client',
+  'clickhouse-driver',
+  'clickhouse-connect',
+  'ecto_ch',
+  'clickhousex',
+  'pillar',
+  'github.com/ClickHouse/clickhouse-go',
+  'clickhouse-jdbc',
+] as const;
+const CLICKHOUSE_ENV_REGEX = /^CLICKHOUSE_(?:URL|HOST|DATABASE_URL|DB_URL)$/;
+const EMBEDDED_JVM_DB_TOKENS = ['com.h2database', 'org.hsqldb', 'org.apache.derby'] as const;
 
 /**
  * Check for other unsupported database drivers (Cassandra, Neo4j, etc.) the app requires.
@@ -240,6 +299,32 @@ export function checkOtherUnsupportedDatabases(tree: FileTree): RejectionFinding
       };
     }
   }
+  // ClickHouse clients in any manifest, with the same corroboration; an
+  // embedded JVM database (H2, HSQLDB, Derby) with no PostgreSQL driver next
+  // to it is the app's only database (Stage A COMP-037).
+  for (const token of CLICKHOUSE_TOKENS) {
+    if (findDependencyEvidence(tree, token).filter(isRuntimeSourcePath).length === 0) continue;
+    const corroboration = databaseCorroboration(tree, /clickhouse/i, CLICKHOUSE_ENV_REGEX, null);
+    if (corroboration) {
+      return {
+        detected: true,
+        dependency: 'clickhouse',
+        reason: `Unsupported database driver: ${token}, and ${corroboration}. Deployz does not support ClickHouse.`,
+      };
+    }
+  }
+  if (!engineIsConfigurable(tree)) {
+    for (const token of EMBEDDED_JVM_DB_TOKENS) {
+      const evidence = findDependencyEvidence(tree, token).filter(isRuntimeSourcePath);
+      if (evidence.length > 0) {
+        return {
+          detected: true,
+          dependency: 'h2',
+          reason: `Unsupported database: the embedded JVM database ${token} is declared in ${evidence[0]} with no PostgreSQL driver. Deployz hosts PostgreSQL only.`,
+        };
+      }
+    }
+  }
   return {
     detected: false,
     dependency: 'none',
@@ -253,12 +338,21 @@ export function checkOtherUnsupportedDatabases(tree: FileTree): RejectionFinding
 // ONLY mean that infrastructure), so a passing repository is never blocked by
 // a README mention or a dev-only helper.
 
+// Deployment descriptors and IaC count only where the app itself lives: a
+// Pulumi program under `benchmarks/`, a Terraform module under `examples/`
+// or a template in a test fixture is not the app's deployment (Stage A
+// COMP-036, the same runtime-path rule as COMP-003/COMP-016).
 function filePathsMatching(tree: FileTree, pathRegex: RegExp): string[] {
-  return Object.keys(tree).filter((p) => pathRegex.test(p));
+  return Object.keys(tree).filter((p) => pathRegex.test(p) && isRuntimeSourcePath(p));
 }
 
 function contentMatches(tree: FileTree, pathRegex: RegExp, contentRegex: RegExp): string[] {
-  return Object.keys(tree).filter((p) => pathRegex.test(p) && !!tree[p] && contentRegex.test(tree[p]));
+  return Object.keys(tree).filter((p) => pathRegex.test(p) && isRuntimeSourcePath(p) && !!tree[p] && contentRegex.test(tree[p]));
+}
+
+/** The tree without its non-runtime paths, for dependency-based checks. */
+function runtimeTree(tree: FileTree): FileTree {
+  return Object.fromEntries(Object.entries(tree).filter(([path]) => isRuntimeSourcePath(path)));
 }
 
 /** Production SQLite (embedded file DB): Node drivers, Prisma provider, Go driver, sqlite:// URLs. */
@@ -540,7 +634,7 @@ export function checkTerraform(tree: FileTree): RejectionFinding {
 /** Pulumi IaC. */
 export function checkPulumi(tree: FileTree): RejectionFinding {
   const config = filePathsMatching(tree, /(?:^|\/)Pulumi(?:\.\w+)?\.ya?ml$/);
-  const deps = collectDependencyNames(tree).filter((d) => d.startsWith('@pulumi/'));
+  const deps = collectDependencyNames(runtimeTree(tree)).filter((d) => d.startsWith('@pulumi/'));
   if (config.length > 0 || deps.length > 0) {
     const evidence = config.length > 0 ? config[0] : deps[0];
     return {

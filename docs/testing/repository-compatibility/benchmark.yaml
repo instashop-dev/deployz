@@ -1610,7 +1610,7 @@ repositories:
       unsupported: []
     customer_realism: medium
     difficulty: 2
-    findings: [COMP-012, COMP-014, COMP-030, COMP-005]
+    findings: [COMP-012, COMP-014, COMP-030, COMP-005, COMP-015]
     notes:
       - Root has three Dockerfiles (Dockerfile.server, Dockerfile.transcribe, Dockerfile.transcribe.gpu) plus 4 docker-compose files — messy per the assignment. Dockerfile.server is the Joplin Server (sync backend) image; the other two build an optional handwriting-transcription microservice consumed by Joplin Server over HTTP, not part of the MVP web service.
       - 'Dockerfile.server: build stage `node:24`, runtime `node:24-slim`, workdir `/home/$user/packages/server`, `CMD ["yarn", "start-prod"]` (`pm2 start dist/index.js`). `EXPOSE ${APP_PORT}` has no matching ARG so it resolves empty at build time (cosmetic only, does not block the container from listening — the app binds via the APP_PORT env var at runtime, default 22300).'

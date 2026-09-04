@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
-  "analysisVersion": 9,
+  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
+  "analysisVersion": 10,
   "tree": {
     "files": 202,
     "entries": 10802,
@@ -52,8 +52,8 @@
     "redisDetected": true,
     "redisConfidence": "high",
     "storage": true,
-    "worker": false,
-    "workerCommand": null,
+    "worker": true,
+    "workerCommand": "bundle exec sidekiq -C config/sidekiq.yml",
     "migration": false,
     "migrationCommand": null,
     "externalServices": [
@@ -66,13 +66,16 @@
       "SIDEKIQ_CLOUDWATCH_AWS_SECRET_ACCESS_KEY"
     ],
     "unsupported": [
+      "background-worker",
       "docker-compose-multi-service"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
+      "background-worker-unsupported",
       "database-migrations"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "start-command-missing",
       "required-env-vars-missing",
@@ -106,9 +109,8 @@
     {
       "fact": "worker",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "storage",
@@ -153,6 +155,7 @@
         "background-worker"
       ],
       "actual": [
+        "background-worker",
         "docker-compose-multi-service"
       ],
       "match": false,
@@ -160,16 +163,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "worker",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-015",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -187,6 +180,7 @@
         "background-worker"
       ],
       "actual": [
+        "background-worker",
         "docker-compose-multi-service"
       ],
       "finding": {

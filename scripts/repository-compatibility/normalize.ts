@@ -40,6 +40,8 @@ const UNSUPPORTED_FAMILIES: Record<string, string> = {
   '@opensearch-project/opensearch': 'elasticsearch',
   'cassandra-driver': 'other-database',
   'neo4j-driver': 'other-database',
+  clickhouse: 'other-database',
+  h2: 'other-database',
 };
 
 export interface ActualFacts {

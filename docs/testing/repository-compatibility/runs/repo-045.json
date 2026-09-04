@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "medium",
   "difficulty": 4,
-  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
-  "analysisVersion": 9,
+  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
+  "analysisVersion": 10,
   "tree": {
     "files": 14,
     "entries": 2860,
@@ -51,8 +51,8 @@
     "redisDetected": true,
     "redisConfidence": "high",
     "storage": false,
-    "worker": false,
-    "workerCommand": null,
+    "worker": true,
+    "workerCommand": "php artisan queue:work --sleep=10 --timeout=0 --tries=3 --queue=high default low",
     "migration": false,
     "migrationCommand": null,
     "externalServices": [
@@ -62,14 +62,17 @@
       "MIX_PUSHER_APP_KEY"
     ],
     "unsupported": [
+      "background-worker",
       "docker-compose-multi-service"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
       "health-check",
+      "background-worker-unsupported",
       "database-migrations"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "port-missing",
       "required-env-vars-missing",
@@ -102,9 +105,8 @@
     {
       "fact": "worker",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "storage",
@@ -145,6 +147,7 @@
         "background-worker"
       ],
       "actual": [
+        "background-worker",
         "docker-compose-multi-service"
       ],
       "match": false,
@@ -160,16 +163,6 @@
       "finding": {
         "id": "COMP-011",
         "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "worker",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-015",
-        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
     {
@@ -209,6 +202,7 @@
         "background-worker"
       ],
       "actual": [
+        "background-worker",
         "docker-compose-multi-service"
       ],
       "finding": {

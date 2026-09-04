@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "medium",
   "difficulty": 5,
-  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
-  "analysisVersion": 9,
+  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
+  "analysisVersion": 10,
   "tree": {
     "files": 206,
     "entries": 12476,
@@ -53,7 +53,7 @@
     "redisDetected": true,
     "redisConfidence": "high",
     "storage": true,
-    "worker": false,
+    "worker": true,
     "workerCommand": null,
     "migration": false,
     "migrationCommand": null,
@@ -66,7 +66,8 @@
     ],
     "readinessFindings": [
       "unsupported-multi-service",
-      "database-migrations"
+      "database-migrations",
+      "worker-command"
     ],
     "gateFindings": [
       "unsupported",
@@ -100,9 +101,8 @@
     {
       "fact": "worker",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "storage",
@@ -165,16 +165,6 @@
       "finding": {
         "id": "COMP-011",
         "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "worker",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-015",
-        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
     {
