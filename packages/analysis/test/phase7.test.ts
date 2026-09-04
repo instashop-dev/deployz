@@ -71,6 +71,72 @@ describe('detectEnvVarModel (§11.2)', () => {
     expect(byKey.get('LOG_LEVEL')).toMatchObject({ required: false });
     expect(byKey.get('DEBUG')).toMatchObject({ required: false });
   });
+
+  it('does not require a bare read chained into further use when the file early-returns on its absence (Documenso false positive)', () => {
+    const tree: FileTree = {
+      'packages/prisma/index.ts': [
+        "export const prismaWithReplicas = remember('prismaWithReplicas', () => {",
+        '  if (!process.env.NEXT_PRIVATE_DATABASE_REPLICA_URLS) {',
+        '    return prisma;',
+        '  }',
+        '',
+        "  const replicaUrls = process.env.NEXT_PRIVATE_DATABASE_REPLICA_URLS.split(',').map((url) => url.trim());",
+        '});',
+        '',
+      ].join('\n'),
+    };
+    const model = detectEnvVarModel(tree);
+    expect(model).toEqual([
+      {
+        key: 'NEXT_PRIVATE_DATABASE_REPLICA_URLS',
+        required: false,
+        secret: false,
+        source: ['read in packages/prisma/index.ts'],
+      },
+    ]);
+  });
+
+  it('keeps a chained bare read required when the early-exit guard throws instead of returning', () => {
+    const tree: FileTree = {
+      'packages/prisma/index.ts': [
+        'if (!process.env.NEXT_PRIVATE_DATABASE_REPLICA_URLS) {',
+        "  throw new Error('NEXT_PRIVATE_DATABASE_REPLICA_URLS is required');",
+        '}',
+        '',
+        "const replicaUrls = process.env.NEXT_PRIVATE_DATABASE_REPLICA_URLS.split(',').map((url) => url.trim());",
+        '',
+      ].join('\n'),
+    };
+    const model = detectEnvVarModel(tree);
+    expect(model).toEqual([
+      expect.objectContaining({ key: 'NEXT_PRIVATE_DATABASE_REPLICA_URLS', required: true }),
+    ]);
+  });
+
+  it('follows the guard onto an assigned name, mirroring throwGuarded', () => {
+    const tree: FileTree = {
+      'src/index.js': [
+        'const urls = process.env.REPLICA_URLS;',
+        'if (!urls) return null;',
+        "urls.split(',');",
+        '',
+      ].join('\n'),
+    };
+    const model = detectEnvVarModel(tree);
+    expect(model).toEqual([
+      expect.objectContaining({ key: 'REPLICA_URLS', required: false }),
+    ]);
+  });
+
+  it('still requires an unguarded bare read chained into further use', () => {
+    const tree: FileTree = {
+      'src/index.js': "const brokers = process.env.KAFKA_BROKERS.split(',');\n",
+    };
+    const model = detectEnvVarModel(tree);
+    expect(model).toEqual([
+      expect.objectContaining({ key: 'KAFKA_BROKERS', required: true }),
+    ]);
+  });
 });
 
 describe('detectExternalServices (§11.3)', () => {
