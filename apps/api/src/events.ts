@@ -78,6 +78,8 @@ export type DeploymentEventType =
   // (apps/api/src/deploy-links.ts).
   | 'deploy_link.created'
   | 'deploy_link.opened'
+  | 'deploy_link.launched'
+  | 'deploy_link.retry.requested'
   | 'deploy_link.revoked'
   | 'deploy_link.regenerated';
 

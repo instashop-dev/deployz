@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
+import type { DeployLinkToken } from '@/lib/deploy-link-flow';
+import { launchDeployLink } from '@/lib/deploy-link-flow';
 import { launchInstall } from '@/lib/install-data';
 
 // The "Deploy to AWS" handoff. Reports the launch to the control plane
@@ -14,9 +16,13 @@ import { launchInstall } from '@/lib/install-data';
 export function InstallLaunchButton({
   installLinkId,
   quickCreateUrl,
+  deployLink = null,
 }: {
   installLinkId: string;
   quickCreateUrl: string;
+  /** Set on the /deploy page: the launch signal resolves through the deploy
+   *  link (token header) instead of the install link. */
+  deployLink?: DeployLinkToken | null;
 }) {
   const router = useRouter();
   return (
@@ -26,7 +32,10 @@ export function InstallLaunchButton({
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => {
-          void launchInstall(installLinkId).then(() => {
+          const launched = deployLink
+            ? launchDeployLink(deployLink.publicId, deployLink.token)
+            : launchInstall(installLinkId);
+          void launched.then(() => {
             router.refresh();
           });
         }}

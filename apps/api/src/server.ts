@@ -516,6 +516,43 @@ function toDeployLinkView(input: {
   };
 }
 
+// The Quick Create link for the public deploy-link page — the same rules the
+// install page applies: no link once the enrollment code is spent, the
+// template resolved for THIS deployment's region (never cross-region), and no
+// credential in the URL beyond the single-use code the customer's own
+// CloudFormation stack consumes.
+function deployLinkQuickCreateUrl(input: {
+  region: DeploymentRow['region'];
+  deploymentId: string;
+  appName: string;
+  attemptNumber: number;
+  bootstrapStackName: string | null;
+  enrollmentCode: string;
+  enrollmentUsedAt: Date | null;
+}): string | null {
+  if (input.enrollmentUsedAt !== null) return null;
+  const stackName =
+    input.bootstrapStackName ??
+    bootstrapStackName({
+      appName: input.appName,
+      deploymentId: input.deploymentId,
+      attempt: input.attemptNumber,
+    });
+  const templateUrl = resolveBootstrapTemplate(input.region, {
+    ...(env.bootstrapTemplateUrl ? { legacyUrl: env.bootstrapTemplateUrl } : {}),
+    deployableRegions: env.deployableAwsRegions,
+  });
+  return templateUrl
+    ? buildBootstrapQuickCreateUrl({
+        region: input.region,
+        templateUrl,
+        controlPlaneUrl: env.apiUrl,
+        enrollmentCode: input.enrollmentCode,
+        stackName,
+      })
+    : null;
+}
+
 /**
  * Resolve the config scope from a request's customer id: an absent/empty id
  * is the vendor scope, otherwise the customer is loaded to get its NAME.
@@ -2779,13 +2816,29 @@ export async function buildServer({
       const { publicId } = request.params as { publicId: string };
       const token = firstHeaderValue(request.headers['x-deployz-token']);
       const { deployment, application, customer } = await resolveDeployLink(db, publicId, token);
+      const waitingForRelay = deployment.state === 'WAITING_FOR_RELAY';
+      // Same guidance-instead-of-failure rule as the install page: past one
+      // relay-staleness window with no enrollment the page shows help, not an
+      // error — the bootstrap stack may still be creating.
+      const relayStuck =
+        waitingForRelay &&
+        deployment.installStartedAt !== null &&
+        Date.now() - deployment.installStartedAt.getTime() > RELAY_STALE_AFTER_MS;
+      const domain = await findActiveDomain(db, deployment.id);
+      const stackName =
+        deployment.bootstrapStackName ??
+        bootstrapStackName({
+          appName: application.name,
+          deploymentId: deployment.id,
+          attempt: deployment.attemptNumber,
+        });
       // Same unified status derivation the install page uses — one progress
       // model for every customer surface.
       const derived = deriveDeploymentStatus({
         deployment,
         application,
         jobs: [],
-        domain: null,
+        domain,
         appUrl: null,
       });
       return {
@@ -2793,9 +2846,199 @@ export async function buildServer({
         application: { name: application.name },
         customer: { name: customer.name },
         region: deployment.region,
-        status: toCustomerDeploymentStatus(derived),
         resources: customerInstallResources(application),
+        deploymentState: deployment.state,
+        bootstrapStackName: stackName,
+        waitingForRelay,
+        relayStuck,
+        quickCreateUrl: deployLinkQuickCreateUrl({
+          region: deployment.region,
+          deploymentId: deployment.id,
+          appName: application.name,
+          attemptNumber: deployment.attemptNumber,
+          bootstrapStackName: deployment.bootstrapStackName,
+          enrollmentCode: deployment.enrollmentCode,
+          enrollmentUsedAt: deployment.enrollmentUsedAt,
+        }),
+        domain: domain ? toDomainView(domain) : null,
+        routingTarget: domain?.routingTarget ?? null,
+        status: toCustomerDeploymentStatus(derived),
       };
+    },
+  );
+
+  // POST /api/deploy-links/:publicId/launched — the customer pressed
+  // "Deploy to AWS" on the hosted page. Mirrors the install route exactly
+  // (readiness gate, idempotent, NOT_INSTALLED → WAITING_FOR_RELAY) but
+  // resolves through the deploy link first, so a revoked or expired link can
+  // never start a deployment. Event actor follows the deploy-link convention.
+  app.post(
+    '/api/deploy-links/:publicId/launched',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { publicId } = request.params as { publicId: string };
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      const { deployment, application } = await resolveDeployLink(db, publicId, token);
+      // The same Phase 3 readiness gate the install page enforces: a
+      // non-READY manifest must be stopped before any AWS provisioning.
+      requireReadyManifest(deployment.desiredState);
+      if (deployment.state !== 'NOT_INSTALLED') {
+        // Idempotent: reopening the CloudFormation console is not a new attempt.
+        return { state: deployment.state };
+      }
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.deployments)
+          .set({
+            state: 'WAITING_FOR_RELAY',
+            installStartedAt: new Date(),
+            bootstrapStackName: bootstrapStackName({
+              appName: application.name,
+              deploymentId: deployment.id,
+              attempt: deployment.attemptNumber,
+            }),
+          })
+          .where(eq(schema.deployments.id, deployment.id));
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'deploy_link.launched',
+          actorType: 'system',
+          actorId: `deploy-link:${publicId}`,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          previousState: deployment.state,
+          requestedState: 'WAITING_FOR_RELAY',
+        });
+      });
+      return { state: 'WAITING_FOR_RELAY' };
+    },
+  );
+
+  // GET /api/deploy-links/:publicId/status — live customer projection for the
+  // hosted page, identical in shape and hygiene to the install status route.
+  app.get(
+    '/api/deploy-links/:publicId/status',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { publicId } = request.params as { publicId: string };
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      const { deployment, application } = await resolveDeployLink(db, publicId, token);
+      const jobs = await db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(eq(schema.deploymentJobs.deploymentId, deployment.id))
+        .orderBy(schema.deploymentJobs.createdAt);
+      const domain = await findActiveDomain(db, deployment.id);
+      const defaultHttps = parseDefaultHttps(deployment.defaultHttps);
+      const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
+      const derived = deriveDeploymentStatus({
+        deployment,
+        application,
+        jobs,
+        domain,
+        defaultHttps,
+        appUrl,
+      });
+      return toCustomerDeploymentStatus(derived);
+    },
+  );
+
+  // POST /api/deploy-links/:publicId/retry — customer-facing retry for an
+  // install that never connected, mirroring the install retry: fresh
+  // enrollment code, bumped attempt number, spent in-flight INSTALL jobs
+  // cancelled, and a deployment that was ever healthy is never reset from a
+  // public page.
+  app.post(
+    '/api/deploy-links/:publicId/retry',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { publicId } = request.params as { publicId: string };
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      const { deployment, application } = await resolveDeployLink(db, publicId, token);
+      if (await hasSucceededInstall(db, deployment.id)) {
+        throw new ApiError(
+          409,
+          'INSTALL_ALREADY_SUCCEEDED',
+          'This deployment installed successfully before; contact the vendor to make changes.',
+        );
+      }
+      const nextAttempt = deployment.attemptNumber + 1;
+      const stackName = bootstrapStackName({
+        appName: application.name,
+        deploymentId: deployment.id,
+        attempt: nextAttempt,
+      });
+      const enrollmentCode = mintEnrollmentCode();
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.deploymentJobs)
+          .set({ state: 'CANCELLED', finishedAt: new Date() })
+          .where(
+            and(
+              eq(schema.deploymentJobs.deploymentId, deployment.id),
+              eq(schema.deploymentJobs.type, 'INSTALL'),
+              inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'RUNNING', 'WAITING']),
+            ),
+          );
+        await tx
+          .update(schema.deployments)
+          .set({
+            state: 'NOT_INSTALLED',
+            enrollmentCode,
+            enrollmentUsedAt: null,
+            installationId: null,
+            relayTokenHash: null,
+            relayBoundAt: null,
+            relayStatus: 'UNKNOWN',
+            attemptNumber: nextAttempt,
+            bootstrapStackName: stackName,
+            installStartedAt: null,
+          })
+          .where(eq(schema.deployments.id, deployment.id));
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'deploy_link.retry.requested',
+          actorType: 'system',
+          actorId: `deploy-link:${publicId}`,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          previousState: deployment.state,
+          requestedState: 'NOT_INSTALLED',
+          payload: { attempt: nextAttempt, bootstrapStackName: stackName },
+        });
+      });
+      return {
+        state: 'NOT_INSTALLED',
+        attemptNumber: nextAttempt,
+        bootstrapStackName: stackName,
+        quickCreateUrl: deployLinkQuickCreateUrl({
+          region: deployment.region,
+          deploymentId: deployment.id,
+          appName: application.name,
+          attemptNumber: nextAttempt,
+          bootstrapStackName: stackName,
+          enrollmentCode,
+          enrollmentUsedAt: null,
+        }),
+      };
+    },
+  );
+
+  // POST /api/deploy-links/:publicId/domain/check — customer-facing "Check
+  // now" for a custom domain, link-scoped like every route above. Read-only
+  // trigger; runDomainCheck's own interval floor plus the IP-keyed rate limit
+  // guard against hammering it.
+  app.post(
+    '/api/deploy-links/:publicId/domain/check',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { publicId } = request.params as { publicId: string };
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      const { deployment } = await resolveDeployLink(db, publicId, token);
+      const domain = await findActiveDomain(db, deployment.id);
+      if (!domain) throw new NotFoundError('Custom domain not found');
+      const fresh = await runDomainCheck(db, deployment, domain, domainCheckDeps);
+      return { domain: toDomainView(fresh) };
     },
   );
 

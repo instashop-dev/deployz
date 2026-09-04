@@ -9,6 +9,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { errorMessage } from '@/lib/api-client';
 import {
+  checkDomainByDeployLink,
+  fetchDomainByDeployLink,
+} from '@/lib/deploy-link-flow';
+import {
   addDomain,
   checkDomain,
   checkDomainByLink,
@@ -47,8 +51,11 @@ export function CustomDomainCard(props: {
   deploymentId: string | null;
   installLinkId: string | null;
   initialDomain: CustomDomainView | null;
+  /** Set on the /deploy page: link-scoped calls resolve through the deploy
+   *  link (token header) instead of the install link. */
+  deployLink?: { publicId: string; token: string } | null;
 }) {
-  const { deploymentId, installLinkId, initialDomain } = props;
+  const { deploymentId, installLinkId, initialDomain, deployLink } = props;
 
   const [ready, setReady] = useState(false);
   const [canManage, setCanManage] = useState(false);
@@ -114,7 +121,9 @@ export function CustomDomainCard(props: {
           ? fetchDomainAccess(deploymentId).then((access) => access.domain)
           : installLinkId
             ? fetchDomainByLink(installLinkId)
-            : null;
+            : deployLink
+              ? fetchDomainByDeployLink(deployLink.publicId, deployLink.token)
+              : null;
       if (!refresh) return;
       void refresh
         .then((next) => {
@@ -140,7 +149,9 @@ export function CustomDomainCard(props: {
           ? await checkDomain(deploymentId)
           : installLinkId
             ? await checkDomainByLink(installLinkId)
-            : null;
+            : deployLink
+              ? await checkDomainByDeployLink(deployLink.publicId, deployLink.token)
+              : null;
       if (next) setDomain(next);
     } catch (caught) {
       setCheckError(errorMessage(caught));

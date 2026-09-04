@@ -83,6 +83,7 @@ export const config = {
     '/admin/:path*',
     '/organizations/:path*',
     '/install/:path*',
+    '/deploy/:path*',
     '/accept-invitation/:path*',
     '/github/setup',
   ],

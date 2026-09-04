@@ -22,6 +22,7 @@ import {
   AWAITING_DOMAIN_STEP_DETAIL,
   stepsFromStatus,
 } from '@/lib/deployment-progress';
+import { fetchDeployLinkStatus, type DeployLinkToken } from '@/lib/deploy-link-flow';
 import { fetchInstallStatus } from '@/lib/install-status';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
@@ -72,6 +73,7 @@ export function InstallProgress({
   initialDomain,
   routingTarget,
   preinstall = false,
+  deployLink = null,
 }: {
   installLinkId: string;
   deploymentId: string;
@@ -80,13 +82,19 @@ export function InstallProgress({
   initialDomain: CustomDomainView | null;
   routingTarget: string | null;
   /** True when mounted under the pre-install page layout, whose surrounding
-   * server-rendered content (the Deploy to AWS CTA, capability lists) is only
-   * correct while nothing has enrolled yet. */
+   *  server-rendered content (the Deploy to AWS CTA, capability lists) is only
+   *  correct while nothing has enrolled yet. */
   preinstall?: boolean;
+  /** Set on the /deploy page: status and domain calls resolve through the
+   *  deploy link (token header) instead of the install link. */
+  deployLink?: DeployLinkToken | null;
 }) {
   const router = useRouter();
   const poll = useStatusPoll({
-    fetcher: () => fetchInstallStatus(installLinkId),
+    fetcher: () =>
+      deployLink
+        ? fetchDeployLinkStatus(deployLink.publicId, deployLink.token)
+        : fetchInstallStatus(installLinkId),
     intervalMs: 5000,
     terminalIntervalMs: 60000,
     isTerminal: (status) => isTerminalStage(status.stage),
@@ -227,6 +235,7 @@ export function InstallProgress({
             deploymentId={deploymentId}
             installLinkId={installLinkId}
             initialDomain={initialDomain}
+            deployLink={deployLink}
           />
         </>
       ) : null}
