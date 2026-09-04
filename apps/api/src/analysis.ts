@@ -93,7 +93,14 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // prefix, and a schema-less Prisma `migrate deploy` gets a `--schema` flag
 // computed from the Dockerfile's runtime WORKDIR — stored migration commands
 // from Version 10 must re-run.
-export const ANALYSIS_VERSION = 11;
+// Version 12 fixes `detectEnvVarModel` marking a variable required when a
+// bare read is chained straight into further use (`process.env.X.split(',')`)
+// even though the same file already early-returns on that key's absence
+// (production-verified: Documenso's NEXT_PRIVATE_DATABASE_REPLICA_URLS blocked
+// deployment creation with 422 MANIFEST_NEEDS_CONFIGURATION although the app
+// runs fine without it) — env-var reads behind an early-return presence guard
+// are no longer required — stored env-var models from Version 11 must re-run.
+export const ANALYSIS_VERSION = 12;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

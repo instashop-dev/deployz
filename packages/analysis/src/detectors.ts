@@ -1786,6 +1786,12 @@ function isPlaceholderValue(value: string): boolean {
  * code) is NOT required. §11.3 well-known service keys that the repository
  * evidences (read or declared) are upgraded to required+secret — an SDK
  * dependency without its credential cannot function.
+ *
+ * A read chained straight into further use (`process.env.X.split(',')`,
+ * never stored raw) is also NOT required when the same file early-returns on
+ * that key's absence (`if (!process.env.X) return …`) — only an early
+ * **throw** for that key still means required (Documenso's
+ * NEXT_PRIVATE_DATABASE_REPLICA_URLS, COMP false-positive fix).
  */
 export function detectEnvVarModel(tree: FileTree, externalServices: string[] = []): ManifestEnvVariable[] {
   // ── 1. Declarations: every KEY=VALUE line in any env file we ship with. ──
@@ -1876,12 +1882,31 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // an unset option is a default (Stage A COMP-023).
         const assignedName = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*$/.exec(head)?.[1];
         const isBareAssignment = /[=:]\s*$/.test(head) && /^\s*(?:[;,)}\]]|$)/.test(tail) && !isSecretName(key);
-        const throwGuarded =
-          isBareAssignment &&
-          new RegExp(
-            `if\\s*\\(\\s*!\\s*(?:process\\.env\\.${key}${assignedName ? `|${assignedName}` : ''})\\b[^)]*\\)\\s*\\{?\\s*throw\\b`,
-          ).test(content);
-        recordRead(key, !hasFallback && !isGuard && (!isBareAssignment || throwGuarded), path);
+        // A read chained straight into further use before storage
+        // (`process.env.X.split(',')`) is bare in the same sense — the
+        // consumer decides what the transformed value means, not this read.
+        const isBareChainAccess = !isSecretName(key) && /^\.[A-Za-z_$]/.test(tail);
+        let throwGuarded = false;
+        let returnGuarded = false;
+        if (isBareAssignment || isBareChainAccess) {
+          const guardTargets = [
+            `process\\.env\\.${key}\\b`,
+            `process\\.env\\[["']${key}["']\\]`,
+            assignedName ? `${assignedName}\\b` : null,
+          ]
+            .filter(Boolean)
+            .join('|');
+          const exitGuard = new RegExp(
+            `if\\s*\\(\\s*!\\s*(?:${guardTargets})[^)]*\\)\\s*\\{?\\s*(throw|return)\\b`,
+          ).exec(content);
+          throwGuarded = exitGuard?.[1] === 'throw';
+          returnGuarded = exitGuard?.[1] === 'return';
+        }
+        // A bare assignment needs a throw to become required (existing
+        // behaviour); a bare chain access is required by default and only
+        // an early RETURN (not throw) on the same key clears it.
+        const bareNeedsValue = isBareAssignment ? throwGuarded : isBareChainAccess ? !returnGuarded : true;
+        recordRead(key, !hasFallback && !isGuard && bareNeedsValue, path);
       }
     } else if (/schema\.prisma$/i.test(path)) {
       const envRegex = /env\(\s*["']([A-Z_][A-Z0-9_]*)["']\s*\)/g;
