@@ -256,6 +256,7 @@ describe('COMP-017 — reads that carry their own default', () => {
       'src/lib/create-config.ts': [
         'const port = parseEnvVarNumber(process.env.HTTP_PORT || process.env.PORT, 4242);',
         "const host = parseEnvVarString(process.env.HTTP_HOST, '0.0.0.0');",
+        'const response = await axios.get(process.env.API_URL, { headers });',
         'const url = process.env.NEXT_PRIVATE_DATABASE_URL ?? process.env.POSTGRES_URL;',
         "const secret = process.env.UNLEASH_SECRET || 'super-secret';",
         'const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-01-01" });',
@@ -266,7 +267,7 @@ describe('COMP-017 — reads that carry their own default', () => {
     const required = detectEnvVarModel(tree).filter((v) => v.required).map((v) => v.key);
     // A `??` chain of two variables requires one of them — the model cannot
     // say which, so it fails open and requires neither.
-    expect(required).toEqual(['ACCESS_TOKEN_SALT', 'STRIPE_SECRET_KEY']);
+    expect(required).toEqual(['ACCESS_TOKEN_SALT', 'API_URL', 'STRIPE_SECRET_KEY']);
   });
 });
 

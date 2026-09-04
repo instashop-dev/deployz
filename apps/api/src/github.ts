@@ -2,7 +2,7 @@ import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
 
 import { eq } from 'drizzle-orm';
 
-import type { FileTree } from '@deployz/analysis';
+import { isRuntimeSourcePath, type FileTree } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -699,20 +699,13 @@ function isLockfilePath(path: string): boolean {
 // this generic root check ever runs, so this bucket only ever catches
 // unnamed root files.
 //
-// Tests, specs, fixtures and tool configuration rank LAST (tier 5): they say
-// nothing the detectors need, and on a large repository they are numerous
-// enough to push every application source file out of the cap (Stage A
-// COMP-018). Within the application-source tier, shallower files come first
-// — `src/server.ts` before `src/features/x/y/z.ts`.
-const NON_RUNTIME_SEGMENT_REGEX =
-  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|tests?|spec|specs|e2e|cypress|fixtures?|stories|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
-const NON_RUNTIME_FILE_REGEX =
-  /(?:\.(?:test|spec|stories|e2e|cy)\.[cm]?[jt]sx?$|(?:^|\/)(?:[\w.-]+\.config\.[cm]?[jt]s|\.(?:eslintrc|prettierrc|babelrc)(?:\.[cm]?js)?|conftest\.py|test_[\w-]+\.py|[\w-]+_test\.(?:py|go|rb))$)/i;
-
-function isNonRuntimePath(path: string): boolean {
-  return NON_RUNTIME_SEGMENT_REGEX.test(path) || NON_RUNTIME_FILE_REGEX.test(path);
-}
-
+// Tests, specs, fixtures, scripts, docs and tool configuration rank LAST
+// (tier 6): the detectors ignore them (`isRuntimeSourcePath`, the same rule
+// the analyser applies), and on a large repository they are numerous enough
+// to push every application source file out of the cap (Stage A COMP-018).
+// Within the application-source tiers, shallower files come first —
+// `src/server.ts` before `src/features/x/y/z.ts`.
+//
 // Files where an application declares how it starts, listens and routes —
 // the ones the port/health/env detectors need most on a repository with far
 // more source files than the cap (a Go or Django tree can carry hundreds).
@@ -725,7 +718,7 @@ function relevancePriority(path: string): number {
   if (DOCKERFILE_REGEX.test(path)) return 0;
   if (COMPOSE_REGEX.test(path)) return 0;
   if (ENV_SAMPLE_REGEX.test(path)) return 0;
-  if (isNonRuntimePath(path)) return 6; // tests, specs, fixtures, tool configs
+  if (!isRuntimeSourcePath(path)) return 6; // tests, specs, fixtures, scripts, docs, tool configs
   if (!path.includes('/')) return 1; // generic (unnamed) root files
   if (PRISMA_SCHEMA_REGEX.test(path)) return 2;
   if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 3;

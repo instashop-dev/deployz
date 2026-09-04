@@ -1544,8 +1544,11 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // carries that default (Stage A COMP-017).
         const isAlternative = /(?:\?\?|\|\|)\s*$/.test(head);
         const callee = /([A-Za-z_$][\w$]*)\s*\(\s*(?:[^()]*,\s*)?$/.exec(head)?.[1] ?? '';
+        // The default must be a literal (a string, number, boolean, null or a
+        // CONSTANT) — `axios.get(process.env.URL, { headers })` carries none.
         const helperWithDefault =
-          DEFAULTING_HELPER_REGEX.test(callee) && /^\s*(?:\|\|[^,;\n]*)?,/.test(tail);
+          DEFAULTING_HELPER_REGEX.test(callee) &&
+          /^\s*(?:\|\|[^,;\n]*)?,\s*(?:['"`][^'"`]*['"`]|-?\d[\d._]*|true|false|null|undefined|[A-Z][A-Z0-9_]*)\s*[,)]/.test(tail);
         const hasFallback =
           /(?:\?\?|\|\|)\s*\S/.test(tail) || /(?:\?\?=|\|\|=)/.test(tail) || isAlternative || helperWithDefault;
         const isGuard =

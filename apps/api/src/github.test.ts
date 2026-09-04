@@ -516,6 +516,8 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
           tree: [
             { path: 'vitest.config.ts', type: 'blob', sha: 'sha-vitest', size: 10 },
             { path: '.husky/update-openapi.js', type: 'blob', sha: 'sha-husky', size: 10 },
+            { path: 'scripts/build-geo.js', type: 'blob', sha: 'sha-script', size: 10 },
+            { path: 'docs/api/generate.js', type: 'blob', sha: 'sha-docs', size: 10 },
             ...specs,
             { path: 'src/lib/features/deep/nested/handler.ts', type: 'blob', sha: 'sha-deep', size: 10 },
             { path: 'src/lib/routes/health-check.ts', type: 'blob', sha: 'sha-health', size: 10 },
@@ -536,9 +538,10 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('src/server.ts');
     expect(tree).toHaveProperty('src/lib/routes/health-check.ts');
     expect(tree).toHaveProperty('src/lib/features/deep/nested/handler.ts');
-    // The three application files took their slots first; specs and tool
-    // configs share the last tier and fill whatever remains, in tree order.
-    expect(Object.keys(tree).filter((path) => path.endsWith('.spec.ts'))).toHaveLength(ANALYSIS_MAX_FILES - 5);
+    // The three application files took their slots first; specs, scripts,
+    // docs and tool configs share the last tier and fill whatever remains,
+    // in tree order.
+    expect(Object.keys(tree).filter((path) => path.endsWith('.spec.ts'))).toHaveLength(ANALYSIS_MAX_FILES - 7);
   });
 
   it('fetches entry, routing and configuration files before other source on a large tree (COMP-018)', async () => {
