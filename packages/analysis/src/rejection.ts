@@ -727,3 +727,121 @@ export function checkGpu(tree: FileTree): RejectionFinding {
   }
   return { detected: false, dependency: 'none', reason: 'No GPU requirement detected' };
 }
+
+// ── Stage B final batch (COMP-021 / COMP-025 / COMP-031) ─────────────────────
+
+/** Directories that hold generated build output — never checked-in COPY sources. */
+const GENERATED_DIR_REGEX = /(?:^|\/)(?:dist|build|target|out|\.next|vendor|node_modules|coverage|public|\.cache)(?:\/|$)/;
+
+/**
+ * COMP-021 — the selected Dockerfile COPYs/ADDs a source path absent from the
+ * repository (and not produced build output): `docker build` of this snapshot
+ * fails, so the app is not actually deployable. Multi-stage `COPY --from=`
+ * and generated-artifact directories are never flagged.
+ */
+export function checkMissingCopySource(tree: FileTree): RejectionFinding {
+  const dockerfilePath = listDockerfileCandidates(tree)[0];
+  if (dockerfilePath === undefined) {
+    return { detected: false, dependency: 'none', reason: 'No Dockerfile to check' };
+  }
+  const content = tree[dockerfilePath] ?? '';
+  const lineRegex = /^(?:COPY|ADD)\s+(.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = lineRegex.exec(content)) !== null) {
+    const args = (match[1] ?? '').trim().split(/\s+/);
+    if (args[0]?.startsWith('--from=')) continue; // multi-stage stage copy
+    const tokens = args.filter((token) => token.length > 0 && !token.startsWith('--'));
+    const destination = tokens[tokens.length - 1];
+    if (destination === undefined) continue;
+    for (const source of tokens.slice(0, -1)) {
+      if (source === '.') continue;
+      // Globs (`package*.json`) and URLs cannot be checked against the tree.
+      if (source.includes('*') || source.startsWith('http://') || source.startsWith('https://')) continue;
+      if (GENERATED_DIR_REGEX.test(source)) continue;
+      const present = Object.keys(tree).some(
+        (path) => path === source || path.startsWith(`${source}/`) || path.endsWith(`/${source}`),
+      );
+      if (!present) {
+        return {
+          detected: true,
+          dependency: 'missing-copy-source',
+          reason: `Unsupported infrastructure: the image build would fail — ${dockerfilePath} copies "${source}" which is not in the repository.`,
+        };
+      }
+    }
+  }
+  return { detected: false, dependency: 'none', reason: 'Every Dockerfile COPY/ADD source exists in the repository' };
+}
+
+/**
+ * COMP-025 — an app that EXPLICITLY declares durable local state through a
+ * data/config directory variable (a `*_DATA_DIR` / `*_CONFIG_DIR` /
+ * `STORAGE_PATH` / `HOMEPAGE_CONFIG_DIR` name pointing at a local path) with
+ * NO Dockerfile VOLUME and NO production Compose mount needs persistent
+ * storage Deployz does not provide. Narrow — no heuristic write-call
+ * scanning (COMP-003/COMP-024 already cover declared container state).
+ */
+export function checkExplicitPersistentDataDir(tree: FileTree): RejectionFinding {
+  const DIRECTORY_VAR = /(?:^|_)(?:DATA_DIR|CONFIG_DIR|STORAGE_PATH)$/;
+  let declared: string | null = null;
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    if (/^\.env(\.\w+)?$/i.test(path)) {
+      const line = /^\s*([A-Z][A-Z0-9_]*)\s*=\s*([^\s#]+)/m.exec(content);
+      if (line?.[1] && (line[1] === 'HOMEPAGE_CONFIG_DIR' || DIRECTORY_VAR.test(line[1]!)) && line[2] && !line[2].includes('://')) {
+        declared = `${line[1]}=${line[2]} (${path})`;
+        break;
+      }
+    }
+    if (!/\.(?:py|ts|js|mjs|cjs|rb|go|java|kt)$/.test(path)) continue;
+    // A data/config directory variable referenced in code with a local-path
+    // default on the same statement: `process.env.X || '/data'`,
+    // `os.getenv('X', '/data')`, `X_DIR = '/data'`.
+    const ref = /(HOMEPAGE_CONFIG_DIR|[A-Z][A-Z0-9_]*_(?:DATA_DIR|CONFIG_DIR)|STORAGE_PATH)\b[^\n]*["'](\/[\w./-]+?)["']/.exec(content);
+    if (ref?.[1] && ref[2] && !ref[2].includes('://')) {
+      declared = `${ref[1]}=${ref[2]} (${path})`;
+      break;
+    }
+  }
+  if (declared === null) {
+    return { detected: false, dependency: 'none', reason: 'No explicit data/config directory declared' };
+  }
+
+  // A declared VOLUME (any candidate Dockerfile) or a production Compose
+  // volume on an application service provides the durable mount instead.
+  const hasVolume = listDockerfileCandidates(tree).some(
+    (path) => /^\s*VOLUME\b/m.test(tree[path] ?? ''),
+  );
+  const compose = composeApplicationServices(tree);
+  const hasMount =
+    compose !== null && compose.services.some((service) => service.volumes.length > 0);
+  if (hasVolume || hasMount) {
+    return { detected: false, dependency: 'none', reason: 'The declared data directory is covered by a VOLUME or Compose mount' };
+  }
+  return {
+    detected: true,
+    dependency: 'local-filesystem',
+    reason: `Unsupported storage: the app declares durable local state (${declared}) with no VOLUME or Compose mount. Deployz provides object storage, not an attached data directory.`,
+  };
+}
+
+/**
+ * COMP-031 — a REQUIRED third-party service in the production Compose file
+ * (a workflow engine such as Temporal that Deployz does not provision) makes
+ * the app undeployable. Only default-stack (non-optional) services count.
+ */
+export function checkRequiredThirdPartyService(tree: FileTree): RejectionFinding {
+  const compose = composeServices(tree);
+  if (!compose) return { detected: false, dependency: 'none', reason: 'No Compose file to check' };
+  for (const service of compose.services) {
+    if (service.optional) continue;
+    const image = service.image ?? '';
+    if (!/(?:^|[/_-])temporal(?:[/_-]|$)|^temporalio\//i.test(image)) continue;
+    return {
+      detected: true,
+      dependency: 'temporal',
+      reason: `Unsupported infrastructure: ${compose.file} requires a Temporal server (service "${service.name}", image ${image}) which Deployz does not provision.`,
+    };
+  }
+  return { detected: false, dependency: 'none', reason: 'No required third-party service detected' };
+}

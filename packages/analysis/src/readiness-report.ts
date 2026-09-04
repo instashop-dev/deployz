@@ -279,11 +279,12 @@ function rejectionCopy(dependency: string): RejectionCopy {
   if (dependency === '@elastic/elasticsearch' || dependency === '@opensearch-project/opensearch') {
     return ELASTICSEARCH_COPY;
   }
-  if (dependency === 'kafka' || dependency === 'rabbitmq' || dependency === 'sqs-event-consumer') {
+  if (dependency === 'kafka' || dependency === 'rabbitmq' || dependency === 'sqs-event-consumer' || dependency === 'temporal') {
     return MESSAGE_QUEUE_COPY;
   }
   if (dependency === 'docker-compose-multi-service') return MULTI_SERVICE_COPY;
-  if (dependency === 'persistent-volume') return STORAGE_COPY;
+  if (dependency === 'persistent-volume' || dependency === 'local-filesystem') return STORAGE_COPY;
+  if (dependency === 'missing-copy-source') return ARCHITECTURE_COPY;
   if (dependency === 'gpu') return GPU_COPY;
   if (
     dependency === 'kubernetes' ||

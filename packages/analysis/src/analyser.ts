@@ -52,6 +52,9 @@ import {
   checkAzure,
   checkGcp,
   checkGpu,
+  checkMissingCopySource,
+  checkExplicitPersistentDataDir,
+  checkRequiredThirdPartyService,
 } from './rejection.js';
 
 import type { RedisRequirement } from './redis.js';
@@ -126,6 +129,9 @@ const REJECTION_CHECKS = [
   checkAzure,
   checkGcp,
   checkGpu,
+  checkMissingCopySource,
+  checkExplicitPersistentDataDir,
+  checkRequiredThirdPartyService,
 ] as const;
 
 /**

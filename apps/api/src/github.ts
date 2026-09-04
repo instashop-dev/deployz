@@ -657,9 +657,16 @@ const HEALTH_ROUTE_FILE_REGEX =
 const LOCKFILE_BASENAME_REGEX =
   /^(?:pnpm-lock\.yaml|yarn\.lock|package-lock\.json|bun\.lockb?|bun\.lock)$/;
 
+// Deployment descriptors the §10 cloud/infra rejection checks read (COMP-033):
+// Terraform (.tf), Bicep (.bicep), Kustomize and Helm. A bounded set — the
+// detectors' own IaC patterns — so `isRelevantPath` and the checks agree.
+const DEPLOYMENT_DESCRIPTOR_REGEX =
+  /(?:^|\/)(?:kustomization\.ya?ml|Chart\.ya?ml|.*\.tf|.*\.bicep)$/i;
+
 function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
 }
+
 
 // Mirrors exactly what packages/analysis/src/detectors.ts, rejection.ts and
 // redis.ts read from the file tree — see those files for the authoritative
@@ -672,6 +679,7 @@ function isRelevantPath(path: string): boolean {
   if (PRISMA_SCHEMA_REGEX.test(path)) return true;
   if (COMPOSE_REGEX.test(path)) return true;
   if (ENV_SAMPLE_REGEX.test(path)) return true;
+  if (DEPLOYMENT_DESCRIPTOR_REGEX.test(path)) return true;
   const isRoot = !path.includes('/');
   if (isRoot) {
     if (/^\.env(\.\w+)?$/i.test(path)) return true;

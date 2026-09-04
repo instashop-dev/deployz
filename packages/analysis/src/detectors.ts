@@ -259,6 +259,11 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
     }
     if (isServiceKey && keyLine[1] === 'image') current.image = /^["']?([^\s"']+)/.exec(keyLine[2] ?? '')?.[1] ?? null;
     if (isServiceKey && keyLine[1] === 'profiles') current.optional = true;
+    // COMP-010: `deploy.replicas: 0` declares an OPTIONAL service (a worker
+    // kept for reference but never scaled by the default stack).
+    if (isServiceKey && keyLine[1] === 'replicas' && (keyLine[2] ?? '').trim() === '0') {
+      current.optional = true;
+    }
     if (isServiceKey && keyLine[1] === 'volumes' && (keyLine[2] ?? '') === '') inVolumes = true;
     if (isServiceKey && keyLine[1] === 'command') {
       const value = (keyLine[2] ?? '').trim();
@@ -2302,6 +2307,30 @@ export function classifyEnvVarPurpose(key: string): { purpose: EnvVarPurpose; co
  * evidences (read or declared) are upgraded to required+secret — an SDK
  * dependency without its credential cannot function.
  */
+/** Engine-selector variables that decide which database engine the app uses. */
+const ENGINE_SELECTOR_NAMES = ['DB', 'DB_ENGINE', 'DATABASE_ENGINE', 'DB_CLIENT', 'DB_BACKEND'];
+
+/**
+ * COMP-022 — engine selectors defaulting to a non-PostgreSQL engine while a
+ * PostgreSQL driver is also present. The selector read must then be REQUIRED:
+ * without a value the app boots on SQLite inside the container and silently
+ * drops data instead of using the provisioned database.
+ */
+function unresolvedEngineSelectors(tree: FileTree): Set<string> {
+  const selectors = new Set<string>();
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    for (const name of ENGINE_SELECTOR_NAMES) {
+      const defaulted = new RegExp(
+        `(?:["']${name}["']\\s*[,)]\\s*["']?(?:sqlite|sqlite3)|process\\.env\\.${name}\\s*\\|\\|\\s*["'](?:sqlite|sqlite3)|os\\.getenv\\s*\\(\\s*["']${name}["'][^)]*["'](?:sqlite|sqlite3))`,
+      ).test(content);
+      if (defaulted) selectors.add(name);
+    }
+  }
+  if (selectors.size === 0) return selectors;
+  return detectPostgresql(tree).detected ? selectors : new Set<string>();
+}
+
 export function detectEnvVarModel(tree: FileTree, externalServices: string[] = []): ManifestEnvVariable[] {
   // ── 1. Declarations: every KEY=VALUE line in any env file we ship with. ──
   const declarations = new Map<string, { realValue: boolean; sampleEmpty: boolean; files: string[] }>();
@@ -2472,8 +2501,11 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
 
     // A defaulted/guarded read that never NEEDS the value is never required,
     // even when a sample line is empty — and a platform-provided variable is
-    // never the vendor's to configure.
-    const required = needsValue && !hasDefault && !isPlatformEnvVar(key);
+    // never the vendor's to configure. COMP-022: an engine selector defaulting
+    // to SQLite next to a PostgreSQL driver is the one exception — it must be
+    // set for the provisioned database to be used.
+    const required =
+      (needsValue || unresolvedEngineSelectors(tree).has(key)) && !hasDefault && !isPlatformEnvVar(key);
 
     let secret = isSecretName(key);
     // §11.3 upgrade: an evidenced well-known service credential is a secret
