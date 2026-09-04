@@ -14,15 +14,19 @@ const FIXTURE_RESPONSES: Record<string, unknown> = {
     generalNotes: ['Verify each finding against the repository before making changes.'],
   },
   // repository-ai.ts §15 fallback — resolves nothing, so the deterministic
-  // metadata stands exactly as the real degraded path would leave it.
+  // metadata stands exactly as the real degraded path would leave it. The
+  // answer carries the structured per-field shape with null values only.
   'repository-analysis': {
-    workingDirectory: '.',
-    buildCommand: null,
-    startCommand: null,
-    port: null,
-    postgres: { required: false, evidence: [] },
-    redis: { required: false, evidence: [] },
-    migrationCommand: null,
+    dockerfile: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    workingDirectory: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    buildCommand: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    startCommand: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    port: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    postgresRequired: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    redisRequired: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    healthPath: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    migrationMode: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
+    storageRequired: { value: null, confidence: 0, evidencePaths: [], explanation: 'No answer provided by the fixture gateway.' },
     warnings: [],
   },
 };

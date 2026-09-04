@@ -910,17 +910,26 @@ describe('analysis — runApplicationAnalysis (AI fallback)', () => {
   }
 
   it('fills a missing start command from a valid AI answer and records aiResolved', async () => {
+    const field = (value: string | boolean | number | null, confidence = 0.95) => ({
+      value,
+      confidence,
+      evidencePaths: ['Dockerfile'],
+      explanation: 'fixture answer',
+    });
     const aiGateway: AiGateway = {
       async generate() {
         return {
           object: {
-            workingDirectory: '.',
-            buildCommand: null,
-            startCommand: 'node index.js',
-            port: null,
-            postgres: { required: false, evidence: [] },
-            redis: { required: false, evidence: [] },
-            migrationCommand: null,
+            dockerfile: field(null),
+            workingDirectory: field('.'),
+            buildCommand: field(null),
+            startCommand: field('node index.js'),
+            port: field(null),
+            postgresRequired: field(false),
+            redisRequired: field(false),
+            healthPath: field(null),
+            migrationMode: field(null),
+            storageRequired: field(null),
             warnings: [],
           },
           usage: { promptTokens: 500, completionTokens: 50 },

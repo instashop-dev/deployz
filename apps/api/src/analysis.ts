@@ -3,11 +3,13 @@ import { eq } from 'drizzle-orm';
 import type { AiGateway, AnalysisResult, FileTree, ReadinessReport, RepositoryAiInput } from '@deployz/analysis';
 import {
   REPO_AI_TIMEOUT_MS,
+  REPOSITORY_AI_PROMPT_VERSION,
   analyseRepo,
   analyseRepositoryWithAi,
   buildReadinessReport,
   collectScripts,
   collectUnresolvedQuestions,
+  deriveAmbiguities,
   detectDeclaredWorkerCommand,
   mergeAiAnalysis,
   selectAiContextFiles,
@@ -324,6 +326,7 @@ function buildRepositoryAiInput(
     },
     files: selectAiContextFiles(tree),
     unresolved,
+    ambiguities: deriveAmbiguities(tree, analysis),
   };
 }
 
@@ -351,13 +354,22 @@ async function applyAiFallback(
     const input = buildRepositoryAiInput(tree, analysis, unresolved);
     const ai = await analyseRepositoryWithAi(input, aiGateway, { abortSignal: controller.signal });
     const outcome = mergeAiAnalysis(analysis.metadata, ai);
+    const suggestions =
+      outcome.metadata['aiSuggestions'] !== undefined &&
+      typeof outcome.metadata['aiSuggestions'] === 'object' &&
+      outcome.metadata['aiSuggestions'] !== null
+        ? (outcome.metadata['aiSuggestions'] as Record<string, unknown>)
+        : {};
     return {
       metadata: {
         ...outcome.metadata,
         aiAnalysis: {
           unresolved,
+          ambiguities: deriveAmbiguities(tree, analysis),
           aiResolved: outcome.aiResolved,
+          suggestions,
           warnings: outcome.warnings,
+          promptVersion: REPOSITORY_AI_PROMPT_VERSION,
           generatedAt: new Date().toISOString(),
         },
       },
