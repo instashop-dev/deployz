@@ -2908,7 +2908,7 @@ export async function buildServer({
               eq(schema.deployments.state, 'NOT_INSTALLED'),
             ),
           )
-          .returning({ id: schema.deployments.id });
+          .returning();
         if (updated.length === 0) {
           const [current] = await tx
             .select({ state: schema.deployments.state })
