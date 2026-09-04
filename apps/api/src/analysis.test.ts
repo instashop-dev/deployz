@@ -303,8 +303,9 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
 
     // §11.1 end-to-end: analysis → manifest → manifest readiness. The MVP is
     // ONE selected app; the manifest gate must point at the nested app with a
-    // repo-root build context and classify the monorepo as deployable (the
-    // missing health check is a semantic finding, not a manifest blocker).
+    // repo-root build context. Stage B phase 5: this fixture has NO health
+    // evidence at all, so the gate asks the vendor for a health path instead
+    // of silently defaulting to /health.
     const manifest = normalizeDeploymentManifest(analysis, {});
     expect(manifest.application.root).toBe('apps/api');
     expect(manifest.application.dockerfilePath).toBe('apps/api/Dockerfile');
@@ -312,7 +313,10 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(manifest.web.command).toContain('src/index.js');
     expect(manifest.web.port).toBe(3000);
     expect(manifest.unsupported).toEqual([]);
-    expect(evaluateManifestReadiness(manifest).state).toBe('READY');
+    expect(manifest.health.mode).toBe('vendor_required');
+    const gate = evaluateManifestReadiness(manifest);
+    expect(gate.state).toBe('NEEDS_CONFIGURATION');
+    expect(gate.findings.some((f) => f.id === 'health-path-required')).toBe(true);
     // The same flow accepts the vendor-corrected overrides verbatim — the
     // PATCH surface feeds this exact normalizer at deployment creation.
     const overridden = normalizeDeploymentManifest(analysis, {

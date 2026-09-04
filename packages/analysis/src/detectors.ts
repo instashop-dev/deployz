@@ -31,6 +31,13 @@ export interface DetectorFinding {
    * targets, e.g. "/api/health") — every other detector leaves it undefined.
    */
   path?: string | undefined;
+  /**
+   * Stage B phase 5 — how the health endpoint is known, set only by the
+   * `health-endpoint` detector: `explicit` (a declared route or HEALTHCHECK
+   * URL names the path), `root` (the app's own HEALTHCHECK probes `/`), or
+   * `vendor_required` (no evidence at all — Deployz must not guess).
+   */
+  mode?: 'explicit' | 'root' | 'vendor_required' | undefined;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -620,9 +627,9 @@ const HEALTHCHECK_REGEX = /HEALTHCHECK\b/i;
 // the detector's normalized `path`. Neither group changes which strings
 // match — `get(` with no receiver still matches.
 const HEALTH_ROUTE_REGEX =
-  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/i;
+  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\b/i;
 const HEALTH_HTTP_ADAPTER_REGEX =
-  /\.getHttpAdapter\(\)\..*?['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/;
+  /\.getHttpAdapter\(\)\..*?['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\b/;
 const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
 // File-based routing (Next.js, Remix, Nuxt, SvelteKit) declares the path in
 // the FILE NAME, so there is no route string to match: `api/health.ts`,
@@ -656,7 +663,7 @@ const HEALTH_PATH_PRIORITY = {
   // moved route, so it ranks below anything found in code (Stage A COMP-005).
   HEALTHCHECK_URL: 2,
 } as const;
-const HEALTH_PATH_SEGMENT_REGEX = /(?:^|\/)(?:health|healthz|healthcheck|heartbeat|readyz|livez)$/i;
+const HEALTH_PATH_SEGMENT_REGEX = /(?:^|\/)(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health)$/i;
 // A health URL in a container/compose health check: `curl -f http://localhost:3000/api/heartbeat`.
 // The host is the container itself (localhost, a loopback/any address, or a
 // `$VAR`), never a documentation link that happens to sit on the same line.
@@ -665,13 +672,15 @@ const HEALTHCHECK_URL_REGEX =
 // A HEALTHCHECK that runs a script shipped in the image (`CMD node
 // healthcheck.js`) names its URL inside that script (Stage A COMP-034).
 const HEALTHCHECK_SCRIPT_REGEX = /[\w./-]+\.(?:[cm]?js|sh|py|rb)\b/g;
-// Route registrations in Go, Python and Ruby name their path as a plain
-// string literal on the registering call: `HandleFunc("GET /healthcheck", …)`,
-// `app.Get("/health", …)`, `@app.route('/health')`, `path('health/', …)`,
-// `get '/health'`. Only the well-known health segments count.
+// Route registrations in Go, Python, Ruby, PHP, .NET, Elixir, Rails and JVM
+// name their path as a plain string literal on the registering call:
+// `HandleFunc("GET /healthcheck", …)`, `app.Get("/health", …)`,
+// `@app.route('/health')`, `path('health/', …)`, `get '/up'`,
+// `Route::get('/up')`, `MapGet("/health", …)`, `@GetMapping("/x")`.
+// Only literals whose LAST segment is a well-known health name count.
 const HEALTH_ROUTE_LITERAL_REGEX =
-  /(?:HandleFunc|Handle|GET|Get|get|route|path|add_url_rule|url)\s*\(?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez))\/?["']/;
-const LANGUAGE_SOURCE_REGEX = /\.(go|py|rb)$/;
+  /(?:HandleFunc|Handle|GET|Get|get|Post|post|Put|put|Route|Map|path|add_url_rule|url|GetMapping|RequestMapping|value)\s*(?:\(|::)?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w.-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\/?["']/gi;
+const LANGUAGE_SOURCE_REGEX = /\.(?:go|py|rb|php|cs|java|kt|kts|scala|ex|exs)$/i;
 
 /** Ensure a captured/derived health path starts with a leading slash. */
 function normalizeHealthPath(raw: string): string {
@@ -745,6 +754,39 @@ function composeMountedPath(
   return composed ? path : undefined;
 }
 
+// ── Stage B phase 5 (COMP-005): Spring Boot helpers ─────────────────────────
+
+/** `server.servlet.context-path` from application.properties/yml, when literal. */
+function findSpringContextPath(tree: FileTree): string {
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !/(?:^|\/)application\.(?:properties|ya?ml)$/i.test(path)) continue;
+    const flat = /server\.servlet\.context-path\s*[:=]\s*"?(\/[^\s"#]*)["]?/.exec(content);
+    if (flat?.[1]) return flat[1];
+    // application.yml nests the key: `context-path: /svc` under `servlet:`.
+    const nested = /^\s*context-path\s*:\s*"?(\/[^\s"#]*)["]?/m.exec(content);
+    if (nested?.[1]) return nested[1];
+  }
+  return '';
+}
+
+/**
+ * Whether Spring Actuator's web exposure still serves health. Only an
+ * EXPLICIT configuration that excludes health disables it — the default
+ * (health exposed) stays enabled.
+ */
+function findActuatorExposure(tree: FileTree): 'enabled' | 'excluded' {
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !/(?:^|\/)application\.(?:properties|ya?ml)$/i.test(path)) continue;
+    const includeMatch = /management\.endpoints\.web\.exposure\.include\s*[:=]\s*"?([^"\s#]*)["]?/.exec(content);
+    const excludeMatch = /management\.endpoints\.web\.exposure\.exclude\s*[:=]\s*"?([^"\s#]*)["]?/.exec(content);
+    const included = includeMatch?.[1] ?? '';
+    const excluded = excludeMatch?.[1] ?? '';
+    if (excluded.includes('health')) return 'excluded';
+    if (included.length > 0 && !included.includes('health') && !included.includes('*')) return 'excluded';
+  }
+  return 'enabled';
+}
+
 /**
  * Detect a health check endpoint from Dockerfile HEALTHCHECK, package.json scripts,
  * route patterns in source code, or a file-based route path.
@@ -806,13 +848,70 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 1c. Route registrations in Go, Python and Ruby runtime source.
+  // 1c. Route registrations across frameworks (Go/Python/Ruby/PHP/.NET/JVM/
+  //     Elixir/Rails) name their health route as a plain string literal.
+  //     Stage B phase 5 (COMP-005): health-ish names now include the common
+  //     non-standard routes (/up, /status, /ping, /alive, /_health, …) — a
+  //     declaration must exist; a name is never assumed on its own.
+  const actuatorDependency = Object.entries(tree).some(
+    ([path, content]) =>
+      content &&
+      /(?:^|\/)(?:pom\.xml|build\.gradle(?:\.kts)?)$/.test(path) &&
+      /spring-boot(?:-starter)?-actuator/.test(content),
+  );
   for (const [path, content] of Object.entries(tree)) {
     if (!LANGUAGE_SOURCE_REGEX.test(path) || !content || !isRuntimeSourcePath(path)) continue;
-    const match = HEALTH_ROUTE_LITERAL_REGEX.exec(content);
-    if (match?.[1]) {
+
+    // ── Spring Boot Actuator: /actuator/health when the dependency exists and
+    //    the exposure config does not exclude health. ──
+    if (actuatorDependency && /\.(?:java|kt|kts|scala)$/.test(path)) {
+      const contextPath = findSpringContextPath(tree);
+      const exposure = findActuatorExposure(tree);
+      if (exposure !== 'excluded') {
+        sources.push(`actuator health (${path})`);
+        pathCandidates.push({
+          path: `${contextPath}/actuator/health`,
+          // The actuator default ranks BELOW an explicit route declaration in
+          // code — a controller that maps its own health path wins.
+          priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL,
+        });
+      }
+    }
+
+    // Class-level @RequestMapping("/api/v1") prefixes a controller's methods.
+    const javaPrefixes: string[] = [];
+    if (/\.(?:java|kt)$/.test(path)) {
+      for (const m of content.matchAll(/@RequestMapping\(\s*["'](\/[^"']+)["']/g)) {
+        if (m[1] && !HEALTH_PATH_SEGMENT_REGEX.test(m[1])) javaPrefixes.push(m[1]);
+      }
+    }
+
+    for (const match of content.matchAll(HEALTH_ROUTE_LITERAL_REGEX)) {
+      const raw = match[1];
+      if (!raw) continue;
+      let routePath = raw.startsWith('/') ? raw : `/${raw}`;
+      // Laravel API routes are served under /api; the file says so.
+      if (/(?:^|\/)routes\/api\.php$/i.test(path) && !routePath.startsWith('/api')) {
+        routePath = `/api${routePath}`;
+      }
+      if (javaPrefixes.length > 0 && !routePath.startsWith(javaPrefixes[0]!)) {
+        routePath = `${javaPrefixes[0]!.replace(/\/+$/, '')}${routePath}`;
+      }
       sources.push(`health route (${path})`);
-      pathCandidates.push({ path: normalizeHealthPath(match[1]), priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION });
+      pathCandidates.push({ path: routePath, priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION });
+    }
+  }
+
+  // ── Phoenix (Elixir): routes are declared inside `scope "/api/v1" do` ────
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.(?:ex|exs)$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    const scopes = [...content.matchAll(/scope\s+["'](\/[^"']*)["']/g)].map((m) => m[1] ?? '');
+    for (const match of content.matchAll(/\b(?:get|post)\s+["'](\/[^"']*)["']/g)) {
+      const raw = match[1]!;
+      if (!HEALTH_PATH_SEGMENT_REGEX.test(raw)) continue;
+      const routePath = scopes.length > 0 ? `${scopes[0]!.replace(/\/+$/, '')}${raw}` : raw;
+      sources.push(`health route (${path})`);
+      pathCandidates.push({ path: routePath, priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION });
     }
   }
 
@@ -881,6 +980,9 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     undefined,
   );
   const path = bestCandidate?.path ?? '/health';
+  // Stage B phase 5: `/` is a ROOT check (the app's own HEALTHCHECK probes the
+  // home page) — never treated as an explicit health route.
+  const mode = path === '/' ? 'root' : 'explicit';
 
   return {
     detector: 'health-endpoint',
@@ -888,6 +990,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     value: sources,
     details: `Health endpoint detected via: ${sources.join('; ')}`,
     path,
+    mode,
   };
 }
 

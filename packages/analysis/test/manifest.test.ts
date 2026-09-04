@@ -172,8 +172,13 @@ describe('evaluateManifestReadiness', () => {
     const manifest = normalizeDeploymentManifest(analysis, { port: 3000 });
     const result = evaluateManifestReadiness(manifest);
     expect(result.state).toBe('NOT_COMPATIBLE');
-    expect(result.findings.filter((f) => f.severity === 'error')).toHaveLength(1);
-    expect(result.findings[0]).toMatchObject({ id: 'unsupported', category: 'compatibility' });
+    const errors = result.findings.filter((f) => f.severity === 'error');
+    // The unsupported DB blocks; the missing health evidence is also an error
+    // (no silent /health default) but never changes the NOT_COMPATIBLE state.
+    expect(errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'unsupported' })]),
+    );
+    expect(errors.some((f) => f.id === 'health-path-required')).toBe(true);
   });
 
   it('returns NEEDS_CONFIGURATION when Dockerfile or port or start command is missing', () => {

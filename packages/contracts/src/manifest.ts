@@ -93,8 +93,20 @@ export const deploymentManifestSchema = z
       .strict(),
     health: z
       .object({
-        /** ALB/container health-check path. Defaults to `/health`. */
+        /**
+         * ALB/container health-check path. Stage B phase 5: for
+         * `vendor_required` mode this is a neutral placeholder — the manifest
+         * gate blocks the deployment, so the value is never provisioned.
+         */
         path: z.string().min(1),
+        /**
+         * How the path is known (Stage B phase 5, optional/additive):
+         * `explicit` — a declared route or HEALTHCHECK URL names it; `root` —
+         * the app's own HEALTHCHECK probes `/`; `vendor_required` — no health
+         * evidence exists and the vendor must supply one. Absent on manifests
+         * written before the field existed (legacy default behaviour).
+         */
+        mode: z.enum(['explicit', 'root', 'vendor_required']).optional(),
       })
       .strict(),
     database: z

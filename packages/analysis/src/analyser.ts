@@ -264,6 +264,18 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
 
   const metadata = buildMetadata(findings, redis, postgres);
 
+  // Stage B phase 5: surface the health endpoint's resolved path and MODE so
+  // manifest normalization never silently assumes `/health`. `vendor_required`
+  // means no health evidence exists — the deployment gate must ask the vendor.
+  const healthFinding = findings.find((f) => f.detector === 'health-endpoint');
+  if (healthFinding?.detected) {
+    metadata['healthPath'] = healthFinding.path ?? null;
+    metadata['healthMode'] = healthFinding.mode ?? 'explicit';
+  } else {
+    metadata['healthPath'] = null;
+    metadata['healthMode'] = 'vendor_required';
+  }
+
   // §11.4 — the full unsupported-reason list the manifest gate turns into
   // NOT_COMPATIBLE. Kept as plain strings on the metadata so a deployment
   // created from STORED detected_metadata blocks exactly like one created

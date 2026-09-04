@@ -531,7 +531,8 @@ describe('fixture classification (analysis → manifest → readiness)', () => {
         'CMD ["node", "src/index.js"]',
         '',
       ].join('\n'),
-      'apps/api/src/index.js': 'app.listen(process.env.PORT || 3000);\n',
+      'apps/api/src/index.js':
+        "app.get('/health', (_req, res) => res.json({ ok: true }));\napp.listen(process.env.PORT || 3000);\n",
     };
     const analysis = analyseRepo(tree);
     const manifest = normalizeDeploymentManifest(analysis, {});

@@ -57,6 +57,29 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/**
+ * The manifest health section (Stage B phase 5). A vendor-supplied path is
+ * always `explicit`; otherwise the analysed health mode decides: `root` when
+ * the app's own HEALTHCHECK probes `/`, `explicit` when a route/HEALTHCHECK
+ * URL names the path, and `vendor_required` when there is NO health evidence —
+ * no silent `/health` assumption (the deployment gate blocks that case). Only
+ * metadata written before the mode existed keeps the historical default.
+ */
+function normalizeHealthSection(
+  overridePath: string | null | undefined,
+  meta: Record<string, unknown>,
+): DeploymentManifest['health'] {
+  if (overridePath !== undefined && overridePath !== null) {
+    return { path: overridePath, mode: 'explicit' };
+  }
+  const mode = meta['healthMode'];
+  const metaPath = typeof meta['healthPath'] === 'string' ? meta['healthPath'] : null;
+  if (mode === 'root') return { path: metaPath ?? '/', mode: 'root' };
+  if (mode === 'explicit') return { path: metaPath ?? '/health', mode: 'explicit' };
+  if (mode === 'vendor_required') return { path: '/', mode: 'vendor_required' };
+  return { path: '/health' };
+}
+
 /** A binding semantic expressible in the manifest vocabulary, or null for the read-model-only ones. */
 function toManifestKind(semantic: BindingSemantic): ManifestEnvBinding['kind'] | null {
   switch (semantic) {
@@ -285,9 +308,7 @@ export function normalizeDeploymentManifest(
           ? Number.parseInt(meta['port'], 10) || null
           : null),
     },
-    health: {
-      path: overrides.healthPath ?? '/health',
-    },
+    health: normalizeHealthSection(overrides.healthPath, meta),
     database: {
       postgres: postgresRequired,
       // Stage B phase 2: the names the RDS URL/parts are injected under —
@@ -406,6 +427,16 @@ export function evaluateManifestReadiness(
       category: 'application',
       severity: 'error',
       message: 'No start command was found; the container would boot with nothing to run.',
+    });
+  }
+  if (manifest.health.mode === 'vendor_required') {
+    errors.push({
+      id: 'health-path-required',
+      category: 'health',
+      severity: 'error',
+      message:
+        'No health check route or container health check was found, so Deployz does not know when the app is ready. ' +
+        'Expose a health route (for example /health) or add a container health check before deploying.',
     });
   }
 
