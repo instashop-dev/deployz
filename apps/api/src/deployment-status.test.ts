@@ -892,6 +892,30 @@ describe('step derivation — snapshot-driven provisioning ladder', () => {
     });
     expect(status.step).toBe('APPLICATION');
   });
+
+  it('never regresses to a step whose completion is already persisted, even if the snapshot flips its category back', () => {
+    // Observed live: the service's security-group rules (network category)
+    // were created after the database finished, so the snapshot reported
+    // network IN_PROGRESS again while stepTimings already held NETWORK and
+    // DATABASE_STORAGE as completed.
+    const status = derive({
+      deployment: makeDeployment({
+        state: 'INSTALLING',
+        observedState: snapshotObservedState({
+          network: { status: 'IN_PROGRESS', startedAt: 't0' },
+          database: { status: 'COMPLETE', startedAt: 't0', completedAt: 't2' },
+          application: { status: 'IN_PROGRESS' },
+        }),
+        stepTimings: {
+          NETWORK: { startedAt: 't0', completedAt: 't1' },
+          DATABASE_STORAGE: { startedAt: 't0', completedAt: 't2' },
+        },
+      }),
+      application: makeApplication({ databaseRequired: true }),
+      jobs: [makeJob({ state: 'RUNNING' })],
+    });
+    expect(status.step).toBe('APPLICATION');
+  });
 });
 
 describe('applicable steps list', () => {

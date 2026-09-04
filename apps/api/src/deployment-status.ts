@@ -677,13 +677,23 @@ function snapshotCompletedAt(
  * merged category is not COMPLETE. Returns null when there is no snapshot
  * at all — the caller decides the fallback (PREPARING for an in-flight
  * install, the FAILURE_COMPONENT map for a failed one).
+ *
+ * A step whose completion is already persisted in the write-once
+ * `stepTimings` stays complete whatever a later snapshot says: a category
+ * can flip back to IN_PROGRESS after it was reported COMPLETE (observed
+ * live: the ECS service's security-group rules — "network" resources —
+ * were created minutes after the database, and the step visibly regressed
+ * from "Database & storage" to "Creating network"). The ladder only ever
+ * moves forward.
  */
 function provisioningLadderStep(
   snapshot: ProvisioningSnapshot | null,
   application: DerivationApplication,
+  persisted: DerivationDeployment['stepTimings'],
 ): DeploymentStep | null {
   if (!snapshot) return null;
-  const complete = (step: DeploymentStep): boolean => snapshotCompletedAt(snapshot, step, application) !== null;
+  const complete = (step: DeploymentStep): boolean =>
+    persisted?.[step]?.completedAt !== undefined || snapshotCompletedAt(snapshot, step, application) !== null;
 
   if (!complete('NETWORK')) return 'NETWORK';
   const databaseStorageRequired = (application.databaseRequired ?? false) || (application.storageRequired ?? false);
@@ -1012,7 +1022,9 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     case 'PROVISIONING':
       step =
         failedCategoryStep ??
-        (snapshotRollingBack ? 'PREPARING' : (provisioningLadderStep(snapshot, application) ?? 'PREPARING'));
+        (snapshotRollingBack
+          ? 'PREPARING'
+          : (provisioningLadderStep(snapshot, application, deployment.stepTimings) ?? 'PREPARING'));
       currentActivity = PROVISIONING_STEP_ACTIVITY[step as keyof typeof PROVISIONING_STEP_ACTIVITY];
       break;
     case 'VERIFYING':
@@ -1033,7 +1045,8 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
       // provisioning at all, so it is attributed to APPLICATION uniformly.
       if (latestFailed?.type === 'INSTALL') {
         const ladderStep =
-          failedCategoryStep ?? (snapshotRollingBack ? null : provisioningLadderStep(snapshot, application));
+          failedCategoryStep ??
+          (snapshotRollingBack ? null : provisioningLadderStep(snapshot, application, deployment.stepTimings));
         if (ladderStep) {
           step = ladderStep;
         } else {
