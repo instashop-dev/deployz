@@ -12,6 +12,8 @@ import { createFixtureAiGateway } from './ai-fixture.js';
 import {
   buildFixInstructionsContext,
   effectiveReadinessReport,
+  fixInstructionsCacheKey,
+  readCachedFixInstructions,
   readReadinessReport,
   readinessResolution,
   type FixInstructionsSource,
@@ -277,5 +279,45 @@ describe('effectiveReadinessReport — vendor configuration resolves findings', 
         detectedMetadata: { readiness: stored, manifestOverrides: { startCommand: 'node x.js' } },
       }),
     ).toBeNull();
+  });
+});
+
+
+describe('fixInstructionsCacheKey / readCachedFixInstructions', () => {
+  const source: FixInstructionsSource = {
+    repoFullName: 'acme/app',
+    containerPort: null,
+    healthPath: null,
+    migrationCommand: null,
+    redisRequired: false,
+    detectedMetadata: { readiness: report(), analysisCommitSha: 'abc', runtime: 'node' },
+  };
+  const context = buildFixInstructionsContext(source)!;
+
+  it('is deterministic and includes the runtime fact', () => {
+    expect(fixInstructionsCacheKey(context, 13)).toBe(fixInstructionsCacheKey(context, 13));
+    expect(fixInstructionsCacheKey(context, 13)).toMatch(/^[0-9a-f]{64}$/);
+    expect(context.facts.runtime).toBe('node');
+  });
+
+  it('changes with the commit, the analysis version, a fact, or a finding', () => {
+    const base = fixInstructionsCacheKey(context, 13);
+    expect(fixInstructionsCacheKey({ ...context, commitSha: 'def' }, 13)).not.toBe(base);
+    expect(fixInstructionsCacheKey(context, 14)).not.toBe(base);
+    expect(fixInstructionsCacheKey({ ...context, facts: { ...context.facts, port: '8080' } }, 13)).not.toBe(base);
+    expect(
+      fixInstructionsCacheKey({ ...context, findings: [{ ...context.findings[0]!, confidence: 'confirmed' }] }, 13),
+    ).not.toBe(base);
+    expect(fixInstructionsCacheKey(context, 'not-a-number')).toBe(fixInstructionsCacheKey(context, null));
+  });
+
+  it('reads a stored document only for exactly its key, and never a partial one', () => {
+    const key = fixInstructionsCacheKey(context, 13);
+    const stored = { key, instructions: '# doc', generatedAt: '2026-09-05T10:00:00.000Z' };
+    expect(readCachedFixInstructions({ fixInstructions: stored }, key)).toEqual(stored);
+    expect(readCachedFixInstructions({ fixInstructions: stored }, 'other')).toBeNull();
+    expect(readCachedFixInstructions({ fixInstructions: { key, instructions: '' } }, key)).toBeNull();
+    expect(readCachedFixInstructions({}, key)).toBeNull();
+    expect(readCachedFixInstructions(null, key)).toBeNull();
   });
 });

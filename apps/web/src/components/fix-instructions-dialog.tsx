@@ -12,7 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { generateFixInstructions, type FixInstructions } from '@/lib/readiness';
+import {
+  FIX_INSTRUCTIONS_REUSED_NOTE,
+  fixInstructionsGeneratedLabel,
+  generateFixInstructions,
+  type FixInstructions,
+} from '@/lib/readiness';
 
 // Fix-instructions dialog — generates the consolidated coding-agent prompt
 // for the unresolved readiness findings and hands it to the vendor to paste
@@ -42,9 +47,9 @@ export function FixInstructionsDialog({
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const generate = useCallback(() => {
+  const generate = useCallback((options: { regenerate?: boolean } = {}) => {
     setState({ status: 'generating' });
-    generateFixInstructions(applicationId)
+    generateFixInstructions(applicationId, options)
       .then((result) => setState({ status: 'done', result }))
       .catch((error: unknown) =>
         setState({
@@ -57,8 +62,8 @@ export function FixInstructionsDialog({
       );
   }, [applicationId]);
 
-  // Generate on open; regenerate starts fresh each time the dialog reopens so
-  // the instructions always reflect the current analysis.
+  // Generate on open. The API reuses the document it already produced for
+  // this analysis and finding set; Regenerate asks for a fresh one.
   useEffect(() => {
     if (open) generate();
   }, [open, generate]);
@@ -116,7 +121,7 @@ export function FixInstructionsDialog({
               variant="outline"
               size="sm"
               data-testid="fix-instructions-retry"
-              onClick={generate}
+              onClick={() => generate()}
             >
               Try again
             </Button>
@@ -131,6 +136,10 @@ export function FixInstructionsDialog({
             >
               {state.result.instructions}
             </pre>
+            <p className="text-xs text-muted-foreground" data-testid="fix-instructions-generated">
+              {fixInstructionsGeneratedLabel(state.result.generatedAt)}
+              {state.result.cached ? ` · ${FIX_INSTRUCTIONS_REUSED_NOTE}` : ''}
+            </p>
             <p className="text-sm text-muted-foreground">
               After making the changes, test them, push them to GitHub, then return to Deployz and
               analyse the latest commit.
@@ -146,7 +155,7 @@ export function FixInstructionsDialog({
                 variant="ghost"
                 size="sm"
                 data-testid="fix-instructions-regenerate"
-                onClick={generate}
+                onClick={() => generate({ regenerate: true })}
               >
                 Regenerate
               </Button>

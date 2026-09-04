@@ -71,7 +71,12 @@ import {
   type ReadyCheck,
   type UnsupportedCheck,
 } from './analysis.js';
-import { buildFixInstructionsContext, effectiveReadinessReport } from './fix-instructions.js';
+import {
+  buildFixInstructionsContext,
+  effectiveReadinessReport,
+  fixInstructionsCacheKey,
+  readCachedFixInstructions,
+} from './fix-instructions.js';
 import {
   createCheckoutSession,
   createStripe,
@@ -307,6 +312,8 @@ const CONTRACT_FIELDS = [
  * recorded as claimed column fields. `redisRequired` IS column-backed and stays
  * in CONTRACT_FIELDS above.
  */
+const fixInstructionsBodySchema = z.object({ regenerate: z.boolean().optional() });
+
 const MANIFEST_OVERRIDE_FIELDS = [
   'appRoot',
   'dockerfilePath',
@@ -2621,13 +2628,32 @@ export async function buildServer({
         );
       }
 
+      // Same commit, same analysis version, same findings → the same
+      // document. Reuse it instead of paying for another generation; the
+      // vendor can still ask for a fresh one. A re-analysis replaces
+      // detected_metadata wholesale, which drops the cache on its own.
+      const key = fixInstructionsCacheKey(context, application.detectedMetadata?.['analysisVersion']);
+      const { regenerate } = fixInstructionsBodySchema.parse(request.body ?? {});
+      const cached = regenerate ? null : readCachedFixInstructions(application.detectedMetadata, key);
+      if (cached) {
+        return { instructions: cached.instructions, generatedAt: cached.generatedAt, cached: true };
+      }
+
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), FIX_INSTRUCTIONS_TIMEOUT_MS);
       try {
         const instructions = await generateFixInstructions(context, aiGateway, {
           abortSignal: controller.signal,
         });
-        return { instructions, generatedAt: new Date().toISOString() };
+        const generatedAt = new Date().toISOString();
+        const fresh = await loadOwnedApplication(db, id, organizationId);
+        await db
+          .update(schema.applications)
+          .set({
+            detectedMetadata: { ...fresh.detectedMetadata, fixInstructions: { key, instructions, generatedAt } },
+          })
+          .where(eq(schema.applications.id, id));
+        return { instructions, generatedAt, cached: false };
       } catch (error) {
         // Every AI failure (unconfigured gateway, timeout, malformed output,
         // spend limit) is the same retryable condition to the vendor.

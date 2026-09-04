@@ -440,10 +440,23 @@ export async function fetchReadiness(applicationId: string): Promise<Application
 
 // ── Fix instructions ────────────────────────────────────────────────────────
 
+/** "Generated 5 Sept 2026, 14:02" — when the document was produced. */
+export function fixInstructionsGeneratedLabel(generatedAt: string): string {
+  const date = new Date(generatedAt);
+  if (Number.isNaN(date.getTime())) return 'Generated for this analysis';
+  return `Generated ${date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
+/** The reuse note shown when the document came from the cache. */
+export const FIX_INSTRUCTIONS_REUSED_NOTE =
+  'Reused the instructions generated earlier for this analysis. Regenerate to write them again.';
+
 /** A successful fix-instructions generation. */
 export interface FixInstructions {
   instructions: string;
   generatedAt: string;
+  /** True when the document was reused from an earlier generation for the same analysis. */
+  cached: boolean;
 }
 
 /**
@@ -451,10 +464,18 @@ export interface FixInstructions {
  * Generation is read-only: it never changes findings or the readiness state.
  * Every failure is retryable — the API's message says so in plain English.
  */
-export async function generateFixInstructions(applicationId: string): Promise<FixInstructions> {
+export async function generateFixInstructions(
+  applicationId: string,
+  options: { regenerate?: boolean } = {},
+): Promise<FixInstructions> {
   const response = await fetch(
     `${apiUrl}/api/applications/${encodeURIComponent(applicationId)}/fix-instructions`,
-    { method: 'POST', credentials: 'include' },
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ regenerate: options.regenerate === true }),
+    },
   );
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
