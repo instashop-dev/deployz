@@ -44,6 +44,24 @@ export interface DeployzInstall {
   readonly api: DeployzApi;
 }
 
+/**
+ * Deploy Links (docs/deploy-links.md) variant of `deployzInstall`: the
+ * vendor generates a tokenized deploy link instead of creating the
+ * deployment directly, and the customer's launch signal goes through the
+ * PUBLIC deploy-link routes (x-deployz-token header) — the same relay then
+ * enrolls with the same enrollment code, proving the link is a thin entry
+ * point into the ONE pipeline.
+ */
+export interface DeployzLinkInstall {
+  readonly deploymentId: string;
+  readonly deployLinkPublicId: string;
+  readonly deployLinkToken: string;
+  readonly enrollmentCode: string;
+  readonly installationId: string;
+  readonly relay: SimulatedRelayHandle | undefined;
+  readonly api: DeployzApi;
+}
+
 function buildApi(request: APIRequestContext): DeployzApi {
   return {
     async getDeployment(deploymentId) {
@@ -95,24 +113,11 @@ async function signUp(request: APIRequestContext, suffix: string): Promise<void>
   }
 }
 
-/** Seeds one real application + customer + deployment for the signed-up
- *  org, then performs the customer's "Deploy to AWS" launch signal — mirrors
- *  seedDeployment in e2e/deployment-progress.spec.ts plus the `/launched`
- *  step from e2e/install.spec.ts.
- *
- *  `repoFullName` is an additive option for the redis-failure scenario: when
- *  given, it also drives the REAL analyser (`POST /api/applications/:id/
- *  analyse`) against that GITHUB_FIXTURE_MODE repo — mirroring
- *  e2e/redis.spec.ts's seedAnalysedApplication — so `redisRequired` (and any
- *  other detected metadata) reflects production analysis instead of a
- *  hand-set flag. The analyse call runs inline (no queue configured
- *  locally), so `analysisStatus` is already COMPLETE by the time it
- *  resolves. */
-async function seedAndLaunch(
+async function seedAppAndCustomer(
   request: APIRequestContext,
   suffix: string,
   options: { repoFullName?: string } = {},
-): Promise<{ deploymentId: string; installLinkId: string; enrollmentCode: string }> {
+): Promise<{ applicationId: string; customerId: string }> {
   const repoFullName = options.repoFullName ?? `deployz-demo/scenario-${suffix}`;
   const appResponse = await request.post(`${API_URL}/api/applications`, {
     data: {
@@ -166,8 +171,31 @@ async function seedAndLaunch(
   }
   const customer = (await customerResponse.json()) as { id: string };
 
+  return { applicationId: application.id, customerId: customer.id };
+}
+
+/** Seeds one real application + customer + deployment for the signed-up
+ *  org, then performs the customer's "Deploy to AWS" launch signal — mirrors
+ *  seedDeployment in e2e/deployment-progress.spec.ts plus the `/launched`
+ *  step from e2e/install.spec.ts.
+ *
+ *  `repoFullName` is an additive option for the redis-failure scenario: when
+ *  given, it also drives the REAL analyser (`POST /api/applications/:id/
+ *  analyse`) against that GITHUB_FIXTURE_MODE repo — mirroring
+ *  e2e/redis.spec.ts's seedAnalysedApplication — so `redisRequired` (and any
+ *  other detected metadata) reflects production analysis instead of a
+ *  hand-set flag. The analyse call runs inline (no queue configured
+ *  locally), so `analysisStatus` is already COMPLETE by the time it
+ *  resolves. */
+async function seedAndLaunch(
+  request: APIRequestContext,
+  suffix: string,
+  options: { repoFullName?: string } = {},
+): Promise<{ deploymentId: string; installLinkId: string; enrollmentCode: string }> {
+  const { applicationId, customerId } = await seedAppAndCustomer(request, suffix, options);
+
   const deploymentResponse = await request.post(`${API_URL}/api/deployments`, {
-    data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+    data: { applicationId, customerId, region: 'us-east-1' },
   });
   if (!deploymentResponse.ok()) {
     throw new Error(`create deployment failed: ${deploymentResponse.status()} ${await deploymentResponse.text()}`);
@@ -248,6 +276,11 @@ export const test = base.extend<{
    * request-based `deployzInstall` above is untouched.
    */
   deployzBrowserInstall: DeployzInstall;
+  /** Additive (Deploy Links Phase 9): generate a deploy link via the real
+   *  vendor route, then resolve + launch through the public token-header
+   *  routes before the simulated relay enrolls with the deployment's
+   *  enrollment code. */
+  deployzLinkInstall: DeployzLinkInstall;
 }>({
   // Playwright "option" fixture — settable per file/describe/test with
   // `test.use({ deployzScenario: '...' })`; defaults to the happy path.
@@ -339,6 +372,72 @@ export const test = base.extend<{
         enrollmentCode,
         relay,
         api: buildApi(page.request),
+      });
+    } finally {
+      relay?.stop();
+    }
+  },
+
+  deployzLinkInstall: async (
+    { request, deployzScenario, deployzStartRelay, deployzRelayOptions },
+    use,
+  ) => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    await signUp(request, suffix);
+    const { applicationId, customerId } = await seedAppAndCustomer(request, suffix);
+
+    const generate = await request.post(`${API_URL}/api/customers/${customerId}/deploy-links`, {
+      data: { applicationId, region: 'us-east-1' },
+    });
+    if (!generate.ok()) {
+      throw new Error(`generate deploy link failed: ${generate.status()} ${await generate.text()}`);
+    }
+    const generated = (await generate.json()) as {
+      link: { id: string };
+      deployment: { id: string; enrollmentCode: string };
+      token: string;
+    };
+
+    // The customer opens the hosted page and presses "Deploy to AWS": both
+    // steps go through the PUBLIC deploy-link routes with the secret in the
+    // x-deployz-token header — no session, no install link involved.
+    const tokenHeaders = { 'x-deployz-token': generated.token };
+    const resolveResponse = await request.get(
+      `${API_URL}/api/deploy-links/${generated.link.id}`,
+      { headers: tokenHeaders },
+    );
+    if (!resolveResponse.ok()) {
+      throw new Error(`resolve deploy link failed: ${resolveResponse.status()}`);
+    }
+    const launch = await request.post(
+      `${API_URL}/api/deploy-links/${generated.link.id}/launched`,
+      { headers: tokenHeaders, data: {} },
+    );
+    if (!launch.ok()) {
+      throw new Error(`deploy-link launch failed: ${launch.status()}`);
+    }
+
+    const installationId = `inst-${suffix}`;
+    const relay = deployzStartRelay
+      ? startSimulatedRelay({
+          scenario: getScenario(deployzScenario),
+          apiUrl: API_URL,
+          installationId,
+          enrollmentCode: generated.deployment.enrollmentCode,
+          relayToken: `e2e-deploy-link-relay-${suffix}`,
+          ...deployzRelayOptions,
+        })
+      : undefined;
+
+    try {
+      await use({
+        deploymentId: generated.deployment.id,
+        deployLinkPublicId: generated.link.id,
+        deployLinkToken: generated.token,
+        enrollmentCode: generated.deployment.enrollmentCode,
+        installationId,
+        relay,
+        api: buildApi(request),
       });
     } finally {
       relay?.stop();
