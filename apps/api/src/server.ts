@@ -2886,8 +2886,12 @@ export async function buildServer({
         // Idempotent: reopening the CloudFormation console is not a new attempt.
         return { state: deployment.state };
       }
-      await db.transaction(async (tx) => {
-        await tx
+      const launched = await db.transaction(async (tx) => {
+        // The state guard closes the double-submit window: two tabs (or a
+        // refresh racing a retry) can both pass the NOT_INSTALLED check
+        // above, but only the first UPDATE matches — the waiting state and
+        // the launch event are recorded exactly once.
+        const updated = await tx
           .update(schema.deployments)
           .set({
             state: 'WAITING_FOR_RELAY',
@@ -2898,7 +2902,20 @@ export async function buildServer({
               attempt: deployment.attemptNumber,
             }),
           })
-          .where(eq(schema.deployments.id, deployment.id));
+          .where(
+            and(
+              eq(schema.deployments.id, deployment.id),
+              eq(schema.deployments.state, 'NOT_INSTALLED'),
+            ),
+          )
+          .returning();
+        if (updated.length === 0) {
+          const [current] = await tx
+            .select({ state: schema.deployments.state })
+            .from(schema.deployments)
+            .where(eq(schema.deployments.id, deployment.id));
+          return current?.state ?? deployment.state;
+        }
         await recordEvent(tx, {
           organizationId: deployment.organizationId,
           eventType: 'deploy_link.launched',
@@ -2909,8 +2926,9 @@ export async function buildServer({
           previousState: deployment.state,
           requestedState: 'WAITING_FOR_RELAY',
         });
+        return 'WAITING_FOR_RELAY';
       });
-      return { state: 'WAITING_FOR_RELAY' };
+      return { state: launched };
     },
   );
 
