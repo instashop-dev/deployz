@@ -705,4 +705,96 @@ describe('deploy links', () => {
     const response = await domainCheck(publicId, token);
     expect(response.statusCode).toBe(404);
   });
+
+  // ── Phase 4: the reused AWS connection flow, proven for deploy links ──────
+
+  it('a link revoked mid-connection can no longer read status or launch (410)', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    await launched(publicId, token);
+    await db.update(schema.deployLinks).set({ revokedAt: new Date() }).where(eq(schema.deployLinks.id, publicId));
+
+    const statusAfter = await status(publicId, token);
+    expect(statusAfter.statusCode).toBe(410);
+    expect(statusAfter.json()).toMatchObject({ error: { code: 'DEPLOY_LINK_REVOKED' } });
+
+    const launchedAfter = await launched(publicId, token);
+    expect(launchedAfter.statusCode).toBe(410);
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    // The running deployment itself is untouched — revocation kills the link,
+    // never the customer's in-flight infrastructure.
+    expect(deployment!.state).toBe('WAITING_FOR_RELAY');
+  });
+
+  it('resolve reflects the waiting state so reopening the link resumes the same deployment', async () => {
+    const { publicId, token } = await createLink();
+    await launched(publicId, token);
+
+    const response = await resolveLink(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as { waitingForRelay: boolean; deploymentState: string; quickCreateUrl: string | null };
+    expect(body.waitingForRelay).toBe(true);
+    expect(body.deploymentState).toBe('WAITING_FOR_RELAY');
+    // The enrollment code is only spent when a relay actually connects, so
+    // the customer can re-open the CloudFormation console from the same link.
+    expect(typeof body.quickCreateUrl).toBe('string');
+  });
+
+  it('a failed install reaches the customer projection as a normalized failure', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    await db.update(schema.deployments).set({ state: 'FAILED' }).where(eq(schema.deployments.id, deploymentId));
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId,
+      type: 'INSTALL',
+      state: 'FAILED',
+      failureCode: 'STACK_CREATE_FAILED',
+      idempotencyKey: `${deploymentId}:INSTALL`,
+      payload: {},
+    });
+
+    const response = await status(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as { stage: string; failure: { customerMessage: string } | null };
+    expect(body.stage).toBe('FAILED');
+    expect(body.failure?.customerMessage).toBeTruthy();
+    // §65: no raw CloudFormation status, stack names or role ARNs in the
+    // customer projection.
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('STACK_CREATE_FAILED');
+    expect(serialized).not.toContain('arn:');
+  });
+
+  it('a relay outage surfaces as statusUpdatesUnavailable, never as a fake failure', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    await db
+      .update(schema.deployments)
+      .set({ state: 'HEALTHY', healthStatus: 'HEALTHY', relayStatus: 'DISCONNECTED' })
+      .where(eq(schema.deployments.id, deploymentId));
+
+    const response = await status(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as { stage: string; statusUpdatesUnavailable: boolean };
+    expect(body.stage).not.toBe('FAILED');
+    expect(body.statusUpdatesUnavailable).toBe(true);
+  });
+
+  it('the deploy-link token grants no relay (AWS) permissions', async () => {
+    const { token } = await createLink();
+    // Relay routes authenticate with the relay's own bearer token, minted
+    // inside the customer's account — a deploy-link token is not one.
+    const commands = await app.inject({
+      method: 'GET',
+      url: '/api/relay/commands',
+      headers: { 'x-deployz-token': token },
+    });
+    expect(commands.statusCode).toBe(401);
+
+    const register = await app.inject({
+      method: 'POST',
+      url: '/api/relay/register',
+      headers: { 'x-deployz-token': token, 'content-type': 'application/json' },
+      payload: JSON.stringify({ installationId: 'inst-evil', enrollmentCode: 'code' }),
+    });
+    expect(register.statusCode).toBe(401);
+  });
 });
