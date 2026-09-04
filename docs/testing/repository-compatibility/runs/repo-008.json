@@ -1,33 +1,33 @@
 {
-  "id": "repo-001",
-  "repository": "umami-software/umami",
-  "commit": "ca661c7057984aa98ed4f7083d84dae2f65bfcb0",
+  "id": "repo-008",
+  "repository": "TwiN/gatus",
+  "commit": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
   "set": "improvement",
   "cohort": "realistic",
   "customerRealism": "high",
-  "difficulty": 3,
+  "difficulty": 1,
   "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
   "analysisVersion": 6,
   "tree": {
-    "files": 201,
-    "entries": 1981,
+    "files": 28,
+    "entries": 497,
     "truncated": false
   },
   "expected": {
     "compatibility": "READY",
     "runtime": [
-      "node"
+      "go"
     ],
     "monorepo": false,
-    "postgres": true,
+    "postgres": false,
     "redis": false,
     "worker": false,
     "storage": false,
-    "migration": true,
+    "migration": false,
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": 3000,
-    "healthPath": "/api/heartbeat",
+    "port": 8080,
+    "healthPath": "/health",
     "unsupported": []
   },
   "status": "analysed",
@@ -39,49 +39,44 @@
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": 3000,
-    "startCommand": "CMD: [\"sh\", \"scripts/start-docker.sh\"]",
-    "healthDetected": true,
-    "healthPath": "/api/heartbeat",
-    "postgres": true,
+    "port": null,
+    "startCommand": "ENTRYPOINT: [\"/gatus\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
     "postgresDetected": true,
-    "redis": true,
-    "redisDetected": true,
-    "redisConfidence": "high",
-    "storage": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "prisma migrate",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [
-      "CI",
-      "COLLECT_API_ENDPOINT",
-      "DATABASE_URL",
-      "DISABLE_LOGIN",
-      "ENABLE_TEST_CONSOLE",
-      "GEO_DATABASE_URL",
-      "MAXMIND_LICENSE_KEY",
-      "NODE_ENV",
-      "PLAYWRIGHT_SKIP_WEB_SERVER",
-      "TRACKER_SCRIPT_NAME",
-      "TRACKER_SCRIPT_URL",
-      "VERCEL"
+      "BASE_URL"
     ],
     "unsupported": [
-      "kafka",
-      "local-filesystem"
+      "docker-compose-multi-service",
+      "sqlite"
     ],
     "readinessFindings": [
-      "unsupported-message-queue",
-      "local-file-storage"
+      "unsupported-database-sqlite",
+      "unsupported-multi-service",
+      "health-check",
+      "database-migrations"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
+      "port-missing",
       "required-env-vars-missing"
     ],
-    "unresolvedQuestions": []
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "database-requirement-unclear"
+    ]
   },
   "comparisons": [
     {
@@ -93,16 +88,15 @@
     },
     {
       "fact": "postgres",
-      "expected": true,
-      "actual": true,
+      "expected": false,
+      "actual": false,
       "match": true
     },
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -113,13 +107,14 @@
     {
       "fact": "storage",
       "expected": false,
-      "actual": false,
-      "match": true
+      "actual": true,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "migration",
-      "expected": true,
-      "actual": true,
+      "expected": false,
+      "actual": false,
       "match": true
     },
     {
@@ -136,22 +131,24 @@
     },
     {
       "fact": "port",
-      "expected": 3000,
-      "actual": 3000,
-      "match": true
+      "expected": 8080,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "healthPath",
-      "expected": "/api/heartbeat",
-      "actual": "/api/heartbeat",
-      "match": true
+      "expected": "/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "kafka",
-        "local-filesystem"
+        "docker-compose-multi-service",
+        "sqlite"
       ],
       "match": false,
       "kind": "fact"
@@ -169,13 +166,33 @@
       }
     },
     {
-      "fact": "redis",
+      "fact": "storage",
       "kind": "fact",
       "expected": false,
       "actual": true,
       "finding": {
-        "id": "COMP-011",
+        "id": "COMP-012",
         "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8080,
+      "actual": null,
+      "finding": {
+        "id": "COMP-001",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/health",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
     {
@@ -183,8 +200,8 @@
       "kind": "fact",
       "expected": [],
       "actual": [
-        "kafka",
-        "local-filesystem"
+        "docker-compose-multi-service",
+        "sqlite"
       ],
       "finding": {
         "id": "COMP-002",

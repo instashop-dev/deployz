@@ -1,0 +1,254 @@
+{
+  "id": "repo-015",
+  "repository": "immich-app/immich",
+  "commit": "6d85f202f4e20fdcf400984bef4b890319b9c002",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
+  "analysisVersion": 6,
+  "tree": {
+    "files": 198,
+    "entries": 4074,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node",
+      "python"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "storage": false,
+    "migration": true,
+    "appRoot": "server",
+    "dockerfilePath": "server/Dockerfile",
+    "port": 2283,
+    "healthPath": "/api/server/ping",
+    "unsupported": [
+      "docker-compose-multi-service",
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": "machine-learning",
+    "dockerfilePath": "machine-learning/Dockerfile",
+    "port": null,
+    "startCommand": "CMD: [\"python\", \"-m\", \"immich_ml\"]",
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": false,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": true,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "sql-tools -u ${DB_URL:-postgres://postgres:postgres@localhost:5432/immich} migrations generate --debug",
+    "externalServices": [
+      "smtp"
+    ],
+    "requiredEnvVars": [
+      "CI",
+      "DB_URL",
+      "GITHUB_ENV",
+      "LD_LIBRARY_PATH",
+      "MACHINE_LEARNING_DEVICE_ID",
+      "MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL",
+      "MACHINE_LEARNING_PRELOAD__CLIP__VISUAL",
+      "MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__DETECTION",
+      "MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__RECOGNITION",
+      "MACHINE_LEARNING_PRELOAD__OCR__DETECTION",
+      "MACHINE_LEARNING_PRELOAD__OCR__RECOGNITION",
+      "PLAYWRIGHT_DISABLE_WEBSERVER",
+      "PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service",
+      "gpu",
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "unsupported-gpu",
+      "local-file-storage",
+      "database-migrations",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "unsupported",
+      "port-missing",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target",
+      "database-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": "server",
+      "actual": "machine-learning",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "server/Dockerfile",
+      "actual": "machine-learning/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 2283,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/server/ping",
+      "actual": "/health",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "local-filesystem"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "gpu",
+        "local-filesystem"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-013",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": "server",
+      "actual": "machine-learning",
+      "finding": {
+        "id": "COMP-007",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "server/Dockerfile",
+      "actual": "machine-learning/Dockerfile",
+      "finding": {
+        "id": "COMP-007",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 2283,
+      "actual": null,
+      "finding": {
+        "id": "COMP-001",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/api/server/ping",
+      "actual": "/health",
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "docker-compose-multi-service",
+        "local-filesystem"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "gpu",
+        "local-filesystem"
+      ],
+      "finding": {
+        "id": "COMP-007",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

@@ -1,16 +1,16 @@
 {
-  "id": "repo-001",
-  "repository": "umami-software/umami",
-  "commit": "ca661c7057984aa98ed4f7083d84dae2f65bfcb0",
+  "id": "repo-002",
+  "repository": "Unleash/unleash",
+  "commit": "0429c292c9f8d662c418958e627ce8f9e6e71ed4",
   "set": "improvement",
   "cohort": "realistic",
   "customerRealism": "high",
-  "difficulty": 3,
+  "difficulty": 2,
   "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
   "analysisVersion": 6,
   "tree": {
     "files": 201,
-    "entries": 1981,
+    "entries": 8033,
     "truncated": false
   },
   "expected": {
@@ -18,7 +18,7 @@
     "runtime": [
       "node"
     ],
-    "monorepo": false,
+    "monorepo": true,
     "postgres": true,
     "redis": false,
     "worker": false,
@@ -26,70 +26,59 @@
     "migration": true,
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": 3000,
-    "healthPath": "/api/heartbeat",
+    "port": 4242,
+    "healthPath": "/health",
     "unsupported": []
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": 3000,
-    "startCommand": "CMD: [\"sh\", \"scripts/start-docker.sh\"]",
-    "healthDetected": true,
-    "healthPath": "/api/heartbeat",
+    "port": null,
+    "startCommand": "CMD: [\"node\", \"dist/server.js\"]",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
-    "redisDetected": true,
-    "redisConfidence": "high",
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
     "storage": false,
     "worker": false,
     "workerCommand": null,
     "migration": true,
-    "migrationCommand": "prisma migrate",
-    "externalServices": [],
+    "migrationCommand": "mkdir -p dist/migrations && cp src/migrations/package.json dist/migrations/",
+    "externalServices": [
+      "smtp"
+    ],
     "requiredEnvVars": [
-      "CI",
-      "COLLECT_API_ENDPOINT",
-      "DATABASE_URL",
-      "DISABLE_LOGIN",
-      "ENABLE_TEST_CONSOLE",
-      "GEO_DATABASE_URL",
-      "MAXMIND_LICENSE_KEY",
-      "NODE_ENV",
-      "PLAYWRIGHT_SKIP_WEB_SERVER",
-      "TRACKER_SCRIPT_NAME",
-      "TRACKER_SCRIPT_URL",
-      "VERCEL"
+      "UNLEASH_OPENAPI_URL"
     ],
-    "unsupported": [
-      "kafka",
-      "local-filesystem"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-message-queue",
-      "local-file-storage"
+      "health-check",
+      "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
+      "port-missing",
       "required-env-vars-missing"
     ],
-    "unresolvedQuestions": []
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "match": false,
-      "kind": "false-rejection"
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -100,9 +89,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -136,58 +124,53 @@
     },
     {
       "fact": "port",
-      "expected": 3000,
-      "actual": 3000,
-      "match": true
+      "expected": 4242,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "healthPath",
-      "expected": "/api/heartbeat",
-      "actual": "/api/heartbeat",
-      "match": true
+      "expected": "/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "kafka",
-        "local-filesystem"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
     {
       "fact": "compatibility",
-      "kind": "false-rejection",
+      "kind": "configuration-detection",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "finding": {
-        "id": "COMP-002",
+        "id": "COMP-001",
         "type": "ANALYSIS_BUG"
       }
     },
     {
-      "fact": "redis",
+      "fact": "port",
       "kind": "fact",
-      "expected": false,
-      "actual": true,
+      "expected": 4242,
+      "actual": null,
       "finding": {
-        "id": "COMP-011",
+        "id": "COMP-001",
         "type": "ANALYSIS_BUG"
       }
     },
     {
-      "fact": "unsupported",
+      "fact": "healthPath",
       "kind": "fact",
-      "expected": [],
-      "actual": [
-        "kafka",
-        "local-filesystem"
-      ],
+      "expected": "/health",
+      "actual": null,
       "finding": {
-        "id": "COMP-002",
+        "id": "COMP-018",
         "type": "ANALYSIS_BUG"
       }
     }

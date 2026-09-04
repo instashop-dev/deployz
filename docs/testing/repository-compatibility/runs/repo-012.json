@@ -1,0 +1,155 @@
+{
+  "id": "repo-012",
+  "repository": "diced/zipline",
+  "commit": "a2ac5f2ddcf9c6110f999a3a3e9ed29418ccc480",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
+  "analysisVersion": 6,
+  "tree": {
+    "files": 201,
+    "entries": 611,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "healthPath": "/api/healthcheck",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": null,
+    "startCommand": "ENTRYPOINT: [\"/zipline/entrypoint\"]",
+    "healthDetected": true,
+    "healthPath": "/api/healthcheck",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "drizzle-kit generate",
+    "externalServices": [],
+    "requiredEnvVars": [
+      "DATABASE_HOST",
+      "DATABASE_NAME",
+      "DATABASE_PASSWORD",
+      "DATABASE_PORT",
+      "DATABASE_USERNAME",
+      "ZIPLINE_OUTPUT_OPENAPI"
+    ],
+    "unsupported": [],
+    "readinessFindings": [],
+    "gateFindings": [
+      "port-missing",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": []
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/healthcheck",
+      "actual": "/api/healthcheck",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3000,
+      "actual": null,
+      "finding": {
+        "id": "COMP-001",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

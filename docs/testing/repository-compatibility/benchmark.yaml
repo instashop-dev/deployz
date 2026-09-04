@@ -6,7 +6,27 @@
 # immutable commit and states the minimal expected facts.
 version: 1
 
-findings: []
+findings:
+  - { id: COMP-001, type: ANALYSIS_BUG, facts: [port, compatibility] }
+  - { id: COMP-002, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
+  - { id: COMP-003, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
+  - { id: COMP-004, type: ANALYSIS_BUG, facts: [healthPath] }
+  - { id: COMP-005, type: ANALYSIS_MISSING_SIGNAL, facts: [healthPath] }
+  - { id: COMP-006, type: ANALYSIS_BUG, facts: [migration] }
+  - { id: COMP-007, type: ANALYSIS_BUG, facts: [dockerfilePath, appRoot, unsupported] }
+  - { id: COMP-008, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
+  - { id: COMP-009, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
+  - { id: COMP-010, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
+  - { id: COMP-011, type: ANALYSIS_BUG, facts: [redis] }
+  - { id: COMP-012, type: ANALYSIS_BUG, facts: [storage] }
+  - { id: COMP-013, type: ANALYSIS_MISSING_SIGNAL, facts: [postgres] }
+  - { id: COMP-014, type: ANALYSIS_MISSING_SIGNAL, facts: [migration] }
+  - { id: COMP-015, type: ANALYSIS_MISSING_SIGNAL, facts: [worker] }
+  - { id: COMP-016, type: ANALYSIS_BUG, facts: [compatibility] }
+  - { id: COMP-017, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
+  - { id: COMP-018, type: ANALYSIS_BUG, facts: [port, healthPath, compatibility] }
+  - { id: COMP-019, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
+  - { id: COMP-020, type: ANALYSIS_BUG, facts: [appRoot] }
 
 repositories:
   - id: repo-001
@@ -15,7 +35,7 @@ repositories:
     cohort: realistic
     set: improvement
     expected:
-      compatibility: NEEDS_CONFIGURATION
+      compatibility: READY
       runtime: [node]
       monorepo: false
       postgres: true
@@ -23,16 +43,407 @@ repositories:
       worker: false
       storage: false
       migration: true
+      appRoot: .
       dockerfilePath: Dockerfile
       port: 3000
       healthPath: /api/heartbeat
       unsupported: []
     customer_realism: high
     difficulty: 3
+    findings: [COMP-002, COMP-003, COMP-011, COMP-006]
     notes:
       - "Next.js 16 + Prisma (provider postgresql). Root Dockerfile: EXPOSE 3000, ENV PORT=3000, CMD sh scripts/start-docker.sh."
       - "Health: file route src/app/api/heartbeat/route.ts -> /api/heartbeat (also the compose healthcheck)."
       - "Migrations: package.json update-db = prisma migrate deploy (key has no 'migrat')."
-      - "APP_SECRET is read without a default (src/lib/crypto.ts) and has no committed sample value -> NEEDS_CONFIGURATION."
+      - "Second inspection corrected the first: APP_SECRET falls back to DATABASE_URL (src/lib/crypto.ts) and the container boot path (scripts/start-docker.sh -> scripts/check-db.js) requires only DATABASE_URL, so a fresh import is READY."
       - "redis, kafkajs and @clickhouse/client are optional integrations enabled only by REDIS_URL / KAFKA_URL / CLICKHOUSE_URL; PostgreSQL alone runs the app."
       - "docker-compose.yml: umami + postgres:15 sidecar; the named volume belongs to the sidecar."
+
+  - id: repo-002
+    repository: Unleash/unleash
+    commit: 0429c292c9f8d662c418958e627ce8f9e6e71ed4
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 4242
+      healthPath: /health
+      unsupported: []
+    customer_realism: high
+    difficulty: 2
+    findings: [COMP-001, COMP-018, COMP-016, COMP-005]
+    notes:
+      - "Root Dockerfile: EXPOSE 4242, CMD [node, dist/server.js]; docker/local-postgres/Dockerfile is a dev database image."
+      - "Port default 4242 in src/lib/create-config.ts (HTTP_PORT || PORT). Health: src/lib/routes/index.ts mounts /health."
+      - "PostgreSQL only (DATABASE_URL or DATABASE_* in create-config.ts). Migrations run in-process at startup (src/lib/server-impl.ts migrateDb) and via the db-migrate script."
+      - "No Redis, no S3, no queue library; the scheduler runs in-process. UNLEASH_SECRET has an insecure default, so nothing blocks a fresh import."
+      - "pnpm workspace (frontend/) but one deployable server that serves the built frontend."
+
+  - id: repo-003
+    repository: thedevs-network/kutt
+    commit: 279b491b53bbd01fbae70f603222526962772061
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /api/health
+      unsupported: []
+    customer_realism: high
+    difficulty: 3
+    findings: [COMP-002, COMP-003, COMP-013, COMP-011, COMP-001, COMP-005]
+    notes:
+      - "Root Dockerfile: EXPOSE 3000, CMD npm run migrate && npm start (knex migrate:latest)."
+      - "Database engine is selected by DB_CLIENT (server/env.js supportedDBClients: pg, pg-native, sqlite3, better-sqlite3, mysql, mysql2); the default is better-sqlite3, PostgreSQL is selected with DB_CLIENT=pg plus discrete DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD (no DATABASE_URL read)."
+      - "JWT_SECRET has only a devDefault (envalid) and NODE_ENV=production in the Dockerfile -> required; DB_CLIENT=pg must be set -> NEEDS_CONFIGURATION."
+      - "Redis is optional (REDIS_ENABLED default false, server/redis.js). Bull queue and a setInterval cron run in the web process (server/queues/queues.js, server/cron.js); no worker script or Procfile."
+      - "Health: server/routes/health.routes.js mounted at /api/health (and /api/v2/health)."
+
+  - id: repo-004
+    repository: miniflux/v2
+    commit: a84533db6ca0a2ff9a47800fbf0326be6d9b3170
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [go]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: packaging/docker/alpine/Dockerfile
+      port: 8080
+      healthPath: /healthcheck
+      unsupported: []
+    customer_realism: high
+    difficulty: 3
+    findings: [COMP-008, COMP-013, COMP-014, COMP-007, COMP-020, COMP-001, COMP-005]
+    notes:
+      - "Four Dockerfiles: packaging/docker/alpine and packaging/docker/distroless build the app (EXPOSE 8080, ENV LISTEN_ADDR=0.0.0.0:8080, CMD /usr/bin/miniflux); packaging/debian and packaging/rpm build OS packages."
+      - "PostgreSQL only (go.mod lib/pq). Migrations: `miniflux -migrate` or RUN_MIGRATIONS=1 (internal/cli/cli.go, internal/config/options.go)."
+      - "PORT overrides LISTEN_ADDR (internal/config/parser.go). Health: internal/http/server/routes.go GET /healthcheck (also /healthz, /readyz)."
+      - "RUN_MIGRATIONS and CREATE_ADMIN/ADMIN_USERNAME/ADMIN_PASSWORD must be set for a usable first deploy -> NEEDS_CONFIGURATION."
+      - "Feed scheduler and worker pool are goroutines in the same process (internal/cli/daemon.go); no Redis, no S3 (icons stored in PostgreSQL)."
+
+  - id: repo-005
+    repository: Flagsmith/flagsmith
+    commit: 4a8a84a34e71f981cfbba5afa5b11d6d945d891a
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [python, node]
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: true
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+      healthPath: /health/liveness
+      unsupported: []
+    customer_realism: high
+    difficulty: 4
+    findings: [COMP-009, COMP-019, COMP-003, COMP-010, COMP-015, COMP-012, COMP-014, COMP-001, COMP-005]
+    notes:
+      - "Root multi-target Dockerfile (default target oss-unified serves API + dashboard on 8000): EXPOSE 8000, ENTRYPOINT flagsmith, CMD migrate-and-serve, HEALTHCHECK flagsmith healthcheck tcp. mcp/Dockerfile is a separate MCP server; frontend/Dockerfile.e2e is test-only."
+      - "PostgreSQL via DATABASE_URL (api/app/settings/common.py, psycopg2-binary). Migrations: python manage.py migrate (api/Procfile release), also run by the migrate-and-serve CMD."
+      - "Health: /health/liveness and /health/readiness from the flagsmith-common package (django-health-check in INSTALLED_APPS; docs/deployment-self-hosting/observability/monitoring.md)."
+      - "Task processor: TASK_RUN_METHOD defaults to SEPARATE_THREAD (in-process); the reference docker-compose.yml enables TASK_PROCESSOR with a separate flagsmith-task-processor service and a one-shot migrate-db service. Worker code exists; no separate process is required."
+      - "Redis is an optional cache backend (LocMemCache default). ClickHouse/InfluxDB optional. DJANGO_ALLOWED_HOSTS defaults to [] and DJANGO_SECRET_KEY to a random key -> NEEDS_CONFIGURATION."
+
+  - id: repo-006
+    repository: documenso/documenso
+    commit: 3ec877a68bc423373220f9ee2fda3d93ba368680
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: true
+      storage: false
+      migration: true
+      appRoot: apps/remix
+      dockerfilePath: docker/Dockerfile
+      port: 3000
+      healthPath: /api/health
+      unsupported: []
+    customer_realism: high
+    difficulty: 4
+    findings: [COMP-017, COMP-011, COMP-012, COMP-020]
+    notes:
+      - "npm workspaces + turborepo; the web app is apps/remix (React Router 7 on Hono), built by docker/Dockerfile from the repository root (turbo prune --scope=@documenso/remix). apps/remix/Dockerfile.bun|pnpm are scaffold files, docker/Dockerfile.chromium layers on the built image, docker/development/Dockerfile.gotenberg is a dev sidecar."
+      - "docker/Dockerfile has no EXPOSE; CMD sh start.sh -> docker/start.sh runs `npx prisma migrate deploy --schema ../../packages/prisma/schema.prisma` then node build/server/main.js. Port: apps/remix/server/main.js PORT || 3000."
+      - "Prisma provider postgresql (packages/prisma/schema.prisma, url NEXT_PRIVATE_DATABASE_URL). Health: apps/remix/app/routes/api+/health.ts -> /api/health."
+      - "NEXTAUTH_SECRET is required at runtime (packages/auth/server/lib/session/session-cookies.ts throws); NEXT_PRIVATE_ENCRYPTION_KEY/SECONDARY_KEY and SMTP from-address are REQUIRED in .env.example -> NEEDS_CONFIGURATION."
+      - "Jobs: NEXT_PRIVATE_JOBS_PROVIDER defaults to local (in-process); bullmq provider is optional and its Worker also runs in-process. Redis only for that provider. Uploads default to database storage; S3 optional. Stripe, Resend, PostHog optional."
+
+  - id: repo-007
+    repository: ghostfolio/ghostfolio
+    commit: 73e4f0368de398d7b67c50fb2926351414e2044e
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3333
+      healthPath: /api/v1/health
+      unsupported: []
+    customer_realism: high
+    difficulty: 3
+    findings: [COMP-001, COMP-005, COMP-017]
+    notes:
+      - "Nx monorepo (apps/api, apps/client) built by the root Dockerfile into one container: EXPOSE ${PORT:-3333}, CMD /ghostfolio/entrypoint.sh (docker/entrypoint.sh: prisma migrate deploy, prisma db seed, node main)."
+      - "ACCESS_TOKEN_SALT and JWT_SECRET_KEY are envalid str() with no default (apps/api/src/services/configuration/configuration.service.ts) -> NEEDS_CONFIGURATION."
+      - "Redis is required: BullModule.forRootAsync in apps/api/src/app/app.module.ts and the health check fails without it (apps/api/src/app/health/health.controller.ts). Bull consumers run in the same Nest process; no worker start command."
+      - "Health: global prefix api + URI versioning v1 -> /api/v1/health (docker/docker-compose.yml healthcheck curls it)."
+
+  - id: repo-008
+    repository: TwiN/gatus
+    commit: 4d15cb7eed6225ac0b03da3d2ab50c424b81c34c
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime: [go]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      storage: false
+      migration: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /health
+      unsupported: []
+    customer_realism: high
+    difficulty: 1
+    findings: [COMP-002, COMP-009, COMP-012, COMP-001, COMP-016, COMP-005]
+    notes:
+      - "Dockerfile: golang:alpine builder -> scratch, ENV PORT=\"8080\", EXPOSE ${PORT}, ENTRYPOINT [/gatus]; config.yaml baked into the image with example endpoints; no required env vars."
+      - "web/app has a package.json but its output is embedded via go:embed; the Dockerfile never runs npm. Health: api/api.go app.Get(\"/health\")."
+      - "PostgreSQL/SQLite storage backends exist only as opt-in examples under .examples/; the default is in-memory."
+
+  - id: repo-009
+    repository: heroku/node-js-getting-started
+    commit: 63c6674c478b697fc20a6412c78a5f7a2dcf14be
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      storage: false
+      migration: false
+      appRoot: .
+      port: 5006
+      unsupported: []
+    customer_realism: high
+    difficulty: 1
+    notes:
+      - "No Dockerfile anywhere (Procfile web: node index.js, package.json start: node index.js) -> NEEDS_CONFIGURATION."
+      - "index.js: process.env.PORT || 5006; a single GET / route; dependencies express + ejs only. No health route."
+
+  - id: repo-010
+    repository: knadh/listmonk
+    commit: 670c01717d48647093335cc23a6be6f4b79c3b6b
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [go, node]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 9000
+      healthPath: /health
+      unsupported: []
+    customer_realism: high
+    difficulty: 4
+    findings: [COMP-014, COMP-001, COMP-005]
+    notes:
+      - "Root Dockerfile packages a prebuilt binary (`COPY listmonk .`) produced by `make dist`/goreleaser; it cannot build from the repository alone. dev/app.Dockerfile is a bind-mount dev image. EXPOSE 9000, ENTRYPOINT docker-entrypoint.sh, CMD ./listmonk."
+      - "config.toml.sample binds address = localhost:9000; docker-compose.yml overrides with LISTMONK_app__address=0.0.0.0:9000 and runs `./listmonk --install --idempotent --yes` then `--upgrade --yes` (non-interactive migrations, cmd/upgrade.go)."
+      - "PostgreSQL only ([db] in config.toml.sample, schema.sql). Health: cmd/handlers.go GET /health and /api/health."
+      - "Media uploads default to the local filesystem provider with an S3 provider selectable in Settings (internal/media/providers/{filesystem,s3}); not required to run."
+
+  - id: repo-011
+    repository: healthchecks/healthchecks
+    commit: 69dbd2a0801dfbcfcd554af8cbbdaaab0b39e2a3
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [python]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 8000
+      unsupported: []
+    customer_realism: medium
+    difficulty: 4
+    findings: [COMP-013, COMP-015, COMP-014, COMP-020, COMP-001]
+    notes:
+      - "docker/Dockerfile (context repository root): CMD uwsgi docker/uwsgi.ini; docker/uwsgi.ini: http-socket = :8000, hook-pre-app = exec:./manage.py migrate, attach-daemon = ./manage.py sendalerts and sendreports (worker processes supervised by uwsgi INSIDE the web container)."
+      - "hc/settings.py: DATABASES defaults to sqlite3 and switches to PostgreSQL when DB=postgres (docker/.env.example sets DB=postgres, DB_HOST, DB_NAME, DB_USER, DB_PASSWORD) -> NEEDS_CONFIGURATION; SECRET_KEY has an insecure default."
+      - "S3_* settings optional. No Redis. HEALTHCHECK runs docker/fetchstatus.py (a script, not a documented HTTP path), so healthPath is omitted."
+
+  - id: repo-012
+    repository: diced/zipline
+    commit: a2ac5f2ddcf9c6110f999a3a3e9ed29418ccc480
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /api/healthcheck
+      unsupported: []
+    customer_realism: high
+    difficulty: 3
+    findings: [COMP-001]
+    notes:
+      - "Root Dockerfile: node:24-alpine build, ENTRYPOINT /zipline/entrypoint (docker/entrypoint.sh: node build/server/index.js); no EXPOSE; core.port defaults to 3000 (src/lib/config/validate.ts)."
+      - "Uploads: DATASOURCE_TYPE defaults to local (container disk) with an S3 datasource selectable by DATASOURCE_TYPE=s3 (src/lib/datasource/index.ts); the Deployz-compatible configuration is S3 -> storage: true."
+      - "CORE_SECRET is required with no usable default (validate.ts rejects 'changethis', >= 32 chars) -> NEEDS_CONFIGURATION."
+      - "PostgreSQL via DATABASE_URL (drizzle); migrations apply in-process at boot under an advisory lock (src/lib/db/migration/index.ts). Health: src/server/routes/api/healthcheck.ts -> /api/healthcheck (compose healthcheck wgets it)."
+      - "TASKS_* intervals run in-process; no queue library; no Redis."
+
+  - id: repo-013
+    repository: louislam/uptime-kuma
+    commit: 5df2a3c0a8c883f362dd48f6fd422b3ee60e685b
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/dockerfile
+      port: 3001
+      unsupported: [sqlite]
+    customer_realism: medium
+    difficulty: 3
+    findings: [COMP-011, COMP-020, COMP-002]
+    notes:
+      - "server/setup-database.js: supportedDBTypes = [mariadb, sqlite]; PostgreSQL is not supported at all. Default SQLite (kuma.db on the container disk) -> NOT_COMPATIBLE [sqlite]."
+      - "docker/dockerfile: FROM louislam/uptime-kuma:base2 (a prebuilt base image), EXPOSE 3001, HEALTHCHECK extra/healthcheck (a Go binary that GETs /), CMD node server/server.js. No dedicated health route -> healthPath omitted."
+      - "redis, mongodb, mysql2 and kafkajs are monitor-target clients (server/monitor-types/*), not infrastructure the app itself needs."
+      - "@louislam/sqlite3 dependency; knex migrations under db/knex_migrations applied by the server at startup."
+
+  - id: repo-014
+    repository: automatisch/automatisch
+    commit: 41f3c56a163103cae761bb44f03638cb84e859ee
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      storage: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 3000
+      healthPath: /healthcheck
+      unsupported: [background-worker, docker-compose-multi-service]
+    customer_realism: high
+    difficulty: 2
+    findings: [COMP-007, COMP-001, COMP-004]
+    notes:
+      - "docker/Dockerfile (context repository root, per render.yaml): ENV PORT=3000, EXPOSE 3000, ENTRYPOINT sh /entrypoint.sh; docker/entrypoint.sh runs `yarn start:worker` when WORKER is set, else `yarn db:migrate && yarn db:seed:user && yarn start`."
+      - "packages/backend/package.json declares worker and start:worker scripts (src/worker.js) with bullmq; docker-compose.yml declares main and worker services -> unsupported [background-worker, docker-compose-multi-service]. Without the worker process, queued flows never execute (server.js never imports the workers)."
+      - "PostgreSQL (knex migrate:latest) and Redis (bullmq) are required; ENCRYPTION_KEY, WEBHOOK_SECRET_KEY, APP_SECRET_KEY have no defaults."
+      - "Health: packages/backend/src/routes/index.js mounts /healthcheck."
+
+  - id: repo-015
+    repository: immich-app/immich
+    commit: 6d85f202f4e20fdcf400984bef4b890319b9c002
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node, python]
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      storage: false
+      migration: true
+      appRoot: server
+      dockerfilePath: server/Dockerfile
+      port: 2283
+      healthPath: /api/server/ping
+      unsupported: [docker-compose-multi-service, local-filesystem]
+    customer_realism: medium
+    difficulty: 2
+    findings: [COMP-013, COMP-007, COMP-001, COMP-005]
+    notes:
+      - "docker/docker-compose.yml: immich-server (Node) and immich-machine-learning (Python) are two application containers plus redis (valkey) and a custom pgvector PostgreSQL image -> docker-compose-multi-service."
+      - "server/Dockerfile: VOLUME /data, EXPOSE 2283, HEALTHCHECK immich-healthcheck (curls /api/server/ping); uploads are written to the container disk under /data with no object-storage option -> local-filesystem."
+      - "Worker code (bullmq queues) runs inside the immich-server process by default (IMMICH_WORKERS_INCLUDE/EXCLUDE splits it only on request) -> worker: true, no separate process required. Migrations under server/src/schema/migrations apply at startup."
+      - "PostgreSQL requires the pgvector/VectorChord extensions (ghcr.io/immich-app/postgres image), which a plain managed PostgreSQL does not provide; recorded as postgres: true per the definition (PostgreSQL is the engine) with this caveat."
