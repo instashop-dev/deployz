@@ -95,8 +95,13 @@ const MYSQL_DEPS = ['mysql2', 'mysql'] as const;
  * use (Stage A COMP-002).
  */
 function engineIsConfigurable(tree: FileTree): boolean {
-  return detectPostgresql(tree).detected;
+  // Only a PostgreSQL-specific driver counts: `knex`/`drizzle-orm` are
+  // dialect-agnostic and prove nothing about which engine is wired up.
+  const drivers = detectPostgresql(tree).value;
+  return Array.isArray(drivers) && drivers.some((driver) => !DIALECT_AGNOSTIC_DRIVERS.has(driver));
 }
+
+const DIALECT_AGNOSTIC_DRIVERS = new Set(['knex', 'drizzle-orm']);
 
 /**
  * Check for MySQL dependencies (unsupported — Deployz uses PostgreSQL only).
@@ -313,20 +318,20 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
  * reads without a fallback (Stage A COMP-002).
  */
 function brokerConnectionRequired(tree: FileTree, keyPattern: RegExp): string | null {
-  const required = detectEnvVarModel(tree)
-    .filter((variable) => variable.required && keyPattern.test(variable.key))
-    .map((variable) => variable.key);
-  // A presence test anywhere (`if (process.env.KAFKA_URL)`, `Boolean(
-  // process.env.KAFKA_URL && …)`, `enabled = process.env.KAFKA_URL && …`)
-  // makes the broker a feature the app switches on, whatever the reads
-  // inside the enabled path look like.
-  return required.find((key) => !hasPresenceGuard(tree, key)) ?? null;
+  const required = detectEnvVarModel(tree).filter((variable) => variable.required && keyPattern.test(variable.key));
+  // A presence test (`if (process.env.KAFKA_URL)`, `Boolean(process.env.
+  // KAFKA_URL && …)`, `enabled = process.env.KAFKA_URL && …`) makes the
+  // broker a feature the app switches on, whatever the reads inside the
+  // enabled path look like — but only when EVERY file that reads the
+  // variable tests it; an unconditional consumer elsewhere still requires it.
+  return required.find((variable) => !readsArePresenceGuarded(tree, variable.key, variable.source))?.key ?? null;
 }
 
-function hasPresenceGuard(tree: FileTree, key: string): boolean {
+function readsArePresenceGuarded(tree: FileTree, key: string, source: readonly string[]): boolean {
   const read = `(?:process\\.env\\.|env\\.|os\\.environ\\.get\\(["'])?${key}\\b`;
   const guard = new RegExp(`if\\s*\\(\\s*!?\\s*${read}|(?:Boolean\\s*\\(|!!)\\s*${read}|${read}\\s*&&|&&\\s*${read}`);
-  return Object.entries(tree).some(([path, content]) => /\.(ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/.test(path) && guard.test(content));
+  const readFiles = source.filter((entry) => entry.startsWith('read in ')).map((entry) => entry.slice('read in '.length));
+  return readFiles.length > 0 && readFiles.every((path) => guard.test(tree[path] ?? ''));
 }
 
 // Connection variables only — a tuning knob such as KAFKA_MAX_MESSAGE_BYTES

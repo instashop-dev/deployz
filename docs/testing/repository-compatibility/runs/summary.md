@@ -1,17 +1,17 @@
 # Repository compatibility audit — run summary
 
-Deployz commit: `35bf06f914a14582bc336df0b90dc72e7e6294dd` · analysis version: 8
+Deployz commit: `f7dc7789caf61855352a267f03bba4690a68532f` · analysis version: 8
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 15 |
 | Analysed | 15 |
 | Failed to analyse | 0 |
-| Verdict matches | 7 / 15 (46.7%) |
-| All facts match | 3 |
+| Verdict matches | 8 / 15 (53.3%) |
+| All facts match | 4 |
 | False acceptances | 0 |
 | False rejections | 1 |
-| Configuration-detection mismatches | 7 |
+| Configuration-detection mismatches | 6 |
 | Unexplained mismatches | 0 |
 
 ## Mismatches by finding type
@@ -19,7 +19,7 @@ Deployz commit: `35bf06f914a14582bc336df0b90dc72e7e6294dd` · analysis version: 
 | Type | Mismatches |
 | --- | --- |
 | ANALYSIS_BUG | 17 |
-| ANALYSIS_MISSING_SIGNAL | 14 |
+| ANALYSIS_MISSING_SIGNAL | 13 |
 | MVP_CAPABILITY_GAP | 0 |
 | CORRECTLY_UNSUPPORTED | 0 |
 | REPO_INVALID | 0 |
@@ -28,7 +28,7 @@ Deployz commit: `35bf06f914a14582bc336df0b90dc72e7e6294dd` · analysis version: 
 
 | Set | Repositories | Analysed | Verdict matches | All facts match |
 | --- | --- | --- | --- | --- |
-| improvement | 15 | 15 | 7 | 3 |
+| improvement | 15 | 15 | 8 | 4 |
 
 ## By cohort
 
@@ -36,7 +36,7 @@ Deployz commit: `35bf06f914a14582bc336df0b90dc72e7e6294dd` · analysis version: 
 | --- | --- | --- | --- | --- |
 | boundary | 3 | 3 | 3 | 1 |
 | messy | 3 | 3 | 1 | 1 |
-| realistic | 9 | 9 | 3 | 1 |
+| realistic | 9 | 9 | 4 | 2 |
 
 ## Repositories
 
@@ -48,7 +48,7 @@ Deployz commit: `35bf06f914a14582bc336df0b90dc72e7e6294dd` · analysis version: 
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | READY | compatibility (expected "NEEDS_CONFIGURATION", actual "READY") → COMP-014 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-009 ANALYSIS_BUG<br>redis (expected false, actual true) → COMP-011 ANALYSIS_BUG<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health/liveness", actual "/health") → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["docker-compose-multi-service","local-filesystem"]) → COMP-009 ANALYSIS_BUG |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | redis (expected false, actual true) → COMP-011 ANALYSIS_BUG<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>appRoot (expected "apps/remix", actual ".") → COMP-020 ANALYSIS_BUG |
-| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | READY | compatibility (expected "NEEDS_CONFIGURATION", actual "READY") → COMP-017 ANALYSIS_MISSING_SIGNAL |
+| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | match |
 | repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | NEEDS_CONFIGURATION | compatibility (expected "READY", actual "NEEDS_CONFIGURATION") → COMP-016 ANALYSIS_BUG |
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | match |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | READY | compatibility (expected "NEEDS_CONFIGURATION", actual "READY") → COMP-021 ANALYSIS_MISSING_SIGNAL<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual "/api/health") → COMP-005 ANALYSIS_MISSING_SIGNAL |

@@ -65,11 +65,11 @@ remaining mismatch is a configuration-detection or fact mismatch: the env
 model over-claiming (COMP-023 residuals on umami and Unleash), invisible
 secret schemas (COMP-017 on ghostfolio and documenso), a frontend-tooling
 read (COMP-016 on gatus), and the missing migration, artifact and engine
-signals (COMP-014, 021, 022). Verdict matches stay at 7 of 15 because each
-fixed rejection moved a repository from a false rejection to one of those
-configuration mismatches — the rejection layer is now precise on the pilot;
-configuration detection is the next frontier and the 80-repository corpus
-will measure it.
+signals (COMP-014, 021, 022). Verdict matches move from 7 to 8 of 15 (4
+repositories match on every fact): most fixed rejections became
+configuration mismatches rather than matches — the rejection layer is now
+precise on the pilot; configuration detection is the next frontier and the
+80-repository corpus will measure it.
 
 ## Findings
 
@@ -527,5 +527,5 @@ will measure it.
   across the 80-repository corpus, then decide between "bare assignment is
   optional" (recall loss on `const secret = process.env.X; if (!secret) throw`)
   and a throw-guard-aware rule.
-- Fix: A read stored as-is (`const x = process.env.X;`, `host: process.env.X,`) is optional unless the code then refuses to run without it (`if (!x) throw …`); a boolean chain or coercion (`Boolean(a && b)`, `!!a`) is a presence test. Regression: stage-a.test.ts COMP-023, phase7.test.ts. Unleash dropped from 27 required values to 7; umami from 20 to 6. Residual: single-argument helper calls (`authTypeFromString(process.env.AUTH_TYPE)`), `.split()` reads inside an enabled-only code path (umami `KAFKA_BROKER`), and alternative-URL reads (documenso `NEXT_PRIVATE_DATABASE_REPLICA_URLS`) still count as required — the remaining NEEDS_CONFIGURATION mismatches on umami and Unleash.
+- Fix: A non-secret read stored as-is (`const url = process.env.X;`, `host: process.env.X,`) is optional unless the code then refuses to run without it (`if (!x) throw …`); a secret-named variable (`*_SECRET`, `*_TOKEN`, `*_API_KEY`, …) stays required on a bare read, because a missing credential is a boot failure while an unset option is a default; a boolean chain or coercion (`Boolean(a && b)`, `!!a`) is a presence test. Regression: stage-a.test.ts COMP-023, phase7.test.ts. Unleash dropped from 27 required values to 7; umami from 20 to 6. Residual: single-argument helper calls (`authTypeFromString(process.env.AUTH_TYPE)`), `.split()` reads inside an enabled-only code path (umami `KAFKA_BROKER`), and alternative-URL reads (documenso `NEXT_PRIVATE_DATABASE_REPLICA_URLS`) still count as required — the remaining NEEDS_CONFIGURATION mismatches on umami and Unleash.
 - Status: fixed

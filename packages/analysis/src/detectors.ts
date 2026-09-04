@@ -1562,12 +1562,14 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
           /&&\s*$/.test(head) ||
           /(?:Boolean\s*\(|!!)\s*$/.test(head) ||
           inConditional;
-        // A read stored as-is (`const url = process.env.X;`, `host:
-        // process.env.X,`) proves nothing about need — the consumer decides
-        // later. It is required only when the code then refuses to run
-        // without it: `if (!url) throw …` (Stage A COMP-023).
+        // A non-secret read stored as-is (`const url = process.env.X;`,
+        // `host: process.env.X,`) proves nothing about need — the consumer
+        // decides later. It is required only when the code then refuses to
+        // run without it: `if (!url) throw …`. A secret-named variable stays
+        // required on a bare read: a missing credential is a boot failure,
+        // an unset option is a default (Stage A COMP-023).
         const assignedName = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*$/.exec(head)?.[1];
-        const isBareAssignment = /[=:]\s*$/.test(head) && /^\s*(?:[;,)}\]]|$)/.test(tail);
+        const isBareAssignment = /[=:]\s*$/.test(head) && /^\s*(?:[;,)}\]]|$)/.test(tail) && !isSecretName(key);
         const throwGuarded =
           isBareAssignment &&
           new RegExp(

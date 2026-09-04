@@ -6,7 +6,7 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "35bf06f914a14582bc336df0b90dc72e7e6294dd",
+  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
   "analysisVersion": 8,
   "tree": {
     "files": 192,
@@ -59,7 +59,16 @@
       "sentry"
     ],
     "requiredEnvVars": [
-      "FLAGSMITH_PROXY_API_URL"
+      "AMPLITUDE_API_KEY",
+      "CAPTERRA_API_KEY",
+      "DELIGHTED_API_KEY",
+      "FLAGSMITH_ON_FLAGSMITH_API_KEY",
+      "FLAGSMITH_PROXY_API_URL",
+      "GOOGLE_ANALYTICS_API_KEY",
+      "HEADWAY_API_KEY",
+      "REO_API_KEY",
+      "SENTRY_API_KEY",
+      "SLACK_TOKEN"
     ],
     "unsupported": [
       "docker-compose-multi-service",

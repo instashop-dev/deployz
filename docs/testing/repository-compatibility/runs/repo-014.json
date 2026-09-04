@@ -6,7 +6,7 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "35bf06f914a14582bc336df0b90dc72e7e6294dd",
+  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
   "analysisVersion": 8,
   "tree": {
     "files": 203,
@@ -65,7 +65,14 @@
       "twilio"
     ],
     "requiredEnvVars": [
+      "BULLMQ_DASHBOARD_PASSWORD",
+      "LICENSE_KEY",
+      "PADDLE_PUBLIC_KEY",
       "PADDLE_VENDOR_ID",
+      "POSTGRES_PASSWORD",
+      "REDIS_PASSWORD",
+      "REDIS_SENTINEL_PASSWORD",
+      "SMTP_PASSWORD",
       "WEB_APP_URL"
     ],
     "unsupported": [

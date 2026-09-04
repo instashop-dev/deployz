@@ -1,18 +1,18 @@
 {
-  "deployzSha": "35bf06f914a14582bc336df0b90dc72e7e6294dd",
+  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
   "analysisVersion": 8,
   "total": 15,
   "analysed": 15,
   "failed": 0,
-  "fullMatch": 3,
-  "verdictMatch": 7,
-  "verdictAccuracy": 46.7,
+  "fullMatch": 4,
+  "verdictMatch": 8,
+  "verdictAccuracy": 53.3,
   "falseAcceptances": 0,
   "falseRejections": 1,
-  "configurationMismatches": 7,
+  "configurationMismatches": 6,
   "factMismatches": {
     "appRoot": 2,
-    "compatibility": 8,
+    "compatibility": 7,
     "dockerfilePath": 1,
     "healthPath": 4,
     "migration": 4,
@@ -23,7 +23,7 @@
   },
   "byFindingType": {
     "ANALYSIS_BUG": 17,
-    "ANALYSIS_MISSING_SIGNAL": 14,
+    "ANALYSIS_MISSING_SIGNAL": 13,
     "MVP_CAPABILITY_GAP": 0,
     "CORRECTLY_UNSUPPORTED": 0,
     "REPO_INVALID": 0
@@ -33,8 +33,8 @@
     "improvement": {
       "total": 15,
       "analysed": 15,
-      "verdictMatch": 7,
-      "fullMatch": 3
+      "verdictMatch": 8,
+      "fullMatch": 4
     }
   },
   "byCohort": {
@@ -53,8 +53,8 @@
     "realistic": {
       "total": 9,
       "analysed": 9,
-      "verdictMatch": 3,
-      "fullMatch": 1
+      "verdictMatch": 4,
+      "fullMatch": 2
     }
   }
 }

@@ -42,18 +42,18 @@ describe('detectEnvVarModel (§11.2)', () => {
     expect(byKey.get('NODE_ENV')).toMatchObject({ required: false });
   });
 
-  it('requires a code-only read of a secret-named variable the code refuses to run without', () => {
+  it('requires a code-only bare read of a secret-named variable with no default anywhere', () => {
     const tree: FileTree = {
-      'src/index.js': "const token = process.env.INTERNAL_API_TOKEN;\nif (!token) throw new Error('INTERNAL_API_TOKEN is not set');\n",
+      'src/index.js': "const token = process.env.INTERNAL_API_TOKEN;\n",
     };
     const model = detectEnvVarModel(tree);
     expect(model).toEqual([
       { key: 'INTERNAL_API_TOKEN', required: true, secret: true, source: ['read in src/index.js'] },
     ]);
-    // Stored as-is with no such guard, the read proves nothing about need (COMP-023).
-    const stored = detectEnvVarModel({ 'src/index.js': 'const token = process.env.INTERNAL_API_TOKEN;\n' });
+    // A non-secret option stored as-is proves nothing about need (COMP-023).
+    const stored = detectEnvVarModel({ 'src/index.js': 'const url = process.env.INTERNAL_API_URL;\n' });
     expect(stored).toEqual([
-      { key: 'INTERNAL_API_TOKEN', required: false, secret: true, source: ['read in src/index.js'] },
+      { key: 'INTERNAL_API_URL', required: false, secret: false, source: ['read in src/index.js'] },
     ]);
   });
 

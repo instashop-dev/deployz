@@ -304,7 +304,9 @@ describe('COMP-023 — a bare read stored in configuration is optional unless th
       ].join('\n'),
     };
     const required = detectEnvVarModel(tree).filter((v) => v.required).map((v) => v.key);
-    expect(required).toEqual(['JWT_SECRET', 'KAFKA_BROKERS', 'STRIPE_SECRET_KEY', 'WEBHOOK_URL']);
+    // OPENAI_API_KEY is secret-named, so its bare read stays required;
+    // HTTP_HOST, CDN_PREFIX and KAFKA_URL are options with no such claim.
+    expect(required).toEqual(['JWT_SECRET', 'KAFKA_BROKERS', 'OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'WEBHOOK_URL']);
   });
 });
 
@@ -375,6 +377,10 @@ describe('COMP-002 — optional or configurable dependencies are not architectur
 
   it('still rejects a lone SQLite or MySQL driver, and an explicit non-PostgreSQL Prisma provider', () => {
     expect(checkSqlite({ 'package.json': JSON.stringify({ dependencies: { 'better-sqlite3': '^11.0.0' } }) }).detected).toBe(true);
+    // knex is dialect-agnostic: it does not make a SQLite app configurable.
+    expect(
+      checkSqlite({ 'package.json': JSON.stringify({ dependencies: { knex: '^3.0.0', 'better-sqlite3': '^11.0.0' } }) }).detected,
+    ).toBe(true);
     expect(checkMysql({ 'package.json': JSON.stringify({ dependencies: { mysql2: '^3.0.0' } }) }).detected).toBe(true);
     const prismaMysql: FileTree = {
       'package.json': JSON.stringify({ dependencies: { '@prisma/client': '^5.0.0', pg: '^8.12.0' } }),
@@ -395,6 +401,10 @@ describe('COMP-002 — optional or configurable dependencies are not architectur
       'src/consumer.ts': "const brokers = process.env.KAFKA_BROKERS.split(',');\n",
     };
     expect(checkKafka(required).detected).toBe(true);
+    // A presence test in an unrelated file does not excuse an unconditional consumer.
+    expect(
+      checkKafka({ ...required, 'src/metrics.ts': 'if (process.env.KAFKA_BROKERS) { report(); }\n' }).detected,
+    ).toBe(true);
 
     const composed: FileTree = {
       'package.json': JSON.stringify({ dependencies: { amqplib: '^0.10.0' } }),
@@ -469,6 +479,12 @@ describe('COMP-011 — Redis evidence from Compose files and guarded clients', (
       'server/redis.js': 'const Redis = require("ioredis");\nconst client = new Redis(process.env.REDIS_URL);\n',
     };
     expect(assessRedis(unconditional).required).toBe(true);
+    // A braceless flag check just above scopes only its own statement.
+    const bracelessAbove: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { ioredis: '^5.0.0' } }),
+      'server/redis.js': 'if (config.METRICS_ENABLED) track();\nconst client = new Redis(process.env.REDIS_URL);\n',
+    };
+    expect(assessRedis(bracelessAbove).required).toBe(true);
   });
 });
 

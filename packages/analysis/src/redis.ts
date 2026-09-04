@@ -261,7 +261,9 @@ const REDIS_IMPORT_REGEX = /(?:from\s+['"]redis['"]|require\(\s*['"]redis['"]\s*
 // client = new Redis(...) }`, `if (process.env.REDIS_URL) createClient(...)` —
 // is an optional integration, not a requirement (Stage A COMP-011).
 const GUARD_WINDOW_CHARS = 240;
-const REDIS_GUARD_REGEX = /if\s*\([^)]*(?:REDIS|CACHE|ENABLED)[^)]*\)\s*\{?[^{}]*$/;
+// The guard must open a block that is still open where the client is built;
+// a braceless single-statement `if` scopes only its own statement.
+const REDIS_GUARD_REGEX = /if\s*\([^)]*(?:REDIS|CACHE|ENABLED)[^)]*\)\s*\{[^{}]*$/;
 
 function isGuardedInit(content: string, index: number): boolean {
   return REDIS_GUARD_REGEX.test(content.slice(Math.max(0, index - GUARD_WINDOW_CHARS), index));
