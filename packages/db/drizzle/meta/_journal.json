@@ -204,6 +204,13 @@
       "when": 1788400000000,
       "tag": "0028_red_whale",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1788505437871,
+      "tag": "0029_normal_patch",
+      "breakpoints": true
     }
   ]
 }

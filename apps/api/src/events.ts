@@ -73,7 +73,13 @@ export type DeploymentEventType =
   // already-disconnected deployment.
   | 'purge.requested'
   | 'purge.completed'
-  | 'purge.failed';
+  | 'purge.failed'
+  // deploy-link family — vendor-generated tokenized entry points
+  // (apps/api/src/deploy-links.ts).
+  | 'deploy_link.created'
+  | 'deploy_link.opened'
+  | 'deploy_link.revoked'
+  | 'deploy_link.regenerated';
 
 export interface DeploymentEvent {
   readonly organizationId: string;

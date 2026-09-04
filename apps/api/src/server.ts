@@ -14,9 +14,7 @@ import { z } from 'zod';
 import {
   FIX_INSTRUCTIONS_TIMEOUT_MS,
   createAiGateway,
-  evaluateManifestReadiness,
   generateFixInstructions,
-  normalizeDeploymentManifest,
   normalizeErrorText,
   redactSecrets,
   type AiGateway,
@@ -84,7 +82,6 @@ import {
   createConfigStore,
   createRelaySecretWriter,
   getConfig,
-  listProvidedConfigKeys,
   SECRET_MASK,
   setConfig,
   setConfigBodySchema,
@@ -114,7 +111,7 @@ import {
 import { refineFailureCode } from './failure-classification.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
-import { applicationToManifestOverrides, readStoredManifest, requireReadyManifest } from './manifest.js';
+import { readStoredManifest, requireReadyManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
   acceptInvitation,
@@ -169,6 +166,15 @@ import {
   toCustomerDeploymentStatus,
   toVendorDeploymentStatus,
 } from './deployment-status.js';
+import {
+  createDeployLink,
+  createDeploymentRecord,
+  listDeployLinks,
+  regenerateDeployLink,
+  resolveDeployLink,
+  revokeDeployLink,
+  type DeployLinkRow,
+} from './deploy-links.js';
 import {
   DEFAULT_HTTPS_APEX,
   DEFAULT_HTTPS_FIXTURE_APEX,
@@ -268,9 +274,10 @@ const METERED_PRICE_DOLLARS = METERED_PRICE_CENTS / 100;
 // surface as a 500, so non-uuid ids map to 404 instead.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Route-level rate limit for the three unauthenticated /api/install/:id
-// routes (registered with @fastify/rate-limit's `global: false` above, so
-// nothing else is capped by default). Keyed by IP (trustProxy makes that the
+// Route-level rate limit for the unauthenticated /api/install/:id routes and
+// the public /api/deploy-links/:publicId resolve route (registered with
+// @fastify/rate-limit's `global: false` above, so nothing else is capped by
+// default). Keyed by IP (trustProxy makes that the
 // real client behind the Lightsail balancer); 300/min is an order of
 // magnitude over the install page's 5s poll cadence (12/min) — several tabs,
 // "Check now" clicks, and NAT'd offices all fit — while still bounding an
@@ -455,6 +462,58 @@ async function loadOwnedCustomer(
     throw new NotFoundError('Customer not found');
   }
   return rows[0]!;
+}
+
+// The customer-visible "Deployz will create" list. Shared by the public
+// install page and the public deploy-link resolve page so the two can never
+// disagree about what the customer is told will be created (§16.1: only the
+// application components that matter to the reader — never the internal AWS
+// plumbing the same stack creates).
+function customerInstallResources(application: {
+  databaseRequired: boolean;
+  storageRequired: boolean;
+  redisRequired: boolean;
+}): string[] {
+  const resources = ['Application runtime'];
+  if (application.databaseRequired) resources.push('PostgreSQL database');
+  if (application.storageRequired) resources.push('Storage');
+  if (application.redisRequired) resources.push('Redis cache');
+  return resources;
+}
+
+/** Derived deploy-link status — no separate state machine is persisted. */
+function deriveDeployLinkStatus(link: {
+  revokedAt: Date | null;
+  expiresAt: Date;
+  now?: Date;
+}): 'active' | 'revoked' | 'expired' {
+  if (link.revokedAt !== null) return 'revoked';
+  return (link.now ?? new Date()).getTime() > link.expiresAt.getTime() ? 'expired' : 'active';
+}
+
+// The vendor-facing deploy-link row: the link's own columns plus the display
+// fields that only exist via a join (application name, deployment state,
+// region) and the derived status. Never includes token_hash.
+function toDeployLinkView(input: {
+  link: DeployLinkRow;
+  application: Pick<ApplicationRow, 'name'> | null;
+  deployment: Pick<DeploymentRow, 'state' | 'region'> | null;
+}) {
+  const { link, application, deployment } = input;
+  return {
+    id: link.id,
+    customerId: link.customerId,
+    applicationId: link.applicationId,
+    applicationName: application?.name ?? null,
+    deploymentId: link.deploymentId,
+    deploymentState: deployment?.state ?? null,
+    region: deployment?.region ?? null,
+    status: deriveDeployLinkStatus(link),
+    expiresAt: link.expiresAt,
+    revokedAt: link.revokedAt,
+    lastUsedAt: link.lastUsedAt,
+    createdAt: link.createdAt,
+  };
 }
 
 /**
@@ -1684,10 +1743,8 @@ export async function buildServer({
     // database, storage, cache — never the internal AWS plumbing the same
     // stack creates (network, monitoring). The §45 security page's "Exact
     // AWS resources created" list is the technical home for that detail.
-    const resourcesCreated = ['Application runtime'];
-    if (row.databaseRequired) resourcesCreated.push('PostgreSQL database');
-    if (row.storageRequired) resourcesCreated.push('Storage');
-    if (row.redisRequired) resourcesCreated.push('Redis cache');
+    // Shared with the public deploy-link resolve page.
+    const resourcesCreated = customerInstallResources(row);
     // The expected bootstrap stack name: the persisted one once an attempt
     // has launched (a record of what the customer was told), otherwise the
     // name the link below will prefill. Derived from deployment identity so
@@ -2221,6 +2278,15 @@ export async function buildServer({
     isTestDeployment: z.boolean().nullish(),
   });
 
+  // Deploy Link generation targets the SESSION org's customer (path) and
+  // application (body); the region is vendor-chosen exactly as manual
+  // deployment creation chooses it. The customer is not in the body because
+  // the path already names it.
+  const createDeployLinkBodySchema = z.object({
+    applicationId: z.string().uuid(),
+    region: regionSchema,
+  });
+
   const createReleaseBodySchema = z.object({
     version: z.string().min(1),
     gitSha: z.string().min(1),
@@ -2623,6 +2689,116 @@ export async function buildServer({
     return reply.code(204).send();
   });
 
+  // ── Deploy Links (docs/deploy-links.md) ────────────────────────────────
+
+  // POST /api/customers/:customerId/deploy-links — Generate a deploy link for
+  // an existing customer + application. Runs the SAME deployment-creation
+  // gates as POST /api/deployments (source 'deploy_link') inside one
+  // transaction with the deploy_links row and the audit event, then returns
+  // the raw secret token exactly once — it is never retrievable again.
+  app.post(
+    '/api/customers/:customerId/deploy-links',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { customerId } = request.params as { customerId: string };
+      const body = createDeployLinkBodySchema.parse(request.body);
+      const organizationId = requireSessionOrganizationId(request);
+      const { link, deployment, application, token } = await createDeployLink(db, {
+        organizationId,
+        userId: requireActor(request).id,
+        customerId,
+        applicationId: body.applicationId,
+        region: body.region,
+      });
+      return reply.code(201).send({
+        link: toDeployLinkView({ link, application, deployment }),
+        deployment,
+        token,
+      });
+    },
+  );
+
+  // GET /api/customers/:customerId/deploy-links — Link state for the vendor
+  // panel: newest first, with the derived status ('active' | 'revoked' |
+  // 'expired') and the linked deployment's state/region.
+  app.get(
+    '/api/customers/:customerId/deploy-links',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { customerId } = request.params as { customerId: string };
+      const organizationId = requireSessionOrganizationId(request);
+      await loadOwnedCustomer(db, customerId, organizationId); // 404s on cross-org
+      const rows = await listDeployLinks(db, organizationId, customerId);
+      return {
+        links: rows.map(({ link, deployment, application }) =>
+          toDeployLinkView({ link, application, deployment }),
+        ),
+      };
+    },
+  );
+
+  // POST /api/deploy-links/:id/revoke — Stop the link accepting its token.
+  // Idempotent: revoking an already-revoked link returns its current state.
+  app.post('/api/deploy-links/:id/revoke', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const link = await revokeDeployLink(db, {
+      organizationId,
+      userId: requireActor(request).id,
+      linkId: id,
+    });
+    return { link: toDeployLinkView({ link, application: null, deployment: null }) };
+  });
+
+  // POST /api/deploy-links/:id/regenerate — Rotate the secret to a fresh one
+  // (reviving a revoked link) while the deployment is still NOT_INSTALLED.
+  // Returns the new raw token exactly once.
+  app.post('/api/deploy-links/:id/regenerate', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const { link, token } = await regenerateDeployLink(db, {
+      organizationId,
+      userId: requireActor(request).id,
+      linkId: id,
+    });
+    return {
+      link: toDeployLinkView({ link, application: null, deployment: null }),
+      token,
+    };
+  });
+
+  // GET /api/deploy-links/:publicId — PUBLIC resolve for the customer page.
+  // The secret token travels in the x-deployz-token header, never the URL,
+  // so it does not leak into browser history or access logs. Rate-limited
+  // like the install routes. The response is a crafted customer projection:
+  // no installLinkId, no enrollmentCode, no organization id, no internal ids.
+  app.get(
+    '/api/deploy-links/:publicId',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { publicId } = request.params as { publicId: string };
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      const { deployment, application, customer } = await resolveDeployLink(db, publicId, token);
+      // Same unified status derivation the install page uses — one progress
+      // model for every customer surface.
+      const derived = deriveDeploymentStatus({
+        deployment,
+        application,
+        jobs: [],
+        domain: null,
+        appUrl: null,
+      });
+      return {
+        link: { status: 'active' },
+        application: { name: application.name },
+        customer: { name: customer.name },
+        region: deployment.region,
+        status: toCustomerDeploymentStatus(derived),
+        resources: customerInstallResources(application),
+      };
+    },
+  );
+
   // ── Deployments (§12, §23–§24, §38) ────────────────────────────────────
 
   // POST /api/deployments — Create deployment. Stays NOT_INSTALLED until the
@@ -2645,64 +2821,22 @@ export async function buildServer({
       );
     }
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
-    // 404 on a non-existent/other-org applicationId or customerId — otherwise
-    // the INSERT below hits a foreign-key violation and surfaces as a 500.
-    const application = await loadOwnedApplication(db, body.applicationId, organizationId);
-    await loadOwnedCustomer(db, body.customerId, organizationId);
-    // Phase 2 readiness gate — block incompatible/missing-config deployments
-    // BEFORE any AWS provisioning can start. The evaluator runs from the FINAL
-    // manifest (detector output + vendor overrides), so a vendor-corrected
-    // config passes even when the stored analysis report is stale.
-    const manifest = normalizeDeploymentManifest(
-      { metadata: application.detectedMetadata ?? {} },
-      applicationToManifestOverrides(application),
-    );
-    // §11.2 required-env gate: the deployment's provided env keys are the
-    // application's configured defaults plus this customer's overrides. Keys
-    // Deployz injects itself (database/cache/storage bindings) are always
-    // considered provided by the evaluator.
-    const providedEnvKeys = await listProvidedConfigKeys(db, application.id, body.customerId);
-    const readiness = evaluateManifestReadiness(manifest, { providedEnvKeys });
-    if (readiness.state === 'NOT_COMPATIBLE') {
-      throw new ApiError(
-        422,
-        'MANIFEST_NOT_COMPATIBLE',
-        'This application cannot be deployed with Deployz as configured.',
-        { findings: readiness.findings },
-      );
-    }
-    if (readiness.state === 'NEEDS_CONFIGURATION') {
-      throw new ApiError(
-        422,
-        'MANIFEST_NEEDS_CONFIGURATION',
-        'This application is missing configuration required for deployment. Run analysis or correct it in the application settings first.',
-        { findings: readiness.findings },
-      );
-    }
-    // The relay mints its own installationId inside the customer's account, so
-    // it is unknown until enrollment. What the control plane mints here is the
-    // single-use enrollment code the bootstrap stack carries, plus the public
-    // install-link id — deliberately a different value, so the link a customer
-    // is emailed is not also the credential that identifies their relay.
-    const [row] = await db
-      .insert(schema.deployments)
-      .values({
-        customerId: body.customerId,
-        applicationId: body.applicationId,
-        organizationId,
-        region: body.region,
-        state: 'NOT_INSTALLED',
-        // The final manifest is the deployment's desired state — the canonical
-        // config this deployment was created with, kept for rollback/deploy
-        // even if application analysis or overrides change afterwards.
-        desiredState: { manifest },
-        enrollmentCode: mintEnrollmentCode(),
-        isTestDeployment: body.isTestDeployment ?? false,
-        createdBy: request.user?.id ?? null,
-        updatedBy: request.user?.id ?? null,
-      })
-      .returning();
-    return reply.code(201).send(row);
+    // Everything after this point (org-scoped 404s, the Phase 2 manifest
+    // readiness gates, and the insert) is shared with the deploy-link flow —
+    // see createDeploymentRecord in apps/api/src/deploy-links.ts. The final
+    // manifest is persisted as the deployment's desired state so rollback and
+    // day-2 deploys keep the exact config this deployment was created with.
+    const { deployment } = await createDeploymentRecord(db, {
+      organizationId,
+      applicationId: body.applicationId,
+      customerId: body.customerId,
+      region: body.region,
+      isTestDeployment: body.isTestDeployment ?? false,
+      createdBy: request.user?.id ?? null,
+      updatedBy: request.user?.id ?? null,
+      source: 'manual',
+    });
+    return reply.code(201).send(deployment);
   });
 
   // GET /api/regions — the region options for the "Create customer

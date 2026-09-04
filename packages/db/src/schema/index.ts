@@ -1,6 +1,7 @@
 export * from './auth.js';
 export * from './core.js';
 export * from './custom-domains.js';
+export * from './deploy-links.js';
 export * from './deployment-resources.js';
 export * from './deployments.js';
 export * from './jobs.js';

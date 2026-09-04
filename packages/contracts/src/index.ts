@@ -86,6 +86,10 @@ export function isSupportedRegion(value: string): value is Region {
   return (SUPPORTED_AWS_REGIONS as readonly string[]).includes(value);
 }
 
+// deployments.source — origin attribution of a deployment row.
+export const deploymentSourceSchema = z.enum(['manual', 'deploy_link']);
+export type DeploymentSource = z.infer<typeof deploymentSourceSchema>;
+
 // §46 deployment states — product vocabulary. Customers never see raw
 // CFN/ECS internals; these ten states are the whole user-facing model.
 export const deploymentStateSchema = z.enum([
@@ -849,6 +853,7 @@ export const deploymentSchema = z.object({
   organizationId: z.string(),
   region: regionSchema,
   state: deploymentStateSchema,
+  source: deploymentSourceSchema.optional(),
   awsAccountId: z.string().nullable(),
   currentReleaseId: z.uuid().nullable(),
   previousReleaseId: z.uuid().nullable(),

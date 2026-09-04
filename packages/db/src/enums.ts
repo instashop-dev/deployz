@@ -46,6 +46,9 @@ export const regionEnum = pgEnum('region', [
   'ap-southeast-2',
 ]);
 
+// deployments.source — origin attribution of a deployment row.
+export const deploymentSourceEnum = pgEnum('deployment_source', ['manual', 'deploy_link']);
+
 // §46 deployment states — product vocabulary. Customers never see raw
 // CFN/ECS internals; these ten states are the whole user-facing model.
 export const deploymentStateEnum = pgEnum('deployment_state', [
