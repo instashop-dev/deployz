@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
     "files": 201,
     "entries": 1981,
@@ -52,32 +52,37 @@
     "worker": false,
     "workerCommand": null,
     "migration": true,
-    "migrationCommand": "prisma migrate",
+    "migrationCommand": "prisma migrate deploy",
     "externalServices": [],
     "requiredEnvVars": [
-      "CI",
+      "CLICKHOUSE_URL",
+      "CLIENT_IP_HEADER",
+      "CLOUD_MODE",
       "COLLECT_API_ENDPOINT",
+      "DATABASE_REPLICA_URL",
       "DATABASE_URL",
       "DISABLE_LOGIN",
-      "ENABLE_TEST_CONSOLE",
-      "GEO_DATABASE_URL",
-      "MAXMIND_LICENSE_KEY",
-      "NODE_ENV",
-      "PLAYWRIGHT_SKIP_WEB_SERVER",
+      "DISABLE_TELEMETRY",
+      "DISABLE_UPDATES",
+      "FAVICON_URL",
+      "IGNORE_IP",
+      "KAFKA_BROKER",
+      "KAFKA_MAX_MESSAGE_BYTES",
+      "KAFKA_URL",
+      "LINKS_URL",
+      "LOG_QUERY",
+      "PIXELS_URL",
+      "PRIVATE_MODE",
       "TRACKER_SCRIPT_NAME",
-      "TRACKER_SCRIPT_URL",
-      "VERCEL"
+      "TRACKER_SCRIPT_URL"
     ],
     "unsupported": [
-      "kafka",
-      "local-filesystem"
+      "kafka"
     ],
     "readinessFindings": [
-      "unsupported-message-queue",
-      "local-file-storage"
+      "unsupported-message-queue"
     ],
     "gateFindings": [
-      "unsupported",
       "unsupported",
       "required-env-vars-missing"
     ],
@@ -150,8 +155,7 @@
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "kafka",
-        "local-filesystem"
+        "kafka"
       ],
       "match": false,
       "kind": "fact"
@@ -183,8 +187,7 @@
       "kind": "fact",
       "expected": [],
       "actual": [
-        "kafka",
-        "local-filesystem"
+        "kafka"
       ],
       "finding": {
         "id": "COMP-002",

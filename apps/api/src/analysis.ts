@@ -55,7 +55,12 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // Version 6 narrowed the §11.4 architecture rejections (CANARY-002) — a
 // dev-only compose file and a bare `@azure/*`/`@google-cloud/*` package no
 // longer reject, so a stale NOT_COMPATIBLE verdict from Version 5 must re-run.
-export const ANALYSIS_VERSION = 6;
+// Version 7 is the Stage A detector-signal batch (COMP-001..007, 012, 013,
+// 016, 018, 020): ports from Dockerfile/Compose, health paths from health
+// checks and non-JS routes, Dockerfile ranking, migration-command resolution
+// by value, and the tree-fetch priority — stored ports, health paths and
+// NEEDS_CONFIGURATION verdicts from Version 6 must re-run.
+export const ANALYSIS_VERSION = 7;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -397,6 +402,9 @@ const DEPLOY_MIGRATION_REGEX =
  * unattended against the production database on every deploy, so this picks
  * defensively:
  *
+ *   0. A candidate is a script whose KEY mentions migrations, or whose VALUE
+ *      is already a deploy-shaped command under any key (`update-db: prisma
+ *      migrate deploy` — Stage A COMP-006).
  *   1. Drop every dev-shaped candidate outright (`DEV_MIGRATION_REGEX`) —
  *      never a candidate for this field, regardless of what else exists.
  *   2. Among what is left, prefer a deploy-shaped command
@@ -405,7 +413,9 @@ const DEPLOY_MIGRATION_REGEX =
  *      command is safer than a dev-mode one running unattended.
  */
 function resolveMigrationCommand(tree: FileTree): string | undefined {
-  const candidates = collectScripts(tree).filter(([key]) => MIGRATION_SCRIPT_KEY_REGEX.test(key));
+  const candidates = collectScripts(tree).filter(
+    ([key, command]) => MIGRATION_SCRIPT_KEY_REGEX.test(key) || DEPLOY_MIGRATION_REGEX.test(command),
+  );
   const safeCandidates = candidates.filter(([, command]) => !DEV_MIGRATION_REGEX.test(command));
   if (safeCandidates.length === 0) return undefined;
   const deployShaped = safeCandidates.find(([, command]) => DEPLOY_MIGRATION_REGEX.test(command));

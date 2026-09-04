@@ -488,6 +488,26 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     expect(row.migrationCommand).toBeNull();
   });
 
+  it('resolves a deploy-shaped migration script whose key does not mention migrations (COMP-006)', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/migrate-by-value',
+      defaultBranch: 'main',
+    });
+    const files = {
+      'package.json': JSON.stringify({
+        name: 'migrate-by-value',
+        scripts: { start: 'node index.js', 'update-db': 'prisma migrate deploy', 'build-db-schema': 'prisma db pull' },
+        dependencies: { express: '^4.18.0' },
+      }),
+    };
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.migrationCommand).toBe('prisma migrate deploy');
+  });
+
   it('resolves a migration command from a workspace package script, not just the root manifest', async () => {
     const application = await insertApplication(db, orgId, {
       githubInstallationId: 'install-1',

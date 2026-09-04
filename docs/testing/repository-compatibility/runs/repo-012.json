@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
     "files": 201,
     "entries": 611,
@@ -39,7 +39,7 @@
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": null,
+    "port": 3000,
     "startCommand": "ENTRYPOINT: [\"/zipline/entrypoint\"]",
     "healthDetected": true,
     "healthPath": "/api/healthcheck",
@@ -52,20 +52,18 @@
     "worker": false,
     "workerCommand": null,
     "migration": true,
-    "migrationCommand": "drizzle-kit generate",
+    "migrationCommand": "drizzle-kit push",
     "externalServices": [],
     "requiredEnvVars": [
-      "DATABASE_HOST",
-      "DATABASE_NAME",
-      "DATABASE_PASSWORD",
-      "DATABASE_PORT",
-      "DATABASE_USERNAME",
-      "ZIPLINE_OUTPUT_OPENAPI"
+      "FFMPEG_PATH",
+      "ZIPLINE_BUILD",
+      "ZIPLINE_GIT_SHA",
+      "ZIPLINE_NO_COLOR",
+      "ZIPLINE_OVERRIDE_DISABLED_WORKER_LOG"
     ],
     "unsupported": [],
     "readinessFindings": [],
     "gateFindings": [
-      "port-missing",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": []
@@ -122,9 +120,8 @@
     {
       "fact": "port",
       "expected": 3000,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 3000,
+      "match": true
     },
     {
       "fact": "healthPath",
@@ -139,17 +136,6 @@
       "match": true
     }
   ],
-  "mismatches": [
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 3000,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
-      }
-    }
-  ],
-  "match": false
+  "mismatches": [],
+  "match": true
 }

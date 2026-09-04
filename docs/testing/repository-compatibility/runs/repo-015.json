@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
-    "files": 198,
+    "files": 201,
     "entries": 4074,
     "truncated": false
   },
@@ -43,11 +43,11 @@
     "runtime": "node",
     "appRoot": "machine-learning",
     "dockerfilePath": "machine-learning/Dockerfile",
-    "port": null,
+    "port": 2283,
     "startCommand": "CMD: [\"python\", \"-m\", \"immich_ml\"]",
     "healthDetected": true,
     "healthPath": "/health",
-    "postgres": false,
+    "postgres": true,
     "postgresDetected": true,
     "redis": true,
     "redisDetected": true,
@@ -61,43 +61,26 @@
       "smtp"
     ],
     "requiredEnvVars": [
-      "CI",
-      "DB_URL",
-      "GITHUB_ENV",
-      "LD_LIBRARY_PATH",
-      "MACHINE_LEARNING_DEVICE_ID",
-      "MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL",
-      "MACHINE_LEARNING_PRELOAD__CLIP__VISUAL",
-      "MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__DETECTION",
-      "MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__RECOGNITION",
-      "MACHINE_LEARNING_PRELOAD__OCR__DETECTION",
-      "MACHINE_LEARNING_PRELOAD__OCR__RECOGNITION",
-      "PLAYWRIGHT_DISABLE_WEBSERVER",
-      "PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS"
+      "IMMICH_LOG_LEVEL"
     ],
     "unsupported": [
       "docker-compose-multi-service",
-      "gpu",
-      "local-filesystem"
+      "gpu"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
       "unsupported-gpu",
-      "local-file-storage",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
-      "unsupported",
-      "port-missing",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "monorepo-target",
-      "database-requirement-unclear"
+      "monorepo-target"
     ]
   },
   "comparisons": [
@@ -110,9 +93,8 @@
     {
       "fact": "postgres",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "redis",
@@ -155,9 +137,8 @@
     {
       "fact": "port",
       "expected": 2283,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 2283,
+      "match": true
     },
     {
       "fact": "healthPath",
@@ -174,24 +155,13 @@
       ],
       "actual": [
         "docker-compose-multi-service",
-        "gpu",
-        "local-filesystem"
+        "gpu"
       ],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
-    {
-      "fact": "postgres",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-013",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "appRoot",
       "kind": "fact",
@@ -209,16 +179,6 @@
       "actual": "machine-learning/Dockerfile",
       "finding": {
         "id": "COMP-007",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 2283,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
         "type": "ANALYSIS_BUG"
       }
     },
@@ -241,8 +201,7 @@
       ],
       "actual": [
         "docker-compose-multi-service",
-        "gpu",
-        "local-filesystem"
+        "gpu"
       ],
       "finding": {
         "id": "COMP-007",

@@ -6,10 +6,10 @@
   "cohort": "messy",
   "customerRealism": "medium",
   "difficulty": 4,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
-    "files": 191,
+    "files": 190,
     "entries": 1475,
     "truncated": false
   },
@@ -32,17 +32,17 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "READY",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "unknown",
-    "appRoot": "docker",
+    "appRoot": ".",
     "dockerfilePath": "docker/Dockerfile",
-    "port": null,
+    "port": 8000,
     "startCommand": "CMD: [ \"uwsgi\", \"/opt/healthchecks/docker/uwsgi.ini\"]",
     "healthDetected": true,
     "healthPath": "/health",
-    "postgres": false,
+    "postgres": true,
     "postgresDetected": true,
     "redis": false,
     "redisDetected": false,
@@ -59,25 +59,23 @@
       "database-migrations"
     ],
     "gateFindings": [
-      "port-missing"
+      "migration-command-missing"
     ],
-    "unresolvedQuestions": [
-      "database-requirement-unclear"
-    ]
+    "unresolvedQuestions": []
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "redis",
@@ -108,9 +106,8 @@
     {
       "fact": "appRoot",
       "expected": ".",
-      "actual": "docker",
-      "match": false,
-      "kind": "fact"
+      "actual": ".",
+      "match": true
     },
     {
       "fact": "dockerfilePath",
@@ -121,9 +118,8 @@
     {
       "fact": "port",
       "expected": 8000,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 8000,
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -134,12 +130,12 @@
   ],
   "mismatches": [
     {
-      "fact": "postgres",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
       "finding": {
-        "id": "COMP-013",
+        "id": "COMP-022",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
@@ -161,26 +157,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "appRoot",
-      "kind": "fact",
-      "expected": ".",
-      "actual": "docker",
-      "finding": {
-        "id": "COMP-020",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8000,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

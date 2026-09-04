@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
     "files": 70,
     "entries": 258,
@@ -39,11 +39,11 @@
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": null,
+    "port": 3000,
     "startCommand": "CMD: npm run migrate && npm start",
-    "healthDetected": false,
-    "healthPath": null,
-    "postgres": false,
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": true,
     "postgresDetected": true,
     "redis": true,
     "redisDetected": true,
@@ -57,31 +57,24 @@
       "smtp"
     ],
     "requiredEnvVars": [
-      "ADMIN_EMAILS",
-      "NODE_ENV"
+      "ADMIN_EMAILS"
     ],
     "unsupported": [
-      "local-filesystem",
       "mysql",
       "sqlite"
     ],
     "readinessFindings": [
       "unsupported-database-mysql",
       "unsupported-database-sqlite",
-      "local-file-storage",
-      "health-check",
       "worker-command"
     ],
     "gateFindings": [
       "unsupported",
       "unsupported",
-      "unsupported",
-      "port-missing",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
-      "build-command-unknown",
-      "database-requirement-unclear"
+      "build-command-unknown"
     ]
   },
   "comparisons": [
@@ -95,9 +88,8 @@
     {
       "fact": "postgres",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "redis",
@@ -139,14 +131,13 @@
     {
       "fact": "port",
       "expected": 3000,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 3000,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/api/health",
-      "actual": null,
+      "actual": "/health",
       "match": false,
       "kind": "fact"
     },
@@ -154,7 +145,6 @@
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "local-filesystem",
         "mysql",
         "sqlite"
       ],
@@ -174,16 +164,6 @@
       }
     },
     {
-      "fact": "postgres",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-013",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
       "fact": "redis",
       "kind": "fact",
       "expected": false,
@@ -194,20 +174,10 @@
       }
     },
     {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 3000,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/api/health",
-      "actual": null,
+      "actual": "/health",
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
@@ -218,7 +188,6 @@
       "kind": "fact",
       "expected": [],
       "actual": [
-        "local-filesystem",
         "mysql",
         "sqlite"
       ],

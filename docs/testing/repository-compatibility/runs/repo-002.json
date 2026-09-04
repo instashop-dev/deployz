@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
     "files": 201,
     "entries": 8033,
@@ -34,15 +34,15 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": null,
+    "port": 4242,
     "startCommand": "CMD: [\"node\", \"dist/server.js\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -57,15 +57,39 @@
       "smtp"
     ],
     "requiredEnvVars": [
-      "UNLEASH_OPENAPI_URL"
+      "AUTH_TYPE",
+      "BASE_URI_PATH",
+      "BUILD_DATE",
+      "CDN_PREFIX",
+      "DATABASE_HOST",
+      "DATABASE_PASSWORD",
+      "DATABASE_SSL",
+      "DATABASE_URL",
+      "DATABASE_URL_FILE",
+      "DATABASE_USERNAME",
+      "DATABASE_VERSION",
+      "EDGE_URL",
+      "EMAIL_HOST",
+      "EMAIL_PASSWORD",
+      "EMAIL_USER",
+      "ENABLED_ENVIRONMENTS",
+      "FEEDBACK_URI_PATH",
+      "HTTP_HOST",
+      "HUBSPOT_PORTAL_ID",
+      "IMPORT_FILE",
+      "INIT_CLIENT_API_TOKENS",
+      "LOGROCKET_APP_ID",
+      "OPENAI_API_KEY",
+      "TEST_DB_TEMPLATE_NAME",
+      "UNLEASH_DATABASE_SCHEMA",
+      "UNLEASH_DEFAULT_ADMIN_PASSWORD",
+      "UNLEASH_DEFAULT_ADMIN_USERNAME"
     ],
     "unsupported": [],
     "readinessFindings": [
-      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "port-missing",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
@@ -125,16 +149,14 @@
     {
       "fact": "port",
       "expected": 4242,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 4242,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -150,27 +172,7 @@
       "expected": "READY",
       "actual": "NEEDS_CONFIGURATION",
       "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 4242,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/health",
-      "actual": null,
-      "finding": {
-        "id": "COMP-018",
+        "id": "COMP-023",
         "type": "ANALYSIS_BUG"
       }
     }

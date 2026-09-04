@@ -136,6 +136,44 @@ function findFileContent(tree: FileTree, pathRegex: RegExp): string | null {
   return tree[match] ?? null;
 }
 
+// Paths that never run inside the deployed container: tests and fixtures,
+// build/release scripts, documentation generators, tool configuration. A
+// disk write or an environment read there says nothing about the app at
+// runtime (Stage A COMP-003, COMP-016).
+const NON_RUNTIME_SEGMENT_REGEX =
+  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|tests?|spec|specs|e2e|cypress|fixtures?|stories|scripts?|tools?|bin|docs?|extra|examples?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
+const NON_RUNTIME_FILE_REGEX =
+  /(?:\.(?:test|spec|stories|e2e|cy)\.[cm]?[jt]sx?$|(?:^|\/)(?:[\w.-]+\.config\.[cm]?[jt]s|\.(?:eslintrc|prettierrc|babelrc)(?:\.[cm]?js)?|conftest\.py|test_[\w-]+\.py|[\w-]+_test\.(?:py|go|rb))$)/i;
+
+/** True for source the deployed container actually runs. */
+export function isRuntimeSourcePath(path: string): boolean {
+  return !NON_RUNTIME_SEGMENT_REGEX.test(path) && !NON_RUNTIME_FILE_REGEX.test(path);
+}
+
+// Compose files that describe dev/test/example tooling rather than the app's
+// own production deployment shape — by path segment or by filename flavour.
+const NON_PRODUCTION_COMPOSE_SEGMENT_REGEX =
+  /(?:^|\/)(?:development|dev|test|testing|tests|e2e|ci|\.?examples?|\.?samples?|local|\.devcontainer)(?:\/|$)/i;
+const NON_PRODUCTION_COMPOSE_FILENAME_REGEX =
+  /(?:docker-compose|compose)\.(?:dev|development|test|testing|override|local|example|sample|ci)\.ya?ml$/i;
+const COMPOSE_FILE_REGEX = /(?:^|\/)(?:docker-compose|compose)\.ya?ml$/i;
+
+export function isProductionComposeFile(path: string): boolean {
+  return !NON_PRODUCTION_COMPOSE_SEGMENT_REGEX.test(path) && !NON_PRODUCTION_COMPOSE_FILENAME_REGEX.test(path);
+}
+
+/**
+ * Every Compose file that describes the app's own production shape, the
+ * repository-root file first. Variant files at the root
+ * (`docker-compose.postgres.yml`) are not matched — they are alternatives,
+ * not the default shape — except through `listProductionComposeVariants`.
+ */
+export function listProductionComposeFiles(tree: FileTree): string[] {
+  return Object.keys(tree)
+    .filter((path) => COMPOSE_FILE_REGEX.test(path) && isProductionComposeFile(path))
+    .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+}
+
 /** Dependency-bearing manifests for the non-Node languages §11.5 reads. */
 const PY_DEPENDENCY_FILES = /(?:^|\/)(?:requirements[^/]*\.txt|Pipfile|pyproject\.toml|setup\.py|environment\.ya?ml)$/;
 const RB_DEPENDENCY_FILES = /(?:^|\/)Gemfile(?:\.lock)?$/;
@@ -224,7 +262,17 @@ const EXACT_DOCKERFILE_NAME_REGEX = /(?:^|\/)dockerfile$/i;
  * auxiliary services (e.g. a dev-only PDF service); picking the first one
  * `Object.keys` happens to return risks building the wrong image.
  */
+// A Dockerfile that builds a dev container, a test image, an example, or an
+// OS package (Debian/RPM) is never the image Deployz should build — it ranks
+// below every other candidate regardless of depth (Stage A COMP-007).
+const DEV_DOCKERFILE_REGEX =
+  /(?:^|\/)(?:\.devcontainer|dev|development|test|tests|e2e|ci|examples?|samples?|debian|rpm)(?:\/|$)|(?:^|\/)dockerfile\.(?:dev|development|test|e2e|ci|compose)$/i;
+
 function compareDockerfileCandidates(a: string, b: string): number {
+  const aDev = DEV_DOCKERFILE_REGEX.test(a);
+  const bDev = DEV_DOCKERFILE_REGEX.test(b);
+  if (aDev !== bDev) return aDev ? 1 : -1;
+
   const depthDiff = a.split('/').length - b.split('/').length;
   if (depthDiff !== 0) return depthDiff;
 
@@ -261,6 +309,13 @@ export function detectDockerfile(tree: FileTree): DetectorFinding {
  */
 export function listDockerfileCandidates(tree: FileTree): string[] {
   return findFiles(tree, DOCKERFILE_REGEX).sort(compareDockerfileCandidates);
+}
+
+/** The Dockerfile Deployz would build — the top-ranked candidate — with its content. */
+function selectedDockerfile(tree: FileTree): { path: string; content: string } | null {
+  const path = listDockerfileCandidates(tree)[0];
+  if (path === undefined) return null;
+  return { path, content: tree[path] ?? '' };
 }
 
 // 2. Framework
@@ -305,9 +360,16 @@ export function detectFramework(tree: FileTree): DetectorFinding {
 const PORT_ENV_REGEX = /^PORT\s*=\s*(\d+)/m;
 const PORT_PROCESS_REGEX = /process\.env\.PORT\s*\|\|\s*(\d+)/;
 const PORT_DOCKER_COMPOSE_REGEX = /\$\{?PORT[:-](\d+)/;
+// The container's own documentation of its port (Stage A COMP-001): an
+// explicit `ENV PORT=3000`, an `EXPOSE 3000` / `EXPOSE ${PORT:-3333}`
+// instruction, or a Compose port mapping whose CONTAINER side is the port.
+const DOCKERFILE_ENV_PORT_REGEX = /^\s*ENV\s+PORT[=\s]+["']?(\d{2,5})\b/m;
+const DOCKERFILE_EXPOSE_REGEX = /^\s*EXPOSE\s+(?:\$\{PORT:-(\d{2,5})\}|(\d{2,5}))(?:\/tcp)?(?=\s|$)/m;
+const COMPOSE_PORT_MAPPING_REGEX = /^\s*-\s*["']?(?:[\d.]+:)?\d{2,5}:(\d{2,5})(?:\/tcp)?["']?\s*$/m;
 
 /**
- * Detect the application port from env files, docker-compose, or source code.
+ * Detect the application port from env files, docker-compose, the selected
+ * Dockerfile, or source code.
  */
 export function detectPort(tree: FileTree): DetectorFinding {
   // 1. Check env files (.env, .env.example)
@@ -341,7 +403,35 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 3. Check source code for process.env.PORT || fallback
+  // 3. The selected Dockerfile's explicit ENV PORT — the container's own
+  //    configuration outranks a code default it may override.
+  const dockerfile = selectedDockerfile(tree);
+  const envPort = dockerfile ? DOCKERFILE_ENV_PORT_REGEX.exec(dockerfile.content) : null;
+  if (dockerfile && envPort?.[1]) {
+    return {
+      detector: 'port',
+      detected: true,
+      value: envPort[1],
+      details: `Port ${envPort[1]} detected in ${dockerfile.path} (ENV PORT)`,
+    };
+  }
+
+  // 4. The selected Dockerfile's EXPOSE instruction — the image's own
+  //    statement of its port outranks a code default, which may belong to
+  //    another runtime in the same repository (a Django image next to a
+  //    Node frontend) and which Deployz overrides through PORT anyway.
+  const expose = dockerfile ? DOCKERFILE_EXPOSE_REGEX.exec(dockerfile.content) : null;
+  const exposed = expose?.[1] ?? expose?.[2];
+  if (dockerfile && exposed) {
+    return {
+      detector: 'port',
+      detected: true,
+      value: exposed,
+      details: `Port ${exposed} detected in ${dockerfile.path} (EXPOSE)`,
+    };
+  }
+
+  // 5. Check source code for process.env.PORT || fallback
   for (const [path, content] of Object.entries(tree)) {
     if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
       const match = PORT_PROCESS_REGEX.exec(content);
@@ -353,6 +443,19 @@ export function detectPort(tree: FileTree): DetectorFinding {
           details: `Default port ${match[1]} detected in ${path}`,
         };
       }
+    }
+  }
+
+  // 6. A production Compose port mapping (host:container — the container side).
+  for (const path of listProductionComposeFiles(tree)) {
+    const match = COMPOSE_PORT_MAPPING_REGEX.exec(tree[path] ?? '');
+    if (match?.[1]) {
+      return {
+        detector: 'port',
+        detected: true,
+        value: match[1],
+        details: `Port ${match[1]} detected in ${path} (ports mapping)`,
+      };
     }
   }
 
@@ -400,7 +503,24 @@ const ROUTER_MOUNT_REGEX =
 const HEALTH_PATH_PRIORITY = {
   ROUTE_REGISTRATION: 0,
   FILE_ROUTE: 1,
+  // A URL inside a Dockerfile HEALTHCHECK / Compose healthcheck names the
+  // path the image's own check probes — real evidence, but it can lag a
+  // moved route, so it ranks below anything found in code (Stage A COMP-005).
+  HEALTHCHECK_URL: 2,
 } as const;
+const HEALTH_PATH_SEGMENT_REGEX = /(?:^|\/)(?:health|healthz|healthcheck|heartbeat|readyz|livez)$/i;
+// A health URL in a container/compose health check: `curl -f http://localhost:3000/api/heartbeat`.
+// The host is the container itself (localhost, a loopback/any address, or a
+// `$VAR`), never a documentation link that happens to sit on the same line.
+const HEALTHCHECK_URL_REGEX =
+  /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|\$\{?[\w:-]+\}?)(?::\$?\{?[\w:-]+\}?)?(\/[\w./-]*)/;
+// Route registrations in Go, Python and Ruby name their path as a plain
+// string literal on the registering call: `HandleFunc("GET /healthcheck", …)`,
+// `app.Get("/health", …)`, `@app.route('/health')`, `path('health/', …)`,
+// `get '/health'`. Only the well-known health segments count.
+const HEALTH_ROUTE_LITERAL_REGEX =
+  /(?:HandleFunc|Handle|GET|Get|get|route|path|add_url_rule|url)\s*\(?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez))\/?["']/;
+const LANGUAGE_SOURCE_REGEX = /\.(go|py|rb)$/;
 
 /** Ensure a captured/derived health path starts with a leading slash. */
 function normalizeHealthPath(raw: string): string {
@@ -466,7 +586,8 @@ function composeMountedPath(
     seen.add(current);
     const mount = mounts.find((candidate) => candidate.router === current);
     if (!mount) break;
-    path = `${mount.prefix}${path}`;
+    // `app.use('/', router)` is a root mount — joining must not double the slash.
+    path = `${mount.prefix.replace(/\/+$/, '')}${path}`;
     composed = true;
     current = mount.mounter;
   }
@@ -493,13 +614,48 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 1. Dockerfile HEALTHCHECK instruction
-  for (const path of Object.keys(tree)) {
-    if (DOCKERFILE_REGEX.test(path)) {
-      const content = tree[path];
-      if (content && HEALTHCHECK_REGEX.test(content)) {
-        sources.push('HEALTHCHECK (Dockerfile)');
-      }
+  // 0b. A router mounted at a health prefix (`apiRouter.use('/health', router)`)
+  //     registers that path whatever the inner routes are called.
+  for (const mount of mounts) {
+    if (HEALTH_PATH_SEGMENT_REGEX.test(mount.prefix)) {
+      sources.push(`health router mount (${mount.prefix})`);
+      pathCandidates.push({
+        path: composeMountedPath(mount.mounter, mount.prefix, mounts) ?? mount.prefix,
+        priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+      });
+    }
+  }
+
+  // 1. The selected Dockerfile's HEALTHCHECK instruction — the image Deployz
+  //    builds, not a sibling dev/packaging image.
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile && HEALTHCHECK_REGEX.test(dockerfile.content)) {
+    sources.push('HEALTHCHECK (Dockerfile)');
+    const healthcheckLine = /HEALTHCHECK\b[^\n]*/i.exec(dockerfile.content)?.[0] ?? '';
+    const url = HEALTHCHECK_URL_REGEX.exec(healthcheckLine);
+    if (url?.[1]) {
+      pathCandidates.push({ path: normalizeHealthPath(url[1]), priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL });
+    }
+  }
+
+  // 1b. A production Compose healthcheck that probes a URL.
+  for (const path of listProductionComposeFiles(tree)) {
+    const healthcheck = /healthcheck:[\s\S]*?test:[^\n]*/.exec(tree[path] ?? '')?.[0] ?? '';
+    const url = HEALTHCHECK_URL_REGEX.exec(healthcheck);
+    if (url?.[1]) {
+      sources.push(`healthcheck (${path})`);
+      pathCandidates.push({ path: normalizeHealthPath(url[1]), priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL });
+      break;
+    }
+  }
+
+  // 1c. Route registrations in Go, Python and Ruby runtime source.
+  for (const [path, content] of Object.entries(tree)) {
+    if (!LANGUAGE_SOURCE_REGEX.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    const match = HEALTH_ROUTE_LITERAL_REGEX.exec(content);
+    if (match?.[1]) {
+      sources.push(`health route (${path})`);
+      pathCandidates.push({ path: normalizeHealthPath(match[1]), priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION });
     }
   }
 
@@ -513,7 +669,13 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   // 3. Route patterns in source code, or a file-based route path
   for (const [path, content] of Object.entries(tree)) {
     if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
-      if (HEALTH_ROUTE_FILE_REGEX.test(path)) {
+      // Only a file inside a file-based router (`routes`, `pages`, `app`, or
+      // an `api` segment) declares a URL by its name; a model or controller
+      // called `heartbeat.js` does not (Stage A COMP-004).
+      if (
+        HEALTH_ROUTE_FILE_REGEX.test(path) &&
+        path.split('/').some((segment) => ROUTER_ROOT_DIRS.has(segment) || segment === 'api')
+      ) {
         sources.push(`health route file (${path})`);
         pathCandidates.push({ path: deriveHealthPathFromFile(path), priority: HEALTH_PATH_PRIORITY.FILE_ROUTE });
       }
@@ -790,11 +952,14 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
     }
   }
 
-  // A known connection env var referenced in an env file, docker-compose, or source.
+  // A known connection env var referenced in an env file, docker-compose, or
+  // source — a JS `process.env` read, or the name as a string literal in Go,
+  // Python or Ruby configuration (Stage A COMP-013).
   for (const name of PG_CONNECTION_ENV_VARS) {
     const envFileRegex = new RegExp(`^${name}\\s*[=:]`, 'm');
     const composeRegex = new RegExp(`\\b${name}\\s*[=:]`);
     const processEnvRegex = new RegExp(`process\\.env\\.${name}\\b`);
+    const literalRegex = new RegExp(`["']${name}["']`);
 
     for (const [path, content] of Object.entries(tree)) {
       if (!content) continue;
@@ -807,20 +972,27 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
       } else if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) && processEnvRegex.test(content)) {
         hasIndependentEvidence = true;
         evidence.push(`process.env.${name} referenced in ${path}`);
+      } else if (LANGUAGE_SOURCE_REGEX.test(path) && isRuntimeSourcePath(path) && literalRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`${name} referenced in ${path}`);
       }
     }
   }
 
-  // A postgres/postgis image in docker-compose.
-  const dcContent = findFileContent(tree, /^docker-compose\.ya?ml$/i);
-  if (dcContent) {
+  // A postgres/postgis image in any production Compose file — the root file,
+  // a nested `docker/docker-compose.yml`, or a root variant such as
+  // `docker-compose.postgres.yml` (an app that ships one supports PostgreSQL).
+  for (const path of Object.keys(tree)) {
+    if (!/(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i.test(path) || !isProductionComposeFile(path)) continue;
+    const dcContent = tree[path];
+    if (!dcContent) continue;
     const regex = new RegExp(COMPOSE_IMAGE_REGEX.source, COMPOSE_IMAGE_REGEX.flags);
     let match: RegExpExecArray | null;
     while ((match = regex.exec(dcContent)) !== null) {
       const image = match[1];
       if (image && /postgres|postgis/i.test(image)) {
         hasIndependentEvidence = true;
-        evidence.push(`docker-compose service using a PostgreSQL/PostGIS image (${image})`);
+        evidence.push(`docker-compose service using a PostgreSQL/PostGIS image (${image}) in ${path}`);
       }
     }
   }
@@ -857,7 +1029,7 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
 
   for (const [path, content] of Object.entries(tree)) {
-    if (JS_SOURCE.test(path)) {
+    if (JS_SOURCE.test(path) && isRuntimeSourcePath(path)) {
       for (const { pattern, name } of FS_PATTERNS) {
         if (pattern.test(content) && !detected.includes(name)) {
           detected.push(name);
@@ -886,7 +1058,7 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
     { pattern: /FileUtils\.mkdir_p\(|Dir\.mkdir\(/, name: 'mkdir_p', ext: RB_SOURCE },
   ];
   for (const [path, content] of Object.entries(tree)) {
-    if (!content) continue;
+    if (!content || !isRuntimeSourcePath(path)) continue;
     for (const { pattern, name, ext } of LANG_FS_PATTERNS) {
       if (ext.test(path) && pattern.test(content) && !detected.includes(name)) {
         detected.push(name);
@@ -952,13 +1124,17 @@ export function detectWorker(tree: FileTree): DetectorFinding {
 // 9. S3 usage
 // ---------------------------------------------------------------------------
 
-const S3_DEPS = ['@aws-sdk/client-s3', 'aws-sdk'] as const;
+// S3-SPECIFIC packages only. The umbrella SDKs (`aws-sdk`, `boto3`,
+// `github.com/aws/aws-sdk-go`) also serve SES, SQS and friends, so on their
+// own they prove nothing about object storage — they count only through an
+// S3 client construction in source (Stage A COMP-012).
+const S3_DEPS = ['@aws-sdk/client-s3'] as const;
 const S3_ENV_REGEX = /^(?:AWS_)?S3_BUCKET\s*=/m;
 
 /**
- * Detect S3 usage from package.json dependencies, language-manifest SDKs
- * (§11.5: boto3 / aws-sdk-s3 / the Go AWS SDK), source-code client usage, or
- * S3-specific env vars.
+ * Detect S3 usage from S3-specific packages (npm, Ruby `aws-sdk-s3`, the Go
+ * v2 `service/s3` module, CDK), source-code S3 client usage, or S3-specific
+ * env vars.
  */
 export function detectS3(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
@@ -971,12 +1147,10 @@ export function detectS3(tree: FileTree): DetectorFinding {
     }
   }
 
-  // §11.5 language breadth: boto3, Ruby aws-sdk-s3, Go AWS SDK S3 module.
+  // §11.5 language breadth: Ruby aws-sdk-s3, Go AWS SDK S3 module.
   const LANGUAGE_S3_TOKENS = [
-    { token: 'boto3', name: 'boto3' },
     { token: 'aws-sdk-s3', name: 'aws-sdk-s3' },
     { token: 'github.com/aws/aws-sdk-go-v2/service/s3', name: 'aws-sdk-go-v2 service/s3' },
-    { token: 'github.com/aws/aws-sdk-go', name: 'aws-sdk-go' },
     { token: 'aws_cdk.aws_s3', name: 'aws_cdk aws_s3' },
   ] as const;
   for (const { token, name } of LANGUAGE_S3_TOKENS) {
@@ -989,7 +1163,10 @@ export function detectS3(tree: FileTree): DetectorFinding {
   // or a dependency pinned outside the manifests we read).
   for (const [path, content] of Object.entries(tree)) {
     if (PY_SOURCE.test(path) && /boto3\.(?:client|resource)\s*\(\s*["']s3["']/.test(content)) {
-      if (!detected.includes('boto3 s3 client')) detected.push('boto3 s3 client');
+      if (!detected.includes('boto3')) detected.push('boto3');
+    }
+    if (JS_SOURCE.test(path) && /\bAWS\.S3\s*\(/.test(content) && !detected.includes('aws-sdk')) {
+      detected.push('aws-sdk');
     }
     if (
       GO_SOURCE.test(path) &&
@@ -1073,25 +1250,23 @@ const CMD_REGEX = /^CMD\s+(.+)$/m;
 const ENTRYPOINT_REGEX = /^ENTRYPOINT\s+(.+)$/m;
 
 /**
- * Detect the application startup command from Dockerfile CMD/ENTRYPOINT
- * instructions and package.json "start" script.
+ * Detect the application startup command from the selected Dockerfile's
+ * CMD/ENTRYPOINT instructions and package.json "start" script.
  */
 export function detectStartupCommand(tree: FileTree): DetectorFinding {
   const sources: string[] = [];
 
-  // 1. Dockerfile CMD instruction
-  for (const path of Object.keys(tree)) {
-    if (DOCKERFILE_REGEX.test(path)) {
-      const content = tree[path];
-      if (!content) continue;
-      const cmdMatch = CMD_REGEX.exec(content);
-      if (cmdMatch && cmdMatch[1]) {
-        sources.push(`CMD: ${cmdMatch[1].trim()}`);
-      }
-      const entryMatch = ENTRYPOINT_REGEX.exec(content);
-      if (entryMatch && entryMatch[1]) {
-        sources.push(`ENTRYPOINT: ${entryMatch[1].trim()}`);
-      }
+  // 1. The selected Dockerfile's CMD/ENTRYPOINT — the image Deployz builds,
+  //    not every scaffold or sibling image in the repository.
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile) {
+    const cmdMatch = CMD_REGEX.exec(dockerfile.content);
+    if (cmdMatch && cmdMatch[1]) {
+      sources.push(`CMD: ${cmdMatch[1].trim()}`);
+    }
+    const entryMatch = ENTRYPOINT_REGEX.exec(dockerfile.content);
+    if (entryMatch && entryMatch[1]) {
+      sources.push(`ENTRYPOINT: ${entryMatch[1].trim()}`);
     }
   }
 
@@ -1276,6 +1451,11 @@ const SECRET_NAME_REGEX =
 /** Sample files the env model treats as documentation of the app's config. */
 const ENV_SAMPLE_FILE_REGEX = /(?:^|\/)(?:\.env(?:\.example|\.sample|\.template)|\.env)$/i;
 
+// Helpers that parse an environment value and take a default as a later
+// argument: `parseEnvVarNumber(process.env.X, 10)`, `getEnv(process.env.X, 'a')`,
+// `envBool(process.env.X, false)`.
+const DEFAULTING_HELPER_REGEX = /^(?:parse|read|get|load|resolve|env|to)\w*$|(?:Number|Boolean|Bool|String|Int|Float|List|Env)$/;
+
 /** A value that documents "no usable default" (blank or a named placeholder). */
 function isPlaceholderValue(value: string): boolean {
   const trimmed = value.trim();
@@ -1335,7 +1515,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   };
 
   for (const [path, content] of Object.entries(tree)) {
-    if (!content) continue;
+    if (!content || !isRuntimeSourcePath(path)) continue;
     if (JS_SOURCE.test(path)) {
       const readRegex =
         /process\.env\s*\.\s*([A-Z_][A-Z0-9_]*)|process\.env\[["']([A-Z_][A-Z0-9_]*)["']\]/g;
@@ -1357,7 +1537,17 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         const lastOpen = head.lastIndexOf('(');
         const inConditional =
           lastOpen >= 0 && /(?:if|while|catch)\s*$/.test(head.slice(0, lastOpen).replace(/\s+$/, ''));
-        const hasFallback = /(?:\?\?|\|\|)\s*\S/.test(tail) || /(?:\?\?=|\|\|=)/.test(tail);
+        // A read that is itself the alternative of a `??`/`||` chain
+        // (`process.env.A ?? process.env.B`) is a fallback, not a
+        // requirement; and a read handed to a parsing helper alongside a
+        // default argument (`parseEnvVarNumber(process.env.PORT, 4242)`)
+        // carries that default (Stage A COMP-017).
+        const isAlternative = /(?:\?\?|\|\|)\s*$/.test(head);
+        const callee = /([A-Za-z_$][\w$]*)\s*\(\s*(?:[^()]*,\s*)?$/.exec(head)?.[1] ?? '';
+        const helperWithDefault =
+          DEFAULTING_HELPER_REGEX.test(callee) && /^\s*(?:\|\|[^,;\n]*)?,/.test(tail);
+        const hasFallback =
+          /(?:\?\?|\|\|)\s*\S/.test(tail) || /(?:\?\?=|\|\|=)/.test(tail) || isAlternative || helperWithDefault;
         const isGuard =
           /^\s*(?:===|!==|==|!=)/.test(tail) ||
           /^\s*\?/.test(tail) ||
@@ -1413,8 +1603,9 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     }
 
     // A defaulted/guarded read that never NEEDS the value is never required,
-    // even when a sample line is empty.
-    const required = needsValue && !hasDefault;
+    // even when a sample line is empty — and a platform-provided variable is
+    // never the vendor's to configure.
+    const required = needsValue && !hasDefault && !isPlatformEnvVar(key);
 
     let secret = isSecretName(key);
     // §11.3 upgrade: an evidenced well-known service credential is a secret
@@ -1435,6 +1626,37 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
 /** Name-based credential heuristic — value-free, so it can never leak anything. */
 function isSecretName(key: string): boolean {
   return SECRET_NAME_REGEX.test(key);
+}
+
+// Variables the runtime, the container platform or a CI/hosting provider
+// supplies (Deployz itself injects PORT and HOSTNAME); an app reading one
+// without a fallback is not asking the vendor for a value (Stage A COMP-016).
+const PLATFORM_ENV_VARS = new Set<string>([
+  'NODE_ENV',
+  'NODE_OPTIONS',
+  'PORT',
+  'HOST',
+  'HOSTNAME',
+  'HOME',
+  'PATH',
+  'LD_LIBRARY_PATH',
+  'PWD',
+  'TZ',
+  'LANG',
+  'CI',
+  'DEBUG',
+  'VERCEL',
+  'VERCEL_ENV',
+  'VERCEL_URL',
+  'NETLIFY',
+  'GITHUB_ACTIONS',
+  'NEXT_RUNTIME',
+  'NEXT_PHASE',
+  'NEXT_TELEMETRY_DISABLED',
+]);
+
+function isPlatformEnvVar(key: string): boolean {
+  return PLATFORM_ENV_VARS.has(key) || key.startsWith('npm_');
 }
 
 // 13. Package manager

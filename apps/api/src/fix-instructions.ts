@@ -62,7 +62,7 @@ export function buildFixInstructionsContext(
           : asString(metadata?.['port']),
       dockerfilePath: asString(metadata?.['dockerfilePath']),
       database: metadata?.['usesPostgresql'] === true ? 'postgres' : 'none',
-      migrationCommand: application.migrationCommand ?? firstString(metadata?.['migrationCommands']),
+      migrationCommand: application.migrationCommand,
       healthPath: application.healthPath,
       redisRequired: application.redisRequired || redis?.required === true,
       workingDirectory: asString(metadata?.['workingDirectory']),

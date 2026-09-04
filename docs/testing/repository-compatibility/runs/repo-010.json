@@ -6,10 +6,10 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
-    "files": 126,
+    "files": 201,
     "entries": 615,
     "truncated": false
   },
@@ -34,39 +34,33 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": null,
+    "port": 9000,
     "startCommand": "CMD: [\"./listmonk\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/api/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
     "redisDetected": false,
     "redisConfidence": "low",
-    "storage": false,
+    "storage": true,
     "worker": false,
     "workerCommand": null,
     "migration": false,
     "migrationCommand": null,
     "externalServices": [],
-    "requiredEnvVars": [
-      "NODE_ENV",
-      "VUE_ENV"
-    ],
+    "requiredEnvVars": [],
     "unsupported": [],
     "readinessFindings": [
-      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "port-missing",
-      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": []
@@ -75,8 +69,9 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -99,8 +94,9 @@
     {
       "fact": "storage",
       "expected": false,
-      "actual": false,
-      "match": true
+      "actual": true,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "migration",
@@ -124,14 +120,13 @@
     {
       "fact": "port",
       "expected": 9000,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 9000,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": null,
+      "actual": "/api/health",
       "match": false,
       "kind": "fact"
     },
@@ -144,6 +139,26 @@
   ],
   "mismatches": [
     {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
+      "finding": {
+        "id": "COMP-021",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-012",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
       "fact": "migration",
       "kind": "fact",
       "expected": true,
@@ -154,20 +169,10 @@
       }
     },
     {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 9000,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/health",
-      "actual": null,
+      "actual": "/api/health",
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"

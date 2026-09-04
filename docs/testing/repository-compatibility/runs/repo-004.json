@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
-    "files": 12,
+    "files": 200,
     "entries": 790,
     "truncated": false
   },
@@ -37,13 +37,13 @@
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
     "runtime": "unknown",
-    "appRoot": "packaging/debian",
-    "dockerfilePath": "packaging/debian/Dockerfile",
-    "port": null,
-    "startCommand": "CMD: [\"/src/packaging/debian/build.sh\"]",
-    "healthDetected": false,
-    "healthPath": null,
-    "postgres": false,
+    "appRoot": ".",
+    "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+    "port": 8080,
+    "startCommand": "CMD: [\"/usr/bin/miniflux\"]",
+    "healthDetected": true,
+    "healthPath": "/healthcheck",
+    "postgres": true,
     "postgresDetected": true,
     "redis": false,
     "redisDetected": false,
@@ -60,16 +60,14 @@
     ],
     "readinessFindings": [
       "unsupported-architecture",
-      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
       "unsupported",
-      "port-missing"
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles",
-      "database-requirement-unclear"
+      "multiple-dockerfiles"
     ]
   },
   "comparisons": [
@@ -83,9 +81,8 @@
     {
       "fact": "postgres",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "redis",
@@ -115,30 +112,26 @@
     {
       "fact": "appRoot",
       "expected": ".",
-      "actual": "packaging/debian",
-      "match": false,
-      "kind": "fact"
+      "actual": ".",
+      "match": true
     },
     {
       "fact": "dockerfilePath",
       "expected": "packaging/docker/alpine/Dockerfile",
-      "actual": "packaging/debian/Dockerfile",
-      "match": false,
-      "kind": "fact"
+      "actual": "packaging/docker/alpine/Dockerfile",
+      "match": true
     },
     {
       "fact": "port",
       "expected": 8080,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 8080,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/healthcheck",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/healthcheck",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -162,62 +155,12 @@
       }
     },
     {
-      "fact": "postgres",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-013",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
       "fact": "migration",
       "kind": "fact",
       "expected": true,
       "actual": false,
       "finding": {
         "id": "COMP-014",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "appRoot",
-      "kind": "fact",
-      "expected": ".",
-      "actual": "packaging/debian",
-      "finding": {
-        "id": "COMP-007",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "dockerfilePath",
-      "kind": "fact",
-      "expected": "packaging/docker/alpine/Dockerfile",
-      "actual": "packaging/debian/Dockerfile",
-      "finding": {
-        "id": "COMP-007",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8080,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/healthcheck",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
