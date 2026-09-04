@@ -388,20 +388,19 @@ describe('§11.5 language breadth', () => {
     expect(finding.value).toEqual(expect.arrayContaining(['boto3']));
   });
 
-  it('detects Python and Ruby persistent filesystem writes', () => {
+  it('detects declared local state in Python and Ruby images, not bare writes', () => {
     const python: FileTree = {
+      Dockerfile: 'FROM python:3.12\nVOLUME ["/var/data"]\nCMD ["python", "app.py"]\n',
       'writer.py': "with open('/var/data/file.json', 'w') as f:\n    f.write('x')\n",
     };
     const py = detectLocalFilesystem(python);
     expect(py.detected).toBe(true);
-    expect(py.value).toEqual(expect.arrayContaining(['Python open() write mode']));
+    expect(py.value).toEqual(['VOLUME /var/data (Dockerfile)']);
 
     const ruby: FileTree = {
       'writer.rb': "File.write('/var/data/file.json', 'x')\n",
     };
-    const rb = detectLocalFilesystem(ruby);
-    expect(rb.detected).toBe(true);
-    expect(rb.value).toEqual(expect.arrayContaining(['File.write']));
+    expect(detectLocalFilesystem(ruby).detected).toBe(false);
   });
 });
 

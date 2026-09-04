@@ -89,7 +89,7 @@ describe('Phase 13 — zone id, token and probe provenance guards', () => {
   const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
   const ZONE_ID_HEX = 'bf69c0d8524ef2c5cfbc6e5d33fb7cae';
 
-  const SKIP_DIRS = new Set(['node_modules', '.git', '.turbo', 'dist', '.next', '.slim']);
+  const SKIP_DIRS = new Set(['node_modules', '.git', '.turbo', 'dist', '.next', '.slim', '.cache']);
 
   function filesUnder(dir: string, out: string[]): void {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

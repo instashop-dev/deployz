@@ -1,0 +1,254 @@
+{
+  "id": "repo-078",
+  "repository": "GoogleCloudPlatform/microservices-demo",
+  "commit": "b9a978db9e01f4ad3dca9494a22cb9edc17548fe",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 77,
+    "entries": 458,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "go",
+      "python",
+      "node",
+      "java",
+      "csharp"
+    ],
+    "monorepo": true,
+    "postgres": false,
+    "redis": true,
+    "worker": false,
+    "storage": false,
+    "migration": false,
+    "appRoot": "src/frontend",
+    "dockerfilePath": "src/frontend/Dockerfile",
+    "port": 8080,
+    "healthPath": "/_healthz",
+    "unsupported": [
+      "kubernetes",
+      "terraform"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "node",
+    "appRoot": "src/adservice",
+    "dockerfilePath": "src/adservice/Dockerfile",
+    "port": 9555,
+    "startCommand": "ENTRYPOINT: [\"/app/build/install/hipstershop/bin/AdService\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [
+      "ALLOYDB_CLUSTER_NAME",
+      "ALLOYDB_DATABASE_NAME",
+      "ALLOYDB_INSTANCE_NAME",
+      "ALLOYDB_SECRET_NAME",
+      "ALLOYDB_TABLE_NAME",
+      "ENABLE_TRACING",
+      "GCP_PROJECT_ID",
+      "PROJECT_ID",
+      "REGION"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "health-check",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "build-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": "src/frontend",
+      "actual": "src/adservice",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "src/frontend/Dockerfile",
+      "actual": "src/adservice/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": 9555,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/_healthz",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "kubernetes",
+        "terraform"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": {
+        "id": "COMP-033",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-029",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-011",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": "src/frontend",
+      "actual": "src/adservice",
+      "finding": {
+        "id": "COMP-020",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "src/frontend/Dockerfile",
+      "actual": "src/adservice/Dockerfile",
+      "finding": {
+        "id": "COMP-027",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8080,
+      "actual": 9555,
+      "finding": {
+        "id": "COMP-027",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/_healthz",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "kubernetes",
+        "terraform"
+      ],
+      "actual": [],
+      "finding": {
+        "id": "COMP-033",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

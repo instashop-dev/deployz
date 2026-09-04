@@ -623,15 +623,18 @@ const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
 // workspace repository keeps all three outside the root, and the detectors
 // read every one of them (packages/analysis/src/detectors.ts).
 const MANIFEST_REGEX = /(?:^|\/)package\.json$/i;
-const DOCKERFILE_REGEX = /(?:^|\/)dockerfile(?:\.[\w.-]+)?$/i;
+// Either naming order (`Dockerfile.prod`, `prod.Dockerfile`, `Dockerfile-build`) —
+// the same shape packages/analysis/src/detectors.ts selects from (COMP-027).
+const DOCKERFILE_REGEX = /(?:^|\/)(?:dockerfile(?:[.-][\w.-]+)?|[\w.-]+\.dockerfile)$/i;
 const PRISMA_SCHEMA_REGEX = /schema\.prisma$/i;
-// Non-npm manifests the §7 Redis detectors (and, for Python/Ruby/Go/PHP, the
-// rest of the analyser) read — requirements.txt/pyproject.toml (Python),
-// Gemfile (Ruby), go.mod (Go), composer.json (PHP). Any depth, same as
-// package.json — a workspace/monorepo keeps these outside the root too.
-// Mirrors the file-shape regexes in packages/analysis/src/redis.ts exactly.
+// Non-npm manifests the §7 Redis detectors (and, for the other languages,
+// the rest of the analyser) read — requirements.txt/pyproject.toml (Python),
+// Gemfile (Ruby), go.mod (Go), composer.json (PHP), pom.xml/build.gradle
+// (JVM), *.csproj (.NET), Cargo.toml (Rust), mix.exs (Elixir). Any depth,
+// same as package.json — a workspace/monorepo keeps these outside the root
+// too (COMP-029).
 const OTHER_MANIFEST_REGEX =
-  /(?:^|\/)(?:requirements\.txt|pyproject\.toml|Gemfile|go\.mod|composer\.json)$/i;
+  /(?:^|\/)(?:requirements\.txt|pyproject\.toml|Gemfile|go\.mod|composer\.json|pom\.xml|build\.gradle(?:\.kts)?|settings\.gradle(?:\.kts)?|libs\.versions\.toml|[\w.-]+\.csproj|Directory\.Packages\.props|Cargo\.toml|mix\.exs)$/i;
 // docker-compose.yml/.yaml or compose.yml/.yaml, with an optional
 // `.<name>` infix (`compose.prod.yml`, `docker-compose.override.yaml`), at
 // any depth — the very-high-signal Redis/Valkey compose-image check reads
@@ -1191,6 +1194,13 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       scripts: { start: 'node dist/index.js' },
       dependencies: { express: '^4.18.0', mongoose: '^8.0.0' },
     }),
+    // The app's own data model lives in MongoDB (Stage A COMP-032: a client
+    // dependency alone is not a requirement).
+    'src/models/user.ts': [
+      "import mongoose from 'mongoose';",
+      'export const User = mongoose.model("User", new mongoose.Schema({ email: String }));',
+      '',
+    ].join('\n'),
     'src/index.ts': [
       "import express from 'express';",
       'const app = express();',
@@ -1200,10 +1210,11 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
   },
   // The same otherwise-READY express-api shape plus one persistent local
-  // filesystem write — an app whose ONLY blocker is the ephemeral-disk
-  // storage finding. Used by the Phase 14 scenario-matrix spec to prove a
-  // repairable repo is refused at deployment creation with the repair
-  // guidance surfaced (fix-instructions).
+  // filesystem write behind a declared VOLUME — an app whose ONLY blocker is
+  // the ephemeral-disk storage finding (Stage A COMP-024: the declaration,
+  // not the write call, is the evidence). Used by the Phase 14
+  // scenario-matrix spec to prove a repairable repo is refused at deployment
+  // creation with the repair guidance surfaced (fix-instructions).
   'deployz-demo/local-fs-app': {
     'Dockerfile': [
       'FROM node:20-alpine',
@@ -1211,6 +1222,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       'COPY package*.json ./',
       'RUN npm ci --omit=dev',
       'COPY . .',
+      'VOLUME /data',
       'EXPOSE 3000',
       'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
       'CMD ["node", "dist/index.js"]',

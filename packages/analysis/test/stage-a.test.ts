@@ -181,11 +181,12 @@ describe('COMP-003 — local-filesystem writes outside runtime code', () => {
     expect(detectLocalFilesystem(tree)).toMatchObject({ detected: false });
   });
 
-  it('still detects a runtime upload write', () => {
+  it('still detects a declared upload volume', () => {
     const tree: FileTree = {
+      Dockerfile: 'FROM node:22\nVOLUME /app/uploads\nCMD ["node", "server.js"]\n',
       'src/server/routes/upload.ts': "fs.writeFileSync(path.join(UPLOAD_DIR, name), buffer);\n",
     };
-    expect(detectLocalFilesystem(tree)).toMatchObject({ detected: true, value: ['fs.writeFileSync'] });
+    expect(detectLocalFilesystem(tree)).toMatchObject({ detected: true, value: ['VOLUME /app/uploads (Dockerfile)'] });
   });
 });
 
@@ -232,9 +233,9 @@ describe('COMP-013 — PostgreSQL requirement evidence beyond root JS files', ()
     expect(assessPostgres(go).required).toBe(true);
   });
 
-  it('still needs more than a bare driver, and ignores a dev Compose file', () => {
+  it('still needs more than an indirect driver, and ignores a dev Compose file', () => {
     const tree: FileTree = {
-      'go.mod': 'module x\n\nrequire github.com/lib/pq v1.12.3\n',
+      'go.mod': 'module x\n\nrequire github.com/lib/pq v1.12.3 // indirect\n',
       'docker/development/compose.yml': 'services:\n  db:\n    image: postgres:16\n',
     };
     expect(assessPostgres(tree).required).toBe(false);

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
-  "analysisVersion": 8,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
   "tree": {
     "files": 201,
     "entries": 497,
@@ -43,7 +43,7 @@
     "startCommand": "ENTRYPOINT: [\"/gatus\"]",
     "healthDetected": true,
     "healthPath": "/health",
-    "postgres": false,
+    "postgres": true,
     "postgresDetected": true,
     "redis": false,
     "redisDetected": false,
@@ -65,11 +65,11 @@
       "database-migrations"
     ],
     "gateFindings": [
-      "required-env-vars-missing"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles",
-      "database-requirement-unclear"
+      "multiple-dockerfiles"
     ]
   },
   "comparisons": [
@@ -83,8 +83,9 @@
     {
       "fact": "postgres",
       "expected": false,
-      "actual": false,
-      "match": true
+      "actual": true,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "redis",
@@ -150,6 +151,16 @@
       "finding": {
         "id": "COMP-016",
         "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-029",
+        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }
   ],

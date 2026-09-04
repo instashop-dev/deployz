@@ -1,0 +1,158 @@
+{
+  "id": "repo-073",
+  "repository": "obsidiandynamics/kafdrop",
+  "commit": "ce2390e767aa67f74e0c4f8578e714993ef55a83",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 9,
+    "entries": 218,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "java"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": false,
+    "appRoot": ".",
+    "dockerfilePath": "src/main/docker/Dockerfile",
+    "port": 9000,
+    "healthPath": "/actuator/health",
+    "unsupported": [
+      "kafka"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "unknown",
+    "appRoot": ".",
+    "dockerfilePath": "src/main/docker/Dockerfile",
+    "port": 9000,
+    "startCommand": "ENTRYPOINT: [\"/kafdrop.sh\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "kafka"
+    ],
+    "readinessFindings": [
+      "unsupported-message-queue",
+      "health-check"
+    ],
+    "gateFindings": [
+      "unsupported"
+    ],
+    "unresolvedQuestions": []
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "src/main/docker/Dockerfile",
+      "actual": "src/main/docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 9000,
+      "actual": 9000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/actuator/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "kafka"
+      ],
+      "actual": [
+        "kafka"
+      ],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/actuator/health",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
-  "analysisVersion": 8,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
   "tree": {
     "files": 201,
     "entries": 4074,
@@ -65,15 +65,18 @@
     ],
     "unsupported": [
       "docker-compose-multi-service",
-      "gpu"
+      "gpu",
+      "local-filesystem"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
       "unsupported-gpu",
+      "local-file-storage",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "unsupported",
       "required-env-vars-missing"
@@ -155,7 +158,8 @@
       ],
       "actual": [
         "docker-compose-multi-service",
-        "gpu"
+        "gpu",
+        "local-filesystem"
       ],
       "match": false,
       "kind": "fact"
@@ -201,7 +205,8 @@
       ],
       "actual": [
         "docker-compose-multi-service",
-        "gpu"
+        "gpu",
+        "local-filesystem"
       ],
       "finding": {
         "id": "COMP-007",

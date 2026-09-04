@@ -71,6 +71,61 @@ configuration mismatches rather than matches — the rejection layer is now
 precise on the pilot; configuration detection is the next frontier and the
 80-repository corpus will measure it.
 
+## Main-corpus summary (Phase 3, 80 repositories, analysis version 8 → 9)
+
+The 65 phase-3 repositories (repo-016..080: 49 `realistic`, 17 `messy`,
+14 `boundary` with the pilot) were each inspected twice by independent
+sub-agents; the second inspection agreed with every compared fact on all
+65 entries. One planned repository was replaced before inspection
+(redmine → docuseal, the same Rails shape).
+
+Before the phase-3 fixes (analysis version 8 on all 80 snapshots): 36 of
+80 verdicts matched, 5 repositories matched on every fact, 24 false
+rejections, 8 false acceptances, 12 configuration-detection mismatches,
+277 mismatches with no finding. The false rejections had two dominant
+causes: any write call in runtime source was persistent local storage
+(COMP-024, 20 repositories), and any non-infrastructure image in the
+production Compose file was a second application service (COMP-026, 12
+repositories). Behind them sat database clients treated as requirements
+(COMP-032), wrongly selected Dockerfiles (COMP-027) and unresolved
+`EXPOSE` variables (COMP-028).
+
+After the fixes (analysis version 9, COMP-024, 026, 027, 028, 029, 032,
+034, 035 with regression tests in
+`packages/analysis/test/stage-a-phase3.test.ts`): 39 of 80 verdicts
+match (25 of 49 realistic, 5 of 17 messy, 9 of 14 boundary), 4 match on
+every fact, false rejections 24 → 8, false acceptances 8 → 10,
+configuration-detection mismatches 12 → 23, and every one of the 255
+remaining mismatches carries a finding (86 ANALYSIS_BUG residuals, 169
+ANALYSIS_MISSING_SIGNAL). The false-acceptance count rose by two because
+the old write-call rule had rejected several apps for the wrong reason
+(changedetection.io, zulip, grist-core, vaultwarden): their real blockers
+— an undeclared data directory, a message broker read with a default, an
+embedded document store, a stub Dockerfile — are now visible as COMP-025,
+COMP-002, COMP-031 and COMP-033 misses instead of accidental rejections.
+
+Where the remaining mismatches sit:
+
+- 8 false rejections: optional second processes declared in reference
+  files (COMP-010 ×4), a durable content volume with no object-storage
+  alternative (COMP-024 ×2: wiki.js, wallabag), a root-level development
+  Compose file (COMP-026 ×1: ToolJet), Flagsmith (COMP-009 residual).
+- 10 false acceptances: durable data directories with no `VOLUME` or
+  Compose mount (COMP-025 ×4), deployment descriptors the tree fetch drops
+  (COMP-033 ×3: Kubernetes-native argo-cd, the 11-service
+  microservices-demo, Azure Bicep), a queue worker outside Node (COMP-015
+  ×2: monica, zulip), an embedded document store next to PostgreSQL
+  (COMP-002: grist-core), a required third-party service (COMP-031: postiz
+  needs Temporal).
+- 23 configuration-detection mismatches: 16 are required values named in
+  code the env model does not read (COMP-017, all non-Node or
+  schema-library apps), 4 are the pilot residuals (COMP-014, 016, 021,
+  022), 3 are secret-named bare reads (COMP-023).
+- The fact mismatches are dominated by four open signals: migration
+  commands outside package.json (COMP-014, 41), health paths outside JS
+  conventions (COMP-005, 36), non-Node worker code (COMP-015, 29), and
+  Redis provisioning from optional clients (COMP-011, 25).
+
 ## Findings
 
 ### COMP-001 — Dockerfile `EXPOSE` / `ENV PORT` and Compose `ports` are not port evidence
@@ -115,6 +170,7 @@ precise on the pilot; configuration detection is the next frontier and the
   Compose service, or an unguarded read of its connection variable).
   uptime-kuma stays rejected on its own SQLite default.
 - Fix: A SQLite or MySQL driver next to a PostgreSQL driver no longer rejects (the engine is a configuration choice); a Kafka/RabbitMQ client rejects only with a production Compose broker service or a required connection variable (`KAFKA_URL`, `KAFKA_BROKERS`, `AMQP_URL`, …) that the code never presence-tests. Regression: stage-a.test.ts COMP-002; phase7.test.ts kafka/rabbitmq. Residual: uptime-kuma is still rejected on its monitor-target `mongodb` client (and, correctly, on its local database file) rather than on SQLite, whose `@louislam/sqlite3` fork is not a recognised driver.
+- Phase 3 residual (80 repositories): the configurable-engine rule now also hides an INTRINSIC embedded database — grist-core keeps every document in its own SQLite file next to its PostgreSQL metadata store (false acceptance), and CTFd (MySQL-only, `psycopg2` shipped for tests) and typebot (a second Prisma schema on MySQL) are rejected on the wrong family. An uncorroborated broker client still hides a real requirement: zulip reads `RABBITMQ_HOST` with a `localhost` default (false acceptance). uptime-kuma keeps its SQLite miss.
 - Status: fixed
 
 ### COMP-003 — Local-filesystem writes in build scripts, tooling and tests count as persistent storage
@@ -179,6 +235,7 @@ precise on the pilot; configuration detection is the next frontier and the
   `@Controller('health')`; never default to `/health` when the HEALTHCHECK
   names a different path or no path.
 - Fix: Partly addressed in version 7: a router mounted at a health prefix, the URL in a Dockerfile `HEALTHCHECK` / Compose `healthcheck`, and Go/Python/Ruby route literals are read (Go sources are now fetched). Remaining: NestJS controllers under a versioned global prefix (ghostfolio), Django health-check apps that register routes outside the repository (Flagsmith), a mount chain through a member expression (kutt `app.use("/api", routes.api)`), and a HEALTHCHECK that runs a script (immich).
+- Phase 3 residual: 36 health-path mismatches remain on the corpus — routes registered in Java/Kotlin/.NET/Elixir/Rust/PHP (Spring `/actuator/health`, Rails `/up`, Phoenix), non-standard names (`/api/ping`, `/status`, `/-/ping`, `/alive`, `/api/app/about`, `/_health`) that no health-segment regex matches, and the `/health` default when only a HEALTHCHECK without a URL exists.
 - Status: open
 
 ### COMP-006 — The manifest migration command falls back to a detector label
@@ -278,6 +335,7 @@ precise on the pilot; configuration detection is the next frontier and the
 - Recommended action: none now — a heuristic (a Compose `profiles:` key, or a
   second service that reuses the web image with a worker-style command) is
   a Phase 3 candidate only if the pattern recurs.
+- Phase 3 residual: calcom (`calcom-api`), huginn (`web` + `threaded` in the single-process Compose file, while the selected image runs both), nocodb (`worker`) and n8n (queue-mode `worker` command) are rejected for optional second processes the reference files declare — 4 of the 8 remaining false rejections.
 - Status: open
 
 ### COMP-011 — Redis is required from non-production Compose files and optional clients
@@ -301,6 +359,7 @@ precise on the pilot; configuration detection is the next frontier and the
   (`if (env.REDIS_ENABLED)`, a non-default jobs provider) remains a known
   residual until a guard-aware rule is designed.
 - Fix: Only the primary production Compose file is very-high evidence (a root variant is recorded without weight, a dev/test file ignored), and a client built behind a configuration guard (`if (env.REDIS_ENABLED) { new Redis(…) }`) is evidence without weight. Regression: stage-a.test.ts COMP-011; kutt and Unleash no longer provision Redis. Residual: a `bull`/`bullmq` direct dependency that backs a non-default jobs provider (documenso), a monitor-target client (uptime-kuma), and a settings-driven Django cache (Flagsmith) still read as required.
+- Phase 3 residual: 25 `redis` fact mismatches — a Redis service in the production Compose file, or an unguarded client construction, marks Redis required for apps that only use it when configured (directus, ToolJet, cal.com, docuseal, n8n, nocodb, logto, wallabag, …). Provisioning only, never a verdict.
 - Status: fixed
 
 ### COMP-012 — Any AWS SDK dependency counts as object-storage usage
@@ -320,6 +379,7 @@ precise on the pilot; configuration detection is the next frontier and the
   import, `boto3.client('s3')`, `s3.New`, an S3 env var). Optional S3
   transports (documenso) remain over-provisioned; documented.
 - Fix: Only S3-specific packages or an S3 client construction count. Regression: stage-a.test.ts COMP-012. Residual: an optional S3 transport that is a real S3 client (documenso `@aws-sdk/client-s3`, Flagsmith `boto3.client("s3")` for exports) still provisions a bucket — over-provisioning, not blocking.
+- Phase 3 residual: 17 `storage` mismatches in both directions — an S3 client shipped for an optional export or backup feature (coder, grafana, casdoor, logto, joplin, superset) reads as "object storage required", while S3 support through a PHP/Kotlin storage abstraction (monica, tolgee, CTFd via a quoted `"s3"` client) is not seen.
 - Status: fixed
 
 ### COMP-013 — PostgreSQL "required" evidence misses nested Compose files and non-JS configuration
@@ -358,6 +418,7 @@ precise on the pilot; configuration detection is the next frontier and the
   --noinput` (manage.py + Django dependency), `alembic upgrade head`
   (alembic.ini), `prisma migrate deploy` (a PostgreSQL Prisma schema) and read
   Procfile `release:` lines; Go binary flags stay vendor-supplied.
+- Phase 3 residual: 41 `migration` mismatches — the corpus is dominated by apps that migrate at boot (Rails initializers, Go embedded migrations, Flyway/Liquibase, Django `manage.py migrate` in an entrypoint script) or through a non-npm CLI. The gate treats the missing command as a warning, so no verdict changes; the fact stays open for the Phase 5 decision.
 - Status: open
 
 ### COMP-015 — Worker-code detection is Node-only
@@ -376,6 +437,7 @@ precise on the pilot; configuration detection is the next frontier and the
 - Recommended action: Phase 3 candidate — reuse the redis module's job-library
   signals for `detectWorker`, and read Procfile `worker:` lines for the
   resolved worker command.
+- Phase 3 residual: 29 `worker` mismatches (sidekiq, celery, good_job, Laravel queues, Go schedulers) and two false acceptances where the missed queue worker is also the declared second process (monica `queue:work`, zulip). superset, twenty and chatwoot reject on the Compose family instead of `background-worker` for the same reason.
 - Status: open
 
 ### COMP-016 — Platform and tooling variables are marked required
@@ -419,6 +481,7 @@ precise on the pilot; configuration detection is the next frontier and the
 - Recommended action: Phase 3 candidate — recognise envalid/zod-style
   schema keys without defaults and `env('X')`-style helpers when the helper
   wraps `process.env`.
+- Phase 3 residual: 16 configuration-detection mismatches on the main corpus are this finding — Go (memos, coder, authelia, casdoor, kratos), JVM (keycloak, tolgee), .NET (OrchardCore), Python (ihatemoney) and schema-library Node apps (outline, docmost, directus, reactive-resume, logto, hoppscotch) name their required secrets in code the §11.2 model does not read, so they come out READY instead of NEEDS_CONFIGURATION.
 - Status: open
 
 ### COMP-018 — The 200-file cap is filled by test, spec and tooling files
@@ -471,6 +534,7 @@ precise on the pilot; configuration detection is the next frontier and the
 - Recommended action: a directory named `docker`, `dockerfiles`,
   `.devcontainer` or `packaging/*` is tooling, not an app root → `.`.
 - Fix: A Dockerfile under `docker/`, `dockerfiles/`, `.devcontainer/`, `packaging/`, `deploy/`, `build/`, `ci/` or `infra/` maps to root `.`. Regression: stage-a.test.ts COMP-020. Residual: documenso (`apps/remix`, a monorepo target the Dockerfile builds from the root).
+- Phase 3 residual: the Dockerfile directory is still the app root when the build context is the repository root (documenso `apps/remix`, rallly and formbricks `apps/web`) and the other way round (nocodb, whose expected root is `packages/nocodb`); COMP-035 adds `scripts/`, `.docker/`, `container/` and `*docker*` directories to the tooling list.
 - Status: fixed
 
 ### COMP-021 — A Dockerfile that copies an artifact the repository does not contain is accepted
@@ -528,4 +592,312 @@ precise on the pilot; configuration detection is the next frontier and the
   optional" (recall loss on `const secret = process.env.X; if (!secret) throw`)
   and a throw-guard-aware rule.
 - Fix: A non-secret read stored as-is (`const url = process.env.X;`, `host: process.env.X,`) is optional unless the code then refuses to run without it (`if (!x) throw …`); a secret-named variable (`*_SECRET`, `*_TOKEN`, `*_API_KEY`, …) stays required on a bare read, because a missing credential is a boot failure while an unset option is a default; a boolean chain or coercion (`Boolean(a && b)`, `!!a`) is a presence test. Regression: stage-a.test.ts COMP-023, phase7.test.ts. Unleash dropped from 27 required values to 7; umami from 20 to 6. Residual: single-argument helper calls (`authTypeFromString(process.env.AUTH_TYPE)`), `.split()` reads inside an enabled-only code path (umami `KAFKA_BROKER`), and alternative-URL reads (documenso `NEXT_PRIVATE_DATABASE_REPLICA_URLS`) still count as required — the remaining NEEDS_CONFIGURATION mismatches on umami and Unleash.
+- Phase 3 residual: docuseal is NEEDS_CONFIGURATION for `SIDEKIQ_BASIC_AUTH_PASSWORD`, a bare secret-named read that only protects an optional dashboard — the secret rule keeps it required by design.
+- Status: fixed
+
+### COMP-024 — Any write call in runtime source is persistent local storage
+
+- Repositories: repo-019, 022, 023, 026, 027, 028, 029, 033, 034, 036, 040,
+  042, 043, 052, 054, 055, 056, 059, 061, 063, 066, 072, 076 (blocked), and
+  repo-038, 046 (a real `VOLUME` missed because no write call sat in the
+  fetched tree)
+- Type: ANALYSIS_BUG
+- Expected: `unsupported: []` — a cache write, a temp file, a generated asset,
+  a log line is not state the app needs back on the next request
+- Actual: `local-file-storage` blocking → NOT_COMPATIBLE on 20 repositories
+  that expected NEEDS_CONFIGURATION or READY; reversed on apache/answer and
+  kanboard, whose `VOLUME /data` never met a write call in the 200 fetched
+  files
+- Evidence: `detectLocalFilesystem` matched `fs.writeFile`, `fs.mkdir`,
+  Python `open(…, "w")` and Ruby `File.write` anywhere in runtime source.
+  planka, linkwarden and reactive-resume ship an S3 alternative and were
+  still blocked; authelia was blocked for a certificate write; grafana for
+  a frontend build helper.
+- Customer relevance: highest of the corpus — the single largest false-
+  rejection cause; every mature application writes to disk somewhere.
+- Fix: durable local state must be DECLARED: a `VOLUME` in the selected
+  Dockerfile, or a volume the production Compose file mounts into an
+  application service (read-only mounts, the Docker socket, single-file
+  mounts, customisation directories such as `custom/`, `plugins/`,
+  `certs/`, and bind mounts of a directory the repository ships never
+  count). A volume that only backs the default embedded database
+  (`VOLUME /database`, `db_data_sqlite:`) is exempt when a PostgreSQL driver
+  is declared, and a detected object-storage alternative (S3 client) clears
+  the finding, because the vendor configures S3 through environment
+  variables. Regression: stage-a-phase3.test.ts COMP-024; the write-call
+  fixtures in analysis.test.ts, phase7.test.ts, rules.test.ts,
+  readiness-report.test.ts and manifest.test.ts now declare a volume.
+  Residual: wiki.js (`VOLUME /wiki/data/content`, a git-sync cache) and
+  wallabag (`./data` bind mount holding images next to the SQLite default)
+  stay blocked; gitea's `VOLUME /data` reports as `local-filesystem` where
+  the entry expected `persistent-volume` — the two families meet at a
+  Dockerfile `VOLUME` and the audit records it under this family.
+- Status: fixed
+
+### COMP-025 — A durable data directory with no VOLUME or Compose mount is invisible
+
+- Repositories: repo-031 (homepage: `HOMEPAGE_CONFIG_DIR`, YAML edited through
+  the UI), repo-044 (firefly-iii: uploads under `storage/`, no Dockerfile in
+  the repository), repo-047 (halo: `~/.halo2` working directory), repo-074
+  (vaultwarden: `/data`, but the root `Dockerfile` is a stub pointing at
+  `docker/Dockerfile.*` variants), repo-075 (changedetection.io before the
+  Compose parser read its four-space indentation)
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NOT_COMPATIBLE `[local-filesystem]`
+- Actual: NEEDS_CONFIGURATION or READY
+- Evidence: the app keeps state under a directory named only in its own
+  configuration (an env var default, a Java working directory, a Laravel
+  `storage/` path) with no container-level declaration COMP-024 can read.
+- Customer relevance: medium — the deployment starts and loses data on the
+  first redeploy; a failed first deploy is cheaper than a silent data loss.
+- Recommended action: Phase 5 decision. Candidate signals: a `*_DATA_DIR` /
+  `*_CONFIG_DIR` / `STORAGE_PATH` variable with a local default and no S3
+  alternative; a README "volumes" table; the documented image's `VOLUME`
+  when the repository builds several variants.
+- Status: open
+
+### COMP-026 — Compose sidecars and profile-gated services count as application services
+
+- Repositories: repo-019 (meilisearch), 021 (mssql, oracle, cockroachdb,
+  azure, keycloak, maildev), 022, 024, 025, 026 (seaweedfs), 034 (nginx),
+  036 (caddy), 043, 045 (meilisearch, mailpit), 048 (smtp), 051 (caddy),
+  054, 055, 066 (chrome, meilisearch), 070 (proxy, pictrs), 074 (a
+  `playwright/` Compose file), 076
+- Type: ANALYSIS_BUG
+- Expected: one application service; a search engine, a mail sandbox, a
+  reverse proxy, a headless browser or a test database next to it is a
+  dependency, not a second copy of the app
+- Actual: `docker-compose-multi-service` → NOT_COMPATIBLE on 12 repositories
+  that expected NEEDS_CONFIGURATION or READY
+- Evidence: `INFRA_COMPOSE_IMAGE_REGEX` knew only databases, caches, brokers
+  and MinIO; every other image counted; `profiles:` (a service that does
+  not start with the default stack) was ignored; `playwright/`,
+  `benchmarks/`, `devenv/`, `suites/` and `docker-compose-examples/`
+  directories counted as production.
+- Customer relevance: high — the second-largest false-rejection cause;
+  self-hosted products routinely ship a full Compose stack.
+- Fix: the Compose parser (now shared by the detectors and the rejection
+  checks) records `profiles:` and volumes per service, reads two- and
+  four-space indentation, and `composeApplicationServices` drops
+  profile-gated services and the sidecar image families (search engines,
+  mail sandboxes, proxies, browsers, test databases, vector stores,
+  observability, Temporal, SpiceDB, …). More non-production directory
+  names. Regression: stage-a-phase3.test.ts COMP-026. Residual: ToolJet's
+  root `docker-compose.yaml` is a development stack (`plugins`, `client`,
+  `server` build services) while its production file sits under
+  `deploy/docker/`; lobehub and LibreChat still count a second built
+  service (`fts-search-*`, `rag_api`) on already NOT_COMPATIBLE entries.
+- Status: fixed
+
+### COMP-027 — Dockerfile naming and ranking miss real images and pick variants
+
+- Repositories: repo-022 (`docker/ce-production.Dockerfile` unrecognised),
+  028 (`Dockerfile.fips.standalone-infisical` over the standard image), 040
+  (`Dockerfile.dev.dockerignore` matched as a Dockerfile), 049
+  (`…/monaco/…/dockerfile/dockerfile.js`), 050 (`lib/livebook/hubs/dockerfile.ex`),
+  052 (`Dockerfile.transcribe.gpu` made the app GPU-only), 054
+  (`prod.Dockerfile`), 063 (`operator/Dockerfile` over
+  `quarkus/container/Dockerfile`), 065 (an `integrationtest` image;
+  `.docker/Dockerfile-build` unrecognised), 069 (`.cursor/Dockerfile`, then
+  `twenty-postgres-spilo/`), 072 (`tools/setup/dev-vagrant-docker`), 074
+  (`Dockerfile.j2` templates)
+- Type: ANALYSIS_BUG
+- Expected: the image the project documents, or none
+- Actual: a variant, a template, an editor container, an operator, a
+  sidecar image, or a source file named after the format; the GPU check
+  read the variant and rejected joplin
+- Evidence: `DOCKERFILE_REGEX` accepted only `Dockerfile[.suffix]`; the dev
+  regex knew a short list of directories; ties broke alphabetically.
+- Customer relevance: high — the selected Dockerfile drives the port, the
+  health check, the start command, the app root and the GPU check.
+- Fix: both naming orders (`<name>.Dockerfile`, `Dockerfile-<name>`) are
+  recognised; `.dockerignore`, templates and source files are not
+  Dockerfiles; editor, operator, tool, test, documentation and
+  infrastructure-image directories, and hardware/base-image variant
+  suffixes (`fips`, `gpu`, `cuda`, `alpine`, `arm64`, `preview`, …) rank
+  last; at equal depth fewer name segments win; the GPU check reads the
+  selected Dockerfile only. The tree fetch accepts the same names.
+  Regression: stage-a-phase3.test.ts COMP-027. Residual: n8n
+  (`docker/images/engine` over `docker/images/n8n`) and
+  microservices-demo (`src/adservice` over `src/frontend`) are genuine
+  ambiguities the AI fallback's `multiple-dockerfiles` question exists
+  for; wiki.js's `dev/build/Dockerfile` is cut by the 200-file cap
+  (COMP-018 class); authelia's entry names `Dockerfile.dev` where the
+  analyser selects the root `Dockerfile` — the entry is the outlier.
+- Status: fixed
+
+### COMP-028 — EXPOSE variables are unresolved and the first exposed port wins
+
+- Repositories: repo-032 (`EXPOSE ${APP_PORT}`), 035 (`EXPOSE ${PORT}`), 037
+  (`EXPOSE ${SUPERSET_PORT}`), 052 (`EXPOSE ${APP_PORT}`), 058 (`EXPOSE 22
+  3000`), 072 (`EXPOSE 22` before `EXPOSE 9991`)
+- Type: ANALYSIS_BUG
+- Expected: the HTTP port the image documents (9000, 8000, 8088, 22300,
+  3000, 9991)
+- Actual: no port (→ NEEDS_CONFIGURATION), a Compose mapping of an
+  unrelated service (superset: the Hive block's 50070), or the SSH port 22
+- Evidence: `DOCKERFILE_EXPOSE_REGEX` accepted a literal or `${PORT:-n}`
+  only and returned the first match.
+- Customer relevance: medium — a missing port is a NEEDS_CONFIGURATION
+  verdict; a wrong port is a failed first deploy.
+- Fix: every `EXPOSE` token is read; `$VAR` / `${VAR}` resolves against the
+  same Dockerfile's `ENV`/`ARG` default; SSH, mail, DNS and bundled-database
+  ports are skipped when another port is exposed. Regression:
+  stage-a-phase3.test.ts COMP-028. Residual: superset's `SUPERSET_PORT` has
+  no default in the image; ToolJet, hoppscotch, django-helpdesk, twenty,
+  postiz, n8n and microservices-demo expose a port on a Dockerfile or
+  service other than the documented one.
+- Status: fixed
+
+### COMP-029 — PostgreSQL drivers outside Node, Python, Ruby and Go are invisible
+
+- Repositories: repo-034, 044, 045, 046, 047, 048, 049, 060, 063, 070
+  (PHP `ext-pdo_pgsql` / `docker-php-ext-install pdo_pgsql`, JVM
+  `org.postgresql` / `r2dbc-postgresql`, .NET `Npgsql`, Rust `diesel` with
+  the `postgres` feature) and repo-035, 038, 039, 040, 058, 064, 065 (a
+  direct Go/Python driver with no connection variable the model knows)
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: `postgres: true`
+- Actual: `postgres: false`, so Deployz would not provision the database;
+  the SQLite rejection also fired on wallabag and vaultwarden because
+  `engineIsConfigurable` saw no PostgreSQL driver
+- Evidence: the tree fetch never requested `pom.xml`, `build.gradle`,
+  `Cargo.toml`, `*.csproj` or `mix.exs`; `assessPostgres` demanded an
+  independent connection variable that Go/Java/.NET apps name in their own
+  settings (`MEMOS_DSN`, a YAML storage block).
+- Customer relevance: high — a missed database means a failed first deploy
+  for every JVM, PHP, .NET and Rust customer.
+- Fix: the fetch and the dependency scan read the JVM, .NET, Rust, Elixir
+  and PHP manifests; PostgreSQL tokens for each (plus the PHP PDO extension
+  installed in the selected Dockerfile and a Rust ORM's `postgres`
+  feature); a direct driver declared in a runtime manifest (not a tool
+  module, not a Go `// indirect` line) is evidence of a configured engine
+  by itself; a SQLite connection URL next to a PostgreSQL driver is a
+  configurable default. Regression: stage-a-phase3.test.ts COMP-029, the
+  COMP-013 indirect-driver case. Residual: firefly-iii, monica and
+  kanboard declare no PostgreSQL package (PHP PDO through the base image's
+  extension installer), OrchardCore references `Npgsql` from a project file
+  the cap drops, lemmy's Cargo feature is spelled through `diesel-async`;
+  the other way, gatus and CTFd report `postgres: true` on a direct driver
+  where the entry expected `false` (gatus treats SQLite as its default —
+  the audit keeps the entry and records the disagreement here), and
+  microservices-demo's `productcatalogservice` declares `pgx`.
+- Status: fixed
+
+### COMP-030 — A port with no EXPOSE instruction is not found
+
+- Repositories: repo-020 (no Dockerfile), 029, 044, 045, 050, 052, 060, 063,
+  065, 074, 077, 079, 080
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: the documented port (3000, 8080, 22300, 8000, 4433, 80, 8000)
+- Actual: `port: null` → `port-missing` → NEEDS_CONFIGURATION
+- Evidence: the image documents its port only in a Go/Elixir/Rust/PHP
+  default (`flag.Int("port", 8080)`, Phoenix `PORT` default, Rocket
+  `ROCKET_PORT`), a Compose mapping in a non-root file, or not at all.
+- Customer relevance: low — the vendor supplies the port on the
+  configuration screen; the verdict is honest.
+- Recommended action: Phase 5 decision; a per-runtime default-port table
+  (Rails 3000, Django 8000, Phoenix 4000, Spring 8080, Rocket 8000) is the
+  cheapest signal and is what Deployz's PORT override needs anyway.
+- Status: open
+
+### COMP-031 — A required third-party service in the Compose stack is not a family
+
+- Repositories: repo-057 (postiz: Temporal server, admin tools and UI)
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NOT_COMPATIBLE — the app cannot run without a Temporal server
+  Deployz does not provision
+- Actual: NEEDS_CONFIGURATION once COMP-026 stopped counting the Temporal
+  images as application services
+- Evidence: the Compose file is the only place the dependency is declared;
+  the app reads `TEMPORAL_ADDRESS` with a default.
+- Customer relevance: low-medium — workflow engines, search engines and
+  vector stores appear in a minority of self-hosted stacks; when they do,
+  the first deploy fails at runtime rather than at analysis.
+- Recommended action: Phase 5 decision — a `required-service` family driven
+  by a non-sidecar image in the production Compose file that the app also
+  names in a required connection variable.
+- Status: open
+
+### COMP-032 — A database client dependency alone rejects integration platforms
+
+- Repositories: repo-022 (ToolJet: mongodb, opensearch data sources), 023
+  (wiki.js: a MongoDB search module), 028 (Infisical: mongodb,
+  elasticsearch, cassandra dynamic-secret providers), 029 (emailengine: an
+  optional Elasticsearch document store), 053 (n8n: the MongoDB node)
+- Type: ANALYSIS_BUG
+- Expected: no database rejection — the client connects to customers'
+  databases, the app's own data is in PostgreSQL
+- Actual: `mongodb`, `elasticsearch` and `other-database` rejections →
+  NOT_COMPATIBLE
+- Evidence: `checkMongo`, `checkElasticsearch` and
+  `checkOtherUnsupportedDatabases` fired on the dependency name, unlike the
+  broker checks after COMP-002.
+- Customer relevance: high — automation, secrets and BI platforms are a
+  large share of self-hosted products and all ship these clients.
+- Fix: the same corroboration the broker checks use — a service running
+  that database in the production Compose file, a connection variable the
+  app reads without a fallback, a Prisma `mongodb` provider, or (MongoDB)
+  the app's own Mongoose models. LibreChat (models + a `mongodb` service)
+  still rejects. Regression: stage-a-phase3.test.ts COMP-032; the bare
+  dependency fixtures in analysis.test.ts, rules.test.ts and
+  manifest.test.ts now carry corroboration.
+- Status: fixed
+
+### COMP-033 — Deployment descriptors the tree fetch drops never reach the cloud checks
+
+- Repositories: repo-077 (argo-cd: `manifests/` kustomizations), repo-078
+  (microservices-demo: `kubernetes-manifests/`, `terraform/`), repo-079
+  (azure-search-openai-demo: `infra/*.bicep`)
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NOT_COMPATIBLE `[kubernetes]`, `[kubernetes, terraform]`,
+  `[azure]`
+- Actual: NEEDS_CONFIGURATION — no cloud or infrastructure check fired on
+  the whole corpus
+- Evidence: `isRelevantPath` fetches manifests, Dockerfiles, Compose, env
+  samples and source files; `.tf`, `.bicep`, `kustomization.yaml` and
+  `Chart.yaml` are never in the tree, so `checkKubernetes`,
+  `checkTerraform` and `checkAzure` have nothing to read in production.
+  Fetching them is not the fix on its own: many deployable apps ship a
+  Helm chart or a Terraform module as ONE deployment option (outline, n8n,
+  grafana), and the checks would reject them.
+- Customer relevance: low — Kubernetes-native controllers and multi-service
+  demos are not Deployz customers; the cost is a runtime failure instead
+  of an analysis verdict.
+- Recommended action: Phase 5 decision on whether a Kubernetes-native
+  signal (`k8s.io/client-go` with in-cluster configuration, no HTTP
+  listener) is worth more than the false rejections a descriptor-based
+  check would create.
+- Status: open
+
+### COMP-034 — A script-based HEALTHCHECK hides its path
+
+- Repositories: repo-019 (`wget --spider http://localhost:3000`), 024
+  (`wget --spider http://localhost:3000`), 027 (`node ./healthcheck.js`)
+- Type: ANALYSIS_BUG
+- Expected: `/` — the path the image's own check probes
+- Actual: `/health`, the default when no candidate names a path
+- Evidence: `HEALTHCHECK_URL_REGEX` required a path after the origin, and a
+  script referenced by the instruction was never opened.
+- Customer relevance: medium — a wrong health path is a failed first
+  deploy on an otherwise ready app.
+- Fix: a bare origin means `/`; a script the HEALTHCHECK runs is searched
+  for its URL. Regression: stage-a-phase3.test.ts COMP-034. Residual:
+  planka, linkwarden and cal.com still show `/health` on the corpus because
+  a JS route registration elsewhere in the tree outranks the check (COMP-005).
+- Status: fixed
+
+### COMP-035 — Build-script directories become the app root
+
+- Repositories: repo-039, 041 (`scripts/Dockerfile`), 063
+  (`quarkus/container/Dockerfile`), 065 (`.docker/Dockerfile-build`), 069
+  (`packages/twenty-docker/twenty/Dockerfile`)
+- Type: ANALYSIS_BUG
+- Expected: `appRoot: .`
+- Actual: `scripts`, `operator`, `oryx/watcherx/integrationtest`, `.cursor`
+- Evidence: COMP-020's tooling list did not include `scripts`, `.docker`,
+  `container` or a `*docker*` package directory.
+- Customer relevance: medium — a wrong root is a failed build.
+- Fix: those directories map to the repository root. Regression:
+  stage-a-phase3.test.ts COMP-035.
 - Status: fixed

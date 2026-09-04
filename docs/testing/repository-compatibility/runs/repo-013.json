@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 3,
-  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
-  "analysisVersion": 8,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
   "tree": {
     "files": 201,
     "entries": 857,
@@ -69,16 +69,13 @@
       "UPTIME_KUMA_WS_ORIGIN_CHECK"
     ],
     "unsupported": [
-      "local-filesystem",
-      "mongodb"
+      "local-filesystem"
     ],
     "readinessFindings": [
-      "unsupported-database-mongo",
       "local-file-storage",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
       "unsupported",
       "required-env-vars-missing"
     ],
@@ -149,8 +146,7 @@
         "sqlite"
       ],
       "actual": [
-        "local-filesystem",
-        "mongodb"
+        "local-filesystem"
       ],
       "match": false,
       "kind": "fact"
@@ -174,8 +170,7 @@
         "sqlite"
       ],
       "actual": [
-        "local-filesystem",
-        "mongodb"
+        "local-filesystem"
       ],
       "finding": {
         "id": "COMP-002",

@@ -1,0 +1,188 @@
+{
+  "id": "repo-069",
+  "repository": "twentyhq/twenty",
+  "commit": "c10ba0c0fc84dca9db8fdbb0e42d790dd11a8357",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 222,
+    "entries": 37910,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "packages/twenty-docker/twenty/Dockerfile",
+    "port": 3000,
+    "healthPath": "/healthz",
+    "unsupported": [
+      "background-worker",
+      "docker-compose-multi-service"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "packages/twenty-docker/twenty/Dockerfile",
+    "port": 2020,
+    "startCommand": "CMD: [\"node\", \"dist/main\"]",
+    "healthDetected": true,
+    "healthPath": "/healthz",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": true,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "node dist/command/command run-instance-commands",
+    "externalServices": [
+      "sentry",
+      "smtp",
+      "stripe"
+    ],
+    "requiredEnvVars": [
+      "SSL_CERT_PATH",
+      "SSL_KEY_PATH",
+      "TWENTY_API_URL"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "database-migrations",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "packages/twenty-docker/twenty/Dockerfile",
+      "actual": "packages/twenty-docker/twenty/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 2020,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/healthz",
+      "actual": "/healthz",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "background-worker",
+        "docker-compose-multi-service"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3000,
+      "actual": 2020,
+      "finding": {
+        "id": "COMP-028",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "background-worker",
+        "docker-compose-multi-service"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

@@ -1,0 +1,195 @@
+{
+  "id": "repo-080",
+  "repository": "vllm-project/vllm",
+  "commit": "560ef78bfe734ea894f8a866e50406574021b9f5",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "medium",
+  "difficulty": 1,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 198,
+    "entries": 7819,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": false,
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 8000,
+    "healthPath": "/health",
+    "unsupported": [
+      "gpu"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "unknown",
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": null,
+    "startCommand": "ENTRYPOINT: [\"./sagemaker-entrypoint.sh\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "openai"
+    ],
+    "requiredEnvVars": [
+      "HIP_VISIBLE_DEVICES",
+      "LOCAL_RANK",
+      "PYTORCH_NVML_BASED_CUDA_CHECK",
+      "RANK",
+      "ROCR_VISIBLE_DEVICES",
+      "SETUPTOOLS_SCM_PRETEND_VERSION",
+      "TORCHINDUCTOR_COMPILE_THREADS",
+      "VLLM_ALLREDUCE_USE_SYMM_MEM",
+      "VLLM_BATCH_INVARIANT",
+      "VLLM_DISABLED_KERNELS",
+      "VLLM_ENABLE_V1_MULTIPROCESSING",
+      "VLLM_FLASHINFER_AUTOTUNE_SKIP_OPS",
+      "VLLM_PLUGINS",
+      "VLLM_PREFIX_CACHE_RETENTION_INTERVAL",
+      "VLLM_USE_BREAKABLE_CUDAGRAPH",
+      "VLLM_USE_DEEP_GEMM",
+      "VLLM_USE_DEEP_GEMM_E8M0",
+      "VLLM_USE_FLASHINFER_SAMPLER",
+      "WORLD_SIZE"
+    ],
+    "unsupported": [
+      "gpu"
+    ],
+    "readinessFindings": [
+      "unsupported-gpu",
+      "health-check"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "port-missing",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/Dockerfile",
+      "actual": "docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "gpu"
+      ],
+      "actual": [
+        "gpu"
+      ],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8000,
+      "actual": null,
+      "finding": {
+        "id": "COMP-030",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/health",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

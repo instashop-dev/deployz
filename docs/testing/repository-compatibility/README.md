@@ -130,8 +130,10 @@ monorepo flag (a monorepo target is measured through `appRoot` /
 `sqs-event-consumer`, `kubernetes`, `serverless`,
 `docker-compose-multi-service`, `persistent-volume`, `terraform`, `pulumi`,
 `cloudformation`, `azure`, `gcp`, `gpu`, plus the two non-rejection blockers
-`local-filesystem` and `background-worker` (worker code with a resolved
-worker start command).
+`local-filesystem` (durable local state the image declares — a Dockerfile
+`VOLUME` or a Compose volume on the application service — with no
+object-storage alternative) and `background-worker` (worker code with a
+resolved worker start command).
 
 ## Finding categories
 

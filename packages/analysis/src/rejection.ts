@@ -9,9 +9,12 @@
 import type { FileTree } from './detectors.js';
 import {
   collectDependencyNames,
+  composeApplicationServices,
+  composeServices,
   detectEnvVarModel,
   detectPostgresql,
-  isProductionComposeFile,
+  isRuntimeSourcePath,
+  listDockerfileCandidates,
 } from './detectors.js';
 import type { RedisRequirement } from './redis.js';
 import { assessRedis } from './redis.js';
@@ -131,20 +134,59 @@ export function checkMysql(tree: FileTree): RejectionFinding {
   return { detected: false, dependency: 'none', reason: 'No MySQL dependency detected' };
 }
 
+/**
+ * A database CLIENT dependency proves the app can talk to that database, not
+ * that it stores its own data there — an automation platform, a secrets
+ * manager or a BI tool ships the MongoDB, Elasticsearch and Cassandra
+ * clients it connects customers' databases with. The rejection needs the
+ * same corroboration a broker client needs (Stage A COMP-002, COMP-032):
+ * a service running that database in the production Compose file, a
+ * connection variable the app reads without a fallback, or (MongoDB) the
+ * app's own data model on it.
+ */
+function databaseCorroboration(
+  tree: FileTree,
+  imageRegex: RegExp,
+  envRegex: RegExp,
+  modelRegex: RegExp | null,
+): string | null {
+  const compose = composeServices(tree);
+  const service = compose?.services.find((s) => !s.optional && s.image && imageRegex.test(s.image));
+  if (compose && service) return `a ${service.name} service is defined in ${compose.file}`;
+  const key = brokerConnectionRequired(tree, envRegex);
+  if (key) return `${key} is required`;
+  if (modelRegex) {
+    const model = Object.entries(tree).find(
+      ([path, content]) => /\.(?:ts|js|mjs|cjs)$/.test(path) && isRuntimeSourcePath(path) && !!content && modelRegex.test(content),
+    );
+    if (model) return `the app defines its data model on it in ${model[0]}`;
+  }
+  return null;
+}
+
 /** MongoDB: mongoose, mongodb, mongodb-client */
 const MONGO_DEPS = ['mongoose', 'mongodb', 'mongodb-client'] as const;
+const MONGO_ENV_REGEX = /^MONGO(?:DB)?_(?:URI|URL|HOST|CONNECTION_STRING)$/;
+const MONGOOSE_MODEL_REGEX = /mongoose\.model\s*\(|new\s+(?:mongoose\.)?Schema\s*\(/;
 
 /**
- * Check for MongoDB dependencies (unsupported — Deployz uses PostgreSQL only).
+ * Check for a MongoDB dependency the app stores its data in (unsupported —
+ * Deployz uses PostgreSQL only).
  */
 export function checkMongo(tree: FileTree): RejectionFinding {
   const deps = collectDependencyNames(tree);
   for (const dep of MONGO_DEPS) {
-    if (deps.includes(dep)) {
+    if (!deps.includes(dep)) continue;
+    const prisma = Object.entries(tree).find(([p]) => /schema\.prisma$/i.test(p))?.[1];
+    const corroboration =
+      prisma && /provider\s*=\s*"mongodb"/i.test(prisma)
+        ? 'Prisma is configured with the MongoDB provider'
+        : databaseCorroboration(tree, /mongo/i, MONGO_ENV_REGEX, dep === 'mongoose' ? MONGOOSE_MODEL_REGEX : null);
+    if (corroboration) {
       return {
         detected: true,
         dependency: dep,
-        reason: `Unsupported database dependency: ${dep}. Deployz does not support MongoDB. Use PostgreSQL.`,
+        reason: `Unsupported database dependency: ${dep}, and ${corroboration}. Deployz does not support MongoDB. Use PostgreSQL.`,
       };
     }
   }
@@ -153,18 +195,21 @@ export function checkMongo(tree: FileTree): RejectionFinding {
 
 /** Elasticsearch / OpenSearch: @elastic/elasticsearch, @opensearch-project/opensearch */
 const ES_DEPS = ['@elastic/elasticsearch', '@opensearch-project/opensearch'] as const;
+const ES_ENV_REGEX = /^(?:ELASTIC(?:SEARCH)?_(?:URL|URI|HOSTS?|NODE|NODES)|ES_(?:URL|HOSTS?|NODE)|OPENSEARCH_(?:URL|HOSTS?|NODE))$/;
 
 /**
- * Check for Elasticsearch or OpenSearch dependencies (unsupported).
+ * Check for an Elasticsearch or OpenSearch dependency the app requires (unsupported).
  */
 export function checkElasticsearch(tree: FileTree): RejectionFinding {
   const deps = collectDependencyNames(tree);
   for (const dep of ES_DEPS) {
-    if (deps.includes(dep)) {
+    if (!deps.includes(dep)) continue;
+    const corroboration = databaseCorroboration(tree, /elasticsearch|opensearch/i, ES_ENV_REGEX, null);
+    if (corroboration) {
       return {
         detected: true,
         dependency: dep,
-        reason: `Unsupported search engine: ${dep}. Deployz does not support Elasticsearch/OpenSearch.`,
+        reason: `Unsupported search engine: ${dep}, and ${corroboration}. Deployz does not support Elasticsearch/OpenSearch.`,
       };
     }
   }
@@ -177,18 +222,21 @@ export function checkElasticsearch(tree: FileTree): RejectionFinding {
 
 /** Other unsupported databases: cassandra-driver, neo4j-driver */
 const OTHER_UNSUPPORTED_DB_DEPS = ['cassandra-driver', 'neo4j-driver'] as const;
+const OTHER_DB_ENV_REGEX = /^(?:CASSANDRA_(?:HOSTS?|CONTACT_POINTS|URL)|NEO4J_(?:URI|URL|HOST))$/;
 
 /**
- * Check for other unsupported database drivers (Cassandra, Neo4j, etc.).
+ * Check for other unsupported database drivers (Cassandra, Neo4j, etc.) the app requires.
  */
 export function checkOtherUnsupportedDatabases(tree: FileTree): RejectionFinding {
   const deps = collectDependencyNames(tree);
   for (const dep of OTHER_UNSUPPORTED_DB_DEPS) {
-    if (deps.includes(dep)) {
+    if (!deps.includes(dep)) continue;
+    const corroboration = databaseCorroboration(tree, /cassandra|scylla|neo4j/i, OTHER_DB_ENV_REGEX, null);
+    if (corroboration) {
       return {
         detected: true,
         dependency: dep,
-        reason: `Unsupported database driver: ${dep}. Deployz does not support this database.`,
+        reason: `Unsupported database driver: ${dep}, and ${corroboration}. Deployz does not support this database.`,
       };
     }
   }
@@ -205,65 +253,12 @@ export function checkOtherUnsupportedDatabases(tree: FileTree): RejectionFinding
 // ONLY mean that infrastructure), so a passing repository is never blocked by
 // a README mention or a dev-only helper.
 
-/** Infrastructure container images a docker-compose app sidecar is not "the app". */
-const INFRA_COMPOSE_IMAGE_REGEX =
-  /postgres|postgis|mysql|mariadb|mongo|redis|valkey|keydb|elasticsearch|opensearch|rabbitmq|kafka|minio|memcached|localstack|mailhog|clickhouse|dynamodb/i;
-
 function filePathsMatching(tree: FileTree, pathRegex: RegExp): string[] {
   return Object.keys(tree).filter((p) => pathRegex.test(p));
 }
 
 function contentMatches(tree: FileTree, pathRegex: RegExp, contentRegex: RegExp): string[] {
   return Object.keys(tree).filter((p) => pathRegex.test(p) && !!tree[p] && contentRegex.test(tree[p]));
-}
-
-/**
- * Compose services: file → [{ name, image }]. Undefined when no compose file
- * describes the app's own production deployment — dev/test/example compose
- * files (e.g. `docker/development/compose.yml`, a mail sandbox or PDF
- * renderer for local tooling) are not evidence of the app's architecture
- * (`isProductionComposeFile`, shared with the detectors). Prefers a
- * repository-root compose file over a nested one.
- */
-function composeServices(tree: FileTree): { file: string; services: { name: string; image: string | null }[] } | null {
-  const candidates = Object.keys(tree).filter(
-    (p) => /(?:^|\/)(?:docker-compose|compose)\.ya?ml$/i.test(p) && isProductionComposeFile(p),
-  );
-  if (candidates.length === 0) return null;
-  const path = candidates.find((p) => !p.includes('/')) ?? candidates[0]!;
-  const content = tree[path] ?? '';
-  // A service another service waits on with `service_completed_successfully`
-  // is a one-shot job (a migration runner), not an application container
-  // (Stage A COMP-009).
-  const oneShot = new Set<string>();
-  for (const match of content.matchAll(/^\s+([a-zA-Z0-9_-]+):\s*\r?\n\s+condition:\s*service_completed_successfully/gm)) {
-    if (match[1]) oneShot.add(match[1]);
-  }
-  const services: { name: string; image: string | null }[] = [];
-  const lines = content.split('\n');
-  let inServices = false;
-  let current: { name: string; image: string | null } | null = null;
-  for (const raw of lines) {
-    const line = raw.replace(/\r$/, '');
-    if (!inServices) {
-      if (/^services:\s*$/.test(line)) inServices = true;
-      continue;
-    }
-    const serviceHeader = /^ {2}([a-zA-Z0-9_-]+):\s*$/.exec(line);
-    if (serviceHeader) {
-      current = { name: serviceHeader[1]!, image: null };
-      if (!oneShot.has(current.name)) services.push(current);
-      continue;
-    }
-    const imageLine = /^ {4}image:\s*["']?([^\s"']+)["']?/.exec(line);
-    if (imageLine && current) current.image = imageLine[1] ?? null;
-    // Back to a top-level section ends the services block.
-    if (/^[a-zA-Z]/.test(line) && !/^ {2}/.test(line) && current) {
-      inServices = false;
-      current = null;
-    }
-  }
-  return { file: path, services };
 }
 
 /** Production SQLite (embedded file DB): Node drivers, Prisma provider, Go driver, sqlite:// URLs. */
@@ -294,8 +289,10 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
       reason: 'Unsupported database: a Go SQLite driver is declared in go.mod. Deployz hosts PostgreSQL only.',
     };
   }
+  // A SQLite connection URL next to a PostgreSQL driver is the default of a
+  // configurable engine (wallabag's `DATABASE_URL=sqlite://…` sample).
   for (const [path, content] of Object.entries(tree)) {
-    if (content && /sqlite3?:\/\/|\.db\s*=|\.sqlite\b/.test(content)) {
+    if (!configurable && content && /sqlite3?:\/\/|\.db\s*=|\.sqlite\b/.test(content)) {
       const envPath = /^\.env(\.\w+)?$/i.test(path);
       const codePath = /\.(py|rb|ts|js|go)$/.test(path);
       if ((envPath || codePath) && /DATABASE_URL\s*[=:]\s*["']?sqlite/.test(content)) {
@@ -478,13 +475,11 @@ export function checkServerless(tree: FileTree): RejectionFinding {
 
 /** Docker Compose defining TWO OR MORE application services — a multi-service app, not one container. */
 export function checkDockerComposeMultiService(tree: FileTree): RejectionFinding {
-  const compose = composeServices(tree);
+  const compose = composeApplicationServices(tree);
   if (!compose || compose.services.length === 0) {
     return { detected: false, dependency: 'none', reason: 'No multi-service compose app detected' };
   }
-  const appServices = compose.services.filter(
-    (s) => !s.image || !INFRA_COMPOSE_IMAGE_REGEX.test(s.image),
-  );
+  const appServices = compose.services;
   if (appServices.length >= 2) {
     return {
       detected: true,
@@ -623,7 +618,10 @@ export function checkGcp(tree: FileTree): RejectionFinding {
 
 /** GPU requirements — the container needs a GPU Deployz does not provision. */
 export function checkGpu(tree: FileTree): RejectionFinding {
-  const docker = contentMatches(tree, /(?:^|\/)Dockerfile(?:\.[\w.-]+)?$/i, /nvidia\/cuda|cuda:|nvidia-smi|--gpus/);
+  // Only the image Deployz would build counts — a `Dockerfile.transcribe.gpu`
+  // variant next to the CPU image is an option, not a requirement (Stage A COMP-027).
+  const selected = listDockerfileCandidates(tree)[0];
+  const docker = selected && /nvidia\/cuda|cuda:|nvidia-smi|--gpus/.test(tree[selected] ?? '') ? [selected] : [];
   const python = contentMatches(tree, /(?:^|\/)(?:requirements(?:[^/]*)\.txt|pyproject\.toml)$/, /tensorflow-gpu|nvidia-|torch.*cuda|cuda.*torch/);
   if (docker.length > 0 || python.length > 0) {
     const evidence = (docker[0] ?? python[0]) ?? '';

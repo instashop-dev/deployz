@@ -154,9 +154,10 @@ const bullmqFixture: FileTree = {
   }),
 };
 
-/** Incompatible: MongoDB dependency. */
+/** Incompatible: MongoDB dependency with the app's own data model on it. */
 const incompatibleMongoFixture: FileTree = {
   ...compatibleFixture,
+  'src/models/user.js': 'const mongoose = require("mongoose");\nmodule.exports = mongoose.model("User", new mongoose.Schema({ name: String }));\n',
   'package.json': JSON.stringify({
     name: 'my-app',
     scripts: { start: 'node dist/index.js' },
@@ -180,9 +181,10 @@ const incompatibleMysqlFixture: FileTree = {
   }),
 };
 
-/** Incompatible: local filesystem usage. */
+/** Incompatible: a declared upload volume with no object-storage alternative. */
 const incompatibleLocalFsFixture: FileTree = {
   ...compatibleFixture,
+  'Dockerfile': 'FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nEXPOSE 3000\nHEALTHCHECK CMD curl -f http://localhost:3000/health\nVOLUME /app/uploads\nCMD ["node", "dist/index.js"]\n',
   'src/uploader.ts': [
     "import fs from 'fs';",
     '',
@@ -806,10 +808,10 @@ describe('§18 detectors', () => {
   // 7. Local filesystem detector
   // ------------------------------------------------------------------
   describe('detectLocalFilesystem', () => {
-    it('detects fs.writeFileSync', () => {
+    it('detects a Dockerfile VOLUME', () => {
       const result = detectLocalFilesystem(incompatibleLocalFsFixture);
       expect(result.detected).toBe(true);
-      expect(result.value).toContain('fs.writeFileSync');
+      expect(result.value).toContain('VOLUME /app/uploads (Dockerfile)');
     });
 
     it('ignores reads — a read is not persistent local storage', () => {
@@ -820,18 +822,21 @@ describe('§18 detectors', () => {
       expect(result.detected).toBe(false);
     });
 
-    it('detects fs.mkdirSync', () => {
-      const result = detectLocalFilesystem(incompatibleLocalFsFixture);
+    it('detects a Compose volume mounted into the application service', () => {
+      const tree: FileTree = {
+        'docker-compose.yml': 'services:\n  app:\n    build: .\n    volumes:\n      - ./data:/app/data\n  db:\n    image: postgres:16\n',
+      };
+      const result = detectLocalFilesystem(tree);
       expect(result.detected).toBe(true);
-      expect(result.value).toContain('fs.mkdirSync');
+      expect(result.value).toContain('volume ./data:/app/data (docker-compose.yml app)');
     });
 
-    it('detects fs.writeFile', () => {
+    it('ignores a write call with no declared volume', () => {
       const tree: FileTree = {
         'src/writer.ts': "import fs from 'fs';\nfs.writeFile('/tmp/data', 'x', () => {});\n",
       };
       const result = detectLocalFilesystem(tree);
-      expect(result.detected).toBe(true);
+      expect(result.detected).toBe(false);
     });
 
     it('returns false when no fs usage found', () => {
@@ -1169,6 +1174,7 @@ describe('§10 rejection classes', () => {
     it('detects mongodb dependency', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { mongodb: '^6.0.0' } }),
+        'docker-compose.yml': 'services:\n  mongo:\n    image: mongo:7\n',
       };
       const result = checkMongo(tree);
       expect(result.detected).toBe(true);
@@ -1188,6 +1194,7 @@ describe('§10 rejection classes', () => {
     it('detects @elastic/elasticsearch dependency', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { '@elastic/elasticsearch': '^8.0.0' } }),
+        'docker-compose.yml': 'services:\n  elasticsearch:\n    image: elasticsearch:8.13.0\n',
       };
       const result = checkElasticsearch(tree);
       expect(result.detected).toBe(true);
@@ -1197,6 +1204,8 @@ describe('§10 rejection classes', () => {
     it('detects @opensearch-project/opensearch dependency', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { '@opensearch-project/opensearch': '^2.0.0' } }),
+        'src/search.js':
+          'const node = process.env.OPENSEARCH_URL;\nif (!node) throw new Error("OPENSEARCH_URL is required");\nconst client = new Client({ node });\n',
       };
       const result = checkElasticsearch(tree);
       expect(result.detected).toBe(true);
@@ -1216,6 +1225,7 @@ describe('§10 rejection classes', () => {
     it('detects cassandra-driver dependency', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { 'cassandra-driver': '^4.7.0' } }),
+        'docker-compose.yml': 'services:\n  cassandra:\n    image: cassandra:4\n',
       };
       const result = checkOtherUnsupportedDatabases(tree);
       expect(result.detected).toBe(true);
@@ -1225,6 +1235,7 @@ describe('§10 rejection classes', () => {
     it('detects neo4j-driver dependency', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { 'neo4j-driver': '^5.0.0' } }),
+        'src/graph.js': 'const driver = neo4j.driver(process.env.NEO4J_URI, auth);\n',
       };
       const result = checkOtherUnsupportedDatabases(tree);
       expect(result.detected).toBe(true);
