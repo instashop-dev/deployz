@@ -78,8 +78,39 @@ describe('manifestEnvBindingSchema', () => {
     });
   });
 
+  it('accepts the postgres binding kinds (url + discrete parts)', () => {
+    for (const kind of ['url', 'host', 'port', 'database', 'username', 'password']) {
+      expect(manifestEnvBindingSchema.parse({ name: 'MEMOS_DSN', kind }).kind).toBe(kind);
+    }
+  });
+
   it('rejects an unknown binding kind', () => {
     expect(() => manifestEnvBindingSchema.parse({ name: 'X', kind: 'secret' })).toThrow();
+  });
+});
+
+describe('database.envBindings (Stage B phase 2)', () => {
+  it('accepts a manifest whose database section carries envBindings', () => {
+    const parsed = deploymentManifestSchema.parse({
+      ...READY_MANIFEST,
+      database: {
+        postgres: true,
+        envBindings: [
+          { name: 'DATABASE_URL', kind: 'url' },
+          { name: 'DATABASE_HOST', kind: 'host' },
+          { name: 'PAPERLESS_DBUSER', kind: 'username' },
+          { name: 'PAPERLESS_DBPASS', kind: 'password' },
+        ],
+      },
+    });
+    expect(parsed.database.envBindings).toHaveLength(4);
+  });
+
+  it('still validates an OLD stored manifest that has no database.envBindings', () => {
+    const parsed = deploymentManifestSchema.parse(READY_MANIFEST);
+    // database.envBindings is optional: an old stored manifest round-trips
+    // with exactly the database section it was written with.
+    expect(parsed.database).toEqual({ postgres: true });
   });
 });
 

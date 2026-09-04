@@ -82,7 +82,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // JVM/Elixir/PHP/Python manifests, and Dockerfiles fetched ahead of
 // workspace manifests — stale worker flags, NOT_COMPATIBLE verdicts and
 // Dockerfile selections from Version 9 must re-run.
-export const ANALYSIS_VERSION = 10;
+// Version 11 is the Stage B phase 2 binding batch: the env-var names each
+// provisioned value is injected under (MEMOS_DSN, PAPERLESS_DB*, GF_DATABASE_*,
+// SQLALCHEMY_DATABASE_URI, CELERY_BROKER_URL, S3_ATTACHMENTS_BUCKET) are
+// derived into `metadata.infrastructureBindings` and the manifest's
+// database/storage `envBindings`, so a stored manifest from Version 10 (no
+// binding names) must re-run to gain them before deployment creation.
+export const ANALYSIS_VERSION = 11;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

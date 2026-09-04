@@ -83,6 +83,13 @@ export type {
 export { deriveAmbiguities, collectRepositoryEvidence, legacyQuestionString } from './evidence.js';
 
 export type {
+  BindingResource,
+  BindingSemantic,
+  InfrastructureBinding,
+} from './bindings.js';
+export { deriveInfrastructureBindings } from './bindings.js';
+
+export type {
   CompatibilityVerdict,
   IssueSeverity,
   CompatibilityIssue,

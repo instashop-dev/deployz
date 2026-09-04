@@ -19,7 +19,7 @@ import { z } from 'zod';
 export const manifestEnvBindingSchema = z
   .object({
     name: z.string().min(1),
-    kind: z.enum(['url', 'host', 'port', 'bucket']),
+    kind: z.enum(['url', 'host', 'port', 'bucket', 'database', 'username', 'password']),
   })
   .strict();
 export type ManifestEnvBinding = z.infer<typeof manifestEnvBindingSchema>;
@@ -84,6 +84,15 @@ export const deploymentManifestSchema = z
       .object({
         /** Whether Deployz provisions a managed PostgreSQL instance. */
         postgres: z.boolean(),
+        /**
+         * Env vars injected pointing at the managed database. Stage B phase 2:
+         * absent on manifests written before the field existed (optional, not
+         * defaulted, so an old stored manifest round-trips byte-identical).
+         * `url`-kind bindings carry the whole `postgresql://` connection URL,
+         * `host`/`port`/`database`/`username`/`password`-kind bindings carry
+         * just that part.
+         */
+        envBindings: z.array(manifestEnvBindingSchema).optional(),
       })
       .strict(),
     redis: z

@@ -1255,3 +1255,157 @@ describe('ApplicationStack', () => {
     });
   });
 });
+
+describe('Stage B phase 2 — database binding aliases', () => {
+  const DATABASE_PART_BINDINGS = [
+    { name: 'PAPERLESS_DBHOST', kind: 'host' },
+    { name: 'PAPERLESS_DBPORT', kind: 'port' },
+    { name: 'PAPERLESS_DBNAME', kind: 'database' },
+    { name: 'PAPERLESS_DBUSER', kind: 'username' },
+    { name: 'PAPERLESS_DBPASS', kind: 'password' },
+  ] as const;
+
+  type ContainerLike = {
+    Environment?: Array<Record<string, unknown>>;
+    Secrets?: Array<Record<string, unknown>>;
+  };
+
+  /** The first (App) container of a plain-Fargate task definition. */
+  function appContainer(template: Template): ContainerLike {
+    const [taskDef] = Object.values(
+      template.findResources('AWS::ECS::TaskDefinition'),
+    ) as Array<{
+      Properties: { ContainerDefinitions: Array<ContainerLike & { Name: string }> };
+    }>;
+    const container = taskDef.Properties.ContainerDefinitions.find((c) => c.Name === 'App');
+    if (container === undefined) throw new Error('expected an App container');
+    return container;
+  }
+
+  function byName(entries: Array<Record<string, unknown>> | undefined): Record<string, unknown> {
+    return Object.fromEntries((entries ?? []).map((entry) => [entry['Name'], entry['ValueFrom'] ?? entry['Value']]));
+  }
+
+  it('throws a synth-time error when databasePartBindings is set with databaseRequired: false', () => {
+    const app = new App();
+    expect(
+      () =>
+        new ApplicationStack(app, 'InvalidDbPartBindings', {
+          allowInsecureHttp: true,
+          databaseRequired: false,
+          databasePartBindings: [{ name: 'PAPERLESS_DBHOST', kind: 'host' }],
+        }),
+    ).toThrow(/databasePartBindings/);
+  });
+
+  it('injects URL aliases as whole-value secrets from the same DatabaseUrlSecret (plain Fargate)', () => {
+    const { template } = synth(false, { databaseUrlEnvNames: ['DATABASE_URL', 'MEMOS_DSN'] });
+    const urlSecretId = (() => {
+      const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        TemplateResource
+      >;
+      const entry = Object.entries(secrets).find(([, resource]) =>
+        JSON.stringify(resource.Properties?.['SecretString'] ?? '').includes('postgresql://deployz_app:'),
+      );
+      if (entry === undefined) throw new Error('expected a DatabaseUrlSecret');
+      return entry[0];
+    })();
+
+    const secretsByName = byName(appContainer(template).Secrets);
+    expect(secretsByName['MEMOS_DSN']).toEqual({ Ref: urlSecretId });
+    expect(secretsByName['DATABASE_URL']).toEqual({ Ref: urlSecretId });
+  });
+
+  it('injects part-shaped aliases as plain env (host/port/name/user) and a DB-password secret', () => {
+    const { template } = synth(false, { databasePartBindings: DATABASE_PART_BINDINGS });
+    const dbSecretId = (() => {
+      const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        TemplateResource
+      >;
+      const entry = Object.entries(secrets).find(([, resource]) =>
+        String(resource.Properties?.['Description'] ?? '').includes('master credentials'),
+      );
+      if (entry === undefined) throw new Error('expected the DB master-credential secret');
+      return entry[0];
+    })();
+
+    const container = appContainer(template);
+    const envByName = Object.fromEntries(
+      (container.Environment ?? []).map((entry) => [entry['Name'], entry['Value']]),
+    );
+    expect(envByName['PAPERLESS_DBHOST']).toMatchObject({
+      'Fn::GetAtt': [expect.any(String), 'Endpoint.Address'],
+    });
+    expect(envByName['PAPERLESS_DBPORT']).toBe('5432');
+    expect(envByName['PAPERLESS_DBNAME']).toBe('deployz');
+    expect(envByName['PAPERLESS_DBUSER']).toBe('deployz_app');
+
+    const secretsByName = byName(container.Secrets);
+    expect(secretsByName['PAPERLESS_DBPASS']).toEqual({
+      'Fn::Join': ['', [{ Ref: dbSecretId }, ':password::']],
+    });
+  });
+
+  it('injects URL and part aliases with the same parity in Express mode', () => {
+    const { template } = synth(true, {
+      databaseUrlEnvNames: ['DATABASE_URL', 'MEMOS_DSN'],
+      databasePartBindings: DATABASE_PART_BINDINGS,
+    });
+    const [expressService] = Object.values(
+      template.findResources('AWS::ECS::ExpressGatewayService'),
+    ) as Array<{
+      Properties: {
+        PrimaryContainer: { Environment: Array<Record<string, unknown>>; Secrets: Array<Record<string, unknown>> };
+      };
+    }>;
+    const { PrimaryContainer } = expressService.Properties;
+    const envByName = Object.fromEntries(
+      PrimaryContainer.Environment.map((entry) => [entry['Name'], entry['Value']]),
+    );
+    const secretsByName = Object.fromEntries(
+      PrimaryContainer.Secrets.map((entry) => [entry['Name'], entry['ValueFrom']]),
+    );
+    expect(envByName['PAPERLESS_DBHOST']).toMatchObject({
+      'Fn::GetAtt': [expect.any(String), 'Endpoint.Address'],
+    });
+    expect(envByName['PAPERLESS_DBPORT']).toBe('5432');
+    // Both URL names alias the SAME DatabaseUrlSecret (same Ref).
+    expect(secretsByName['MEMOS_DSN']).toEqual(secretsByName['DATABASE_URL']);
+    expect(JSON.stringify(secretsByName['MEMOS_DSN'])).toContain('DatabaseUrlSecret');
+    // The part password is an ECS secret from the generated DB credential.
+    expect(JSON.stringify(secretsByName['PAPERLESS_DBPASS'])).toContain(':password::');
+  });
+
+  it('keeps the worker task at parity with the app task for alias bindings', () => {
+    const { template } = synth(false, {
+      databaseUrlEnvNames: ['DATABASE_URL', 'MEMOS_DSN'],
+      databasePartBindings: DATABASE_PART_BINDINGS,
+      workerCommand: 'node worker.js',
+    });
+    const taskDefs = Object.values(
+      template.findResources('AWS::ECS::TaskDefinition'),
+    ) as Array<{ Properties?: { ContainerDefinitions?: ContainerLike[] } }>;
+    expect(taskDefs).toHaveLength(2);
+    for (const taskDef of taskDefs) {
+      const json = JSON.stringify(taskDef);
+      expect(json).toContain('MEMOS_DSN');
+      expect(json).toContain('PAPERLESS_DBHOST');
+      expect(json).toContain('PAPERLESS_DBPASS');
+    }
+  });
+
+  it('injects alias bucket names alongside the fixed S3 binding set', () => {
+    const { template } = synth(false, {
+      storageBucketEnvNames: ['S3_ATTACHMENTS_BUCKET'],
+    });
+    const envByName = Object.fromEntries(
+      (appContainer(template).Environment ?? []).map((entry) => [entry['Name'], entry['Value']]),
+    );
+    expect(envByName['S3_ATTACHMENTS_BUCKET']).toBeDefined();
+    // Every bucket-named entry carries the same provisioned bucket name.
+    const bucketName = envByName['AWS_S3_BUCKET'];
+    expect(envByName['S3_ATTACHMENTS_BUCKET']).toEqual(bucketName);
+  });
+});

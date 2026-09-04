@@ -315,6 +315,32 @@ export interface ApplicationStackProps extends StackProps {
    */
   readonly databaseUrlEnvNames?: readonly string[];
   /**
+   * Additional per-part PostgreSQL connection env aliases (Stage B phase 2) —
+   * the discrete RDS attributes replicated under the variable names the
+   * application actually reads (e.g. PAPERLESS_DBHOST/DBPORT/DBNAME/DBUSER/
+   * DBPASS) alongside the standard DATABASE_HOST/PORT/NAME/USER/PASSWORD.
+   * `host`/`port`/`database`/`username` entries are plain container env;
+   * `password` entries become ECS secrets from the generated DB credential
+   * (same whole-key pattern as DATABASE_PASSWORD).
+   *
+   * Requires `databaseRequired` to be true — synth throws otherwise (same
+   * gate as `databaseUrlEnvNames`). Omitted or empty by default — no extra
+   * env entries, byte-identical synth.
+   */
+  readonly databasePartBindings?: readonly {
+    readonly name: string;
+    readonly kind: 'host' | 'port' | 'database' | 'username' | 'password';
+  }[];
+  /**
+   * Additional bucket-name environment variables (Stage B phase 2) that
+   * receive the provisioned bucket name alongside the fixed
+   * STORAGE_BUCKET / S3_BUCKET / AWS_S3_BUCKET / AWS_REGION set — the alias
+   * names the application actually reads (e.g. S3_ATTACHMENTS_BUCKET).
+   *
+   * Omitted or empty by default — no extra env entries, byte-identical synth.
+   */
+  readonly storageBucketEnvNames?: readonly string[];
+  /**
    * Shell command run by the plain-Fargate App container's health check, in
    * place of the default
    * `curl -f http://localhost:<containerPort><healthCheckPath> || exit 1`.
@@ -470,6 +496,15 @@ export class ApplicationStack extends Stack {
         'ApplicationStack: databaseUrlEnvNames requires databaseRequired to be true. ' +
           'The connection URL is assembled from the managed RDS instance and its ' +
           'generated credentials — without a database there is no URL to inject.',
+      );
+    }
+
+    if ((props.databasePartBindings?.length ?? 0) > 0 && !databaseRequired) {
+      throw new Error(
+        'ApplicationStack: databasePartBindings requires databaseRequired to be true. ' +
+          'The part values (host/port/name/user/password) come from the managed RDS ' +
+          'instance and its generated credentials — without a database there is ' +
+          'nothing to alias.',
       );
     }
 
@@ -803,13 +838,18 @@ export class ApplicationStack extends Stack {
     // requirement surfaces as the bucket name under each of the names the
     // application and its SDKs typically read. The bucket is still always
     // provisioned; this gates only the environment injection. Empty when
-    // storageRequired is false — no STORAGE_*/S3_* env vars anywhere.
+    // storageRequired is false — no STORAGE_*/S3_* env vars anywhere. Stage B
+    // phase 2: alias bucket names the app reads (S3_ATTACHMENTS_BUCKET) are
+    // injected with the same bucket name alongside the fixed set.
     const storageEnvEntries: Array<[string, string]> = storageRequired
       ? [
           ['STORAGE_BUCKET', this.storageBucket.bucketName],
           ['S3_BUCKET', this.storageBucket.bucketName],
           ['AWS_S3_BUCKET', this.storageBucket.bucketName],
           ['AWS_REGION', this.region],
+          ...(props.storageBucketEnvNames ?? []).map(
+            (name): [string, string] => [name, this.storageBucket.bucketName],
+          ),
         ]
       : [];
 
@@ -825,6 +865,39 @@ export class ApplicationStack extends Stack {
     const expressDatabaseUrlSecrets = databaseUrlEnvNames.map((envName) => ({
       name: envName,
       valueFrom: this.databaseUrlSecret!.secretArn,
+    }));
+
+    // Stage B phase 2: the discrete RDS parts replicated under the alias names
+    // the application reads. Plain parts resolve to env entries, password parts
+    // to ECS secrets from the generated DB credential. Empty when the prop is
+    // unset — no extra env entries, byte-identical synth.
+    const databasePartBindings = props.databasePartBindings ?? [];
+    const databasePartPlainEntries: Array<[string, string]> = [];
+    const databasePartPasswordNames: string[] = [];
+    for (const binding of databasePartBindings) {
+      if (binding.kind === 'password') {
+        databasePartPasswordNames.push(binding.name);
+        continue;
+      }
+      const value =
+        binding.kind === 'host'
+          ? this.database!.instanceEndpoint.hostname
+          : binding.kind === 'port'
+            ? String(DB_PORT)
+            : binding.kind === 'database'
+              ? DB_NAME
+              : DB_USER;
+      databasePartPlainEntries.push([binding.name, value]);
+    }
+    const databasePartPasswordSecrets = Object.fromEntries(
+      databasePartPasswordNames.map((name) => [
+        name,
+        EcsSecret.fromSecretsManager(this.databaseSecret as unknown as ISecret, 'password'),
+      ]),
+    );
+    const expressDatabasePartSecrets = databasePartPasswordNames.map((name) => ({
+      name,
+      valueFrom: `${this.databaseSecret!.secretArn}:password::`,
     }));
 
     // secretParameters ECS secrets, resolved once and injected into every
@@ -943,6 +1016,7 @@ export class ApplicationStack extends Stack {
                   { name: 'DATABASE_USER', value: DB_USER },
                 ]
               : []),
+            ...databasePartPlainEntries.map(([name, value]) => ({ name, value })),
             ...storageEnvEntries.map(([name, value]) => ({ name, value })),
             ...redisEnvEntries.map(([name, value]) => ({ name, value })),
             ...containerEnvEntries.map(([name, value]) => ({ name, value })),
@@ -956,6 +1030,7 @@ export class ApplicationStack extends Stack {
                   },
                 ]
               : []),
+            ...expressDatabasePartSecrets,
             {
               name: 'APP_API_KEY',
               valueFrom: `${this.appSecret.secretArn}:apiKey::`,
@@ -1025,12 +1100,14 @@ const dbEnv =
             NODE_ENV: 'production',
             PORT: containerPortString,
             ...dbEnv,
+            ...Object.fromEntries(databasePartPlainEntries),
             ...Object.fromEntries(storageEnvEntries),
             ...Object.fromEntries(redisEnvEntries),
             ...Object.fromEntries(containerEnvEntries),
           },
           secrets: {
             ...dbSecrets,
+            ...databasePartPasswordSecrets,
             APP_API_KEY: EcsSecret.fromSecretsManager(
               this.appSecret as unknown as ISecret,
               'apiKey',
@@ -1195,12 +1272,14 @@ const dbEnv =
           environment: {
             NODE_ENV: 'production',
             ...dbEnv,
+            ...Object.fromEntries(databasePartPlainEntries),
             ...Object.fromEntries(storageEnvEntries),
             ...Object.fromEntries(redisEnvEntries),
             ...Object.fromEntries(containerEnvEntries),
           },
           secrets: {
             ...dbSecrets,
+            ...databasePartPasswordSecrets,
             APP_API_KEY: EcsSecret.fromSecretsManager(
               this.appSecret as unknown as ISecret,
               'apiKey',

@@ -55,6 +55,7 @@ import {
 import type { RedisRequirement } from './redis.js';
 import { assessRedis } from './redis.js';
 import { deriveAmbiguities } from './evidence.js';
+import { deriveInfrastructureBindings } from './bindings.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -286,6 +287,10 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // health path, migration strategy, worker gate). Purely derived — it never
   // feeds back into a finding, rejection, or verdict.
   metadata['ambiguities'] = deriveAmbiguities(tree, result);
+  // Stage B phase 2: the env var names each provisioned value must be injected
+  // under (MEMOS_DSN, PAPERLESS_DBHOST, CELERY_BROKER_URL, …). Purely derived
+  // read-model over the env-var model — never feeds back into a verdict.
+  metadata['infrastructureBindings'] = deriveInfrastructureBindings(tree, result);
   return result;
 }
 
