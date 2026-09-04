@@ -1,0 +1,519 @@
+import { PGlite } from '@electric-sql/pglite';
+import crypto from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { applyMigrations, createDb, type Db } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
+
+import { createAuth, type Auth } from './auth.js';
+import { env } from './env.js';
+import { buildServer } from './server.js';
+
+// Phase 1 Deploy Links (docs/deploy-links.md) — vendor generation, the public
+// resolve endpoint, revoke/regenerate, and the shared-deployment-creation
+// refactor (POST /api/deployments must keep working and default source
+// 'manual').
+
+const READY_METADATA = {
+  hasDockerfile: true,
+  dockerfilePath: 'Dockerfile',
+  framework: 'express',
+  port: '3000',
+  startupCommands: ['node dist/index.js'],
+  hasStartupCommand: true,
+  usesPostgresql: false,
+  postgres: { required: false, evidence: [] },
+  usesRedis: false,
+  redis: { required: false, confidence: 'low', purposes: [], evidence: [], connectionEnvVars: [], compatibility: { supported: true } },
+  usesS3: false,
+  usesLocalFilesystem: false,
+  usesWorkerProcesses: false,
+  hasMigrationCommand: false,
+  hasEnvVars: false,
+  hasExternalServices: false,
+  hasBuildCommand: false,
+  buildCommands: ['npm run build'],
+  envVars: ['NODE_ENV'],
+  databaseState: 'none',
+  externalServices: [] as string[],
+} as Record<string, unknown>;
+
+async function signUpAndGetOrg(
+  auth: Auth,
+  db: Db,
+  email: string,
+): Promise<{ userId: string; organizationId: string; cookie: string }> {
+  const password = 'super-secret-1';
+  const signup = await auth.api.signUpEmail({ body: { email, password, name: email.split('@')[0]! } });
+  const signin = await auth.api.signInEmail({ body: { email, password }, asResponse: true });
+  const setCookie = signin.headers.get('set-cookie');
+  if (!setCookie) {
+    throw new Error('sign-in did not set a session cookie');
+  }
+  const memberships = await db
+    .select({ organizationId: schema.member.organizationId })
+    .from(schema.member)
+    .where(eq(schema.member.userId, signup.user.id))
+    .limit(1);
+  const organizationId = memberships[0]?.organizationId;
+  if (!organizationId) {
+    throw new Error('signup did not provision an organization');
+  }
+  return { userId: signup.user.id, organizationId, cookie: setCookie };
+}
+
+async function insertApplication(
+  db: Db,
+  organizationId: string,
+  overrides: Partial<typeof schema.applications.$inferInsert> = {},
+): Promise<typeof schema.applications.$inferSelect> {
+  const [row] = await db
+    .insert(schema.applications)
+    .values({
+      organizationId,
+      name: 'Deploy Link App',
+      repoFullName: `acme/deploy-link-${crypto.randomUUID().slice(0, 8)}`,
+      repoUrl: 'https://github.com/acme/deploy-link',
+      defaultBranch: 'main',
+      detectedMetadata: READY_METADATA,
+      ...overrides,
+    })
+    .returning();
+  return row!;
+}
+
+async function insertCustomer(
+  db: Db,
+  organizationId: string,
+): Promise<typeof schema.customers.$inferSelect> {
+  const [row] = await db
+    .insert(schema.customers)
+    .values({
+      organizationId,
+      name: 'Deploy Link Customer',
+      email: `deploy-link-${crypto.randomUUID()}@example.com`,
+    })
+    .returning();
+  return row!;
+}
+
+describe('deploy links', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let orgA: { userId: string; organizationId: string; cookie: string };
+  let orgB: { userId: string; organizationId: string; cookie: string };
+  let application: typeof schema.applications.$inferSelect;
+  let customer: typeof schema.customers.$inferSelect;
+
+  function generateLink() {
+    return app.inject({
+      method: 'POST',
+      url: `/api/customers/${customer.id}/deploy-links`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify({ applicationId: application.id, region: 'us-east-1' }),
+    });
+  }
+
+  function resolveLink(publicId: string, token: string) {
+    return app.inject({
+      method: 'GET',
+      url: `/api/deploy-links/${publicId}`,
+      headers: { 'x-deployz-token': token },
+    });
+  }
+
+  async function createLink(): Promise<{
+    publicId: string;
+    token: string;
+    deploymentId: string;
+    linkId: string;
+  }> {
+    const response = await generateLink();
+    expect(response.statusCode, response.body).toBe(201);
+    const body = response.json() as {
+      link: { id: string; deploymentId: string; status: string };
+      deployment: { id: string; source: string; state: string };
+      token: string;
+    };
+    expect(body.deployment.source).toBe('deploy_link');
+    expect(body.deployment.state).toBe('NOT_INSTALLED');
+    expect(body.link.status).toBe('active');
+    expect(body.link.deploymentId).toBe(body.deployment.id);
+    return {
+      publicId: body.link.id,
+      token: body.token,
+      deploymentId: body.deployment.id,
+      linkId: body.link.id,
+    };
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+
+    orgA = await signUpAndGetOrg(auth, db, 'vendor-a@example.com');
+    orgB = await signUpAndGetOrg(auth, db, 'vendor-b@example.com');
+    application = await insertApplication(db, orgA.organizationId);
+    customer = await insertCustomer(db, orgA.organizationId);
+
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('unauthenticated generate 401s', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/customers/${customer.id}/deploy-links`,
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ applicationId: application.id, region: 'us-east-1' }),
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('generate with another org application 404s', async () => {
+    const otherApplication = await insertApplication(db, orgB.organizationId);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/customers/${customer.id}/deploy-links`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify({ applicationId: otherApplication.id, region: 'us-east-1' }),
+    });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+  });
+
+  it('generate with another org customer path 404s', async () => {
+    const otherCustomer = await insertCustomer(db, orgB.organizationId);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/customers/${otherCustomer.id}/deploy-links`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify({ applicationId: application.id, region: 'us-east-1' }),
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('generate rejects an unsupported region (422 REGION_NOT_SUPPORTED)', async () => {
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const prevRegions = mutableEnv.deployableAwsRegions;
+    try {
+      mutableEnv.deployableAwsRegions = ['us-east-1'];
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/customers/${customer.id}/deploy-links`,
+        headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+        payload: JSON.stringify({ applicationId: application.id, region: 'eu-west-1' }),
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'REGION_NOT_SUPPORTED' } });
+    } finally {
+      mutableEnv.deployableAwsRegions = prevRegions;
+    }
+  });
+
+  it('generate writes a deployment_link deployment and an audit event, and never persists the raw token', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, deploymentId));
+    expect(deployment!.source).toBe('deploy_link');
+    expect(deployment!.state).toBe('NOT_INSTALLED');
+    expect(deployment!.installLinkId).not.toBeNull();
+    expect(deployment!.enrollmentCode).not.toBeNull();
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy_link.created'), eq(schema.eventLogs.deploymentId, deploymentId)));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.actorType).toBe('user');
+    expect(events[0]!.actorId).toBe(orgA.userId);
+
+    const [link] = await db.select().from(schema.deployLinks).where(eq(schema.deployLinks.id, publicId));
+    // Only the sha256 hash is stored — never the raw secret, and no 'token' column exists.
+    expect(link!.tokenHash).toBeDefined();
+    expect(link!.tokenHash).not.toBe(token);
+    expect(link!.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    const linkRecord = link as unknown as Record<string, unknown>;
+    expect(Object.keys(linkRecord).includes('token')).toBe(false);
+    expect(Object.values(linkRecord).includes(token)).toBe(false);
+  });
+
+  it('resolves a valid token with the customer projection (200)', async () => {
+    const { publicId, token } = await createLink();
+    const response = await resolveLink(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      link: { status: string };
+      application: { name: string };
+      customer: { name: string };
+      region: string;
+      resources: string[];
+      status: { stage: string };
+    };
+    expect(body.link).toEqual({ status: 'active' });
+    expect(body.application.name).toBe('Deploy Link App');
+    expect(body.customer.name).toBe('Deploy Link Customer');
+    expect(body.region).toBe('us-east-1');
+    expect(body.resources).toEqual(['Application runtime']);
+    expect(body.status.stage).toBe('WAITING_FOR_AWS');
+    // The public payload must never leak internal identifiers or credentials.
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('organizationId');
+    expect(serialized).not.toContain('installLinkId');
+    expect(serialized).not.toContain('enrollmentCode');
+    expect(serialized).not.toContain('token_hash');
+    expect(serialized).not.toContain('deploymentId');
+  });
+
+  it('resolve records deploy_link.opened once and throttles repeats', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    await resolveLink(publicId, token);
+    const opened = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy_link.opened'), eq(schema.eventLogs.deploymentId, deploymentId)));
+    expect(opened).toHaveLength(1);
+    expect(opened[0]!.actorType).toBe('system');
+    expect(opened[0]!.actorId).toBe(`deploy-link:${publicId}`);
+    const [link] = await db.select().from(schema.deployLinks).where(eq(schema.deployLinks.id, publicId));
+    expect(link!.lastUsedAt).not.toBeNull();
+    const lastUsedAt = link!.lastUsedAt!.getTime();
+
+    // A second open inside the throttle window neither rewrites last_used_at
+    // nor appends another event.
+    await resolveLink(publicId, token);
+    const [again] = await db.select().from(schema.deployLinks).where(eq(schema.deployLinks.id, publicId));
+    expect(again!.lastUsedAt!.getTime()).toBe(lastUsedAt);
+    const openedAfter = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy_link.opened'), eq(schema.eventLogs.deploymentId, deploymentId)));
+    expect(openedAfter).toHaveLength(1);
+  });
+
+  it('wrong token, malformed publicId and unknown publicId all 404 without leaking which', async () => {
+    const { publicId } = await createLink();
+    const wrongToken = await resolveLink(publicId, '0'.repeat(64));
+    expect(wrongToken.statusCode).toBe(404);
+    expect(wrongToken.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+
+    const noToken = await app.inject({ method: 'GET', url: `/api/deploy-links/${publicId}` });
+    expect(noToken.statusCode).toBe(404);
+
+    const malformed = await resolveLink('not-a-uuid', '0'.repeat(64));
+    expect(malformed.statusCode).toBe(404);
+
+    const unknown = await resolveLink(crypto.randomUUID(), '0'.repeat(64));
+    expect(unknown.statusCode).toBe(404);
+  });
+
+  it('revoked link resolves 410 DEPLOY_LINK_REVOKED', async () => {
+    const { publicId, token } = await createLink();
+    await db
+      .update(schema.deployLinks)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.deployLinks.id, publicId));
+    const response = await resolveLink(publicId, token);
+    expect(response.statusCode).toBe(410);
+    expect(response.json()).toMatchObject({ error: { code: 'DEPLOY_LINK_REVOKED' } });
+  });
+
+  it('expired link resolves 410 DEPLOY_LINK_EXPIRED', async () => {
+    const { publicId, token } = await createLink();
+    await db
+      .update(schema.deployLinks)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(schema.deployLinks.id, publicId));
+    const response = await resolveLink(publicId, token);
+    expect(response.statusCode).toBe(410);
+    expect(response.json()).toMatchObject({ error: { code: 'DEPLOY_LINK_EXPIRED' } });
+  });
+
+  it('revoke is org-scoped and idempotent', async () => {
+    const { publicId } = await createLink();
+
+    const crossOrg = await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/revoke`,
+      headers: { cookie: orgB.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    expect(crossOrg.statusCode).toBe(404);
+
+    const revoked = await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/revoke`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json()).toMatchObject({ link: { id: publicId, status: 'revoked' } });
+
+    const again = await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/revoke`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ link: { id: publicId, status: 'revoked' } });
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.eventType, 'deploy_link.revoked'));
+    expect(events).toHaveLength(1);
+  });
+
+  it('regenerate rotates the secret (old token 404s, new token resolves)', async () => {
+    const { publicId, token: oldToken } = await createLink();
+
+    const regenerated = await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/regenerate`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    expect(regenerated.statusCode, regenerated.body).toBe(200);
+    const newToken = (regenerated.json() as { token: string; link: { status: string } }).token;
+    expect(newToken).not.toBe(oldToken);
+
+    const oldResolve = await resolveLink(publicId, oldToken);
+    expect(oldResolve.statusCode).toBe(404);
+    const newResolve = await resolveLink(publicId, newToken);
+    expect(newResolve.statusCode).toBe(200);
+  });
+
+  it('regenerate revives a revoked link with a fresh expiry', async () => {
+    const { publicId, token: oldToken } = await createLink();
+    await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/revoke`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/regenerate`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as { token: string; link: { status: string; revokedAt: null; expiresAt: string } };
+    expect(body.link.status).toBe('active');
+    expect(body.link.revokedAt).toBeNull();
+    expect(new Date(body.link.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    const [link] = await db.select().from(schema.deployLinks).where(eq(schema.deployLinks.id, publicId));
+    expect(link!.lastUsedAt).toBeNull();
+    expect(link!.tokenHash).not.toBe(oldToken);
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy_link.regenerated'), eq(schema.eventLogs.deploymentId, link!.deploymentId)));
+    expect(events).toHaveLength(1);
+  });
+
+  it('regenerate is org-scoped and 409s once the deployment has started', async () => {
+    const { publicId, deploymentId } = await createLink();
+
+    const crossOrg = await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/regenerate`,
+      headers: { cookie: orgB.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    expect(crossOrg.statusCode).toBe(404);
+
+    await db
+      .update(schema.deployments)
+      .set({ state: 'WAITING_FOR_RELAY' })
+      .where(eq(schema.deployments.id, deploymentId));
+    const started = await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/regenerate`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    expect(started.statusCode).toBe(409);
+    expect(started.json()).toMatchObject({ error: { code: 'DEPLOYMENT_ALREADY_STARTED' } });
+  });
+
+  it('list is org-scoped, newest first, with derived statuses', async () => {
+    const customerA = customer;
+    const customerB = await insertCustomer(db, orgB.organizationId);
+
+    const { publicId } = await createLink();
+    await db
+      .update(schema.deployLinks)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.deployLinks.id, publicId));
+
+    const crossOrg = await app.inject({
+      method: 'GET',
+      url: `/api/customers/${customerA.id}/deploy-links`,
+      headers: { cookie: orgB.cookie },
+    });
+    expect(crossOrg.statusCode).toBe(404);
+
+    const empty = await app.inject({
+      method: 'GET',
+      url: `/api/customers/${customerB.id}/deploy-links`,
+      headers: { cookie: orgB.cookie },
+    });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ links: [] });
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `/api/customers/${customerA.id}/deploy-links`,
+      headers: { cookie: orgA.cookie },
+    });
+    expect(list.statusCode).toBe(200);
+    const links = (list.json() as {
+      links: Array<{ id: string; status: string; deploymentId: string }>;
+    }).links;
+    expect(links.length).toBeGreaterThan(0);
+    expect(links[0]!.status).toBe('revoked');
+    expect(links[0]!.id).toBe(publicId);
+    // Newest first, matching the persisted order.
+    const expectedIds = (
+      await db
+        .select({ id: schema.deployLinks.id })
+        .from(schema.deployLinks)
+        .where(and(eq(schema.deployLinks.organizationId, orgA.organizationId), eq(schema.deployLinks.customerId, customerA.id)))
+        .orderBy(schema.deployLinks.createdAt)
+    )
+      .reverse()
+      .map((row) => row.id);
+    expect(links.map((link) => link.id)).toEqual(expectedIds);
+  });
+
+  it('manual POST /api/deployments still works and defaults source manual', async () => {
+    const manual = await app.inject({
+      method: 'POST',
+      url: '/api/deployments',
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        applicationId: application.id,
+        customerId: customer.id,
+        region: 'us-east-1',
+      }),
+    });
+    expect(manual.statusCode, manual.body).toBe(201);
+    expect((manual.json() as { source: string }).source).toBe('manual');
+  });
+});
