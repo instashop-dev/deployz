@@ -824,6 +824,33 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // The relay creates the 443 listener itself (elasticloadbalancing:
+    // CreateListener above), unlike the 80 listener, which CloudFormation
+    // creates and tags via the application stack's `Tags`. A resource-tag
+    // condition can never authorize the FIRST tag on a resource that doesn't
+    // carry it yet — the exact defect that left two production listeners
+    // untaggable and their DeleteListener/ModifyListener/
+    // AddListenerCertificates calls permanently AccessDenied (verified
+    // live). So, like acm:AddTagsToCertificate and
+    // elasticache:AddTagsToResource above, AddTags is scoped by the REQUEST
+    // tag instead. ForAllValues:StringEquals on aws:TagKeys additionally
+    // caps every request to ONLY the deployz:installation key, so the grant
+    // can never be used to stamp arbitrary other tags onto an ELB resource.
+    const phase2DomainIngressTag = new PolicyStatement({
+      sid: 'ProvisionerDomainIngressTag',
+      effect: Effect.ALLOW,
+      actions: ['elasticloadbalancing:AddTags'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:RequestTag/deployz:installation': this.installationId,
+        },
+        'ForAllValues:StringEquals': {
+          'aws:TagKeys': ['deployz:installation'],
+        },
+      },
+    });
+
     // Phase 2 — ElastiCache Valkey cache lifecycle (Redis MVP). Split the same
     // way as the ACM + domain-ingress precedent above:
     //   - Create* actions provision a brand-new resource that doesn't exist
@@ -1075,6 +1102,7 @@ export class BootstrapStack extends Stack {
       phase2AcmManage,
       phase2DomainIngressDescribe,
       phase2DomainIngressWrite,
+      phase2DomainIngressTag,
       phase2CacheCreate,
       phase4DeployObserve,
       phase4DeployCreate,

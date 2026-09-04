@@ -58,12 +58,21 @@ class FakeElbClient implements ElbClient {
   listeners: ListenerInfo[] = [];
   targetGroups: string[] = [];
 
-  createHttpsListenerCalls: Array<{ loadBalancerArn: string; certificateArn: string; targetGroupArn: string }> = [];
+  createHttpsListenerCalls: Array<{
+    loadBalancerArn: string;
+    certificateArn: string;
+    targetGroupArn: string;
+    tagKey: string;
+    tagValue: string;
+  }> = [];
+  ensureListenerTagCalls: Array<{ listenerArn: string; tagKey: string; tagValue: string }> = [];
   addListenerCertificateCalls: Array<{ listenerArn: string; certificateArn: string }> = [];
   removeListenerCertificateCalls: Array<{ listenerArn: string; certificateArn: string }> = [];
   deleteListenerCalls: string[] = [];
   setHttpRedirectCalls: string[] = [];
   setHttpForwardCalls: Array<{ listenerArn: string; targetGroupArn: string }> = [];
+  /** Records call names in order, so tests can assert tag-then-act sequencing. */
+  callLog: string[] = [];
 
   async findTaggedLoadBalancer(tagKey: string, tagValue: string): Promise<LoadBalancerInfo | undefined> {
     void tagKey;
@@ -81,12 +90,24 @@ class FakeElbClient implements ElbClient {
     return this.targetGroups;
   }
 
-  async createHttpsListener(p: { loadBalancerArn: string; certificateArn: string; targetGroupArn: string }): Promise<void> {
+  async createHttpsListener(p: {
+    loadBalancerArn: string;
+    certificateArn: string;
+    targetGroupArn: string;
+    tagKey: string;
+    tagValue: string;
+  }): Promise<void> {
     this.createHttpsListenerCalls.push(p);
+  }
+
+  async ensureListenerTag(listenerArn: string, tagKey: string, tagValue: string): Promise<void> {
+    this.ensureListenerTagCalls.push({ listenerArn, tagKey, tagValue });
+    this.callLog.push('ensureListenerTag');
   }
 
   async addListenerCertificate(listenerArn: string, certificateArn: string): Promise<void> {
     this.addListenerCertificateCalls.push({ listenerArn, certificateArn });
+    this.callLog.push('addListenerCertificate');
   }
 
   async removeListenerCertificate(listenerArn: string, certificateArn: string): Promise<void> {
@@ -95,6 +116,7 @@ class FakeElbClient implements ElbClient {
 
   async deleteListener(listenerArn: string): Promise<void> {
     this.deleteListenerCalls.push(listenerArn);
+    this.callLog.push('deleteListener');
   }
 
   async setHttpRedirect(listenerArn: string): Promise<void> {
@@ -200,7 +222,13 @@ describe('createDomainExecutors — CONFIGURE_DOMAIN', () => {
     const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
 
     expect(elb.createHttpsListenerCalls).toEqual([
-      { loadBalancerArn: lb.arn, certificateArn: 'arn:cert-1', targetGroupArn: 'tg-1' },
+      {
+        loadBalancerArn: lb.arn,
+        certificateArn: 'arn:cert-1',
+        targetGroupArn: 'tg-1',
+        tagKey: 'deployz:installation',
+        tagValue: INSTALLATION_ID,
+      },
     ]);
     expect(elb.setHttpRedirectCalls).toEqual(['listener-80']);
     expect(result.success).toBe(true);
@@ -246,6 +274,37 @@ describe('createDomainExecutors — CONFIGURE_DOMAIN', () => {
     expect(elb.createHttpsListenerCalls).toHaveLength(0);
     expect(result.success).toBe(true);
     expect(result.output?.httpsConfigured).toBe(true);
+
+    // The relay creates the 443 listener itself with no other tagger, so it
+    // must (re-)tag an existing listener before modifying it — heals a
+    // listener that predates this fix.
+    expect(elb.ensureListenerTagCalls).toEqual([
+      { listenerArn: 'listener-443', tagKey: 'deployz:installation', tagValue: INSTALLATION_ID },
+    ]);
+    expect(elb.callLog).toEqual(['ensureListenerTag', 'addListenerCertificate']);
+  });
+
+  it('issued + 443 with a different default cert, already tagged: ensureListenerTag is still a harmless repeat', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    const lb = makeLb();
+    elb.loadBalancer = lb;
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:other-cert', redirectsToHttps: false },
+      { arn: 'listener-80', port: 80, redirectsToHttps: true },
+    ];
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    // First pass tags the listener (as the previous test verifies); a second
+    // pass against the still-untagged fixture confirms re-tagging an
+    // already-tagged listener does not fail or otherwise change behavior.
+    await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(true);
+    expect(elb.ensureListenerTagCalls).toHaveLength(2);
+    expect(elb.addListenerCertificateCalls).toHaveLength(2);
   });
 
   it('no load balancer found: succeeds with routingTarget undefined and no listener calls', async () => {
@@ -317,6 +376,14 @@ describe('createDomainExecutors — REMOVE_DOMAIN', () => {
     expect(acm.deleteCalls).toEqual(['arn:cert-1']);
     expect(result.success).toBe(true);
     expect(result.output).toEqual({ removed: true });
+
+    // The relay creates the 443 listener itself, so nothing else ever tags
+    // it — tag it right before deleting, healing a listener that predates
+    // this fix so DeleteListener's resource-tag condition can match.
+    expect(elb.ensureListenerTagCalls).toEqual([
+      { listenerArn: 'listener-443', tagKey: 'deployz:installation', tagValue: INSTALLATION_ID },
+    ]);
+    expect(elb.callLog).toEqual(['ensureListenerTag', 'deleteListener']);
   });
 
   it('remove when the listener default cert is not ours: only removes the SNI certificate', async () => {
@@ -337,6 +404,9 @@ describe('createDomainExecutors — REMOVE_DOMAIN', () => {
     expect(elb.deleteListenerCalls).toHaveLength(0);
     expect(acm.deleteCalls).toEqual(['arn:cert-1']);
     expect(result.success).toBe(true);
+    // Only the delete path needs the heal-tag (DeleteListener is the action
+    // that was denied in production); removing an SNI cert isn't affected.
+    expect(elb.ensureListenerTagCalls).toHaveLength(0);
   });
 
   it('remove when everything is already gone: still succeeds', async () => {

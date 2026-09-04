@@ -18,6 +18,7 @@ import {
 } from '@aws-sdk/client-acm';
 import {
   AddListenerCertificatesCommand,
+  AddTagsCommand,
   CreateListenerCommand,
   DeleteListenerCommand,
   DescribeListenersCommand,
@@ -65,7 +66,18 @@ export interface ElbClient {
   findTaggedLoadBalancer(tagKey: string, tagValue: string): Promise<LoadBalancerInfo | undefined>;
   describeListeners(loadBalancerArn: string): Promise<ListenerInfo[]>;
   describeTargetGroups(loadBalancerArn: string): Promise<string[]>; // target group arns
-  createHttpsListener(p: { loadBalancerArn: string; certificateArn: string; targetGroupArn: string }): Promise<void>;
+  createHttpsListener(p: {
+    loadBalancerArn: string;
+    certificateArn: string;
+    targetGroupArn: string;
+    tagKey: string;
+    tagValue: string;
+  }): Promise<void>;
+  // Idempotent. The relay creates the 443 listener itself (unlike the 80
+  // listener, which CloudFormation creates and tags), so nothing else ever
+  // stamps the installation tag onto it — call this before modifying or
+  // deleting an existing 443 listener to heal one that predates this tag.
+  ensureListenerTag(listenerArn: string, tagKey: string, tagValue: string): Promise<void>;
   addListenerCertificate(listenerArn: string, certificateArn: string): Promise<void>; // idempotent
   removeListenerCertificate(listenerArn: string, certificateArn: string): Promise<void>; // swallow not-found
   deleteListener(listenerArn: string): Promise<void>;
@@ -133,11 +145,14 @@ async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps):
             loadBalancerArn: loadBalancer.arn,
             certificateArn,
             targetGroupArn,
+            tagKey: INSTALLATION_TAG_KEY,
+            tagValue: deps.installationId,
           });
           httpsConfigured = true;
         }
       } else {
         if (httpsListener.defaultCertificateArn !== certificateArn) {
+          await deps.elb.ensureListenerTag(httpsListener.arn, INSTALLATION_TAG_KEY, deps.installationId);
           await deps.elb.addListenerCertificate(httpsListener.arn, certificateArn);
         }
         httpsConfigured = true;
@@ -191,6 +206,7 @@ async function removeDomain(command: RelayCommand, deps: DomainExecutorDeps): Pr
 
         if (httpsListener) {
           if (httpsListener.defaultCertificateArn === payload.certificateArn) {
+            await deps.elb.ensureListenerTag(httpsListener.arn, INSTALLATION_TAG_KEY, deps.installationId);
             await deps.elb.deleteListener(httpsListener.arn);
 
             const httpListener = listeners.find((listener) => listener.port === 80);
@@ -373,7 +389,7 @@ const realElbClient: ElbClient = {
       .filter((arn): arn is string => Boolean(arn));
   },
 
-  async createHttpsListener({ loadBalancerArn, certificateArn, targetGroupArn }) {
+  async createHttpsListener({ loadBalancerArn, certificateArn, targetGroupArn, tagKey, tagValue }) {
     await getElbSdkClient().send(
       new CreateListenerCommand({
         LoadBalancerArn: loadBalancerArn,
@@ -381,6 +397,16 @@ const realElbClient: ElbClient = {
         Port: 443,
         Certificates: [{ CertificateArn: certificateArn }],
         DefaultActions: [{ Type: 'forward', TargetGroupArn: targetGroupArn }],
+        Tags: [{ Key: tagKey, Value: tagValue }],
+      }),
+    );
+  },
+
+  async ensureListenerTag(listenerArn, tagKey, tagValue) {
+    await getElbSdkClient().send(
+      new AddTagsCommand({
+        ResourceArns: [listenerArn],
+        Tags: [{ Key: tagKey, Value: tagValue }],
       }),
     );
   },

@@ -330,6 +330,27 @@ describe('BootstrapStack', () => {
         'StringEquals'
       ]?.['aws:ResourceTag/deployz:installation'],
     ).toBeDefined();
+
+    // AddTags: the relay creates the 443 listener itself, so — unlike every
+    // other domain-ingress write — the resource carries no tag yet the FIRST
+    // time this runs. A resource-tag condition could never match an
+    // untagged listener (that was the production defect), so this is
+    // request-tag-conditioned instead, like acm:RequestCertificate /
+    // elasticache:AddTagsToResource.
+    expect(actions).toContain('elasticloadbalancing:AddTags');
+    const domainIngressTagStatement = findBySid('ProvisionerDomainIngressTag');
+    expect(domainIngressTagStatement).toBeDefined();
+    expect(collectActions([domainIngressTagStatement])).toEqual(['elasticloadbalancing:AddTags']);
+    expect(
+      (domainIngressTagStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ]?.['aws:RequestTag/deployz:installation'],
+    ).toBeDefined();
+    expect(
+      (domainIngressTagStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'ForAllValues:StringEquals'
+      ]?.['aws:TagKeys'],
+    ).toEqual(['deployz:installation']);
   });
 
   it('grants the ELB lookups the domain executor makes unconditionally', () => {
