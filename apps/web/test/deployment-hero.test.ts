@@ -148,6 +148,11 @@ describe('deriveHero', () => {
     expect(hero.description).toBe('Release v1.2.0 is running and passing health checks.');
   });
 
+  it('does not double the v prefix when the release name already carries one', () => {
+    const hero = deriveHero(input({ version: 'v0.2.2-e2e-0904' }));
+    expect(hero.description).toBe('Release v0.2.2-e2e-0904 is running and passing health checks.');
+  });
+
   it('UPDATE_AVAILABLE is still live, with a newer release to deploy', () => {
     const hero = deriveHero(input({ state: 'UPDATE_AVAILABLE' }));
     expect(hero.kind).toBe('live');
