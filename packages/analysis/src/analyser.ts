@@ -26,6 +26,8 @@ import {
   detectExternalServiceRequirements,
   detectPackageManager,
   detectBuildCommand,
+  detectRuntime,
+  detectBindAddress,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -100,6 +102,8 @@ const DETECTORS = [
   detectExternalServices,
   detectPackageManager,
   detectBuildCommand,
+  detectRuntime,
+  detectBindAddress,
 ] as const;
 
 /** All §10 rejection check functions, in order (redis is handled separately — see `analyseRepo`). */
@@ -217,6 +221,13 @@ function buildMetadata(
       case 'build-command':
         meta['hasBuildCommand'] = f.detected;
         if (f.detected && f.value) meta['buildCommands'] = f.value;
+        break;
+      case 'runtime':
+        meta['runtime'] = f.detected ? f.value : null;
+        break;
+      case 'bind-address':
+        meta['bindsLocalhost'] = f.detected;
+        meta['bindAddress'] = f.value ?? null;
         break;
       default:
         meta[key] = f.detected ? f.value ?? true : false;

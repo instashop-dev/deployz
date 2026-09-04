@@ -169,7 +169,9 @@ export function normalizeDeploymentManifest(
   const manifest: DeploymentManifest = {
     application: {
       root: appRoot,
-      runtime: packageManager || framework ? 'node' : 'unknown',
+      // Rows analysed before the runtime detector existed carry no
+      // `runtime` key and keep the legacy Node-or-unknown inference.
+      runtime: firstString(meta['runtime']) ?? (packageManager || framework ? 'node' : 'unknown'),
       framework,
       dockerfilePath,
     },

@@ -102,5 +102,82 @@ and the existing AI documentation. Nothing was changed by the audit.
 ### Verification
 
 Baseline on the merge base (`ee7aa01`): `pnpm build` passed (9 tasks);
-`pnpm vitest run` recorded below in the Phase 1 entry. No production
-behaviour changed in Phase 0.
+`pnpm vitest run` — 2646 passed, 3 skipped, 5 suites failing only in the
+local environment (four `apps/web` tsx suites and the compatibility harness's
+PGlite resolution; both green in CI). No production behaviour changed in
+Phase 0. PR #175.
+
+## Phase 1 — Canonical structured application analysis (2026-09-05)
+
+One typed projection of what Deployz understands about an application,
+built from the same detector output as the flat metadata and the manifest.
+Analysis version 12 → 13.
+
+### Audited existing (unchanged)
+
+- `analyseRepo` stays the only detector orchestrator; `runApplicationAnalysis`
+  the only caller. The flat `detected_metadata` keys, the §35 contract-field
+  backfill, the manifest normalisation and the compatibility benchmark read
+  exactly what they read before.
+- `mergeAiAnalysis` precedence (explicit config > deterministic > AI) is
+  untouched; the projection only reports which keys the AI filled.
+
+### Added
+
+1. **`ApplicationAnalysis` contract** (`packages/contracts/src/
+   application-analysis.ts`). Strict Zod schema: `runtime`, `framework`,
+   `build`, `start`, `network.port`, `network.bindAddress` as facts
+   (`value`, `source`, `confidence`, `evidence[]`); `database`, `redis`,
+   `storage`, `healthCheck`, `migrations` as structured blocks with
+   evidence; `environmentVariables` reuses the manifest env-var model;
+   `analysisVersion`. Sources: dockerfile, package-manifest, compose,
+   env-file, procfile, source, ai, none. Confidence reuses the readiness
+   vocabulary (confirmed / likely / needs_confirmation).
+2. **Projection builder** (`packages/analysis/src/application-analysis.ts`).
+   `buildApplicationAnalysis(analysis, {analysisVersion, aiResolved,
+   resolvedMigrationCommand})` is pure and validates its own output.
+   Evidence is the detector's one-line `details`, never file content. An
+   AI-resolved value is `source: 'ai'`, `confidence: 'likely'`, and can
+   never displace a detector value. `readApplicationAnalysis(metadata)`
+   returns null for a row analysed before Version 13 or a malformed
+   projection — never a partially trusted object.
+3. **Detector sources.** `DetectorFinding.source` names the evidence family
+   for framework, port (all six tiers), health endpoint (tracked per path
+   candidate), start, build and migration commands.
+4. **Runtime detector** (`detectRuntime`). The selected Dockerfile's last
+   recognisable base image decides (registry host and tag stripped;
+   multi-stage builds walk back past a bare distroless/alpine final
+   stage); otherwise the shallowest dependency manifest. Families: node,
+   python, ruby, go, jvm, dotnet, php, elixir, rust. `manifest.application.
+   runtime` now reads it, with the legacy Node-or-unknown inference for
+   rows analysed before Version 13.
+5. **Bind-address detector** (`detectBindAddress`). Flags a server that
+   binds only to a loopback address from evidence that decides production:
+   Dockerfile `ENV HOST`, Dockerfile CMD/ENTRYPOINT (exec form
+   normalised), Procfile `web:`, the `start` script, and runtime source
+   (`listen(port, '127.0.0.1')`, Flask/uvicorn `host=`, gunicorn `bind`,
+   Go `ListenAndServe("localhost:…")`). `uvicorn` / `flask run` without
+   `--host` count, because they bind 127.0.0.1 by default. Dev scripts,
+   sample env files and test files never count. Metadata:
+   `bindsLocalhost`, `bindAddress`.
+6. **Persistence and wire.** `runApplicationAnalysis` stores the projection
+   as `detected_metadata.application`; `GET /api/applications/:id/readiness`
+   serves it as `detected` (null until a Version 13 analysis ran).
+
+### Tests
+
+- `packages/analysis/test/application-analysis.test.ts` (21): runtime
+  detector (image, multi-stage, registry prefix, manifest fallback, none);
+  bind-address detector (Node listen, start script, dev script ignored,
+  uvicorn default, `--host 0.0.0.0`, test files ignored, Dockerfile ENV, Go);
+  projection fixtures for Express+PostgreSQL, Next.js+Prisma, Python,
+  Redis, declared local filesystem, missing health endpoint, and an
+  ambiguous repository resolved by a fake AI merge; determinism; read-back
+  of a stored, missing and malformed projection.
+- `apps/api/src/analysis.test.ts`: the fixture-mode run persists a
+  projection readable through the contract.
+- `apps/api/src/server.test.ts`: the readiness route serves a stored
+  projection as `detected` and degrades a malformed one to null.
+
+Verification: `@deployz/analysis` 435 tests, `@deployz/api` full project,
+lint on analysis/contracts/api, `tsc --noEmit` on the API.

@@ -9,7 +9,7 @@
  * creating a workspace dependency cycle (cdk already depends on api).
  */
 
-export type { FileTree, DetectorFinding, PostgresRequirement } from './detectors.js';
+export type { FileTree, DetectorFinding, DetectorSource, PostgresRequirement, RuntimeFamily } from './detectors.js';
 export {
   detectDockerfile,
   listDockerfileCandidates,
@@ -25,6 +25,8 @@ export {
   detectS3,
   detectMigrationCommand,
   detectStartupCommand,
+  detectRuntime,
+  detectBindAddress,
   detectExternalServices,
   detectExternalServiceRequirements,
   collectScripts,
@@ -74,6 +76,9 @@ export { assessRedis, resolveRedisEnvBindings } from './redis.js';
 
 export type { AnalysisResult, DatabaseState } from './analyser.js';
 export { analyseRepo } from './analyser.js';
+
+export type { ApplicationAnalysisContext } from './application-analysis.js';
+export { buildApplicationAnalysis, readApplicationAnalysis } from './application-analysis.js';
 
 export type {
   CompatibilityVerdict,
