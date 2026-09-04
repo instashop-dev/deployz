@@ -1,3 +1,5 @@
+import { posix as posixPath } from 'node:path';
+
 import { eq } from 'drizzle-orm';
 
 import type { AiGateway, AnalysisResult, FileTree, ReadinessReport, RepositoryAiInput } from '@deployz/analysis';
@@ -7,8 +9,10 @@ import {
   analyseRepositoryWithAi,
   buildReadinessReport,
   collectScripts,
+  collectScriptsWithDir,
   collectUnresolvedQuestions,
   detectDeclaredWorkerCommand,
+  listDockerfileCandidates,
   mergeAiAnalysis,
   selectAiContextFiles,
   verdictFromReadiness,
@@ -82,7 +86,14 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // JVM/Elixir/PHP/Python manifests, and Dockerfiles fetched ahead of
 // workspace manifests — stale worker flags, NOT_COMPATIBLE verdicts and
 // Dockerfile selections from Version 9 must re-run.
-export const ANALYSIS_VERSION = 10;
+// Version 11 makes `resolveMigrationCommand` return a command that actually
+// runs where the relay executes it (a bare ORM-CLI script value exited 127
+// under `sh -c` with no node_modules/.bin on PATH — production-verified on
+// Documenso's `prisma migrate deploy`): a bare invocation gets an `npx`
+// prefix, and a schema-less Prisma `migrate deploy` gets a `--schema` flag
+// computed from the Dockerfile's runtime WORKDIR — stored migration commands
+// from Version 10 must re-run.
+export const ANALYSIS_VERSION = 11;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -418,6 +429,113 @@ const DEV_MIGRATION_REGEX = /migrate[\s:-]dev\b/i;
 const DEPLOY_MIGRATION_REGEX =
   /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
 
+// The vendor's package.json script is written to run via npm/pnpm/yarn's own
+// script runner (developer machine, CI) or by a Dockerfile's start script
+// that already resolved its own PATH — both put the package's own
+// `node_modules/.bin` on PATH before the command runs. The relay's
+// DEPLOY_RELEASE executor runs neither: it runs `sh -c <command>` directly
+// inside the built image (docker/Dockerfile's final stage sets no PATH
+// pointing at any node_modules/.bin), so a bare CLI-binary invocation exits
+// 127 ("command not found") there even though it works everywhere the
+// vendor tested it. A command already qualified by npx/npm/pnpm/yarn/bun/
+// node/deno, or given as a path, is left alone — never second-guess a
+// vendor's already-qualified command.
+const BARE_ORM_CLI_REGEX = /^(?:prisma|drizzle-kit|knex|sequelize-cli|sequelize|typeorm|node-pg-migrate|migrate)\b/;
+
+/** Prefix a bare ORM-CLI invocation with `npx` so it resolves regardless of PATH. */
+function applyNpxPrefix(command: string): string {
+  return BARE_ORM_CLI_REGEX.test(command) ? `npx ${command}` : command;
+}
+
+const NPX_PRISMA_MIGRATE_DEPLOY_REGEX = /^npx\s+prisma\s+migrate\s+deploy\b/;
+const SCHEMA_FLAG_REGEX = /--schema\b/;
+const SCHEMA_PRISMA_PATH_REGEX = /(?:^|\/)schema\.prisma$/;
+
+/**
+ * The `schema.prisma` that belongs to the migration script's own package:
+ * directly in the package's directory, then its `prisma/` subdirectory,
+ * then — only if there is exactly one anywhere in the tree — that one.
+ * `node_modules` copies are never candidates.
+ */
+function findPrismaSchemaPath(tree: FileTree, packageDir: string): string | undefined {
+  const candidates = Object.keys(tree).filter(
+    (path) => SCHEMA_PRISMA_PATH_REGEX.test(path) && !path.includes('node_modules/'),
+  );
+  if (candidates.length === 0) return undefined;
+  const direct = packageDir ? `${packageDir}/schema.prisma` : 'schema.prisma';
+  if (candidates.includes(direct)) return direct;
+  const nested = packageDir ? `${packageDir}/prisma/schema.prisma` : 'prisma/schema.prisma';
+  if (candidates.includes(nested)) return nested;
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/** The selected Dockerfile's raw content, same ranking `detectDockerfile` uses. */
+function selectedDockerfileContent(tree: FileTree): string | undefined {
+  const path = listDockerfileCandidates(tree)[0];
+  return path !== undefined ? tree[path] : undefined;
+}
+
+/**
+ * The image's runtime working directory and the directory the repository was
+ * copied into, read from the LAST build stage of a Dockerfile (an earlier
+ * stage's WORKDIR never survives into the runtime image): the first WORKDIR
+ * in that stage is where the repo lands (e.g. `/app`), and the last WORKDIR
+ * is where `CMD`/the relay's `sh -c <command>` actually runs from — they
+ * differ whenever the final stage `WORKDIR`s into a subdirectory afterwards
+ * (Documenso's `docker/Dockerfile` sets `WORKDIR /app` then later `WORKDIR
+ * /app/apps/remix`). Relative WORKDIRs chain off the previous one, as Docker
+ * itself resolves them. No WORKDIR at all means both default to the same
+ * directory, so no relative adjustment is needed.
+ */
+function dockerfileWorkdirs(content: string): { imageRoot: string; runtimeCwd: string } {
+  const lastStageStart = [...content.matchAll(/^\s*FROM\s+\S+/gim)].at(-1)?.index ?? 0;
+  const finalStage = content.slice(lastStageStart);
+
+  const dirs: string[] = [];
+  let current = '/';
+  for (const match of finalStage.matchAll(/^\s*WORKDIR\s+(\S+)/gim)) {
+    const raw = match[1]!.replace(/^["']|["']$/g, '');
+    current = raw.startsWith('/') ? raw : posixPath.join(current, raw);
+    dirs.push(current);
+  }
+  const imageRoot = dirs[0] ?? '/';
+  const runtimeCwd = dirs.at(-1) ?? imageRoot;
+  return { imageRoot, runtimeCwd };
+}
+
+/**
+ * If `command` (after the npx-prefix rewrite) is a Prisma `migrate deploy`
+ * invocation with no explicit `--schema`, append one computed from the
+ * schema's real location relative to the image's runtime WORKDIR. Prisma's
+ * CLI does not search upward for a schema from an arbitrary cwd, and the
+ * relay's `sh -c` runs the command from the image's WORKDIR — not from the
+ * script's own package directory the way npm/pnpm/yarn would run it. Left
+ * alone when the schema can't be located, or already sits at Prisma's
+ * default lookup location relative to that cwd (`./schema.prisma` or
+ * `./prisma/schema.prisma`) — an explicit flag there would be redundant.
+ * Only ever applied to a command WE just npx-prefixed, or one the vendor
+ * already wrote as `npx prisma migrate deploy` — an already-qualified
+ * `pnpm prisma migrate deploy` etc. is left alone, matching the npx-prefix
+ * rule's "never second-guess a vendor's already-qualified command".
+ */
+function withPrismaSchemaFlag(command: string, packageDir: string, tree: FileTree): string {
+  if (!NPX_PRISMA_MIGRATE_DEPLOY_REGEX.test(command) || SCHEMA_FLAG_REGEX.test(command)) {
+    return command;
+  }
+  const schemaPath = findPrismaSchemaPath(tree, packageDir);
+  if (!schemaPath) return command;
+
+  const dockerfileContent = selectedDockerfileContent(tree);
+  const { imageRoot, runtimeCwd } = dockerfileContent !== undefined ? dockerfileWorkdirs(dockerfileContent) : { imageRoot: '/', runtimeCwd: '/' };
+  const rootFromCwd = posixPath.relative(runtimeCwd, imageRoot);
+  const schemaFromCwd = posixPath.join(rootFromCwd, schemaPath);
+
+  if (schemaFromCwd === 'schema.prisma' || schemaFromCwd === 'prisma/schema.prisma') {
+    return command;
+  }
+  return `${command} --schema ${schemaFromCwd}`;
+}
+
 /**
  * Resolve the migration command to persist as the §35 `migrationCommand`
  * contract field — the command the relay's DEPLOY_RELEASE executor runs
@@ -433,15 +551,23 @@ const DEPLOY_MIGRATION_REGEX =
  *      (`DEPLOY_MIGRATION_REGEX`) over an ambiguous one.
  *   3. If nothing survives step 1, return undefined — an absent migration
  *      command is safer than a dev-mode one running unattended.
+ *
+ * The selected script's literal value is then rewritten into a command that
+ * is actually runnable where the relay executes it: `sh -c <command>` inside
+ * the built image, at the image's runtime WORKDIR, with no node_modules/.bin
+ * on PATH (see `applyNpxPrefix`/`withPrismaSchemaFlag`) — the package.json
+ * author wrote it assuming npm/pnpm/yarn's own script-running environment,
+ * not the relay's.
  */
 function resolveMigrationCommand(tree: FileTree): string | undefined {
-  const candidates = collectScripts(tree).filter(
+  const candidates = collectScriptsWithDir(tree).filter(
     ([key, command]) => MIGRATION_SCRIPT_KEY_REGEX.test(key) || DEPLOY_MIGRATION_REGEX.test(command),
   );
   const safeCandidates = candidates.filter(([, command]) => !DEV_MIGRATION_REGEX.test(command));
   if (safeCandidates.length === 0) return undefined;
   const deployShaped = safeCandidates.find(([, command]) => DEPLOY_MIGRATION_REGEX.test(command));
-  return (deployShaped ?? safeCandidates[0])![1];
+  const [, command, packageDir] = (deployShaped ?? safeCandidates[0])!;
+  return withPrismaSchemaFlag(applyNpxPrefix(command), packageDir, tree);
 }
 
 /**
