@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
-  "analysisVersion": 9,
+  "deployzSha": "de4444d133922217cd96e0e4dde6a9af46882eda",
+  "analysisVersion": 10,
   "tree": {
     "files": 201,
     "entries": 10792,
@@ -53,8 +53,8 @@
     "redisDetected": true,
     "redisConfidence": "high",
     "storage": true,
-    "worker": false,
-    "workerCommand": null,
+    "worker": true,
+    "workerCommand": "bundle exec sidekiq",
     "migration": false,
     "migrationCommand": null,
     "externalServices": [],
@@ -77,13 +77,16 @@
       "WEB_DOMAIN"
     ],
     "unsupported": [
+      "background-worker",
       "docker-compose-multi-service"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
+      "background-worker-unsupported",
       "database-migrations"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "required-env-vars-missing",
       "migration-command-missing"
@@ -115,9 +118,8 @@
     {
       "fact": "worker",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "storage",
@@ -164,23 +166,13 @@
         "docker-compose-multi-service"
       ],
       "actual": [
+        "background-worker",
         "docker-compose-multi-service"
       ],
-      "match": false,
-      "kind": "fact"
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "worker",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-015",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -198,21 +190,6 @@
       "actual": "/api/v1/streaming/health",
       "finding": {
         "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "background-worker",
-        "docker-compose-multi-service"
-      ],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
-      "finding": {
-        "id": "COMP-015",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

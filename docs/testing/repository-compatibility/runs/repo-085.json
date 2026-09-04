@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
-  "analysisVersion": 9,
+  "deployzSha": "de4444d133922217cd96e0e4dde6a9af46882eda",
+  "analysisVersion": 10,
   "tree": {
     "files": 201,
     "entries": 9590,
@@ -59,9 +59,7 @@
     ],
     "requiredEnvVars": [
       "MAX_FREE_ROW_LIMIT",
-      "PRISMA_DATABASE_URL",
-      "TEABLE_V2_TEST_LOG_LEVEL",
-      "TEABLE_V2_TEST_LOG_TO_CONSOLE"
+      "PRISMA_DATABASE_URL"
     ],
     "unsupported": [],
     "readinessFindings": [

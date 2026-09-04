@@ -141,7 +141,7 @@ function findFileContent(tree: FileTree, pathRegex: RegExp): string | null {
 // disk write or an environment read there says nothing about the app at
 // runtime (Stage A COMP-003, COMP-016).
 const NON_RUNTIME_SEGMENT_REGEX =
-  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|tests?|spec|specs|e2e|cypress|fixtures?|stories|scripts?|tools?|bin|docs?|extra|examples?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
+  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|(?:[\w.-]*[-_])?tests?|testdata|specs?|(?:[\w.-]*[-_])?e2e|cypress|fixtures?|stories|scripts?|tools?|bin|docs?|extra|examples?|benchmarks?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
 const NON_RUNTIME_FILE_REGEX =
   /(?:\.(?:test|spec|stories|e2e|cy)\.[cm]?[jt]sx?$|(?:^|\/)(?:[\w.-]+\.config\.[cm]?[jt]s|\.(?:eslintrc|prettierrc|babelrc)(?:\.[cm]?js)?|conftest\.py|test_[\w-]+\.py|[\w-]+_test\.(?:py|go|rb))$)/i;
 
@@ -191,6 +191,8 @@ export interface ComposeService {
   /** `profiles:` set — the service does not start with the default stack (Stage A COMP-026). */
   optional: boolean;
   volumes: string[];
+  /** The service's `command:` override, flattened to one line (Stage A COMP-015). */
+  command: string | null;
 }
 
 export function composeServices(tree: FileTree): { file: string; services: ComposeService[] } | null {
@@ -206,6 +208,7 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
   let inServices = false;
   let current: ComposeService | null = null;
   let inVolumes = false;
+  let inCommand = false;
   // The file's own indentation: a service header sits one level under
   // `services:`, its keys one level deeper (two or four spaces alike).
   let serviceIndent = -1;
@@ -226,20 +229,30 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
     if (serviceIndent === -1) serviceIndent = indent;
     const serviceHeader = indent === serviceIndent ? /^\s*([a-zA-Z0-9_.-]+):\s*$/.exec(line) : null;
     if (serviceHeader) {
-      current = { name: serviceHeader[1]!, image: null, optional: false, volumes: [] };
+      current = { name: serviceHeader[1]!, image: null, optional: false, volumes: [], command: null };
       inVolumes = false;
+      inCommand = false;
       if (!oneShot.has(current.name)) services.push(current);
       continue;
     }
     if (!current) continue;
     const keyLine = /^\s*([a-zA-Z_]+):\s*(.*)$/.exec(line);
     const isServiceKey = keyLine !== null && indent > serviceIndent && !line.trimStart().startsWith('-');
-    if (isServiceKey) inVolumes = false;
+    if (isServiceKey) {
+      inVolumes = false;
+      inCommand = false;
+    }
     if (isServiceKey && keyLine[1] === 'image') current.image = /^["']?([^\s"']+)/.exec(keyLine[2] ?? '')?.[1] ?? null;
     if (isServiceKey && keyLine[1] === 'profiles') current.optional = true;
     if (isServiceKey && keyLine[1] === 'volumes' && (keyLine[2] ?? '') === '') inVolumes = true;
-    const volumeLine = inVolumes ? /^\s*-\s*["']?([^\s"']+)["']?\s*$/.exec(line) : null;
-    if (volumeLine?.[1]) current.volumes.push(volumeLine[1]);
+    if (isServiceKey && keyLine[1] === 'command') {
+      const value = (keyLine[2] ?? '').trim();
+      if (value === '') inCommand = true;
+      else current.command = value.replace(/^\[|\]$/g, '').replace(/["',]/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    const listItem = /^\s*-\s*["']?([^"']*?)["']?\s*$/.exec(line);
+    if (inVolumes && listItem?.[1]) current.volumes.push(listItem[1]);
+    if (inCommand && listItem?.[1] !== undefined) current.command = `${current.command ?? ''} ${listItem[1]}`.trim();
   }
   return { file: path, services };
 }
@@ -301,7 +314,7 @@ function tokenPattern(token: string): string {
  * merely mention a product name) never counts — an undeclared mention is not
  * a dependency the app runs on.
  */
-function findDependencyEvidence(tree: FileTree, token: string): string[] {
+export function findDependencyEvidence(tree: FileTree, token: string): string[] {
   const evidence: string[] = [];
   for (const [path, content] of Object.entries(tree)) {
     if (!content) continue;
@@ -1265,6 +1278,44 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
 // ---------------------------------------------------------------------------
 
 const WORKER_DEPS = ['bull', 'agenda', 'bullmq'] as const;
+// Job-queue libraries per language (Stage A COMP-015). In-process cron
+// schedulers (node-cron, croner, robfig/cron, gocron, APScheduler) are not
+// listed: they run inside the web process by construction and never imply
+// a worker.
+const WORKER_LANGUAGE_TOKENS: { token: string; name: string }[] = [
+  { token: 'pg-boss', name: 'pg-boss' },
+  { token: 'graphile-worker', name: 'graphile-worker' },
+  { token: 'bree', name: 'bree' },
+  { token: '@temporalio/worker', name: '@temporalio/worker' },
+  { token: 'sidekiq', name: 'sidekiq' },
+  { token: 'good_job', name: 'good_job' },
+  { token: 'delayed_job', name: 'delayed_job' },
+  { token: 'resque', name: 'resque' },
+  { token: 'solid_queue', name: 'solid_queue' },
+  { token: 'sneakers', name: 'sneakers' },
+  { token: 'celery', name: 'celery' },
+  { token: 'rq', name: 'rq' },
+  { token: 'django-rq', name: 'django-rq' },
+  { token: 'dramatiq', name: 'dramatiq' },
+  { token: 'huey', name: 'huey' },
+  { token: 'django-q', name: 'django-q' },
+  { token: 'arq', name: 'arq' },
+  { token: 'procrastinate', name: 'procrastinate' },
+  { token: 'github.com/hibiken/asynq', name: 'asynq' },
+  { token: 'github.com/RichardKnop/machinery', name: 'machinery' },
+  { token: 'github.com/riverqueue/river', name: 'river' },
+  { token: 'github.com/gocraft/work', name: 'gocraft/work' },
+  { token: 'org.quartz-scheduler', name: 'quartz (JVM)' },
+  { token: 'spring-boot-starter-quartz', name: 'quartz (JVM)' },
+  { token: 'jobrunr', name: 'jobrunr (JVM)' },
+  { token: 'Hangfire', name: 'Hangfire (.NET)' },
+  { token: 'oban', name: 'oban (Elixir)' },
+  { token: 'laravel/horizon', name: 'laravel/horizon' },
+  { token: 'apalis', name: 'apalis (Rust)' },
+];
+const WORKER_COMMAND_FILE_REGEX = /(?:^|\/)(?:Procfile|[\w.-]*\.sh|supervisord?\.conf|[\w.-]*\.ini)$|(?:^|\/)(?:docker-compose|compose)\.ya?ml$|dockerfile/i;
+const WORKER_COMMAND_REGEX =
+  /\b(?:bundle exec )?(?:sidekiq|good_job start|rake (?:jobs|resque):work)\b|\bcelery\b[^\n]*\bworker\b|\b(?:rq|arq|dramatiq|huey_consumer|procrastinate)\b[^\n]*\b(?:worker|consumer)?|artisan\s+(?:queue:work|queue:listen|horizon)\b|\bmanage\.py\s+(?:rqworker|qcluster|procrastinate)\b/;
 const WORKER_CODE_REGEX = /(?:require|import)\s*(?:\(|.*from\s*)['"]node:worker_threads['"]/;
 
 /**
@@ -1292,6 +1343,19 @@ export function detectWorker(tree: FileTree): DetectorFinding {
     }
   }
 
+  // Job queues and schedulers outside Node, and a queue-worker command in a
+  // Procfile, Dockerfile, Compose file or shell script (Stage A COMP-015).
+  for (const { token, name } of WORKER_LANGUAGE_TOKENS) {
+    if (findDependencyEvidence(tree, token).length > 0 && !detected.includes(name)) detected.push(name);
+  }
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path) || !WORKER_COMMAND_FILE_REGEX.test(path)) continue;
+    if (WORKER_COMMAND_REGEX.test(content) && !detected.includes('queue worker command')) detected.push('queue worker command');
+  }
+  // A declared worker process is worker code by definition, whatever library runs it.
+  const declared = detectDeclaredWorkerCommand(tree);
+  if (declared) detected.push(`declared worker process (${declared.source})`);
+
   if (detected.length === 0) {
     return { detector: 'worker', detected: false };
   }
@@ -1302,6 +1366,30 @@ export function detectWorker(tree: FileTree): DetectorFinding {
     value: detected,
     details: `Worker patterns detected: ${detected.join(', ')}`,
   };
+}
+
+/**
+ * A worker process the repository DECLARES outside a root package.json
+ * script (which apps/api resolves itself): a Procfile `worker:` line, or a
+ * production Compose application service whose `command:` runs a queue
+ * worker. The Phase 8 boundary fires on a declared process, so the
+ * declaration must be as explicit as the root script it stands in for — a
+ * workspace package merely named `worker` is not one (linkwarden runs its
+ * `apps/worker` inside the web container) (Stage A COMP-015).
+ */
+export function detectDeclaredWorkerCommand(tree: FileTree): { command: string; source: string } | null {
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/(?:^|\/)Procfile$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    const line = /^worker:\s*(.+)$/m.exec(content);
+    if (line?.[1]) return { command: line[1].trim(), source: path };
+  }
+  const compose = composeApplicationServices(tree);
+  for (const service of compose?.services ?? []) {
+    if (service.command && WORKER_COMMAND_REGEX.test(service.command)) {
+      return { command: service.command, source: `${compose?.file} ${service.name}` };
+    }
+  }
+  return null;
 }
 
 // 9. S3 usage

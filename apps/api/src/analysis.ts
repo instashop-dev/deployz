@@ -8,6 +8,7 @@ import {
   buildReadinessReport,
   collectScripts,
   collectUnresolvedQuestions,
+  detectDeclaredWorkerCommand,
   mergeAiAnalysis,
   selectAiContextFiles,
   verdictFromReadiness,
@@ -75,7 +76,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // health checks, and tooling app roots — stale NOT_COMPATIBLE verdicts,
 // ports, health paths and `postgres.required` flags from Version 8 must
 // re-run.
-export const ANALYSIS_VERSION = 9;
+// Version 10 is the Stage A hardening batch from the unseen set (COMP-015,
+// 036, 037, 038): worker code and declared worker processes outside a root
+// package.json script, IaC only in runtime paths, unsupported engines in
+// JVM/Elixir/PHP/Python manifests, and Dockerfiles fetched ahead of
+// workspace manifests — stale worker flags, NOT_COMPATIBLE verdicts and
+// Dockerfile selections from Version 9 must re-run.
+export const ANALYSIS_VERSION = 10;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -437,10 +444,14 @@ function resolveMigrationCommand(tree: FileTree): string | undefined {
   return (deployShaped ?? safeCandidates[0])![1];
 }
 
-/** Resolve the worker start command, across every workspace package's scripts. */
-function resolveWorkerCommand(tree: FileTree): string | undefined {
+/**
+ * Resolve the worker start command: a worker script in any workspace
+ * package, else a Procfile, Compose or worker-package declaration
+ * (Stage A COMP-015).
+ */
+export function resolveWorkerCommand(tree: FileTree): string | undefined {
   const match = collectScripts(tree).find(([key]) => WORKER_SCRIPT_KEY_REGEX.test(key));
-  return match?.[1];
+  return match?.[1] ?? detectDeclaredWorkerCommand(tree)?.command;
 }
 
 interface ContractFieldUpdates {

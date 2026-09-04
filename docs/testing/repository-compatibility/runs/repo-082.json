@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
-  "analysisVersion": 9,
+  "deployzSha": "de4444d133922217cd96e0e4dde6a9af46882eda",
+  "analysisVersion": 10,
   "tree": {
     "files": 206,
     "entries": 17733,
@@ -38,12 +38,12 @@
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
-    "appRoot": ".cursor",
-    "dockerfilePath": ".cursor/Dockerfile",
-    "port": 5432,
-    "startCommand": "start: docusaurus start",
-    "healthDetected": false,
-    "healthPath": null,
+    "appRoot": ".",
+    "dockerfilePath": "server/build/Dockerfile",
+    "port": 8065,
+    "startCommand": "CMD: [\"/mattermost/bin/mattermost\"]",
+    "healthDetected": true,
+    "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -61,7 +61,6 @@
     ],
     "readinessFindings": [
       "unsupported-multi-service",
-      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
@@ -117,28 +116,26 @@
     {
       "fact": "appRoot",
       "expected": "server/build",
-      "actual": ".cursor",
+      "actual": ".",
       "match": false,
       "kind": "fact"
     },
     {
       "fact": "dockerfilePath",
       "expected": "server/build/Dockerfile",
-      "actual": ".cursor/Dockerfile",
-      "match": false,
-      "kind": "fact"
+      "actual": "server/build/Dockerfile",
+      "match": true
     },
     {
       "fact": "port",
       "expected": 8065,
-      "actual": 5432,
-      "match": false,
-      "kind": "fact"
+      "actual": 8065,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/api/v4/system/ping",
-      "actual": null,
+      "actual": "/health",
       "match": false,
       "kind": "fact"
     },
@@ -187,27 +184,7 @@
       "fact": "appRoot",
       "kind": "fact",
       "expected": "server/build",
-      "actual": ".cursor",
-      "finding": {
-        "id": "COMP-038",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "dockerfilePath",
-      "kind": "fact",
-      "expected": "server/build/Dockerfile",
-      "actual": ".cursor/Dockerfile",
-      "finding": {
-        "id": "COMP-038",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8065,
-      "actual": 5432,
+      "actual": ".",
       "finding": {
         "id": "COMP-038",
         "type": "ANALYSIS_BUG"
@@ -217,7 +194,7 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/api/v4/system/ping",
-      "actual": null,
+      "actual": "/health",
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"

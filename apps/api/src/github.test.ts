@@ -544,6 +544,44 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(Object.keys(tree).filter((path) => path.endsWith('.spec.ts'))).toHaveLength(ANALYSIS_MAX_FILES - 7);
   });
 
+  it('fetches Dockerfiles and Compose files before workspace manifests, and test manifests last (COMP-038)', async () => {
+    // A workspace with more package.json files than the cap, most of them
+    // under e2e-tests/, listed before the production Dockerfile.
+    const manifests = Array.from({ length: ANALYSIS_MAX_FILES }, (_, i) => ({
+      path: i < 40 ? `webapp/platform/pkg${i}/package.json` : `e2e-tests/case${i}/package.json`,
+      type: 'blob' as const,
+      sha: `sha-pkg-${i}`,
+      size: 10,
+    }));
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: '.cursor/Dockerfile', type: 'blob', sha: 'sha-cursor', size: 10 },
+            ...manifests,
+            { path: 'server/build/Dockerfile', type: 'blob', sha: 'sha-dockerfile', size: 10 },
+            { path: 'server/build/docker-compose.yml', type: 'blob', sha: 'sha-compose', size: 10 },
+            { path: 'webapp/channels/package.json', type: 'blob', sha: 'sha-channels', size: 10 },
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    expect(tree).toHaveProperty('server/build/Dockerfile');
+    expect(tree).toHaveProperty('server/build/docker-compose.yml');
+    expect(tree).toHaveProperty('webapp/channels/package.json');
+    expect(tree).toHaveProperty('webapp/platform/pkg0/package.json');
+    expect(Object.keys(tree).filter((path) => path.startsWith('e2e-tests/'))).toHaveLength(ANALYSIS_MAX_FILES - 44);
+  });
+
   it('fetches entry, routing and configuration files before other source on a large tree (COMP-018)', async () => {
     // A Go tree with more plain source files than the cap, all shallower
     // than the routes file — the routes file still wins a slot because it

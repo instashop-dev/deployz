@@ -175,6 +175,46 @@ health path 13, worker 12, storage 8).
 The three new findings are recorded below and left open for the Phase 6
 hardening batch.
 
+## Post-hardening summary (Phase 6, analysis version 10)
+
+The hardening batch fixed the three defects the unseen set revealed
+(COMP-036, 037, 038) and the worker-detection gap the decision report
+ranked FIX_BEFORE_MVP (COMP-015), each with regression tests
+(`packages/analysis/test/stage-a-phase6.test.ts`, apps/api
+`github.test.ts`). Nothing outside the analyser changed.
+
+| | Before hardening (v9) | After hardening (v10) |
+| --- | --- | --- |
+| Verdict matches, whole corpus | 49 / 100 | 51 / 100 |
+| Verdict matches, improvement set | 39 / 80 | 41 / 80 |
+| Verdict matches, unseen set | 10 / 20 | 10 / 20 |
+| False rejections | 12 (21.8% of 55 deployable) | 12 |
+| False acceptances | 15 (33.3% of 45 rejected) | 14 (31.1%) |
+| Realistic cohort verdicts | 29 / 59 | 30 / 59 |
+| Repositories with a worker mismatch (COMP-015) | 41 | 34 |
+| Mismatches without a finding | 0 | 0 |
+
+New unseen accuracy: 10 of 20 verdicts, unchanged — the fixes corrected
+facts on the unseen set (mattermost's Dockerfile and port, windmill's
+Pulumi rejection, BookStack's engine family) without moving a verdict,
+because each unseen false rejection or acceptance has a second, unfixed
+cause (a development Compose stack, a licence-gated engine, a Compose file
+in another repository, a worker declared in supervisor files). The
+improvement set gained two verdicts (nango-style declared workers; firefly-
+iii's MySQL default). No repository regressed; the corpus was rerun in
+full after every change.
+
+Remaining known gaps, in the decision report's order: binding aliases for
+injected variable names (product, FIX_BEFORE_MVP, not an analyser change);
+boot-time migration recognition (COMP-014, 55 repositories); health paths
+outside JS conventions (COMP-005, 49); required values in env schemas
+(COMP-017, 16 verdict flips); Redis optional-vs-required (COMP-011, 26);
+ports without `EXPOSE` (COMP-030, 13); undeclared data directories
+(COMP-025, 5); deployment descriptors the fetch drops (COMP-033, 3);
+optional second processes in reference files (COMP-010, 5); and the
+product gaps G1–G3 (persistent disk, a second worker process,
+multi-container stacks) that stay outside the MVP.
+
 ## Findings
 
 ### COMP-001 — Dockerfile `EXPOSE` / `ENV PORT` and Compose `ports` are not port evidence
@@ -487,7 +527,8 @@ hardening batch.
   signals for `detectWorker`, and read Procfile `worker:` lines for the
   resolved worker command.
 - Phase 3 residual: 29 `worker` mismatches (sidekiq, celery, good_job, Laravel queues, Go schedulers) and two false acceptances where the missed queue worker is also the declared second process (monica `queue:work`, zulip). superset, twenty and chatwoot reject on the Compose family instead of `background-worker` for the same reason.
-- Status: open
+- Fix (Phase 6): job-queue libraries in Ruby, Python, Go, JVM, .NET, Elixir, PHP and Rust manifests (sidekiq, celery, rq, asynq, quartz, Hangfire, oban, laravel/horizon, …), a queue-worker command in a Procfile, Dockerfile, Compose file or shell script (`bundle exec sidekiq`, `celery … worker`, `artisan queue:work`, `manage.py rqworker`), and a DECLARED worker process from a Procfile `worker:` line or a production Compose application service whose `command:` runs a queue worker (`chatwoot`'s sidekiq service) — the Phase 8 rejection now has the evidence it needs. In-process cron schedulers (node-cron, croner, robfig/cron, gocron, APScheduler) are deliberately not worker code, and a workspace package merely named `worker` declares nothing (linkwarden runs `apps/worker` inside its web container). Regression: stage-a-phase6.test.ts COMP-015. Worker mismatches fell from 41 to 34 repositories. Residual: nango (its jobs live in a workspace package the self-hosted image strips), netbox (documented systemd units, no Dockerfile), monica and zulip (queue workers started by supervisord/puppet files the fetch does not read) stay false acceptances.
+- Status: fixed
 
 ### COMP-016 — Platform and tooling variables are marked required
 
@@ -965,7 +1006,8 @@ hardening batch.
   happens.
 - Recommended action: Phase 6 — apply the runtime-path filter to the
   Pulumi, Terraform, CloudFormation, Serverless and cloud-file checks.
-- Status: open
+- Fix: every IaC and cloud-descriptor check (Terraform, Pulumi, CloudFormation, Serverless, Azure, GCP) reads runtime paths only, and `benchmarks/` joined the non-runtime segments. Regression: stage-a-phase6.test.ts COMP-036. windmill no longer rejects on Pulumi (it still rejects on its reference Compose workers and cache volume, COMP-010/COMP-024).
+- Status: fixed
 
 ### COMP-037 — Unsupported database engines declared outside Node manifests are invisible
 
@@ -987,7 +1029,8 @@ hardening batch.
   (`com.h2database`, `mysql-connector-j`, `mariadb-java-client`, `ecto_ch`,
   `myxql`, Laravel `DB_CONNECTION=mysql` samples with no `pgsql` driver),
   with the same configurable-engine exemption COMP-002 applies.
-- Status: open
+- Fix: MySQL/MariaDB drivers in Python, Go, JVM and Elixir manifests and a Laravel MySQL default (`config/database.php` or `DB_CONNECTION=mysql` in the env sample) reject when no PostgreSQL driver is declared; ClickHouse clients in any manifest reject with the COMP-032 corroboration; an embedded JVM database (H2, HSQLDB, Derby) with no PostgreSQL driver rejects. Regression: stage-a-phase6.test.ts COMP-037. Residual: all three unseen cases stay — Stirling-PDF declares `org.postgresql` (PostgreSQL is licence-gated, which no static rule can see), plausible keeps its Compose stack in a separate repository and reads `CLICKHOUSE_DATABASE_URL` from Elixir runtime config the env model does not read, and BookStack declares its MySQL default in `config/database.php`, a PHP file the tree fetch never requests. firefly-iii now rejects on `DB_CONNECTION=mysql` in its env sample where the entry expected `local-filesystem` — the right verdict for a weaker reason (its PostgreSQL support goes through a PHP extension no manifest declares, COMP-029).
+- Status: fixed
 
 ### COMP-038 — Workspace manifests fill the 200-file cap ahead of the production Dockerfile
 
@@ -1006,4 +1049,5 @@ hardening batch.
 - Recommended action: Phase 6 — rank Dockerfiles, Compose files and env
   samples above package manifests inside tier 0, and cap the number of
   manifests fetched from non-runtime paths.
-- Status: open
+- Fix: the real cause was two-fold — `build` was an IGNORED directory segment (build output), so `server/build/Dockerfile` was never fetched at all, and inside relevance tier 0 manifests sorted alphabetically ahead of Dockerfiles. `build/` is no longer ignored (a committed one holds build tooling), Dockerfiles, Compose files and env samples now rank above package manifests, and manifests under test/tool directories rank with those directories (`e2e-tests/`, `integration_tests/` count as non-runtime). Regression: github.test.ts COMP-038. mattermost now selects `server/build/Dockerfile` and port 8065; its verdict stays NOT_COMPATIBLE for the development Compose stack under `server/` (COMP-026 residual).
+- Status: fixed

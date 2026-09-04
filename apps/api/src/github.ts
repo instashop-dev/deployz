@@ -603,10 +603,12 @@ export const ANALYSIS_FETCH_CONCURRENCY = 12;
 
 // Directories the §18 detectors never need and that would otherwise blow the
 // file cap on repos that (unusually) commit build output or vendored deps.
+// A committed `build/` directory holds build TOOLING (mattermost's
+// `server/build/Dockerfile`), not output — it is not ignored (Stage A
+// COMP-038); build output there is gitignored in practice.
 const IGNORED_DIR_SEGMENTS = new Set([
   'node_modules',
   'dist',
-  'build',
   '.next',
   'out',
   'coverage',
@@ -715,24 +717,30 @@ function isLockfilePath(path: string): boolean {
 const ENTRY_FILE_REGEX =
   /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\//i;
 
+//
+// Dockerfiles, Compose files and env samples come before package manifests:
+// a large workspace ships hundreds of `package.json` files, and inside one
+// tier they would sort alphabetically ahead of a production Dockerfile that
+// then never enters the tree (Stage A COMP-038). A manifest in a test,
+// fixture or tooling directory ranks with the rest of that directory.
 function relevancePriority(path: string): number {
-  if (MANIFEST_REGEX.test(path)) return 0;
-  if (OTHER_MANIFEST_REGEX.test(path)) return 0;
   if (DOCKERFILE_REGEX.test(path)) return 0;
   if (COMPOSE_REGEX.test(path)) return 0;
   if (ENV_SAMPLE_REGEX.test(path)) return 0;
-  if (!isRuntimeSourcePath(path)) return 6; // tests, specs, fixtures, scripts, docs, tool configs
-  if (!path.includes('/')) return 1; // generic (unnamed) root files
-  if (PRISMA_SCHEMA_REGEX.test(path)) return 2;
-  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 3;
-  if (ENTRY_FILE_REGEX.test(path)) return 4; // entry, routing and configuration source
-  return 5; // other source files
+  if (!isRuntimeSourcePath(path)) return 7; // tests, specs, fixtures, scripts, docs, tool configs
+  if (MANIFEST_REGEX.test(path)) return 1;
+  if (OTHER_MANIFEST_REGEX.test(path)) return 1;
+  if (!path.includes('/')) return 2; // generic (unnamed) root files
+  if (PRISMA_SCHEMA_REGEX.test(path)) return 3;
+  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 4;
+  if (ENTRY_FILE_REGEX.test(path)) return 5; // entry, routing and configuration source
+  return 6; // other source files
 }
 
 function compareRelevance(a: string, b: string): number {
   const priorityDiff = relevancePriority(a) - relevancePriority(b);
   if (priorityDiff !== 0) return priorityDiff;
-  return relevancePriority(a) >= 4 ? a.split('/').length - b.split('/').length : 0;
+  return relevancePriority(a) >= 5 ? a.split('/').length - b.split('/').length : 0;
 }
 
 export interface RepositoryRef {

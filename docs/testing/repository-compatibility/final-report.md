@@ -237,3 +237,14 @@ therefore product risk rather than product scope: a declared worker
 process outside Node (1 of 10), MySQL-only PHP apps (0 of 2), ClickHouse/H2
 (0 of 2), Kubernetes-native apps and cloud descriptors (0 of 4), RabbitMQ
 read with a default (0 of 1).
+
+## 7. Post-hardening addendum (Phase 6)
+
+After this report was written, the phase-6 hardening batch (analysis
+version 10) fixed COMP-015, 036, 037 and 038. Whole-corpus verdict accuracy
+moved from 49 to 51 of 100, false acceptances from 15 to 14, false
+rejections stayed at 12, and the unseen set stayed at 10 of 20 — its
+remaining mismatches each have a second, product-level cause. The
+before/after table and the remaining-gap list are in
+[`findings.md`](findings.md#post-hardening-summary-phase-6-analysis-version-10);
+the rankings and decisions in sections 3–5 stand.
