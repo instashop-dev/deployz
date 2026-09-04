@@ -99,6 +99,22 @@ export const STAGE_HEADLINE: Record<DeploymentStage, { title: string; body: stri
 };
 
 /**
+ * The pre-launch card: the deployment is still NOT_INSTALLED, so nothing in
+ * AWS is being created yet — the WAITING_FOR_AWS headline ("AWS is creating
+ * the secure Deployz connector…") would claim work that has not started.
+ * Shown until the customer presses Deploy to AWS.
+ */
+export const PRE_LAUNCH_HEADLINE = {
+  title: 'Ready to set up in AWS',
+  body: 'Select Deploy to AWS above. Deployment progress will appear here as soon as AWS starts creating the secure Deployz connector.',
+};
+
+/** Every server-sent step as a not-yet-started row — the pre-launch list. */
+export function stepsBeforeLaunch(steps: DeploymentStep[] | undefined): ProgressStep[] {
+  return (steps ?? []).map((key) => ({ key, label: STEP_LABEL[key].pending, state: 'waiting' }));
+}
+
+/**
  * Copy per deployment step, keyed by the step's own state: `pending` (not
  * reached yet), `active` (in progress, or the interrupted step on FAILED),
  * `done` (behind us). The server decides WHICH step is active and which

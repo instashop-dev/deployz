@@ -199,9 +199,10 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     installLinkId,
     deploymentId,
     stage: 'WAITING_FOR_AWS',
-    customerHeading: 'Setting up your AWS connection',
-    // The customer has not launched the install yet, so the vendor hero
-    // says what to do (send the link), not that AWS is working.
+    // The customer has not launched the install yet: the customer card says
+    // what to do (press Deploy to AWS) and the vendor hero says what to do
+    // (send the link) — neither claims AWS is working.
+    customerHeading: 'Ready to set up in AWS',
     vendorLabel: 'Waiting for your customer to install',
   });
   await page.goto(`/install/${installLinkId}`);

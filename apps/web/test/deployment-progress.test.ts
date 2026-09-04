@@ -7,7 +7,10 @@ import {
   removedProgress,
   stageRank,
   stepWaitingOnInput,
+  stepsBeforeLaunch,
   AWAITING_DOMAIN_STEP_DETAIL,
+  PRE_LAUNCH_HEADLINE,
+  STAGE_HEADLINE,
   stepsFromStatus,
   type ProgressStepState,
 } from '../src/lib/deployment-progress';
@@ -66,6 +69,23 @@ describe('isTerminalStage', () => {
     expect(isTerminalStage('CONNECTING')).toBe(false);
     expect(isTerminalStage('PROVISIONING')).toBe(false);
     expect(isTerminalStage('VERIFYING')).toBe(false);
+  });
+});
+
+describe('stepsBeforeLaunch', () => {
+  it('renders every server-sent step as not started — nothing spins before the customer presses Deploy to AWS', () => {
+    const rows = stepsBeforeLaunch(['AWS_SETUP', 'RELAY_CONNECT', 'READY']);
+    expect(rows.map((row) => row.state)).toEqual(['waiting', 'waiting', 'waiting']);
+    expect(rows[0]!.label).toBe('AWS setup');
+  });
+
+  it('renders no rows when an older API omits steps', () => {
+    expect(stepsBeforeLaunch(undefined)).toEqual([]);
+  });
+
+  it('the pre-launch headline never claims AWS is already at work', () => {
+    expect(PRE_LAUNCH_HEADLINE.body).not.toMatch(/is creating/);
+    expect(STAGE_HEADLINE.WAITING_FOR_AWS.body).toMatch(/is creating/);
   });
 });
 
