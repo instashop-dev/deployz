@@ -1,25 +1,25 @@
 # Repository compatibility audit — run summary
 
-Deployz commit: `28341be6e3b00cec4e9863f14e6e9521ab8e4b0d` · analysis version: 9
+Deployz commit: `3d45d4e2fcb8492ae65eae97e3c68928c39a6c64` · analysis version: 9
 
 | Metric | Value |
 | --- | --- |
-| Repositories | 80 |
-| Analysed | 80 |
+| Repositories | 100 |
+| Analysed | 100 |
 | Failed to analyse | 0 |
-| Verdict matches | 39 / 80 (48.8%) |
-| All facts match | 4 |
-| False acceptances | 10 |
-| False rejections | 8 |
-| Configuration-detection mismatches | 23 |
+| Verdict matches | 49 / 100 (49%) |
+| All facts match | 5 |
+| False acceptances | 15 |
+| False rejections | 12 |
+| Configuration-detection mismatches | 24 |
 | Unexplained mismatches | 0 |
 
 ## Mismatches by finding type
 
 | Type | Mismatches |
 | --- | --- |
-| ANALYSIS_BUG | 86 |
-| ANALYSIS_MISSING_SIGNAL | 169 |
+| ANALYSIS_BUG | 121 |
+| ANALYSIS_MISSING_SIGNAL | 231 |
 | MVP_CAPABILITY_GAP | 0 |
 | CORRECTLY_UNSUPPORTED | 0 |
 | REPO_INVALID | 0 |
@@ -29,14 +29,15 @@ Deployz commit: `28341be6e3b00cec4e9863f14e6e9521ab8e4b0d` · analysis version: 
 | Set | Repositories | Analysed | Verdict matches | All facts match |
 | --- | --- | --- | --- | --- |
 | improvement | 80 | 80 | 39 | 4 |
+| unseen | 20 | 20 | 10 | 1 |
 
 ## By cohort
 
 | Cohort | Repositories | Analysed | Verdict matches | All facts match |
 | --- | --- | --- | --- | --- |
-| boundary | 14 | 14 | 9 | 1 |
-| messy | 17 | 17 | 5 | 1 |
-| realistic | 49 | 49 | 25 | 2 |
+| boundary | 19 | 19 | 13 | 1 |
+| messy | 22 | 22 | 7 | 1 |
+| realistic | 59 | 59 | 29 | 3 |
 
 ## Repositories
 
@@ -122,3 +123,23 @@ Deployz commit: `28341be6e3b00cec4e9863f14e6e9521ab8e4b0d` · analysis version: 
 | repo-078 | GoogleCloudPlatform/microservices-demo@b9a978d | boundary | NOT_COMPATIBLE | NEEDS_CONFIGURATION | compatibility (expected "NOT_COMPATIBLE", actual "NEEDS_CONFIGURATION") → COMP-033 ANALYSIS_MISSING_SIGNAL<br>postgres (expected false, actual true) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>redis (expected true, actual false) → COMP-011 ANALYSIS_BUG<br>appRoot (expected "src/frontend", actual "src/adservice") → COMP-020 ANALYSIS_BUG<br>dockerfilePath (expected "src/frontend/Dockerfile", actual "src/adservice/Dockerfile") → COMP-027 ANALYSIS_BUG<br>port (expected 8080, actual 9555) → COMP-027 ANALYSIS_BUG<br>healthPath (expected "/_healthz", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["kubernetes","terraform"], actual []) → COMP-033 ANALYSIS_MISSING_SIGNAL |
 | repo-079 | Azure-Samples/azure-search-openai-demo@3f4a21f | boundary | NOT_COMPATIBLE | NEEDS_CONFIGURATION | compatibility (expected "NOT_COMPATIBLE", actual "NEEDS_CONFIGURATION") → COMP-033 ANALYSIS_MISSING_SIGNAL<br>storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>port (expected 8000, actual null) → COMP-030 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["azure"], actual []) → COMP-033 ANALYSIS_MISSING_SIGNAL |
 | repo-080 | vllm-project/vllm@560ef78 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | port (expected 8000, actual null) → COMP-030 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
+| repo-081 | hedgedoc/hedgedoc@6e90dd3 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE | storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>appRoot (expected "backend", actual ".") → COMP-020 ANALYSIS_BUG<br>healthPath (expected "/api/v2/monitoring", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["docker-compose-multi-service"], actual ["docker-compose-multi-service","local-filesystem"]) → COMP-024 ANALYSIS_BUG |
+| repo-082 | mattermost/mattermost@240b9be | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-026 ANALYSIS_BUG<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>appRoot (expected "server/build", actual ".cursor") → COMP-038 ANALYSIS_BUG<br>dockerfilePath (expected "server/build/Dockerfile", actual ".cursor/Dockerfile") → COMP-038 ANALYSIS_BUG<br>port (expected 8065, actual 5432) → COMP-038 ANALYSIS_BUG<br>healthPath (expected "/api/v4/system/ping", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["docker-compose-multi-service"]) → COMP-026 ANALYSIS_BUG |
+| repo-083 | windmill-labs/windmill@0d6bce4 | realistic | READY | NOT_COMPATIBLE | compatibility (expected "READY", actual "NOT_COMPATIBLE") → COMP-010 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/api/health/status", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["docker-compose-multi-service","local-filesystem","pulumi"]) → COMP-010 ANALYSIS_MISSING_SIGNAL |
+| repo-084 | NangoHQ/nango@f9667ac | realistic | NOT_COMPATIBLE | NEEDS_CONFIGURATION | compatibility (expected "NOT_COMPATIBLE", actual "NEEDS_CONFIGURATION") → COMP-015 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>dockerfilePath (expected "Dockerfile.self_hosted", actual "Dockerfile") → COMP-027 ANALYSIS_BUG<br>port (expected 3003, actual 8080) → COMP-027 ANALYSIS_BUG<br>unsupported (expected ["background-worker"], actual []) → COMP-015 ANALYSIS_MISSING_SIGNAL |
+| repo-085 | teableio/teable@5ef2238 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | port (expected 3000, actual null) → COMP-030 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual "/api/healthcheck") → COMP-005 ANALYSIS_MISSING_SIGNAL |
+| repo-086 | wger-project/wger@65a1d40 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | redis (expected false, actual true) → COMP-011 ANALYSIS_BUG<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>dockerfilePath (expected "extras/docker/production/Dockerfile", actual "extras/docker/base/Dockerfile") → COMP-027 ANALYSIS_BUG<br>port (expected 8000, actual 27017) → COMP-027 ANALYSIS_BUG |
+| repo-087 | TandoorRecipes/recipes@e160cee | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-024 ANALYSIS_BUG<br>storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["local-filesystem"]) → COMP-024 ANALYSIS_BUG |
+| repo-088 | netbox-community/netbox@2d519ec | realistic | NOT_COMPATIBLE | NEEDS_CONFIGURATION | compatibility (expected "NOT_COMPATIBLE", actual "NEEDS_CONFIGURATION") → COMP-015 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["background-worker"], actual []) → COMP-015 ANALYSIS_MISSING_SIGNAL |
+| repo-089 | Stirling-Tools/Stirling-PDF@153da23 | realistic | NOT_COMPATIBLE | READY | compatibility (expected "NOT_COMPATIBLE", actual "READY") → COMP-037 ANALYSIS_MISSING_SIGNAL<br>postgres (expected false, actual true) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>appRoot (expected ".", actual "engine") → COMP-020 ANALYSIS_BUG<br>dockerfilePath (expected "docker/embedded/Dockerfile", actual "engine/Dockerfile") → COMP-027 ANALYSIS_BUG<br>port (expected 8080, actual 5001) → COMP-027 ANALYSIS_BUG<br>healthPath (expected "/api/v1/info/status", actual "/api/v1/ai/health") → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["other-database"], actual []) → COMP-037 ANALYSIS_MISSING_SIGNAL |
+| repo-090 | sosedoff/pgweb@e4858a1 | realistic | READY | READY | match |
+| repo-091 | nextcloud/server@132944d | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION | postgres (expected true, actual false) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>port (expected 80, actual null) → COMP-030 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/status.php", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL |
+| repo-092 | Lissy93/dashy@1d78e14 | messy | READY | NEEDS_CONFIGURATION | compatibility (expected "READY", actual "NEEDS_CONFIGURATION") → COMP-023 ANALYSIS_BUG |
+| repo-093 | thelounge/thelounge@9727b2e | messy | NOT_COMPATIBLE | NEEDS_CONFIGURATION | compatibility (expected "NOT_COMPATIBLE", actual "NEEDS_CONFIGURATION") → COMP-025 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["local-filesystem"], actual []) → COMP-025 ANALYSIS_MISSING_SIGNAL |
+| repo-094 | homarr-labs/homarr@cb0fec0 | messy | NEEDS_CONFIGURATION | NOT_COMPATIBLE | compatibility (expected "NEEDS_CONFIGURATION", actual "NOT_COMPATIBLE") → COMP-024 ANALYSIS_BUG<br>postgres (expected true, actual false) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/api/health/ready", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected [], actual ["local-filesystem"]) → COMP-024 ANALYSIS_BUG |
+| repo-095 | openstatusHQ/openstatus@7828cf5 | messy | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected false, actual true) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>appRoot (expected ".", actual "apps/checker") → COMP-020 ANALYSIS_BUG<br>dockerfilePath (expected "apps/dashboard/Dockerfile", actual "apps/checker/Dockerfile") → COMP-027 ANALYSIS_BUG<br>port (expected 3000, actual 8080) → COMP-027 ANALYSIS_BUG<br>healthPath (expected "/", actual "/healthz") → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["sqlite","docker-compose-multi-service","background-worker"], actual ["docker-compose-multi-service","sqlite"]) → COMP-015 ANALYSIS_MISSING_SIGNAL |
+| repo-096 | mastodon/mastodon@6f341d4 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual "/api/v1/streaming/health") → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["background-worker","docker-compose-multi-service"], actual ["docker-compose-multi-service"]) → COMP-015 ANALYSIS_MISSING_SIGNAL |
+| repo-097 | plausible/analytics@543b301 | boundary | NOT_COMPATIBLE | NEEDS_CONFIGURATION | compatibility (expected "NOT_COMPATIBLE", actual "NEEDS_CONFIGURATION") → COMP-037 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected false, actual true) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/health", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["other-database"], actual []) → COMP-037 ANALYSIS_MISSING_SIGNAL |
+| repo-098 | wekan/wekan@0f41341 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected false, actual true) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["mongodb"], actual ["docker-compose-multi-service","mongodb"]) → COMP-026 ANALYSIS_BUG |
+| repo-099 | BookStackApp/BookStack@13a1883 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>port (expected 80, actual null) → COMP-030 ANALYSIS_MISSING_SIGNAL<br>healthPath (expected "/status", actual null) → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["mysql"], actual ["docker-compose-multi-service"]) → COMP-037 ANALYSIS_MISSING_SIGNAL |
+| repo-100 | penpot/penpot@034707a | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE | postgres (expected true, actual false) → COMP-029 ANALYSIS_MISSING_SIGNAL<br>worker (expected true, actual false) → COMP-015 ANALYSIS_MISSING_SIGNAL<br>storage (expected true, actual false) → COMP-012 ANALYSIS_BUG<br>migration (expected true, actual false) → COMP-014 ANALYSIS_MISSING_SIGNAL<br>dockerfilePath (expected "docker/images/Dockerfile.backend", actual "docker/devenv/Dockerfile") → COMP-027 ANALYSIS_BUG<br>port (expected 6060, actual 8080) → COMP-027 ANALYSIS_BUG<br>healthPath (expected "/health", actual "/api/health") → COMP-005 ANALYSIS_MISSING_SIGNAL<br>unsupported (expected ["docker-compose-multi-service"], actual ["docker-compose-multi-service","local-filesystem"]) → COMP-024 ANALYSIS_BUG |

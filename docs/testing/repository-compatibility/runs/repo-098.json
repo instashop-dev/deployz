@@ -1,0 +1,201 @@
+{
+  "id": "repo-098",
+  "repository": "wekan/wekan",
+  "commit": "0f41341fcdb3db65373e6c0820e506b90313e318",
+  "set": "unseen",
+  "cohort": "boundary",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 204,
+    "entries": 4094,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": true,
+    "migration": false,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080,
+    "unsupported": [
+      "mongodb"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080,
+    "startCommand": "CMD: [\"bash\", \"/build/wekan-entrypoint.sh\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "node migrate-mongodb-to-ferretdb.mjs",
+    "externalServices": [
+      "smtp"
+    ],
+    "requiredEnvVars": [
+      "ATTACHMENTS_UPLOAD_MIME_TYPES",
+      "CARDS_LOADING",
+      "CARDS_LOADING_LAZY_THRESHOLD",
+      "CORS",
+      "CORS_ALLOW_HEADERS",
+      "CORS_EXPOSE_HEADERS",
+      "HEADER_LOGIN_EMAIL",
+      "HEADER_LOGIN_FIRSTNAME",
+      "HEADER_LOGIN_LASTNAME",
+      "HEADER_LOGIN_TRUSTED_PROXIES",
+      "METEOR_REACTIVITY_ORDER",
+      "METRICS_ACCESS_TOKEN",
+      "METRICS_TRUST_PROXY",
+      "MONGO_URL",
+      "OAUTH2_REQUEST_PERMISSIONS",
+      "OAUTH2_SECRET",
+      "OAUTH2_TOKEN_ENDPOINT",
+      "PERMISSIONS_POLICY",
+      "ROOT_URL",
+      "SAML_PRIVATE_KEYFILE",
+      "WEKAN_INTEGRITY_PRIVATE_KEY",
+      "WEKAN_MIN_FREE_DISK_MB",
+      "WRITABLE_PATH"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service",
+      "mongodb"
+    ],
+    "readinessFindings": [
+      "unsupported-database-mongo",
+      "unsupported-multi-service",
+      "health-check"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "build-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": 8080,
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "mongodb"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "mongodb"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "mongodb"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "mongodb"
+      ],
+      "finding": {
+        "id": "COMP-026",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

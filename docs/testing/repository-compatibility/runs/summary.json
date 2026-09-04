@@ -1,31 +1,31 @@
 {
-  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
   "analysisVersion": 9,
-  "total": 80,
-  "analysed": 80,
+  "total": 100,
+  "analysed": 100,
   "failed": 0,
-  "fullMatch": 4,
-  "verdictMatch": 39,
-  "verdictAccuracy": 48.8,
-  "falseAcceptances": 10,
-  "falseRejections": 8,
-  "configurationMismatches": 23,
+  "fullMatch": 5,
+  "verdictMatch": 49,
+  "verdictAccuracy": 49,
+  "falseAcceptances": 15,
+  "falseRejections": 12,
+  "configurationMismatches": 24,
   "factMismatches": {
-    "appRoot": 7,
-    "compatibility": 41,
-    "dockerfilePath": 5,
-    "healthPath": 36,
-    "migration": 41,
-    "port": 18,
-    "postgres": 7,
-    "redis": 25,
-    "storage": 17,
-    "unsupported": 30,
-    "worker": 28
+    "appRoot": 11,
+    "compatibility": 51,
+    "dockerfilePath": 11,
+    "healthPath": 49,
+    "migration": 55,
+    "port": 27,
+    "postgres": 12,
+    "redis": 26,
+    "storage": 25,
+    "unsupported": 45,
+    "worker": 40
   },
   "byFindingType": {
-    "ANALYSIS_BUG": 86,
-    "ANALYSIS_MISSING_SIGNAL": 169,
+    "ANALYSIS_BUG": 121,
+    "ANALYSIS_MISSING_SIGNAL": 231,
     "MVP_CAPABILITY_GAP": 0,
     "CORRECTLY_UNSUPPORTED": 0,
     "REPO_INVALID": 0
@@ -37,26 +37,32 @@
       "analysed": 80,
       "verdictMatch": 39,
       "fullMatch": 4
+    },
+    "unseen": {
+      "total": 20,
+      "analysed": 20,
+      "verdictMatch": 10,
+      "fullMatch": 1
     }
   },
   "byCohort": {
     "boundary": {
-      "total": 14,
-      "analysed": 14,
-      "verdictMatch": 9,
+      "total": 19,
+      "analysed": 19,
+      "verdictMatch": 13,
       "fullMatch": 1
     },
     "messy": {
-      "total": 17,
-      "analysed": 17,
-      "verdictMatch": 5,
+      "total": 22,
+      "analysed": 22,
+      "verdictMatch": 7,
       "fullMatch": 1
     },
     "realistic": {
-      "total": 49,
-      "analysed": 49,
-      "verdictMatch": 25,
-      "fullMatch": 2
+      "total": 59,
+      "analysed": 59,
+      "verdictMatch": 29,
+      "fullMatch": 3
     }
   }
 }

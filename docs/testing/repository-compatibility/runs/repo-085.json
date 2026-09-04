@@ -1,0 +1,173 @@
+{
+  "id": "repo-085",
+  "repository": "teableio/teable",
+  "commit": "5ef2238883cad7c3980084de9a9031135fb9734f",
+  "set": "unseen",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "3d45d4e2fcb8492ae65eae97e3c68928c39a6c64",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 201,
+    "entries": 9590,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "dockers/teable/Dockerfile",
+    "port": 3000,
+    "healthPath": "/health",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "dockers/teable/Dockerfile",
+    "port": null,
+    "startCommand": "ENTRYPOINT: [\"scripts/start.sh\"]",
+    "healthDetected": true,
+    "healthPath": "/api/healthcheck",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": true,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "dotenv-flow -p ../../apps/nextjs-app -- node ./scripts/run-prisma-command.mjs migrate",
+    "externalServices": [
+      "sentry",
+      "smtp"
+    ],
+    "requiredEnvVars": [
+      "MAX_FREE_ROW_LIMIT",
+      "PRISMA_DATABASE_URL",
+      "TEABLE_V2_TEST_LOG_LEVEL",
+      "TEABLE_V2_TEST_LOG_TO_CONSOLE"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "database-migrations",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "port-missing",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "dockers/teable/Dockerfile",
+      "actual": "dockers/teable/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/api/healthcheck",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3000,
+      "actual": null,
+      "finding": {
+        "id": "COMP-030",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/health",
+      "actual": "/api/healthcheck",
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}
