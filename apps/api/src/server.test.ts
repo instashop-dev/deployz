@@ -4351,3 +4351,122 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
     expect(fakeEcr.statementFor(`deployz-pull-${deployment.installationId}`)).toBeUndefined();
   });
 });
+
+
+// ── AI MVP Phase 2: vendor configuration reconciles readiness ─────────────
+describe('server — readiness reconciliation with the application details', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  const portFinding = {
+    id: 'port-unresolved',
+    category: 'network',
+    title: 'Tell Deployz which port your app listens on',
+    severity: 'required',
+    blocking: false,
+    plainEnglishExplanation: 'Deployz could not find the network port this app listens on.',
+    whyItMatters: 'Deployz routes customer traffic and health checks to one port.',
+    technicalEvidence: 'No port was found.',
+    suggestedOutcome: 'Declare the port the app listens on, or set it in the application details.',
+    confidence: 'confirmed',
+  };
+  const storedReport = {
+    state: 'ALMOST_READY',
+    requiredCount: 1,
+    recommendedCount: 0,
+    summary: 'Deployz found a few things to address before this app can be deployed reliably.',
+    findings: [portFinding],
+    passed: [{ id: 'dockerfile', label: 'Container setup found' }],
+  };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'readiness-reconcile@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await client?.close();
+  });
+
+  it('GET readiness applies the container port the vendor set: the finding becomes a passed check and the state READY', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      containerPort: 8080,
+      detectedMetadata: { readiness: storedReport },
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { state: string; requiredCount: number; findings: unknown[]; passed: { id: string }[] };
+    expect(body.state).toBe('READY');
+    expect(body.requiredCount).toBe(0);
+    expect(body.findings).toEqual([]);
+    expect(body.passed.map((p) => p.id)).toEqual(['dockerfile', 'port-unresolved']);
+  });
+
+  it('PATCH containerPort keeps the persisted verdict in step with the page, and clearing it restores the finding', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      compatibilityReason: storedReport.summary,
+      detectedMetadata: { readiness: storedReport },
+    });
+
+    const set = await app.inject({
+      method: 'PATCH',
+      url: `/api/applications/${application.id}`,
+      headers: { cookie: org.cookie },
+      payload: { containerPort: 8080 },
+    });
+    expect(set.statusCode).toBe(200);
+    expect(set.json()).toMatchObject({
+      containerPort: 8080,
+      compatibilityStatus: 'READY',
+      compatibilityReason: 'This app can be deployed through Deployz.',
+    });
+    // The stored report itself is untouched — reconciliation is a view.
+    const [row] = await db.select().from(schema.applications).where(eq(schema.applications.id, application.id));
+    expect((row?.detectedMetadata as { readiness: { findings: unknown[] } }).readiness.findings).toHaveLength(1);
+
+    const cleared = await app.inject({
+      method: 'PATCH',
+      url: `/api/applications/${application.id}`,
+      headers: { cookie: org.cookie },
+      payload: { containerPort: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toMatchObject({
+      containerPort: null,
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      compatibilityReason: storedReport.summary,
+    });
+  });
+
+  it('PATCH of an unrelated field leaves the verdict alone', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      detectedMetadata: { readiness: storedReport },
+    });
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/applications/${application.id}`,
+      headers: { cookie: org.cookie },
+      payload: { healthPath: '/healthz' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ healthPath: '/healthz', compatibilityStatus: 'NEEDS_ATTENTION' });
+  });
+});

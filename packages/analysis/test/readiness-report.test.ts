@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { analyseRepo } from '../src/analyser.js';
 import type { AnalysisResult } from '../src/analyser.js';
 import type { FileTree } from '../src/detectors.js';
-import { buildReadinessReport, verdictFromReadiness, type ReadinessReport } from '../src/readiness-report.js';
+import {
+  buildReadinessReport,
+  reconcileReadiness,
+  verdictFromReadiness,
+  type ReadinessReport,
+} from '../src/readiness-report.js';
 
 // ==========================================================================
 // Corpus fixtures (inline file trees — no real files on disk)
@@ -454,5 +459,95 @@ describe('buildReadinessReport — determinism', () => {
     const first: ReadinessReport = buildReadinessReport(analysis, context);
     const second: ReadinessReport = buildReadinessReport(analysis, context);
     expect(second).toEqual(first);
+  });
+});
+
+
+// ==========================================================================
+// AI MVP Phase 2 — port / start-command / localhost-binding findings and
+// vendor-configuration reconciliation
+// ==========================================================================
+
+const dockerfileNoPortNoCmdTree: FileTree = {
+  Dockerfile: 'FROM node:20-alpine\nWORKDIR /app\nCOPY . .\n',
+  'package.json': JSON.stringify({ name: 'app', dependencies: { express: '^4' } }),
+  'src/index.js': "require('express')().get('/health', (_q, r) => r.send('ok'));\n",
+};
+
+const localhostTree: FileTree = {
+  Dockerfile: 'FROM node:20-alpine\nEXPOSE 3000\nCMD ["node", "server.js"]\n',
+  'package.json': JSON.stringify({ name: 'app', dependencies: { express: '^4' } }),
+  'server.js': "const app = require('express')();\napp.get('/health', (_q, r) => r.send('ok'));\napp.listen(3000, '127.0.0.1');\n",
+};
+
+describe('buildReadinessReport — Phase 2 findings', () => {
+  it('reports an unresolved port and a missing start command as required, non-blocking findings', () => {
+    const report = buildReadinessReport(analyseRepo(dockerfileNoPortNoCmdTree));
+    expect(report.state).toBe('ALMOST_READY');
+    const ids = report.findings.map((f) => f.id);
+    expect(ids).toContain('port-unresolved');
+    expect(ids).toContain('start-command-missing');
+    for (const id of ['port-unresolved', 'start-command-missing']) {
+      const finding = report.findings.find((f) => f.id === id);
+      expect(finding).toMatchObject({ severity: 'required', blocking: false, confidence: 'confirmed' });
+    }
+  });
+
+  it('does not pile port/start findings on top of a missing container setup', () => {
+    const report = buildReadinessReport(analyseRepo({ 'package.json': JSON.stringify({ name: 'app' }) }));
+    const ids = report.findings.map((f) => f.id);
+    expect(ids).toContain('container-setup');
+    expect(ids).not.toContain('port-unresolved');
+    expect(ids).not.toContain('start-command-missing');
+  });
+
+  it('reports a loopback-only server as a required, non-blocking, likely finding with the evidence', () => {
+    const report = buildReadinessReport(analyseRepo(localhostTree));
+    expect(report.state).toBe('ALMOST_READY');
+    const finding = report.findings.find((f) => f.id === 'localhost-binding');
+    expect(finding).toMatchObject({ severity: 'required', blocking: false, confidence: 'likely' });
+    expect(finding?.technicalEvidence).toContain('server.js');
+    expect(report.passed.map((p) => p.id)).not.toContain('bind-address');
+  });
+
+  it('lists the runtime as a passed check and never the bind address', () => {
+    const report = buildReadinessReport(analyseRepo(readyTree));
+    expect(report.passed).toContainEqual({ id: 'runtime', label: 'Runtime detected' });
+    expect(report.passed.map((p) => p.id)).not.toContain('bind-address');
+  });
+});
+
+describe('reconcileReadiness', () => {
+  const report = buildReadinessReport(analyseRepo(dockerfileNoPortNoCmdTree));
+
+  it('turns the findings the vendor resolved into passed checks and re-derives the state', () => {
+    const reconciled = reconcileReadiness(report, { containerPort: 8080, startCommand: 'node src/index.js' });
+    expect(reconciled.state).toBe('READY');
+    expect(reconciled.requiredCount).toBe(0);
+    expect(reconciled.findings.map((f) => f.id)).not.toContain('port-unresolved');
+    expect(reconciled.passed).toContainEqual({ id: 'port-unresolved', label: 'Application port set in the application details' });
+    expect(reconciled.passed).toContainEqual({ id: 'start-command-missing', label: 'Start command set in the application details' });
+    expect(reconciled.summary).toBe('This app can be deployed through Deployz.');
+  });
+
+  it('resolves only what the configuration covers', () => {
+    const reconciled = reconcileReadiness(report, { containerPort: 8080, startCommand: null });
+    expect(reconciled.state).toBe('ALMOST_READY');
+    expect(reconciled.findings.map((f) => f.id)).toEqual(['start-command-missing']);
+    expect(reconciled.requiredCount).toBe(1);
+  });
+
+  it('returns the same report when nothing is resolvable, and never mutates its input', () => {
+    const untouched = reconcileReadiness(report, { containerPort: null, startCommand: null });
+    expect(untouched).toBe(report);
+    const before = JSON.stringify(report);
+    reconcileReadiness(report, { containerPort: 1, startCommand: 'x' });
+    expect(JSON.stringify(report)).toBe(before);
+  });
+
+  it('never resolves a blocking finding through configuration', () => {
+    const blocked = buildReadinessReport(analyseRepo(mysqlTree));
+    const reconciled = reconcileReadiness(blocked, { containerPort: 3000, startCommand: 'node x' });
+    expect(reconciled.state).toBe('NEEDS_CHANGES');
   });
 });

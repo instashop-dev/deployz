@@ -22,6 +22,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { ApiError } from './errors.js';
+import { effectiveReadinessReport } from './fix-instructions.js';
 import {
   fetchHeadSha,
   getFileTreeForAnalysis,
@@ -210,13 +211,20 @@ export async function runApplicationAnalysis(
       aiResolved,
       resolvedMigrationCommand: resolveMigrationCommand(tree) ?? null,
     });
+    // The stored report keeps every finding; the persisted verdict reads the
+    // report the way the page does — with the vendor's port and start
+    // command applied — so the list badge and the readiness page agree.
+    const effectiveReadiness = effectiveReadinessReport({
+      containerPort: contractFieldUpdates.containerPort ?? application.containerPort,
+      detectedMetadata: { ...application.detectedMetadata, readiness },
+    });
 
     await deps.db
       .update(schema.applications)
       .set({
         analysisStatus: 'COMPLETE',
-        compatibilityStatus: verdictFromReadiness(readiness.state),
-        compatibilityReason: readiness.summary,
+        compatibilityStatus: verdictFromReadiness((effectiveReadiness ?? readiness).state),
+        compatibilityReason: (effectiveReadiness ?? readiness).summary,
         detectedMetadata: {
           ...metadata,
           // Phase 8: the resolved worker command rides the metadata so the

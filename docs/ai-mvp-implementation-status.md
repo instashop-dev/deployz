@@ -180,4 +180,74 @@ Analysis version 12 → 13.
   projection as `detected` and degrades a malformed one to null.
 
 Verification: `@deployz/analysis` 435 tests, `@deployz/api` full project,
-lint on analysis/contracts/api, `tsc --noEmit` on the API.
+lint on analysis/contracts/api, `tsc --noEmit` on the API. PR #176.
+
+## Phase 2 — Compatibility and deployment blocker detection (2026-09-05)
+
+### Decisions
+
+- **Severity vocabulary kept.** `required` + `blocking` is the spec's
+  BLOCKER (state NEEDS_CHANGES, verdict NOT_COMPATIBLE); `required` alone is
+  its WARNING (ALMOST_READY / NEEDS_ATTENTION — deployment creation is still
+  refused by the manifest gate for the port and start-command cases);
+  `recommended` is its RECOMMENDATION (never blocks READY). The stable
+  finding ids are the machine-readable issue codes.
+- **The page and the gate must agree.** The manifest gate already refused a
+  deployment for a missing port or start command while the readiness page
+  could say "Ready to deploy". The report now carries those findings, and
+  the vendor's own configuration resolves them without a re-analysis.
+- **Reconciliation is a view, never a rewrite.** The stored report keeps
+  every finding. `reconcileReadiness(report, {containerPort, startCommand})`
+  turns a finding the vendor resolved through the application details into
+  a passed check and re-derives the state; it runs wherever the report is
+  read or its verdict persisted, so clearing the value brings the finding
+  back.
+
+### Added
+
+1. **Findings** (`packages/analysis/src/readiness-report.ts`):
+   - `port-unresolved` (required, non-blocking, confirmed) — a Dockerfile
+     exists but no port was found in any tier.
+   - `start-command-missing` (required, non-blocking, confirmed) — a
+     Dockerfile exists with no CMD/ENTRYPOINT and no `start` script. Both
+     are omitted when there is no Dockerfile at all (`container-setup`
+     already covers "Deployz doesn't know how to start your app").
+   - `localhost-binding` (required, non-blocking, likely) — from the Phase 1
+     bind-address detector, with the detector's evidence.
+   - `runtime` joins the passed checks; `bind-address` never does.
+2. **`reconcileReadiness`** and `ReadinessResolution` (exported).
+3. **API** — `effectiveReadinessReport` / `readinessResolution`
+   (`apps/api/src/fix-instructions.ts`) read the container-port column and
+   the manifest-only start command. Used by the readiness route, by the
+   fix-instructions context (a resolved finding never reaches the coding
+   agent), by the analysis runner when it persists the verdict, and by the
+   application PATCH handler, which re-derives `compatibilityStatus` /
+   `compatibilityReason` when the port or a manifest-only override changes.
+4. **UI** — "What Deployz detected" on the readiness card
+   (`apps/web/src/components/readiness-result.tsx`, rows from
+   `detectedFactRows` in `apps/web/src/lib/readiness.ts`): runtime,
+   framework, start and build commands, port, database, cache/queue, file
+   storage, health check, migrations. Each row shows the value in plain
+   words, a one-line source/confidence hint ("From the container setup",
+   "Inferred by AI analysis — verify before relying on it"), and the
+   evidence behind a disclosure. Missing values render quietly; the checks
+   above already say what needs action. Rows analysed before Version 13
+   simply omit the section.
+
+### Tests
+
+- `packages/analysis/test/readiness-report.test.ts`: the three findings,
+  their severities, the no-Dockerfile suppression, runtime as a passed check,
+  and `reconcileReadiness` (resolves, partial, identity, immutability, never
+  a blocking finding).
+- `apps/api/src/fix-instructions.test.ts`: resolution reading, effective
+  report, resolved findings excluded from fix instructions.
+- `apps/api/src/server.test.ts`: GET readiness reconciles; PATCH sets and
+  clears the verdict with the port; unrelated PATCH leaves it alone.
+- `apps/web/test/readiness.test.ts`: `detectedFactRows` order, plain-words
+  values, quiet missing values, AI/likely hints, jargon-free.
+- `apps/web/test/readiness-result.test.tsx`: the section renders after the
+  checks with evidence behind a disclosure; omitted for legacy rows.
+- `e2e/readiness.spec.ts`: the detected section for the fixture repository.
+- Every GitHub fixture repository keeps its readiness state (checked by
+  running the report over `GITHUB_FIXTURE_FILE_TREES`).

@@ -16,7 +16,10 @@ import {
   readinessFixCtaSupport,
   readinessStateHeading,
   readinessFailure,
+  detectedFactRows,
   type ApplicationReadiness,
+  type DetectedApplication,
+  type DetectedFactRow,
   type ReadinessFinding,
   type ReadinessState,
 } from '@/lib/readiness';
@@ -29,7 +32,10 @@ import { cn } from '@/lib/utils';
 // §65 jargon-free; "How to fix" expands per finding into the action, the
 // reason, and the technical evidence. When required checks remain, the
 // primary CTA generates ONE consolidated coding-agent prompt — Deployz never
-// edits the repository itself.
+// edits the repository itself. Below the checks, "What Deployz detected"
+// lists the facts the deployment is built from (runtime, commands, port,
+// database, cache, storage, health check, migrations) with where each came
+// from; the evidence stays behind a per-row disclosure.
 
 const TONE_DOT: Record<'ready' | 'attention' | 'incompatible' | 'pending', string> = {
   ready: 'bg-emerald-500',
@@ -231,6 +237,8 @@ export function ReadinessResult({
           </section>
         ) : null}
 
+        {readiness.detected ? <DetectedFacts detected={readiness.detected} /> : null}
+
         {readiness.analyzedCommitSha ? (
           <p className="text-xs text-muted-foreground" data-testid="readiness-commit">
             Analysed commit {readiness.analyzedCommitSha.slice(0, 7)}
@@ -282,6 +290,62 @@ function PassedChecks({ passed }: { passed: ApplicationReadiness['passed'] }) {
       </summary>
       <div className="border-t px-3 py-2.5">{rows}</div>
     </details>
+  );
+}
+
+/** The detected facts — what the deployment is built from, and where each
+ *  value came from. Missing values render quieter, never as failures (the
+ *  checks above already say what needs action). */
+function DetectedFacts({ detected }: { detected: DetectedApplication }) {
+  return (
+    <section aria-labelledby="readiness-detected-heading" data-testid="readiness-detected">
+      <h4 id="readiness-detected-heading" className="text-sm font-semibold">
+        What Deployz detected
+      </h4>
+      <ul className="mt-2 divide-y rounded-lg border">
+        {detectedFactRows(detected).map((row) => (
+          <DetectedFactItem key={row.id} row={row} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function DetectedFactItem({ row }: { row: DetectedFactRow }) {
+  return (
+    <li
+      className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-baseline sm:gap-4"
+      data-testid={`readiness-detected-${row.id}`}
+    >
+      <span className="shrink-0 text-sm text-muted-foreground sm:w-40">{row.label}</span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        {row.code ? (
+          <code className="w-fit max-w-full break-words rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+            {row.value}
+          </code>
+        ) : (
+          <span className={cn('text-sm', row.found ? '' : 'text-muted-foreground')}>{row.value}</span>
+        )}
+        {row.hint ? <span className="text-xs text-muted-foreground">{row.hint}</span> : null}
+        {row.evidence.length > 0 ? (
+          <details className="group text-xs">
+            <summary className="flex cursor-pointer list-none items-center gap-1 text-muted-foreground [&::-webkit-details-marker]:hidden">
+              Evidence
+              <ChevronDown aria-hidden className="size-3 transition-transform group-open:rotate-180" />
+            </summary>
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {row.evidence.map((item, index) => (
+                <li key={index} className="break-words text-muted-foreground">
+                  {item.file ? <code className="font-mono">{item.file}</code> : null}
+                  {item.file ? ' — ' : ''}
+                  {item.reason}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </div>
+    </li>
   );
 }
 

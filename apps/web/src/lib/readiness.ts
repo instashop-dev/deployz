@@ -70,6 +70,245 @@ export interface ApplicationReadiness {
   passed: PassedCheck[];
   /** The commit the analysis ran against, when known. */
   analyzedCommitSha: string | null;
+  /** What the analysis detected (mirrors `ApplicationAnalysis` in @deployz/contracts). Null until a recent analysis ran. */
+  detected: DetectedApplication | null;
+}
+
+// ── Detected facts (mirrors `ApplicationAnalysis` in @deployz/contracts) ────
+
+export type FactSource =
+  | 'dockerfile'
+  | 'package-manifest'
+  | 'compose'
+  | 'env-file'
+  | 'procfile'
+  | 'source'
+  | 'ai'
+  | 'none';
+
+export interface AnalysisEvidence {
+  file?: string;
+  reason: string;
+}
+
+export interface DetectedFact<T> {
+  value: T;
+  source: FactSource;
+  confidence: FindingConfidence;
+  evidence: AnalysisEvidence[];
+}
+
+export interface DetectedApplication {
+  analysisVersion: number;
+  runtime: DetectedFact<string>;
+  framework: DetectedFact<string | null>;
+  build: DetectedFact<string | null>;
+  start: DetectedFact<string | null>;
+  network: {
+    port: DetectedFact<number | null>;
+    bindAddress: DetectedFact<'all-interfaces' | 'localhost' | null>;
+  };
+  database: {
+    required: boolean;
+    type: 'postgres' | 'unsupported' | 'none';
+    confidence: FindingConfidence;
+    evidence: AnalysisEvidence[];
+  };
+  redis: {
+    required: boolean;
+    detected: boolean;
+    supported: boolean;
+    confidence: FindingConfidence;
+    purposes: string[];
+    evidence: AnalysisEvidence[];
+  };
+  storage: {
+    persistentLocalRequired: boolean;
+    objectStorageDetected: boolean;
+    evidence: AnalysisEvidence[];
+  };
+  healthCheck: {
+    detected: boolean;
+    path: string | null;
+    confidence: FindingConfidence;
+    evidence: AnalysisEvidence[];
+  };
+  migrations: {
+    detected: boolean;
+    command: string | null;
+    tools: string[];
+    evidence: AnalysisEvidence[];
+  };
+  environmentVariables: { key: string; required: boolean; secret: boolean; source: string[] }[];
+}
+
+/** One row of the "What Deployz detected" list. */
+export interface DetectedFactRow {
+  id: string;
+  label: string;
+  /** The normalized value in plain words, or what "not found" means for this fact. */
+  value: string;
+  /** Whether the value was found (a missing value renders quieter). */
+  found: boolean;
+  /** Where the value came from / how sure the analysis is — one short hint, or null when the value was not found. */
+  hint: string | null;
+  /** Renders the value as code (commands, paths, ports). */
+  code: boolean;
+  evidence: AnalysisEvidence[];
+}
+
+const RUNTIME_LABELS: Record<string, string> = {
+  node: 'Node.js',
+  python: 'Python',
+  ruby: 'Ruby',
+  go: 'Go',
+  jvm: 'Java / JVM',
+  dotnet: '.NET',
+  php: 'PHP',
+  elixir: 'Elixir',
+  rust: 'Rust',
+};
+
+const SOURCE_HINTS: Record<FactSource, string | null> = {
+  dockerfile: 'From the container setup',
+  'package-manifest': 'From the package configuration',
+  compose: 'From the compose file',
+  'env-file': 'From an env file',
+  procfile: 'From the Procfile',
+  source: 'Inferred from the source code',
+  ai: 'Inferred by AI analysis — verify before relying on it',
+  none: null,
+};
+
+const CONFIDENCE_HINTS: Record<FindingConfidence, string | null> = {
+  confirmed: null,
+  likely: 'Likely',
+  needs_confirmation: 'Needs confirmation',
+};
+
+function factHint(fact: { source: FactSource; confidence: FindingConfidence }): string | null {
+  const parts = [SOURCE_HINTS[fact.source], fact.source === 'ai' ? null : CONFIDENCE_HINTS[fact.confidence]].filter(
+    (part): part is string => part !== null,
+  );
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/**
+ * The detected facts as display rows, in reading order. Every value is
+ * plain words or a short code value — never a percentage, never AWS
+ * vocabulary. Evidence stays available for the row's disclosure.
+ */
+export function detectedFactRows(detected: DetectedApplication): DetectedFactRow[] {
+  const command = (id: string, label: string, fact: DetectedFact<string | null>): DetectedFactRow => ({
+    id,
+    label,
+    value: fact.value ?? 'Not found',
+    found: fact.value !== null,
+    hint: fact.value !== null ? factHint(fact) : null,
+    code: fact.value !== null,
+    evidence: fact.evidence,
+  });
+
+  const runtimeFound = detected.runtime.value !== 'unknown';
+  const database = detected.database;
+  const redis = detected.redis;
+  const storage = detected.storage;
+  const health = detected.healthCheck;
+  const migrations = detected.migrations;
+
+  return [
+    {
+      id: 'runtime',
+      label: 'Runtime',
+      value: runtimeFound ? RUNTIME_LABELS[detected.runtime.value] ?? detected.runtime.value : 'Not detected',
+      found: runtimeFound,
+      hint: runtimeFound ? factHint(detected.runtime) : null,
+      code: false,
+      evidence: detected.runtime.evidence,
+    },
+    {
+      id: 'framework',
+      label: 'Framework',
+      value: detected.framework.value ?? 'None detected',
+      found: detected.framework.value !== null,
+      hint: detected.framework.value !== null ? factHint(detected.framework) : null,
+      code: false,
+      evidence: detected.framework.evidence,
+    },
+    command('start', 'Start command', detected.start),
+    command('build', 'Build command', detected.build),
+    {
+      id: 'port',
+      label: 'Port',
+      value: detected.network.port.value !== null ? String(detected.network.port.value) : 'Not found',
+      found: detected.network.port.value !== null,
+      hint: detected.network.port.value !== null ? factHint(detected.network.port) : null,
+      code: detected.network.port.value !== null,
+      evidence: detected.network.port.evidence,
+    },
+    {
+      id: 'database',
+      label: 'Database',
+      value:
+        database.type === 'postgres'
+          ? database.required
+            ? 'PostgreSQL — Deployz provides a managed database'
+            : 'PostgreSQL library present — not confirmed as required'
+          : database.type === 'unsupported'
+            ? 'Unsupported database'
+            : 'None detected',
+      found: database.type === 'postgres',
+      hint: database.type === 'postgres' ? CONFIDENCE_HINTS[database.confidence] : null,
+      code: false,
+      evidence: database.evidence,
+    },
+    {
+      id: 'redis',
+      label: 'Cache / queue',
+      value: redis.required
+        ? `Redis — provisioned automatically${redis.purposes.length > 0 && !redis.purposes.includes('unknown') ? ` (${redis.purposes.join(', ')})` : ''}`
+        : redis.detected
+          ? redis.supported
+            ? 'Redis usage detected — not confirmed as required'
+            : 'Redis setup not supported'
+          : 'None detected',
+      found: redis.detected,
+      hint: redis.detected ? CONFIDENCE_HINTS[redis.confidence] : null,
+      code: false,
+      evidence: redis.evidence,
+    },
+    {
+      id: 'storage',
+      label: 'File storage',
+      value: storage.persistentLocalRequired
+        ? 'Files written to local disk'
+        : storage.objectStorageDetected
+          ? 'Object storage — Deployz provides a bucket'
+          : 'None detected',
+      found: storage.objectStorageDetected || storage.persistentLocalRequired,
+      hint: null,
+      code: false,
+      evidence: storage.evidence,
+    },
+    {
+      id: 'health',
+      label: 'Health check',
+      value: health.detected ? health.path ?? 'Found' : 'Not found',
+      found: health.detected,
+      hint: health.detected ? CONFIDENCE_HINTS[health.confidence] : null,
+      code: health.detected && health.path !== null,
+      evidence: health.evidence,
+    },
+    {
+      id: 'migrations',
+      label: 'Database migrations',
+      value: migrations.command ?? (migrations.detected ? migrations.tools.join(', ') || 'Found' : 'None detected'),
+      found: migrations.detected,
+      hint: null,
+      code: migrations.command !== null,
+      evidence: migrations.evidence,
+    },
+  ];
 }
 
 /** What to show when the analysis FAILED, or null when it did not. */
