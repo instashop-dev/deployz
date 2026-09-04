@@ -22,6 +22,8 @@ class FakeAcmClient implements AcmClient {
   deleteCalls: string[] = [];
   requestError: Error | undefined;
   deleteError: Error | undefined;
+  /** How many `deleteCertificate` calls should still throw `deleteError` before succeeding. -1 = always. */
+  deleteErrorRemaining = -1;
   #arnCounter = 0;
 
   async requestCertificate(p: {
@@ -46,7 +48,10 @@ class FakeAcmClient implements AcmClient {
 
   async deleteCertificate(arn: string): Promise<void> {
     this.deleteCalls.push(arn);
-    if (this.deleteError) throw this.deleteError;
+    if (this.deleteError && this.deleteErrorRemaining !== 0) {
+      if (this.deleteErrorRemaining > 0) this.deleteErrorRemaining--;
+      throw this.deleteError;
+    }
     // Real client contract: swallow ResourceNotFoundException. The fake
     // models that by simply no-op'ing on an arn it doesn't know about.
     this.certificates.delete(arn);
@@ -162,6 +167,19 @@ function removeCommand(overrides: Partial<Record<string, unknown>> = {}): RelayC
 
 function makeLb(): LoadBalancerInfo {
   return { arn: 'arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/lb/abc', dnsName: 'lb-abc.us-east-1.elb.amazonaws.com' };
+}
+
+/** Records delays without waiting, so retry tests run instantly. */
+function fakeSleep(calls: number[]): (ms: number) => Promise<void> {
+  return async (ms: number) => {
+    calls.push(ms);
+  };
+}
+
+function resourceInUseError(): Error {
+  const err = new Error('certificate is in use');
+  err.name = 'ResourceInUseException';
+  return err;
 }
 
 // ── CONFIGURE_DOMAIN ─────────────────────────────────────────────────────────
@@ -424,19 +442,105 @@ describe('createDomainExecutors — REMOVE_DOMAIN', () => {
     expect(acm.deleteCalls).toEqual(['arn:long-gone']);
   });
 
-  it('remove with cert in use returns success:false so the control plane retries', async () => {
+  it('remove with cert in use but no listener change: fails immediately, no retry', async () => {
     const acm = new FakeAcmClient();
     acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
-    const err = new Error('certificate is in use');
-    err.name = 'ResourceInUseException';
-    acm.deleteError = err;
+    acm.deleteError = resourceInUseError();
     const elb = new FakeElbClient();
     elb.loadBalancer = undefined;
+    const sleepCalls: number[] = [];
 
-    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const executors = createDomainExecutors({
+      acm,
+      elb,
+      installationId: INSTALLATION_ID,
+      sleep: fakeSleep(sleepCalls),
+    });
     const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
+    // Nothing here detached the certificate from a listener, so ACM's
+    // "still in use" is not the transient release delay — no point retrying.
+    expect(acm.deleteCalls).toEqual(['arn:cert-1']);
+    expect(sleepCalls).toEqual([]);
+  });
+
+  it('remove with cert in use after a listener delete: retries and succeeds once ACM releases it', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    acm.deleteError = resourceInUseError();
+    acm.deleteErrorRemaining = 2; // in use for the first two attempts, then released
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:cert-1', redirectsToHttps: false },
+    ];
+    const sleepCalls: number[] = [];
+
+    const executors = createDomainExecutors({
+      acm,
+      elb,
+      installationId: INSTALLATION_ID,
+      sleep: fakeSleep(sleepCalls),
+    });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(true);
+    expect(result.output).toEqual({ removed: true });
+    expect(acm.deleteCalls).toEqual(['arn:cert-1', 'arn:cert-1', 'arn:cert-1']);
+    expect(sleepCalls).toEqual([10_000, 10_000]);
+  });
+
+  it('remove with cert in use forever after a listener delete: fails after the bounded retries', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    acm.deleteError = resourceInUseError();
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:cert-1', redirectsToHttps: false },
+    ];
+    const sleepCalls: number[] = [];
+
+    const executors = createDomainExecutors({
+      acm,
+      elb,
+      installationId: INSTALLATION_ID,
+      sleep: fakeSleep(sleepCalls),
+    });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('ResourceInUseException');
+    expect(acm.deleteCalls).toHaveLength(6);
+    expect(sleepCalls).toHaveLength(5);
+  });
+
+  it('remove fails on a non-in-use ACM error after a listener delete: no retry', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const err = new Error('access denied');
+    err.name = 'AccessDeniedException';
+    acm.deleteError = err;
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:cert-1', redirectsToHttps: false },
+    ];
+    const sleepCalls: number[] = [];
+
+    const executors = createDomainExecutors({
+      acm,
+      elb,
+      installationId: INSTALLATION_ID,
+      sleep: fakeSleep(sleepCalls),
+    });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('AWS_PERMISSION_DENIED');
+    expect(acm.deleteCalls).toEqual(['arn:cert-1']);
+    expect(sleepCalls).toEqual([]);
   });
 });
