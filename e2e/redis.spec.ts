@@ -10,7 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 // cache through resourcesCreated and the deployment's Infrastructure section.
 // `legacy-redis` (fixture-repo-2) depends on Redis Stack modules
 // (@redis/json), which fall outside Deployz's managed Redis profile and must
-// still hard-reject with "Cache setup not supported" (§10). Mirrors
+// still hard-reject with "Your app uses Redis features Deployz can't
+// provide" (§10). Mirrors
 // the signUp/seed-via-page.request conventions of custom-domain.spec.ts and
 // the real-analyser conventions of readiness.spec.ts (no fabricated verdicts
 // — analysis runs for real against GITHUB_FIXTURE_MODE's fixture file trees).
@@ -146,15 +147,27 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   await expect(page.getByText('Ready to deploy')).toBeVisible();
   // bullmq usage with no resolved worker start script is a recommended
   // finding ("Background job runner") — recommended findings never block
-  // READY (packages/analysis/src/readiness-report.ts).
-  await expect(page.getByTestId('readiness-summary')).toHaveText('1 recommendation');
-  // Passed checks are collapsed by default — open the <details> first.
-  const passedDetails = page.getByTestId('readiness-passed');
-  await passedDetails.locator('summary').click();
-  const passedList = page.getByTestId('readiness-passed-list');
+  // READY (packages/analysis/src/readiness-report.ts), so the state reads as
+  // all required checks passed and the finding renders as a recommendation.
+  await expect(page.getByTestId('readiness-summary')).toHaveText(
+    'Your application passed all required deployment checks.',
+  );
+  await expect(
+    page
+      .getByTestId('readiness-recommended-list')
+      .getByText('Background job runner', { exact: true }),
+  ).toBeVisible();
+  // Short passed lists render inline; longer ones collapse behind a count.
+  const passedGroup = page.getByTestId('readiness-passed');
+  const passedSummary = passedGroup.locator('summary');
+  if ((await passedSummary.count()) > 0) {
+    await passedSummary.click();
+  }
   // Copy per packages/analysis/src/readiness-report.ts's PASSED_LABELS.redis.
   await expect(
-    passedList.getByText('Redis detected — provisioned automatically on install', { exact: true }),
+    passedGroup.getByText('Redis detected — provisioned automatically on install', {
+      exact: true,
+    }),
   ).toBeVisible();
 
   // ── 3. Create a customer + deployment for this application, then open the
@@ -214,7 +227,7 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   await expect(infraSection.getByText('Cache', { exact: true })).toBeVisible();
 });
 
-test('legacy-redis: analyses as unsupported — "Cache setup not supported"', async ({
+test('legacy-redis: analyses as unsupported — "Your app uses Redis features Deployz can\'t provide"', async ({
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -229,10 +242,13 @@ test('legacy-redis: analyses as unsupported — "Cache setup not supported"', as
   await page.goto(`/dashboard/applications/${applicationId}`);
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
   // The unsupported Redis setup is a blocking rejection, so the state is
-  // NEEDS_CHANGES (packages/analysis/src/readiness-report.ts's REDIS_COPY).
-  await expect(page.getByRole('heading', { name: 'Needs changes' })).toBeVisible();
+  // NEEDS_CHANGES (packages/analysis/src/readiness-report.ts's REDIS_COPY)
+  // and the heading reads out the blocking change count.
+  await expect(
+    page.getByRole('heading', { name: /needed before deployment/ }),
+  ).toBeVisible();
   const requiredList = page.getByTestId('readiness-required-list');
   await expect(
-    requiredList.getByText('Cache setup not supported', { exact: true }),
+    requiredList.getByText("Your app uses Redis features Deployz can't provide", { exact: true }),
   ).toBeVisible();
 });

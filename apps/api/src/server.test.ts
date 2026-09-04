@@ -2114,7 +2114,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     const finding = {
       id: 'health-check',
       category: 'health',
-      title: 'Deployment health check',
+      title: 'Give Deployz a way to check your app',
       severity: 'required',
       blocking: false,
       plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
@@ -2253,7 +2253,7 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
   const someFinding = {
     id: 'health-check',
     category: 'health',
-    title: 'Deployment health check',
+    title: 'Give Deployz a way to check your app',
     severity: 'required',
     blocking: false,
     plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',

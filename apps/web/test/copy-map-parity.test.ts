@@ -16,6 +16,8 @@ import {
   ONBOARDING_STEPS as COPY_MAP_ONBOARDING_STEPS,
   READINESS_STATES,
   READINESS_STATE_PRESENTATION as COPY_MAP_READINESS_STATE_PRESENTATION,
+  READINESS_SUPPORT_READY as COPY_MAP_READINESS_SUPPORT_READY,
+  READINESS_SUPPORT_RUNNING as COPY_MAP_READINESS_SUPPORT_RUNNING,
   SECRET_MASK,
   JARGON_PATTERN,
   deploymentStateLabel as copyMapDeploymentStateLabel,
@@ -25,8 +27,12 @@ import {
   FAILURE_RECOVERABILITY as COPY_MAP_FAILURE_RECOVERABILITY,
   RECOVERABILITY_COPY as COPY_MAP_RECOVERABILITY_COPY,
   failureCodeCopy as copyMapFailureCodeCopy,
-  readinessCountsLabel as copyMapReadinessCountsLabel,
+  readinessBlockedSummary as copyMapReadinessBlockedSummary,
+  readinessChangesHeading as copyMapReadinessChangesHeading,
+  readinessChecksLabel as copyMapReadinessChecksLabel,
+  readinessFixCtaSupport as copyMapReadinessFixCtaSupport,
   readinessStateFromVerdict as copyMapReadinessStateFromVerdict,
+  readinessStateHeading as copyMapReadinessStateHeading,
 } from '@deployz/copy-map';
 
 import {
@@ -52,8 +58,14 @@ import {
 import {
   ONBOARDING_STEPS as WEB_ONBOARDING_STEPS,
   READINESS_STATE_PRESENTATION as WEB_READINESS_STATE_PRESENTATION,
-  readinessCountsLabel as webReadinessCountsLabel,
+  READINESS_SUPPORT_READY as WEB_READINESS_SUPPORT_READY,
+  READINESS_SUPPORT_RUNNING as WEB_READINESS_SUPPORT_RUNNING,
+  readinessBlockedSummary as webReadinessBlockedSummary,
+  readinessChangesHeading as webReadinessChangesHeading,
+  readinessChecksLabel as webReadinessChecksLabel,
+  readinessFixCtaSupport as webReadinessFixCtaSupport,
   readinessStateFromVerdict as webReadinessStateFromVerdict,
+  readinessStateHeading as webReadinessStateHeading,
 } from '../src/lib/readiness';
 
 // Parity test: the web-side vocabulary modules must match the canonical
@@ -197,9 +209,16 @@ describe('§19 readiness state parity (web ↔ copy-map)', () => {
     for (const state of READINESS_STATES) {
       const copyMapPres = COPY_MAP_READINESS_STATE_PRESENTATION[state];
       const webPres = WEB_READINESS_STATE_PRESENTATION[state];
-      expect(webPres.heading, `heading for ${state}`).toBe(copyMapPres.heading);
       expect(webPres.label, `label for ${state}`).toBe(copyMapPres.label);
       expect(webPres.tone, `tone for ${state}`).toBe(copyMapPres.tone);
+    }
+  });
+
+  it('readinessStateHeading functions match for every state', () => {
+    for (const state of READINESS_STATES) {
+      expect(webReadinessStateHeading(state, 2), `heading for ${state}`).toBe(
+        copyMapReadinessStateHeading(state, 2),
+      );
     }
   });
 
@@ -209,21 +228,17 @@ describe('§19 readiness state parity (web ↔ copy-map)', () => {
     }
   });
 
-  it('readinessCountsLabel functions match for a spot-check of (required, recommended) pairs', () => {
-    const pairs: Array<[number, number]> = [
-      [0, 0],
-      [1, 0],
-      [0, 1],
-      [2, 1],
-      [1, 1],
-      [3, 5],
-    ];
-    for (const [required, recommended] of pairs) {
-      expect(
-        webReadinessCountsLabel(required, recommended),
-        `counts label for (${required}, ${recommended})`,
-      ).toBe(copyMapReadinessCountsLabel(required, recommended));
-    }
+  it('readiness helper copy matches for a spot-check of counts', () => {
+    expect(webReadinessChangesHeading(1)).toBe(copyMapReadinessChangesHeading(1));
+    expect(webReadinessChangesHeading(2)).toBe(copyMapReadinessChangesHeading(2));
+    expect(webReadinessChecksLabel(4, 6)).toBe(copyMapReadinessChecksLabel(4, 6));
+    expect(webReadinessChecksLabel(6, 6)).toBe(copyMapReadinessChecksLabel(6, 6));
+    expect(webReadinessBlockedSummary(4, 6, 2)).toBe(copyMapReadinessBlockedSummary(4, 6, 2));
+    expect(webReadinessBlockedSummary(5, 6, 1)).toBe(copyMapReadinessBlockedSummary(5, 6, 1));
+    expect(webReadinessFixCtaSupport(1)).toBe(copyMapReadinessFixCtaSupport(1));
+    expect(webReadinessFixCtaSupport(2)).toBe(copyMapReadinessFixCtaSupport(2));
+    expect(WEB_READINESS_SUPPORT_READY).toBe(COPY_MAP_READINESS_SUPPORT_READY);
+    expect(WEB_READINESS_SUPPORT_RUNNING).toBe(COPY_MAP_READINESS_SUPPORT_RUNNING);
   });
 });
 
@@ -249,8 +264,8 @@ describe('§65 jargon-free parity', () => {
       expect(WEB_FAILURE_CODE_COPY[code].description).not.toMatch(JARGON_PATTERN);
     }
     for (const state of READINESS_STATES) {
-      expect(WEB_READINESS_STATE_PRESENTATION[state].heading).not.toMatch(JARGON_PATTERN);
       expect(WEB_READINESS_STATE_PRESENTATION[state].label).not.toMatch(JARGON_PATTERN);
+      expect(webReadinessStateHeading(state, 2)).not.toMatch(JARGON_PATTERN);
     }
   });
 });

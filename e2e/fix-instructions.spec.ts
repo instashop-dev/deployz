@@ -2,11 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 
 // §19/§20 fix-instructions flow, against the REAL API (GITHUB_FIXTURE_MODE +
 // AI_FIXTURE_MODE — see playwright.config.ts). deployz-demo/monorepo analyses
-// as ALMOST_READY with exactly one required finding ('Deployment health
-// check', id health-check — see packages/analysis/src/readiness-report.ts),
-// so it is the fixture that best exercises "Generate fix instructions" →
-// the consolidated coding-agent document → "Re-analyse application" without
-// the dialog's generation ever resolving the finding itself.
+// as ALMOST_READY with exactly one required finding ('Give Deployz a way to
+// check your app', id health-check — see packages/analysis/src/
+// readiness-report.ts), so it is the fixture that best exercises "Generate
+// fix instructions" → the consolidated coding-agent document → "Re-analyse
+// application" without the dialog's generation ever resolving the finding
+// itself.
 
 async function signUp(page: Page): Promise<void> {
   const email = `e2e-fix-${crypto.randomUUID().slice(0, 8)}@example.com`;
@@ -35,11 +36,13 @@ test('generating fix instructions never resolves findings — re-analysis recomp
 
   // ── The readiness verdict: ALMOST_READY, one required change. ──────────────
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
-  await expect(page.getByText('Almost ready')).toBeVisible();
-  await expect(page.getByTestId('readiness-summary')).toHaveText('1 required change');
+  await expect(page.getByText('1 change needed before deployment')).toBeVisible();
+  await expect(page.getByTestId('readiness-summary')).toContainText(
+    'Fix the item below before deploying.',
+  );
 
   // The finding is visible with its plain-English line; the technical detail
-  // stays hidden until "Why this matters" is opened.
+  // stays hidden until "How to fix" is opened.
   const finding = page.getByTestId('readiness-finding-health-check');
   await expect(finding).toBeVisible();
   await expect(
@@ -50,7 +53,7 @@ test('generating fix instructions never resolves findings — re-analysis recomp
     { exact: false },
   );
   await expect(technicalDetail).toBeHidden();
-  await finding.getByText('Why this matters').click();
+  await finding.getByText('How to fix').click();
   await expect(technicalDetail).toBeVisible();
 
   // ── Generate fix instructions. ──────────────────────────────────────────────
@@ -75,6 +78,8 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await page.getByTestId('fix-instructions-reanalyse').click();
   await expect(dialog).toBeHidden();
 
-  await expect(page.getByText('Almost ready')).toBeVisible();
-  await expect(page.getByTestId('readiness-summary')).toHaveText('1 required change');
+  await expect(page.getByText('1 change needed before deployment')).toBeVisible();
+  await expect(page.getByTestId('readiness-summary')).toContainText(
+    'Fix the item below before deploying.',
+  );
 });

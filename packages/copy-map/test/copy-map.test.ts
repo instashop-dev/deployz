@@ -26,8 +26,10 @@ import {
   eventTypeLabel,
   failureCodeCopy,
   failureRecoverability,
-  readinessCountsLabel,
+  readinessChangesHeading,
+  readinessChecksLabel,
   readinessStateFromVerdict,
+  readinessStateHeading,
 } from '../src/index';
 
 // Locks the §46/§61/§19 vocabulary + §65 copy principles in the single
@@ -318,14 +320,44 @@ describe('semantic readiness states', () => {
     ]);
   });
 
-  it('maps every state to a non-empty, jargon-free heading and label', () => {
+  it('maps every state to a non-empty, jargon-free label', () => {
     for (const state of READINESS_STATES) {
       const presentation = READINESS_STATE_PRESENTATION[state];
-      expect(presentation.heading, `heading for ${state}`).toBeTruthy();
       expect(presentation.label, `label for ${state}`).toBeTruthy();
-      expect(presentation.heading, `heading for ${state}`).not.toMatch(JARGON_PATTERN);
       expect(presentation.label, `label for ${state}`).not.toMatch(JARGON_PATTERN);
     }
+  });
+
+  it('never says "Almost ready" while deployment is blocked', () => {
+    expect(READINESS_STATE_PRESENTATION.ALMOST_READY.label).toBe('Action needed');
+    expect(READINESS_STATE_PRESENTATION.NEEDS_CHANGES.label).toBe('Changes needed');
+    expect(readinessStateHeading('ALMOST_READY', 1)).not.toMatch(/almost/i);
+    expect(readinessStateHeading('NEEDS_CHANGES', 2)).not.toMatch(/almost/i);
+  });
+
+  it('maps every state to a jargon-free heading', () => {
+    for (const state of READINESS_STATES) {
+      expect(readinessStateHeading(state, 2), `heading for ${state}`).toBeTruthy();
+      expect(readinessStateHeading(state, 2), `heading for ${state}`).not.toMatch(JARGON_PATTERN);
+    }
+  });
+
+  it('readinessStateHeading reads out the change count for blocked states', () => {
+    expect(readinessStateHeading('READY', 0)).toBe('Ready to deploy');
+    expect(readinessStateHeading('ANALYSIS_INCOMPLETE', 0)).toBe('Checking deployment readiness…');
+    expect(readinessStateHeading('ALMOST_READY', 1)).toBe('1 change needed before deployment');
+    expect(readinessStateHeading('NEEDS_CHANGES', 2)).toBe('2 changes needed before deployment');
+  });
+
+  it('readinessChangesHeading singularizes and pluralizes the change count', () => {
+    expect(readinessChangesHeading(1)).toBe('1 change needed before deployment');
+    expect(readinessChangesHeading(2)).toBe('2 changes needed before deployment');
+  });
+
+  it('readinessChecksLabel is a check count, never a percentage', () => {
+    expect(readinessChecksLabel(4, 6)).toBe('4 of 6 checks passed');
+    expect(readinessChecksLabel(6, 6)).toBe('6 of 6 checks passed');
+    expect(readinessChecksLabel(1, 3)).not.toMatch(/%/);
   });
 
   it('assigns the correct tones per state', () => {
@@ -339,24 +371,6 @@ describe('semantic readiness states', () => {
     expect(readinessStateFromVerdict('READY')).toBe('READY');
     expect(readinessStateFromVerdict('NEEDS_ATTENTION')).toBe('ALMOST_READY');
     expect(readinessStateFromVerdict('NOT_COMPATIBLE')).toBe('NEEDS_CHANGES');
-  });
-
-  it('readinessCountsLabel formats the exact example: "2 required changes · 1 recommendation"', () => {
-    expect(readinessCountsLabel(2, 1)).toBe('2 required changes · 1 recommendation');
-  });
-
-  it('readinessCountsLabel singularizes "change" and "recommendation" for exactly one', () => {
-    expect(readinessCountsLabel(1, 0)).toBe('1 required change');
-    expect(readinessCountsLabel(0, 1)).toBe('1 recommendation');
-  });
-
-  it('readinessCountsLabel pluralizes for more than one', () => {
-    expect(readinessCountsLabel(2, 0)).toBe('2 required changes');
-    expect(readinessCountsLabel(0, 2)).toBe('2 recommendations');
-  });
-
-  it('readinessCountsLabel reports "All checks passed" when both counts are zero', () => {
-    expect(readinessCountsLabel(0, 0)).toBe('All checks passed');
   });
 });
 
