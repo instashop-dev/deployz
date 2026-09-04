@@ -17,6 +17,7 @@ import {
   createCustomerRecord,
   createDeploymentRecord,
   matchesRememberedCustomer,
+  readinessFindingMessages,
   type RememberedCustomer,
 } from '@/lib/deployments';
 import { fetchRegions, type RegionOption } from '@/lib/regions';
@@ -73,6 +74,7 @@ function NewDeploymentScreen() {
   // Set only for a readiness rejection, so the error can link to the
   // application's readiness findings.
   const [readinessApplicationId, setReadinessApplicationId] = useState<string | null>(null);
+  const [readinessFindings, setReadinessFindings] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +121,7 @@ function NewDeploymentScreen() {
     event.preventDefault();
     setError(null);
     setReadinessApplicationId(null);
+    setReadinessFindings([]);
     setPending(true);
     const form = new FormData(event.currentTarget);
     const customerName = String(form.get('customerName') ?? '').trim();
@@ -156,6 +159,7 @@ function NewDeploymentScreen() {
       setError(errorMessage(caught));
       if (caught instanceof ApiRequestError && READINESS_ERROR_CODES.has(caught.code)) {
         setReadinessApplicationId(applicationId);
+        setReadinessFindings(readinessFindingMessages(caught.details));
       }
     } finally {
       setPending(false);
@@ -287,6 +291,13 @@ function NewDeploymentScreen() {
                 {error ? (
                   <div role="alert" className="flex flex-col gap-1 text-sm text-destructive">
                     <p>{error}</p>
+                    {readinessFindings.length > 0 ? (
+                      <ul className="list-disc pl-5">
+                        {readinessFindings.map((finding) => (
+                          <li key={finding}>{finding}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                     {readinessApplicationId ? (
                       <Link
                         href={`/dashboard/applications/${readinessApplicationId}`}

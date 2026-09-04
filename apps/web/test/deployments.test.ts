@@ -1,6 +1,34 @@
 import { describe, expect, it } from 'vitest';
 
-import { listedUnderStatus, matchesRememberedCustomer, type RememberedCustomer } from '../src/lib/deployments';
+import {
+  listedUnderStatus,
+  matchesRememberedCustomer,
+  readinessFindingMessages,
+  type RememberedCustomer,
+} from '../src/lib/deployments';
+
+describe('readinessFindingMessages', () => {
+  it('lists the blocking findings a readiness rejection carries, in order', () => {
+    expect(
+      readinessFindingMessages({
+        findings: [
+          { id: 'required-env-vars-missing', severity: 'error', message: 'This app requires environment variables that have no value yet: FOO.' },
+          { id: 'migration-command-missing', severity: 'warning', message: 'No migration command.' },
+          { id: 'port-missing', severity: 'error', message: 'The application port is unknown.' },
+        ],
+      }),
+    ).toEqual([
+      'This app requires environment variables that have no value yet: FOO.',
+      'The application port is unknown.',
+    ]);
+  });
+
+  it('is empty for errors without findings', () => {
+    expect(readinessFindingMessages(undefined)).toEqual([]);
+    expect(readinessFindingMessages({ findings: 'nope' })).toEqual([]);
+    expect(readinessFindingMessages([{ path: 'region', message: 'Required' }])).toEqual([]);
+  });
+});
 
 const REMEMBERED: RememberedCustomer = {
   id: 'cust-1',

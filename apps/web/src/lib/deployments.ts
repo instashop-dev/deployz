@@ -543,3 +543,20 @@ export function createDeploymentRecord(input: CreateDeploymentInput): Promise<De
     },
   });
 }
+
+/**
+ * The blocking findings a readiness rejection (MANIFEST_NOT_COMPATIBLE /
+ * MANIFEST_NEEDS_CONFIGURATION) carries in its `details`. The creation gate
+ * evaluates the manifest with this customer's configuration, so it can name
+ * a gap — a required variable with no value yet — that the application's
+ * readiness page, which has no customer, does not show. Without these lines
+ * the vendor is sent to a page that says "Ready to deploy".
+ */
+export function readinessFindingMessages(details: unknown): string[] {
+  const findings = (details as { findings?: unknown } | null)?.findings;
+  if (!Array.isArray(findings)) return [];
+  return findings.flatMap((finding) => {
+    const entry = finding as { severity?: unknown; message?: unknown };
+    return entry.severity === 'error' && typeof entry.message === 'string' ? [entry.message] : [];
+  });
+}
