@@ -179,6 +179,13 @@ describe('COMP-027 — Dockerfile naming and ranking', () => {
     };
     expect(listDockerfileCandidates(tooljet)[0]).toBe('docker/ce-production.Dockerfile');
   });
+
+  it('ranks a long hyphenated name in linear time', () => {
+    const name = `Dockerfile-${'a-'.repeat(60)}b`;
+    const started = Date.now();
+    expect(listDockerfileCandidates({ [name]: APP, Dockerfile: APP })[0]).toBe('Dockerfile');
+    expect(Date.now() - started).toBeLessThan(500);
+  });
 });
 
 describe('COMP-028 — EXPOSE variables and non-HTTP ports', () => {
@@ -230,6 +237,7 @@ describe('COMP-032 — database clients need the same corroboration brokers do',
     const tree: FileTree = {
       'package.json': JSON.stringify({ dependencies: { pg: '^8.0.0', mongodb: '^6.0.0', '@elastic/elasticsearch': '^8.0.0' } }),
       'src/plugins/mongodb/query.ts': 'const client = new MongoClient(config.connectionString);\n',
+      'docker-compose.yml': 'services:\n  app:\n    build: .\n  mongo:\n    image: mongo:7\n    profiles: ["samples"]\n',
     };
     expect(checkMongo(tree)).toMatchObject({ detected: false });
     expect(checkElasticsearch(tree)).toMatchObject({ detected: false });

@@ -151,7 +151,7 @@ function databaseCorroboration(
   modelRegex: RegExp | null,
 ): string | null {
   const compose = composeServices(tree);
-  const service = compose?.services.find((s) => s.image && imageRegex.test(s.image));
+  const service = compose?.services.find((s) => !s.optional && s.image && imageRegex.test(s.image));
   if (compose && service) return `a ${service.name} service is defined in ${compose.file}`;
   const key = brokerConnectionRequired(tree, envRegex);
   if (key) return `${key} is required`;
