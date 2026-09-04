@@ -1919,3 +1919,118 @@ describe('createInstallExecutor — recovery arc', () => {
     expect(result.output).not.toHaveProperty('recovery');
   });
 });
+
+describe('Stage B phase 2 — post-install binding-alias registration', () => {
+  const command = {
+    id: 'cmd-alias',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {},
+  };
+
+  function makeAliasDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      templateUrl:
+        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: memoryPendingStore(),
+      now: () => '2026-09-04T12:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  const aliasManifest = manifestPayload({
+    database: {
+      postgres: true,
+      envBindings: [
+        { name: 'DATABASE_URL', kind: 'url' },
+        { name: 'MEMOS_DSN', kind: 'url' },
+        { name: 'PAPERLESS_DBHOST', kind: 'host' },
+        { name: 'PAPERLESS_DBPORT', kind: 'port' },
+        { name: 'PAPERLESS_DBPASS', kind: 'password' },
+      ],
+    },
+  });
+
+  it('registers the manifest binding aliases after a verified install', async () => {
+    const applyBindingAliases = vi.fn(async () => ({ state: 'applied' }));
+
+    const result = await createInstallExecutor(makeAliasDeps({ applyBindingAliases }))({
+      ...command,
+      payload: { manifest: aliasManifest },
+    });
+
+    expect(result.success).toBe(true);
+    expect(applyBindingAliases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aliases: expect.arrayContaining([
+          { resource: 'postgres', name: 'MEMOS_DSN', kind: 'url' },
+          { resource: 'postgres', name: 'PAPERLESS_DBHOST', kind: 'host' },
+          { resource: 'postgres', name: 'PAPERLESS_DBPASS', kind: 'password' },
+        ]),
+      }),
+    );
+  });
+
+  it('re-applies the persisted alias list when a deferred install resumes', async () => {
+    const pending = memoryPendingStore();
+    const firstInstall = vi.fn(async () => ({
+      state: 'in-progress' as const,
+      status: 'CREATE_IN_PROGRESS',
+    }));
+
+    const first = await createInstallExecutor(makeAliasDeps({ pending, install: firstInstall }))({
+      ...command,
+      payload: { manifest: aliasManifest },
+    });
+    expect(first.deferred).toBe(true);
+
+    // The marker carries the compact alias list, never the full manifest.
+    const marker = await pending.read();
+    expect(marker?.payload).not.toHaveProperty('manifest');
+    const compactedAliases = (marker?.payload as Record<string, unknown>)?.['bindingAliases'] as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(compactedAliases).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'MEMOS_DSN', kind: 'url' })]),
+    );
+
+    const applyBindingAliases = vi.fn(async () => ({ state: 'applied' }));
+    const resumeInstall = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+    const resumed = await createInstallResumer(
+      makeAliasDeps({ pending, install: resumeInstall, applyBindingAliases }),
+    )();
+
+    expect(resumed[0]?.success).toBe(true);
+    expect(applyBindingAliases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aliases: expect.arrayContaining([
+          { resource: 'postgres', name: 'MEMOS_DSN', kind: 'url' },
+          { resource: 'postgres', name: 'PAPERLESS_DBHOST', kind: 'host' },
+        ]),
+      }),
+    );
+  });
+
+  it('fails the install honestly when alias registration fails', async () => {
+    const applyBindingAliases = vi.fn(async () => ({
+      state: 'failed',
+      reason: 'register denied',
+    }));
+
+    const result = await createInstallExecutor(makeAliasDeps({ applyBindingAliases }))({
+      ...command,
+      payload: { manifest: aliasManifest },
+    });
+
+    expect(result.success).toBe(false);
+    expect(String(result.error)).toContain('register denied');
+  });
+});
