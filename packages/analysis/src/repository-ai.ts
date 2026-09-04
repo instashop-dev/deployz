@@ -27,6 +27,7 @@ import { z } from 'zod';
 
 import type { AnalysisResult } from './analyser.js';
 import { listDockerfileCandidates, type FileTree } from './detectors.js';
+import { deriveAmbiguities, legacyQuestionString } from './evidence.js';
 import {
   SpendLimitExceededError,
   truncateToTokens,
@@ -97,69 +98,21 @@ export type RepositoryAiAnalysis = z.infer<typeof repositoryAiSchema>;
 
 // ── §15 unresolved-question detection ───────────────────────────────────────
 
-const ROOT_DOCKERFILE_REGEX = /^dockerfile(?:\.[\w.-]+)?$/i;
-const PACKAGE_JSON_REGEX = /(?:^|\/)package\.json$/;
-
-/** Whether the root package.json declares a `scripts.start` entry. */
-function hasRootStartScript(tree: FileTree): boolean {
-  const raw = tree['package.json'];
-  if (!raw) return false;
-  try {
-    const parsed = JSON.parse(raw) as { scripts?: unknown };
-    const scripts = parsed.scripts;
-    if (typeof scripts !== 'object' || scripts === null) return false;
-    return typeof (scripts as Record<string, unknown>)['start'] === 'string';
-  } catch {
-    return false;
-  }
-}
-
 /**
  * The fixed set of questions the deterministic analyser could not resolve on
  * its own. Returns `[]` when nothing is ambiguous — the caller never invokes
  * the AI gateway in that case (§15).
+ *
+ * Derived from `deriveAmbiguities` (evidence.ts — the single source of truth
+ * for what counts as unresolved) and filtered down to the kinds that carry a
+ * legacy question string, so the gate and prompt vocabulary stay unchanged
+ * while `metadata.ambiguities` additionally carries the kinds the model has
+ * no schema answer for (health path, migration strategy, storage binding).
  */
 export function collectUnresolvedQuestions(tree: FileTree, analysis: AnalysisResult): string[] {
-  const questions: string[] = [];
-  const metadata = analysis.metadata;
-
-  if (listDockerfileCandidates(tree).length > 1) {
-    questions.push('multiple-dockerfiles');
-  }
-
-  const packageJsonCount = Object.keys(tree).filter((p) => PACKAGE_JSON_REGEX.test(p)).length;
-  const rootHasDockerfile = Object.keys(tree).some(
-    (p) => !p.includes('/') && ROOT_DOCKERFILE_REGEX.test(p),
-  );
-  if (packageJsonCount >= 3 && !hasRootStartScript(tree) && !rootHasDockerfile) {
-    questions.push('monorepo-target');
-  }
-
-  if (metadata['hasStartupCommand'] !== true) {
-    questions.push('start-command-unknown');
-  }
-
-  if (metadata['hasBuildCommand'] !== true && metadata['packageManager'] != null) {
-    questions.push('build-command-unknown');
-  }
-
-  if (metadata['port'] == null && metadata['hasDockerfile'] !== true) {
-    questions.push('port-unknown');
-  }
-
-  if (metadata['usesPostgresql'] === true) {
-    const postgres = metadata['postgres'] as { required?: unknown } | undefined;
-    if (postgres?.required !== true) {
-      questions.push('database-requirement-unclear');
-    }
-  }
-
-  const redis = metadata['redis'] as { confidence?: unknown } | undefined;
-  if (redis?.confidence === 'medium') {
-    questions.push('redis-requirement-unclear');
-  }
-
-  return questions;
+  return deriveAmbiguities(tree, analysis)
+    .map(legacyQuestionString)
+    .filter((question): question is string => question !== null);
 }
 
 // ── Context file selection ──────────────────────────────────────────────────
@@ -170,6 +123,7 @@ const PRISMA_SCHEMA_REGEX = /(?:^|\/)schema\.prisma$/i;
 const ROOT_README_REGEX = /^readme\.md$/i;
 const SECRET_FILE_REGEX = /\.pem$|\.key$|^id_rsa|^credentials/i;
 const LOCKFILE_REGEX = /(?:^|\/)(?:pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|package-lock\.json)$/i;
+const PACKAGE_JSON_REGEX = /(?:^|\/)package\.json$/;
 
 /** Files that must never reach the AI, regardless of how they were matched. */
 function isExcludedFromAiContext(path: string): boolean {

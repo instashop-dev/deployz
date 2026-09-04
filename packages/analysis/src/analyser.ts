@@ -54,6 +54,7 @@ import {
 
 import type { RedisRequirement } from './redis.js';
 import { assessRedis } from './redis.js';
+import { deriveAmbiguities } from './evidence.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -279,7 +280,13 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
 
   metadata['databaseState'] = deriveDatabaseState(findings, rejections);
 
-  return { findings, rejections, metadata };
+  const result: AnalysisResult = { findings, rejections, metadata };
+  // §15 typed evidence surface: the facts the deterministic pipeline left
+  // unresolved (build target, start/build/port, DB/cache/storage bindings,
+  // health path, migration strategy, worker gate). Purely derived — it never
+  // feeds back into a finding, rejection, or verdict.
+  metadata['ambiguities'] = deriveAmbiguities(tree, result);
+  return result;
 }
 
 /**

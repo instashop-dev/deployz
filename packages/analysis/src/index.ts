@@ -75,6 +75,14 @@ export type { AnalysisResult, DatabaseState } from './analyser.js';
 export { analyseRepo } from './analyser.js';
 
 export type {
+  AnalysisAmbiguityKind,
+  AnalysisAmbiguity,
+  EvidenceItem,
+  RepositoryEvidence,
+} from './evidence.js';
+export { deriveAmbiguities, collectRepositoryEvidence, legacyQuestionString } from './evidence.js';
+
+export type {
   CompatibilityVerdict,
   IssueSeverity,
   CompatibilityIssue,
