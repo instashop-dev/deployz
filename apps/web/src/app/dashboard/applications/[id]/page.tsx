@@ -223,6 +223,7 @@ function ReadinessBody({
 
       <ReadinessResult
         readiness={readiness}
+        application={application}
         applicationId={application.id}
         onReanalyse={handleReanalyseFromFindings}
       />
