@@ -165,6 +165,7 @@ export function checkMysql(tree: FileTree): RejectionFinding {
     const laravel = Object.entries(tree).find(
       ([path, content]) =>
         !!content &&
+        isRuntimeSourcePath(path) &&
         ((/(?:^|\/)config\/database\.php$/.test(path) && LARAVEL_MYSQL_DEFAULT_REGEX.test(content)) ||
           (/(?:^|\/)\.env\.(?:example|sample|template)$/i.test(path) && LARAVEL_MYSQL_ENV_REGEX.test(content))),
     );

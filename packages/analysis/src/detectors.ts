@@ -1315,7 +1315,7 @@ const WORKER_LANGUAGE_TOKENS: { token: string; name: string }[] = [
 ];
 const WORKER_COMMAND_FILE_REGEX = /(?:^|\/)(?:Procfile|[\w.-]*\.sh|supervisord?\.conf|[\w.-]*\.ini)$|(?:^|\/)(?:docker-compose|compose)\.ya?ml$|dockerfile/i;
 const WORKER_COMMAND_REGEX =
-  /\b(?:bundle exec )?(?:sidekiq|good_job start|rake (?:jobs|resque):work)\b|\bcelery\b[^\n]*\bworker\b|\b(?:rq|arq|dramatiq|huey_consumer|procrastinate)\b[^\n]*\b(?:worker|consumer)?|artisan\s+(?:queue:work|queue:listen|horizon)\b|\bmanage\.py\s+(?:rqworker|qcluster|procrastinate)\b/;
+  /\b(?:bundle exec )?(?:sidekiq|good_job start|rake (?:jobs|resque):work)\b|\bcelery\b[^\n]*\bworker\b|\brq\s+worker\b|\bdramatiq\s+[\w.]+|\bhuey_consumer(?:\.py)?\b|\b(?:arq|procrastinate)\b[^\n]*\bworker\b|artisan\s+(?:queue:work|queue:listen|horizon)\b|\bmanage\.py\s+(?:rqworker|qcluster|procrastinate)\b/;
 const WORKER_CODE_REGEX = /(?:require|import)\s*(?:\(|.*from\s*)['"]node:worker_threads['"]/;
 
 /**

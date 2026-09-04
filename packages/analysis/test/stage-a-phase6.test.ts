@@ -49,6 +49,13 @@ describe('COMP-015 — worker code and declared worker processes outside Node', 
       'apps/worker/package.json': JSON.stringify({ name: '@linkwarden/worker', scripts: { start: 'node dist/index.js' } }),
     };
     expect(detectDeclaredWorkerCommand(workspace)).toBeNull();
+    // A one-shot queue CLI is not a worker command.
+    expect(
+      detectDeclaredWorkerCommand({ 'docker-compose.yml': 'services:\n  app:\n    image: myapp\n    command: rq info\n' }),
+    ).toBeNull();
+    expect(
+      detectDeclaredWorkerCommand({ 'docker-compose.yml': 'services:\n  app:\n    image: myapp\n    command: rq worker high default\n' }),
+    ).toEqual({ command: 'rq worker high default', source: 'docker-compose.yml app' });
   });
 });
 
@@ -83,6 +90,7 @@ describe('COMP-037 — unsupported engines declared outside Node manifests', () 
       checkMysql({ 'config/database.php': "'default' => env('DB_CONNECTION', 'mysql'),\n", 'composer.json': JSON.stringify({ require: { 'ext-pdo_pgsql': '*' } }) }),
     ).toMatchObject({ detected: false });
     expect(checkMysql({ 'tests/fixtures/requirements.txt': 'PyMySQL==1.1\n' })).toMatchObject({ detected: false });
+    expect(checkMysql({ 'tests/fixtures/config/database.php': "'default' => env('DB_CONNECTION', 'mysql'),\n" })).toMatchObject({ detected: false });
   });
 
   it('rejects ClickHouse with corroboration and an embedded JVM database with no PostgreSQL driver', () => {

@@ -1,6 +1,6 @@
 # Repository compatibility audit — run summary
 
-Deployz commit: `de4444d133922217cd96e0e4dde6a9af46882eda` · analysis version: 10
+Deployz commit: `5a443f687580c4f9263c741e1c2a0280674d14ea` · analysis version: 10
 
 | Metric | Value |
 | --- | --- |
