@@ -205,6 +205,26 @@ describe('createAiGateway — endpoint and model', () => {
       'workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731',
     );
   });
+
+  it("switches a hybrid reasoning model's thinking off when the caller disables reasoning", async () => {
+    // Workers AI reads `chat_template_kwargs.thinking`; the SDK passes it
+    // through untouched because it is not one of its own option keys.
+    const recorded: RecordedRequest[] = [];
+    const gateway = createAiGateway(config, recordingFetch(recorded));
+
+    await gateway.generate('prompt', schema, { reasoning: false });
+
+    expect(recorded[0]?.body.chat_template_kwargs).toEqual({ thinking: false });
+  });
+
+  it('leaves thinking on by default', async () => {
+    const recorded: RecordedRequest[] = [];
+    const gateway = createAiGateway(config, recordingFetch(recorded));
+
+    await gateway.generate('prompt', schema);
+
+    expect(recorded[0]?.body.chat_template_kwargs).toBeUndefined();
+  });
 });
 
 // ==========================================================================

@@ -110,6 +110,16 @@ export interface AiGenerateOptions {
    * hit the 800 default exactly (`800 out`) on every attempt and truncated.
    */
   readonly maxOutputTokens?: number | undefined;
+  /**
+   * `false` switches a hybrid reasoning model's thinking off (Workers AI's
+   * `chat_template_kwargs.thinking`). Measured live with
+   * `@cf/deepseek-ai/deepseek-v4-flash`: the fix-instructions prompt spent
+   * ~4000 tokens of `reasoning_content` before any JSON, so it exhausted a
+   * 2500-token completion cap every attempt and took ~35s per attempt. Off,
+   * the same prompt answered in under 10s. Leave on (the default) for calls
+   * that run outside a synchronous request budget.
+   */
+  readonly reasoning?: boolean | undefined;
 }
 
 /**
@@ -342,6 +352,12 @@ export function createAiGateway(
             // multiply attempts past `maxAttempts`.
             maxRetries: 0,
             ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+            // Spread verbatim into the request body by the openai-compatible
+            // provider (keyed by the camel-cased provider name) — it forwards
+            // any key that is not one of its own.
+            ...(options.reasoning === false
+              ? { providerOptions: { cloudflareAiGateway: { chat_template_kwargs: { thinking: false } } } }
+              : {}),
           });
 
           const tokenUsage: TokenUsage = {

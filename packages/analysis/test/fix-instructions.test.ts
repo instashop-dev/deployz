@@ -11,6 +11,7 @@ import {
   FIX_INSTRUCTIONS_GUARDRAIL,
   FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS,
   FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS,
+  FIX_INSTRUCTIONS_TIMEOUT_MS,
   assembleFixInstructions,
   buildFixInstructionsAiPrompt,
   generateFixInstructions,
@@ -109,6 +110,15 @@ describe('buildFixInstructionsAiPrompt', () => {
     );
   });
 
+  it('bounds the guidance length so the completion fits the synchronous request budget', () => {
+    // Measured live against deepseek-v4-flash with thinking off: unbounded
+    // guidance for four findings took ~27s (1179 completion tokens); bounded
+    // to three sentences it took 8-9s (~430 tokens). The route has under 30s
+    // end to end, so the bound is load-bearing.
+    const prompt = buildFixInstructionsAiPrompt(baseContext);
+    expect(prompt).toContain('at most three sentences');
+  });
+
   it('does not contain repository file contents', () => {
     const prompt = buildFixInstructionsAiPrompt(baseContext);
     // FixInstructionsContext carries only structured facts and finding
@@ -203,6 +213,7 @@ describe('generateFixInstructions', () => {
     expect(doc).toContain('Implementation guidance: Add a Dockerfile that builds and runs the app.');
     expect(seenOptions?.label).toBe('fix-instructions');
     expect(seenOptions?.maxOutputTokens).toBe(FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS);
+    expect(seenOptions?.reasoning).toBe(false);
   });
 
   it('throws on a schema-violating response', async () => {
@@ -249,5 +260,19 @@ describe('generateFixInstructions', () => {
     };
 
     await expect(generateFixInstructions(baseContext, gateway)).rejects.toBe(networkError);
+  });
+});
+
+// ==========================================================================
+// Synchronous request budget
+// ==========================================================================
+
+describe('FIX_INSTRUCTIONS_TIMEOUT_MS', () => {
+  it('abandons generation before the API Lambda and HTTP API 30-second limits', () => {
+    // The route runs inside a 30s Lambda behind a 30s HTTP API integration.
+    // An abort at or above that mark never fires: the platform kills the
+    // request first, the vendor gets an opaque gateway error, and the
+    // 'fix-instructions generation failed' log line is never written.
+    expect(FIX_INSTRUCTIONS_TIMEOUT_MS).toBeLessThan(30_000);
   });
 });
