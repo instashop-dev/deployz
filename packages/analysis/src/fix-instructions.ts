@@ -27,14 +27,21 @@ import type { ReadinessFinding } from './readiness-report.js';
 
 /** Max tokens the PROMPT may occupy — structured facts only, no file contents. */
 export const FIX_INSTRUCTIONS_MAX_PROMPT_TOKENS = 3000;
-/** Max tokens the COMPLETION may occupy — sized for a reasoning model that
- *  spends `reasoning_content` from the same budget (see repository-ai.ts). */
+/** Max tokens the COMPLETION may occupy. Thinking is switched off for this call
+ *  (see `reasoning: false` below), so this is headroom over the ~450 tokens
+ *  measured live, not a reasoning budget. */
 export const FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS = 2500;
 /** Total per-request budget: prompt + completion. */
 export const FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS =
   FIX_INSTRUCTIONS_MAX_PROMPT_TOKENS + FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS;
-/** How long a generation request may run before the caller abandons it. */
-export const FIX_INSTRUCTIONS_TIMEOUT_MS = 30_000;
+/**
+ * How long a generation request may run before the caller abandons it. Kept
+ * under the API Lambda's 30s timeout and the HTTP API's 30s integration
+ * limit: an abort at or above that mark never fires — the platform kills the
+ * request first, the vendor gets an opaque gateway error instead of the
+ * retryable 503, and the failure is never logged.
+ */
+export const FIX_INSTRUCTIONS_TIMEOUT_MS = 25_000;
 
 // ── Input shapes ────────────────────────────────────────────────────────────
 
@@ -131,6 +138,8 @@ export function buildFixInstructionsAiPrompt(context: FixInstructionsContext): s
     'requirements the findings do not support. The coding agent will verify each finding against the',
     'real repository before changing anything, so phrase guidance as "verify, then implement".',
     'Never include secrets, credentials, or placeholder secret values.',
+    'Keep each guidance to at most three sentences (about 60 words) with no code blocks. Keep',
+    'generalNotes to at most three short items, or an empty array. Do not pretty-print the JSON.',
     'Respond with only JSON matching the schema — no prose, no markdown outside the JSON.',
     '',
     'Repository facts detected by Deployz:',
@@ -300,6 +309,7 @@ export async function generateFixInstructions(
     abortSignal: options.abortSignal,
     label: 'fix-instructions',
     maxOutputTokens: FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS,
+    reasoning: false,
   });
 
   const usedTokens = response.usage.promptTokens + response.usage.completionTokens;
