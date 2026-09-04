@@ -108,6 +108,7 @@ import {
   fetchReleases,
   type Release,
 } from '@/lib/releases';
+import { formatReleaseVersion } from '@/lib/release-version';
 import { isTerminalStage } from '@/lib/deployment-progress';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
@@ -315,7 +316,7 @@ function DetailBody({
           {detail.version ? (
             <>
               {' · '}
-              <span className="tabular-nums">v{detail.version}</span>
+              <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span>
             </>
           ) : null}
         </p>
@@ -405,7 +406,7 @@ function DeploymentMetadata({ detail }: { detail: FleetDeploymentDetail }) {
         <MetaRow label="Region" value={REGION_LABELS[detail.region as Region] ?? detail.region} />
         <MetaRow
           label="Release"
-          value={detail.version ? <span className="tabular-nums">v{detail.version}</span> : 'Not deployed yet'}
+          value={detail.version ? <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span> : 'Not deployed yet'}
         />
         <MetaRow
           label="Created"
@@ -691,7 +692,7 @@ function DeploymentActions({
                   onSelect={() => setOpen('rollback')}
                   className="flex-col items-start gap-0"
                 >
-                  <span>Rollback{hasPreviousRelease && previousVersion ? ` to v${previousVersion}` : ''}</span>
+                  <span>Rollback{hasPreviousRelease && previousVersion ? ` to ${formatReleaseVersion(previousVersion)}` : ''}</span>
                   {!hasPreviousRelease ? (
                     <span className="text-xs text-muted-foreground">
                       {previousIsCurrent ? PREVIOUS_IS_CURRENT_COPY : NO_PREVIOUS_RELEASE_COPY}
@@ -844,11 +845,11 @@ function DeployUpdateDialog({
             <div className="flex flex-col gap-3 rounded-lg border px-3 py-2.5 text-sm">
               <div className="flex items-center justify-between gap-4">
                 <span className="text-muted-foreground">Current</span>
-                <span className="font-medium">{currentVersion ? `v${currentVersion}` : '—'}</span>
+                <span className="font-medium">{currentVersion ? formatReleaseVersion(currentVersion) : '—'}</span>
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-muted-foreground">New</span>
-                <span className="font-medium">{selected ? `v${selected.version}` : '—'}</span>
+                <span className="font-medium">{selected ? formatReleaseVersion(selected.version) : '—'}</span>
               </div>
             </div>
             <div className="flex flex-col gap-2">
@@ -860,7 +861,7 @@ function DeployUpdateDialog({
                 <SelectContent>
                   {candidates.map((release) => (
                     <SelectItem key={release.id} value={release.id}>
-                      v{release.version}
+                      {formatReleaseVersion(release.version)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -937,12 +938,12 @@ function RollbackDialog({
         <div className="flex flex-col gap-3 rounded-lg border px-3 py-2.5 text-sm">
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Current version</span>
-            <span className="font-medium">{currentVersion ? `v${currentVersion}` : '—'}</span>
+            <span className="font-medium">{currentVersion ? formatReleaseVersion(currentVersion) : '—'}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Rollback to</span>
             <span className="font-medium">
-              {previousVersion ? `v${previousVersion}` : 'the previous version'}
+              {previousVersion ? formatReleaseVersion(previousVersion) : 'the previous version'}
             </span>
           </div>
         </div>

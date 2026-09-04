@@ -4,6 +4,7 @@ import { REMOVED_PROGRESS } from './deployment-progress';
 import type { DeploymentState } from './deployment-vocabulary';
 import { everInstalled } from './deployment-vocabulary';
 import type { DeploymentJob, FleetDeploymentDetail } from './deployments';
+import { formatReleaseVersion } from './release-version';
 
 // The vendor detail page's hero: ONE state-aware headline answering "is it
 // working, what is happening, is my live application safe" — derived purely
@@ -126,7 +127,7 @@ const OPERATION_TITLE: Record<string, { running: string; failed: string; running
 };
 
 function releaseLabel(version: string | null): string {
-  return version ? `Release v${version}` : 'Your current release';
+  return version ? `Release ${formatReleaseVersion(version)}` : 'Your current release';
 }
 
 export function deriveHero(detail: HeroInput): HeroModel {

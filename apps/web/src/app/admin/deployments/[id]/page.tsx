@@ -85,6 +85,7 @@ import {
 } from '@/lib/deployment-vocabulary';
 import { failureCodeCopy } from '@/lib/diagnostic-vocabulary';
 import { relativeTime } from '@/lib/diagnostics';
+import { formatReleaseVersion } from '@/lib/release-version';
 
 type DetailState =
   | { status: 'loading' }
@@ -191,7 +192,7 @@ function DetailBody({
             {detail.appUrl ? <AppUrlRow url={detail.appUrl} /> : null}
             <MetaRow label="Current release" value={detail.version ?? 'Not deployed yet'} />
             {previousRelease ? (
-              <MetaRow label="Previous release" value={`v${previousRelease.version}`} />
+              <MetaRow label="Previous release" value={formatReleaseVersion(previousRelease.version)} />
             ) : null}
             <MetaRow
               label="Vendor"
@@ -328,7 +329,7 @@ function ReleaseHistoryTable({ entries }: { entries: AdminDeploymentDetail['rele
               <TableRow key={entry.id}>
                 <TableCell className="font-medium">{JOB_TYPE_LABEL[entry.type]}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {entry.release.version ? `v${entry.release.version}` : '—'}
+                  {entry.release.version ? formatReleaseVersion(entry.release.version) : '—'}
                 </TableCell>
                 <TableCell>
                   <Badge variant={JOB_PRESENTATION_BADGE[jobPresentationState(entry.state, false)]}>
@@ -760,7 +761,7 @@ function RollbackDialog({
             <SelectContent>
               {releases.map((release) => (
                 <SelectItem key={release.id} value={release.id}>
-                  v{release.version}
+                  {formatReleaseVersion(release.version)}
                 </SelectItem>
               ))}
             </SelectContent>
