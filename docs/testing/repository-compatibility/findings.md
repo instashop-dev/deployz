@@ -38,6 +38,23 @@ disk). The analysis intent documented in `rejection.ts` is precision
 ("files/dependencies that can ONLY mean that infrastructure"); the pilot
 shows where the implementation is broader than the intent.
 
+### After the detector-signal fixes (analysis version 7)
+
+COMP-001, 003, 004, 006, 007, 012, 013, 016, 018 and 020 are fixed with
+regression tests (`packages/analysis/test/stage-a.test.ts`, apps/api
+`github.test.ts` / `analysis.test.ts`); COMP-005 is partly addressed. Rerun
+on the same 15 snapshots: 7 of 15 verdicts match, 4 repositories match on
+every fact (was 1), the port is detected on all 15 (11 mismatches → 0),
+health-path mismatches fell from 9 to 4, and no mismatch is unexplained.
+The verdict count moved from 8 to 7 for an honest reason: two earlier
+matches were coincidences (listmonk and healthchecks were
+`NEEDS_CONFIGURATION` only because their port was undetected; the true
+causes are now visible as COMP-021 and COMP-022), and documenso now matches
+`NEEDS_CONFIGURATION` for a weak reason (a replica-URL variable, COMP-023
+class) rather than its real secret (COMP-017). The five false rejections
+are untouched by design — they belong to the rejection-precision batch
+(COMP-002, 008, 009, 011, 019).
+
 ## Findings
 
 ### COMP-001 — Dockerfile `EXPOSE` / `ENV PORT` and Compose `ports` are not port evidence
@@ -56,7 +73,8 @@ shows where the implementation is broader than the intent.
 - Recommended action: read `ENV PORT=`, `EXPOSE n`, `EXPOSE ${PORT:-n}` from
   the selected Dockerfile and `ports: "n:n"` from the production Compose
   service; keep the existing sources first.
-- Status: open
+- Fix: `detectPort` reads the selected Dockerfile (`ENV PORT`, `EXPOSE`, `EXPOSE ${PORT:-n}`) and production Compose port mappings (analysis version 7). Regression: `packages/analysis/test/stage-a.test.ts` COMP-001. All eleven repositories now report their port.
+- Status: fixed
 
 ### COMP-002 — Optional or configurable dependencies are treated as architectural requirements
 
@@ -99,7 +117,8 @@ shows where the implementation is broader than the intent.
 - Recommended action: ignore writes under `scripts/`, `script/`, `tools/`,
   `bin/`, `docs/`, `extra/`, `test*/`, `__tests__/`, `e2e/`, and
   `*.test.*`/`*.spec.*` files. Runtime writes (uploads, data dirs) still block.
-- Status: open
+- Fix: `isRuntimeSourcePath` excludes tests, fixtures, scripts, tooling and docs from the local-filesystem scan (and from the env-var reads, COMP-016). Regression: stage-a.test.ts COMP-003. Residual: Flagsmith `api/app/handlers.py` (a runtime `os.makedirs`) still flags — a Phase 3 candidate for a "non-storage write" rule.
+- Status: fixed
 
 ### COMP-004 — A file named `health*`/`heartbeat*` outside a file-router directory becomes a URL path
 
@@ -116,7 +135,8 @@ shows where the implementation is broader than the intent.
   that app until the vendor corrects it.
 - Recommended action: derive a file-based path only when the file sits under
   a router root (`routes`, `pages`, `app`) or an `api` segment.
-- Status: open
+- Fix: A file-based health path is derived only under a router root (`routes`, `pages`, `app`) or an `api` segment. Regression: stage-a.test.ts COMP-004 / COMP-005.
+- Status: fixed
 
 ### COMP-005 — Health paths are only found in JS route registrations and file-router conventions
 
@@ -141,6 +161,7 @@ shows where the implementation is broader than the intent.
   registration; read Go/Python literal route strings and NestJS
   `@Controller('health')`; never default to `/health` when the HEALTHCHECK
   names a different path or no path.
+- Fix: Partly addressed in version 7: a router mounted at a health prefix, the URL in a Dockerfile `HEALTHCHECK` / Compose `healthcheck`, and Go/Python/Ruby route literals are read (Go sources are now fetched). Remaining: NestJS controllers under a versioned global prefix (ghostfolio), Django health-check apps that register routes outside the repository (Flagsmith), a mount chain through a member expression (kutt `app.use("/api", routes.api)`), and a HEALTHCHECK that runs a script (immich).
 - Status: open
 
 ### COMP-006 — The manifest migration command falls back to a detector label
@@ -161,7 +182,8 @@ shows where the implementation is broader than the intent.
 - Recommended action: resolve by script VALUE when it is deploy-shaped
   (`prisma migrate deploy`, `knex migrate:latest`, …) regardless of key, and
   never fall back to a label in the manifest.
-- Status: open
+- Fix: `resolveMigrationCommand` accepts a deploy-shaped script value under any key, and the manifest no longer falls back to the detector label (`fix-instructions` likewise). Regression: apps/api analysis.test.ts "resolves a deploy-shaped migration script whose key does not mention migrations", stage-a.test.ts COMP-006.
+- Status: fixed
 
 ### COMP-007 — Dockerfile ranking prefers dev, packaging and sibling-service images
 
@@ -182,7 +204,8 @@ shows where the implementation is broader than the intent.
   segments (`.devcontainer`, `dev`, `test`, `e2e`, `examples`, `debian`,
   `rpm`, …) last; evaluate Dockerfile-scoped rejections on the selected
   Dockerfile. immich (two real services) remains ambiguous by nature.
-- Status: open
+- Fix: Dev-container, test, example and OS-package Dockerfiles rank last; the startup command and HEALTHCHECK are read from the selected Dockerfile only. Regression: stage-a.test.ts COMP-007. Residual: immich (`machine-learning/Dockerfile` vs `server/Dockerfile` — two genuine services, and the GPU check still scans every Dockerfile).
+- Status: fixed
 
 ### COMP-008 — A `gcr.io/distroless` base image counts as a Google Cloud deployment
 
@@ -276,7 +299,8 @@ shows where the implementation is broader than the intent.
 - Recommended action: require S3-specific evidence (an S3 client package or
   import, `boto3.client('s3')`, `s3.New`, an S3 env var). Optional S3
   transports (documenso) remain over-provisioned; documented.
-- Status: open
+- Fix: Only S3-specific packages or an S3 client construction count. Regression: stage-a.test.ts COMP-012. Residual: an optional S3 transport that is a real S3 client (documenso `@aws-sdk/client-s3`, Flagsmith `boto3.client("s3")` for exports) still provisions a bucket — over-provisioning, not blocking.
+- Status: fixed
 
 ### COMP-013 — PostgreSQL "required" evidence misses nested Compose files and non-JS configuration
 
@@ -295,7 +319,8 @@ shows where the implementation is broader than the intent.
 - Recommended action: accept a PostgreSQL image in any production Compose
   file at any depth and a `DATABASE_URL`/`POSTGRES_*` literal in Go, Python
   and Ruby source as independent evidence.
-- Status: open
+- Fix: A PostgreSQL image in any production Compose file (nested or a root variant) and a `DATABASE_URL`/`POSTGRES_*` literal in Go, Python or Ruby source are independent evidence; Go sources are now fetched. Regression: stage-a.test.ts COMP-013.
+- Status: fixed
 
 ### COMP-014 — Migration commands outside package.json scripts are not detected
 
@@ -354,7 +379,8 @@ shows where the implementation is broader than the intent.
   config-tooling and script files from the required set; a read inside a
   frontend tree the selected Dockerfile never builds is a residual to
   measure in Phase 3.
-- Status: open
+- Fix: Platform-provided names (`NODE_ENV`, `PORT`, `CI`, `VERCEL`, …) are never required, reads in non-runtime files are ignored, and the deployment gate counts every injected database variable (`DATABASE_URL`, `DATABASE_HOST/PORT/NAME/USER/PASSWORD`) as provided. Regression: stage-a.test.ts COMP-016. See COMP-023 for the remaining over-claim on Unleash.
+- Status: fixed
 
 ### COMP-017 — Environment reads through helper functions and schema libraries are invisible
 
@@ -392,7 +418,8 @@ shows where the implementation is broader than the intent.
 - Recommended action: rank test/spec/fixture/e2e/cypress files and tooling
   configs last; prefer shallower application source (`src`, `server`, `app`,
   `api`, `lib`) first.
-- Status: open
+- Fix: `relevancePriority` ranks tests, specs, fixtures and tool configs last and shallower application source first. Regression: apps/api github.test.ts "ranks specs, fixtures and tool configs last".
+- Status: fixed
 
 ### COMP-019 — A conditional Redis Cluster client rejects the whole app
 
@@ -422,4 +449,61 @@ shows where the implementation is broader than the intent.
 - Customer relevance: low.
 - Recommended action: a directory named `docker`, `dockerfiles`,
   `.devcontainer` or `packaging/*` is tooling, not an app root → `.`.
+- Fix: A Dockerfile under `docker/`, `dockerfiles/`, `.devcontainer/`, `packaging/`, `deploy/`, `build/`, `ci/` or `infra/` maps to root `.`. Regression: stage-a.test.ts COMP-020. Residual: documenso (`apps/remix`, a monorepo target the Dockerfile builds from the root).
+- Status: fixed
+
+### COMP-021 — A Dockerfile that copies an artifact the repository does not contain is accepted
+
+- Repositories: repo-010 (`COPY listmonk .` — the binary comes from `make dist`/goreleaser)
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NEEDS_CONFIGURATION (a working Dockerfile must be supplied)
+- Actual: READY — the Dockerfile, port, start command and health check all look complete
+- Evidence: nothing in the analysis reads the `COPY` sources of a Dockerfile against
+  the tree; a plain `docker build` of the snapshot fails on the first `COPY`.
+  Related: listmonk's `config.toml.sample` binds `localhost:9000`, which the
+  reference Compose overrides with an env var — invisible for the same reason.
+- Customer relevance: medium — release-packaging Dockerfiles are common in Go
+  projects; the failure only shows at the first build.
+- Recommended action: Phase 3 candidate — flag a Dockerfile whose `COPY`/`ADD`
+  source path is absent from the tree and produced by no `RUN` step in the
+  same Dockerfile.
+- Status: open
+
+### COMP-022 — A database engine selected by an environment value is READY without the value
+
+- Repositories: repo-011 (Django `DB=postgres`), repo-003 (`DB_CLIENT=pg` — once COMP-002 is fixed)
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NEEDS_CONFIGURATION (the engine selector must be set for the provisioned PostgreSQL to be used)
+- Actual: READY (healthchecks after COMP-001) — the default engine is SQLite and nothing marks the selector required
+- Evidence: `hc/settings.py` reads `os.getenv("DB")` with a SQLite fallback; the
+  env model treats a defaulted read as optional (correctly), so the deployment
+  gate has nothing to ask for.
+- Customer relevance: medium — the app deploys and boots on SQLite inside the
+  container, losing data on every deploy, instead of using the provisioned database.
+- Recommended action: Phase 3 candidate — when a PostgreSQL driver and a SQLite
+  driver/default coexist, surface the engine selector as a required
+  configuration value (the read that decides between them) rather than a
+  rejection (COMP-002) or silence.
+- Status: open
+
+### COMP-023 — Bare reads assigned to configuration properties are counted as required
+
+- Repositories: repo-002 (27 optional settings in `src/lib/create-config.ts`:
+  `host: process.env.HTTP_HOST`, `edgeUrl: process.env.EDGE_URL`,
+  `const openAIAPIKey = process.env.OPENAI_API_KEY`, …)
+- Type: ANALYSIS_BUG
+- Expected: READY
+- Actual: `required-env-vars-missing` → NEEDS_CONFIGURATION
+- Evidence: the §11.2 model counts any read with no inline fallback and no
+  guard as "needs a value"; a read whose result is stored in a config object
+  or a variable proves nothing about need — the consumer decides later.
+  Version 7 already exempts the alternative of a `??`/`||` chain and a
+  defaulting helper argument (`parseEnvVarNumber(process.env.X, 4242)`).
+- Customer relevance: high — large configuration surfaces (Unleash, Ghostfolio-
+  style apps) are the norm in mature products; each one becomes a wall of
+  "required" values the vendor must clear before the first deploy.
+- Recommended action: Phase 3 — measure how often the pattern flips a verdict
+  across the 80-repository corpus, then decide between "bare assignment is
+  optional" (recall loss on `const secret = process.env.X; if (!secret) throw`)
+  and a throw-guard-aware rule.
 - Status: open

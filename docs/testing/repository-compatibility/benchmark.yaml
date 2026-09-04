@@ -27,6 +27,9 @@ findings:
   - { id: COMP-018, type: ANALYSIS_BUG, facts: [port, healthPath, compatibility] }
   - { id: COMP-019, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
   - { id: COMP-020, type: ANALYSIS_BUG, facts: [appRoot] }
+  - { id: COMP-021, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
+  - { id: COMP-022, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
+  - { id: COMP-023, type: ANALYSIS_BUG, facts: [compatibility] }
 
 repositories:
   - id: repo-001
@@ -80,7 +83,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 2
-    findings: [COMP-001, COMP-018, COMP-016, COMP-005]
+    findings: [COMP-023, COMP-005, COMP-001, COMP-018, COMP-016]
     notes:
       - "Root Dockerfile: EXPOSE 4242, CMD [node, dist/server.js]; docker/local-postgres/Dockerfile is a dev database image."
       - "Port default 4242 in src/lib/create-config.ts (HTTP_PORT || PORT). Health: src/lib/routes/index.ts mounts /health."
@@ -109,7 +112,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-002, COMP-003, COMP-013, COMP-011, COMP-001, COMP-005]
+    findings: [COMP-002, COMP-011, COMP-005, COMP-022, COMP-003, COMP-013, COMP-001]
     notes:
       - "Root Dockerfile: EXPOSE 3000, CMD npm run migrate && npm start (knex migrate:latest)."
       - "Database engine is selected by DB_CLIENT (server/env.js supportedDBClients: pg, pg-native, sqlite3, better-sqlite3, mysql, mysql2); the default is better-sqlite3, PostgreSQL is selected with DB_CLIENT=pg plus discrete DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD (no DATABASE_URL read)."
@@ -138,7 +141,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-008, COMP-013, COMP-014, COMP-007, COMP-020, COMP-001, COMP-005]
+    findings: [COMP-008, COMP-013, COMP-014, COMP-005, COMP-007, COMP-020, COMP-001]
     notes:
       - "Four Dockerfiles: packaging/docker/alpine and packaging/docker/distroless build the app (EXPOSE 8080, ENV LISTEN_ADDR=0.0.0.0:8080, CMD /usr/bin/miniflux); packaging/debian and packaging/rpm build OS packages."
       - "PostgreSQL only (go.mod lib/pq). Migrations: `miniflux -migrate` or RUN_MIGRATIONS=1 (internal/cli/cli.go, internal/config/options.go)."
@@ -167,7 +170,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 4
-    findings: [COMP-009, COMP-019, COMP-003, COMP-010, COMP-015, COMP-012, COMP-014, COMP-001, COMP-005]
+    findings: [COMP-009, COMP-019, COMP-003, COMP-010, COMP-011, COMP-015, COMP-012, COMP-014, COMP-001, COMP-005]
     notes:
       - "Root multi-target Dockerfile (default target oss-unified serves API + dashboard on 8000): EXPOSE 8000, ENTRYPOINT flagsmith, CMD migrate-and-serve, HEALTHCHECK flagsmith healthcheck tcp. mcp/Dockerfile is a separate MCP server; frontend/Dockerfile.e2e is test-only."
       - "PostgreSQL via DATABASE_URL (api/app/settings/common.py, psycopg2-binary). Migrations: python manage.py migrate (api/Procfile release), also run by the migrate-and-serve CMD."
@@ -303,7 +306,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 4
-    findings: [COMP-014, COMP-001, COMP-005]
+    findings: [COMP-021, COMP-012, COMP-014, COMP-005, COMP-001]
     notes:
       - "Root Dockerfile packages a prebuilt binary (`COPY listmonk .`) produced by `make dist`/goreleaser; it cannot build from the repository alone. dev/app.Dockerfile is a bind-mount dev image. EXPOSE 9000, ENTRYPOINT docker-entrypoint.sh, CMD ./listmonk."
       - "config.toml.sample binds address = localhost:9000; docker-compose.yml overrides with LISTMONK_app__address=0.0.0.0:9000 and runs `./listmonk --install --idempotent --yes` then `--upgrade --yes` (non-interactive migrations, cmd/upgrade.go)."
@@ -330,7 +333,7 @@ repositories:
       unsupported: []
     customer_realism: medium
     difficulty: 4
-    findings: [COMP-013, COMP-015, COMP-014, COMP-020, COMP-001]
+    findings: [COMP-022, COMP-015, COMP-014, COMP-013, COMP-020, COMP-001]
     notes:
       - "docker/Dockerfile (context repository root): CMD uwsgi docker/uwsgi.ini; docker/uwsgi.ini: http-socket = :8000, hook-pre-app = exec:./manage.py migrate, attach-daemon = ./manage.py sendalerts and sendreports (worker processes supervised by uwsgi INSIDE the web container)."
       - "hc/settings.py: DATABASES defaults to sqlite3 and switches to PostgreSQL when DB=postgres (docker/.env.example sets DB=postgres, DB_HOST, DB_NAME, DB_USER, DB_PASSWORD) -> NEEDS_CONFIGURATION; SECRET_KEY has an insecure default."

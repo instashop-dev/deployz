@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
     "files": 201,
     "entries": 3419,
@@ -33,14 +33,14 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "node",
-    "appRoot": "docker",
+    "appRoot": ".",
     "dockerfilePath": "docker/Dockerfile",
     "port": 3000,
-    "startCommand": "CMD: [\"bun\", \"run\", \"start\"]",
+    "startCommand": "CMD: [\"sh\", \"start.sh\"]",
     "healthDetected": true,
     "healthPath": "/api/health",
     "postgres": true,
@@ -58,12 +58,16 @@
       "smtp",
       "stripe"
     ],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "NEXT_PRIVATE_DATABASE_REPLICA_URLS"
+    ],
     "unsupported": [],
     "readinessFindings": [
       "worker-command"
     ],
-    "gateFindings": [],
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
     "unresolvedQuestions": [
       "multiple-dockerfiles"
     ]
@@ -72,9 +76,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -111,7 +114,7 @@
     {
       "fact": "appRoot",
       "expected": "apps/remix",
-      "actual": "docker",
+      "actual": ".",
       "match": false,
       "kind": "fact"
     },
@@ -142,16 +145,6 @@
   ],
   "mismatches": [
     {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-017",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
       "fact": "redis",
       "kind": "fact",
       "expected": false,
@@ -175,7 +168,7 @@
       "fact": "appRoot",
       "kind": "fact",
       "expected": "apps/remix",
-      "actual": "docker",
+      "actual": ".",
       "finding": {
         "id": "COMP-020",
         "type": "ANALYSIS_BUG"

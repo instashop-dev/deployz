@@ -45,7 +45,9 @@ describe('normalizeDeploymentManifest', () => {
     expect(manifest.web).toEqual({ command: 'CMD: ["node", "dist/index.js"]', port: 3000 });
     expect(manifest.health.path).toBe('/health');
     expect(manifest.database.postgres).toBe(true);
-    expect(manifest.migration.command).toBe('drizzle-kit');
+    // The detector records the pattern label; the runnable command arrives
+    // as the application's resolved override, never from the label.
+    expect(manifest.migration.command).toBeNull();
     expect(manifest.build.command).toBe('tsc -p tsconfig.json');
     expect(manifest.build.context).toBe('.');
     expect(manifest.environment.variables).toEqual(

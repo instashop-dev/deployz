@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
-    "files": 175,
+    "files": 195,
     "entries": 4660,
     "truncated": false
   },
@@ -40,16 +40,16 @@
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": null,
+    "port": 8000,
     "startCommand": "CMD: [\"migrate-and-serve\"]",
     "healthDetected": true,
     "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
-    "redis": false,
+    "redis": true,
     "redisDetected": true,
     "redisConfidence": "high",
-    "storage": true,
+    "storage": false,
     "worker": false,
     "workerCommand": null,
     "migration": false,
@@ -59,24 +59,32 @@
       "sentry"
     ],
     "requiredEnvVars": [
-      "DJANGO_DB_HOST",
-      "DJANGO_DB_HOST_ANALYTICS",
-      "DJANGO_DB_NAME",
-      "DJANGO_DB_NAME_ANALYTICS",
-      "DJANGO_DB_PASSWORD",
-      "DJANGO_DB_PASSWORD_ANALYTICS",
-      "DJANGO_DB_PORT",
-      "DJANGO_DB_PORT_ANALYTICS",
-      "DJANGO_DB_USER",
-      "DJANGO_DB_USER_ANALYTICS"
+      "ALBACROSS_CLIENT_ID",
+      "AMPLITUDE_API_KEY",
+      "CAPTERRA_API_KEY",
+      "COOKIE_AUTH_ENABLED",
+      "DELIGHTED_API_KEY",
+      "EVALUATION_ANALYTICS_SERVER_URL",
+      "EVENTS_SLACK_CHANNEL",
+      "FIRST_PROMOTER_ID",
+      "FLAGSMITH_API_URL",
+      "FLAGSMITH_ON_FLAGSMITH_API_KEY",
+      "FLAGSMITH_ON_FLAGSMITH_API_URL",
+      "FLAGSMITH_PROXY_API_URL",
+      "GITHUB_APP_URL",
+      "GOOGLE_ANALYTICS_API_KEY",
+      "HEADWAY_API_KEY",
+      "PYLON_APP_ID",
+      "REO_API_KEY",
+      "SENTRY_API_KEY",
+      "SLACK_TOKEN",
+      "USE_SECURE_COOKIES"
     ],
     "unsupported": [
       "docker-compose-multi-service",
-      "local-filesystem",
-      "redis-unsupported"
+      "local-filesystem"
     ],
     "readinessFindings": [
-      "unsupported-redis-setup",
       "unsupported-multi-service",
       "local-file-storage",
       "database-migrations"
@@ -84,8 +92,6 @@
     "gateFindings": [
       "unsupported",
       "unsupported",
-      "unsupported",
-      "port-missing",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
@@ -110,8 +116,9 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": false,
-      "match": true
+      "actual": true,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "worker",
@@ -123,9 +130,8 @@
     {
       "fact": "storage",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "migration",
@@ -149,9 +155,8 @@
     {
       "fact": "port",
       "expected": 8000,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 8000,
+      "match": true
     },
     {
       "fact": "healthPath",
@@ -165,8 +170,7 @@
       "expected": [],
       "actual": [
         "docker-compose-multi-service",
-        "local-filesystem",
-        "redis-unsupported"
+        "local-filesystem"
       ],
       "match": false,
       "kind": "fact"
@@ -184,6 +188,16 @@
       }
     },
     {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-011",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
       "fact": "worker",
       "kind": "fact",
       "expected": true,
@@ -194,16 +208,6 @@
       }
     },
     {
-      "fact": "storage",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-012",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
       "fact": "migration",
       "kind": "fact",
       "expected": true,
@@ -211,16 +215,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8000,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
       }
     },
     {
@@ -239,8 +233,7 @@
       "expected": [],
       "actual": [
         "docker-compose-multi-service",
-        "local-filesystem",
-        "redis-unsupported"
+        "local-filesystem"
       ],
       "finding": {
         "id": "COMP-009",

@@ -500,6 +500,86 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('nested/.env.example');
   });
 
+  it('ranks specs, fixtures and tool configs last so application source survives the cap (COMP-018)', async () => {
+    // Enough cypress specs and root tool configs to fill the cap on their own,
+    // listed BEFORE the application files — a large repository's source must
+    // not lose its slots to files the detectors never read.
+    const specs = Array.from({ length: ANALYSIS_MAX_FILES }, (_, i) => ({
+      path: `frontend/cypress/e2e/case${i}.spec.ts`,
+      type: 'blob' as const,
+      sha: `sha-spec-${i}`,
+      size: 10,
+    }));
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'vitest.config.ts', type: 'blob', sha: 'sha-vitest', size: 10 },
+            { path: '.husky/update-openapi.js', type: 'blob', sha: 'sha-husky', size: 10 },
+            { path: 'scripts/build-geo.js', type: 'blob', sha: 'sha-script', size: 10 },
+            { path: 'docs/api/generate.js', type: 'blob', sha: 'sha-docs', size: 10 },
+            ...specs,
+            { path: 'src/lib/features/deep/nested/handler.ts', type: 'blob', sha: 'sha-deep', size: 10 },
+            { path: 'src/lib/routes/health-check.ts', type: 'blob', sha: 'sha-health', size: 10 },
+            { path: 'src/server.ts', type: 'blob', sha: 'sha-server', size: 10 },
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    expect(tree).toHaveProperty('src/server.ts');
+    expect(tree).toHaveProperty('src/lib/routes/health-check.ts');
+    expect(tree).toHaveProperty('src/lib/features/deep/nested/handler.ts');
+    // The three application files took their slots first; specs, scripts,
+    // docs and tool configs share the last tier and fill whatever remains,
+    // in tree order.
+    expect(Object.keys(tree).filter((path) => path.endsWith('.spec.ts'))).toHaveLength(ANALYSIS_MAX_FILES - 7);
+  });
+
+  it('fetches entry, routing and configuration files before other source on a large tree (COMP-018)', async () => {
+    // A Go tree with more plain source files than the cap, all shallower
+    // than the routes file — the routes file still wins a slot because it
+    // is where the health path and port are declared.
+    const plain = Array.from({ length: ANALYSIS_MAX_FILES + 20 }, (_, i) => ({
+      path: `internal/reader/parser${i}.go`,
+      type: 'blob' as const,
+      sha: `sha-plain-${i}`,
+      size: 10,
+    }));
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            ...plain,
+            { path: 'internal/http/server/routes.go', type: 'blob', sha: 'sha-routes', size: 10 },
+            { path: 'internal/config/options.go', type: 'blob', sha: 'sha-options', size: 10 },
+            { path: 'main.go', type: 'blob', sha: 'sha-main', size: 10 },
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    expect(tree).toHaveProperty('main.go');
+    expect(tree).toHaveProperty('internal/http/server/routes.go');
+    expect(tree).toHaveProperty('internal/config/options.go');
+  });
+
   it('includes a lockfile as an empty-content entry without fetching its blob (§18 package-manager detection)', async () => {
     const calls: string[] = [];
     const fetchFn: FetchFn = async (url) => {

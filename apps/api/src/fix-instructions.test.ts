@@ -132,7 +132,7 @@ describe('fix-instructions — buildFixInstructionsContext', () => {
     expect(context!.facts.migrationCommand).toBe('npm run migrate:custom');
   });
 
-  it('falls back to detected metadata when no row-level contract field is set', () => {
+  it('falls back to detected metadata for the port, never to the migration pattern label', () => {
     const app = source({
       containerPort: null,
       healthPath: null,
@@ -140,14 +140,15 @@ describe('fix-instructions — buildFixInstructionsContext', () => {
       detectedMetadata: {
         readiness: report(),
         port: '3000',
-        migrationCommands: ['npx drizzle-kit push'],
+        // The detector records pattern labels here, not runnable commands.
+        migrationCommands: ['drizzle-kit'],
       },
     });
 
     const context = buildFixInstructionsContext(app);
     expect(context!.facts.port).toBe('3000');
     expect(context!.facts.healthPath).toBeNull();
-    expect(context!.facts.migrationCommand).toBe('npx drizzle-kit push');
+    expect(context!.facts.migrationCommand).toBeNull();
   });
 
   it('database is "postgres" iff usesPostgresql is true', () => {

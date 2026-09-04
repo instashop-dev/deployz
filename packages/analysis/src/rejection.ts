@@ -7,7 +7,7 @@
  */
 
 import type { FileTree } from './detectors.js';
-import { collectDependencyNames } from './detectors.js';
+import { collectDependencyNames, isProductionComposeFile } from './detectors.js';
 import type { RedisRequirement } from './redis.js';
 import { assessRedis } from './redis.js';
 
@@ -196,26 +196,12 @@ function contentMatches(tree: FileTree, pathRegex: RegExp, contentRegex: RegExp)
 }
 
 /**
- * Path segments that mark a compose file as dev/test/example tooling rather
- * than the app's own production deployment shape.
- */
-const NON_PRODUCTION_COMPOSE_SEGMENT_REGEX =
-  /(?:^|\/)(?:development|dev|test|testing|tests|e2e|ci|example|examples|sample|samples|local|\.devcontainer)(?:\/|$)/i;
-
-/** Dev/override-flavoured compose filenames (docker-compose.dev.yml, etc.). */
-const NON_PRODUCTION_COMPOSE_FILENAME_REGEX =
-  /(?:docker-compose|compose)\.(?:dev|development|test|testing|override|local|example|sample|ci)\.ya?ml$/i;
-
-function isProductionComposeFile(path: string): boolean {
-  return !NON_PRODUCTION_COMPOSE_SEGMENT_REGEX.test(path) && !NON_PRODUCTION_COMPOSE_FILENAME_REGEX.test(path);
-}
-
-/**
  * Compose services: file → [{ name, image }]. Undefined when no compose file
  * describes the app's own production deployment — dev/test/example compose
  * files (e.g. `docker/development/compose.yml`, a mail sandbox or PDF
- * renderer for local tooling) are not evidence of the app's architecture.
- * Prefers a repository-root compose file over a nested one.
+ * renderer for local tooling) are not evidence of the app's architecture
+ * (`isProductionComposeFile`, shared with the detectors). Prefers a
+ * repository-root compose file over a nested one.
  */
 function composeServices(tree: FileTree): { file: string; services: { name: string; image: string | null }[] } | null {
   const candidates = Object.keys(tree).filter(

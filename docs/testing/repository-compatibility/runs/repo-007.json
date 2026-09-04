@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
     "files": 201,
     "entries": 2141,
@@ -34,15 +34,15 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": null,
+    "port": 3333,
     "startCommand": "CMD: [ \"/ghostfolio/entrypoint.sh\" ]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/api/v1/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": true,
@@ -57,16 +57,13 @@
       "stripe"
     ],
     "requiredEnvVars": [
-      "JWT_SECRET_KEY",
-      "TZ"
+      "JWT_SECRET_KEY"
     ],
     "unsupported": [],
     "readinessFindings": [
-      "health-check",
       "worker-command"
     ],
     "gateFindings": [
-      "port-missing",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
@@ -125,16 +122,14 @@
     {
       "fact": "port",
       "expected": 3333,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 3333,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/api/v1/health",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/api/v1/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -143,27 +138,6 @@
       "match": true
     }
   ],
-  "mismatches": [
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 3333,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/api/v1/health",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    }
-  ],
-  "match": false
+  "mismatches": [],
+  "match": true
 }

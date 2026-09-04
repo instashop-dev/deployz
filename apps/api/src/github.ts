@@ -2,7 +2,7 @@ import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
 
 import { eq } from 'drizzle-orm';
 
-import type { FileTree } from '@deployz/analysis';
+import { isRuntimeSourcePath, type FileTree } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -616,7 +616,9 @@ const IGNORED_DIR_SEGMENTS = new Set([
   '.git',
 ]);
 
-const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx|py|rb)$/i;
+// Go joins the source set with the Stage A detectors that read Go route
+// registrations and configuration literals (COMP-005, COMP-013).
+const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
 // A manifest, a Dockerfile or a Prisma schema anywhere in the tree — a
 // workspace repository keeps all three outside the root, and the detectors
 // read every one of them (packages/analysis/src/detectors.ts).
@@ -696,16 +698,38 @@ function isLockfilePath(path: string): boolean {
 // specifically look for. Named patterns are checked (and returned) before
 // this generic root check ever runs, so this bucket only ever catches
 // unnamed root files.
+//
+// Tests, specs, fixtures, scripts, docs and tool configuration rank LAST
+// (tier 6): the detectors ignore them (`isRuntimeSourcePath`, the same rule
+// the analyser applies), and on a large repository they are numerous enough
+// to push every application source file out of the cap (Stage A COMP-018).
+// Within the application-source tiers, shallower files come first —
+// `src/server.ts` before `src/features/x/y/z.ts`.
+//
+// Files where an application declares how it starts, listens and routes —
+// the ones the port/health/env detectors need most on a repository with far
+// more source files than the cap (a Go or Django tree can carry hundreds).
+const ENTRY_FILE_REGEX =
+  /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\//i;
+
 function relevancePriority(path: string): number {
   if (MANIFEST_REGEX.test(path)) return 0;
   if (OTHER_MANIFEST_REGEX.test(path)) return 0;
   if (DOCKERFILE_REGEX.test(path)) return 0;
   if (COMPOSE_REGEX.test(path)) return 0;
   if (ENV_SAMPLE_REGEX.test(path)) return 0;
+  if (!isRuntimeSourcePath(path)) return 6; // tests, specs, fixtures, scripts, docs, tool configs
   if (!path.includes('/')) return 1; // generic (unnamed) root files
   if (PRISMA_SCHEMA_REGEX.test(path)) return 2;
   if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 3;
-  return 4; // source files
+  if (ENTRY_FILE_REGEX.test(path)) return 4; // entry, routing and configuration source
+  return 5; // other source files
+}
+
+function compareRelevance(a: string, b: string): number {
+  const priorityDiff = relevancePriority(a) - relevancePriority(b);
+  if (priorityDiff !== 0) return priorityDiff;
+  return relevancePriority(a) >= 4 ? a.split('/').length - b.split('/').length : 0;
 }
 
 export interface RepositoryRef {
@@ -859,7 +883,7 @@ export async function buildFileTreeForAnalysis(
   const candidates = entries
     .filter((entry) => entry.type === 'blob' && isRelevantPath(entry.path))
     .filter((entry) => entry.size === undefined || entry.size <= ANALYSIS_MAX_FILE_BYTES)
-    .sort((a, b) => relevancePriority(a.path) - relevancePriority(b.path))
+    .sort((a, b) => compareRelevance(a.path, b.path))
     .slice(0, ANALYSIS_MAX_FILES);
 
   // Fetched ANALYSIS_FETCH_CONCURRENCY at a time. One-at-a-time turns 200

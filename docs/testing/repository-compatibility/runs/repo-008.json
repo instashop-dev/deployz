@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
-    "files": 28,
+    "files": 201,
     "entries": 497,
     "truncated": false
   },
@@ -39,38 +39,36 @@
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": null,
+    "port": 8080,
     "startCommand": "ENTRYPOINT: [\"/gatus\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/health",
     "postgres": false,
     "postgresDetected": true,
     "redis": false,
     "redisDetected": false,
     "redisConfidence": "low",
-    "storage": true,
+    "storage": false,
     "worker": false,
     "workerCommand": null,
     "migration": false,
     "migrationCommand": null,
-    "externalServices": [],
+    "externalServices": [
+      "sendgrid",
+      "twilio"
+    ],
     "requiredEnvVars": [
       "BASE_URL"
     ],
     "unsupported": [
-      "docker-compose-multi-service",
       "sqlite"
     ],
     "readinessFindings": [
       "unsupported-database-sqlite",
-      "unsupported-multi-service",
-      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
       "unsupported",
-      "unsupported",
-      "port-missing",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
@@ -107,9 +105,8 @@
     {
       "fact": "storage",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "migration",
@@ -132,22 +129,19 @@
     {
       "fact": "port",
       "expected": 8080,
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": 8080,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/health",
+      "match": true
     },
     {
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service",
         "sqlite"
       ],
       "match": false,
@@ -166,41 +160,10 @@
       }
     },
     {
-      "fact": "storage",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-012",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8080,
-      "actual": null,
-      "finding": {
-        "id": "COMP-001",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/health",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
       "fact": "unsupported",
       "kind": "fact",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service",
         "sqlite"
       ],
       "finding": {

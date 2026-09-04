@@ -55,11 +55,18 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+// Directories that hold container/packaging tooling, not application code:
+// a Dockerfile under `docker/` or `packaging/…` is written to build the app
+// from the repository root (Stage A COMP-020).
+const TOOLING_DIR_REGEX = /(?:^|\/)(?:docker|dockerfiles|\.devcontainer|packaging|deploy|deployment|build|ci|infra)(?:\/|$)/i;
+
 /** The directory a Dockerfile lives in — the app root when nothing overrides it. */
 function appRootFromDockerfile(dockerfilePath: string | null): string {
   if (!dockerfilePath) return '.';
   const index = dockerfilePath.lastIndexOf('/');
-  return index <= 0 ? '.' : dockerfilePath.slice(0, index);
+  if (index <= 0) return '.';
+  const dir = dockerfilePath.slice(0, index);
+  return TOOLING_DIR_REGEX.test(dir) ? '.' : dir;
 }
 
 /**
@@ -198,7 +205,11 @@ export function normalizeDeploymentManifest(
       envBindings: storageRequired ? [{ name: 'AWS_S3_BUCKET', kind: 'bucket' }] : [],
     },
     migration: {
-      command: overrides.migrationCommand ?? stringArray(meta['migrationCommands'])[0] ?? null,
+      // `metadata.migrationCommands` holds the detector's PATTERN LABELS
+      // ("prisma migrate", "drizzle-kit"), never a runnable command — the
+      // deploy-safe command is resolved per analysis into the application
+      // column that arrives as the override (Stage A COMP-006).
+      command: overrides.migrationCommand ?? null,
     },
     worker: { command: workerCommand },
     environment: {
@@ -212,6 +223,15 @@ export function normalizeDeploymentManifest(
 }
 
 // ── Readiness gate ──────────────────────────────────────────────────────────
+
+const PROVISIONED_DATABASE_ENV_VARS = [
+  'DATABASE_URL',
+  'DATABASE_HOST',
+  'DATABASE_PORT',
+  'DATABASE_NAME',
+  'DATABASE_USER',
+  'DATABASE_PASSWORD',
+] as const;
 
 /**
  * Evaluate the FINAL manifest before AWS provisioning.
@@ -271,7 +291,12 @@ export function evaluateManifestReadiness(
   // that knowledge the finding cannot be answered honestly.
   if (context.providedEnvKeys !== undefined) {
     const autoProvided = new Set<string>();
-    if (manifest.database.postgres) autoProvided.add('DATABASE_URL');
+    // The application stack injects the URL and the discrete connection
+    // parts alike (packages/cdk application-stack: DATABASE_HOST/PORT/NAME/
+    // USER plus the password secret).
+    if (manifest.database.postgres) {
+      for (const name of PROVISIONED_DATABASE_ENV_VARS) autoProvided.add(name);
+    }
     if (manifest.redis.required) {
       for (const binding of manifest.redis.envBindings) autoProvided.add(binding.name);
     }

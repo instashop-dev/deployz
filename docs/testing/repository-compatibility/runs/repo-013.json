@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 3,
-  "deployzSha": "3e630034509dbc7dee93f0635bab73f01ca7cae1",
-  "analysisVersion": 6,
+  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
+  "analysisVersion": 7,
   "tree": {
     "files": 201,
     "entries": 857,
@@ -38,12 +38,12 @@
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
-    "appRoot": "docker",
+    "appRoot": ".",
     "dockerfilePath": "docker/dockerfile",
     "port": 3001,
     "startCommand": "CMD: [\"node\", \"server/server.js\"]",
     "healthDetected": true,
-    "healthPath": "/server/model/heartbeat",
+    "healthPath": "/api/status-page/heartbeat",
     "postgres": false,
     "postgresDetected": true,
     "redis": true,
@@ -55,35 +55,22 @@
     "migration": true,
     "migrationCommand": "node extra/reset-migrate-aggregate-table-state.js",
     "externalServices": [
-      "smtp"
+      "resend",
+      "sendgrid",
+      "smtp",
+      "twilio"
     ],
     "requiredEnvVars": [
-      "CI",
-      "DEBUG",
-      "GITHUB_RUN_ID",
-      "HOST",
       "LOCALAPPDATA",
-      "NODE_TLS_REJECT_UNAUTHORIZED",
-      "PORT",
       "PROGRAMFILES",
-      "PR_NUMBER",
-      "RELEASE_BETA_VERSION",
-      "RELEASE_GITHUB_TOKEN",
-      "RELEASE_IS_BETA",
-      "RELEASE_PREVIOUS_VERSION",
-      "RELEASE_REPO_NAMES",
-      "RELEASE_VERSION",
-      "SSL_KEY_PASSPHRASE",
+      "UPTIME_KUMA_DB_HOSTNAME",
+      "UPTIME_KUMA_DB_NAME",
       "UPTIME_KUMA_DB_POOL_MAX_CONNECTIONS",
-      "UPTIME_KUMA_DEMO_CWD",
-      "UPTIME_KUMA_DEMO_HOST",
-      "UPTIME_KUMA_DEMO_PORT",
-      "UPTIME_KUMA_DEMO_PRIVATE_KEY_PATH",
-      "UPTIME_KUMA_DEMO_USERNAME",
-      "UPTIME_KUMA_GH_REPO",
-      "UPTIME_KUMA_HOST",
+      "UPTIME_KUMA_DB_PORT",
+      "UPTIME_KUMA_DB_SOCKET",
+      "UPTIME_KUMA_DB_TYPE",
       "UPTIME_KUMA_PORT",
-      "UPTIME_KUMA_SSL_KEY_PASSPHRASE"
+      "UPTIME_KUMA_WS_ORIGIN_CHECK"
     ],
     "unsupported": [
       "kafka",
@@ -151,9 +138,8 @@
     {
       "fact": "appRoot",
       "expected": ".",
-      "actual": "docker",
-      "match": false,
-      "kind": "fact"
+      "actual": ".",
+      "match": true
     },
     {
       "fact": "dockerfilePath",
@@ -190,16 +176,6 @@
       "actual": true,
       "finding": {
         "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "appRoot",
-      "kind": "fact",
-      "expected": ".",
-      "actual": "docker",
-      "finding": {
-        "id": "COMP-020",
         "type": "ANALYSIS_BUG"
       }
     },
