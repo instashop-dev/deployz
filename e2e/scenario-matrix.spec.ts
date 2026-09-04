@@ -175,7 +175,7 @@ test.describe('repairable-local-filesystem (E)', () => {
     expect(localFs).toBeDefined();
     expect(localFs?.blocking).toBe(true);
     expect(localFs?.title).toBe('Files stored on local disk');
-    expect(localFs?.technicalEvidence).toContain('fs.writeFileSync');
+    expect(localFs?.technicalEvidence).toContain('VOLUME /data');
 
     const customerId = await createCustomer(request, suffix);
     const blocked = await request.post(`${API_URL}/api/deployments`, {

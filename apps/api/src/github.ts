@@ -1194,6 +1194,13 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       scripts: { start: 'node dist/index.js' },
       dependencies: { express: '^4.18.0', mongoose: '^8.0.0' },
     }),
+    // The app's own data model lives in MongoDB (Stage A COMP-032: a client
+    // dependency alone is not a requirement).
+    'src/models/user.ts': [
+      "import mongoose from 'mongoose';",
+      'export const User = mongoose.model("User", new mongoose.Schema({ email: String }));',
+      '',
+    ].join('\n'),
     'src/index.ts': [
       "import express from 'express';",
       'const app = express();',
@@ -1203,10 +1210,11 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
   },
   // The same otherwise-READY express-api shape plus one persistent local
-  // filesystem write — an app whose ONLY blocker is the ephemeral-disk
-  // storage finding. Used by the Phase 14 scenario-matrix spec to prove a
-  // repairable repo is refused at deployment creation with the repair
-  // guidance surfaced (fix-instructions).
+  // filesystem write behind a declared VOLUME — an app whose ONLY blocker is
+  // the ephemeral-disk storage finding (Stage A COMP-024: the declaration,
+  // not the write call, is the evidence). Used by the Phase 14
+  // scenario-matrix spec to prove a repairable repo is refused at deployment
+  // creation with the repair guidance surfaced (fix-instructions).
   'deployz-demo/local-fs-app': {
     'Dockerfile': [
       'FROM node:20-alpine',
@@ -1214,6 +1222,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       'COPY package*.json ./',
       'RUN npm ci --omit=dev',
       'COPY . .',
+      'VOLUME /data',
       'EXPOSE 3000',
       'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
       'CMD ["node", "dist/index.js"]',
