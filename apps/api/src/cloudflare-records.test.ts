@@ -454,6 +454,28 @@ describe('createCloudflareDnsClient — validation records (ACM DNS-01)', () => 
     expect(calls).toHaveLength(0);
   });
 
+  it('accepts the absolute (trailing-dot) names ACM reports and writes them dot-less', async () => {
+    // ACM's DomainValidationOptions[].ResourceRecord carries FQDNs with a
+    // trailing dot; the relay forwards them verbatim. Observed live: the
+    // guard refused every one of them and default HTTPS never left
+    // WAITING_FOR_DNS.
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList();
+      if (init.method === 'POST') return okResult(validationRecord('rec-v'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertDefaultValidationRecord('dep-1', `${VALIDATION_NAME}.`, VALIDATION_VALUE);
+
+    expect(result.op).toBe('created');
+    expect(calls[0]!.url).toContain(`name.exact=${encodeURIComponent(VALIDATION_NAME)}`);
+    expect(JSON.parse(calls[1]!.body!)).toMatchObject({ name: VALIDATION_NAME, content: VALIDATION_VALUE });
+
+    calls.length = 0;
+    await client.deleteDefaultValidationRecord('dep-1', `${VALIDATION_NAME}.`);
+    expect(calls[0]!.url).toContain(`name.exact=${encodeURIComponent(VALIDATION_NAME)}`);
+  });
+
   it('creates an UNPROXIED CNAME (ACM must see it) with the validation comment', async () => {
     const { client, calls } = makeClient(async (_url, init) => {
       if (init.method === 'GET') return okList();
