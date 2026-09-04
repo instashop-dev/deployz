@@ -469,6 +469,7 @@ export const EVENT_FAMILIES = [
   'health',
   'relay',
   'redis',
+  'deploy_link',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
@@ -491,6 +492,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   health: 'Health',
   relay: 'Helper',
   redis: 'Cache',
+  deploy_link: 'Deploy link',
 };
 
 /**
@@ -567,6 +569,16 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'operation.timeout': 'Operation took too long',
   'operation.waiting_for_relay': 'Waiting for AWS connection',
   'operation.requeued': 'Operation resumed after an interruption',
+
+  // Deploy Links (docs/deploy-links.md): vendor-minted customer entry
+  // points. The deployment outcome itself still reports through the standard
+  // install/deploy events — the link only opens the door.
+  'deploy_link.created': 'Deploy link created',
+  'deploy_link.opened': 'Customer opened the deploy link',
+  'deploy_link.launched': 'Customer started the deployment',
+  'deploy_link.retry.requested': 'Customer retried the deployment',
+  'deploy_link.revoked': 'Deploy link revoked',
+  'deploy_link.regenerated': 'Deploy link regenerated',
 };
 
 /** Human-readable label for an event type (§65). */

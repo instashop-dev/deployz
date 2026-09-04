@@ -336,3 +336,20 @@ describe('actionsUnavailableReason', () => {
     ).toContain('connector');
   });
 });
+
+describe('deploy link events', () => {
+  it('labels every deploy_link event type in jargon-free copy', () => {
+    expect(eventTypeLabel('deploy_link.created')).toBe('Deploy link created');
+    expect(eventTypeLabel('deploy_link.opened')).toBe('Customer opened the deploy link');
+    expect(eventTypeLabel('deploy_link.launched')).toBe('Customer started the deployment');
+    expect(eventTypeLabel('deploy_link.retry.requested')).toBe('Customer retried the deployment');
+    expect(eventTypeLabel('deploy_link.revoked')).toBe('Deploy link revoked');
+    expect(eventTypeLabel('deploy_link.regenerated')).toBe('Deploy link regenerated');
+  });
+
+  it('groups deploy_link events under one family', () => {
+    expect(eventFamily('deploy_link.created')).toBe('deploy_link');
+    expect(eventFamily('deploy_link.retry.requested')).toBe('deploy_link');
+    expect(eventFamily('deploy_link.revoked')).toBe('deploy_link');
+  });
+});
