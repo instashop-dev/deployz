@@ -18,6 +18,7 @@ import {
   normalizeErrorText,
   readApplicationAnalysis,
   redactSecrets,
+  verdictFromReadiness,
   type AiGateway,
   type PassedCheck,
   type ReadinessFinding,
@@ -70,7 +71,7 @@ import {
   type ReadyCheck,
   type UnsupportedCheck,
 } from './analysis.js';
-import { buildFixInstructionsContext, readReadinessReport } from './fix-instructions.js';
+import { buildFixInstructionsContext, effectiveReadinessReport } from './fix-instructions.js';
 import {
   createCheckoutSession,
   createStripe,
@@ -828,6 +829,7 @@ function computeReadiness(app: {
   analysisStatus: string;
   compatibilityStatus: string | null;
   compatibilityReason: string | null;
+  containerPort: number | null;
   detectedMetadata: Record<string, unknown> | null;
 }): ReadinessResponse {
   if (app.analysisStatus !== 'COMPLETE') {
@@ -853,7 +855,7 @@ function computeReadiness(app: {
     typeof app.detectedMetadata?.['analysisCommitSha'] === 'string'
       ? (app.detectedMetadata['analysisCommitSha'] as string)
       : null;
-  const report = readReadinessReport(app.detectedMetadata);
+  const report = effectiveReadinessReport(app);
   const body = report
     ? {
         state: report.state as ReadinessState,
@@ -2494,6 +2496,19 @@ export async function buildServer({
         nextMetadata = { ...nextMetadata, vendorOverrides: [...overrides] };
       }
       set.detectedMetadata = nextMetadata;
+    }
+    // A port or start command the vendor sets (or clears) resolves (or
+    // restores) a readiness finding — keep the persisted verdict in step with
+    // the readiness page, which applies the same reconciliation on read.
+    if (existing.analysisStatus === 'COMPLETE' && (claimed.includes('containerPort') || manifestOnlyChanged)) {
+      const effective = effectiveReadinessReport({
+        containerPort: 'containerPort' in set ? (set.containerPort as number | null) : existing.containerPort,
+        detectedMetadata: nextMetadata,
+      });
+      if (effective) {
+        set.compatibilityStatus = verdictFromReadiness(effective.state);
+        set.compatibilityReason = effective.summary;
+      }
     }
     set.updatedBy = request.user?.id ?? null;
     const [row] = await db

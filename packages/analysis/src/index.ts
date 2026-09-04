@@ -98,8 +98,9 @@ export type {
   PassedCheck,
   ReadinessReport,
   ReadinessReportContext,
+  ReadinessResolution,
 } from './readiness-report.js';
-export { buildReadinessReport, verdictFromReadiness } from './readiness-report.js';
+export { buildReadinessReport, reconcileReadiness, verdictFromReadiness } from './readiness-report.js';
 
 export type { ManifestSource, ManifestReadinessContext } from './manifest.js';
 export { normalizeDeploymentManifest, evaluateManifestReadiness } from './manifest.js';

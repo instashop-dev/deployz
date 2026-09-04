@@ -3,7 +3,7 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { ReadinessResult, findingFixSections } from '../src/components/readiness-result';
-import type { ApplicationReadiness, ReadinessFinding } from '../src/lib/readiness';
+import type { ApplicationReadiness, DetectedApplication, ReadinessFinding } from '../src/lib/readiness';
 
 /**
  * Component/DOM tests for the deployment readiness checklist (§19).
@@ -47,6 +47,7 @@ function readiness(overrides: Partial<ApplicationReadiness> = {}): ApplicationRe
     findings: [],
     passed: [],
     analyzedCommitSha: '150f9e3abc',
+    detected: null,
     ...overrides,
   };
 }
@@ -318,5 +319,62 @@ describe('ReadinessResult — long passed list collapses', () => {
     expect(details?.querySelector('summary')?.textContent).toContain('Passed checks (7)');
     const list = details?.querySelector('[data-testid="readiness-passed-list"]');
     expect(list).not.toBeNull();
+  });
+});
+
+
+describe('ReadinessResult — what Deployz detected', () => {
+  const detected: DetectedApplication = {
+    analysisVersion: 13,
+    runtime: { value: 'node', source: 'dockerfile', confidence: 'confirmed', evidence: [{ file: 'Dockerfile', reason: 'Base image node:20-alpine in Dockerfile' }] },
+    framework: { value: 'express', source: 'package-manifest', confidence: 'confirmed', evidence: [{ reason: 'Framework detected: express' }] },
+    build: { value: null, source: 'none', confidence: 'needs_confirmation', evidence: [] },
+    start: { value: 'node dist/index.js', source: 'dockerfile', confidence: 'confirmed', evidence: [{ reason: 'CMD' }] },
+    network: {
+      port: { value: 3000, source: 'dockerfile', confidence: 'confirmed', evidence: [{ reason: 'Port 3000 detected in Dockerfile (EXPOSE)' }] },
+      bindAddress: { value: null, source: 'none', confidence: 'needs_confirmation', evidence: [] },
+    },
+    database: { required: true, type: 'postgres', confidence: 'confirmed', evidence: [{ reason: 'pg' }] },
+    redis: { required: false, detected: false, supported: true, confidence: 'needs_confirmation', purposes: [], evidence: [] },
+    storage: { persistentLocalRequired: false, objectStorageDetected: false, evidence: [] },
+    healthCheck: { detected: true, path: '/health', confidence: 'confirmed', evidence: [{ reason: 'route' }] },
+    migrations: { detected: false, command: null, tools: [], evidence: [] },
+    environmentVariables: [],
+  };
+
+  const doc = render(
+    readiness({
+      state: 'READY',
+      requiredCount: 0,
+      passed: [passed('dockerfile', 'Container setup found')],
+      detected,
+    }),
+  );
+
+  it('renders the detected facts after the checks with the values in plain words', () => {
+    const section = doc.querySelector('[data-testid="readiness-detected"]');
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain('What Deployz detected');
+    expect(orderOf(doc, 'readiness-detected')).toBeGreaterThan(orderOf(doc, 'readiness-passed-list'));
+    expect(orderOf(doc, 'readiness-detected')).toBeLessThan(orderOf(doc, 'readiness-commit'));
+    expect(doc.querySelector('[data-testid="readiness-detected-runtime"]')?.textContent).toContain('Node.js');
+    expect(doc.querySelector('[data-testid="readiness-detected-port"]')?.textContent).toContain('3000');
+    expect(doc.querySelector('[data-testid="readiness-detected-database"]')?.textContent).toContain(
+      'PostgreSQL — Deployz provides a managed database',
+    );
+    expect(doc.querySelector('[data-testid="readiness-detected-build"]')?.textContent).toContain('Not found');
+  });
+
+  it('keeps the evidence behind a disclosure and the top level jargon-free', () => {
+    const runtime = doc.querySelector('[data-testid="readiness-detected-runtime"]');
+    expect(runtime?.querySelector('details summary')?.textContent).toContain('Evidence');
+    expect(runtime?.querySelector('details')?.textContent).toContain('Base image node:20-alpine');
+    expect(doc.body.textContent).not.toMatch(/\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/i);
+    expect(doc.querySelector('[data-testid="readiness-detected-build"] details')).toBeNull();
+  });
+
+  it('is omitted when the analysis predates the projection', () => {
+    const legacy = render(readiness({ state: 'READY', requiredCount: 0, detected: null }));
+    expect(legacy.querySelector('[data-testid="readiness-detected"]')).toBeNull();
   });
 });

@@ -9,7 +9,13 @@ import {
 } from '@deployz/analysis';
 
 import { createFixtureAiGateway } from './ai-fixture.js';
-import { buildFixInstructionsContext, readReadinessReport, type FixInstructionsSource } from './fix-instructions.js';
+import {
+  buildFixInstructionsContext,
+  effectiveReadinessReport,
+  readReadinessReport,
+  readinessResolution,
+  type FixInstructionsSource,
+} from './fix-instructions.js';
 
 // Fix-instructions context assembly (apps/api/src/fix-instructions.ts) — turns
 // a persisted application row into the structured context
@@ -225,5 +231,51 @@ describe('fix-instructions — createFixtureAiGateway', () => {
     await expect(gateway.generate('prompt', fixInstructionsAiSchema, {})).rejects.toBeInstanceOf(
       AiGatewayNotAvailableError,
     );
+  });
+});
+
+
+describe('effectiveReadinessReport — vendor configuration resolves findings', () => {
+  const portFinding = finding({ id: 'port-unresolved', category: 'network', title: 'Tell Deployz which port your app listens on', confidence: 'confirmed' });
+  const startFinding = finding({ id: 'start-command-missing', category: 'container', title: 'Tell Deployz how to start your app', confidence: 'confirmed' });
+  const stored = report({ requiredCount: 2, findings: [portFinding, startFinding] });
+
+  it('reads the container port column and the manifest-only start command as the resolution', () => {
+    expect(
+      readinessResolution({ containerPort: 8080, detectedMetadata: { manifestOverrides: { startCommand: 'node x.js' } } }),
+    ).toEqual({ containerPort: 8080, startCommand: 'node x.js' });
+    expect(readinessResolution({ containerPort: null, detectedMetadata: { manifestOverrides: { startCommand: '' } } })).toEqual({
+      containerPort: null,
+      startCommand: null,
+    });
+    expect(readinessResolution({ containerPort: null, detectedMetadata: null })).toEqual({ containerPort: null, startCommand: null });
+  });
+
+  it('applies the resolution to the stored report without changing it', () => {
+    const metadata = { readiness: stored, manifestOverrides: { startCommand: 'node x.js' } };
+    const effective = effectiveReadinessReport({ containerPort: 8080, detectedMetadata: metadata });
+    expect(effective?.state).toBe('READY');
+    expect(effective?.findings).toEqual([]);
+    expect((metadata.readiness as ReadinessReport).findings).toHaveLength(2);
+    expect(effectiveReadinessReport({ containerPort: null, detectedMetadata: null })).toBeNull();
+  });
+
+  it('keeps a resolved finding out of the fix instructions', () => {
+    const source: FixInstructionsSource = {
+      repoFullName: 'acme/app',
+      containerPort: 8080,
+      healthPath: null,
+      migrationCommand: null,
+      redisRequired: false,
+      detectedMetadata: { readiness: stored },
+    };
+    const context = buildFixInstructionsContext(source);
+    expect(context?.findings.map((f) => f.id)).toEqual(['start-command-missing']);
+    expect(
+      buildFixInstructionsContext({
+        ...source,
+        detectedMetadata: { readiness: stored, manifestOverrides: { startCommand: 'node x.js' } },
+      }),
+    ).toBeNull();
   });
 });

@@ -1,4 +1,10 @@
-import type { FixInstructionsContext, ReadinessFinding, ReadinessReport } from '@deployz/analysis';
+import {
+  reconcileReadiness,
+  type FixInstructionsContext,
+  type ReadinessFinding,
+  type ReadinessReport,
+  type ReadinessResolution,
+} from '@deployz/analysis';
 
 // Fix-instructions context assembly — turns a persisted application row (the
 // merged analysis metadata plus the §35 contract fields, vendor overrides
@@ -24,6 +30,31 @@ export function readReadinessReport(
   return raw;
 }
 
+/**
+ * The vendor configuration that can resolve a finding without a repository
+ * change: the container port column and the manifest-only start command.
+ */
+export function readinessResolution(application: {
+  containerPort: number | null;
+  detectedMetadata: Record<string, unknown> | null;
+}): ReadinessResolution {
+  const overrides = application.detectedMetadata?.['manifestOverrides'] as Record<string, unknown> | undefined;
+  const startCommand = overrides?.['startCommand'];
+  return {
+    containerPort: application.containerPort,
+    startCommand: typeof startCommand === 'string' && startCommand.length > 0 ? startCommand : null,
+  };
+}
+
+/** The stored report with the vendor's configuration applied — what the page, the verdict and the fix instructions all read. */
+export function effectiveReadinessReport(application: {
+  containerPort: number | null;
+  detectedMetadata: Record<string, unknown> | null;
+}): ReadinessReport | null {
+  const report = readReadinessReport(application.detectedMetadata);
+  return report ? reconcileReadiness(report, readinessResolution(application)) : null;
+}
+
 function firstString(value: unknown): string | null {
   if (typeof value === 'string') return value;
   if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
@@ -43,7 +74,7 @@ export function buildFixInstructionsContext(
   application: FixInstructionsSource,
 ): FixInstructionsContext | null {
   const metadata = application.detectedMetadata;
-  const report = readReadinessReport(metadata);
+  const report = effectiveReadinessReport(application);
   if (!report || report.findings.length === 0) return null;
 
   const redis = metadata?.['redis'] as { required?: unknown } | undefined;
