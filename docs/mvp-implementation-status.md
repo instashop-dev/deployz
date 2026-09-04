@@ -1248,3 +1248,30 @@ product defect surfaced; none was fixed.
   the Phase 0 discipline; CI is authoritative.
 
 
+
+## Stage A — repository-compatibility audit (2026-09-04)
+
+The analysis pipeline (`runApplicationAnalysis` → deployment gate) was run
+against 100 pinned open-source repositories (80 improvement, 20 unseen) with
+expected facts written and independently re-verified per repository. Record:
+[`docs/testing/repository-compatibility/`](testing/repository-compatibility/README.md)
+— corpus (`benchmark.yaml`), findings COMP-001..038 (`findings.md`), runs, and
+the decision report (`final-report.md`). PRs #137, #138, #146, #147, #149,
+#153, #154, #163; analysis version 6 → 10.
+
+Outcome on the whole corpus at analysis version 10: 51 of 100 exact verdicts,
+73 of 100 on the deployable/not-deployable boundary, 12 false rejections of
+55 deployable repositories, 14 false acceptances of 45 rejected ones; 28
+analyser findings fixed with regression tests, 10 open. The MVP boundary
+(one container, PostgreSQL, optional Redis and S3, no separate worker
+process) is validated for 55 of 100 repositories and 38 of 59 realistic
+ones. Decisions the report ranks FIX_BEFORE_MVP: alias injected variable
+names to the app's own names on the configuration screen (product), and
+the analyser signals COMP-014 (boot-time migrations) and COMP-005 (health
+paths outside JS conventions); CONSIDER_FOR_MVP: generated values for
+secret-named required variables, env-schema reading (COMP-017), Redis
+optional-vs-required (COMP-011), default ports (COMP-030); DEFER:
+persistent volumes, a second worker process, repositories without a
+Dockerfile, MySQL; KEEP_UNSUPPORTED: multi-container stacks, SQLite,
+MongoDB, ClickHouse/H2, Kubernetes-native, IaC and cloud-specific
+deployments, GPU, message brokers.
