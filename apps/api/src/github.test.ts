@@ -706,6 +706,32 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
     expect(tree).toEqual({});
   });
+
+  it('drops a file whose blob content fetch THROWS rather than failing the whole analysis', async () => {
+    // A fetch seam that rejects — a network drop, or the benchmark snapshot
+    // fetch refusing an offline cache miss for one blob — must degrade to
+    // "file not present" exactly like an HTTP error does, not abort the tree
+    // build (repo-084 NangoHQ/nango offline crash).
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'package.json', type: 'blob', sha: 'sha-a', size: 10 },
+            { path: 'src/server.ts', type: 'blob', sha: 'sha-b', size: 10 },
+          ],
+        });
+      }
+      if (url.includes('/git/blobs/sha-a')) {
+        throw new Error('snapshot cache miss for acme/widgets blob sha-a (offline)');
+      }
+      return makeFetchResponse(200, {
+        content: Buffer.from('content-b').toString('base64'),
+        encoding: 'base64',
+      });
+    };
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+    expect(tree).toEqual({ 'src/server.ts': 'content-b' });
+  });
 });
 
 // Task 6: commit-SHA analysis cache — resolves the branch head sha so

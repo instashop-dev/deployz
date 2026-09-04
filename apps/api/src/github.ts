@@ -862,14 +862,24 @@ async function fetchBlobContent(
   fetchFn: FetchFn,
 ): Promise<string | null> {
   const url = `${GITHUB_API_BASE}/repos/${ref.owner}/${ref.repo}/git/blobs/${sha}`;
-  const response = await fetchFn(url, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${installationToken}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
+  let response: Awaited<ReturnType<FetchFn>>;
+  try {
+    response = await fetchFn(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${installationToken}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+  } catch {
+    // A fetch seam that throws — a network drop, or the benchmark snapshot
+    // fetch refusing an offline cache miss — leaves this one blob as
+    // unreadable as an HTTP error does. A single unreadable file should not
+    // fail the whole analysis — the detectors treat a missing key as "not
+    // present", which is the correct degraded behaviour here too.
+    return null;
+  }
   if (response.status < 200 || response.status >= 300) {
     // A single unreadable file should not fail the whole analysis — the
     // detectors treat a missing key as "not present", which is the correct

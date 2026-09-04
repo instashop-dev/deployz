@@ -1417,7 +1417,15 @@ const DATABASE_VOLUME_REGEX = /(?:database|\bdb\b|sqlite|postgres|pgdata|mysql|m
 // and customisation directories the operator fills before start (themes,
 // plugins, certificates) carry no state the app writes at runtime.
 const NON_STATE_MOUNT_REGEX =
-  /:ro$|\.sock(?::|$)|[^/]\.[a-z]{2,5}(?::[a-z]+)?$|\/(?:custom|config|conf|plugins?|themes?|certs?|ssl|secrets?|extensions?|addons?)\/?(?::[a-z]+)?$/i;
+  /:ro$|\.sock(?::|$)|[^/]\.[a-z]{2,5}(?::[a-z]+)?$|\.env(?::[a-z]+)?$|\/(?:custom|config|conf|plugins?|themes?|certs?|ssl|secrets?|extensions?|addons?)\/?(?::[a-z]+)?$/i;
+// Container-side paths that hold only transient state — logs, caches, search
+// indexes and temp dirs. A volume mounted there is a log/cache volume, not
+// durable application data: a cache write, a temp file, a generated asset and
+// a log line are all lost harmlessly (the same boundary the write-call rule
+// draws above). Named volumes whose container path is `/tmp/…`, `…/logs`,
+// `…/cache`, `…/.cache` or a search/index dir are not durable app state.
+const EPHEMERAL_CONTAINER_PATH_REGEX =
+  /^\/(?:tmp|var\/tmp)\b|\/(?:logs?|log|cache|\.cache|search|indexes?|sessions?|run|var\/run)(?:\/|$)/i;
 
 /**
  * Detect durable local-disk state the image declares (Dockerfile VOLUME, a
@@ -1434,6 +1442,9 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
     const paths = raw.startsWith('[') ? raw.match(/"([^"]+)"/g)?.map((p) => p.slice(1, -1)) ?? [] : raw.split(/\s+/);
     for (const volume of paths) {
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
+      // A VOLUME for logs/caches/tmp (`VOLUME /tmp/…`, `VOLUME /…/cache`) is
+      // transient state, not durable application data.
+      if (EPHEMERAL_CONTAINER_PATH_REGEX.test(volume)) continue;
       detected.push(`VOLUME ${volume} (${dockerfile?.path})`);
     }
   }
@@ -1447,6 +1458,11 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
       // carries project files, not state written at runtime.
       const source = volume.includes(':') ? volume.slice(0, volume.indexOf(':')).replace(/^\.\//, '') : null;
       if (source && !source.startsWith('/') && Object.keys(tree).some((path) => path.startsWith(`${source}/`))) continue;
+      // The container-side mount target decides what the volume holds — a
+      // named volume at `/tmp/…`, `…/logs`, `…/cache` or `…/.cache` is a
+      // log/cache volume (transient), not durable app data.
+      const target = volume.includes(':') ? volume.slice(volume.indexOf(':') + 1).replace(/:(?:rw|ro|z|Z)+$/, '') : volume;
+      if (EPHEMERAL_CONTAINER_PATH_REGEX.test(target)) continue;
       detected.push(`volume ${volume} (${compose?.file} ${service.name})`);
     }
   }

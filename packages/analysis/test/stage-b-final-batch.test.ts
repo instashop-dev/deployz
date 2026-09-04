@@ -122,6 +122,133 @@ describe('COMP-025 — explicit durable data directory', () => {
     };
     expect(rejectedDependency(tree, 'local-filesystem')).toBeUndefined();
   });
+
+  // A config dir selected with a MULTILINE fallback (gethomepage/homepage)
+  // and an app state home read as an env var (thelounge) both declare a
+  // durable directory the same way an inline default does — COMP-025 must not
+  // depend on the default sitting on the same line as the read.
+  it('rejects a config dir read with a multiline local default (homepage)', () => {
+    const tree: FileTree = {
+      'package.json': JSON.stringify({ name: 'homepage', scripts: { start: 'node dist/index.js' } }),
+      'src/utils/config/config.js': [
+        'import { join } from "path";',
+        'export const CONF_DIR = process.env.HOMEPAGE_CONFIG_DIR',
+        '  ? process.env.HOMEPAGE_CONFIG_DIR',
+        '  : join(process.cwd(), "config");',
+        '',
+      ].join('\n'),
+      'Dockerfile': 'FROM node:20-alpine\nCMD ["node", "dist/index.js"]\n',
+    };
+    const reason = rejectedDependency(tree, 'local-filesystem');
+    expect(reason).toContain('HOMEPAGE_CONFIG_DIR');
+  });
+
+  it('rejects an app state home read as an env var (thelounge)', () => {
+    const tree: FileTree = {
+      'package.json': JSON.stringify({ name: 'thelounge', scripts: { start: 'node index.js' } }),
+      'server/command-line/index.ts': 'Config.setHome(process.env.THELOUNGE_HOME || Utils.defaultHome());\n',
+    };
+    const reason = rejectedDependency(tree, 'local-filesystem');
+    expect(reason).toContain('THELOUNGE_HOME');
+  });
+
+  it('rejects a durable work dir the selected image names in its ENV (halo)', () => {
+    const tree: FileTree = {
+      'Dockerfile': [
+        'FROM eclipse-temurin:21-jre',
+        'ENV JVM_OPTS="" \\',
+        '    HALO_WORK_DIR="/root/.halo2" \\',
+        '    TZ=Asia/Shanghai',
+        'EXPOSE 8090',
+        '',
+      ].join('\n'),
+      'package.json': JSON.stringify({ name: 'halo', scripts: { start: 'node index.js' } }),
+    };
+    const reason = rejectedDependency(tree, 'local-filesystem');
+    expect(reason).toContain('HALO_WORK_DIR');
+  });
+
+  // Build-tool search paths and relative tool directories are not durable app
+  // state: a variable name alone never fires, only a durable-dir name with a
+  // local value or read.
+  it('ignores a pkg-config search path in a non-selected Dockerfile variant', () => {
+    const tree: FileTree = {
+      'Dockerfile': 'FROM ubuntu\nCMD ["node", "server.js"]\n',
+      'docker/Dockerfile.s390x': 'FROM ubuntu\nENV PKG_CONFIG_PATH=/opt/rh/gcc-toolset-14/root/usr/lib64/pkgconfig\n',
+    };
+    expect(rejectedDependency(tree, 'local-filesystem')).toBeUndefined();
+  });
+
+  it('ignores a relative user-data directory read for an optional tool', () => {
+    const tree: FileTree = {
+      'package.json': JSON.stringify({ name: 'dashy', scripts: { start: 'node server.js' } }),
+      'services/endpoints/save-config.js': "const userDataDirectory = process.env.USER_DATA_DIR || './user-data/';\n",
+    };
+    expect(rejectedDependency(tree, 'local-filesystem')).toBeUndefined();
+  });
+});
+
+// COMP-024 precision — a Dockerfile VOLUME / compose mount for LOGS, CACHES or
+// a single-file config mount is transient state, not durable app data. The
+// same boundary the write-call rule draws ("a cache write, a temp file, a
+// generated asset, a log line is not state the app needs back") applies to
+// the VOLUME/mount evidence itself.
+describe('COMP-024 — ephemeral and config mounts are not durable state', () => {
+  it('ignores a compose volume mounted at a log/cache path (windmill worker logs)', () => {
+    const tree: FileTree = {
+      'Dockerfile': 'FROM rust:1.80\nCMD ["windmill"]\n',
+      'docker-compose.yml': [
+        'services:',
+        '  windmill_worker:',
+        '    image: windmill',
+        '    volumes:',
+        '      - worker_logs:/tmp/windmill/logs',
+        '      - worker_dependency_cache:/tmp/windmill/cache',
+        '      - lsp_cache:/pyls/.cache',
+        'volumes:',
+        '  worker_logs:',
+        '  worker_dependency_cache:',
+        '  lsp_cache:',
+        '',
+      ].join('\n'),
+    };
+    const analysis = analyseRepo(tree);
+    expect(analysis.findings.find((f) => f.detector === 'local-filesystem')).toMatchObject({ detected: false });
+  });
+
+  it('ignores a single-file `.env` config mount (hedgedoc)', () => {
+    const tree: FileTree = {
+      'Dockerfile': 'FROM node:20-alpine\nCMD ["node", "dist/main.js"]\n',
+      'docker-compose.yml': [
+        'services:',
+        '  backend:',
+        '    build: .',
+        '    volumes:',
+        '      - ./.env:/usr/src/app/backend/.env',
+        '',
+      ].join('\n'),
+    };
+    const analysis = analyseRepo(tree);
+    expect(analysis.findings.find((f) => f.detector === 'local-filesystem')).toMatchObject({ detected: false });
+  });
+
+  it('still detects a genuine data volume (changedetection /datastore)', () => {
+    const tree: FileTree = {
+      'Dockerfile': 'FROM python:3.11\nCMD ["python", "./changedetection.py", "-d", "/datastore"]\n',
+      'docker-compose.yml': [
+        'services:',
+        '  changedetection:',
+        '    image: ghcr.io/dgtlmoon/changedetection.io',
+        '    volumes:',
+        '      - changedetection-data:/datastore',
+        'volumes:',
+        '  changedetection-data:',
+        '',
+      ].join('\n'),
+    };
+    const analysis = analyseRepo(tree);
+    expect(analysis.findings.find((f) => f.detector === 'local-filesystem')).toMatchObject({ detected: true });
+  });
 });
 
 // ==========================================================================
