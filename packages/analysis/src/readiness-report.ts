@@ -284,7 +284,6 @@ function rejectionCopy(dependency: string): RejectionCopy {
   }
   if (dependency === 'docker-compose-multi-service') return MULTI_SERVICE_COPY;
   if (dependency === 'persistent-volume' || dependency === 'local-filesystem') return STORAGE_COPY;
-  if (dependency === 'missing-copy-source') return ARCHITECTURE_COPY;
   if (dependency === 'gpu') return GPU_COPY;
   if (
     dependency === 'kubernetes' ||

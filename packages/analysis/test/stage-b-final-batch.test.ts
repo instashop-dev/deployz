@@ -10,21 +10,19 @@ function rejectedDependency(tree: FileTree, dependency: string): string | undefi
 }
 
 // ==========================================================================
-// COMP-021 — Dockerfile copies an artifact the repository does not contain
+// COMP-021 regression guard — documented limitation
 // ==========================================================================
 
-describe('COMP-021 — missing COPY source', () => {
-  it('rejects a Dockerfile that COPYs a path absent from the tree', () => {
+describe('COMP-021 regression guard — missing COPY source does NOT reject', () => {
+  it('keeps a repo whose Dockerfile COPYs an absent source deployable (capped tree makes absence unsound)', () => {
     const tree: FileTree = {
       'Dockerfile': 'FROM node:20-alpine\nCOPY listmonk .\nCMD ["listmonk"]\n',
       'package.json': JSON.stringify({ name: 'x', scripts: { start: 'node index.js' } }),
     };
-    const reason = rejectedDependency(tree, 'missing-copy-source');
-    expect(reason).toContain('listmonk');
-    expect(reason).toContain('not in the repository');
+    expect(rejectedDependency(tree, 'missing-copy-source')).toBeUndefined();
   });
 
-  it('ignores multi-stage COPY --from= and generated-artifact directories', () => {
+  it('never rejects multi-stage COPY --from= or generated-artifact directories', () => {
     const tree: FileTree = {
       'Dockerfile': [
         'FROM golang:1.22 AS build',
@@ -38,15 +36,6 @@ describe('COMP-021 — missing COPY source', () => {
         '',
       ].join('\n'),
       'main.go': 'package main\n',
-    };
-    expect(rejectedDependency(tree, 'missing-copy-source')).toBeUndefined();
-  });
-
-  it('leaves a legitimate Dockerfile alone (sources exist)', () => {
-    const tree: FileTree = {
-      'Dockerfile': 'FROM node:20-alpine\nCOPY package.json .\nCOPY src ./src\nCMD ["node", "src/index.js"]\n',
-      'package.json': '{}',
-      'src/index.js': 'console.log("hi");\n',
     };
     expect(rejectedDependency(tree, 'missing-copy-source')).toBeUndefined();
   });

@@ -52,7 +52,6 @@ import {
   checkAzure,
   checkGcp,
   checkGpu,
-  checkMissingCopySource,
   checkExplicitPersistentDataDir,
   checkRequiredThirdPartyService,
 } from './rejection.js';
@@ -129,7 +128,6 @@ const REJECTION_CHECKS = [
   checkAzure,
   checkGcp,
   checkGpu,
-  checkMissingCopySource,
   checkExplicitPersistentDataDir,
   checkRequiredThirdPartyService,
 ] as const;

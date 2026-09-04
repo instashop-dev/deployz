@@ -730,49 +730,6 @@ export function checkGpu(tree: FileTree): RejectionFinding {
 
 // ── Stage B final batch (COMP-021 / COMP-025 / COMP-031) ─────────────────────
 
-/** Directories that hold generated build output — never checked-in COPY sources. */
-const GENERATED_DIR_REGEX = /(?:^|\/)(?:dist|build|target|out|\.next|vendor|node_modules|coverage|public|\.cache)(?:\/|$)/;
-
-/**
- * COMP-021 — the selected Dockerfile COPYs/ADDs a source path absent from the
- * repository (and not produced build output): `docker build` of this snapshot
- * fails, so the app is not actually deployable. Multi-stage `COPY --from=`
- * and generated-artifact directories are never flagged.
- */
-export function checkMissingCopySource(tree: FileTree): RejectionFinding {
-  const dockerfilePath = listDockerfileCandidates(tree)[0];
-  if (dockerfilePath === undefined) {
-    return { detected: false, dependency: 'none', reason: 'No Dockerfile to check' };
-  }
-  const content = tree[dockerfilePath] ?? '';
-  const lineRegex = /^(?:COPY|ADD)\s+(.+)$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = lineRegex.exec(content)) !== null) {
-    const args = (match[1] ?? '').trim().split(/\s+/);
-    if (args[0]?.startsWith('--from=')) continue; // multi-stage stage copy
-    const tokens = args.filter((token) => token.length > 0 && !token.startsWith('--'));
-    const destination = tokens[tokens.length - 1];
-    if (destination === undefined) continue;
-    for (const source of tokens.slice(0, -1)) {
-      if (source === '.') continue;
-      // Globs (`package*.json`) and URLs cannot be checked against the tree.
-      if (source.includes('*') || source.startsWith('http://') || source.startsWith('https://')) continue;
-      if (GENERATED_DIR_REGEX.test(source)) continue;
-      const present = Object.keys(tree).some(
-        (path) => path === source || path.startsWith(`${source}/`) || path.endsWith(`/${source}`),
-      );
-      if (!present) {
-        return {
-          detected: true,
-          dependency: 'missing-copy-source',
-          reason: `Unsupported infrastructure: the image build would fail — ${dockerfilePath} copies "${source}" which is not in the repository.`,
-        };
-      }
-    }
-  }
-  return { detected: false, dependency: 'none', reason: 'Every Dockerfile COPY/ADD source exists in the repository' };
-}
-
 /**
  * COMP-025 — an app that EXPLICITLY declares durable local state through a
  * data/config directory variable (a `*_DATA_DIR` / `*_CONFIG_DIR` /
