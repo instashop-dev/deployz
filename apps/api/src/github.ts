@@ -960,7 +960,7 @@ export async function buildFileTreeForAnalysis(
 // Phase 14 adds three fixture trees that only ever appear as
 // repoFullName-driven analysis targets (NOT in GITHUB_FIXTURE_INSTALLATIONS,
 // so the repo picker never offers them): config-required-app is
-// express-api's shape plus a genuine required env var (SESSION_SECRET read
+// express-api's shape plus a genuine required env var (STRIPE_SECRET_KEY read
 // with no fallback) — the §11.2 missing-required-config gate fires at
 // deployment creation until the vendor enters a value; mongodb-app is the
 // same READY shape plus a mongoose dependency, so its only blocker is the
@@ -1152,7 +1152,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   },
   // Express-api's exact READY shape (Dockerfile + HEALTHCHECK + /health +
   // Postgres + migration script) plus one genuine required env var: the code
-  // READS SESSION_SECRET with no fallback and no guard, and the sample file
+  // READS STRIPE_SECRET_KEY (an external vendor credential, never auto-generated) with no fallback
   // only declares it (no usable default). Analysis-level readiness stays READY
   // (required env values are unknowable to the analyser); the §11.2
   // deployment-creation gate refuses MANIFEST_NEEDS_CONFIGURATION until the
@@ -1180,7 +1180,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       // A required read: no `??`/`||` fallback, no presence guard. The app
       // cannot start without a signing secret, so the var is genuinely
       // required (detectEnvVarModel's narrow rule).
-      'const signingKey = process.env.SESSION_SECRET;',
+      'const signingKey = process.env.STRIPE_SECRET_KEY;',
       'function sign(value: string): string {',
       '  return crypto.createHmac("sha256", signingKey).update(value).digest("hex");',
       '}',
@@ -1188,7 +1188,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       'app.listen(process.env.PORT || 3000);',
       '',
     ].join('\n'),
-    '.env.example': 'DATABASE_URL=\nSESSION_SECRET=\n',
+    '.env.example': 'DATABASE_URL=\nSTRIPE_SECRET_KEY=\n',
   },
   // The same otherwise-READY express-api shape with a mongoose dependency —
   // a MongoDB app whose ONLY blocker is the unsupported database. Used by
@@ -1301,3 +1301,6 @@ export async function getFileTreeForAnalysis(
     opts.fetchFn,
   );
 }
+
+
+

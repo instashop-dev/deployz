@@ -62,8 +62,10 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
 
   // The fixture repo (deployz-demo/express-api) analyses as fully READY —
   // analysis completes near-instantly in fixture mode, so the page renders
-  // the real verdict, not the pending state.
-  await expect(page.getByText('Ready to deploy')).toBeVisible();
+  // the real verdict, not the pending state. Phase 11 shows the verdict as a
+  // status card heading and again inside the readiness summary, so target the
+  // unique heading.
+  await expect(page.getByRole('heading', { name: 'Ready to deploy' })).toBeVisible();
   await expect(page.getByTestId('readiness-summary')).toHaveText(
     'Your application passed all required deployment checks.',
   );

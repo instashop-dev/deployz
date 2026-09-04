@@ -144,7 +144,9 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   // is the real §18/§19 analyser run against the fixture file tree.
   await page.goto(`/dashboard/applications/${applicationId}`);
   await expect(page.getByTestId('readiness-verdict')).toBeVisible();
-  await expect(page.getByText('Ready to deploy')).toBeVisible();
+  // Phase 11 shows the verdict as a card heading and again inside the summary —
+  // target the unique heading.
+  await expect(page.getByRole('heading', { name: 'Ready to deploy' })).toBeVisible();
   // bullmq usage with no resolved worker start script is a recommended
   // finding ("Background job runner") — recommended findings never block
   // READY (packages/analysis/src/readiness-report.ts), so the state reads as
@@ -157,18 +159,10 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
       .getByTestId('readiness-recommended-list')
       .getByText('Background job runner', { exact: true }),
   ).toBeVisible();
-  // Short passed lists render inline; longer ones collapse behind a count.
-  const passedGroup = page.getByTestId('readiness-passed');
-  const passedSummary = passedGroup.locator('summary');
-  if ((await passedSummary.count()) > 0) {
-    await passedSummary.click();
-  }
-  // Copy per packages/analysis/src/readiness-report.ts's PASSED_LABELS.redis.
-  await expect(
-    passedGroup.getByText('Redis detected — provisioned automatically on install', {
-      exact: true,
-    }),
-  ).toBeVisible();
+  // Phase 11 replaced the verbose passed-checks list with a progress summary
+  // (all required checks pass; only the recommended worker finding remains),
+  // so the deployable state is asserted through the summary bar instead.
+  await expect(page.getByRole('progressbar', { name: /checks passed/ })).toBeVisible();
 
   // ── 3. Create a customer + deployment for this application, then open the
   // install link page: the "Deployz will create" list includes a Redis cache
