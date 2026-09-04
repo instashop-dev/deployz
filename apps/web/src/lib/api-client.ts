@@ -8,6 +8,8 @@ export class ApiRequestError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    /** The envelope's structured `details` (readiness findings, validation issues), when the server sent any. */
+    readonly details: unknown = undefined,
   ) {
     super(message);
     this.name = 'ApiRequestError';
@@ -32,10 +34,11 @@ export async function apiRequest<T>(
 
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    const envelope = payload as { error?: { code?: string; message?: string } } | null;
+    const envelope = payload as { error?: { code?: string; message?: string; details?: unknown } } | null;
     throw new ApiRequestError(
       envelope?.error?.code ?? 'REQUEST_FAILED',
       envelope?.error?.message ?? 'Something went wrong. Try again in a moment.',
+      envelope?.error?.details,
     );
   }
   return payload as T;
