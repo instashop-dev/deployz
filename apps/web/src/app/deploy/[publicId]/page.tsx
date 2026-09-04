@@ -224,6 +224,7 @@ export default async function DeployPage({
           initialDomain={data.domain}
           routingTarget={data.routingTarget}
           preinstall
+          awaitingLaunch
           deployLink={deployLink}
         />
 
