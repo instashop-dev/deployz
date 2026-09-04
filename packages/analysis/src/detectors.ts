@@ -1556,8 +1556,26 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
           /^\s*\?/.test(tail) ||
           /!\s*[A-Za-z_$][\w$.:]*$/.test(head) ||
           /(?:&&|\|\|)\s*[A-Za-z_$][\w$.:]*$/.test(head) ||
+          // A boolean chain or coercion tests presence: `Boolean(process.env.A
+          // && process.env.B)`, `!!process.env.A`, `enabled = process.env.A && …`.
+          /^\s*&&/.test(tail) ||
+          /&&\s*$/.test(head) ||
+          /(?:Boolean\s*\(|!!)\s*$/.test(head) ||
           inConditional;
-        recordRead(key, !hasFallback && !isGuard, path);
+        // A non-secret read stored as-is (`const url = process.env.X;`,
+        // `host: process.env.X,`) proves nothing about need — the consumer
+        // decides later. It is required only when the code then refuses to
+        // run without it: `if (!url) throw …`. A secret-named variable stays
+        // required on a bare read: a missing credential is a boot failure,
+        // an unset option is a default (Stage A COMP-023).
+        const assignedName = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*$/.exec(head)?.[1];
+        const isBareAssignment = /[=:]\s*$/.test(head) && /^\s*(?:[;,)}\]]|$)/.test(tail) && !isSecretName(key);
+        const throwGuarded =
+          isBareAssignment &&
+          new RegExp(
+            `if\\s*\\(\\s*!\\s*(?:process\\.env\\.${key}${assignedName ? `|${assignedName}` : ''})\\b[^)]*\\)\\s*\\{?\\s*throw\\b`,
+          ).test(content);
+        recordRead(key, !hasFallback && !isGuard && (!isBareAssignment || throwGuarded), path);
       }
     } else if (/schema\.prisma$/i.test(path)) {
       const envRegex = /env\(\s*["']([A-Z_][A-Z0-9_]*)["']\s*\)/g;

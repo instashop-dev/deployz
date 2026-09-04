@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
-  "analysisVersion": 7,
+  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
+  "analysisVersion": 8,
   "tree": {
     "files": 70,
     "entries": 258,
@@ -33,9 +33,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -59,18 +59,11 @@
     "requiredEnvVars": [
       "ADMIN_EMAILS"
     ],
-    "unsupported": [
-      "mysql",
-      "sqlite"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-database-mysql",
-      "unsupported-database-sqlite",
       "worker-command"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
@@ -81,9 +74,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -144,25 +136,11 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "mysql",
-        "sqlite"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-002",
-        "type": "ANALYSIS_BUG"
-      }
-    },
     {
       "fact": "redis",
       "kind": "fact",
@@ -181,19 +159,6 @@
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "mysql",
-        "sqlite"
-      ],
-      "finding": {
-        "id": "COMP-002",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

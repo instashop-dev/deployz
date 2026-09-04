@@ -60,7 +60,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // checks and non-JS routes, Dockerfile ranking, migration-command resolution
 // by value, and the tree-fetch priority — stored ports, health paths and
 // NEEDS_CONFIGURATION verdicts from Version 6 must re-run.
-export const ANALYSIS_VERSION = 7;
+// Version 8 is the Stage A rejection-precision batch (COMP-002, 008, 009,
+// 011, 019): a configurable SQL engine, an uncorroborated broker client, a
+// distroless base image, a one-shot Compose service, a variant/dev Compose
+// file or a guarded Redis client, and a conditional cluster client no longer
+// reject or provision — stale NOT_COMPATIBLE verdicts and `redisRequired`
+// flags from Version 7 must re-run.
+export const ANALYSIS_VERSION = 8;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

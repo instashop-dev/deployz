@@ -12,6 +12,15 @@ import {
   detectStartupCommand,
 } from '../src/detectors.js';
 import { evaluateManifestReadiness, normalizeDeploymentManifest } from '../src/manifest.js';
+import { assessRedis } from '../src/redis.js';
+import {
+  checkDockerComposeMultiService,
+  checkGcp,
+  checkKafka,
+  checkMysql,
+  checkRabbitMq,
+  checkSqlite,
+} from '../src/rejection.js';
 
 // Stage A regression fixtures — each describes a shape found in the
 // repository-compatibility audit (docs/testing/repository-compatibility/
@@ -241,7 +250,7 @@ describe('COMP-016 — platform and tooling variables are never required', () =>
         'export const env = process.env.NODE_ENV;',
         'export const port = process.env.PORT;',
         'export const vercel = process.env.VERCEL;',
-        'export const secret = process.env.APP_SECRET;',
+        'export const secret = hash(process.env.APP_SECRET);',
         '',
       ].join('\n'),
     };
@@ -260,7 +269,7 @@ describe('COMP-017 — reads that carry their own default', () => {
         'const url = process.env.NEXT_PRIVATE_DATABASE_URL ?? process.env.POSTGRES_URL;',
         "const secret = process.env.UNLEASH_SECRET || 'super-secret';",
         'const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-01-01" });',
-        'const salt = process.env.ACCESS_TOKEN_SALT;',
+        'const salt = createHash(process.env.ACCESS_TOKEN_SALT);',
         '',
       ].join('\n'),
     };
@@ -268,6 +277,36 @@ describe('COMP-017 — reads that carry their own default', () => {
     // A `??` chain of two variables requires one of them — the model cannot
     // say which, so it fails open and requires neither.
     expect(required).toEqual(['ACCESS_TOKEN_SALT', 'API_URL', 'STRIPE_SECRET_KEY']);
+  });
+});
+
+describe('COMP-023 — a bare read stored in configuration is optional unless the code refuses to run without it', () => {
+  it('treats assignments and property values as optional, and a throw-guarded one as required', () => {
+    const tree: FileTree = {
+      'src/lib/create-config.ts': [
+        'const defaultServerOption = {',
+        '  host: process.env.HTTP_HOST,',
+        '  cdnPrefix: process.env.CDN_PREFIX,',
+        '};',
+        'const openAIAPIKey = process.env.OPENAI_API_KEY;',
+        'export const KAFKA_URL = process.env.KAFKA_URL;',
+        'const secret = process.env.JWT_SECRET;',
+        'if (!secret) {',
+        "  throw new Error('JWT_SECRET is not set');",
+        '}',
+        'const url = process.env.WEBHOOK_URL;',
+        "if (!process.env.WEBHOOK_URL) throw new Error('WEBHOOK_URL is required');",
+        'const brokers = process.env.KAFKA_BROKERS.split(",");',
+        'const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);',
+        'const kafkaEnabled = Boolean(process.env.KAFKA_URL && process.env.KAFKA_BROKER);',
+        'const clickhouseEnabled = !!process.env.CLICKHOUSE_URL;',
+        '',
+      ].join('\n'),
+    };
+    const required = detectEnvVarModel(tree).filter((v) => v.required).map((v) => v.key);
+    // OPENAI_API_KEY is secret-named, so its bare read stays required;
+    // HTTP_HOST, CDN_PREFIX and KAFKA_URL are options with no such claim.
+    expect(required).toEqual(['JWT_SECRET', 'KAFKA_BROKERS', 'OPENAI_API_KEY', 'STRIPE_SECRET_KEY', 'WEBHOOK_URL']);
   });
 });
 
@@ -317,5 +356,150 @@ describe('COMP-006 / COMP-020 — the manifest never carries a detector label, a
       expect(manifest.application.root).toBe('.');
     }
     expect(normalizeDeploymentManifest({ metadata: { dockerfilePath: 'apps/api/Dockerfile' } }, {}).application.root).toBe('apps/api');
+  });
+});
+
+describe('COMP-002 — optional or configurable dependencies are not architecture', () => {
+  it('does not reject a SQL engine driver declared next to a PostgreSQL driver', () => {
+    const kutt: FileTree = {
+      'package.json': JSON.stringify({
+        dependencies: { express: '^4.19.0', knex: '^3.0.0', pg: '^8.12.0', 'better-sqlite3': '^11.0.0', mysql2: '^3.0.0' },
+      }),
+    };
+    expect(checkSqlite(kutt).detected).toBe(false);
+    expect(checkMysql(kutt).detected).toBe(false);
+
+    const gatus: FileTree = {
+      'go.mod': 'module gatus\n\nrequire (\n\tgithub.com/lib/pq v1.10.9\n\tmodernc.org/sqlite v1.29.0\n)\n',
+    };
+    expect(checkSqlite(gatus).detected).toBe(false);
+  });
+
+  it('still rejects a lone SQLite or MySQL driver, and an explicit non-PostgreSQL Prisma provider', () => {
+    expect(checkSqlite({ 'package.json': JSON.stringify({ dependencies: { 'better-sqlite3': '^11.0.0' } }) }).detected).toBe(true);
+    // knex is dialect-agnostic: it does not make a SQLite app configurable.
+    expect(
+      checkSqlite({ 'package.json': JSON.stringify({ dependencies: { knex: '^3.0.0', 'better-sqlite3': '^11.0.0' } }) }).detected,
+    ).toBe(true);
+    expect(checkMysql({ 'package.json': JSON.stringify({ dependencies: { mysql2: '^3.0.0' } }) }).detected).toBe(true);
+    const prismaMysql: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { '@prisma/client': '^5.0.0', pg: '^8.12.0' } }),
+      'prisma/schema.prisma': 'datasource db {\n  provider = "mysql"\n}\n',
+    };
+    expect(checkMysql(prismaMysql).detected).toBe(true);
+  });
+
+  it('rejects a broker client only with a production Compose service or a required connection variable', () => {
+    const optional: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { kafkajs: '^2.1.0', pg: '^8.12.0' } }),
+      'src/lib/kafka.ts': 'if (process.env.KAFKA_URL) {\n  producer = new Kafka({ brokers: [process.env.KAFKA_URL] });\n}\n',
+    };
+    expect(checkKafka(optional).detected).toBe(false);
+
+    const required: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { kafkajs: '^2.1.0' } }),
+      'src/consumer.ts': "const brokers = process.env.KAFKA_BROKERS.split(',');\n",
+    };
+    expect(checkKafka(required).detected).toBe(true);
+    // A presence test in an unrelated file does not excuse an unconditional consumer.
+    expect(
+      checkKafka({ ...required, 'src/metrics.ts': 'if (process.env.KAFKA_BROKERS) { report(); }\n' }).detected,
+    ).toBe(true);
+
+    const composed: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { amqplib: '^0.10.0' } }),
+      'docker-compose.yml': 'services:\n  app:\n    build: .\n  rabbitmq:\n    image: rabbitmq:3-management\n',
+    };
+    expect(checkRabbitMq(composed).detected).toBe(true);
+    expect(checkRabbitMq({ 'package.json': JSON.stringify({ dependencies: { amqplib: '^0.10.0' } }) }).detected).toBe(false);
+  });
+});
+
+describe('COMP-008 — a distroless base image is not a Google Cloud deployment', () => {
+  it('ignores gcr.io/distroless but still flags another gcr.io base', () => {
+    expect(checkGcp({ 'packaging/docker/distroless/Dockerfile': 'FROM gcr.io/distroless/base-debian13:nonroot\n' }).detected).toBe(false);
+    expect(checkGcp({ Dockerfile: 'FROM gcr.io/my-project/base:latest\n' }).detected).toBe(true);
+  });
+});
+
+describe('COMP-009 — Compose service counting', () => {
+  it('ignores one-shot services other services wait on, and example directories', () => {
+    const flagsmith: FileTree = {
+      'docker-compose.yml': [
+        'services:',
+        '  postgres:',
+        '    image: postgres:15.5-alpine',
+        '  migrate-db:',
+        '    image: flagsmith/flagsmith:latest',
+        '    command: [migrate]',
+        '  flagsmith:',
+        '    image: flagsmith/flagsmith:latest',
+        '    depends_on:',
+        '      migrate-db:',
+        '        condition: service_completed_successfully',
+        '',
+      ].join('\n'),
+    };
+    expect(checkDockerComposeMultiService(flagsmith).detected).toBe(false);
+    expect(
+      checkDockerComposeMultiService({
+        '.examples/docker-compose-grafana/compose.yaml': 'services:\n  gatus:\n    image: twinproduction/gatus\n  grafana:\n    image: grafana/grafana\n',
+      }).detected,
+    ).toBe(false);
+  });
+});
+
+describe('COMP-011 — Redis evidence from Compose files and guarded clients', () => {
+  it('counts only the primary production Compose file as strong evidence', () => {
+    const variants: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { express: '^4.19.0' } }),
+      'docker-compose.yml': 'services:\n  server:\n    build: .\n',
+      'docker-compose.postgres.yml': 'services:\n  server:\n    build: .\n  redis:\n    image: redis:alpine\n',
+      'test/manual/compose.yaml': 'services:\n  redis:\n    image: redis:latest\n',
+    };
+    const assessment = assessRedis(variants);
+    expect(assessment.required).toBe(false);
+    expect(assessment.confidence).toBe('low');
+    expect(assessment.evidence).toEqual([expect.stringContaining('variant')]);
+
+    const primary: FileTree = {
+      'docker/docker-compose.yml': 'services:\n  immich-server:\n    image: immich\n  redis:\n    image: docker.io/valkey/valkey:9\n',
+    };
+    expect(assessRedis(primary).required).toBe(true);
+  });
+
+  it('treats a client built behind a configuration guard as optional', () => {
+    const kutt: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { ioredis: '^5.0.0' } }),
+      'server/redis.js': 'const Redis = require("ioredis");\nlet client;\nif (env.REDIS_ENABLED) {\n  client = new Redis({ host: env.REDIS_HOST });\n}\n',
+    };
+    expect(assessRedis(kutt).required).toBe(false);
+    const unconditional: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { ioredis: '^5.0.0' } }),
+      'server/redis.js': 'const Redis = require("ioredis");\nconst client = new Redis(process.env.REDIS_URL);\n',
+    };
+    expect(assessRedis(unconditional).required).toBe(true);
+    // A braceless flag check just above scopes only its own statement.
+    const bracelessAbove: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { ioredis: '^5.0.0' } }),
+      'server/redis.js': 'if (config.METRICS_ENABLED) track();\nconst client = new Redis(process.env.REDIS_URL);\n',
+    };
+    expect(assessRedis(bracelessAbove).required).toBe(true);
+  });
+});
+
+describe('COMP-019 — a conditional Redis Cluster client is an option, not a requirement', () => {
+  it('rejects only a top-level cluster construction', () => {
+    const optional: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { ioredis: '^5.0.0' } }),
+      'api/core/redis_cluster.py': 'class ClusterCache:\n    def client(self):\n        return RedisCluster(**kwargs)\n',
+      'src/cache.js': 'const client = new Redis(process.env.REDIS_URL);\n',
+    };
+    expect(assessRedis(optional).compatibility.supported).toBe(true);
+    const cluster: FileTree = {
+      'package.json': JSON.stringify({ dependencies: { ioredis: '^5.0.0' } }),
+      'src/cache.js': 'const cluster = new Redis.Cluster([{ host: "a" }]);\n',
+    };
+    expect(assessRedis(cluster).compatibility.supported).toBe(false);
   });
 });

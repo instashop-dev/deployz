@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
-  "analysisVersion": 7,
+  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
+  "analysisVersion": 8,
   "tree": {
     "files": 200,
     "entries": 790,
@@ -33,9 +33,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "unknown",
     "appRoot": ".",
     "dockerfilePath": "packaging/docker/alpine/Dockerfile",
@@ -55,15 +55,11 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [],
-    "unsupported": [
-      "gcp"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-architecture",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -74,9 +70,9 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "READY",
       "match": false,
-      "kind": "false-rejection"
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -136,22 +132,19 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "gcp"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
     {
       "fact": "compatibility",
-      "kind": "false-rejection",
+      "kind": "configuration-detection",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "READY",
       "finding": {
-        "id": "COMP-008",
-        "type": "ANALYSIS_BUG"
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     },
     {
@@ -162,18 +155,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "gcp"
-      ],
-      "finding": {
-        "id": "COMP-008",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

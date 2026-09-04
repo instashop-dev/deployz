@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
-  "analysisVersion": 7,
+  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
+  "analysisVersion": 8,
   "tree": {
     "files": 201,
     "entries": 3419,

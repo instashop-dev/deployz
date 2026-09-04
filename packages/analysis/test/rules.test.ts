@@ -90,13 +90,13 @@ const unsupportedRedisTree: FileTree = {
   }),
 };
 
-/** MySQL dependency. */
+/** MySQL as the only database driver — a driver next to `pg` is a configurable engine (COMP-002). */
 const mysqlTree: FileTree = {
   ...readyTree,
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-    dependencies: { express: '^4.18.0', pg: '^8.12.0', mysql2: '^3.9.0' },
+    dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
   }),
 };
 
@@ -326,9 +326,8 @@ describe('databaseState metadata', () => {
   });
 
   it('unsupported database (MySQL, no Postgres) → databaseState "unsupported"', () => {
-    // mysqlTree carries BOTH pg and mysql2 (it spreads readyTree), so its
-    // databaseState is "postgres" — the Postgres driver wins. Build a
-    // MySQL-only tree (no pg) to exercise the unsupported state.
+    // A MySQL-only tree (no pg): with both drivers the engine is a
+    // configuration choice and databaseState is "postgres".
     const mysqlOnlyTree: FileTree = {
       'Dockerfile': readyTree['Dockerfile']!,
       'package.json': JSON.stringify({

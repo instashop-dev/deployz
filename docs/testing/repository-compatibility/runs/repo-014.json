@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
-  "analysisVersion": 7,
+  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
+  "analysisVersion": 8,
   "tree": {
     "files": 203,
     "entries": 4678,
@@ -65,26 +65,14 @@
       "twilio"
     ],
     "requiredEnvVars": [
-      "ADDITIONAL_DRAWER_LINK",
-      "ADDITIONAL_DRAWER_LINK_ICON",
-      "ADDITIONAL_DRAWER_LINK_TEXT",
       "BULLMQ_DASHBOARD_PASSWORD",
-      "BULLMQ_DASHBOARD_USERNAME",
-      "FROM_EMAIL",
       "LICENSE_KEY",
       "PADDLE_PUBLIC_KEY",
-      "PADDLE_VENDOR_AUTH_CODE",
       "PADDLE_VENDOR_ID",
       "POSTGRES_PASSWORD",
       "REDIS_PASSWORD",
-      "REDIS_SENTINEL_HOST",
       "REDIS_SENTINEL_PASSWORD",
-      "REDIS_SENTINEL_USERNAME",
-      "REDIS_USERNAME",
-      "SENTRY_DSN",
-      "SMTP_HOST",
       "SMTP_PASSWORD",
-      "SMTP_USER",
       "WEB_APP_URL"
     ],
     "unsupported": [
