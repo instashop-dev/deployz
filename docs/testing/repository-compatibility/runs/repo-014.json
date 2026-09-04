@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
-  "analysisVersion": 8,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
   "tree": {
     "files": 203,
     "entries": 4678,
@@ -77,13 +77,16 @@
     ],
     "unsupported": [
       "background-worker",
-      "docker-compose-multi-service"
+      "docker-compose-multi-service",
+      "local-filesystem"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
+      "local-file-storage",
       "background-worker-unsupported"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "unsupported",
       "required-env-vars-missing"
@@ -162,11 +165,31 @@
       ],
       "actual": [
         "background-worker",
-        "docker-compose-multi-service"
+        "docker-compose-multi-service",
+        "local-filesystem"
       ],
-      "match": true
+      "match": false,
+      "kind": "fact"
     }
   ],
-  "mismatches": [],
-  "match": true
+  "mismatches": [
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "background-worker",
+        "docker-compose-multi-service"
+      ],
+      "actual": [
+        "background-worker",
+        "docker-compose-multi-service",
+        "local-filesystem"
+      ],
+      "finding": {
+        "id": "COMP-024",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
 }

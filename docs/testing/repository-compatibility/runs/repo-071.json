@@ -1,0 +1,199 @@
+{
+  "id": "repo-071",
+  "repository": "chatwoot/chatwoot",
+  "commit": "da4898e7f5e2f2146cd2c24d3a7bd3124016cf82",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 202,
+    "entries": 10802,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "ruby",
+      "node"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 3000,
+    "healthPath": "/health",
+    "unsupported": [
+      "background-worker"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 3000,
+    "startCommand": null,
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "stripe",
+      "twilio"
+    ],
+    "requiredEnvVars": [
+      "ASSET_CDN_HOST",
+      "PIDFILE",
+      "SIDEKIQ_CLOUDWATCH_AWS_SECRET_ACCESS_KEY"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "start-command-missing",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "start-command-unknown",
+      "build-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/Dockerfile",
+      "actual": "docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/health",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "background-worker"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "background-worker"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

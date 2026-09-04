@@ -103,6 +103,7 @@ const mysqlTree: FileTree = {
 /** MongoDB dependency. */
 const mongoTree: FileTree = {
   ...readyTree,
+  'src/models/user.js': 'const mongoose = require("mongoose");\nmodule.exports = mongoose.model("User", new mongoose.Schema({ name: String }));\n',
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
@@ -113,6 +114,7 @@ const mongoTree: FileTree = {
 /** Elasticsearch dependency. */
 const elasticsearchTree: FileTree = {
   ...readyTree,
+  'docker-compose.yml': 'services:\n  elasticsearch:\n    image: elasticsearch:8.13.0\n',
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
@@ -127,6 +129,7 @@ const elasticsearchTree: FileTree = {
 /** Other unsupported database driver. */
 const otherDbTree: FileTree = {
   ...readyTree,
+  'docker-compose.yml': 'services:\n  cassandra:\n    image: cassandra:4\n',
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
@@ -137,6 +140,7 @@ const otherDbTree: FileTree = {
 /** Persistent local filesystem usage. */
 const localFsTree: FileTree = {
   ...readyTree,
+  'Dockerfile': 'FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nEXPOSE 3000\nHEALTHCHECK CMD curl -f http://localhost:3000/health\nVOLUME /app/uploads\nCMD ["node", "dist/index.js"]\n',
   'src/uploader.ts':
     "import fs from 'fs';\nexport function save(path: string, data: string) { fs.writeFileSync(path, data); }\n",
 };
@@ -148,6 +152,7 @@ delete rejectPlusAttentionTree['Dockerfile'];
 /** Multiple §10 rejections plus no database at all — all rejections must be listed. */
 const multiRejectTree: FileTree = {
   ...readyTree,
+  'src/models/user.js': 'const mongoose = require("mongoose");\nmodule.exports = mongoose.model("User", new mongoose.Schema({ name: String }));\n',
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },

@@ -1,29 +1,31 @@
 {
-  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
-  "analysisVersion": 8,
-  "total": 15,
-  "analysed": 15,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "total": 80,
+  "analysed": 80,
   "failed": 0,
   "fullMatch": 4,
-  "verdictMatch": 8,
-  "verdictAccuracy": 53.3,
-  "falseAcceptances": 0,
-  "falseRejections": 1,
-  "configurationMismatches": 6,
+  "verdictMatch": 39,
+  "verdictAccuracy": 48.8,
+  "falseAcceptances": 10,
+  "falseRejections": 8,
+  "configurationMismatches": 23,
   "factMismatches": {
-    "appRoot": 2,
-    "compatibility": 7,
-    "dockerfilePath": 1,
-    "healthPath": 4,
-    "migration": 4,
-    "redis": 5,
-    "storage": 2,
-    "unsupported": 3,
-    "worker": 2
+    "appRoot": 7,
+    "compatibility": 41,
+    "dockerfilePath": 5,
+    "healthPath": 36,
+    "migration": 41,
+    "port": 18,
+    "postgres": 7,
+    "redis": 25,
+    "storage": 17,
+    "unsupported": 30,
+    "worker": 28
   },
   "byFindingType": {
-    "ANALYSIS_BUG": 17,
-    "ANALYSIS_MISSING_SIGNAL": 13,
+    "ANALYSIS_BUG": 86,
+    "ANALYSIS_MISSING_SIGNAL": 169,
     "MVP_CAPABILITY_GAP": 0,
     "CORRECTLY_UNSUPPORTED": 0,
     "REPO_INVALID": 0
@@ -31,29 +33,29 @@
   "unexplained": [],
   "bySet": {
     "improvement": {
-      "total": 15,
-      "analysed": 15,
-      "verdictMatch": 8,
+      "total": 80,
+      "analysed": 80,
+      "verdictMatch": 39,
       "fullMatch": 4
     }
   },
   "byCohort": {
     "boundary": {
-      "total": 3,
-      "analysed": 3,
-      "verdictMatch": 3,
+      "total": 14,
+      "analysed": 14,
+      "verdictMatch": 9,
       "fullMatch": 1
     },
     "messy": {
-      "total": 3,
-      "analysed": 3,
-      "verdictMatch": 1,
+      "total": 17,
+      "analysed": 17,
+      "verdictMatch": 5,
       "fullMatch": 1
     },
     "realistic": {
-      "total": 9,
-      "analysed": 9,
-      "verdictMatch": 4,
+      "total": 49,
+      "analysed": 49,
+      "verdictMatch": 25,
       "fullMatch": 2
     }
   }

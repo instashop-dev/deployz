@@ -1,0 +1,287 @@
+{
+  "id": "repo-056",
+  "repository": "gristlabs/grist-core",
+  "commit": "a914d9f60319b6b53193b200696152ce6a7fa8a5",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 4,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 202,
+    "entries": 2762,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node",
+      "python"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8484,
+    "healthPath": "/status",
+    "unsupported": [
+      "sqlite"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8484,
+    "startCommand": "CMD: [\"./sandbox/run.sh\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": true,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "auth0",
+      "openai",
+      "stripe"
+    ],
+    "requiredEnvVars": [
+      "ALLOWED_WEBHOOK_DOMAINS",
+      "APP_HOME_URL",
+      "APP_STATIC_URL",
+      "APP_UNTRUSTED_URL",
+      "COOKIE_MAX_AGE",
+      "DISCOURSE_CONNECT_SECRET",
+      "DOC_URL",
+      "GOOGLE_API_KEY",
+      "GOOGLE_CLIENT_SECRET",
+      "GRIST_ACCOUNT_CLOSE",
+      "GRIST_CHECKPOINT",
+      "GRIST_ENABLE_REQUEST_FUNCTION",
+      "GRIST_ENABLE_SCIM",
+      "GRIST_EXT_DIR",
+      "GRIST_FLEET",
+      "GRIST_FORCE_ENABLE_ENTERPRISE",
+      "GRIST_HOSTED",
+      "GRIST_ID_PREFIX",
+      "GRIST_LOCALES_DIR",
+      "GRIST_LOG_HTTP",
+      "GRIST_LOG_HTTP_BODY",
+      "GRIST_LOG_SKIP_HTTP",
+      "GRIST_PYODIDE_SKIP_DENO",
+      "GRIST_ROUTER_URL",
+      "GRIST_RUNNING_UNDER_SUPERVISOR",
+      "GRIST_SERVERS",
+      "GRIST_SNAPSHOT_TIME_CAP",
+      "GRIST_TELEMETRY_URL",
+      "GRIST_TESTING_SOCKET",
+      "GRIST_TEST_ATTACHMENTS_DIR",
+      "GRIST_TEST_LOGIN",
+      "GRIST_TEST_RESTART_SHELL_READY_DELAY",
+      "GRIST_TEST_SERVER_DEPLOYMENT_TYPE",
+      "GRIST_TEST_SSL_KEY",
+      "GRIST_TEST_TRANSFER_DELAY",
+      "GRIST_TEST_UPDATE_DOCKER_HUB_URL",
+      "GRIST_TRUST_PLUGINS",
+      "GRIST_UNDER_RESTART_SHELL",
+      "GRIST_WIDGET_LIST_URL_OPTIONAL",
+      "NODE_PATH",
+      "REDIS_URL",
+      "TEST_SUPPORT_API_KEY",
+      "TYPEORM_LOG_SLOW_MS",
+      "TYPEORM_REDIS_URL"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "health-check",
+      "database-migrations",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "database-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8484,
+      "actual": 8484,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/status",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "sqlite"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": {
+        "id": "COMP-002",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-029",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-011",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-012",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/status",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "sqlite"
+      ],
+      "actual": [],
+      "finding": {
+        "id": "COMP-002",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

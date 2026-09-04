@@ -1,0 +1,192 @@
+{
+  "id": "repo-052",
+  "repository": "laurent22/joplin",
+  "commit": "21a7dd4307d235373d1aaf6b4675dec66f0faabc",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 234,
+    "entries": 9542,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile.server",
+    "port": 22300,
+    "healthPath": "/api/ping",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile.server",
+    "port": null,
+    "startCommand": "CMD: [\"yarn\", \"start-prod\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "smtp",
+      "stripe"
+    ],
+    "requiredEnvVars": [
+      "JOPLIN_IS_TESTING"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "health-check",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "port-missing",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile.server",
+      "actual": "Dockerfile.server",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 22300,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/ping",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-012",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 22300,
+      "actual": null,
+      "finding": {
+        "id": "COMP-030",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/api/ping",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

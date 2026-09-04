@@ -623,15 +623,18 @@ const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
 // workspace repository keeps all three outside the root, and the detectors
 // read every one of them (packages/analysis/src/detectors.ts).
 const MANIFEST_REGEX = /(?:^|\/)package\.json$/i;
-const DOCKERFILE_REGEX = /(?:^|\/)dockerfile(?:\.[\w.-]+)?$/i;
+// Either naming order (`Dockerfile.prod`, `prod.Dockerfile`, `Dockerfile-build`) —
+// the same shape packages/analysis/src/detectors.ts selects from (COMP-027).
+const DOCKERFILE_REGEX = /(?:^|\/)(?:dockerfile(?:[.-][\w.-]+)?|[\w.-]+\.dockerfile)$/i;
 const PRISMA_SCHEMA_REGEX = /schema\.prisma$/i;
-// Non-npm manifests the §7 Redis detectors (and, for Python/Ruby/Go/PHP, the
-// rest of the analyser) read — requirements.txt/pyproject.toml (Python),
-// Gemfile (Ruby), go.mod (Go), composer.json (PHP). Any depth, same as
-// package.json — a workspace/monorepo keeps these outside the root too.
-// Mirrors the file-shape regexes in packages/analysis/src/redis.ts exactly.
+// Non-npm manifests the §7 Redis detectors (and, for the other languages,
+// the rest of the analyser) read — requirements.txt/pyproject.toml (Python),
+// Gemfile (Ruby), go.mod (Go), composer.json (PHP), pom.xml/build.gradle
+// (JVM), *.csproj (.NET), Cargo.toml (Rust), mix.exs (Elixir). Any depth,
+// same as package.json — a workspace/monorepo keeps these outside the root
+// too (COMP-029).
 const OTHER_MANIFEST_REGEX =
-  /(?:^|\/)(?:requirements\.txt|pyproject\.toml|Gemfile|go\.mod|composer\.json)$/i;
+  /(?:^|\/)(?:requirements\.txt|pyproject\.toml|Gemfile|go\.mod|composer\.json|pom\.xml|build\.gradle(?:\.kts)?|settings\.gradle(?:\.kts)?|libs\.versions\.toml|[\w.-]+\.csproj|Directory\.Packages\.props|Cargo\.toml|mix\.exs)$/i;
 // docker-compose.yml/.yaml or compose.yml/.yaml, with an optional
 // `.<name>` infix (`compose.prod.yml`, `docker-compose.override.yaml`), at
 // any depth — the very-high-signal Redis/Valkey compose-image check reads

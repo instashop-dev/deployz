@@ -1,0 +1,199 @@
+{
+  "id": "repo-051",
+  "repository": "docusealco/docuseal",
+  "commit": "c216e43d2499614cbf432b13b0fa918c8fd966e6",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 201,
+    "entries": 1224,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "READY",
+    "runtime": [
+      "ruby"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": true,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "healthPath": "/up",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "startCommand": "CMD: [\"/app/bin/bundle\", \"exec\", \"puma\", \"-C\", \"/app/config/puma.rb\", \"--dir\", \"/app\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [
+      "SIDEKIQ_BASIC_AUTH_PASSWORD"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "health-check",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "build-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "configuration-detection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/up",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": {
+        "id": "COMP-023",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-011",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/up",
+      "actual": null,
+      "finding": {
+        "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    }
+  ],
+  "match": false
+}

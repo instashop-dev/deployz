@@ -95,6 +95,7 @@ const workerWithoutCommandTree: FileTree = {
 /** Persistent local filesystem usage — blocking, and must be excluded from passed checks. */
 const localFsTree: FileTree = {
   ...readyTree,
+  'Dockerfile': 'FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nEXPOSE 3000\nHEALTHCHECK CMD curl -f http://localhost:3000/health\nVOLUME /app/uploads\nCMD ["node", "dist/index.js"]\n',
   'src/uploader.ts':
     "import fs from 'fs';\nexport function save(path: string, data: string) { fs.writeFileSync(path, data); }\n",
 };

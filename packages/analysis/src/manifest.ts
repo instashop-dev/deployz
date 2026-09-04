@@ -58,7 +58,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 // Directories that hold container/packaging tooling, not application code:
 // a Dockerfile under `docker/` or `packaging/…` is written to build the app
 // from the repository root (Stage A COMP-020).
-const TOOLING_DIR_REGEX = /(?:^|\/)(?:docker|dockerfiles|\.devcontainer|packaging|deploy|deployment|build|ci|infra)(?:\/|$)/i;
+const TOOLING_DIR_REGEX =
+  /(?:^|\/)(?:[\w.-]*docker[\w.-]*|dockerfiles|\.devcontainer|packaging|deploy|deployment|build|ci|infra|scripts|container)(?:\/|$)/i;
 
 /** The directory a Dockerfile lives in — the app root when nothing overrides it. */
 function appRootFromDockerfile(dockerfilePath: string | null): string {

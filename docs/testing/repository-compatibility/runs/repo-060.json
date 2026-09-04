@@ -1,0 +1,209 @@
+{
+  "id": "repo-060",
+  "repository": "wallabag/wallabag",
+  "commit": "7b8a6e0b0192b9edd054d27d67cfa4dabd3b3669",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 4,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 44,
+    "entries": 1124,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "php"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": true,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/php/Dockerfile",
+    "port": 8000,
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "docker/php/Dockerfile",
+    "port": null,
+    "startCommand": "CMD: [\"php\", \"bin/console\", \"--env=dev\", \"server:run\", \"0.0.0.0:8000\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "local-file-storage",
+      "health-check",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "port-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "build-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "match": false,
+      "kind": "false-rejection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/php/Dockerfile",
+      "actual": "docker/php/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "local-filesystem"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-rejection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "finding": {
+        "id": "COMP-024",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": {
+        "id": "COMP-011",
+        "type": "ANALYSIS_BUG"
+      }
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8000,
+      "actual": null,
+      "finding": {
+        "id": "COMP-030",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [],
+      "actual": [
+        "local-filesystem"
+      ],
+      "finding": {
+        "id": "COMP-024",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

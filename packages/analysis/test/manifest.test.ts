@@ -99,6 +99,7 @@ describe('normalizeDeploymentManifest', () => {
   it('flags unsupported databases and local filesystem', () => {
     const analysis = analyseRepo({
       'package.json': JSON.stringify({ dependencies: { mysql2: '^3.0.0' } }),
+      Dockerfile: 'FROM node:20\nVOLUME /data\n',
       'src/index.js': 'const db = require("mysql2");\nfs.writeFileSync("/tmp/x", "y");\n',
     });
     const manifest = normalizeDeploymentManifest(analysis, {});
@@ -166,7 +167,7 @@ describe('evaluateManifestReadiness', () => {
         dependencies: { mongoose: '^7.0.0' },
       }),
       'Dockerfile': 'FROM node:20-alpine\nCMD ["node", "index.js"]\n',
-      'src/index.js': 'const mongoose = require("mongoose");\n',
+      'src/index.js': 'const mongoose = require("mongoose");\nconst User = mongoose.model("User", new mongoose.Schema({}));\n',
     });
     const manifest = normalizeDeploymentManifest(analysis, { port: 3000 });
     const result = evaluateManifestReadiness(manifest);

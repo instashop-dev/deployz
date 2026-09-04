@@ -66,7 +66,16 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // file or a guarded Redis client, and a conditional cluster client no longer
 // reject or provision — stale NOT_COMPATIBLE verdicts and `redisRequired`
 // flags from Version 7 must re-run.
-export const ANALYSIS_VERSION = 8;
+// Version 9 is the Stage A main-corpus batch (COMP-024, 026, 027, 028, 029,
+// 032, 034, 035): local-disk state must be DECLARED (VOLUME/Compose mount)
+// with no object-storage alternative, Compose sidecars and profile-gated
+// services are not application services, database clients need the same
+// corroboration brokers do, Dockerfile naming/ranking, EXPOSE variables and
+// non-HTTP ports, PostgreSQL drivers across PHP/JVM/.NET/Rust/Elixir, script
+// health checks, and tooling app roots — stale NOT_COMPATIBLE verdicts,
+// ports, health paths and `postgres.required` flags from Version 8 must
+// re-run.
+export const ANALYSIS_VERSION = 9;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

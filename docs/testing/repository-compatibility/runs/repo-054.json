@@ -1,0 +1,176 @@
+{
+  "id": "repo-054",
+  "repository": "hoppscotch/hoppscotch",
+  "commit": "ac145e7f758151b41fd46d3e5f513886ce9068ba",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
+  "tree": {
+    "files": 203,
+    "entries": 2972,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "prod.Dockerfile",
+    "port": 80,
+    "healthPath": "/health",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "prod.Dockerfile",
+    "port": 8080,
+    "startCommand": "CMD: [\"node\", \"prod_run.mjs\"]",
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "auth0",
+      "smtp"
+    ],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "prod.Dockerfile",
+      "actual": "prod.Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 80,
+      "actual": 8080,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/health",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
+      "finding": {
+        "id": "COMP-017",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": {
+        "id": "COMP-014",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 80,
+      "actual": 8080,
+      "finding": {
+        "id": "COMP-028",
+        "type": "ANALYSIS_BUG"
+      }
+    }
+  ],
+  "match": false
+}

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "f7dc7789caf61855352a267f03bba4690a68532f",
-  "analysisVersion": 8,
+  "deployzSha": "28341be6e3b00cec4e9863f14e6e9521ab8e4b0d",
+  "analysisVersion": 9,
   "tree": {
     "files": 192,
     "entries": 4660,
@@ -71,16 +71,13 @@
       "SLACK_TOKEN"
     ],
     "unsupported": [
-      "docker-compose-multi-service",
-      "local-filesystem"
+      "docker-compose-multi-service"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
-      "local-file-storage",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
       "unsupported",
       "required-env-vars-missing",
       "migration-command-missing"
@@ -159,8 +156,7 @@
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service",
-        "local-filesystem"
+        "docker-compose-multi-service"
       ],
       "match": false,
       "kind": "fact"
@@ -222,8 +218,7 @@
       "kind": "fact",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service",
-        "local-filesystem"
+        "docker-compose-multi-service"
       ],
       "finding": {
         "id": "COMP-009",
