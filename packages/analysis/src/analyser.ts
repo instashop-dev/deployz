@@ -26,6 +26,8 @@ import {
   detectExternalServiceRequirements,
   detectPackageManager,
   detectBuildCommand,
+  detectStartupMigrationEvidence,
+  hasPreDeployMigration,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -274,6 +276,27 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   } else {
     metadata['healthPath'] = null;
     metadata['healthMode'] = 'vendor_required';
+  }
+
+  // Stage B phase 6 (COMP-014): migration MODE — how the database schema is
+  // updated. `pre_deploy` (a deploy-safe migration script), `startup` (the
+  // app runs migrations when it starts — evidence recorded, command never
+  // invented), `unknown` (required database, no migration evidence anywhere),
+  // or `none` (no database, so no migrations to run).
+  const postgresMeta = metadata['postgres'] as { required?: unknown } | undefined;
+  if (metadata['usesPostgresql'] !== true) {
+    metadata['migrationMode'] = 'none';
+  } else if (postgresMeta?.required !== true) {
+    // A detected-but-unconfirmed database: keep the gentle recommendation.
+    metadata['migrationMode'] = 'unknown';
+  } else if (hasPreDeployMigration(tree)) {
+    metadata['migrationMode'] = 'pre_deploy';
+  } else {
+    const startupEvidence = detectStartupMigrationEvidence(tree);
+    metadata['migrationMode'] = startupEvidence.length > 0 ? 'startup' : 'unknown';
+    if (startupEvidence.length > 0) {
+      metadata['migrationStartupEvidence'] = startupEvidence;
+    }
   }
 
   // §11.4 — the full unsupported-reason list the manifest gate turns into

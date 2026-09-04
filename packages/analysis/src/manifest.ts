@@ -57,6 +57,14 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/** The analysed migration mode from metadata, when present and valid. */
+function migrationModeOf(meta: Record<string, unknown>): DeploymentManifest['migration']['mode'] {
+  const mode = meta['migrationMode'];
+  return mode === 'pre_deploy' || mode === 'startup' || mode === 'none' || mode === 'unknown'
+    ? mode
+    : undefined;
+}
+
 /**
  * The manifest health section (Stage B phase 5). A vendor-supplied path is
  * always `explicit`; otherwise the analysed health mode decides: `root` when
@@ -353,8 +361,11 @@ export function normalizeDeploymentManifest(
       // `metadata.migrationCommands` holds the detector's PATTERN LABELS
       // ("prisma migrate", "drizzle-kit"), never a runnable command — the
       // deploy-safe command is resolved per analysis into the application
-      // column that arrives as the override (Stage A COMP-006).
+      // column that arrives as the override (Stage A COMP-006). Stage B
+      // phase 6: the analysed migration MODE rides along (pre_deploy /
+      // startup / none / unknown).
       command: overrides.migrationCommand ?? null,
+      ...(migrationModeOf(meta) !== undefined ? { mode: migrationModeOf(meta) } : {}),
     },
     worker: { command: workerCommand },
     environment: {

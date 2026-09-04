@@ -1597,6 +1597,101 @@ const MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
   { pattern: /node-pg-migrate/, name: 'node-pg-migrate' },
 ];
 
+// ── Stage B phase 6 (COMP-014): migrations that run OUTSIDE package.json ───
+
+/** A dev-mode migration command — never deploy/startup evidence. */
+const MIGRATION_DEV_REGEX = /migrate[\s:-]dev\b/i;
+
+/** Migration commands an application can legitimately run at STARTUP. */
+const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
+  { pattern: /python\s+manage\.py\s+migrate\b/, name: 'python manage.py migrate' },
+  { pattern: /prisma\s+migrate\s+deploy\b/, name: 'prisma migrate deploy' },
+  { pattern: /rails\s+db:(?:prepare|migrate)\b/, name: 'rails db:prepare/db:migrate' },
+  { pattern: /flask\s+db\s+upgrade\b/, name: 'flask db upgrade' },
+  { pattern: /alembic\s+upgrade\s+head\b/, name: 'alembic upgrade head' },
+  { pattern: /php\s+artisan\s+migrate\s+--force/, name: 'php artisan migrate --force' },
+  { pattern: /knex\s+migrate:(?:latest|up)\b/, name: 'knex migrate:latest' },
+  { pattern: /typeorm\s+migration:run\b/, name: 'typeorm migration:run' },
+  { pattern: /\bflyway\s+migrate\b/, name: 'flyway migrate' },
+  { pattern: /\bliquibase\s+(?:update|migrate)\b/, name: 'liquibase update/migrate' },
+];
+
+/** A deploy-safe migration command text (the same family apps/api resolves). */
+const DEPLOY_MIGRATION_COMMAND_REGEX =
+  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
+
+/** One piece of startup-migration evidence. */
+export interface MigrationStartupEvidence {
+  /** Where the command lives: a script name, Dockerfile CMD/ENTRYPOINT, or a shell script path. */
+  readonly source: string;
+  readonly pattern: string;
+}
+
+/** True when the command text is deploy-shaped and not dev-mode. */
+export function isDeploySafeMigrationCommand(command: string): boolean {
+  return !MIGRATION_DEV_REGEX.test(command) && DEPLOY_MIGRATION_COMMAND_REGEX.test(command);
+}
+
+/**
+ * A deploy-safe migration script exists in any package.json (script key or a
+ * deploy-shaped command value), mirroring apps/api's resolveMigrationCommand
+ * convention — this is the mode='pre_deploy' signal.
+ */
+export function hasPreDeployMigration(tree: FileTree): boolean {
+  for (const [key, command] of collectScripts(tree)) {
+    // A migration chained into the app's own start/dev command runs at
+    // STARTUP, not as a pre-deploy step — never pre_deploy evidence.
+    if (key === 'start' || key === 'dev') continue;
+    if (isDeploySafeMigrationCommand(command)) return true;
+    if (/migrat/i.test(key) && !MIGRATION_DEV_REGEX.test(command)) return true;
+  }
+  return false;
+}
+
+/**
+ * Migrations that run when the APPLICATION STARTS: the app's own start
+ * script, the selected Dockerfile's CMD/ENTRYPOINT, or an entrypoint/start/
+ * boot shell script next to the Dockerfile (or at the app root). Evidence
+ * only — the command is never invented into the manifest.
+ */
+export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartupEvidence[] {
+  const evidence: MigrationStartupEvidence[] = [];
+  const consider = (command: string, source: string): void => {
+    if (MIGRATION_DEV_REGEX.test(command)) return;
+    for (const { pattern, name } of STARTUP_MIGRATION_PATTERNS) {
+      if (pattern.test(command)) {
+        evidence.push({ source, pattern: name });
+        return;
+      }
+    }
+  };
+
+  for (const [name, command] of collectScripts(tree)) {
+    if (name === 'start' || name === 'dev') consider(command, `package.json script "${name}"`);
+  }
+
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile) {
+    const cmd = CMD_REGEX.exec(dockerfile.content)?.[1];
+    if (cmd) consider(cmd, `CMD (${dockerfile.path})`);
+    const entry = ENTRYPOINT_REGEX.exec(dockerfile.content)?.[1];
+    if (entry) consider(entry, `ENTRYPOINT (${dockerfile.path})`);
+  }
+
+  const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    const basename = (path.split('/').pop() ?? '').toLowerCase();
+    const isBootScript = /^entrypoint(?:\.|$)|^start\.sh$|^boot\.sh$|^startup\.sh$/.test(basename);
+    const nearRoot =
+      !path.includes('/') || (dockerDir.length > 0 && path.startsWith(`${dockerDir}/`));
+    if (!isBootScript || !nearRoot) continue;
+    consider(content, path);
+  }
+
+  return evidence;
+}
+
 /**
  * Detect migration commands from package.json scripts.
  */

@@ -406,28 +406,57 @@ export function buildReadinessReport(
   // ── Recommended findings ──────────────────────────────────────────────────
   // Only when a database is actually in play — a repository with no database
   // needs no migration command, and its absence is not a finding at all.
+  // Stage B phase 6 (COMP-014): mode 'startup' is INFORMATIONAL (migrations
+  // run when the app starts — nothing missing); mode 'unknown' keeps the
+  // gentle recommendation; mode 'none'/'pre_deploy' produce no finding.
   const postgres = metadata['postgres'] as { required?: unknown } | undefined;
-  if (metadata['usesPostgresql'] === true && metadata['hasMigrationCommand'] !== true) {
-    const drivers = metadata['postgresqlDrivers'];
+  const migrationMode = metadata['migrationMode'];
+  const drivers = metadata['postgresqlDrivers'];
+  if (migrationMode === 'startup') {
+    const evidence = metadata['migrationStartupEvidence'] as
+      | { source: string; pattern: string }[]
+      | undefined;
     findings.push({
       id: 'database-migrations',
       category: 'database',
-      title: 'Give Deployz a way to update your database',
+      title: 'Database migrations run when the application starts',
       severity: 'recommended',
       blocking: false,
       plainEnglishExplanation:
-        'This app uses a database, but Deployz could not find a command that updates the database structure during deploys.',
+        'This app applies its database migrations when the application itself starts, not as a separate deploy step.',
       whyItMatters:
-        'Deployz runs your migration command automatically on every deploy, so each customer database always matches the code that talks to it.',
-      technicalEvidence: `A PostgreSQL library is present (${
-        Array.isArray(drivers) ? drivers.join(', ') : 'detected'
-      }) but no migration script was found in any package.json.`,
+        'Deployz does not run a migration step of its own for this app — the running application updates its own database schema on boot.',
+      technicalEvidence: `Migrations run at startup: ${
+        Array.isArray(evidence)
+          ? evidence.map((entry) => `${entry.pattern} (${entry.source})`).join('; ')
+          : 'detected in the application start path'
+      }.`,
       suggestedOutcome:
-        'Add a script that applies database migrations non-interactively (for example a "db:migrate" entry in package.json).',
-      // When the database requirement itself is unconfirmed (driver present
-      // but no corroborating signal), the whole finding is uncertain.
+        'No action needed — migrations run on application startup and Deployz monitors the app until it reports healthy.',
       confidence: postgres?.required === true ? 'likely' : 'needs_confirmation',
     });
+  } else if (migrationMode === 'unknown' || migrationMode === undefined) {
+    if (metadata['usesPostgresql'] === true && metadata['hasMigrationCommand'] !== true) {
+      findings.push({
+        id: 'database-migrations',
+        category: 'database',
+        title: 'Give Deployz a way to update your database',
+        severity: 'recommended',
+        blocking: false,
+        plainEnglishExplanation:
+          'This app uses a database, but Deployz could not find a command that updates the database structure during deploys.',
+        whyItMatters:
+          'Deployz runs your migration command automatically on every deploy, so each customer database always matches the code that talks to it.',
+        technicalEvidence: `A PostgreSQL library is present (${
+          Array.isArray(drivers) ? drivers.join(', ') : 'detected'
+        }) but no migration script was found in any package.json.`,
+        suggestedOutcome:
+          'Add a script that applies database migrations non-interactively (for example a "db:migrate" entry in package.json).',
+        // When the database requirement itself is unconfirmed (driver present
+        // but no corroborating signal), the whole finding is uncertain.
+        confidence: postgres?.required === true ? 'likely' : 'needs_confirmation',
+      });
+    }
   }
 
   const worker = finding('worker');

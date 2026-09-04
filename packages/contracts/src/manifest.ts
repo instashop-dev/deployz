@@ -142,6 +142,15 @@ export const deploymentManifestSchema = z
       .object({
         /** Unattended migration command run on deploy, or null. */
         command: z.string().nullable(),
+        /**
+         * How the database schema is updated (Stage B phase 6, optional/
+         * additive): `pre_deploy` — Deployz runs the command before the new
+         * version starts; `startup` — the app runs migrations when it starts
+         * (informational; no command is invented); `none` — no database;
+         * `unknown` — a required database but no migration evidence. Absent
+         * on manifests written before the field existed.
+         */
+        mode: z.enum(['pre_deploy', 'startup', 'none', 'unknown']).optional(),
       })
       .strict(),
     worker: z
