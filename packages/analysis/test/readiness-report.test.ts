@@ -112,13 +112,13 @@ const multiServiceComposeTree: FileTree = {
   ].join('\n'),
 };
 
-/** MySQL dependency — a §10 rejection. */
+/** MySQL as the only database driver — a §10 rejection (next to `pg` it would be a configurable engine, COMP-002). */
 const mysqlTree: FileTree = {
   ...readyTree,
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-    dependencies: { express: '^4.18.0', pg: '^8.12.0', mysql2: '^3.9.0' },
+    dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
   }),
 };
 

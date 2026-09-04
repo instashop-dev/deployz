@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
-  "analysisVersion": 7,
+  "deployzSha": "35bf06f914a14582bc336df0b90dc72e7e6294dd",
+  "analysisVersion": 8,
   "tree": {
     "files": 201,
     "entries": 497,
@@ -33,9 +33,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -60,15 +60,11 @@
     "requiredEnvVars": [
       "BASE_URL"
     ],
-    "unsupported": [
-      "sqlite"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-database-sqlite",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
@@ -80,9 +76,9 @@
     {
       "fact": "compatibility",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "match": false,
-      "kind": "false-rejection"
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -141,33 +137,18 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "sqlite"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
     {
       "fact": "compatibility",
-      "kind": "false-rejection",
+      "kind": "configuration-detection",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "finding": {
-        "id": "COMP-002",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "sqlite"
-      ],
-      "finding": {
-        "id": "COMP-002",
+        "id": "COMP-016",
         "type": "ANALYSIS_BUG"
       }
     }

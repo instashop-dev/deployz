@@ -7,7 +7,12 @@
  */
 
 import type { FileTree } from './detectors.js';
-import { collectDependencyNames, isProductionComposeFile } from './detectors.js';
+import {
+  collectDependencyNames,
+  detectEnvVarModel,
+  detectPostgresql,
+  isProductionComposeFile,
+} from './detectors.js';
 import type { RedisRequirement } from './redis.js';
 import { assessRedis } from './redis.js';
 
@@ -82,13 +87,25 @@ export function checkRedisUnsupported(tree: FileTree, precomputed?: RedisRequire
 const MYSQL_DEPS = ['mysql2', 'mysql'] as const;
 
 /**
+ * A SQL-engine driver next to a PostgreSQL driver means the engine is a
+ * configuration choice (kutt's `DB_CLIENT`, gatus' storage type), not an
+ * architectural requirement — the app runs on the PostgreSQL Deployz
+ * provisions. Only a lone driver, or an explicit non-PostgreSQL Prisma
+ * provider / connection URL, proves the unsupported engine is the one in
+ * use (Stage A COMP-002).
+ */
+function engineIsConfigurable(tree: FileTree): boolean {
+  return detectPostgresql(tree).detected;
+}
+
+/**
  * Check for MySQL dependencies (unsupported — Deployz uses PostgreSQL only).
  */
 export function checkMysql(tree: FileTree): RejectionFinding {
   const deps = collectDependencyNames(tree);
 
   for (const dep of MYSQL_DEPS) {
-    if (deps.includes(dep)) {
+    if (deps.includes(dep) && !engineIsConfigurable(tree)) {
       return {
         detected: true,
         dependency: dep,
@@ -210,6 +227,13 @@ function composeServices(tree: FileTree): { file: string; services: { name: stri
   if (candidates.length === 0) return null;
   const path = candidates.find((p) => !p.includes('/')) ?? candidates[0]!;
   const content = tree[path] ?? '';
+  // A service another service waits on with `service_completed_successfully`
+  // is a one-shot job (a migration runner), not an application container
+  // (Stage A COMP-009).
+  const oneShot = new Set<string>();
+  for (const match of content.matchAll(/^\s+([a-zA-Z0-9_-]+):\s*\r?\n\s+condition:\s*service_completed_successfully/gm)) {
+    if (match[1]) oneShot.add(match[1]);
+  }
   const services: { name: string; image: string | null }[] = [];
   const lines = content.split('\n');
   let inServices = false;
@@ -223,7 +247,7 @@ function composeServices(tree: FileTree): { file: string; services: { name: stri
     const serviceHeader = /^ {2}([a-zA-Z0-9_-]+):\s*$/.exec(line);
     if (serviceHeader) {
       current = { name: serviceHeader[1]!, image: null };
-      services.push(current);
+      if (!oneShot.has(current.name)) services.push(current);
       continue;
     }
     const imageLine = /^ {4}image:\s*["']?([^\s"']+)["']?/.exec(line);
@@ -240,8 +264,9 @@ function composeServices(tree: FileTree): { file: string; services: { name: stri
 /** Production SQLite (embedded file DB): Node drivers, Prisma provider, Go driver, sqlite:// URLs. */
 export function checkSqlite(tree: FileTree): RejectionFinding {
   const deps = collectDependencyNames(tree);
+  const configurable = engineIsConfigurable(tree);
   for (const dep of ['better-sqlite3', 'sqlite3'] as const) {
-    if (deps.includes(dep)) {
+    if (deps.includes(dep) && !configurable) {
       return {
         detected: true,
         dependency: 'sqlite',
@@ -257,7 +282,7 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
       reason: 'Unsupported database: Prisma configured with the SQLite provider. Deployz hosts PostgreSQL only.',
     };
   }
-  if (contentMatches(tree, /(?:^|\/)go\.mod$/, /modernc\.org\/sqlite|mattn\/go-sqlite3/).length > 0) {
+  if (!configurable && contentMatches(tree, /(?:^|\/)go\.mod$/, /modernc\.org\/sqlite|mattn\/go-sqlite3/).length > 0) {
     return {
       detected: true,
       dependency: 'sqlite',
@@ -280,67 +305,103 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
   return { detected: false, dependency: 'none', reason: 'No SQLite database detected' };
 }
 
+/**
+ * A message-broker client dependency proves the app CAN talk to a broker,
+ * not that it needs one — umami ships kafkajs behind `KAFKA_URL`, uptime-kuma
+ * ships it as a monitor target. The rejection needs corroboration: a broker
+ * service in the production Compose file, or a connection variable the app
+ * reads without a fallback (Stage A COMP-002).
+ */
+function brokerConnectionRequired(tree: FileTree, keyPattern: RegExp): string | null {
+  const required = detectEnvVarModel(tree)
+    .filter((variable) => variable.required && keyPattern.test(variable.key))
+    .map((variable) => variable.key);
+  // A presence test anywhere (`if (process.env.KAFKA_URL)`, `Boolean(
+  // process.env.KAFKA_URL && …)`, `enabled = process.env.KAFKA_URL && …`)
+  // makes the broker a feature the app switches on, whatever the reads
+  // inside the enabled path look like.
+  return required.find((key) => !hasPresenceGuard(tree, key)) ?? null;
+}
+
+function hasPresenceGuard(tree: FileTree, key: string): boolean {
+  const read = `(?:process\\.env\\.|env\\.|os\\.environ\\.get\\(["'])?${key}\\b`;
+  const guard = new RegExp(`if\\s*\\(\\s*!?\\s*${read}|(?:Boolean\\s*\\(|!!)\\s*${read}|${read}\\s*&&|&&\\s*${read}`);
+  return Object.entries(tree).some(([path, content]) => /\.(ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/.test(path) && guard.test(content));
+}
+
+// Connection variables only — a tuning knob such as KAFKA_MAX_MESSAGE_BYTES
+// says nothing about whether a broker must exist.
+const KAFKA_ENV_REGEX = /^KAFKA_(?:URL|BROKERS?|BOOTSTRAP_SERVERS|HOSTS?)$/;
+const RABBITMQ_ENV_REGEX = /^(?:RABBITMQ_(?:URL|HOST)|AMQP_URL|CLOUDAMQP_URL)$/;
+
 /** Kafka: clients/consumers + Kafka/Confluent images in compose. */
 export function checkKafka(tree: FileTree): RejectionFinding {
-  const deps = collectDependencyNames(tree);
-  for (const dep of ['kafkajs', 'kafka-node', 'node-rdkafka'] as const) {
-    if (deps.includes(dep)) {
-      return {
-        detected: true,
-        dependency: 'kafka',
-        reason: `Unsupported infrastructure: Kafka client ${dep}. Deployz does not host Kafka; the app would need a cluster Deployz cannot provision.`,
-      };
-    }
-  }
-  for (const [path, content] of Object.entries(tree)) {
-    if (!content) continue;
-    if (/(?:^|\/)requirements(?:[^/]*)\.txt$/.test(path) && /^confluent-kafka|^kafka-python|^aiokafka/m.test(content)) {
-      return { detected: true, dependency: 'kafka', reason: `Unsupported infrastructure: a Kafka client is declared in ${path}.` };
-    }
-    if (/(?:^|\/)pyproject\.toml$/.test(path) && /(?:confluent-kafka|kafka-python|aiokafka)/.test(content)) {
-      return { detected: true, dependency: 'kafka', reason: `Unsupported infrastructure: a Kafka client is declared in ${path}.` };
-    }
-    if (/(?:^|\/)go\.mod$/.test(path) && /(?:segmentio\/kafka-go|confluent-kafka-go|Shopify\/sarama)/.test(content)) {
-      return { detected: true, dependency: 'kafka', reason: `Unsupported infrastructure: a Kafka client is declared in ${path}.` };
-    }
-    if (/(?:^|\/)Gemfile$/.test(path) && /ruby-kafka|racecar/.test(content)) {
-      return { detected: true, dependency: 'kafka', reason: `Unsupported infrastructure: a Kafka client is declared in ${path}.` };
-    }
-  }
   const compose = composeServices(tree);
   if (compose?.services.some((s) => s.image && /kafka|confluentinc/i.test(s.image))) {
     return { detected: true, dependency: 'kafka', reason: `Unsupported infrastructure: a Kafka service is defined in ${compose.file}.` };
+  }
+
+  let client: string | null = null;
+  const deps = collectDependencyNames(tree);
+  for (const dep of ['kafkajs', 'kafka-node', 'node-rdkafka'] as const) {
+    if (deps.includes(dep)) client = `Kafka client ${dep}`;
+  }
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || client) break;
+    if (/(?:^|\/)requirements(?:[^/]*)\.txt$/.test(path) && /^confluent-kafka|^kafka-python|^aiokafka/m.test(content)) {
+      client = `a Kafka client declared in ${path}`;
+    } else if (/(?:^|\/)pyproject\.toml$/.test(path) && /(?:confluent-kafka|kafka-python|aiokafka)/.test(content)) {
+      client = `a Kafka client declared in ${path}`;
+    } else if (/(?:^|\/)go\.mod$/.test(path) && /(?:segmentio\/kafka-go|confluent-kafka-go|Shopify\/sarama)/.test(content)) {
+      client = `a Kafka client declared in ${path}`;
+    } else if (/(?:^|\/)Gemfile$/.test(path) && /ruby-kafka|racecar/.test(content)) {
+      client = `a Kafka client declared in ${path}`;
+    }
+  }
+  if (client) {
+    const key = brokerConnectionRequired(tree, KAFKA_ENV_REGEX);
+    if (key) {
+      return {
+        detected: true,
+        dependency: 'kafka',
+        reason: `Unsupported infrastructure: ${client}, and ${key} is required. Deployz does not host Kafka; the app would need a cluster Deployz cannot provision.`,
+      };
+    }
   }
   return { detected: false, dependency: 'none', reason: 'No Kafka infrastructure detected' };
 }
 
 /** RabbitMQ: AMQP clients + rabbitmq images in compose. */
 export function checkRabbitMq(tree: FileTree): RejectionFinding {
-  const deps = collectDependencyNames(tree);
-  for (const dep of ['amqplib', 'amqp-connection-manager', 'bunnymq', 'rascal'] as const) {
-    if (deps.includes(dep)) {
-      return {
-        detected: true,
-        dependency: 'rabbitmq',
-        reason: `Unsupported infrastructure: RabbitMQ client ${dep}. Deployz does not host RabbitMQ.`,
-      };
-    }
-  }
-  for (const [path, content] of Object.entries(tree)) {
-    if (!content) continue;
-    if (/(?:^|\/)requirements(?:[^/]*)\.txt$/.test(path) && /^pika|^aio-pika|^kombu/m.test(content)) {
-      return { detected: true, dependency: 'rabbitmq', reason: `Unsupported infrastructure: a RabbitMQ client is declared in ${path}.` };
-    }
-    if (/(?:^|\/)pyproject\.toml$/.test(path) && /(?:^|["'\s])(?:pika|aio-pika|kombu)(?:["'\s]|$)/.test(content)) {
-      return { detected: true, dependency: 'rabbitmq', reason: `Unsupported infrastructure: a RabbitMQ client is declared in ${path}.` };
-    }
-    if (/(?:^|\/)Gemfile$/.test(path) && /^gem\s+['"]bunny['"]/m.test(content)) {
-      return { detected: true, dependency: 'rabbitmq', reason: `Unsupported infrastructure: a RabbitMQ client is declared in ${path}.` };
-    }
-  }
   const compose = composeServices(tree);
   if (compose?.services.some((s) => s.image && /rabbitmq/i.test(s.image))) {
     return { detected: true, dependency: 'rabbitmq', reason: `Unsupported infrastructure: a RabbitMQ service is defined in ${compose.file}.` };
+  }
+
+  let client: string | null = null;
+  const deps = collectDependencyNames(tree);
+  for (const dep of ['amqplib', 'amqp-connection-manager', 'bunnymq', 'rascal'] as const) {
+    if (deps.includes(dep)) client = `RabbitMQ client ${dep}`;
+  }
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || client) break;
+    if (/(?:^|\/)requirements(?:[^/]*)\.txt$/.test(path) && /^pika|^aio-pika|^kombu/m.test(content)) {
+      client = `a RabbitMQ client declared in ${path}`;
+    } else if (/(?:^|\/)pyproject\.toml$/.test(path) && /(?:^|["'\s])(?:pika|aio-pika|kombu)(?:["'\s]|$)/.test(content)) {
+      client = `a RabbitMQ client declared in ${path}`;
+    } else if (/(?:^|\/)Gemfile$/.test(path) && /^gem\s+['"]bunny['"]/m.test(content)) {
+      client = `a RabbitMQ client declared in ${path}`;
+    }
+  }
+  if (client) {
+    const key = brokerConnectionRequired(tree, RABBITMQ_ENV_REGEX);
+    if (key) {
+      return {
+        detected: true,
+        dependency: 'rabbitmq',
+        reason: `Unsupported infrastructure: ${client}, and ${key} is required. Deployz does not host RabbitMQ.`,
+      };
+    }
   }
   return { detected: false, dependency: 'none', reason: 'No RabbitMQ infrastructure detected' };
 }
@@ -537,7 +598,13 @@ export function checkAzure(tree: FileTree): RejectionFinding {
 export function checkGcp(tree: FileTree): RejectionFinding {
   const appEngine = contentMatches(tree, /(?:^|\/)app\.ya?ml$/, /^runtime:\s*(?:nodejs|python|go|java|php)/m);
   const cloudBuild = filePathsMatching(tree, /(?:^|\/)cloudbuild\.ya?ml$|(?:^|\/)\.gcloudignore$/);
-  const gcrBase = contentMatches(tree, /(?:^|\/)Dockerfile(?:\.[\w.-]+)?$/i, /^FROM\s+(?:[^/\s]+\/)?gcr\.io\//m);
+  // Google's distroless base images live on gcr.io and say nothing about
+  // where the app deploys (Stage A COMP-008).
+  const gcrBase = contentMatches(
+    tree,
+    /(?:^|\/)Dockerfile(?:\.[\w.-]+)?$/i,
+    /^FROM\s+(?:[^/\s]+\/)?gcr\.io\/(?!distroless\/)/m,
+  );
   if (appEngine.length > 0 || cloudBuild.length > 0 || gcrBase.length > 0) {
     const evidence = (appEngine[0] ?? cloudBuild[0] ?? gcrBase[0]) ?? '';
     return {

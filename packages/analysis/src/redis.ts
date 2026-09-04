@@ -9,7 +9,12 @@
  */
 
 import type { FileTree } from './detectors.js';
-import { collectDependencyNames, parsePackageJsons } from './detectors.js';
+import {
+  collectDependencyNames,
+  isProductionComposeFile,
+  listProductionComposeFiles,
+  parsePackageJsons,
+} from './detectors.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -215,13 +220,27 @@ function collectComposeImages(tree: FileTree): { path: string; image: string }[]
   return results;
 }
 
+/**
+ * Only the app's PRIMARY production Compose file proves Redis is part of
+ * its deployment shape. A root variant (`docker-compose.sqlite-redis.yml`)
+ * shows Redis is an option, so it is recorded as evidence without weight;
+ * a dev/test/example Compose file is not evidence at all (Stage A COMP-011).
+ */
 function collectComposeSignals(tree: FileTree, signals: Signal[]): void {
+  const primary = listProductionComposeFiles(tree)[0];
   for (const { path, image } of collectComposeImages(tree)) {
-    if (/redis|valkey/i.test(image)) {
+    if (!/redis|valkey/i.test(image) || !isProductionComposeFile(path)) continue;
+    if (path === primary) {
       signals.push({
         tier: 'very-high',
         type: 'compose-image',
         evidence: `docker-compose service using a Redis/Valkey image (${image}) in ${path}`,
+      });
+    } else {
+      signals.push({
+        tier: 'low',
+        type: 'compose-variant-image',
+        evidence: `docker-compose variant using a Redis/Valkey image (${image}) in ${path}`,
       });
     }
   }
@@ -238,26 +257,39 @@ const CLIENT_INIT_PATTERNS: { pattern: RegExp; name: string; purpose?: RedisPurp
 const CREATE_CLIENT_REGEX = /createClient\s*\(/;
 const REDIS_IMPORT_REGEX = /(?:from\s+['"]redis['"]|require\(\s*['"]redis['"]\s*\))/;
 
+// A client built only when configuration says so — `if (env.REDIS_ENABLED) {
+// client = new Redis(...) }`, `if (process.env.REDIS_URL) createClient(...)` —
+// is an optional integration, not a requirement (Stage A COMP-011).
+const GUARD_WINDOW_CHARS = 240;
+const REDIS_GUARD_REGEX = /if\s*\([^)]*(?:REDIS|CACHE|ENABLED)[^)]*\)\s*\{?[^{}]*$/;
+
+function isGuardedInit(content: string, index: number): boolean {
+  return REDIS_GUARD_REGEX.test(content.slice(Math.max(0, index - GUARD_WINDOW_CHARS), index));
+}
+
 function collectSourceClientInitSignals(tree: FileTree, signals: Signal[]): void {
   for (const [path, content] of Object.entries(tree)) {
     if (!isSourceFile(path)) continue;
 
     for (const { pattern, name, purpose } of CLIENT_INIT_PATTERNS) {
-      if (pattern.test(content)) {
-        signals.push({
-          tier: 'very-high',
-          type: 'source-client-init',
-          evidence: `Redis client initialization (${name}) in ${path}`,
-          purpose,
-        });
-      }
+      const index = content.search(pattern);
+      if (index === -1) continue;
+      const guarded = isGuardedInit(content, index);
+      signals.push({
+        tier: guarded ? 'low' : 'very-high',
+        type: guarded ? 'source-client-init-guarded' : 'source-client-init',
+        evidence: `Redis client initialization (${name}${guarded ? ', behind a configuration guard' : ''}) in ${path}`,
+        purpose,
+      });
     }
 
-    if (CREATE_CLIENT_REGEX.test(content) && REDIS_IMPORT_REGEX.test(content)) {
+    const createIndex = content.search(CREATE_CLIENT_REGEX);
+    if (createIndex !== -1 && REDIS_IMPORT_REGEX.test(content)) {
+      const guarded = isGuardedInit(content, createIndex);
       signals.push({
-        tier: 'very-high',
-        type: 'source-client-init',
-        evidence: `Redis client initialization (createClient() with a redis import) in ${path}`,
+        tier: guarded ? 'low' : 'very-high',
+        type: guarded ? 'source-client-init-guarded' : 'source-client-init',
+        evidence: `Redis client initialization (createClient() with a redis import${guarded ? ', behind a configuration guard' : ''}) in ${path}`,
       });
     }
   }
@@ -484,6 +516,14 @@ const CLUSTER_PATTERNS = [
   /CLUSTER\s+SLOTS/i,
 ];
 
+/** True when the pattern matches on a line that starts at column 0 (module top level). */
+function isTopLevelMatch(content: string, pattern: RegExp): boolean {
+  const index = content.search(pattern);
+  if (index === -1) return false;
+  const lineStart = content.lastIndexOf('\n', index) + 1;
+  return !/^\s/.test(content.slice(lineStart, index + 1));
+}
+
 function evaluateCompatibility(tree: FileTree): RedisCompatibility {
   // 1. Redis Stack modules — npm deps (dependencies + devDependencies).
   const npmDeps = collectDependencyNames(tree);
@@ -511,9 +551,12 @@ function evaluateCompatibility(tree: FileTree): RedisCompatibility {
   // 3. Cluster usage — source files only, like every other text-pattern signal in
   // this module. Scanning every file (README/docs included) would flip a fully
   // compatible repo to unsupported over prose that merely mentions `createCluster()`.
+  // Only an UNCONDITIONAL construction counts — one at the top level of a
+  // module. A cluster client built inside a function or method is an option
+  // the app offers next to its standalone client (Stage A COMP-019).
   for (const path of Object.keys(tree).filter(isSourceFile)) {
     const content = tree[path];
-    if (content && CLUSTER_PATTERNS.some((pattern) => pattern.test(content))) {
+    if (content && CLUSTER_PATTERNS.some((pattern) => isTopLevelMatch(content, pattern))) {
       return { supported: false, reason: CLUSTER_REASON };
     }
   }

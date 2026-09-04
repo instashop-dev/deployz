@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 3,
-  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
-  "analysisVersion": 7,
+  "deployzSha": "35bf06f914a14582bc336df0b90dc72e7e6294dd",
+  "analysisVersion": 8,
   "tree": {
     "files": 201,
     "entries": 857,
@@ -63,31 +63,21 @@
     "requiredEnvVars": [
       "LOCALAPPDATA",
       "PROGRAMFILES",
-      "UPTIME_KUMA_DB_HOSTNAME",
-      "UPTIME_KUMA_DB_NAME",
       "UPTIME_KUMA_DB_POOL_MAX_CONNECTIONS",
-      "UPTIME_KUMA_DB_PORT",
       "UPTIME_KUMA_DB_SOCKET",
-      "UPTIME_KUMA_DB_TYPE",
       "UPTIME_KUMA_PORT",
       "UPTIME_KUMA_WS_ORIGIN_CHECK"
     ],
     "unsupported": [
-      "kafka",
       "local-filesystem",
-      "mongodb",
-      "mysql"
+      "mongodb"
     ],
     "readinessFindings": [
-      "unsupported-database-mysql",
       "unsupported-database-mongo",
-      "unsupported-message-queue",
       "local-file-storage",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
       "unsupported",
       "unsupported",
       "required-env-vars-missing"
@@ -159,10 +149,8 @@
         "sqlite"
       ],
       "actual": [
-        "kafka",
         "local-filesystem",
-        "mongodb",
-        "mysql"
+        "mongodb"
       ],
       "match": false,
       "kind": "fact"
@@ -186,10 +174,8 @@
         "sqlite"
       ],
       "actual": [
-        "kafka",
         "local-filesystem",
-        "mongodb",
-        "mysql"
+        "mongodb"
       ],
       "finding": {
         "id": "COMP-002",

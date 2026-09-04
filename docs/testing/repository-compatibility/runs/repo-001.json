@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
-  "analysisVersion": 7,
+  "deployzSha": "35bf06f914a14582bc336df0b90dc72e7e6294dd",
+  "analysisVersion": 8,
   "tree": {
-    "files": 201,
+    "files": 200,
     "entries": 1981,
     "truncated": false
   },
@@ -33,9 +33,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -56,34 +56,16 @@
     "externalServices": [],
     "requiredEnvVars": [
       "CLICKHOUSE_URL",
-      "CLIENT_IP_HEADER",
       "CLOUD_MODE",
-      "COLLECT_API_ENDPOINT",
-      "DATABASE_REPLICA_URL",
       "DATABASE_URL",
-      "DISABLE_LOGIN",
-      "DISABLE_TELEMETRY",
-      "DISABLE_UPDATES",
-      "FAVICON_URL",
-      "IGNORE_IP",
       "KAFKA_BROKER",
       "KAFKA_MAX_MESSAGE_BYTES",
       "KAFKA_URL",
-      "LINKS_URL",
-      "LOG_QUERY",
-      "PIXELS_URL",
-      "PRIVATE_MODE",
-      "TRACKER_SCRIPT_NAME",
-      "TRACKER_SCRIPT_URL"
+      "REDIS_URL"
     ],
-    "unsupported": [
-      "kafka"
-    ],
-    "readinessFindings": [
-      "unsupported-message-queue"
-    ],
+    "unsupported": [],
+    "readinessFindings": [],
     "gateFindings": [
-      "unsupported",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": []
@@ -92,9 +74,9 @@
     {
       "fact": "compatibility",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "match": false,
-      "kind": "false-rejection"
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -154,21 +136,18 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "kafka"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
     {
       "fact": "compatibility",
-      "kind": "false-rejection",
+      "kind": "configuration-detection",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "finding": {
-        "id": "COMP-002",
+        "id": "COMP-023",
         "type": "ANALYSIS_BUG"
       }
     },
@@ -179,18 +158,6 @@
       "actual": true,
       "finding": {
         "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "kafka"
-      ],
-      "finding": {
-        "id": "COMP-002",
         "type": "ANALYSIS_BUG"
       }
     }

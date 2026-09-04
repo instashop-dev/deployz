@@ -55,6 +55,22 @@ class) rather than its real secret (COMP-017). The five false rejections
 are untouched by design — they belong to the rejection-precision batch
 (COMP-002, 008, 009, 011, 019).
 
+### After the rejection-precision fixes (analysis version 8)
+
+COMP-002, 008, 009, 011, 019 and 023 are fixed with regression tests. Rerun
+on the same 15 snapshots: false rejections 5 → 1 (Flagsmith, the optional
+worker profile of COMP-010), false acceptances 0, kutt and gatus no longer
+provision Redis or reject on their configurable engines, and every
+remaining mismatch is a configuration-detection or fact mismatch: the env
+model over-claiming (COMP-023 residuals on umami and Unleash), invisible
+secret schemas (COMP-017 on ghostfolio and documenso), a frontend-tooling
+read (COMP-016 on gatus), and the missing migration, artifact and engine
+signals (COMP-014, 021, 022). Verdict matches stay at 7 of 15 because each
+fixed rejection moved a repository from a false rejection to one of those
+configuration mismatches — the rejection layer is now precise on the pilot;
+configuration detection is the next frontier and the 80-repository corpus
+will measure it.
+
 ## Findings
 
 ### COMP-001 — Dockerfile `EXPOSE` / `ENV PORT` and Compose `ports` are not port evidence
@@ -98,7 +114,8 @@ are untouched by design — they belong to the rejection-precision batch
   rejection); a queue client rejects only with corroboration (a production
   Compose service, or an unguarded read of its connection variable).
   uptime-kuma stays rejected on its own SQLite default.
-- Status: open
+- Fix: A SQLite or MySQL driver next to a PostgreSQL driver no longer rejects (the engine is a configuration choice); a Kafka/RabbitMQ client rejects only with a production Compose broker service or a required connection variable (`KAFKA_URL`, `KAFKA_BROKERS`, `AMQP_URL`, …) that the code never presence-tests. Regression: stage-a.test.ts COMP-002; phase7.test.ts kafka/rabbitmq. Residual: uptime-kuma is still rejected on its monitor-target `mongodb` client (and, correctly, on its local database file) rather than on SQLite, whose `@louislam/sqlite3` fork is not a recognised driver.
+- Status: fixed
 
 ### COMP-003 — Local-filesystem writes in build scripts, tooling and tests count as persistent storage
 
@@ -218,7 +235,8 @@ are untouched by design — they belong to the rejection-precision batch
 - Customer relevance: medium — distroless bases are widespread in Go and
   Java images; each one is a false rejection.
 - Recommended action: exclude `gcr.io/distroless/` (and `*.gcr.io/distroless`).
-- Status: open
+- Fix: `FROM gcr.io/distroless/…` is excluded from the GCP check. Regression: stage-a.test.ts COMP-008.
+- Status: fixed
 
 ### COMP-009 — Compose service counting includes example directories, one-shot services and optional profiles
 
@@ -236,7 +254,8 @@ are untouched by design — they belong to the rejection-precision batch
 - Recommended action: treat dot-prefixed example/dev directories as
   non-production; exclude services depended on with
   `service_completed_successfully`.
-- Status: open
+- Fix: Dot-prefixed example directories are non-production Compose files, and a service other services wait on with `service_completed_successfully` is not an application container. Regression: stage-a.test.ts COMP-009. Residual: an optional worker profile next to the web service still counts as a second application container — COMP-010.
+- Status: fixed
 
 ### COMP-010 — An optional worker service in a reference Compose file is indistinguishable from a mandatory one
 
@@ -281,7 +300,8 @@ are untouched by design — they belong to the rejection-precision batch
   (the same rule the rejection checks use); a guarded optional client
   (`if (env.REDIS_ENABLED)`, a non-default jobs provider) remains a known
   residual until a guard-aware rule is designed.
-- Status: open
+- Fix: Only the primary production Compose file is very-high evidence (a root variant is recorded without weight, a dev/test file ignored), and a client built behind a configuration guard (`if (env.REDIS_ENABLED) { new Redis(…) }`) is evidence without weight. Regression: stage-a.test.ts COMP-011; kutt and Unleash no longer provision Redis. Residual: a `bull`/`bullmq` direct dependency that backs a non-default jobs provider (documenso), a monitor-target client (uptime-kuma), and a settings-driven Django cache (Flagsmith) still read as required.
+- Status: fixed
 
 ### COMP-012 — Any AWS SDK dependency counts as object-storage usage
 
@@ -434,7 +454,8 @@ are untouched by design — they belong to the rejection-precision batch
   a feature, not a requirement.
 - Recommended action: treat cluster usage as unsupported only when no
   standalone client construction exists in the repository.
-- Status: open
+- Fix: Only a top-level cluster client construction is unsupported; one inside a function or method is an option next to the standalone client. Regression: stage-a.test.ts COMP-019.
+- Status: fixed
 
 ### COMP-020 — `application.root` is the Dockerfile's directory even for tooling folders
 
@@ -506,4 +527,5 @@ are untouched by design — they belong to the rejection-precision batch
   across the 80-repository corpus, then decide between "bare assignment is
   optional" (recall loss on `const secret = process.env.X; if (!secret) throw`)
   and a throw-guard-aware rule.
-- Status: open
+- Fix: A read stored as-is (`const x = process.env.X;`, `host: process.env.X,`) is optional unless the code then refuses to run without it (`if (!x) throw …`); a boolean chain or coercion (`Boolean(a && b)`, `!!a`) is a presence test. Regression: stage-a.test.ts COMP-023, phase7.test.ts. Unleash dropped from 27 required values to 7; umami from 20 to 6. Residual: single-argument helper calls (`authTypeFromString(process.env.AUTH_TYPE)`), `.split()` reads inside an enabled-only code path (umami `KAFKA_BROKER`), and alternative-URL reads (documenso `NEXT_PRIVATE_DATABASE_REPLICA_URLS`) still count as required — the remaining NEEDS_CONFIGURATION mismatches on umami and Unleash.
+- Status: fixed

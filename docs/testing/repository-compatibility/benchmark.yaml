@@ -20,7 +20,7 @@ findings:
   - { id: COMP-011, type: ANALYSIS_BUG, facts: [redis] }
   - { id: COMP-012, type: ANALYSIS_BUG, facts: [storage] }
   - { id: COMP-013, type: ANALYSIS_MISSING_SIGNAL, facts: [postgres] }
-  - { id: COMP-014, type: ANALYSIS_MISSING_SIGNAL, facts: [migration] }
+  - { id: COMP-014, type: ANALYSIS_MISSING_SIGNAL, facts: [migration, compatibility] }
   - { id: COMP-015, type: ANALYSIS_MISSING_SIGNAL, facts: [worker] }
   - { id: COMP-016, type: ANALYSIS_BUG, facts: [compatibility] }
   - { id: COMP-017, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
@@ -53,7 +53,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-002, COMP-003, COMP-011, COMP-006]
+    findings: [COMP-023, COMP-002, COMP-011, COMP-003, COMP-006]
     notes:
       - "Next.js 16 + Prisma (provider postgresql). Root Dockerfile: EXPOSE 3000, ENV PORT=3000, CMD sh scripts/start-docker.sh."
       - "Health: file route src/app/api/heartbeat/route.ts -> /api/heartbeat (also the compose healthcheck)."
@@ -141,7 +141,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-008, COMP-013, COMP-014, COMP-005, COMP-007, COMP-020, COMP-001]
+    findings: [COMP-014, COMP-008, COMP-013, COMP-005, COMP-007, COMP-020, COMP-001]
     notes:
       - "Four Dockerfiles: packaging/docker/alpine and packaging/docker/distroless build the app (EXPOSE 8080, ENV LISTEN_ADDR=0.0.0.0:8080, CMD /usr/bin/miniflux); packaging/debian and packaging/rpm build OS packages."
       - "PostgreSQL only (go.mod lib/pq). Migrations: `miniflux -migrate` or RUN_MIGRATIONS=1 (internal/cli/cli.go, internal/config/options.go)."
@@ -228,7 +228,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-001, COMP-005, COMP-017]
+    findings: [COMP-017, COMP-001, COMP-005]
     notes:
       - "Nx monorepo (apps/api, apps/client) built by the root Dockerfile into one container: EXPOSE ${PORT:-3333}, CMD /ghostfolio/entrypoint.sh (docker/entrypoint.sh: prisma migrate deploy, prisma db seed, node main)."
       - "ACCESS_TOKEN_SALT and JWT_SECRET_KEY are envalid str() with no default (apps/api/src/services/configuration/configuration.service.ts) -> NEEDS_CONFIGURATION."
@@ -256,7 +256,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 1
-    findings: [COMP-002, COMP-009, COMP-012, COMP-001, COMP-016, COMP-005]
+    findings: [COMP-016, COMP-002, COMP-009, COMP-012, COMP-001, COMP-005]
     notes:
       - "Dockerfile: golang:alpine builder -> scratch, ENV PORT=\"8080\", EXPOSE ${PORT}, ENTRYPOINT [/gatus]; config.yaml baked into the image with example endpoints; no required env vars."
       - "web/app has a package.json but its output is embedded via go:embed; the Dockerfile never runs npm. Health: api/api.go app.Get(\"/health\")."

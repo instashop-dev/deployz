@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "572d16729c7fc94d14d43e467c9233e87d932d48",
-  "analysisVersion": 7,
+  "deployzSha": "35bf06f914a14582bc336df0b90dc72e7e6294dd",
+  "analysisVersion": 8,
   "tree": {
-    "files": 195,
+    "files": 192,
     "entries": 4660,
     "truncated": false
   },
@@ -59,26 +59,7 @@
       "sentry"
     ],
     "requiredEnvVars": [
-      "ALBACROSS_CLIENT_ID",
-      "AMPLITUDE_API_KEY",
-      "CAPTERRA_API_KEY",
-      "COOKIE_AUTH_ENABLED",
-      "DELIGHTED_API_KEY",
-      "EVALUATION_ANALYTICS_SERVER_URL",
-      "EVENTS_SLACK_CHANNEL",
-      "FIRST_PROMOTER_ID",
-      "FLAGSMITH_API_URL",
-      "FLAGSMITH_ON_FLAGSMITH_API_KEY",
-      "FLAGSMITH_ON_FLAGSMITH_API_URL",
-      "FLAGSMITH_PROXY_API_URL",
-      "GITHUB_APP_URL",
-      "GOOGLE_ANALYTICS_API_KEY",
-      "HEADWAY_API_KEY",
-      "PYLON_APP_ID",
-      "REO_API_KEY",
-      "SENTRY_API_KEY",
-      "SLACK_TOKEN",
-      "USE_SECURE_COOKIES"
+      "FLAGSMITH_PROXY_API_URL"
     ],
     "unsupported": [
       "docker-compose-multi-service",

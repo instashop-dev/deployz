@@ -42,13 +42,18 @@ describe('detectEnvVarModel (§11.2)', () => {
     expect(byKey.get('NODE_ENV')).toMatchObject({ required: false });
   });
 
-  it('requires a code-only bare read of a secret-named variable with no default anywhere', () => {
+  it('requires a code-only read of a secret-named variable the code refuses to run without', () => {
     const tree: FileTree = {
-      'src/index.js': "const token = process.env.INTERNAL_API_TOKEN;\n",
+      'src/index.js': "const token = process.env.INTERNAL_API_TOKEN;\nif (!token) throw new Error('INTERNAL_API_TOKEN is not set');\n",
     };
     const model = detectEnvVarModel(tree);
     expect(model).toEqual([
       { key: 'INTERNAL_API_TOKEN', required: true, secret: true, source: ['read in src/index.js'] },
+    ]);
+    // Stored as-is with no such guard, the read proves nothing about need (COMP-023).
+    const stored = detectEnvVarModel({ 'src/index.js': 'const token = process.env.INTERNAL_API_TOKEN;\n' });
+    expect(stored).toEqual([
+      { key: 'INTERNAL_API_TOKEN', required: false, secret: true, source: ['read in src/index.js'] },
     ]);
   });
 
@@ -120,15 +125,20 @@ describe('§11.4 architecture rejections', () => {
   });
 
   it('kafka', () => {
+    // A client plus a connection variable the app cannot run without; a bare
+    // client dependency is an optional integration (COMP-002).
     const tree: FileTree = {
       'package.json': JSON.stringify({ dependencies: { kafkajs: '^2.2.0' } }),
+      'src/consumer.js': "const brokers = process.env.KAFKA_BROKERS.split(',');\n",
     };
     expect(rejection(tree, 'kafka')?.detected).toBe(true);
+    expect(rejection({ 'package.json': tree['package.json']! }, 'kafka')).toBeUndefined();
   });
 
   it('rabbitmq', () => {
     const tree: FileTree = {
       'package.json': JSON.stringify({ dependencies: { amqplib: '^0.10.0' } }),
+      'src/queue.js': 'const connection = await amqp.connect(process.env.AMQP_URL);\n',
     };
     expect(rejection(tree, 'rabbitmq')?.detected).toBe(true);
   });
@@ -436,6 +446,7 @@ describe('fixture classification (analysis → manifest → readiness)', () => {
         scripts: { start: 'node src/index.js' },
         dependencies: { express: '^4.18.0', kafkajs: '^2.2.0' },
       }),
+      'src/consumer.js': "const brokers = process.env.KAFKA_BROKERS.split(',');\n",
     };
     const analysis = analyseRepo(tree);
     // Semantic layer: blocking required finding.
