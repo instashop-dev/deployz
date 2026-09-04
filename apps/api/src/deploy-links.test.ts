@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import crypto from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -605,6 +605,39 @@ describe('deploy links', () => {
       .from(schema.eventLogs)
       .where(and(eq(schema.eventLogs.eventType, 'deploy_link.launched'), eq(schema.eventLogs.deploymentId, deploymentId)));
     expect(events).toHaveLength(1);
+  });
+
+  it('a double submit (two tabs racing) launches exactly once', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    const [first, second] = await Promise.all([launched(publicId, token), launched(publicId, token)]);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    // Both tabs land on the waiting state — the loser sees the winner's state.
+    expect(first.json()).toEqual({ state: 'WAITING_FOR_RELAY' });
+    expect(second.json()).toEqual({ state: 'WAITING_FOR_RELAY' });
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    expect(deployment!.state).toBe('WAITING_FOR_RELAY');
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy_link.launched'), eq(schema.eventLogs.deploymentId, deploymentId)));
+    expect(events).toHaveLength(1);
+  });
+
+  it('a deliberate second link for the same customer and application creates an independent deployment', async () => {
+    const first = await createLink();
+    const second = await createLink();
+    expect(second.deploymentId).not.toBe(first.deploymentId);
+    expect(second.publicId).not.toBe(first.publicId);
+
+    const rows = await db
+      .select({ id: schema.deployments.id, source: schema.deployments.source })
+      .from(schema.deployments)
+      .where(inArray(schema.deployments.id, [first.deploymentId, second.deploymentId]));
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.source === 'deploy_link')).toBe(true);
   });
 
   it('a wrong token cannot launch (404) and a revoked link can never start a deployment (410)', async () => {
