@@ -1740,6 +1740,255 @@ function isPlaceholderValue(value: string): boolean {
   return /^<[^>]*>$|^(?:your|your[-_ ]|xxx+|changeme|change[-_ ]me|example|placeholder|\.\.\.)$/i.test(trimmed);
 }
 
+// ── Stage B phase 3 (COMP-017): schema-library / helper-form env reads ──────
+// Narrow, evidence-backed recognition of the common "required config behind an
+// abstraction" shapes: zod object schemas, envalid validators, throwing
+// `env('KEY')` helpers, pydantic BaseSettings, JVM @Value, Go os.Getenv,
+// .NET GetConnectionString. No general program interpretation.
+
+const JAVA_SOURCE_REGEX = /\.(?:java|kt|kts|scala)$/;
+const DOTNET_SOURCE_REGEX = /\.cs$/;
+const ENV_KEY_LITERAL = /[A-Z][A-Z0-9_]*/;
+
+/** A key literal `[A-Z][A-Z0-9_]*`, or null when the placeholder is not env-shaped. */
+function envKeyLiteral(raw: string): string | null {
+  return ENV_KEY_LITERAL.test(raw) ? raw : null;
+}
+
+/** The characters of a member/chain expression up to its closing delimiter (comma or brace). */
+function sliceToChainEnd(content: string, start: number, limit = 240): string {
+  let depth = 0;
+  for (let i = start; i < content.length && i - start < limit; i += 1) {
+    const ch = content[i];
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1);
+    if (depth === 0 && (ch === ',' || ch === '}')) return content.slice(start, i);
+  }
+  return content.slice(start, Math.min(content.length, start + limit));
+}
+
+/** zod object schemas used with process.env (`CORE_SECRET: z.string().min(1)`). */
+function scanZodEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  const isZod = /(?:from\s+['"]zod['"]|require\(\s*['"]zod['"]\s*\))/.test(content);
+  if (!isZod || !content.includes('.object(') || !content.includes('process.env')) return [];
+  const found: { key: string; needsValue: boolean }[] = [];
+  const memberRegex = /^\s*([A-Z][A-Z0-9_]*)\s*:\s*z\./gm;
+  let match: RegExpExecArray | null;
+  while ((match = memberRegex.exec(content)) !== null) {
+    const chain = sliceToChainEnd(content, memberRegex.lastIndex);
+    const optional = /(?:\.default\s*\(|\.optional\s*\(|\.nullish\s*\(|\.catch\s*\()/.test(chain);
+    found.push({ key: match[1]!, needsValue: !optional });
+  }
+  return found;
+}
+
+/** envalid validator objects fed to `cleanEnv` (`KEY: str()` vs `str({ default })`). */
+function scanEnvalidReads(content: string): { key: string; needsValue: boolean }[] {
+  if (!content.includes('cleanEnv(') && !content.includes('envalid')) return [];
+  const found: { key: string; needsValue: boolean }[] = [];
+  const memberRegex =
+    /^\s*([A-Z][A-Z0-9_]*)\s*:\s*\b(?:str|num|bool|json|url|email|host|port|makeValidator)\s*\(/gm;
+  let match: RegExpExecArray | null;
+  while ((match = memberRegex.exec(content)) !== null) {
+    const args = sliceToChainEnd(content, memberRegex.lastIndex);
+    const optional = /(?:default|devDefault)\s*:|\.optional\s*\(/.test(args);
+    found.push({ key: match[1]!, needsValue: !optional });
+  }
+  return found;
+}
+
+/** A file-local `env('KEY')` helper that throws when the variable is missing. */
+function hasThrowingEnvHelper(content: string): boolean {
+  const helperMatch = /(?:function\s+env\b[^{]*\{|=\s*\(\s*[^)]*\)\s*=>\s*\{)/.exec(content);
+  if (!helperMatch) return false;
+  const body = content.slice(helperMatch.index, Math.min(content.length, helperMatch.index + 600));
+  return body.includes('process.env') && /throw\b/.test(body);
+}
+
+/** Calls of a throwing `env('KEY')` helper. */
+function scanEnvHelperReads(content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const callRegex = /\benv\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = callRegex.exec(content)) !== null) {
+    found.push({ key: match[1]!, needsValue: true });
+  }
+  return found;
+}
+
+/** pydantic v2 BaseSettings class fields (required unless defaulted/optional). */
+function scanPydanticSettingsReads(content: string): { key: string; needsValue: boolean }[] {
+  if (!content.includes('BaseSettings') || !/(?:from\s+pydantic|pydantic_settings)\s*import|import\s+pydantic/.test(content)) {
+    return [];
+  }
+  const found: { key: string; needsValue: boolean }[] = [];
+  const classRegex = /^\s*class\s+\w+\s*\(\s*BaseSettings\s*\)\s*:/gm;
+  let _classMatch: RegExpExecArray | null;
+  while ((_classMatch = classRegex.exec(content)) !== null) {
+    const blockStart = content.indexOf('\n', classRegex.lastIndex) + 1;
+    const nextTopLevel = content.search(/\n\s*(?:class|def|@)\s/g);
+    const blockEnd = nextTopLevel > blockStart ? nextTopLevel : content.length;
+    const block = content.slice(blockStart, blockEnd);
+    const fieldRegex = /^\s*([A-Za-z_]\w*)\s*:\s*([^=\n#]+?)(?:\s*=\s*([^\n#]+))?(?:\s*#.*)?$/gm;
+    let fieldMatch: RegExpExecArray | null;
+    while ((fieldMatch = fieldRegex.exec(block)) !== null) {
+      const name = fieldMatch[1]!;
+      if (name.startsWith('_')) continue;
+      const annotation = fieldMatch[2] ?? '';
+      const assignment = (fieldMatch[3] ?? '').trim();
+      const optionalAnnotation = /\bOptional\b|\bNone\b|\|?\s*None\s*(?:$|,)|=\s*None/.test(annotation);
+      let needsValue: boolean;
+      if (assignment.length === 0) {
+        needsValue = !optionalAnnotation;
+      } else if (assignment.startsWith('Field(')) {
+        // `Field(...)` / `Field(alias=...)` with no default ⇒ required; any
+        // `default=`, `= None`, or `optional` ⇒ not.
+        needsValue = !/default\s*=|optional\s*=|=\s*None\b/.test(assignment);
+      } else {
+        needsValue = false; // a literal default or `= None`
+      }
+      // The env var Pydantic reads: the field's own uppercase name, or an
+      // explicit Field(alias=...) when present.
+      const alias = /alias\s*=\s*['"]([A-Z_][A-Z0-9_]*)['"]/.exec(assignment)?.[1];
+      const key = alias ?? name.toUpperCase();
+      found.push({ key, needsValue });
+    }
+  }
+  return found;
+}
+
+/** JVM `@Value("${KEY}")` (required unless `:default`) and `System.getenv("KEY")`. */
+function scanJvmEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const valueRegex = /@Value\s*\(\s*"\$\{\s*([^}]+)\}\s*"/g;
+  let match: RegExpExecArray | null;
+  while ((match = valueRegex.exec(content)) !== null) {
+    const placeholder = match[1]!;
+    const hasDefault = placeholder.includes(':');
+    const key = envKeyLiteral(hasDefault ? placeholder.slice(0, placeholder.indexOf(':')) : placeholder);
+    if (key !== null && !placeholder.includes('.')) {
+      found.push({ key, needsValue: !hasDefault });
+    }
+  }
+  const getenvRegex = /System\.getenv\(\s*"([A-Z][A-Z0-9_]*)"\s*\)/g;
+  while ((match = getenvRegex.exec(content)) !== null) {
+    found.push({ key: match[1]!, needsValue: false });
+  }
+  return found;
+}
+
+/** Go `os.Getenv` / `os.LookupEnv`, required only with an adjacent missing-check or a required struct tag. */
+function scanGoEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const readRegex = /os\.(?:Getenv|LookupEnv)\(\s*"([A-Z][A-Z0-9_]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = readRegex.exec(content)) !== null) {
+    const key = match[1]!;
+    // `if os.Getenv("KEY") == "" { log.Fatal/panic… }` — the app refuses to
+    // boot without the value. The window starts before the call so the
+    // enclosing `if` is visible.
+    const from = Math.max(0, match.index - 60);
+    const vicinity = content.slice(from, Math.min(content.length, match.index + 240));
+    const missingCheck = new RegExp(
+      `if\\s+os\\.(?:Getenv|LookupEnv)\\(\\s*"${key}"[^)]*\\)\\s*==\\s*""\\s*\\{`,
+    ).test(vicinity);
+    const refuses = missingCheck && /log\.Fatal|panic\s*\(|log\.Panic/.test(vicinity);
+    found.push({ key, needsValue: refuses });
+  }
+  // envconfig struct tags: `envconfig:"KEY,required"` (inline option) or a
+  // tag carrying both the env name and a required/validate marker.
+  const tagRegex = /envconfig:"([A-Z][A-Z0-9_]*)(?:,([^"]*))?"/g;
+  while ((match = tagRegex.exec(content)) !== null) {
+    const key = match[1]!;
+    const options = match[2] ?? '';
+    // A single backtick-delimited struct tag that also declares
+    // required:"true" / validate:"required" for this key.
+    const combined = new RegExp(
+      'envconfig:"' + key + '"[^`]*(?:required:"true"|validate:"required")',
+    ).test(content);
+    found.push({ key, needsValue: options.includes('required') || combined });
+  }
+  return found;
+}
+
+/** .NET `GetConnectionString`/`GetRequiredSection`, required only behind a `?? throw`. */
+function scanDotnetEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const readRegex = /(GetRequiredSection|GetConnectionString)\(\s*"([A-Z][A-Z0-9_]*)"\s*\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = readRegex.exec(content)) !== null) {
+    const method = match[1]!;
+    const tail = content.slice(match.index + match[0].length, match.index + match[0].length + 120);
+    const throwGuarded = /\?\?\s*(?:throw\b|new\b)/.test(tail);
+    found.push({ key: match[2]!, needsValue: method === 'GetRequiredSection' || throwGuarded });
+  }
+  return found;
+}
+
+// ── Stage B phase 3 (COMP-017): env-var purpose classification ──────────────
+
+/** Standard provisioned env names the manifest/cdk always inject. */
+const INFRA_BINDING_NAMES = new Set<string>([
+  'DATABASE_URL',
+  'DATABASE_HOST',
+  'DATABASE_PORT',
+  'DATABASE_NAME',
+  'DATABASE_USER',
+  'DATABASE_PASSWORD',
+  'POSTGRES_URL',
+  'POSTGRESQL_URL',
+  'REDIS_URL',
+  'REDIS_HOST',
+  'REDIS_PORT',
+  'CELERY_BROKER_URL',
+  'CELERY_RESULT_BACKEND',
+  'QUEUE_REDIS_URL',
+  'CACHE_URL',
+  'STORAGE_BUCKET',
+  'S3_BUCKET',
+  'AWS_S3_BUCKET',
+  'AWS_REGION',
+  'S3_REGION',
+  'S3_ENDPOINT',
+]);
+
+/** Alias shapes the infrastructure-binding phase can inject (MEMOS_DSN, PAPERLESS_DBHOST…). */
+const INFRA_BINDING_ALIAS_REGEX =
+  /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_DBHOST|_DBPORT|_DBNAME|_DBUSER|_DBPASS|_BUCKET(?:_NAME)?|_S3_REGION)$/i;
+
+/** Every §11.3 external-service catalog key (a vendor credential name). */
+function externalServiceCatalogKeys(): Set<string> {
+  const keys = new Set<string>();
+  for (const def of EXTERNAL_SERVICE_CATALOG) {
+    for (const key of def.keys) keys.add(key);
+  }
+  return keys;
+}
+
+export type EnvVarPurpose =
+  | 'internal_secret'
+  | 'external_credential'
+  | 'infrastructure_binding'
+  | 'optional_configuration'
+  | 'unknown';
+
+/** Deterministic purpose for one env var key. */
+export function classifyEnvVarPurpose(key: string): { purpose: EnvVarPurpose; confidence: 'high' | 'medium' | 'low' } {
+  if (externalServiceCatalogKeys().has(key)) {
+    return { purpose: 'external_credential', confidence: 'high' };
+  }
+  if (INFRA_BINDING_NAMES.has(key)) {
+    return { purpose: 'infrastructure_binding', confidence: 'high' };
+  }
+  if (INFRA_BINDING_ALIAS_REGEX.test(key)) {
+    return { purpose: 'infrastructure_binding', confidence: 'medium' };
+  }
+  if (isSecretName(key)) {
+    return { purpose: 'internal_secret', confidence: 'medium' };
+  }
+  return { purpose: 'optional_configuration', confidence: 'medium' };
+}
+
 /**
  * The §11.2 env-var model — every environment variable the app reads or
  * declares, with honest required/secret/source attributes.
@@ -1854,6 +2103,16 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
           ).test(content);
         recordRead(key, !hasFallback && !isGuard && (!isBareAssignment || throwGuarded), path);
       }
+      // Stage B phase 3 (COMP-017): schema-library and helper-form reads —
+      // zod object schemas parsed against process.env, envalid validator
+      // objects, and a file-local throwing `env('KEY')` helper.
+      for (const entry of [
+        ...scanZodEnvReads(content),
+        ...scanEnvalidReads(content),
+        ...(hasThrowingEnvHelper(content) ? scanEnvHelperReads(content) : []),
+      ]) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
     } else if (/schema\.prisma$/i.test(path)) {
       const envRegex = /env\(\s*["']([A-Z_][A-Z0-9_]*)["']\s*\)/g;
       let match: RegExpExecArray | null;
@@ -1872,12 +2131,28 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // index form `os.environ['X']` REQUIRES the variable.
         if (match[1]) recordRead(match[1], false, path);
       }
+      // Stage B phase 3 (COMP-017): pydantic v2 BaseSettings class fields.
+      for (const entry of scanPydanticSettingsReads(content)) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
     } else if (RB_SOURCE.test(path)) {
       const fetchRegex = /ENV\.fetch\(\s*["']([A-Z_][A-Z0-9_]*)["']/g;
       let match: RegExpExecArray | null;
       while ((match = fetchRegex.exec(content)) !== null) {
         const hasDefault = content.slice(match.index, match.index + 80).includes(',');
         if (match[1]) recordRead(match[1], !hasDefault, path);
+      }
+    } else if (JAVA_SOURCE_REGEX.test(path)) {
+      for (const entry of scanJvmEnvReads(content)) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
+    } else if (GO_SOURCE.test(path)) {
+      for (const entry of scanGoEnvReads(content)) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
+    } else if (DOTNET_SOURCE_REGEX.test(path)) {
+      for (const entry of scanDotnetEnvReads(content)) {
+        recordRead(entry.key, entry.needsValue, path);
       }
     }
   }
@@ -1913,9 +2188,13 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       secret = true;
       source.push(`${serviceKey.service} requires ${key}`);
     }
+    // Stage B phase 3: deterministic purpose/confidence for every variable —
+    // infra binding name or alias, external-service credential, internal
+    // secret, or plain configuration.
+    const purpose = classifyEnvVarPurpose(key);
     // Never drop a var the app declares-and-reads from the config surface —
     // but drop nothing: a sample-only var is still worth listing as optional.
-    entries.push({ key, required, secret, source });
+    entries.push({ key, required, secret, source, ...purpose });
   }
 
   return entries;

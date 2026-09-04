@@ -165,6 +165,18 @@ function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
       if (typeof raw !== 'object' || raw === null) continue;
       const record = raw as Record<string, unknown>;
       if (typeof record['key'] !== 'string' || record['key'].length === 0) continue;
+      const purpose =
+        record['purpose'] === 'internal_secret' ||
+        record['purpose'] === 'external_credential' ||
+        record['purpose'] === 'infrastructure_binding' ||
+        record['purpose'] === 'optional_configuration' ||
+        record['purpose'] === 'unknown'
+          ? record['purpose']
+          : undefined;
+      const confidence =
+        record['confidence'] === 'high' || record['confidence'] === 'medium' || record['confidence'] === 'low'
+          ? record['confidence']
+          : undefined;
       entries.push({
         key: record['key'],
         required: record['required'] === true,
@@ -172,6 +184,8 @@ function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
         source: Array.isArray(record['source'])
           ? record['source'].filter((s): s is string => typeof s === 'string' && s.length > 0)
           : [],
+        ...(purpose !== undefined ? { purpose } : {}),
+        ...(confidence !== undefined ? { confidence } : {}),
       });
     }
     return entries;

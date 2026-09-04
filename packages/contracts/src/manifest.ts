@@ -40,6 +40,16 @@ export const manifestEnvVariableSchema = z
     secret: z.boolean(),
     /** Evidence strings: file paths, reads, or service detections that produced this entry. */
     source: z.array(z.string()),
+    /**
+     * What the variable is for (Stage B phase 3). Absent on variables written
+     * before the field existed — optional, not defaulted, so old persisted
+     * data round-trips unchanged.
+     */
+    purpose: z
+      .enum(['internal_secret', 'external_credential', 'infrastructure_binding', 'optional_configuration', 'unknown'])
+      .optional(),
+    /** How sure the purpose classification is (exact known-name vs name-shape heuristic). */
+    confidence: z.enum(['high', 'medium', 'low']).optional(),
   })
   .strict();
 export type ManifestEnvVariable = z.infer<typeof manifestEnvVariableSchema>;

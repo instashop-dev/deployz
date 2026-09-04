@@ -162,3 +162,46 @@ describe('manifestReadinessResultSchema', () => {
     expect(() => manifestReadinessResultSchema.parse({ state: 'MAYBE', findings: [] })).toThrow();
   });
 });
+
+describe("environment variable purpose/confidence (Stage B phase 3)", () => {
+  it("accepts a variable carrying purpose and confidence", () => {
+    const parsed = deploymentManifestSchema.parse({
+      ...READY_MANIFEST,
+      environment: {
+        variables: [
+          {
+            key: "STRIPE_SECRET_KEY",
+            required: true,
+            secret: true,
+            source: [],
+            purpose: "external_credential",
+            confidence: "high",
+          },
+        ],
+      },
+    });
+    expect(parsed.environment.variables[0]).toMatchObject({
+      purpose: "external_credential",
+      confidence: "high",
+    });
+  });
+
+  it("still validates an OLD stored variable without purpose/confidence", () => {
+    const parsed = deploymentManifestSchema.parse(READY_MANIFEST);
+    expect(parsed.environment.variables[0]).not.toHaveProperty("purpose");
+    expect(parsed.environment.variables[0]).not.toHaveProperty("confidence");
+  });
+
+  it("rejects an unknown purpose value", () => {
+    expect(() =>
+      deploymentManifestSchema.parse({
+        ...READY_MANIFEST,
+        environment: {
+          variables: [
+            { key: "X", required: false, secret: false, source: [], purpose: "vendor_thing" },
+          ],
+        },
+      }),
+    ).toThrow();
+  });
+});

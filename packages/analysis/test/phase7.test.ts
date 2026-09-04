@@ -48,12 +48,26 @@ describe('detectEnvVarModel (§11.2)', () => {
     };
     const model = detectEnvVarModel(tree);
     expect(model).toEqual([
-      { key: 'INTERNAL_API_TOKEN', required: true, secret: true, source: ['read in src/index.js'] },
+      {
+        key: 'INTERNAL_API_TOKEN',
+        required: true,
+        secret: true,
+        source: ['read in src/index.js'],
+        purpose: 'internal_secret',
+        confidence: 'medium',
+      },
     ]);
     // A non-secret option stored as-is proves nothing about need (COMP-023).
     const stored = detectEnvVarModel({ 'src/index.js': 'const url = process.env.INTERNAL_API_URL;\n' });
     expect(stored).toEqual([
-      { key: 'INTERNAL_API_URL', required: false, secret: false, source: ['read in src/index.js'] },
+      {
+        key: 'INTERNAL_API_URL',
+        required: false,
+        secret: false,
+        source: ['read in src/index.js'],
+        purpose: 'optional_configuration',
+        confidence: 'medium',
+      },
     ]);
   });
 
