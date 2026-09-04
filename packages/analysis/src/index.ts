@@ -28,6 +28,7 @@ export {
   detectExternalServices,
   detectExternalServiceRequirements,
   collectScripts,
+  collectScriptsWithDir,
   detectDeclaredWorkerCommand,
   isRuntimeSourcePath,
 } from './detectors.js';

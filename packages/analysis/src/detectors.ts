@@ -39,6 +39,32 @@ export interface DetectorFinding {
 const PACKAGE_JSON_REGEX = /(?:^|\/)package\.json$/;
 
 /**
+ * Parse every package.json in the tree, alongside the path it came from,
+ * repository root first. Shared by `parsePackageJsons` (path discarded) and
+ * `collectScriptsWithDir` (path kept, as the originating package's directory).
+ */
+function parsePackageJsonsWithPath(tree: FileTree): { path: string; pkg: Record<string, unknown> }[] {
+  const paths = Object.keys(tree)
+    .filter((path) => PACKAGE_JSON_REGEX.test(path))
+    .sort((a, b) => a.split('/').length - b.split('/').length);
+
+  const parsed: { path: string; pkg: Record<string, unknown> }[] = [];
+  for (const path of paths) {
+    const raw = tree[path];
+    if (!raw) continue;
+    try {
+      const value = JSON.parse(raw);
+      if (typeof value === 'object' && value !== null) {
+        parsed.push({ path, pkg: value as Record<string, unknown> });
+      }
+    } catch {
+      // A malformed manifest is "no manifest" — never a failed analysis.
+    }
+  }
+  return parsed;
+}
+
+/**
  * Parse every package.json in the tree, repository root first.
  *
  * A monorepo keeps its dependencies and scripts in the workspace packages,
@@ -47,24 +73,7 @@ const PACKAGE_JSON_REGEX = /(?:^|\/)package\.json$/;
  * about dependencies or scripts asks about ALL of them.
  */
 export function parsePackageJsons(tree: FileTree): Record<string, unknown>[] {
-  const paths = Object.keys(tree)
-    .filter((path) => PACKAGE_JSON_REGEX.test(path))
-    .sort((a, b) => a.split('/').length - b.split('/').length);
-
-  const parsed: Record<string, unknown>[] = [];
-  for (const path of paths) {
-    const raw = tree[path];
-    if (!raw) continue;
-    try {
-      const value = JSON.parse(raw);
-      if (typeof value === 'object' && value !== null) {
-        parsed.push(value as Record<string, unknown>);
-      }
-    } catch {
-      // A malformed manifest is "no manifest" — never a failed analysis.
-    }
-  }
-  return parsed;
+  return parsePackageJsonsWithPath(tree).map(({ pkg }) => pkg);
 }
 
 /** Get all keys from the package.json "scripts" field, or empty object. */
@@ -118,6 +127,26 @@ export function collectScripts(tree: FileTree): [string, string][] {
     for (const [name, command] of Object.entries(getScripts(pkg))) {
       if (typeof command === 'string') {
         entries.push([name, command]);
+      }
+    }
+  }
+  return entries;
+}
+
+/**
+ * Same data as `collectScripts`, plus the directory of the package.json each
+ * script came from (posix path relative to the repo root, "" for the root
+ * manifest itself). Needed by the §35 migration-command resolver
+ * (apps/api/src/analysis.ts) to locate the schema.prisma belonging to the
+ * same workspace package as the matched script, not just anywhere in the tree.
+ */
+export function collectScriptsWithDir(tree: FileTree): [string, string, string][] {
+  const entries: [string, string, string][] = [];
+  for (const { path, pkg } of parsePackageJsonsWithPath(tree)) {
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    for (const [name, command] of Object.entries(getScripts(pkg))) {
+      if (typeof command === 'string') {
+        entries.push([name, command, dir]);
       }
     }
   }
