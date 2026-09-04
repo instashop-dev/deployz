@@ -830,4 +830,43 @@ describe('deploy links', () => {
     });
     expect(register.statusCode).toBe(401);
   });
+
+  // ── Phase 6: deploy-link deployments behave exactly like manual ones ──────
+
+  it('a deploy-link deployment appears in the vendor fleet with its source', async () => {
+    const { deploymentId } = await createLink();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/deployments',
+      headers: { cookie: orgA.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      deployments: Array<{ id: string; source: string; customerName: string; applicationName: string }>;
+    };
+    const row = body.deployments.find((deployment) => deployment.id === deploymentId);
+    expect(row).toBeDefined();
+    expect(row!.source).toBe('deploy_link');
+    expect(row!.customerName).toBe('Deploy Link Customer');
+    expect(row!.applicationName).toBe('Deploy Link App');
+  });
+
+  it('a deploy-link deployment is destroyed through the normal route and the link then fails closed', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    const destroy = await app.inject({
+      method: 'POST',
+      url: `/api/deployments/${deploymentId}/destroy`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify({}),
+    });
+    expect(destroy.statusCode, destroy.body).toBeLessThan(300);
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    expect(deployment!.state).toBe('DELETED');
+
+    // A destroyed deployment invalidates its link — the customer page fails
+    // closed instead of offering a dead flow.
+    const resolveAfter = await resolveLink(publicId, token);
+    expect(resolveAfter.statusCode).toBe(404);
+  });
 });
