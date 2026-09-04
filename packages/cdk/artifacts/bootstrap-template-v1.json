@@ -514,6 +514,26 @@
               "Resource": "*"
             },
             {
+              "Action": "elasticloadbalancing:AddTags",
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                },
+                "ForAllValues:StringEquals": {
+                  "aws:TagKeys": [
+                    "deployz:installation"
+                  ]
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
               "Action": [
                 "elasticache:CreateCacheCluster",
                 "elasticache:CreateCacheSubnetGroup",
@@ -863,6 +883,27 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerDomainIngressWrite"
+            },
+            {
+              "Action": "elasticloadbalancing:AddTags",
+              "Condition": {
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                },
+                "ForAllValues:StringEquals": {
+                  "aws:TagKeys": [
+                    "deployz:installation"
+                  ]
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressTag"
             },
             {
               "Action": [
@@ -1569,7 +1610,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "9fa8a68052459a3918d7e73cedb31edaff8a1ec17e7414e2f7c56f63bd696a3d.zip"
+          "S3Key": "d65e55562ca9af7ace74b09cfd3e79367ebaf7d430f682d1d688cd6f9a941892.zip"
         },
         "Environment": {
           "Variables": {

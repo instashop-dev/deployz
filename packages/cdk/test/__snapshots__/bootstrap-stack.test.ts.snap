@@ -662,6 +662,26 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Resource": "*",
             },
             {
+              "Action": "elasticloadbalancing:AddTags",
+              "Condition": {
+                "ForAllValues:StringEquals": {
+                  "aws:TagKeys": [
+                    "deployz:installation",
+                  ],
+                },
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
               "Action": [
                 "elasticache:CreateCacheCluster",
                 "elasticache:CreateCacheSubnetGroup",
@@ -1320,6 +1340,27 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerDomainIngressWrite",
+            },
+            {
+              "Action": "elasticloadbalancing:AddTags",
+              "Condition": {
+                "ForAllValues:StringEquals": {
+                  "aws:TagKeys": [
+                    "deployz:installation",
+                  ],
+                },
+                "StringEquals": {
+                  "aws:RequestTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerDomainIngressTag",
             },
             {
               "Action": [
