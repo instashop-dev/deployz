@@ -869,4 +869,55 @@ describe('deploy links', () => {
     const resolveAfter = await resolveLink(publicId, token);
     expect(resolveAfter.statusCode).toBe(404);
   });
+
+  // ── Phase 7: lifecycle, authorization and edge-case hardening ─────────────
+
+  it('an expired link cannot launch a deployment (410 DEPLOY_LINK_EXPIRED)', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    await db
+      .update(schema.deployLinks)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(schema.deployLinks.id, publicId));
+
+    const response = await launched(publicId, token);
+    expect(response.statusCode).toBe(410);
+    expect(response.json()).toMatchObject({ error: { code: 'DEPLOY_LINK_EXPIRED' } });
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    expect(deployment!.state).toBe('NOT_INSTALLED');
+  });
+
+  it('regenerate is refused for a destroyed deployment (409)', async () => {
+    const { publicId, deploymentId } = await createLink();
+    await db
+      .update(schema.deployments)
+      .set({ state: 'DELETED', deletedAt: new Date() })
+      .where(eq(schema.deployments.id, deploymentId));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/deploy-links/${publicId}/regenerate`,
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'DEPLOYMENT_ALREADY_STARTED' } });
+  });
+
+  it('the vendor list and views never carry the raw token', async () => {
+    const { publicId, token } = await createLink();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/customers/${customer.id}/deploy-links`,
+      headers: { cookie: orgA.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const serialized = response.body;
+    // The link id is public; the SECRET must appear nowhere — not raw, not as
+    // a column, not leaked through the hash field.
+    expect(serialized).not.toContain('"token"');
+    expect(serialized).not.toContain(token);
+    expect(serialized).not.toContain('token_hash');
+    expect(serialized).toContain(publicId);
+  });
 });
