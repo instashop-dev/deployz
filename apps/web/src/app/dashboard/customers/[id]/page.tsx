@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { copyInstallLink } from '@/components/copy-install-link';
+import { DeployLinkCard } from '@/components/deploy-link-card';
 import { EditCustomerDialog } from '@/components/edit-customer-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -208,6 +209,8 @@ export default function CustomerDetailPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <DeployLinkCard customerId={customerId} />
 
       <EditCustomerDialog
         customer={customer}
