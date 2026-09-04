@@ -48,7 +48,7 @@ const noDbFacts: FixInstructionsFacts = {
 const containerFinding: ReadinessFinding = {
   id: 'container-setup',
   category: 'container',
-  title: 'Container setup',
+  title: "Deployz doesn't know how to start your app",
   severity: 'required',
   blocking: false,
   plainEnglishExplanation: 'Deployz could not determine how to package and start this application.',
@@ -62,7 +62,7 @@ const containerFinding: ReadinessFinding = {
 const migrationFinding: ReadinessFinding = {
   id: 'database-migrations',
   category: 'database',
-  title: 'Database migrations',
+  title: 'Give Deployz a way to update your database',
   severity: 'recommended',
   blocking: false,
   plainEnglishExplanation:
@@ -152,8 +152,8 @@ describe('assembleFixInstructions', () => {
 
   it('contains a per-finding section with a severity label for every finding', () => {
     const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('### 1. Container setup (REQUIRED)');
-    expect(doc).toContain('### 2. Database migrations (RECOMMENDED)');
+    expect(doc).toContain('### 1. Deployz doesn\'t know how to start your app (REQUIRED)');
+    expect(doc).toContain('### 2. Give Deployz a way to update your database (RECOMMENDED)');
   });
 
   it('includes the disposable-database validation line only when database is postgres', () => {
@@ -181,8 +181,8 @@ describe('assembleFixInstructions', () => {
 
     expect(doc).not.toContain('Implementation guidance:');
     expect(doc).toContain(FIX_INSTRUCTIONS_GUARDRAIL);
-    expect(doc).toContain('### 1. Container setup (REQUIRED)');
-    expect(doc).toContain('### 2. Database migrations (RECOMMENDED)');
+    expect(doc).toContain('### 1. Deployz doesn\'t know how to start your app (REQUIRED)');
+    expect(doc).toContain('### 2. Give Deployz a way to update your database (RECOMMENDED)');
     expect(doc).toContain('## Validation');
     expect(doc).toContain('## Completion report');
   });

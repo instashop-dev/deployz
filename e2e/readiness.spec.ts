@@ -64,8 +64,10 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
   // analysis completes near-instantly in fixture mode, so the page renders
   // the real verdict, not the pending state.
   await expect(page.getByText('Ready to deploy')).toBeVisible();
-  await expect(page.getByTestId('readiness-summary')).toHaveText('All checks passed');
-  await expect(page.getByText('Analysing your app')).toHaveCount(0);
+  await expect(page.getByTestId('readiness-summary')).toHaveText(
+    'Your application passed all required deployment checks.',
+  );
+  await expect(page.getByText('Checking deployment readiness…')).toHaveCount(0);
 });
 
 test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => {

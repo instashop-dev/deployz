@@ -87,7 +87,7 @@ export interface ReadinessFailure {
 export function readinessFailure(readiness: ApplicationReadiness): ReadinessFailure | null {
   if (readiness.analysisStatus !== 'FAILED') return null;
   return {
-    heading: "We couldn't analyse your app",
+    heading: "We couldn't check deployment readiness",
     detail:
       readiness.failureReason ?? 'Something went wrong while reading your repository.',
   };
@@ -96,8 +96,6 @@ export function readinessFailure(readiness: ApplicationReadiness): ReadinessFail
 // ── Semantic state presentation (mirrors @deployz/copy-map) ─────────────────
 
 export interface ReadinessStatePresentation {
-  /** The state headline (§65 copy). */
-  heading: string;
   /** Short badge label. */
   label: string;
   /** Visual tone — READY is green (§19). */
@@ -105,14 +103,10 @@ export interface ReadinessStatePresentation {
 }
 
 export const READINESS_STATE_PRESENTATION: Record<ReadinessState, ReadinessStatePresentation> = {
-  READY: { heading: 'Ready to deploy', label: 'Ready', tone: 'ready' },
-  ALMOST_READY: { heading: 'Almost ready', label: 'Almost ready', tone: 'attention' },
-  NEEDS_CHANGES: { heading: 'Needs changes', label: 'Needs changes', tone: 'incompatible' },
-  ANALYSIS_INCOMPLETE: {
-    heading: 'Analysis incomplete',
-    label: 'Analysis incomplete',
-    tone: 'pending',
-  },
+  READY: { label: 'Ready', tone: 'ready' },
+  ALMOST_READY: { label: 'Action needed', tone: 'attention' },
+  NEEDS_CHANGES: { label: 'Changes needed', tone: 'incompatible' },
+  ANALYSIS_INCOMPLETE: { label: 'Checking…', tone: 'pending' },
 };
 
 /** Map a persisted §19 verdict onto the semantic readiness state (mirrors
@@ -123,17 +117,54 @@ export function readinessStateFromVerdict(verdict: CompatibilityVerdict): Readin
   return 'NEEDS_CHANGES';
 }
 
-/** "2 required changes · 1 recommendation" (mirrors @deployz/copy-map) —
+/** "2 changes needed before deployment" (mirrors @deployz/copy-map) — a
+ *  blocked state, never "almost ready": as long as a required check fails,
+ *  deployment is blocked. */
+export function readinessChangesHeading(count: number): string {
+  return `${count} ${count === 1 ? 'change' : 'changes'} needed before deployment`;
+}
+
+/** The state headline (mirrors @deployz/copy-map). Blocked states read out
+ *  the change count (§65: never "Almost ready" while deployment is actually
+ *  blocked). */
+export function readinessStateHeading(state: ReadinessState, changesCount: number): string {
+  if (state === 'READY') return 'Ready to deploy';
+  if (state === 'ANALYSIS_INCOMPLETE') return 'Checking deployment readiness…';
+  return readinessChangesHeading(changesCount);
+}
+
+/** "4 of 6 checks passed" (mirrors @deployz/copy-map) — a check count,
  *  never a percentage. */
-export function readinessCountsLabel(requiredCount: number, recommendedCount: number): string {
-  const parts: string[] = [];
-  if (requiredCount > 0) {
-    parts.push(`${requiredCount} required ${requiredCount === 1 ? 'change' : 'changes'}`);
-  }
-  if (recommendedCount > 0) {
-    parts.push(`${recommendedCount} ${recommendedCount === 1 ? 'recommendation' : 'recommendations'}`);
-  }
-  return parts.length > 0 ? parts.join(' · ') : 'All checks passed';
+export function readinessChecksLabel(passedCount: number, totalCount: number): string {
+  return `${passedCount} of ${totalCount} checks passed`;
+}
+
+/** Supporting line under a blocked state's heading (mirrors
+ *  @deployz/copy-map). */
+export function readinessBlockedSummary(
+  passedCount: number,
+  totalCount: number,
+  changesCount: number,
+): string {
+  return `Your application passed ${passedCount} of ${totalCount} deployment checks. Fix the ${
+    changesCount === 1 ? 'item' : 'items'
+  } below before deploying.`;
+}
+
+/** Supporting line for the READY state (mirrors @deployz/copy-map). */
+export const READINESS_SUPPORT_READY = 'Your application passed all required deployment checks.';
+
+/** Supporting line while the analysis is still running (mirrors
+ *  @deployz/copy-map). */
+export const READINESS_SUPPORT_RUNNING =
+  "We're reading your repository to see if it can be deployed. This usually takes a minute.";
+
+/** Supporting line under the fix-instructions CTA (mirrors
+ *  @deployz/copy-map). */
+export function readinessFixCtaSupport(issuesCount: number): string {
+  return `Creates one prompt to fix ${
+    issuesCount === 1 ? 'this 1 issue' : `these ${issuesCount} issues`
+  } with your coding agent.`;
 }
 
 // ── Onboarding step derivation ──────────────────────────────────────────────

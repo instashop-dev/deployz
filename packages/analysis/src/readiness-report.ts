@@ -149,7 +149,7 @@ interface RejectionCopy {
 const MYSQL_COPY: RejectionCopy = {
   id: 'unsupported-database-mysql',
   category: 'database',
-  title: 'Database not supported',
+  title: 'Your database needs a supported engine',
   plainEnglishExplanation:
     'This app uses MySQL, which Deployz cannot host. Deployz provides a managed PostgreSQL database.',
   whyItMatters:
@@ -170,7 +170,7 @@ const MONGO_COPY: RejectionCopy = {
 const ELASTICSEARCH_COPY: RejectionCopy = {
   ...MYSQL_COPY,
   id: 'unsupported-database-elasticsearch',
-  title: 'Search engine not supported',
+  title: 'Your search engine needs a supported alternative',
   plainEnglishExplanation:
     'This app uses Elasticsearch or OpenSearch, which Deployz cannot host.',
   suggestedOutcome:
@@ -199,7 +199,7 @@ const SQLITE_COPY: RejectionCopy = {
 const REDIS_COPY: RejectionCopy = {
   id: 'unsupported-redis-setup',
   category: 'cache',
-  title: 'Cache setup not supported',
+  title: "Your app uses Redis features Deployz can't provide",
   plainEnglishExplanation:
     'This app uses Redis features Deployz cannot provide (such as Redis Stack modules or cluster mode).',
   whyItMatters:
@@ -368,7 +368,7 @@ export function buildReadinessReport(
     findings.push({
       id: 'container-setup',
       category: 'container',
-      title: 'Container setup',
+      title: "Deployz doesn't know how to start your app",
       severity: 'required',
       blocking: false,
       plainEnglishExplanation:
@@ -386,7 +386,7 @@ export function buildReadinessReport(
     findings.push({
       id: 'health-check',
       category: 'health',
-      title: 'Deployment health check',
+      title: 'Give Deployz a way to check your app',
       severity: 'required',
       blocking: false,
       plainEnglishExplanation:
@@ -412,7 +412,7 @@ export function buildReadinessReport(
     findings.push({
       id: 'database-migrations',
       category: 'database',
-      title: 'Database migrations',
+      title: 'Give Deployz a way to update your database',
       severity: 'recommended',
       blocking: false,
       plainEnglishExplanation:
@@ -437,7 +437,7 @@ export function buildReadinessReport(
     findings.push({
       id: 'background-worker-unsupported',
       category: 'workers',
-      title: 'Background worker process',
+      title: "Deployz can't run your app's background worker",
       severity: 'required',
       blocking: true,
       plainEnglishExplanation:

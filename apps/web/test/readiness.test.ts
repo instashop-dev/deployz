@@ -3,9 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   ONBOARDING_STEPS,
   READINESS_STATE_PRESENTATION,
+  READINESS_SUPPORT_READY,
   deriveOnboardingStep,
-  readinessCountsLabel,
+  readinessBlockedSummary,
+  readinessChangesHeading,
+  readinessChecksLabel,
   readinessFailure,
+  readinessFixCtaSupport,
+  readinessStateHeading,
   type ApplicationReadiness,
 } from '../src/lib/readiness';
 
@@ -33,7 +38,7 @@ describe('§42 onboarding steps', () => {
 
 describe('§19 readiness state presentation', () => {
   it('READY uses the §42 success wording', () => {
-    expect(READINESS_STATE_PRESENTATION.READY.heading).toBe('Ready to deploy');
+    expect(readinessStateHeading('READY', 0)).toBe('Ready to deploy');
     expect(READINESS_STATE_PRESENTATION.READY.tone).toBe('ready');
   });
 
@@ -44,38 +49,91 @@ describe('§19 readiness state presentation', () => {
     expect(READINESS_STATE_PRESENTATION.ANALYSIS_INCOMPLETE.tone).toBe('pending');
   });
 
-  it('every presentation heading and label is jargon-free and never a percentage (§65)', () => {
+  it('never says "Almost ready" while deployment is blocked', () => {
+    expect(READINESS_STATE_PRESENTATION.ALMOST_READY.label).toBe('Action needed');
+    expect(READINESS_STATE_PRESENTATION.NEEDS_CHANGES.label).toBe('Changes needed');
+    expect(readinessStateHeading('ALMOST_READY', 1)).not.toMatch(/almost/i);
+    expect(readinessStateHeading('NEEDS_CHANGES', 2)).not.toMatch(/almost/i);
+  });
+
+  it('every presentation label and heading is jargon-free and never a percentage (§65)', () => {
     for (const presentation of Object.values(READINESS_STATE_PRESENTATION)) {
-      expect(presentation.heading).not.toMatch(JARGON);
       expect(presentation.label).not.toMatch(JARGON);
-      expect(presentation.heading).not.toMatch(PERCENT);
       expect(presentation.label).not.toMatch(PERCENT);
+    }
+    for (const state of ['READY', 'ALMOST_READY', 'NEEDS_CHANGES', 'ANALYSIS_INCOMPLETE'] as const) {
+      expect(readinessStateHeading(state, 2)).not.toMatch(JARGON);
+      expect(readinessStateHeading(state, 2)).not.toMatch(PERCENT);
     }
   });
 });
 
-describe('readinessCountsLabel', () => {
-  it('formats the exact example: "2 required changes · 1 recommendation"', () => {
-    expect(readinessCountsLabel(2, 1)).toBe('2 required changes · 1 recommendation');
+describe('readinessChangesHeading', () => {
+  it('formats the exact blocked-state heading with a count', () => {
+    expect(readinessChangesHeading(2)).toBe('2 changes needed before deployment');
   });
 
-  it('singularizes "change" and "recommendation" for exactly one', () => {
-    expect(readinessCountsLabel(1, 0)).toBe('1 required change');
-    expect(readinessCountsLabel(0, 1)).toBe('1 recommendation');
-  });
-
-  it('pluralizes for more than one', () => {
-    expect(readinessCountsLabel(2, 0)).toBe('2 required changes');
-    expect(readinessCountsLabel(0, 2)).toBe('2 recommendations');
-  });
-
-  it('reports "All checks passed" when both counts are zero', () => {
-    expect(readinessCountsLabel(0, 0)).toBe('All checks passed');
+  it('singularizes for exactly one change', () => {
+    expect(readinessChangesHeading(1)).toBe('1 change needed before deployment');
   });
 
   it('never contains a percentage sign', () => {
-    expect(readinessCountsLabel(2, 1)).not.toMatch(PERCENT);
-    expect(readinessCountsLabel(0, 0)).not.toMatch(PERCENT);
+    expect(readinessChangesHeading(3)).not.toMatch(PERCENT);
+  });
+});
+
+describe('readinessChecksLabel', () => {
+  it('formats the exact example: "4 of 6 checks passed"', () => {
+    expect(readinessChecksLabel(4, 6)).toBe('4 of 6 checks passed');
+  });
+
+  it('reports the full count when everything passed', () => {
+    expect(readinessChecksLabel(6, 6)).toBe('6 of 6 checks passed');
+  });
+
+  it('is a check count, never a percentage', () => {
+    expect(readinessChecksLabel(1, 3)).not.toMatch(PERCENT);
+    expect(readinessChecksLabel(0, 3)).not.toMatch(PERCENT);
+  });
+});
+
+describe('readinessBlockedSummary', () => {
+  it('states what passed and what to do next', () => {
+    expect(readinessBlockedSummary(4, 6, 2)).toBe(
+      'Your application passed 4 of 6 deployment checks. Fix the items below before deploying.',
+    );
+  });
+
+  it('singularizes for exactly one blocking item', () => {
+    expect(readinessBlockedSummary(5, 6, 1)).toBe(
+      'Your application passed 5 of 6 deployment checks. Fix the item below before deploying.',
+    );
+  });
+
+  it('never contains a percentage sign', () => {
+    expect(readinessBlockedSummary(0, 3, 3)).not.toMatch(PERCENT);
+  });
+});
+
+describe('readinessFixCtaSupport', () => {
+  it('interpolates the issue count', () => {
+    expect(readinessFixCtaSupport(2)).toBe(
+      'Creates one prompt to fix these 2 issues with your coding agent.',
+    );
+  });
+
+  it('uses the singular phrasing for exactly one issue', () => {
+    expect(readinessFixCtaSupport(1)).toBe(
+      'Creates one prompt to fix this 1 issue with your coding agent.',
+    );
+  });
+});
+
+describe('READY supporting copy', () => {
+  it('tells the vendor every required check passed', () => {
+    expect(READINESS_SUPPORT_READY).toBe(
+      'Your application passed all required deployment checks.',
+    );
   });
 });
 
@@ -294,6 +352,12 @@ describe('readinessFailure (FAILED analysis)', () => {
   it('surfaces the reason the analysis failed', () => {
     expect(readinessFailure(failed('Failed to mint a GitHub installation token'))?.detail).toBe(
       'Failed to mint a GitHub installation token',
+    );
+  });
+
+  it('uses the deployment-readiness failure heading', () => {
+    expect(readinessFailure(failed(null))?.heading).toBe(
+      "We couldn't check deployment readiness",
     );
   });
 

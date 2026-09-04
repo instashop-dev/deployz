@@ -20,7 +20,7 @@ function finding(overrides: Partial<ReadinessFinding> = {}): ReadinessFinding {
   return {
     id: 'health-check',
     category: 'health',
-    title: 'Deployment health check',
+    title: 'Give Deployz a way to check your app',
     severity: 'required',
     blocking: false,
     plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',

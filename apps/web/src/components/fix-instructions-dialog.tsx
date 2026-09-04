@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,8 @@ export function FixInstructionsDialog({
   onReanalyse: () => void;
 }) {
   const [state, setState] = useState<GenerationState>({ status: 'generating' });
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const generate = useCallback(() => {
     setState({ status: 'generating' });
@@ -61,10 +63,20 @@ export function FixInstructionsDialog({
     if (open) generate();
   }, [open, generate]);
 
+  // Clear the "Copied" revert timer so it never fires after unmount.
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    };
+  }, []);
+
   async function handleCopy(): Promise<void> {
     if (state.status !== 'done') return;
     try {
       await navigator.clipboard.writeText(state.result.instructions);
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
       toast.success('Instructions copied. Paste them into your coding agent.');
     } catch {
       toast.error("We couldn't copy automatically — select the text and copy it manually.");
@@ -80,10 +92,11 @@ export function FixInstructionsDialog({
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
       <DialogContent data-testid="fix-instructions-dialog" className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Fix instructions for your coding agent</DialogTitle>
+          <DialogTitle>Fix these deployment issues with your coding agent</DialogTitle>
           <DialogDescription>
-            Paste these instructions into your coding agent — Claude Code, Cursor, Codex, OpenCode,
-            or similar. Deployz doesn&apos;t change your repository; your agent makes the changes.
+            Paste these instructions into your coding agent — Claude Code, Cursor, Codex, Copilot,
+            or another coding agent. Deployz doesn&apos;t change your repository; your agent makes
+            the changes.
           </DialogDescription>
         </DialogHeader>
 
@@ -119,8 +132,8 @@ export function FixInstructionsDialog({
               {state.result.instructions}
             </pre>
             <p className="text-sm text-muted-foreground">
-              After your coding agent has made and pushed the changes, re-run the analysis —
-              Deployz verifies the repository itself and never takes the agent&apos;s word for it.
+              After making the changes, test them, push them to GitHub, then return to Deployz and
+              analyse the latest commit.
             </p>
           </div>
         ) : null}
@@ -147,8 +160,12 @@ export function FixInstructionsDialog({
                 Re-analyse application
               </Button>
             </div>
-            <Button type="button" data-testid="fix-instructions-copy" onClick={handleCopy}>
-              Copy instructions
+            <Button
+              type="button"
+              data-testid="fix-instructions-copy"
+              onClick={handleCopy}
+            >
+              {copied ? 'Copied' : 'Copy instructions'}
             </Button>
           </DialogFooter>
         ) : null}
