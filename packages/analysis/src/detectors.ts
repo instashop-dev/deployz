@@ -38,6 +38,14 @@ export interface DetectorFinding {
    * `vendor_required` (no evidence at all — Deployz must not guess).
    */
   mode?: 'explicit' | 'root' | 'vendor_required' | undefined;
+  /**
+   * Stage B phase 7 (COMP-030) — where a `port` finding came from:
+   * `dockerfile-expose` | `compose` | `env` | `runtime-literal` |
+   * `framework-default`. Set only by the `port` detector.
+   */
+  portSource?: string | undefined;
+  /** Stage B phase 7 — how confident the port detection is. */
+  portConfidence?: 'high' | 'medium' | 'low' | undefined;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -524,79 +532,140 @@ function exposedPort(dockerfile: string): string | null {
 }
 
 /**
+ * The candidate port + its provenance. Explicit sources always outrank the
+ * framework default, which is stored separately (low confidence, prefill only).
+ */
+interface PortCandidate {
+  value: string;
+  source: 'dockerfile-expose' | 'compose' | 'env' | 'runtime-literal' | 'framework-default';
+  confidence: 'high' | 'medium' | 'low';
+  details: string;
+}
+
+/** A literal numeric port (2-5 digits). */
+const LITERAL_PORT = /^(\d{2,5})$/;
+
+/**
+ * Runtime literals that name the port the app listens on — static, easy
+ * patterns only. Placeholder/env-dependent values are never a candidate.
+ */
+function runtimeLiteralPort(tree: FileTree): { value: string; details: string } | null {
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    // Go: http.ListenAndServe(":8080", nil) / Addr: ":8080"
+    if (/\.go$/.test(path)) {
+      const go = /(?:http\.ListenAndServe\(\s*"|Addr\s*:\s*"):(\d{2,5})"/.exec(content);
+      if (go?.[1]) return { value: go[1], details: `Go ListenAndServe port ${go[1]} (${path})` };
+    }
+    // Python: app.run(port=8000) / uvicorn.run(app, port=8000) / --port 8000
+    if (/\.py$/.test(path)) {
+      const py = /\b(?:app\.run|uvicorn\.run)\([^)]*port\s*=\s*(\d{2,5})/.exec(content);
+      if (py?.[1]) return { value: py[1], details: `Python run(port=...) ${py[1]} (${path})` };
+    }
+    // Java: server.port=8080 / server: { port: 8080 } (non-placeholder)
+    if (/\.(?:properties|ya?ml)$/.test(path) && /(?:^|\/)application\./.test(path)) {
+      const java = /^\s*server\s*[:.]\s*port\s*[:=]\s*(\d{2,5})\s*$/m.exec(content);
+      if (java?.[1]) return { value: java[1], details: `server.port ${java[1]} (${path})` };
+    }
+  }
+  // uvicorn --port in a start command / rails server -p / artisan serve --port.
+  for (const [, command] of collectScripts(tree)) {
+    const uv = /uvicorn[^\n]*--port\s+(\d{2,5})/.exec(command);
+    if (uv?.[1]) return { value: uv[1], details: `uvicorn --port ${uv[1]} (start script)` };
+    const rails = /rails\s+server\s+-p\s+(\d{2,5})/.exec(command);
+    if (rails?.[1]) return { value: rails[1], details: `rails server -p ${rails[1]} (start script)` };
+    const artisan = /artisan\s+serve[^\n]*--port\s*=?\s*(\d{2,5})/.exec(command);
+    if (artisan?.[1]) return { value: artisan[1], details: `artisan serve --port ${artisan[1]} (start script)` };
+  }
+  return null;
+}
+
+/** True when the runtime is detected with existing high-confidence evidence. */
+function hasFrameworkMarker(tree: FileTree): boolean {
+  const names = collectDependencyNames(tree);
+  const raw = [...Object.values(tree)].join('\n');
+  if (names.includes('next')) return true;
+  if (names.includes('@nestjs/core') || names.includes('express') || names.includes('fastify')) return true;
+  if (/django|manage\.py|flask|uvicorn|fastapi|requirements\.txt/.test(raw)) return true;
+  if (names.includes('rails') || /Gemfile/.test(raw)) return true;
+  if (/spring-boot|spring\.framework/.test(raw)) return true;
+  if (/phoenix|mix\.exs/.test(raw)) return true;
+  if (/laravel|artisan/.test(raw)) return true;
+  return false;
+}
+
+/** The framework's conventional default port, when the runtime is present. */
+function frameworkDefaultPort(tree: FileTree): string | null {
+  if (!hasFrameworkMarker(tree)) return null;
+  const names = collectDependencyNames(tree);
+  if (names.includes('next') || names.includes('express') || names.includes('fastify') || names.includes('@nestjs/core')) {
+    return '3000';
+  }
+  const raw = [...Object.values(tree)].join('\n');
+  if (/manage\.py/.test(raw) || /uvicorn|fastapi/.test(raw)) return '8000';
+  if (/flask/.test(raw)) return '5000';
+  if (/Gemfile/.test(raw)) return '3000';
+  if (/spring-boot|spring\.framework/.test(raw)) return '8080';
+  if (/phoenix|mix\.exs/.test(raw)) return '4000';
+  if (/laravel|artisan/.test(raw)) return '8000';
+  return null;
+}
+
+/**
  * Detect the application port from env files, docker-compose, the selected
- * Dockerfile, or source code.
+ * Dockerfile, runtime literals, or — as a LAST-RESORT prefill — the detected
+ * framework's conventional default. Explicit evidence always outranks the
+ * default; the default is returned as `framework-default` / low confidence so
+ * the deployment gate can keep refusing to auto-deploy on a guessed port.
  */
 export function detectPort(tree: FileTree): DetectorFinding {
-  // 1. Check env files (.env, .env.example)
+  const result = (candidate: PortCandidate): DetectorFinding => ({
+    detector: 'port',
+    detected: true,
+    value: candidate.value,
+    details: candidate.details,
+    portSource: candidate.source,
+    portConfidence: candidate.confidence,
+  });
+
+  // 1. Env files (.env, .env.example) — explicit env config.
   for (const path of Object.keys(tree)) {
     if (/^\.env(\.\w+)?$/i.test(path)) {
-      const content = tree[path];
-      if (!content) continue;
-      const match = PORT_ENV_REGEX.exec(content);
-      if (match && match[1]) {
-        return {
-          detector: 'port',
-          detected: true,
-          value: match[1],
-          details: `Port ${match[1]} detected in ${path}`,
-        };
+      const match = PORT_ENV_REGEX.exec(tree[path] ?? '');
+      if (match?.[1]) {
+        return result({ value: match[1], source: 'env', confidence: 'high', details: `Port ${match[1]} detected in ${path}` });
       }
     }
   }
 
-  // 2. Check docker-compose.yml
+  // 2. docker-compose ${PORT:-NNNN} default.
   const dcContent = findFileContent(tree, /^docker-compose\.ya?ml$/i);
   if (dcContent) {
     const match = PORT_DOCKER_COMPOSE_REGEX.exec(dcContent);
-    if (match && match[1]) {
-      return {
-        detector: 'port',
-        detected: true,
-        value: match[1],
-        details: `Port ${match[1]} detected in docker-compose`,
-      };
+    if (match?.[1]) {
+      return result({ value: match[1], source: 'compose', confidence: 'high', details: `Port ${match[1]} detected in docker-compose` });
     }
   }
 
-  // 3. The selected Dockerfile's explicit ENV PORT — the container's own
-  //    configuration outranks a code default it may override.
+  // 3. The selected Dockerfile's explicit ENV PORT.
   const dockerfile = selectedDockerfile(tree);
   const envPort = dockerfile ? DOCKERFILE_ENV_PORT_REGEX.exec(dockerfile.content) : null;
   if (dockerfile && envPort?.[1]) {
-    return {
-      detector: 'port',
-      detected: true,
-      value: envPort[1],
-      details: `Port ${envPort[1]} detected in ${dockerfile.path} (ENV PORT)`,
-    };
+    return result({ value: envPort[1], source: 'env', confidence: 'high', details: `Port ${envPort[1]} detected in ${dockerfile.path} (ENV PORT)` });
   }
 
-  // 4. The selected Dockerfile's EXPOSE instruction — the image's own
-  //    statement of its port outranks a code default, which may belong to
-  //    another runtime in the same repository (a Django image next to a
-  //    Node frontend) and which Deployz overrides through PORT anyway.
+  // 4. The selected Dockerfile's EXPOSE instruction.
   const exposed = dockerfile ? exposedPort(dockerfile.content) : null;
   if (dockerfile && exposed) {
-    return {
-      detector: 'port',
-      detected: true,
-      value: exposed,
-      details: `Port ${exposed} detected in ${dockerfile.path} (EXPOSE)`,
-    };
+    return result({ value: exposed, source: 'dockerfile-expose', confidence: 'high', details: `Port ${exposed} detected in ${dockerfile.path} (EXPOSE)` });
   }
 
-  // 5. Check source code for process.env.PORT || fallback
+  // 5. Source code: process.env.PORT || fallback.
   for (const [path, content] of Object.entries(tree)) {
     if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
       const match = PORT_PROCESS_REGEX.exec(content);
-      if (match && match[1]) {
-        return {
-          detector: 'port',
-          detected: true,
-          value: match[1],
-          details: `Default port ${match[1]} detected in ${path}`,
-        };
+      if (match?.[1]) {
+        return result({ value: match[1], source: 'runtime-literal', confidence: 'high', details: `Default port ${match[1]} detected in ${path}` });
       }
     }
   }
@@ -605,13 +674,25 @@ export function detectPort(tree: FileTree): DetectorFinding {
   for (const path of listProductionComposeFiles(tree)) {
     const match = COMPOSE_PORT_MAPPING_REGEX.exec(tree[path] ?? '');
     if (match?.[1]) {
-      return {
-        detector: 'port',
-        detected: true,
-        value: match[1],
-        details: `Port ${match[1]} detected in ${path} (ports mapping)`,
-      };
+      return result({ value: match[1], source: 'compose', confidence: 'high', details: `Port ${match[1]} detected in ${path} (ports mapping)` });
     }
+  }
+
+  // 7. Runtime literals (Go/Python/Java/Ruby/PHP start commands).
+  const literal = runtimeLiteralPort(tree);
+  if (literal) {
+    return result({ value: literal.value, source: 'runtime-literal', confidence: 'high', details: literal.details });
+  }
+
+  // 8. Framework default — prefill only, never silently deployable.
+  const frameworkDefault = frameworkDefaultPort(tree);
+  if (frameworkDefault && LITERAL_PORT.test(frameworkDefault)) {
+    return result({
+      value: frameworkDefault,
+      source: 'framework-default',
+      confidence: 'low',
+      details: `Framework default port ${frameworkDefault}`,
+    });
   }
 
   return { detector: 'port', detected: false };

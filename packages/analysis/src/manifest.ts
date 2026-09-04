@@ -315,6 +315,11 @@ export function normalizeDeploymentManifest(
         (typeof meta['port'] === 'string' && meta['port'].length > 0
           ? Number.parseInt(meta['port'], 10) || null
           : null),
+      // Stage B phase 7: a framework-default port is a prefill only — the
+      // gate still requires the vendor to confirm it (portIsDefault).
+      ...(overrides.port === undefined && meta['portSource'] === 'framework-default'
+        ? { portIsDefault: true }
+        : {}),
     },
     health: normalizeHealthSection(overrides.healthPath, meta),
     database: {
@@ -424,12 +429,13 @@ export function evaluateManifestReadiness(
       message: 'No Dockerfile was found; Deployz cannot build an image without container instructions.',
     });
   }
-  if (!manifest.web.port) {
+  if (!manifest.web.port || manifest.web.portIsDefault === true) {
     errors.push({
       id: 'port-missing',
       category: 'application',
       severity: 'error',
-      message: 'The application port is unknown; Deployz cannot route traffic to a container without it.',
+      message:
+        'The application port is unknown; Deployz cannot route traffic to a container without it.',
     });
   }
   if (!manifest.web.command) {

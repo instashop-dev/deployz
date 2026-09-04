@@ -517,7 +517,9 @@ function deriveContractFieldUpdates(
 
   if (!vendorOwned.has('containerPort')) {
     const port = finding('port');
-    if (port?.detected && typeof port.value === 'string') {
+    // Stage B phase 7: a framework-default port (low confidence) is a prefill
+    // only — it is never auto-persisted as the application's contract port.
+    if (port?.detected && port.portConfidence !== 'low' && typeof port.value === 'string') {
       const parsed = Number.parseInt(port.value, 10);
       if (Number.isFinite(parsed) && parsed > 0) {
         updates.containerPort = parsed;

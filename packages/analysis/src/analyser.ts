@@ -278,6 +278,14 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
     metadata['healthMode'] = 'vendor_required';
   }
 
+  // Stage B phase 7 (COMP-030): the port's provenance, so the deployment gate
+  // can prefill a framework default without ever auto-deploying on a guess.
+  const portFinding = findings.find((f) => f.detector === 'port');
+  if (portFinding?.detected && typeof portFinding.value === 'string') {
+    metadata['portSource'] = portFinding.portSource;
+    metadata['portConfidence'] = portFinding.portConfidence;
+  }
+
   // Stage B phase 6 (COMP-014): migration MODE — how the database schema is
   // updated. `pre_deploy` (a deploy-safe migration script), `startup` (the
   // app runs migrations when it starts — evidence recorded, command never

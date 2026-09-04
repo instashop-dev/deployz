@@ -89,6 +89,12 @@ export const deploymentManifestSchema = z
         command: z.string().nullable(),
         /** TCP port the app listens on, or null when undetected. */
         port: z.number().int().nullable(),
+        /**
+         * True when the port is a framework DEFAULT (Stage B phase 7,
+         * optional/additive): the value is a prefill only and the deployment
+         * gate still requires the vendor to confirm it.
+         */
+        portIsDefault: z.boolean().optional(),
       })
       .strict(),
     health: z
