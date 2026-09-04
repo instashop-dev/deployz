@@ -1,9 +1,9 @@
 # Simulated E2E scenarios
 
 Eighteen scenario definitions ship today, registered in
-`e2e/simulation/scenarios/index.ts` (the `duplicate-request` and
-`relay-death-destroy` ids in the table are resilience-spec compositions that
-reuse registered definitions). Every terminal-status column below is the
+`e2e/simulation/scenarios/index.ts` (the `duplicate-request`,
+`relay-death-destroy` and `deploy-link` ids in the table are spec compositions
+that reuse registered definitions). Every terminal-status column below is the
 **honest, observed** production behaviour (verified against the actual
 spec assertions and, where noted, against production logic itself) — not the
 behaviour a naive reading of the scenario name would suggest.
@@ -37,6 +37,7 @@ real browser.
 | `duplicate-request` | Two concurrent deploys of the same release race each other; a different release is requested while the first is active | One logical job (both responses name the same `jobId`); the different release gets 409 `DEPLOYMENT_BUSY`; exactly one `deploy.requested`/`deploy.completed` event pair | — | Uses the `happy-path` scenario definition | `e2e/scenario-resilience.spec.ts` |
 | `transient-aws` | The first two post-create `DescribeStacks` polls answer as unreadable (throttled/timed out) | Install still reaches `HEALTHY` — the wait loop rides out transient errors within its unreadable-poll budget | Normal install | `transientDescribeFailures` scenario knob | `e2e/scenario-resilience.spec.ts` |
 | `relay-death-destroy` | The teardown starts in the account, then the relay invocation dies mid-DESTROY (its poll cycle hangs) | `state` stays `DELETING` — never a false `DELETED` or `FAILED`; no `destroy.completed`/`destroy.failed` event; force-complete is the production escape hatch | Honest "deleting" until the vendor force-completes | `dieDuringDestroy` relay knob over `retained-resources` | `e2e/scenario-resilience.spec.ts` |
+| `deploy-link` | The vendor generates a customer Deploy Link; the customer resolves and launches it through the public token-header routes; the `happy-path` install pipeline then runs unchanged | `state: HEALTHY`; customer projection `stage: VERIFYING` (HTTP-only fixture); fleet row `source: deploy_link` | The customer's progress view is the install flow's, entered from the /deploy link | Audit events `deploy_link.created`/`opened`/`launched` on the deployment; a wrong token 404s; a revoked link 410s resolve and launch; repeated launches record exactly one `deploy_link.launched` | `e2e/scenario-deploy-link.spec.ts` |
 
 Browser-level coverage: `e2e/scenario-ui.spec.ts` drives four of these
 scenarios (`happy-path`, `slow-provision`, `cloudformation-rollback`, and
