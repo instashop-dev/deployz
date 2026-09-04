@@ -9,6 +9,7 @@ import {
   createAiGateway,
   evaluateManifestReadiness,
   normalizeDeploymentManifest,
+  readApplicationAnalysis,
   type AiGateway,
   type ReadinessReport,
 } from '@deployz/analysis';
@@ -163,6 +164,21 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(row.healthPath).toBe('/health');
     expect(row.migrationCommand).toBe('npx drizzle-kit push');
     expect(row.databaseRequired).toBe(true);
+
+    // The canonical projection is persisted beside the flat metadata,
+    // versioned, and readable back through the contract schema.
+    const detected = readApplicationAnalysis(row.detectedMetadata);
+    expect(detected).not.toBeNull();
+    expect(detected).toMatchObject({
+      analysisVersion: ANALYSIS_VERSION,
+      runtime: { value: 'node', source: 'dockerfile', confidence: 'confirmed' },
+      framework: { value: 'express' },
+      network: { port: { value: 3000, source: 'dockerfile' } },
+      database: { required: true, type: 'postgres' },
+      healthCheck: { detected: true, path: '/health' },
+      migrations: { command: 'npx drizzle-kit push', tools: ['drizzle-kit'] },
+    });
+    expect(detected?.environmentVariables.map((v) => v.key)).toContain('DATABASE_URL');
   });
 
   it('analyses the legacy-redis fixture repo to COMPLETE/NOT_COMPATIBLE with a blocking finding', async () => {

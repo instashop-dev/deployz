@@ -7,6 +7,7 @@ import {
   REPO_AI_TIMEOUT_MS,
   analyseRepo,
   analyseRepositoryWithAi,
+  buildApplicationAnalysis,
   buildReadinessReport,
   collectScripts,
   collectScriptsWithDir,
@@ -100,7 +101,12 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // deployment creation with 422 MANIFEST_NEEDS_CONFIGURATION although the app
 // runs fine without it) — env-var reads behind an early-return presence guard
 // are no longer required — stored env-var models from Version 11 must re-run.
-export const ANALYSIS_VERSION = 12;
+// Version 13 adds the runtime and bind-address detectors and persists the
+// canonical `application` projection (runtime, commands, port, bind address,
+// database, cache, storage, health check, migrations, env vars — each with
+// source, confidence and evidence) — stored metadata from Version 12 must
+// re-run so the readiness page can show what was detected.
+export const ANALYSIS_VERSION = 13;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -199,6 +205,11 @@ export async function runApplicationAnalysis(
     const readiness: ReadinessReport = buildReadinessReport(mergedAnalysis, {
       workerCommandResolved: resolvedWorkerCommand !== undefined,
     });
+    const applicationAnalysis = buildApplicationAnalysis(mergedAnalysis, {
+      analysisVersion: ANALYSIS_VERSION,
+      aiResolved,
+      resolvedMigrationCommand: resolveMigrationCommand(tree) ?? null,
+    });
 
     await deps.db
       .update(schema.applications)
@@ -215,6 +226,7 @@ export async function runApplicationAnalysis(
           // clear. Null when no worker script resolves.
           resolvedWorkerCommand,
           readiness,
+          application: applicationAnalysis,
           vendorOverrides,
           analysisVersion: ANALYSIS_VERSION,
           ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),

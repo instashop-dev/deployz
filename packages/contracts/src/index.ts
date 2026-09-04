@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export * from './infrastructure.js';
 export * from './manifest.js';
+export * from './application-analysis.js';
 
 // Shared Zod contracts between api and web. Shapes mirror the Drizzle schema
 // in @deployz/db (packages/db/src/schema/*.ts) exactly — the db stays the

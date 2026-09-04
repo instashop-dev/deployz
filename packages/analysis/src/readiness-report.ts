@@ -125,11 +125,14 @@ const PASSED_LABELS: Partial<Record<string, string>> = {
   'external-services': 'External service integrations detected',
   'package-manager': 'Package manager detected',
   'build-command': 'Build command found',
+  runtime: 'Runtime detected',
 };
 
 // Detectors whose `detected: true` is a NEGATIVE signal and must never appear
 // as a passed check (they surface as findings instead).
-const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem']);
+// `bind-address` is detected when the server binds only to localhost — a
+// problem, never a passed check.
+const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem', 'bind-address']);
 
 // `worker` is handled as a finding (blocking or recommended) — see the worker
 // branch in the report builder. It is never a passed check.

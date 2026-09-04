@@ -16,6 +16,7 @@ import {
   createAiGateway,
   generateFixInstructions,
   normalizeErrorText,
+  readApplicationAnalysis,
   redactSecrets,
   type AiGateway,
   type PassedCheck,
@@ -42,6 +43,7 @@ import {
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
   resolveBootstrapTemplate,
+  type ApplicationAnalysis,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
@@ -769,6 +771,8 @@ interface ReadinessResponse {
   passed: PassedCheck[];
   /** The commit the analysis ran against, when known. */
   analyzedCommitSha: string | null;
+  /** What the analysis detected, with source, confidence and evidence. Null until a Version 13+ analysis ran. */
+  detected: ApplicationAnalysis | null;
 }
 
 /** Legacy-row bridge: rebuild findings from the pre-report `checks` shape. */
@@ -841,6 +845,7 @@ function computeReadiness(app: {
       findings: [],
       passed: [],
       analyzedCommitSha: null,
+      detected: null,
     };
   }
 
@@ -865,6 +870,7 @@ function computeReadiness(app: {
     ...body,
     failureReason: null,
     analyzedCommitSha,
+    detected: readApplicationAnalysis(app.detectedMetadata),
   };
 }
 

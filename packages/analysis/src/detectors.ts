@@ -31,7 +31,16 @@ export interface DetectorFinding {
    * targets, e.g. "/api/health") — every other detector leaves it undefined.
    */
   path?: string | undefined;
+  /**
+   * Where the winning value was read from, for the detectors whose value
+   * the canonical application analysis reports as a fact (framework, port,
+   * health endpoint, start/build/migration commands, runtime, bind address).
+   */
+  source?: DetectorSource | undefined;
 }
+
+/** The evidence families a detector value can come from. */
+export type DetectorSource = 'dockerfile' | 'package-manifest' | 'compose' | 'env-file' | 'procfile' | 'source';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -497,6 +506,7 @@ export function detectFramework(tree: FileTree): DetectorFinding {
         detected: true,
         value: framework,
         details: `Framework detected: ${framework}`,
+        source: 'package-manifest',
       };
     }
   }
@@ -562,6 +572,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
           detected: true,
           value: match[1],
           details: `Port ${match[1]} detected in ${path}`,
+          source: 'env-file',
         };
       }
     }
@@ -577,6 +588,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
         detected: true,
         value: match[1],
         details: `Port ${match[1]} detected in docker-compose`,
+        source: 'compose',
       };
     }
   }
@@ -591,6 +603,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
       detected: true,
       value: envPort[1],
       details: `Port ${envPort[1]} detected in ${dockerfile.path} (ENV PORT)`,
+      source: 'dockerfile',
     };
   }
 
@@ -605,6 +618,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
       detected: true,
       value: exposed,
       details: `Port ${exposed} detected in ${dockerfile.path} (EXPOSE)`,
+      source: 'dockerfile',
     };
   }
 
@@ -618,6 +632,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
           detected: true,
           value: match[1],
           details: `Default port ${match[1]} detected in ${path}`,
+          source: 'source',
         };
       }
     }
@@ -632,6 +647,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
         detected: true,
         value: match[1],
         details: `Port ${match[1]} detected in ${path} (ports mapping)`,
+        source: 'compose',
       };
     }
   }
@@ -780,7 +796,7 @@ function composeMountedPath(
  */
 export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   const sources: string[] = [];
-  const pathCandidates: { path: string; priority: number }[] = [];
+  const pathCandidates: { path: string; priority: number; source: DetectorSource }[] = [];
 
   // 0. Router mounts, collected first because a mount and the routes it
   // carries usually live in different files.
@@ -802,6 +818,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
       pathCandidates.push({
         path: composeMountedPath(mount.mounter, mount.prefix, mounts) ?? mount.prefix,
         priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+        source: 'source',
       });
     }
   }
@@ -820,7 +837,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
       if (file) url = HEALTHCHECK_URL_REGEX.exec(tree[file] ?? '');
     }
     if (url) {
-      pathCandidates.push({ path: url[1] ?? '/', priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL });
+      pathCandidates.push({ path: url[1] ?? '/', priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL, source: 'dockerfile' });
     }
   }
 
@@ -830,7 +847,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     const url = HEALTHCHECK_URL_REGEX.exec(healthcheck);
     if (url) {
       sources.push(`healthcheck (${path})`);
-      pathCandidates.push({ path: url[1] ?? '/', priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL });
+      pathCandidates.push({ path: url[1] ?? '/', priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL, source: 'compose' });
       break;
     }
   }
@@ -841,7 +858,11 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     const match = HEALTH_ROUTE_LITERAL_REGEX.exec(content);
     if (match?.[1]) {
       sources.push(`health route (${path})`);
-      pathCandidates.push({ path: normalizeHealthPath(match[1]), priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION });
+      pathCandidates.push({
+        path: normalizeHealthPath(match[1]),
+        priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+        source: 'source',
+      });
     }
   }
 
@@ -863,7 +884,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
         path.split('/').some((segment) => ROUTER_ROOT_DIRS.has(segment) || segment === 'api')
       ) {
         sources.push(`health route file (${path})`);
-        pathCandidates.push({ path: deriveHealthPathFromFile(path), priority: HEALTH_PATH_PRIORITY.FILE_ROUTE });
+        pathCandidates.push({ path: deriveHealthPathFromFile(path), priority: HEALTH_PATH_PRIORITY.FILE_ROUTE, source: 'source' });
       }
       const routeMatch = HEALTH_ROUTE_REGEX.exec(content);
       if (routeMatch) {
@@ -874,6 +895,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
               composeMountedPath(routeMatch[1], normalizeHealthPath(routeMatch[2]), mounts) ??
               normalizeHealthPath(routeMatch[2]),
             priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+            source: 'source',
           });
         }
       }
@@ -884,6 +906,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
           pathCandidates.push({
             path: normalizeHealthPath(adapterMatch[1]),
             priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+            source: 'source',
           });
         }
       }
@@ -901,7 +924,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
   // named a literal path (Dockerfile HEALTHCHECK / healthcheck script only),
   // "/health" remains the faithful default — that IS the conventional path
   // those two sources check.
-  const bestCandidate = pathCandidates.reduce<{ path: string; priority: number } | undefined>(
+  const bestCandidate = pathCandidates.reduce<(typeof pathCandidates)[number] | undefined>(
     (best, candidate) => {
       if (best === undefined || candidate.priority < best.priority) return candidate;
       if (candidate.priority === best.priority && candidate.path.length > best.path.length) return candidate;
@@ -917,6 +940,9 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     value: sources,
     details: `Health endpoint detected via: ${sources.join('; ')}`,
     path,
+    // Without a literal path the evidence is the image's own HEALTHCHECK or
+    // a package.json script — never a route Deployz read from source.
+    source: bestCandidate?.source ?? (dockerfile && HEALTHCHECK_REGEX.test(dockerfile.content) ? 'dockerfile' : 'package-manifest'),
   };
 }
 
@@ -1546,6 +1572,7 @@ export function detectMigrationCommand(tree: FileTree): DetectorFinding {
     detected: true,
     value: detected,
     details: `Migration commands detected: ${detected.join(', ')}`,
+    source: 'package-manifest',
   };
 }
 
@@ -1561,6 +1588,7 @@ const ENTRYPOINT_REGEX = /^ENTRYPOINT\s+(.+)$/m;
  */
 export function detectStartupCommand(tree: FileTree): DetectorFinding {
   const sources: string[] = [];
+  let source: DetectorSource | undefined;
 
   // 1. The selected Dockerfile's CMD/ENTRYPOINT — the image Deployz builds,
   //    not every scaffold or sibling image in the repository.
@@ -1574,12 +1602,14 @@ export function detectStartupCommand(tree: FileTree): DetectorFinding {
     if (entryMatch && entryMatch[1]) {
       sources.push(`ENTRYPOINT: ${entryMatch[1].trim()}`);
     }
+    if (sources.length > 0) source = 'dockerfile';
   }
 
   // 2. package.json "start" script
   for (const [name, command] of collectScripts(tree)) {
     if (name === 'start') {
       sources.push(`start: ${command}`);
+      source ??= 'package-manifest';
     }
   }
 
@@ -1592,6 +1622,7 @@ export function detectStartupCommand(tree: FileTree): DetectorFinding {
     detected: true,
     value: sources,
     details: `Startup commands detected: ${sources.join('; ')}`,
+    source,
   };
 }
 
@@ -2090,5 +2121,215 @@ export function detectBuildCommand(tree: FileTree): DetectorFinding {
     detected: true,
     value: commands,
     details: `Build commands detected: ${commands.join('; ')}`,
+    source: 'package-manifest',
   };
+}
+
+// 15. Runtime
+// ---------------------------------------------------------------------------
+
+/** The runtime family a base image or dependency manifest belongs to. */
+export type RuntimeFamily = 'node' | 'python' | 'ruby' | 'go' | 'jvm' | 'dotnet' | 'php' | 'elixir' | 'rust';
+
+const DOCKERFILE_FROM_REGEX = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)/gim;
+
+/** Base-image name → runtime family, matched on the image path without registry or tag. */
+const RUNTIME_IMAGES: { pattern: RegExp; runtime: RuntimeFamily }[] = [
+  { pattern: /(?:^|\/)(?:node|bun|denoland\/deno|deno)$/i, runtime: 'node' },
+  { pattern: /(?:^|\/)(?:python|pypy)$/i, runtime: 'python' },
+  { pattern: /(?:^|\/)(?:ruby|jruby)$/i, runtime: 'ruby' },
+  { pattern: /(?:^|\/)golang$/i, runtime: 'go' },
+  { pattern: /(?:^|\/)(?:eclipse-temurin|openjdk|amazoncorretto|maven|gradle|jetty|tomcat)$/i, runtime: 'jvm' },
+  { pattern: /(?:^|\/)dotnet\/(?:sdk|aspnet|runtime)$/i, runtime: 'dotnet' },
+  { pattern: /(?:^|\/)(?:php|composer)$/i, runtime: 'php' },
+  { pattern: /(?:^|\/)(?:elixir|hexpm\/elixir|erlang)$/i, runtime: 'elixir' },
+  { pattern: /(?:^|\/)rust$/i, runtime: 'rust' },
+];
+
+/** Dependency manifest → runtime family, when no Dockerfile base image decides. */
+const RUNTIME_MANIFESTS: { pattern: RegExp; runtime: RuntimeFamily }[] = [
+  { pattern: PACKAGE_JSON_REGEX, runtime: 'node' },
+  { pattern: PY_DEPENDENCY_FILES, runtime: 'python' },
+  { pattern: /(?:^|\/)Gemfile$/, runtime: 'ruby' },
+  { pattern: GO_DEPENDENCY_FILES, runtime: 'go' },
+  { pattern: /(?:^|\/)(?:pom\.xml|build\.gradle(?:\.kts)?)$/, runtime: 'jvm' },
+  { pattern: /(?:^|\/)(?:[\w.-]+\.csproj|[\w.-]+\.sln|global\.json)$/, runtime: 'dotnet' },
+  { pattern: /(?:^|\/)composer\.json$/, runtime: 'php' },
+  { pattern: /(?:^|\/)mix\.exs$/, runtime: 'elixir' },
+  { pattern: /(?:^|\/)Cargo\.toml$/, runtime: 'rust' },
+];
+
+function runtimeFromImage(image: string): RuntimeFamily | null {
+  // Strip a digest, a tag and a registry host (`public.ecr.aws/docker/
+  // library/node:22`) down to the image name before matching.
+  const withoutDigest = image.split('@')[0] ?? image;
+  const tagIndex = withoutDigest.lastIndexOf(':');
+  const path = tagIndex > withoutDigest.lastIndexOf('/') ? withoutDigest.slice(0, tagIndex) : withoutDigest;
+  const name = path.replace(/^[^/]+\.[^/]+\//, '').replace(/^library\//, '');
+  return RUNTIME_IMAGES.find(({ pattern }) => pattern.test(name))?.runtime ?? null;
+}
+
+/**
+ * Detect the runtime family the deployed container runs. The selected
+ * Dockerfile decides first: its LAST recognizable base image (the final
+ * stage of a multi-stage build, or the build stage when the final stage is
+ * a bare distroless/alpine image). Without one, the shallowest dependency
+ * manifest decides — a root `package.json` outranks a nested
+ * `requirements.txt`.
+ */
+export function detectRuntime(tree: FileTree): DetectorFinding {
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile) {
+    const images = [...dockerfile.content.matchAll(DOCKERFILE_FROM_REGEX)]
+      .map((match) => match[1] ?? '')
+      .filter((image) => image.length > 0);
+    for (const image of [...images].reverse()) {
+      const runtime = runtimeFromImage(image);
+      if (runtime) {
+        return {
+          detector: 'runtime',
+          detected: true,
+          value: runtime,
+          details: `Base image ${image} in ${dockerfile.path}`,
+          source: 'dockerfile',
+        };
+      }
+    }
+  }
+
+  const manifests = Object.keys(tree)
+    .filter((path) => RUNTIME_MANIFESTS.some(({ pattern }) => pattern.test(path)))
+    .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+  for (const path of manifests) {
+    const runtime = RUNTIME_MANIFESTS.find(({ pattern }) => pattern.test(path))?.runtime;
+    if (runtime) {
+      return {
+        detector: 'runtime',
+        detected: true,
+        value: runtime,
+        details: `Dependency manifest ${path}`,
+        source: 'package-manifest',
+      };
+    }
+  }
+
+  return { detector: 'runtime', detected: false };
+}
+
+// 16. Bind address
+// ---------------------------------------------------------------------------
+
+const LOOPBACK_LITERAL = /['"](?:127\.0\.0\.1|localhost|::1)['"]/;
+const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost|::1)$/;
+const ALL_INTERFACES_LITERAL = /['"](?:0\.0\.0\.0|::)['"]/;
+const LISTEN_CALL_REGEX = /\.listen\s*\(([^)]*)\)/g;
+const LISTEN_AND_SERVE_REGEX = /ListenAndServe(?:TLS)?\s*\(\s*['"`]([^'"`:]*):/g;
+const PY_RUN_HOST_REGEX = /\.run\s*\([^)]*host\s*=\s*['"](?:127\.0\.0\.1|localhost)['"]/;
+const GUNICORN_CONF_BIND_REGEX = /^\s*bind\s*=\s*['"](?:127\.0\.0\.1|localhost):/m;
+const COMMAND_HOST_FLAG_REGEX = /(?:--host(?:name)?[=\s]+|-H\s+|-b\s+|--bind[=\s]+)['"]?(127\.0\.0\.1|localhost|0\.0\.0\.0|::)(?=[\s:'"]|$)/;
+const DOCKERFILE_ENV_HOST_REGEX = /^\s*ENV\s+(?:HOST|HOSTNAME|BIND_ADDRESS)[=\s]+["']?(127\.0\.0\.1|localhost|0\.0\.0\.0)\b/m;
+const LOOPBACK_BY_DEFAULT_REGEX = /(?:^|\s)(?:uvicorn|flask\s+run)(?:\s|$)(?![^\n]*(?:--host|-h\s))/;
+const PROCFILE_REGEX = /(?:^|\/)Procfile$/;
+
+/** `["uvicorn", "main:app"]` (Dockerfile exec form) → `uvicorn main:app`. */
+function execFormToShell(command: string): string {
+  const trimmed = command.trim();
+  if (!trimmed.startsWith('[')) return trimmed;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return Array.isArray(parsed) && parsed.every((part) => typeof part === 'string') ? parsed.join(' ') : trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
+/** The commands the container starts with, from the sources that decide production. */
+function startCommandTexts(tree: FileTree): { file: string; text: string }[] {
+  const texts: { file: string; text: string }[] = [];
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile) {
+    for (const regex of [CMD_REGEX, ENTRYPOINT_REGEX]) {
+      const match = regex.exec(dockerfile.content);
+      if (match?.[1]) texts.push({ file: dockerfile.path, text: execFormToShell(match[1]) });
+    }
+  }
+  for (const [path, content] of Object.entries(tree)) {
+    if (!PROCFILE_REGEX.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    const web = /^web:\s*(.+)$/m.exec(content);
+    if (web?.[1]) texts.push({ file: path, text: web[1] });
+  }
+  for (const [name, command, dir] of collectScriptsWithDir(tree)) {
+    if (name === 'start') texts.push({ file: dir === '.' ? 'package.json' : `${dir}/package.json`, text: command });
+  }
+  return texts;
+}
+
+/**
+ * Detect whether the server binds only to a loopback address. A container
+ * that listens on 127.0.0.1/localhost never receives load-balancer traffic,
+ * so the health check fails and the deployment never becomes healthy. Only
+ * evidence that decides production counts: the selected Dockerfile's
+ * CMD/ENTRYPOINT/ENV, a Procfile `web:` line, the `start` script, and
+ * runtime source — never a dev script or a sample env file.
+ */
+export function detectBindAddress(tree: FileTree): DetectorFinding {
+  const loopback: string[] = [];
+  const allInterfaces: string[] = [];
+
+  const dockerfile = selectedDockerfile(tree);
+  const envHost = dockerfile ? DOCKERFILE_ENV_HOST_REGEX.exec(dockerfile.content) : null;
+  if (dockerfile && envHost?.[1]) {
+    (LOOPBACK_HOST.test(envHost[1]) ? loopback : allInterfaces).push(`${envHost[0].trim()} (${dockerfile.path})`);
+  }
+
+  for (const { file, text } of startCommandTexts(tree)) {
+    const flag = COMMAND_HOST_FLAG_REGEX.exec(text);
+    if (flag?.[1]) {
+      (LOOPBACK_HOST.test(flag[1]) ? loopback : allInterfaces).push(`${text.trim()} (${file})`);
+    } else if (LOOPBACK_BY_DEFAULT_REGEX.test(text)) {
+      // uvicorn and `flask run` bind 127.0.0.1 when no host is given.
+      loopback.push(`${text.trim()} binds 127.0.0.1 by default (${file})`);
+    }
+  }
+
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    if (JS_SOURCE.test(path)) {
+      for (const match of content.matchAll(LISTEN_CALL_REGEX)) {
+        const args = match[1] ?? '';
+        if (LOOPBACK_LITERAL.test(args)) loopback.push(`listen(${args.trim()}) (${path})`);
+        else if (ALL_INTERFACES_LITERAL.test(args)) allInterfaces.push(`listen(${args.trim()}) (${path})`);
+      }
+    } else if (PY_SOURCE.test(path)) {
+      if (PY_RUN_HOST_REGEX.test(content)) loopback.push(`server host set to a loopback address (${path})`);
+      if (/gunicorn/i.test(path) && GUNICORN_CONF_BIND_REGEX.test(content)) {
+        loopback.push(`gunicorn bind on a loopback address (${path})`);
+      }
+    } else if (GO_SOURCE.test(path)) {
+      for (const match of content.matchAll(LISTEN_AND_SERVE_REGEX)) {
+        const host = match[1] ?? '';
+        if (LOOPBACK_HOST.test(host)) loopback.push(`ListenAndServe("${host}:…") (${path})`);
+      }
+    }
+  }
+
+  if (loopback.length > 0) {
+    return {
+      detector: 'bind-address',
+      detected: true,
+      value: 'localhost',
+      details: `Server binds only to a loopback address: ${loopback.join('; ')}`,
+      source: 'source',
+    };
+  }
+  if (allInterfaces.length > 0) {
+    return {
+      detector: 'bind-address',
+      detected: false,
+      value: 'all-interfaces',
+      details: `Server binds to all interfaces: ${allInterfaces.join('; ')}`,
+      source: 'source',
+    };
+  }
+  return { detector: 'bind-address', detected: false };
 }

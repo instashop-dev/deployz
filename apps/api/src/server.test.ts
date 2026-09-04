@@ -4,14 +4,17 @@ import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { analyseRepo, buildApplicationAnalysis } from '@deployz/analysis';
 import { bootstrapStackName, DOCUMENSO_PARAMETERS, errorEnvelopeSchema } from '@deployz/contracts';
 import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import { ANALYSIS_VERSION } from './analysis.js';
 import { createAuth, type Auth } from './auth.js';
 import { buildPullStatement, type EcrClient, type EcrGrantStatement } from './ecr-grants.js';
 import { env } from './env.js';
 import { ApiError } from './errors.js';
+import { GITHUB_FIXTURE_FILE_TREES } from './github.js';
 import { createRequireAuth } from './require-auth.js';
 import { hashRelayToken } from './relay-store.js';
 import { buildServer, redactClaimedPayload } from './server.js';
@@ -2086,6 +2089,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       findings: [],
       passed: [],
       analyzedCommitSha: null,
+      detected: null,
     });
   });
 
@@ -2154,7 +2158,42 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       findings: [finding],
       passed: readiness.passed,
       analyzedCommitSha: 'deadbeef',
+      detected: null,
     });
+  });
+
+  it('readiness: a stored canonical projection is served as `detected`; a malformed one reads as null', async () => {
+    const detected = buildApplicationAnalysis(analyseRepo(GITHUB_FIXTURE_FILE_TREES['deployz-demo/express-api']!), {
+      analysisVersion: ANALYSIS_VERSION,
+      aiResolved: [],
+      resolvedMigrationCommand: 'npx drizzle-kit push',
+    });
+    const readiness = { state: 'READY', requiredCount: 0, recommendedCount: 0, summary: 'ok', findings: [], passed: [] };
+    const stored = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'READY',
+      detectedMetadata: { readiness, application: detected },
+    });
+    const served = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${stored.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(served.statusCode).toBe(200);
+    expect((served.json() as { detected: unknown }).detected).toEqual(detected);
+
+    const malformed = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'READY',
+      detectedMetadata: { readiness, application: { ...detected, runtime: 'node' } },
+    });
+    const degraded = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${malformed.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(degraded.statusCode).toBe(200);
+    expect((degraded.json() as { detected: unknown }).detected).toBeNull();
   });
 
   // Legacy rows (analysed before the semantic readiness report existed) only
