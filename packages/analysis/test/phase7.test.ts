@@ -55,6 +55,7 @@ describe('detectEnvVarModel (§11.2)', () => {
         source: ['read in src/index.js'],
         purpose: 'internal_secret',
         confidence: 'medium',
+        generatable: true,
       },
     ]);
     // A non-secret option stored as-is proves nothing about need (COMP-023).

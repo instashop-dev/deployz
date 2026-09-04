@@ -1972,9 +1972,25 @@ export type EnvVarPurpose =
   | 'optional_configuration'
   | 'unknown';
 
+/**
+ * Stage B phase 4 — whether a variable is a Deployz-GENERATABLE application
+ * INTERNAL secret (never an external vendor credential, never a provisioned
+ * binding). The eligible class: secret-shaped names like AUTH_SECRET /
+ * SESSION_SECRET / JWT_SECRET / SECRET_KEY / ENCRYPTION_KEY /
+ * NEXTAUTH_SECRET / COOKIE_SECRET / APP_SECRET — they all fall out of the
+ * purpose rule below; no name list is the source of truth.
+ */
+const GENERIC_VENDOR_CREDENTIAL_SHAPE =
+  /_(?:API_KEY|API_SECRET|CLIENT_SECRET|CLIENT_ID|ACCESS_KEY|ACCESS_TOKEN|SECRET_KEY|PRIVATE_KEY|PUBLIC_KEY)$/i;
+
+/** External-credential double-guard: catalog keys or a generic vendor-credential name shape. */
+export function isExternalCredentialShape(key: string): boolean {
+  return externalServiceCatalogKeys().has(key) || GENERIC_VENDOR_CREDENTIAL_SHAPE.test(key);
+}
+
 /** Deterministic purpose for one env var key. */
 export function classifyEnvVarPurpose(key: string): { purpose: EnvVarPurpose; confidence: 'high' | 'medium' | 'low' } {
-  if (externalServiceCatalogKeys().has(key)) {
+  if (isExternalCredentialShape(key)) {
     return { purpose: 'external_credential', confidence: 'high' };
   }
   if (INFRA_BINDING_NAMES.has(key)) {
@@ -2191,10 +2207,24 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     // Stage B phase 3: deterministic purpose/confidence for every variable —
     // infra binding name or alias, external-service credential, internal
     // secret, or plain configuration.
-    const purpose = classifyEnvVarPurpose(key);
+    const classification = classifyEnvVarPurpose(key);
+    // Stage B phase 4: application-INTERNAL required secrets Deployz can
+    // generate (never external vendor credentials, never provisioned
+    // bindings). `generatable` is set only when true — absence reads as "not
+    // generatable", keeping old data valid.
+    const generatable =
+      classification.purpose === 'internal_secret' && required && !isExternalCredentialShape(key);
     // Never drop a var the app declares-and-reads from the config surface —
     // but drop nothing: a sample-only var is still worth listing as optional.
-    entries.push({ key, required, secret, source, ...purpose });
+    entries.push({
+      key,
+      required,
+      secret,
+      source,
+      purpose: classification.purpose,
+      confidence: classification.confidence,
+      ...(generatable ? { generatable: true } : {}),
+    });
   }
 
   return entries;

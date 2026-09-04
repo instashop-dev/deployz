@@ -186,6 +186,7 @@ function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
           : [],
         ...(purpose !== undefined ? { purpose } : {}),
         ...(confidence !== undefined ? { confidence } : {}),
+        ...(record['generatable'] === true ? { generatable: true } : {}),
       });
     }
     return entries;

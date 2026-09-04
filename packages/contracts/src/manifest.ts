@@ -50,6 +50,13 @@ export const manifestEnvVariableSchema = z
       .optional(),
     /** How sure the purpose classification is (exact known-name vs name-shape heuristic). */
     confidence: z.enum(['high', 'medium', 'low']).optional(),
+    /**
+     * Deployz can generate a value for this variable (Stage B phase 4): an
+     * application-INTERNAL required secret, never an external vendor
+     * credential or a provisioned binding. Absent/undefined = not
+     * generatable — old persisted data round-trips unchanged.
+     */
+    generatable: z.boolean().optional(),
   })
   .strict();
 export type ManifestEnvVariable = z.infer<typeof manifestEnvVariableSchema>;

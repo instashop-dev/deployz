@@ -11,6 +11,7 @@ import { listProvidedConfigKeys } from './config.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
+import { ensureGeneratedInternalSecrets } from './internal-secrets.js';
 import { applicationToManifestOverrides } from './manifest.js';
 import { hashRelayToken, mintEnrollmentCode, verifyRelayToken } from './relay-store.js';
 
@@ -136,6 +137,16 @@ export async function createDeploymentRecord(
     { metadata: application.detectedMetadata ?? {} },
     applicationToManifestOverrides(application),
   );
+  // Stage B phase 4: generate application-INTERNAL required secrets (marked
+  // `generatable` by analysis) that have no configured value, so the readiness
+  // gate below passes without the vendor typing a value. The generated values
+  // are delivered through the relay secret write-through; only a masked marker
+  // is persisted.
+  await ensureGeneratedInternalSecrets(db, {
+    applicationId: params.applicationId,
+    customerId: params.customerId,
+    variables: manifest.environment.variables,
+  });
   const providedEnvKeys = await listProvidedConfigKeys(db, application.id, params.customerId);
   const readiness = evaluateManifestReadiness(manifest, { providedEnvKeys });
   if (readiness.state === 'NOT_COMPATIBLE') {

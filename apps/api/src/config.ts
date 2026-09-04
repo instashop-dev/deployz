@@ -38,6 +38,11 @@ export interface MaskedConfigEntry {
   readonly isSecret: boolean;
   /** Null for secrets (write-only, §31); the plaintext value otherwise. */
   readonly value: string | null;
+  /**
+   * True when Deployz generated this secret (Stage B phase 4) — the vendor
+   * did not type it. Derived from the stored marker, never from plaintext.
+   */
+  readonly generated?: boolean;
 }
 
 /** The effective entry after merging vendor defaults with customer overrides. */
@@ -114,12 +119,21 @@ export interface ConfigDeps {
 
 /** Placeholder stored/emitted in place of a secret value (never plaintext). */
 export const SECRET_MASK = '***';
+/**
+ * Stored marker for a Deployz-GENERATED secret (Stage B phase 4). Distinct
+ * from SECRET_MASK so the API can tell "the vendor typed a secret" from
+ * "Deployz generated one" without ever storing the plaintext. Both are
+ * masks — neither is a value.
+ */
+export const GENERATED_SECRET_MASK = '***deployz-generated***';
 
 /** Mask one entry for the API boundary — secrets lose their value entirely. */
 export function toMaskedEntry(entry: ConfigEntry): MaskedConfigEntry {
-  return entry.isSecret
-    ? { key: entry.key, isSecret: true, value: null }
-    : { key: entry.key, isSecret: false, value: entry.value };
+  if (!entry.isSecret) return { key: entry.key, isSecret: false, value: entry.value };
+  const generated = entry.value === GENERATED_SECRET_MASK;
+  return generated
+    ? { key: entry.key, isSecret: true, value: null, generated: true }
+    : { key: entry.key, isSecret: true, value: null };
 }
 
 // ── Vendor/customer merge (pure) ──────────────────────────────────────────
