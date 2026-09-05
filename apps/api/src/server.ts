@@ -2,7 +2,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, inArray, isNull, ne, notInArray } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -293,6 +293,11 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 // "Check now" clicks, and NAT'd offices all fit — while still bounding an
 // anonymous caller who has nothing but a guessable-length uuid to try.
 const PUBLIC_INSTALL_RATE_LIMIT = { max: 300, timeWindow: '1 minute' } as const;
+
+// A refused relay retries registration indefinitely, so only the first
+// blocked preflight evaluation per window is recorded per deployment — the
+// blockingCount still travels on the one event that is kept.
+const RELAY_BLOCKED_PREFLIGHT_THROTTLE_MS = 15 * 60 * 1000;
 
 // The §35 contract fields the analyser auto-detects and the vendor can take
 // ownership of by editing them (see PATCH /api/applications/:id). `name` is
@@ -1957,7 +1962,25 @@ export async function buildServer({
     // Phase 3/5 gate: the install link is a second boundary where a
     // non-READY manifest — or a required value removed since creation — must
     // be stopped before any AWS provisioning.
-    requirePreflightReady(await runDeploymentPreflight(db, deployment, null));
+    const preflight = await runDeploymentPreflight(db, deployment, null);
+    if (!preflight.ready) {
+      await recordEvent(db, {
+        organizationId: deployment.organizationId,
+        eventType: 'application.preflight_evaluated',
+        actorType: 'system',
+        actorId: `install-link:${deployment.installLinkId}`,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        payload: {
+          schemaVersion: 1,
+          applicationId: deployment.applicationId,
+          result: 'blocked',
+          blockingCount: preflight.blockers.length,
+          warningCount: preflight.warnings.length,
+        },
+      });
+    }
+    requirePreflightReady(preflight);
     if (deployment.state !== 'NOT_INSTALLED') {
       return reply.code(200).send({ state: deployment.state });
     }
@@ -1983,6 +2006,23 @@ export async function buildServer({
         customerId: deployment.customerId,
         previousState: deployment.state,
         requestedState: 'WAITING_FOR_RELAY',
+      });
+      // Inside the same tx, so a retried launch (idempotency guard above)
+      // never records the pass twice.
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'application.preflight_evaluated',
+        actorType: 'system',
+        actorId: `install-link:${deployment.installLinkId}`,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        payload: {
+          schemaVersion: 1,
+          applicationId: deployment.applicationId,
+          result: 'pass',
+          blockingCount: preflight.blockers.length,
+          warningCount: preflight.warnings.length,
+        },
       });
     });
     return { state: 'WAITING_FOR_RELAY' };
@@ -2145,6 +2185,21 @@ export async function buildServer({
       { store: configStore, secretWriter: configSecretWriter },
       body.deletes ?? [],
     );
+    // Keys actually written by this save: entries minus untouched secrets
+    // (empty value = "leave unchanged" — setConfig skips them) plus removals.
+    // Counts only — never key names or values (privacy).
+    const changedKeyCount =
+      body.entries.filter((entry) => !(entry.isSecret && entry.value.length === 0)).length +
+      (body.deletes?.length ?? 0);
+    await recordEvent(db, {
+      organizationId,
+      eventType: 'application.configuration_saved',
+      actorType: 'user',
+      actorId: request.user!.id,
+      // Vendor-default scope (customerId null) keeps the column null.
+      ...(scope.customerId !== null ? { customerId: scope.customerId } : {}),
+      payload: { schemaVersion: 1, applicationId: id, changedKeyCount },
+    });
     return { ...view, customerName: scope.customerName };
   });
 
@@ -2411,25 +2466,37 @@ export async function buildServer({
       );
     }
 
-    const [row] = await db
-      .insert(schema.applications)
-      .values({
-        organizationId,
-        name: body.name,
-        githubInstallationId: body.githubInstallationId,
-        repoFullName: body.repoFullName,
-        repoUrl: body.repoUrl,
-        defaultBranch: body.defaultBranch,
-        containerPort: body.containerPort ?? null,
-        healthPath: body.healthPath ?? null,
-        databaseRequired: body.databaseRequired ?? false,
-        storageRequired: body.storageRequired ?? false,
-        redisRequired: body.redisRequired ?? false,
-        analysisStatus: 'PENDING',
-        createdBy: request.user?.id ?? null,
-        updatedBy: request.user?.id ?? null,
-      })
-      .returning();
+    const row = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(schema.applications)
+        .values({
+          organizationId,
+          name: body.name,
+          githubInstallationId: body.githubInstallationId,
+          repoFullName: body.repoFullName,
+          repoUrl: body.repoUrl,
+          defaultBranch: body.defaultBranch,
+          containerPort: body.containerPort ?? null,
+          healthPath: body.healthPath ?? null,
+          databaseRequired: body.databaseRequired ?? false,
+          storageRequired: body.storageRequired ?? false,
+          redisRequired: body.redisRequired ?? false,
+          analysisStatus: 'PENDING',
+          createdBy: request.user?.id ?? null,
+          updatedBy: request.user?.id ?? null,
+        })
+        .returning();
+      if (created) {
+        await recordEvent(tx, {
+          organizationId,
+          eventType: 'application.created',
+          actorType: 'user',
+          actorId: request.user!.id,
+          payload: { schemaVersion: 1, applicationId: created.id },
+        });
+      }
+      return created;
+    });
     return reply.code(201).send(row);
   });
 
@@ -2574,10 +2641,19 @@ export async function buildServer({
     // lets the cache decide.
     const body = request.body as { force?: boolean } | undefined;
     const force = body?.force === true;
-    await db
-      .update(schema.applications)
-      .set({ analysisStatus: 'ANALYZING', updatedBy: request.user?.id ?? null })
-      .where(eq(schema.applications.id, id));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.applications)
+        .set({ analysisStatus: 'ANALYZING', updatedBy: request.user?.id ?? null })
+        .where(eq(schema.applications.id, id));
+      await recordEvent(tx, {
+        organizationId,
+        eventType: 'application.analysis_started',
+        actorType: 'user',
+        actorId: request.user!.id,
+        payload: { schemaVersion: 1, applicationId: id },
+      });
+    });
     // The §18/§19 pipeline runs on the worker, not after this response.
     // Detaching it here with `void runAnalysis(id)` works on a long-lived
     // server and silently does nothing on Lambda, which freezes the
@@ -2690,16 +2766,29 @@ export async function buildServer({
   app.post('/api/customers', { preHandler: requireAuth }, async (request, reply) => {
     const body = createCustomerBodySchema.parse(request.body);
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
-    const [row] = await db
-      .insert(schema.customers)
-      .values({
-        organizationId,
-        name: body.name,
-        email: body.email,
-        company: body.company || null,
-        externalReference: body.externalReference ?? null,
-      })
-      .returning();
+    const row = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(schema.customers)
+        .values({
+          organizationId,
+          name: body.name,
+          email: body.email,
+          company: body.company || null,
+          externalReference: body.externalReference ?? null,
+        })
+        .returning();
+      if (created) {
+        await recordEvent(tx, {
+          organizationId,
+          eventType: 'customer.created',
+          actorType: 'user',
+          actorId: request.user!.id,
+          customerId: created.id,
+          payload: { schemaVersion: 1, customerId: created.id },
+        });
+      }
+      return created;
+    });
     return reply.code(201).send(row);
   });
 
@@ -2943,7 +3032,25 @@ export async function buildServer({
       const { deployment, application } = await resolveDeployLink(db, publicId, token);
       // The same Phase 3/5 gate the install page enforces: a non-READY
       // manifest must be stopped before any AWS provisioning.
-      requirePreflightReady(await runDeploymentPreflight(db, deployment, application));
+      const preflight = await runDeploymentPreflight(db, deployment, application);
+      if (!preflight.ready) {
+        await recordEvent(db, {
+          organizationId: deployment.organizationId,
+          eventType: 'application.preflight_evaluated',
+          actorType: 'system',
+          actorId: `deploy-link:${publicId}`,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          payload: {
+            schemaVersion: 1,
+            applicationId: deployment.applicationId,
+            result: 'blocked',
+            blockingCount: preflight.blockers.length,
+            warningCount: preflight.warnings.length,
+          },
+        });
+      }
+      requirePreflightReady(preflight);
       if (deployment.state !== 'NOT_INSTALLED') {
         // Idempotent: reopening the CloudFormation console is not a new attempt.
         return { state: deployment.state };
@@ -2987,6 +3094,23 @@ export async function buildServer({
           customerId: deployment.customerId,
           previousState: deployment.state,
           requestedState: 'WAITING_FOR_RELAY',
+        });
+        // Inside the guarded tx, so the pass is recorded exactly once per
+        // deployment launch no matter how often the page is reopened.
+        await recordEvent(tx, {
+          organizationId: deployment.organizationId,
+          eventType: 'application.preflight_evaluated',
+          actorType: 'system',
+          actorId: `deploy-link:${publicId}`,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          payload: {
+            schemaVersion: 1,
+            applicationId: deployment.applicationId,
+            result: 'pass',
+            blockingCount: preflight.blockers.length,
+            warningCount: preflight.warnings.length,
+          },
         });
         return 'WAITING_FOR_RELAY';
       });
@@ -5185,7 +5309,43 @@ export async function buildServer({
     // Phase 3/5 gate: the relay registering is the final boundary before an
     // INSTALL job is minted. Re-evaluate the stored manifest against the
     // customer's configuration as it is now.
-    requirePreflightReady(await runDeploymentPreflight(db, deployment, null));
+    const preflight = await runDeploymentPreflight(db, deployment, null);
+    if (!preflight.ready) {
+      // Blocked registrations change nothing, so the event is written
+      // outside the register tx below. A refused relay keeps retrying, so
+      // only the first blocked evaluation per window is recorded per
+      // deployment — one bounded lookup on an already-rare failure path.
+      const [recentBlocked] = await db
+        .select({ id: schema.eventLogs.id })
+        .from(schema.eventLogs)
+        .where(
+          and(
+            eq(schema.eventLogs.eventType, 'application.preflight_evaluated'),
+            eq(schema.eventLogs.deploymentId, deployment.id),
+            gte(schema.eventLogs.occurredAt, new Date(Date.now() - RELAY_BLOCKED_PREFLIGHT_THROTTLE_MS)),
+            sql`(${schema.eventLogs.payload}->>'result') = 'blocked'`,
+          ),
+        )
+        .limit(1);
+      if (!recentBlocked) {
+        await recordEvent(db, {
+          organizationId: deployment.organizationId,
+          eventType: 'application.preflight_evaluated',
+          actorType: 'relay',
+          actorId: body.installationId!,
+          deploymentId: deployment.id,
+          customerId: deployment.customerId,
+          payload: {
+            schemaVersion: 1,
+            applicationId: deployment.applicationId,
+            result: 'blocked',
+            blockingCount: preflight.blockers.length,
+            warningCount: preflight.warnings.length,
+          },
+        });
+      }
+    }
+    requirePreflightReady(preflight);
 
     const firstInstall =
       deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY';
@@ -5243,6 +5403,23 @@ export async function buildServer({
           result: 'pending',
         });
       }
+      // In the register tx, reached only on the first registration (the
+      // enrollmentUsedAt guard above already idempotented replays).
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'application.preflight_evaluated',
+        actorType: 'relay',
+        actorId: body.installationId!,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        payload: {
+          schemaVersion: 1,
+          applicationId: deployment.applicationId,
+          result: 'pass',
+          blockingCount: preflight.blockers.length,
+          warningCount: preflight.warnings.length,
+        },
+      });
     });
 
     // Phase 1.1: a just-enrolled relay's customer account needs pull access to
