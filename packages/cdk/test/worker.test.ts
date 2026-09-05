@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -147,6 +147,14 @@ describe('worker handler', () => {
 
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.buildStatus).toBe('BUILDING');
+
+    // build_started lands with the BUILDING pin, keyed by the release id.
+    const startedEvents = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_started'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(startedEvents).toHaveLength(1);
+    expect(startedEvents[0]!.payload).toMatchObject({ schemaVersion: 1, applicationId });
   });
 
   it('does not pass BUILD_CONTEXT for a non-`docker/` Dockerfile path', async () => {
@@ -232,6 +240,13 @@ describe('worker handler', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release!.id));
     expect(row?.buildStatus).toBe('FAILED');
     expect(row?.releaseStatus).toBe('FAILED');
+
+    const failed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_failed'), eq(schema.eventLogs.releaseId, release!.id)));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.payload).toMatchObject({ schemaVersion: 1, applicationId: application!.id, failureCode: 'build_failed' });
   });
 
   describe('resolveBuildContext', () => {
@@ -352,6 +367,14 @@ describe('worker handler', () => {
     expect(row?.imageDigest).toBe(digest);
     expect(row?.buildStatus).toBe('SUCCEEDED');
     expect(row?.releaseStatus).toBe('READY');
+
+    const completed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_completed'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(completed).toHaveLength(1);
+    expect(completed[0]!.payload).toMatchObject({ schemaVersion: 1, applicationId });
+    expect(completed[0]!.result).toBe('success');
   });
 
   it('records the digest when the event nests exported vars under additional-information (real EventBridge shape)', async () => {
@@ -384,6 +407,30 @@ describe('worker handler', () => {
     expect(row?.buildStatus).toBe('FAILED');
     expect(row?.imageDigest).toBeNull();
     expect(row?.failureReason).toBe('CodeBuild reported FAILED');
+
+    // The event row carries the stable code, never the failure-reason text.
+    const failed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_failed'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.payload).toMatchObject({ schemaVersion: 1, applicationId, failureCode: 'build_failed' });
+    expect(failed[0]!.result).toBe('failure');
+  });
+
+  it('records build_cancelled when CodeBuild reports STOPPED', async () => {
+    const release = await insertRelease('v2.1.5');
+
+    await recordBuildResult(db, buildEvent(release.id, 'STOPPED'));
+
+    const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
+    expect(row?.releaseStatus).toBe('FAILED');
+    const failed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_failed'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.payload).toMatchObject({ failureCode: 'build_cancelled' });
   });
 
   // A success with no digest is not a usable release: §21 pins deployments to
@@ -1149,6 +1196,12 @@ describe('sweepStuckBuilds', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.releaseStatus).toBe('READY');
     expect(row?.imageDigest).toBe(digest);
+
+    const completed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_completed'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(completed).toHaveLength(1);
   });
 
   it('fails a stuck BUILDING release when CodeBuild reports FAILED', async () => {
@@ -1161,6 +1214,13 @@ describe('sweepStuckBuilds', () => {
     expect(swept).toBe(1);
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.releaseStatus).toBe('FAILED');
+
+    const failed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_failed'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.payload).toMatchObject({ failureCode: 'build_failed' });
   });
 
   it('leaves a release untouched when it has not yet timed out', async () => {
@@ -1182,6 +1242,13 @@ describe('sweepStuckBuilds', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.releaseStatus).toBe('FAILED');
     expect(row?.failureReason).toMatch(/no longer has a record/i);
+
+    const failed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_failed'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.payload).toMatchObject({ failureCode: 'build_timeout' });
   });
 
   it('leaves a release untouched while CodeBuild still reports IN_PROGRESS', async () => {

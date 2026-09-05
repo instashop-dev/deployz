@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -1174,6 +1174,17 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.type).toBe('INSTALL');
     expect(jobs[0]!.state).toBe('REQUESTED');
+
+    // The first successful enrollment emits exactly one relay.connected, in
+    // the register transaction, keyed by the deploymentId column.
+    const connected = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'relay.connected'), eq(schema.eventLogs.deploymentId, deployment.id)));
+    expect(connected).toHaveLength(1);
+    expect(connected[0]!.payload).toMatchObject({ schemaVersion: 1 });
+    expect(connected[0]!.actorType).toBe('relay');
+    expect(connected[0]!.actorId).toBe(RELAY_INSTALLATION_ID);
   });
 
   it('a replay from the same relay is idempotent and creates no second INSTALL job', async () => {
@@ -1189,6 +1200,14 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
     expect(jobs).toHaveLength(1);
+
+    // The replay is a same-relay early-return that never reaches the register
+    // transaction, so relay.connected stays at exactly one row.
+    const connected = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'relay.connected'), eq(schema.eventLogs.deploymentId, deployment.id)));
+    expect(connected).toHaveLength(1);
   });
 
   // The takeover this replaced: registration used to bind whatever token the
@@ -3132,6 +3151,22 @@ describe('server — organization settings, public install page, and bulk deploy
     const secondBody = second.json() as { results: Array<{ deploymentId: string; status: string }> };
     const secondById = new Map(secondBody.results.map((r) => [r.deploymentId, r]));
     expect(secondById.get(healthy1.id)!.status).toBe('ALREADY_REQUESTED');
+
+    // Telemetry parity with the single-deploy route: every bulk target that
+    // got a job emits exactly one deploy.requested — and the idempotent
+    // second call does not add another. Skipped targets emit none.
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deploy.requested'), inArray(schema.eventLogs.deploymentId, [healthy1.id, healthy2.id, installing.id])));
+    const requestedByDeployment = new Map<string, number>();
+    for (const event of events) {
+      requestedByDeployment.set(event.deploymentId, (requestedByDeployment.get(event.deploymentId) ?? 0) + 1);
+    }
+    expect(requestedByDeployment.get(healthy1.id)).toBe(1);
+    expect(requestedByDeployment.get(healthy2.id)).toBe(1);
+    expect(requestedByDeployment.get(installing.id)).toBeUndefined();
+    expect(events.every((event) => event.releaseId === releaseId)).toBe(true);
   });
 
   it('POST /api/applications/:id/deploy-bulk with explicit deploymentIds only targets those', async () => {

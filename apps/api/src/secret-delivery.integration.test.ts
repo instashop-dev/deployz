@@ -266,6 +266,14 @@ describe('secret delivery simulated-E2E (§31 phase 1.2)', () => {
     });
     expect(register.statusCode).toBe(200);
 
+    // The first enrollment records relay.connected in the register tx.
+    const connected = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'relay.connected'), eq(schema.eventLogs.deploymentId, deployment.id)));
+    expect(connected).toHaveLength(1);
+    expect(connected[0]!.payload).toMatchObject({ schemaVersion: 1 });
+
     // Claim the INSTALL job so it stops being offered; the deployment is now
     // INSTALLING and later CONFIG_UPDATE results must not disturb its state.
     await claimCommands();

@@ -190,6 +190,20 @@ export async function createDeploymentRecord(
       warningCount: result.warnings.length,
     },
   });
+  // Funnel event: the deployment record now exists. `source` is exactly what
+  // the insert above wrote to deployments.source, so funnel queries can
+  // attribute origin without a join.
+  await recordEvent(db, {
+    organizationId: params.organizationId,
+    eventType: 'deployment.created',
+    ...actor,
+    deploymentId: row!.id,
+    customerId: params.customerId,
+    payload: {
+      schemaVersion: 1,
+      source: params.source,
+    },
+  });
   return { deployment: row!, application };
 }
 
