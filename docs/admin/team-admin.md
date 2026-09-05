@@ -14,7 +14,8 @@ Every Team Admin feature must help answer one of three questions:
 ## MVP scope
 
 - Overview — items that need attention (failed/unhealthy deployments,
-  stuck jobs, disconnected relays, in-progress installs).
+  stuck jobs, disconnected relays, in-progress installs), plus the small
+  **Pilot Insights** section (see below).
 - Vendors — cross-tenant vendor list and a support-oriented 360° detail.
 - Deployments — the primary admin command center (status, progress,
   resource inventory, release history, relay/AWS state, related jobs).
@@ -142,6 +143,21 @@ older than its type's timeout. The per-type timeouts are the single
 `JOB_TIMEOUTS_MS` map in `@deployz/contracts` — the same map the worker's
 `sweepStuckJobs` enforces — so the admin view and the sweeper can never
 disagree.
+
+## Pilot Insights
+
+The Overview carries a small **Pilot Insights** section: a pilot funnel,
+deployment quality, common deterministic failures, Deploy Link funnel, and
+the support-intervention signal, over a trailing 7/30/90-day window
+(`GET /api/admin/overview?days=…` returns the `pilotInsights` block). It
+exists so the Deployz team can answer whether a vendor can reach HEALTHY
+without intervention, and where pilots get stuck — it is pilot-readiness
+support, not an analytics product. Funnel and metric definitions, privacy
+rules, and known limitations live in `docs/product-telemetry.md`.
+
+Team Admin is still not a generic analytics or back-office platform: no
+dashboards beyond this section, no engagement metrics, no cohort/retention
+views, and no customer-visible telemetry.
 
 ## Evaluating new admin functionality
 
