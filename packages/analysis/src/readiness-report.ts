@@ -106,6 +106,18 @@ export interface ReadinessReportContext {
   workerCommandResolved?: boolean | undefined;
 }
 
+/**
+ * Configuration the vendor supplied after analysis that resolves a finding
+ * without a repository change: the container port and the start command
+ * from the application details. Applied by `reconcileReadiness` wherever the
+ * report is read or its verdict persisted, never baked into the stored
+ * report — clearing the value brings the finding back.
+ */
+export interface ReadinessResolution {
+  containerPort: number | null;
+  startCommand: string | null;
+}
+
 // ── Passed-check labels ─────────────────────────────────────────────────────
 
 // Friendly, jargon-reduced labels for detectors whose positive detection is a
@@ -125,11 +137,14 @@ const PASSED_LABELS: Partial<Record<string, string>> = {
   'external-services': 'External service integrations detected',
   'package-manager': 'Package manager detected',
   'build-command': 'Build command found',
+  runtime: 'Runtime detected',
 };
 
 // Detectors whose `detected: true` is a NEGATIVE signal and must never appear
 // as a passed check (they surface as findings instead).
-const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem']);
+// `bind-address` is detected when the server binds only to localhost — a
+// problem, never a passed check.
+const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem', 'bind-address']);
 
 // `worker` is handled as a finding (blocking or recommended) — see the worker
 // branch in the report builder. It is never a passed check.
@@ -382,6 +397,47 @@ export function buildReadinessReport(
     });
   }
 
+  if (
+    metadata['hasDockerfile'] === true &&
+    (metadata['port'] == null || metadata['portSource'] === 'framework-default')
+  ) {
+    findings.push({
+      id: 'port-unresolved',
+      category: 'network',
+      title: 'Tell Deployz which port your app listens on',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation:
+        'Deployz could not find the network port this app listens on.',
+      whyItMatters:
+        'Deployz routes customer traffic and health checks to one port. Without it, the app would run but never receive requests.',
+      technicalEvidence:
+        'No port was found in the Dockerfile (EXPOSE or ENV PORT), an env file, a compose file, or a process.env.PORT default in source.',
+      suggestedOutcome:
+        'Declare the port the app listens on (for example an EXPOSE instruction in the Dockerfile), or set it in the application details.',
+      confidence: 'confirmed',
+    });
+  }
+
+  if (metadata['hasDockerfile'] === true && metadata['hasStartupCommand'] !== true) {
+    findings.push({
+      id: 'start-command-missing',
+      category: 'container',
+      title: 'Tell Deployz how to start your app',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation:
+        'Deployz found container instructions but no command that starts the app.',
+      whyItMatters:
+        'Every deployment starts the app inside its container. Without a start command, the container exits immediately and the deployment never becomes healthy.',
+      technicalEvidence:
+        'The Dockerfile has no CMD or ENTRYPOINT instruction and no "start" script was found in any package.json.',
+      suggestedOutcome:
+        'Add a CMD or ENTRYPOINT instruction to the Dockerfile (or a "start" script), or set the start command in the application details.',
+      confidence: 'confirmed',
+    });
+  }
+
   if (metadata['hasHealthEndpoint'] !== true) {
     findings.push({
       id: 'health-check',
@@ -399,6 +455,27 @@ export function buildReadinessReport(
         'Expose a lightweight route (for example /health) that returns success once the app is ready, and reference it from the container health check.',
       // Static analysis can miss a real health route (custom path, indirect
       // registration) — the coding agent is told to verify before adding one.
+      confidence: 'likely',
+    });
+  }
+
+  const bind = finding('bind-address');
+  if (bind?.detected) {
+    findings.push({
+      id: 'localhost-binding',
+      category: 'network',
+      title: 'Your app only listens on localhost',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation:
+        'This app accepts connections only from inside its own container, so Deployz cannot reach it.',
+      whyItMatters:
+        'Deployz sends customer traffic and health checks to the container over the network. A server bound to 127.0.0.1 or localhost never answers them, so every deployment would fail its health check.',
+      technicalEvidence: bind.details ?? 'The server binds to a loopback address.',
+      suggestedOutcome:
+        'Bind the server to all network interfaces (0.0.0.0) instead of 127.0.0.1 or localhost.',
+      // A loopback binding can sit behind a dev-only branch the static scan
+      // cannot see — the coding agent is told to verify first.
       confidence: 'likely',
     });
   }
@@ -505,11 +582,18 @@ export function buildReadinessReport(
       (f) =>
         f.detected &&
         !NEGATIVE_SIGNAL_DETECTORS.has(f.detector) &&
-        !SEPARATELY_HANDLED_DETECTORS.has(f.detector),
+        !SEPARATELY_HANDLED_DETECTORS.has(f.detector) &&
+        // A framework-default port (Stage B phase 7) is a prefill only — it is
+        // never a passed check until the vendor confirms it.
+        !(f.detector === 'port' && metadata['portSource'] === 'framework-default'),
     )
     .map((f) => ({ id: f.detector, label: PASSED_LABELS[f.detector] ?? f.details ?? f.detector }));
 
-  // ── State ─────────────────────────────────────────────────────────────────
+  return assembleReport(findings, passed);
+}
+
+/** Order the findings (required first), derive the state and its summary. */
+function assembleReport(findings: ReadinessFinding[], passed: PassedCheck[]): ReadinessReport {
   const required = findings.filter((f) => f.severity === 'required');
   const recommended = findings.filter((f) => f.severity === 'recommended');
   const state: ReadinessReport['state'] =
@@ -523,6 +607,32 @@ export function buildReadinessReport(
     findings: [...required, ...recommended],
     passed,
   };
+}
+
+/** Finding id → the vendor configuration that resolves it. */
+const RESOLVABLE_FINDINGS: Record<string, (resolution: ReadinessResolution) => boolean> = {
+  'port-unresolved': (resolution) => resolution.containerPort !== null,
+  'start-command-missing': (resolution) => resolution.startCommand !== null,
+};
+
+const RESOLVED_LABELS: Partial<Record<string, string>> = {
+  'port-unresolved': 'Application port set in the application details',
+  'start-command-missing': 'Start command set in the application details',
+};
+
+/**
+ * Apply the vendor's post-analysis configuration to a stored report. A
+ * finding the configuration resolves becomes a passed check; the state and
+ * counts are re-derived. Pure — the stored report is never mutated.
+ */
+export function reconcileReadiness(report: ReadinessReport, resolution: ReadinessResolution): ReadinessReport {
+  const resolved = report.findings.filter((f) => RESOLVABLE_FINDINGS[f.id]?.(resolution) === true);
+  if (resolved.length === 0) return report;
+  const resolvedIds = new Set(resolved.map((f) => f.id));
+  return assembleReport(
+    report.findings.filter((f) => !resolvedIds.has(f.id)),
+    [...report.passed, ...resolved.map((f) => ({ id: f.id, label: RESOLVED_LABELS[f.id] ?? f.title }))],
+  );
 }
 
 // ── Verdict bridge ──────────────────────────────────────────────────────────

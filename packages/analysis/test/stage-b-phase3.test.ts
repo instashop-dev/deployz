@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { AnalysisResult } from '../src/analyser.js';
 import { analyseRepo } from '../src/analyser.js';
 import { detectEnvVarModel, classifyEnvVarPurpose, type FileTree } from '../src/detectors.js';
-import { evaluateManifestReadiness, normalizeDeploymentManifest } from '../src/manifest.js';
+import { evaluateManifestReadiness, generatedEnvKeys, normalizeDeploymentManifest } from '../src/manifest.js';
 
 function modelByKey(tree: FileTree) {
   return new Map(detectEnvVarModel(tree).map((entry) => [entry.key, entry]));
@@ -300,7 +300,7 @@ describe('schema-required secrets reach the deployment gate', () => {
     'src/index.js': "app.listen(process.env.PORT || 3000);\n",
   };
 
-  it('blocks the deployment until the schema-required secret is configured', () => {
+  it('flags a schema-required secret and classifies it as Deployz-generated (never asked of the vendor)', () => {
     const analysis = analyseRepo(tree);
     const envVarModel = analysis.metadata['envVarModel'] as {
       key: string;
@@ -312,11 +312,14 @@ describe('schema-required secrets reach the deployment gate', () => {
     const logLevel = envVarModel.find((entry) => entry.key === 'LOG_LEVEL');
     expect(logLevel).toMatchObject({ required: false });
 
+    // #186: an application-INTERNAL secret Deployz generates is minted inside
+    // the customer's account after install — the manifest gate counts it as
+    // auto-provided and never blocks the deployment on it.
     const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(generatedEnvKeys(manifest)).toEqual(['NEXTAUTH_SECRET']);
     const result = evaluateManifestReadiness(manifest, { providedEnvKeys: [] });
-    expect(result.state).toBe('NEEDS_CONFIGURATION');
-    const finding = result.findings.find((f) => f.id === 'required-env-vars-missing');
-    expect(finding?.message).toContain('NEXTAUTH_SECRET');
+    expect(result.state).toBe('READY');
+    expect(result.findings.some((f) => f.id === 'required-env-vars-missing')).toBe(false);
   });
 
   it('stays optional when a default makes the schema read optional', () => {

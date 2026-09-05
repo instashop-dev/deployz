@@ -433,19 +433,18 @@ export function createRelaySecretWriter(): ConfigSecretWriter {
 export async function listProvidedConfigKeys(
   db: RuntimeDb,
   applicationId: string,
-  customerId: string,
+  customerId: string | null,
 ): Promise<string[]> {
-  if (!UUID_PATTERN.test(applicationId) || !UUID_PATTERN.test(customerId)) return [];
+  if (!UUID_PATTERN.test(applicationId) || (customerId !== null && !UUID_PATTERN.test(customerId))) return [];
   const rows = await db
     .select({ key: schema.applicationConfigs.key })
     .from(schema.applicationConfigs)
     .where(
       and(
         eq(schema.applicationConfigs.applicationId, applicationId),
-        or(
-          isNull(schema.applicationConfigs.customerId),
-          eq(schema.applicationConfigs.customerId, customerId),
-        ),
+        customerId === null
+          ? isNull(schema.applicationConfigs.customerId)
+          : or(isNull(schema.applicationConfigs.customerId), eq(schema.applicationConfigs.customerId, customerId)),
       ),
     );
   return [...new Set(rows.map((row) => row.key))];

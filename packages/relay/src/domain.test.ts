@@ -22,6 +22,8 @@ class FakeAcmClient implements AcmClient {
   deleteCalls: string[] = [];
   requestError: Error | undefined;
   deleteError: Error | undefined;
+  /** How many `deleteCertificate` calls should still throw `deleteError` before succeeding. -1 = always. */
+  deleteErrorRemaining = -1;
   #arnCounter = 0;
 
   async requestCertificate(p: {
@@ -46,7 +48,10 @@ class FakeAcmClient implements AcmClient {
 
   async deleteCertificate(arn: string): Promise<void> {
     this.deleteCalls.push(arn);
-    if (this.deleteError) throw this.deleteError;
+    if (this.deleteError && this.deleteErrorRemaining !== 0) {
+      if (this.deleteErrorRemaining > 0) this.deleteErrorRemaining--;
+      throw this.deleteError;
+    }
     // Real client contract: swallow ResourceNotFoundException. The fake
     // models that by simply no-op'ing on an arn it doesn't know about.
     this.certificates.delete(arn);
@@ -58,12 +63,21 @@ class FakeElbClient implements ElbClient {
   listeners: ListenerInfo[] = [];
   targetGroups: string[] = [];
 
-  createHttpsListenerCalls: Array<{ loadBalancerArn: string; certificateArn: string; targetGroupArn: string }> = [];
+  createHttpsListenerCalls: Array<{
+    loadBalancerArn: string;
+    certificateArn: string;
+    targetGroupArn: string;
+    tagKey: string;
+    tagValue: string;
+  }> = [];
+  ensureListenerTagCalls: Array<{ listenerArn: string; tagKey: string; tagValue: string }> = [];
   addListenerCertificateCalls: Array<{ listenerArn: string; certificateArn: string }> = [];
   removeListenerCertificateCalls: Array<{ listenerArn: string; certificateArn: string }> = [];
   deleteListenerCalls: string[] = [];
   setHttpRedirectCalls: string[] = [];
   setHttpForwardCalls: Array<{ listenerArn: string; targetGroupArn: string }> = [];
+  /** Records call names in order, so tests can assert tag-then-act sequencing. */
+  callLog: string[] = [];
 
   async findTaggedLoadBalancer(tagKey: string, tagValue: string): Promise<LoadBalancerInfo | undefined> {
     void tagKey;
@@ -81,12 +95,24 @@ class FakeElbClient implements ElbClient {
     return this.targetGroups;
   }
 
-  async createHttpsListener(p: { loadBalancerArn: string; certificateArn: string; targetGroupArn: string }): Promise<void> {
+  async createHttpsListener(p: {
+    loadBalancerArn: string;
+    certificateArn: string;
+    targetGroupArn: string;
+    tagKey: string;
+    tagValue: string;
+  }): Promise<void> {
     this.createHttpsListenerCalls.push(p);
+  }
+
+  async ensureListenerTag(listenerArn: string, tagKey: string, tagValue: string): Promise<void> {
+    this.ensureListenerTagCalls.push({ listenerArn, tagKey, tagValue });
+    this.callLog.push('ensureListenerTag');
   }
 
   async addListenerCertificate(listenerArn: string, certificateArn: string): Promise<void> {
     this.addListenerCertificateCalls.push({ listenerArn, certificateArn });
+    this.callLog.push('addListenerCertificate');
   }
 
   async removeListenerCertificate(listenerArn: string, certificateArn: string): Promise<void> {
@@ -95,6 +121,7 @@ class FakeElbClient implements ElbClient {
 
   async deleteListener(listenerArn: string): Promise<void> {
     this.deleteListenerCalls.push(listenerArn);
+    this.callLog.push('deleteListener');
   }
 
   async setHttpRedirect(listenerArn: string): Promise<void> {
@@ -140,6 +167,19 @@ function removeCommand(overrides: Partial<Record<string, unknown>> = {}): RelayC
 
 function makeLb(): LoadBalancerInfo {
   return { arn: 'arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/lb/abc', dnsName: 'lb-abc.us-east-1.elb.amazonaws.com' };
+}
+
+/** Records delays without waiting, so retry tests run instantly. */
+function fakeSleep(calls: number[]): (ms: number) => Promise<void> {
+  return async (ms: number) => {
+    calls.push(ms);
+  };
+}
+
+function resourceInUseError(): Error {
+  const err = new Error('certificate is in use');
+  err.name = 'ResourceInUseException';
+  return err;
 }
 
 // ── CONFIGURE_DOMAIN ─────────────────────────────────────────────────────────
@@ -200,7 +240,13 @@ describe('createDomainExecutors — CONFIGURE_DOMAIN', () => {
     const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
 
     expect(elb.createHttpsListenerCalls).toEqual([
-      { loadBalancerArn: lb.arn, certificateArn: 'arn:cert-1', targetGroupArn: 'tg-1' },
+      {
+        loadBalancerArn: lb.arn,
+        certificateArn: 'arn:cert-1',
+        targetGroupArn: 'tg-1',
+        tagKey: 'deployz:installation',
+        tagValue: INSTALLATION_ID,
+      },
     ]);
     expect(elb.setHttpRedirectCalls).toEqual(['listener-80']);
     expect(result.success).toBe(true);
@@ -246,6 +292,37 @@ describe('createDomainExecutors — CONFIGURE_DOMAIN', () => {
     expect(elb.createHttpsListenerCalls).toHaveLength(0);
     expect(result.success).toBe(true);
     expect(result.output?.httpsConfigured).toBe(true);
+
+    // The relay creates the 443 listener itself with no other tagger, so it
+    // must (re-)tag an existing listener before modifying it — heals a
+    // listener that predates this fix.
+    expect(elb.ensureListenerTagCalls).toEqual([
+      { listenerArn: 'listener-443', tagKey: 'deployz:installation', tagValue: INSTALLATION_ID },
+    ]);
+    expect(elb.callLog).toEqual(['ensureListenerTag', 'addListenerCertificate']);
+  });
+
+  it('issued + 443 with a different default cert, already tagged: ensureListenerTag is still a harmless repeat', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const elb = new FakeElbClient();
+    const lb = makeLb();
+    elb.loadBalancer = lb;
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:other-cert', redirectsToHttps: false },
+      { arn: 'listener-80', port: 80, redirectsToHttps: true },
+    ];
+
+    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    // First pass tags the listener (as the previous test verifies); a second
+    // pass against the still-untagged fixture confirms re-tagging an
+    // already-tagged listener does not fail or otherwise change behavior.
+    await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+    const result = await executors.CONFIGURE_DOMAIN(configureCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(true);
+    expect(elb.ensureListenerTagCalls).toHaveLength(2);
+    expect(elb.addListenerCertificateCalls).toHaveLength(2);
   });
 
   it('no load balancer found: succeeds with routingTarget undefined and no listener calls', async () => {
@@ -317,6 +394,14 @@ describe('createDomainExecutors — REMOVE_DOMAIN', () => {
     expect(acm.deleteCalls).toEqual(['arn:cert-1']);
     expect(result.success).toBe(true);
     expect(result.output).toEqual({ removed: true });
+
+    // The relay creates the 443 listener itself, so nothing else ever tags
+    // it — tag it right before deleting, healing a listener that predates
+    // this fix so DeleteListener's resource-tag condition can match.
+    expect(elb.ensureListenerTagCalls).toEqual([
+      { listenerArn: 'listener-443', tagKey: 'deployz:installation', tagValue: INSTALLATION_ID },
+    ]);
+    expect(elb.callLog).toEqual(['ensureListenerTag', 'deleteListener']);
   });
 
   it('remove when the listener default cert is not ours: only removes the SNI certificate', async () => {
@@ -337,6 +422,9 @@ describe('createDomainExecutors — REMOVE_DOMAIN', () => {
     expect(elb.deleteListenerCalls).toHaveLength(0);
     expect(acm.deleteCalls).toEqual(['arn:cert-1']);
     expect(result.success).toBe(true);
+    // Only the delete path needs the heal-tag (DeleteListener is the action
+    // that was denied in production); removing an SNI cert isn't affected.
+    expect(elb.ensureListenerTagCalls).toHaveLength(0);
   });
 
   it('remove when everything is already gone: still succeeds', async () => {
@@ -354,19 +442,105 @@ describe('createDomainExecutors — REMOVE_DOMAIN', () => {
     expect(acm.deleteCalls).toEqual(['arn:long-gone']);
   });
 
-  it('remove with cert in use returns success:false so the control plane retries', async () => {
+  it('remove with cert in use but no listener change: fails immediately, no retry', async () => {
     const acm = new FakeAcmClient();
     acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
-    const err = new Error('certificate is in use');
-    err.name = 'ResourceInUseException';
-    acm.deleteError = err;
+    acm.deleteError = resourceInUseError();
     const elb = new FakeElbClient();
     elb.loadBalancer = undefined;
+    const sleepCalls: number[] = [];
 
-    const executors = createDomainExecutors({ acm, elb, installationId: INSTALLATION_ID });
+    const executors = createDomainExecutors({
+      acm,
+      elb,
+      installationId: INSTALLATION_ID,
+      sleep: fakeSleep(sleepCalls),
+    });
     const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
+    // Nothing here detached the certificate from a listener, so ACM's
+    // "still in use" is not the transient release delay — no point retrying.
+    expect(acm.deleteCalls).toEqual(['arn:cert-1']);
+    expect(sleepCalls).toEqual([]);
+  });
+
+  it('remove with cert in use after a listener delete: retries and succeeds once ACM releases it', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    acm.deleteError = resourceInUseError();
+    acm.deleteErrorRemaining = 2; // in use for the first two attempts, then released
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:cert-1', redirectsToHttps: false },
+    ];
+    const sleepCalls: number[] = [];
+
+    const executors = createDomainExecutors({
+      acm,
+      elb,
+      installationId: INSTALLATION_ID,
+      sleep: fakeSleep(sleepCalls),
+    });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(true);
+    expect(result.output).toEqual({ removed: true });
+    expect(acm.deleteCalls).toEqual(['arn:cert-1', 'arn:cert-1', 'arn:cert-1']);
+    expect(sleepCalls).toEqual([10_000, 10_000]);
+  });
+
+  it('remove with cert in use forever after a listener delete: fails after the bounded retries', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    acm.deleteError = resourceInUseError();
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:cert-1', redirectsToHttps: false },
+    ];
+    const sleepCalls: number[] = [];
+
+    const executors = createDomainExecutors({
+      acm,
+      elb,
+      installationId: INSTALLATION_ID,
+      sleep: fakeSleep(sleepCalls),
+    });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('ResourceInUseException');
+    expect(acm.deleteCalls).toHaveLength(6);
+    expect(sleepCalls).toHaveLength(5);
+  });
+
+  it('remove fails on a non-in-use ACM error after a listener delete: no retry', async () => {
+    const acm = new FakeAcmClient();
+    acm.certificates.set('arn:cert-1', { status: 'ISSUED' });
+    const err = new Error('access denied');
+    err.name = 'AccessDeniedException';
+    acm.deleteError = err;
+    const elb = new FakeElbClient();
+    elb.loadBalancer = makeLb();
+    elb.listeners = [
+      { arn: 'listener-443', port: 443, defaultCertificateArn: 'arn:cert-1', redirectsToHttps: false },
+    ];
+    const sleepCalls: number[] = [];
+
+    const executors = createDomainExecutors({
+      acm,
+      elb,
+      installationId: INSTALLATION_ID,
+      sleep: fakeSleep(sleepCalls),
+    });
+    const result = await executors.REMOVE_DOMAIN(removeCommand({ certificateArn: 'arn:cert-1' }));
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('AWS_PERMISSION_DENIED');
+    expect(acm.deleteCalls).toEqual(['arn:cert-1']);
+    expect(sleepCalls).toEqual([]);
   });
 });

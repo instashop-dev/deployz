@@ -474,6 +474,16 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       // comment). Over the simulated account the orphan lists are empty, so a
       // PURGE of a cleanly-deleted deployment settles to success.
       PURGE: trackLatest(createPurgeExecutor(purgeDeps)),
+      // AI MVP Phase 4: a successful INSTALL queues one CONFIG_UPDATE job (the
+      // first configuration pass — saved values plus the app-internal secrets
+      // Deployz generates). The simulated account has no Secrets Manager, so
+      // the pass is answered as applied with nothing minted.
+      CONFIG_UPDATE: trackLatest(async (command) => ({
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        success: true,
+        output: { executed: true, type: command.type, alreadyApplied: true, generatedKeys: [], unboundSecretKeys: [] },
+      })),
       // Phase 11 default HTTPS — the healthy simulated path. When the control
       // plane's automatic default-HTTPS machine is on (Cloudflare config in
       // production, or the DEPLOYZ_DEFAULT_HTTPS_FIXTURE opt-in under the E2E

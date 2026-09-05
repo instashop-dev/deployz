@@ -61,6 +61,12 @@ test('a MANIFEST_NOT_COMPATIBLE rejection shows the server reason, links to read
   // role="alert" and would otherwise make this locator ambiguous.
   const alert = page.locator('form [role="alert"]');
 
+  // Phase 5: the preflight shows the gate's answer before the vendor submits.
+  const preflight = page.getByTestId('preflight-summary');
+  await expect(preflight).toBeVisible();
+  await expect(preflight).toHaveAttribute('data-state', 'UNSUPPORTED');
+  await expect(page.getByTestId('preflight-heading')).toContainText("Can't deploy this application yet");
+
   await submit.click();
   await expect(alert).toContainText(
     'This application cannot be deployed with Deployz as configured.',

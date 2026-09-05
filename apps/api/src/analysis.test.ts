@@ -9,6 +9,7 @@ import {
   createAiGateway,
   evaluateManifestReadiness,
   normalizeDeploymentManifest,
+  readApplicationAnalysis,
   type AiGateway,
   type ReadinessReport,
 } from '@deployz/analysis';
@@ -163,6 +164,21 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(row.healthPath).toBe('/health');
     expect(row.migrationCommand).toBe('npx drizzle-kit push');
     expect(row.databaseRequired).toBe(true);
+
+    // The canonical projection is persisted beside the flat metadata,
+    // versioned, and readable back through the contract schema.
+    const detected = readApplicationAnalysis(row.detectedMetadata);
+    expect(detected).not.toBeNull();
+    expect(detected).toMatchObject({
+      analysisVersion: ANALYSIS_VERSION,
+      runtime: { value: 'node', source: 'dockerfile', confidence: 'confirmed' },
+      framework: { value: 'express' },
+      network: { port: { value: 3000, source: 'dockerfile' } },
+      database: { required: true, type: 'postgres' },
+      healthCheck: { detected: true, path: '/health' },
+      migrations: { command: 'npx drizzle-kit push', tools: ['drizzle-kit'] },
+    });
+    expect(detected?.environmentVariables.map((v) => v.key)).toContain('DATABASE_URL');
   });
 
   it('analyses the legacy-redis fixture repo to COMPLETE/NOT_COMPATIBLE with a blocking finding', async () => {
@@ -250,7 +266,13 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(row.compatibilityStatus).toBe('READY');
     expect(row.compatibilityReason).toBe('This app can be deployed through Deployz.');
     expect(row.databaseRequired).toBe(true);
-    expect(row.migrationCommand).toBe('prisma migrate deploy');
+    // The script value is the bare `prisma migrate deploy` (not runnable
+    // where the relay executes it — no node_modules/.bin on PATH), so it
+    // gets an `npx` prefix. No `--schema` flag: this fixture's Dockerfile
+    // has a single `WORKDIR /app`, so the runtime cwd equals the image root,
+    // and `prisma/schema.prisma` (this fixture's schema location) is
+    // already Prisma's default lookup path relative to that cwd.
+    expect(row.migrationCommand).toBe('npx prisma migrate deploy');
     // The only health-check evidence in this fixture is the app-router
     // route file app/api/health/route.ts — the Dockerfile's HEALTHCHECK
     // curls /health (a stale/generic default), but the route the app
@@ -468,7 +490,10 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
-    expect(row.migrationCommand).toBe('prisma migrate deploy');
+    // Bare `prisma migrate deploy` -> npx-prefixed. No Dockerfile in this
+    // fixture and no schema.prisma anywhere in the tree, so no --schema flag
+    // can be computed.
+    expect(row.migrationCommand).toBe('npx prisma migrate deploy');
   });
 
   it('leaves migrationCommand unset (never a dev-mode command) when only a dev-shaped migration script exists', async () => {
@@ -509,7 +534,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
 
     const row = await loadApplication(db, application.id);
-    expect(row.migrationCommand).toBe('prisma migrate deploy');
+    expect(row.migrationCommand).toBe('npx prisma migrate deploy');
   });
 
   it('resolves a migration command from a workspace package script, not just the root manifest', async () => {
@@ -531,7 +556,176 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
-    expect(row.migrationCommand).toBe('drizzle-kit push');
+    expect(row.migrationCommand).toBe('npx drizzle-kit push');
+  });
+
+  // Production-verified defect: `resolveMigrationCommand` used to copy the
+  // matched package.json script value verbatim. The relay runs it as
+  // `sh -c <command>` inside the built image, at the image's runtime
+  // WORKDIR, with no node_modules/.bin on PATH — Documenso's own
+  // `packages/prisma/package.json` script (`prisma migrate deploy`) exited
+  // 127 there on every deploy. The command that actually runs there is
+  // Documenso's own `docker/start.sh` line: `npx prisma migrate deploy
+  // --schema ../../packages/prisma/schema.prisma`.
+  describe('deriving a runnable command (npx prefix, Prisma --schema)', () => {
+    it('rewrites a Documenso-shaped tree (nested prisma package, multi-WORKDIR Dockerfile) to the exact working command', async () => {
+      const application = await insertApplication(db, orgId, {
+        githubInstallationId: 'install-1',
+        repoFullName: 'acme/documenso-shaped',
+        defaultBranch: 'main',
+      });
+      const files = {
+        'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*', 'packages/*'] }),
+        'docker/Dockerfile': [
+          'FROM node:20-alpine AS installer',
+          'WORKDIR /app',
+          'RUN npm ci',
+          'FROM node:20-alpine AS runner',
+          'WORKDIR /app',
+          'COPY --from=installer /app .',
+          'WORKDIR /app/apps/remix',
+          'CMD ["sh", "start.sh"]',
+        ].join('\n'),
+        'apps/remix/package.json': JSON.stringify({
+          name: 'remix',
+          scripts: { start: 'node build/server/main.js' },
+          dependencies: { express: '^4.18.0' },
+        }),
+        'packages/prisma/package.json': JSON.stringify({
+          name: 'prisma-pkg',
+          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
+          dependencies: { prisma: '^6.19.0' },
+        }),
+        'packages/prisma/schema.prisma': [
+          'datasource db {',
+          '  provider = "postgresql"',
+          '  url      = env("DATABASE_URL")',
+          '}',
+          '',
+        ].join('\n'),
+      };
+
+      await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+      const row = await loadApplication(db, application.id);
+      expect(row.analysisStatus).toBe('COMPLETE');
+      expect(row.migrationCommand).toBe('npx prisma migrate deploy --schema ../../packages/prisma/schema.prisma');
+    });
+
+    it('uses a repo-relative schema path (no ../..) when the Dockerfile has only one WORKDIR', async () => {
+      const application = await insertApplication(db, orgId, {
+        githubInstallationId: 'install-1',
+        repoFullName: 'acme/documenso-shaped-single-workdir',
+        defaultBranch: 'main',
+      });
+      const files = {
+        'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*', 'packages/*'] }),
+        'docker/Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["node", "apps/remix/build/server/main.js"]'].join('\n'),
+        'apps/remix/package.json': JSON.stringify({
+          name: 'remix',
+          scripts: { start: 'node build/server/main.js' },
+          dependencies: { express: '^4.18.0' },
+        }),
+        'packages/prisma/package.json': JSON.stringify({
+          name: 'prisma-pkg',
+          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
+          dependencies: { prisma: '^6.19.0' },
+        }),
+        'packages/prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
+      };
+
+      await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+      const row = await loadApplication(db, application.id);
+      expect(row.migrationCommand).toBe('npx prisma migrate deploy --schema packages/prisma/schema.prisma');
+    });
+
+    it('omits --schema when the schema already sits at Prisma\'s default lookup location relative to the runtime WORKDIR', async () => {
+      const application = await insertApplication(db, orgId, {
+        githubInstallationId: 'install-1',
+        repoFullName: 'acme/prisma-default-schema-location',
+        defaultBranch: 'main',
+      });
+      const files = {
+        'Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["node", "dist/index.js"]'].join('\n'),
+        'package.json': JSON.stringify({
+          name: 'app',
+          scripts: { start: 'node dist/index.js', 'db:migrate': 'prisma migrate deploy' },
+          dependencies: { express: '^4.18.0' },
+        }),
+        'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
+      };
+
+      await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+      const row = await loadApplication(db, application.id);
+      expect(row.migrationCommand).toBe('npx prisma migrate deploy');
+    });
+
+    it('never touches a command already qualified with npx and --schema', async () => {
+      const application = await insertApplication(db, orgId, {
+        githubInstallationId: 'install-1',
+        repoFullName: 'acme/already-qualified-prisma',
+        defaultBranch: 'main',
+      });
+      const files = {
+        'Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'WORKDIR /app/apps/remix', 'CMD ["node", "main.js"]'].join('\n'),
+        'package.json': JSON.stringify({
+          name: 'app',
+          scripts: {
+            start: 'node main.js',
+            'db:migrate': 'npx prisma migrate deploy --schema prisma/schema.prisma',
+          },
+          dependencies: { express: '^4.18.0' },
+        }),
+        'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
+      };
+
+      await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+      const row = await loadApplication(db, application.id);
+      expect(row.migrationCommand).toBe('npx prisma migrate deploy --schema prisma/schema.prisma');
+    });
+
+    it('npx-prefixes a bare knex invocation', async () => {
+      const application = await insertApplication(db, orgId, {
+        githubInstallationId: 'install-1',
+        repoFullName: 'acme/bare-knex',
+        defaultBranch: 'main',
+      });
+      const files = {
+        'package.json': JSON.stringify({
+          name: 'app',
+          scripts: { start: 'node index.js', 'db:migrate': 'knex migrate:latest' },
+          dependencies: { express: '^4.18.0', knex: '^3.1.0' },
+        }),
+      };
+
+      await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+      const row = await loadApplication(db, application.id);
+      expect(row.migrationCommand).toBe('npx knex migrate:latest');
+    });
+
+    it('never adds an npx prefix to a command already qualified via pnpm', async () => {
+      const application = await insertApplication(db, orgId, {
+        githubInstallationId: 'install-1',
+        repoFullName: 'acme/pnpm-qualified-prisma',
+        defaultBranch: 'main',
+      });
+      const files = {
+        'package.json': JSON.stringify({
+          name: 'app',
+          scripts: { start: 'node index.js', 'db:migrate': 'pnpm prisma migrate deploy' },
+          dependencies: { express: '^4.18.0' },
+        }),
+      };
+
+      await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+      const row = await loadApplication(db, application.id);
+      expect(row.migrationCommand).toBe('pnpm prisma migrate deploy');
+    });
   });
 
   it('classifies worker-like code with a resolved worker start command as needs-adaptation, never deployable-as-is', async () => {

@@ -9,7 +9,15 @@ import {
 } from '@deployz/analysis';
 
 import { createFixtureAiGateway } from './ai-fixture.js';
-import { buildFixInstructionsContext, readReadinessReport, type FixInstructionsSource } from './fix-instructions.js';
+import {
+  buildFixInstructionsContext,
+  effectiveReadinessReport,
+  fixInstructionsCacheKey,
+  readCachedFixInstructions,
+  readReadinessReport,
+  readinessResolution,
+  type FixInstructionsSource,
+} from './fix-instructions.js';
 
 // Fix-instructions context assembly (apps/api/src/fix-instructions.ts) — turns
 // a persisted application row into the structured context
@@ -225,5 +233,91 @@ describe('fix-instructions — createFixtureAiGateway', () => {
     await expect(gateway.generate('prompt', fixInstructionsAiSchema, {})).rejects.toBeInstanceOf(
       AiGatewayNotAvailableError,
     );
+  });
+});
+
+
+describe('effectiveReadinessReport — vendor configuration resolves findings', () => {
+  const portFinding = finding({ id: 'port-unresolved', category: 'network', title: 'Tell Deployz which port your app listens on', confidence: 'confirmed' });
+  const startFinding = finding({ id: 'start-command-missing', category: 'container', title: 'Tell Deployz how to start your app', confidence: 'confirmed' });
+  const stored = report({ requiredCount: 2, findings: [portFinding, startFinding] });
+
+  it('reads the container port column and the manifest-only start command as the resolution', () => {
+    expect(
+      readinessResolution({ containerPort: 8080, detectedMetadata: { manifestOverrides: { startCommand: 'node x.js' } } }),
+    ).toEqual({ containerPort: 8080, startCommand: 'node x.js' });
+    expect(readinessResolution({ containerPort: null, detectedMetadata: { manifestOverrides: { startCommand: '' } } })).toEqual({
+      containerPort: null,
+      startCommand: null,
+    });
+    expect(readinessResolution({ containerPort: null, detectedMetadata: null })).toEqual({ containerPort: null, startCommand: null });
+  });
+
+  it('applies the resolution to the stored report without changing it', () => {
+    const metadata = { readiness: stored, manifestOverrides: { startCommand: 'node x.js' } };
+    const effective = effectiveReadinessReport({ containerPort: 8080, detectedMetadata: metadata });
+    expect(effective?.state).toBe('READY');
+    expect(effective?.findings).toEqual([]);
+    expect((metadata.readiness as ReadinessReport).findings).toHaveLength(2);
+    expect(effectiveReadinessReport({ containerPort: null, detectedMetadata: null })).toBeNull();
+  });
+
+  it('keeps a resolved finding out of the fix instructions', () => {
+    const source: FixInstructionsSource = {
+      repoFullName: 'acme/app',
+      containerPort: 8080,
+      healthPath: null,
+      migrationCommand: null,
+      redisRequired: false,
+      detectedMetadata: { readiness: stored },
+    };
+    const context = buildFixInstructionsContext(source);
+    expect(context?.findings.map((f) => f.id)).toEqual(['start-command-missing']);
+    expect(
+      buildFixInstructionsContext({
+        ...source,
+        detectedMetadata: { readiness: stored, manifestOverrides: { startCommand: 'node x.js' } },
+      }),
+    ).toBeNull();
+  });
+});
+
+
+describe('fixInstructionsCacheKey / readCachedFixInstructions', () => {
+  const source: FixInstructionsSource = {
+    repoFullName: 'acme/app',
+    containerPort: null,
+    healthPath: null,
+    migrationCommand: null,
+    redisRequired: false,
+    detectedMetadata: { readiness: report(), analysisCommitSha: 'abc', runtime: 'node' },
+  };
+  const context = buildFixInstructionsContext(source)!;
+
+  it('is deterministic and includes the runtime fact', () => {
+    expect(fixInstructionsCacheKey(context, 13)).toBe(fixInstructionsCacheKey(context, 13));
+    expect(fixInstructionsCacheKey(context, 13)).toMatch(/^[0-9a-f]{64}$/);
+    expect(context.facts.runtime).toBe('node');
+  });
+
+  it('changes with the commit, the analysis version, a fact, or a finding', () => {
+    const base = fixInstructionsCacheKey(context, 13);
+    expect(fixInstructionsCacheKey({ ...context, commitSha: 'def' }, 13)).not.toBe(base);
+    expect(fixInstructionsCacheKey(context, 14)).not.toBe(base);
+    expect(fixInstructionsCacheKey({ ...context, facts: { ...context.facts, port: '8080' } }, 13)).not.toBe(base);
+    expect(
+      fixInstructionsCacheKey({ ...context, findings: [{ ...context.findings[0]!, confidence: 'confirmed' }] }, 13),
+    ).not.toBe(base);
+    expect(fixInstructionsCacheKey(context, 'not-a-number')).toBe(fixInstructionsCacheKey(context, null));
+  });
+
+  it('reads a stored document only for exactly its key, and never a partial one', () => {
+    const key = fixInstructionsCacheKey(context, 13);
+    const stored = { key, instructions: '# doc', generatedAt: '2026-09-05T10:00:00.000Z' };
+    expect(readCachedFixInstructions({ fixInstructions: stored }, key)).toEqual(stored);
+    expect(readCachedFixInstructions({ fixInstructions: stored }, 'other')).toBeNull();
+    expect(readCachedFixInstructions({ fixInstructions: { key, instructions: '' } }, key)).toBeNull();
+    expect(readCachedFixInstructions({}, key)).toBeNull();
+    expect(readCachedFixInstructions(null, key)).toBeNull();
   });
 });

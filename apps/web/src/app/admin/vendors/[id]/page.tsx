@@ -28,6 +28,7 @@ import {
 } from '@/lib/admin-vocabulary';
 import { eventTypeLabel, RELAY_STATUS_LABEL } from '@/lib/deployment-vocabulary';
 import { RELEASE_STATUS_BADGE, RELEASE_STATUS_LABEL } from '@/lib/releases';
+import { formatReleaseVersion } from '@/lib/release-version';
 import { PLAN_LABELS } from '@/lib/organization-vocabulary';
 import { relativeTime } from '@/lib/diagnostics';
 
@@ -189,7 +190,7 @@ function VendorDetailBody({ detail }: { detail: AdminVendorDetail }) {
                       <TableCell>
                         {app.latestRelease ? (
                           <Badge variant={RELEASE_STATUS_BADGE[app.latestRelease.releaseStatus]}>
-                            v{app.latestRelease.version} ·{' '}
+                            {formatReleaseVersion(app.latestRelease.version)} ·{' '}
                             {RELEASE_STATUS_LABEL[app.latestRelease.releaseStatus]}
                           </Badge>
                         ) : (

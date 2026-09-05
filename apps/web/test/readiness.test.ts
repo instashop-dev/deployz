@@ -4,7 +4,10 @@ import {
   ONBOARDING_STEPS,
   READINESS_STATE_PRESENTATION,
   READINESS_SUPPORT_READY,
+  FIX_INSTRUCTIONS_REUSED_NOTE,
   deriveOnboardingStep,
+  detectedFactRows,
+  fixInstructionsGeneratedLabel,
   readinessBlockedSummary,
   readinessChangesHeading,
   readinessChecksLabel,
@@ -12,6 +15,9 @@ import {
   readinessFixCtaSupport,
   readinessStateHeading,
   type ApplicationReadiness,
+  type DetectedApplication,
+  type DetectedFact,
+  type FactSource,
 } from '../src/lib/readiness';
 
 // Locks the §42 onboarding vocabulary and the §19 readiness presentation:
@@ -208,6 +214,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       findings: [],
       passed: [],
       analyzedCommitSha: null,
+      detected: null,
     };
     expect(pending.state).toBe('ANALYSIS_INCOMPLETE');
     expect(pending.findings).toEqual([]);
@@ -225,6 +232,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       findings: [],
       passed: [],
       analyzedCommitSha: null,
+      detected: null,
     };
     expect(failed.state).toBe('ANALYSIS_INCOMPLETE');
     expect(failed.failureReason).toBe('Failed to mint a GitHub installation token');
@@ -266,6 +274,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       ],
       passed: [{ id: 'docker', label: 'Docker container detected' }],
       analyzedCommitSha: 'abc1234',
+      detected: null,
     };
     const required = readiness.findings.filter((f) => f.severity === 'required');
     const recommended = readiness.findings.filter((f) => f.severity === 'recommended');
@@ -312,6 +321,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       ],
       passed: [],
       analyzedCommitSha: 'def5678',
+      detected: null,
     };
     expect(readiness.findings[0]?.plainEnglishExplanation).toBe('Persistent Redis is required.');
   });
@@ -331,6 +341,7 @@ describe('readinessFailure (FAILED analysis)', () => {
     findings: [],
     passed: [],
     analyzedCommitSha: null,
+    detected: null,
   });
 
   it('is null while the analysis is still running', () => {
@@ -345,6 +356,7 @@ describe('readinessFailure (FAILED analysis)', () => {
         findings: [],
         passed: [],
         analyzedCommitSha: null,
+        detected: null,
       }),
     ).toBeNull();
   });
@@ -366,5 +378,96 @@ describe('readinessFailure (FAILED analysis)', () => {
     expect(failure?.detail).toBeTruthy();
     expect(failure?.detail).not.toMatch(JARGON);
     expect(failure?.heading).not.toMatch(JARGON);
+  });
+});
+
+
+// ── What Deployz detected (AI MVP Phase 2) ──────────────────────────────────
+
+function detectedFixture(overrides: Partial<DetectedApplication> = {}): DetectedApplication {
+  const fact = <T,>(value: T, source: FactSource = 'dockerfile'): DetectedFact<T> => ({
+    value,
+    source,
+    confidence: source === 'source' || source === 'ai' ? 'likely' : 'confirmed',
+    evidence: source === 'none' ? [] : [{ file: 'Dockerfile', reason: `Found in ${source}` }],
+  });
+  return {
+    analysisVersion: 13,
+    runtime: fact('node'),
+    framework: fact('express', 'package-manifest'),
+    build: fact('tsc', 'package-manifest'),
+    start: fact('node dist/index.js'),
+    network: { port: fact(3000), bindAddress: fact(null, 'none') },
+    database: { required: true, type: 'postgres', confidence: 'confirmed', evidence: [{ reason: 'pg dependency' }] },
+    redis: { required: false, detected: false, supported: true, confidence: 'needs_confirmation', purposes: [], evidence: [] },
+    storage: { persistentLocalRequired: false, objectStorageDetected: false, evidence: [] },
+    healthCheck: { detected: true, path: '/health', confidence: 'confirmed', evidence: [{ reason: 'route' }] },
+    migrations: { detected: true, command: 'npx drizzle-kit push', tools: ['drizzle-kit'], evidence: [{ reason: 'script' }] },
+    environmentVariables: [],
+    ...overrides,
+  };
+}
+
+describe('detectedFactRows', () => {
+  it('renders every fact as a plain-words row in reading order, with the source as a hint', () => {
+    const rows = detectedFactRows(detectedFixture());
+    expect(rows.map((r) => r.id)).toEqual([
+      'runtime', 'framework', 'start', 'build', 'port', 'database', 'redis', 'storage', 'health', 'migrations',
+    ]);
+    expect(rows.find((r) => r.id === 'runtime')).toMatchObject({ value: 'Node.js', found: true, hint: 'From the container setup', code: false });
+    expect(rows.find((r) => r.id === 'start')).toMatchObject({ value: 'node dist/index.js', code: true });
+    expect(rows.find((r) => r.id === 'port')).toMatchObject({ value: '3000', code: true, hint: 'From the container setup' });
+    expect(rows.find((r) => r.id === 'database')?.value).toBe('PostgreSQL — Deployz provides a managed database');
+    expect(rows.find((r) => r.id === 'health')).toMatchObject({ value: '/health', code: true });
+    expect(rows.find((r) => r.id === 'migrations')).toMatchObject({ value: 'npx drizzle-kit push', code: true });
+    for (const row of rows) {
+      expect(row.value).not.toMatch(JARGON);
+      expect(row.value).not.toMatch(PERCENT);
+    }
+  });
+
+  it('renders missing values quietly and never as failures', () => {
+    const rows = detectedFactRows(
+      detectedFixture({
+        runtime: { value: 'unknown', source: 'none', confidence: 'needs_confirmation', evidence: [] },
+        framework: { value: null, source: 'none', confidence: 'needs_confirmation', evidence: [] },
+        start: { value: null, source: 'none', confidence: 'needs_confirmation', evidence: [] },
+        healthCheck: { detected: false, path: null, confidence: 'confirmed', evidence: [] },
+        migrations: { detected: false, command: null, tools: [], evidence: [] },
+        database: { required: false, type: 'none', confidence: 'confirmed', evidence: [] },
+      }),
+    );
+    expect(rows.find((r) => r.id === 'runtime')).toMatchObject({ value: 'Not detected', found: false, hint: null });
+    expect(rows.find((r) => r.id === 'framework')).toMatchObject({ value: 'None detected', found: false });
+    expect(rows.find((r) => r.id === 'start')).toMatchObject({ value: 'Not found', found: false, code: false });
+    expect(rows.find((r) => r.id === 'health')).toMatchObject({ value: 'Not found', found: false });
+    expect(rows.find((r) => r.id === 'migrations')).toMatchObject({ value: 'None detected', found: false });
+    expect(rows.find((r) => r.id === 'database')).toMatchObject({ value: 'None detected', found: false });
+  });
+
+  it('marks AI-inferred and likely values so the vendor knows to verify them', () => {
+    const rows = detectedFactRows(
+      detectedFixture({
+        start: { value: 'node server.js', source: 'ai', confidence: 'likely', evidence: [{ reason: 'Resolved by AI analysis' }] },
+        network: {
+          port: { value: 8080, source: 'source', confidence: 'likely', evidence: [{ reason: 'Default port 8080 detected in src/index.ts' }] },
+          bindAddress: { value: 'localhost', source: 'source', confidence: 'likely', evidence: [] },
+        },
+        redis: { required: true, detected: true, supported: true, confidence: 'confirmed', purposes: ['queue'], evidence: [{ reason: 'bullmq' }] },
+        storage: { persistentLocalRequired: false, objectStorageDetected: true, evidence: [{ reason: '@aws-sdk/client-s3' }] },
+      }),
+    );
+    expect(rows.find((r) => r.id === 'start')?.hint).toBe('Inferred by AI analysis — verify before relying on it');
+    expect(rows.find((r) => r.id === 'port')?.hint).toBe('Inferred from the source code · Likely');
+    expect(rows.find((r) => r.id === 'redis')?.value).toBe('Redis — provisioned automatically (queue)');
+    expect(rows.find((r) => r.id === 'storage')?.value).toBe('Object storage — Deployz provides a bucket');
+  });
+});
+
+describe('fixInstructionsGeneratedLabel', () => {
+  it('names when the document was generated, and degrades for an unparseable date', () => {
+    expect(fixInstructionsGeneratedLabel('2026-09-05T10:00:00.000Z')).toMatch(/^Generated .*2026/);
+    expect(fixInstructionsGeneratedLabel('not a date')).toBe('Generated for this analysis');
+    expect(FIX_INSTRUCTIONS_REUSED_NOTE).not.toMatch(JARGON);
   });
 });

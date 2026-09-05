@@ -103,6 +103,20 @@ export function refineFailureCode(input: {
     return 'AWS_PERMISSION_DENIED';
   }
 
+  // 4b. A deployment artifact addressed in the wrong region — S3's
+  //     PermanentRedirect wording (the region guard normally prevents this;
+  //     when it happens anyway, the region is the cause, not the customer).
+  if (/permanentredirect|must be addressed using the specified endpoint/.test(text)) {
+    return 'REGION_NOT_SUPPORTED';
+  }
+
+  // 4c. The container itself — ECS wording for a task that never became
+  //     healthy versus one whose process exited.
+  if (/failed (?:elb|container) health checks|health checks? failed/.test(text)) return 'IMAGE_HEALTH_CHECK_FAILED';
+  if (/essential container in task exited|exited with code|container exited|outofmemory/.test(text)) {
+    return 'CONTAINER_START_FAILED';
+  }
+
   // 5. The failed resource itself names the component.
   if (failedType.startsWith('AWS::RDS::')) return 'DATABASE_CREATE_FAILED';
   if (failedType.startsWith('AWS::ElastiCache::')) return 'REDIS_PROVISIONING_FAILED';

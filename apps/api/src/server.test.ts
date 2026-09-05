@@ -4,14 +4,17 @@ import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { analyseRepo, buildApplicationAnalysis } from '@deployz/analysis';
 import { bootstrapStackName, DOCUMENSO_PARAMETERS, errorEnvelopeSchema } from '@deployz/contracts';
 import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import { ANALYSIS_VERSION } from './analysis.js';
 import { createAuth, type Auth } from './auth.js';
 import { buildPullStatement, type EcrClient, type EcrGrantStatement } from './ecr-grants.js';
 import { env } from './env.js';
 import { ApiError } from './errors.js';
+import { GITHUB_FIXTURE_FILE_TREES } from './github.js';
 import { createRequireAuth } from './require-auth.js';
 import { hashRelayToken } from './relay-store.js';
 import { buildServer, redactClaimedPayload } from './server.js';
@@ -1543,7 +1546,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       headers: { cookie: org.cookie },
     });
     expect(diagnostics.statusCode).toBe(200);
-    expect((diagnostics.json() as { failureCode: string }).failureCode).toBe('IMAGE_HEALTH_CHECK_FAILED');
+    expect(diagnostics.json()).toMatchObject({ failureCode: 'IMAGE_HEALTH_CHECK_FAILED', source: 'deterministic', confidence: null });
   });
 
   // §22/§23/§42: known failure codes bypass AI entirely — the deterministic
@@ -1612,6 +1615,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
               what: 'The app failed for a reason the classifier could not identify.',
               why: 'The deploy reported an error that did not match a known failure pattern.',
               fix: 'Check the logs and contact support if this keeps happening.',
+              confidence: 'low',
             },
             usage: { promptTokens: 20, completionTokens: 10 },
           };
@@ -2086,6 +2090,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       findings: [],
       passed: [],
       analyzedCommitSha: null,
+      detected: null,
     });
   });
 
@@ -2154,7 +2159,42 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       findings: [finding],
       passed: readiness.passed,
       analyzedCommitSha: 'deadbeef',
+      detected: null,
     });
+  });
+
+  it('readiness: a stored canonical projection is served as `detected`; a malformed one reads as null', async () => {
+    const detected = buildApplicationAnalysis(analyseRepo(GITHUB_FIXTURE_FILE_TREES['deployz-demo/express-api']!), {
+      analysisVersion: ANALYSIS_VERSION,
+      aiResolved: [],
+      resolvedMigrationCommand: 'npx drizzle-kit push',
+    });
+    const readiness = { state: 'READY', requiredCount: 0, recommendedCount: 0, summary: 'ok', findings: [], passed: [] };
+    const stored = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'READY',
+      detectedMetadata: { readiness, application: detected },
+    });
+    const served = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${stored.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(served.statusCode).toBe(200);
+    expect((served.json() as { detected: unknown }).detected).toEqual(detected);
+
+    const malformed = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'READY',
+      detectedMetadata: { readiness, application: { ...detected, runtime: 'node' } },
+    });
+    const degraded = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${malformed.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(degraded.statusCode).toBe(200);
+    expect((degraded.json() as { detected: unknown }).detected).toBeNull();
   });
 
   // Legacy rows (analysed before the semantic readiness report existed) only
@@ -2452,10 +2492,12 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
         },
       },
     });
+    // regenerate bypasses the document the first call cached, so the
+    // failure path actually runs.
     const failure = await postJson(
       failingApp,
       `/api/applications/${application.id}/fix-instructions`,
-      {},
+      { regenerate: true },
       { cookie: org.cookie },
     );
     expect(failure.statusCode).toBe(503);
@@ -4310,5 +4352,307 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
     expect(result.statusCode).toBe(200);
 
     expect(fakeEcr.statementFor(`deployz-pull-${deployment.installationId}`)).toBeUndefined();
+  });
+});
+
+
+// ── AI MVP Phase 2: vendor configuration reconciles readiness ─────────────
+describe('server — readiness reconciliation with the application details', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  const portFinding = {
+    id: 'port-unresolved',
+    category: 'network',
+    title: 'Tell Deployz which port your app listens on',
+    severity: 'required',
+    blocking: false,
+    plainEnglishExplanation: 'Deployz could not find the network port this app listens on.',
+    whyItMatters: 'Deployz routes customer traffic and health checks to one port.',
+    technicalEvidence: 'No port was found.',
+    suggestedOutcome: 'Declare the port the app listens on, or set it in the application details.',
+    confidence: 'confirmed',
+  };
+  const storedReport = {
+    state: 'ALMOST_READY',
+    requiredCount: 1,
+    recommendedCount: 0,
+    summary: 'Deployz found a few things to address before this app can be deployed reliably.',
+    findings: [portFinding],
+    passed: [{ id: 'dockerfile', label: 'Container setup found' }],
+  };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'readiness-reconcile@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await client?.close();
+  });
+
+  it('GET readiness applies the container port the vendor set: the finding becomes a passed check and the state READY', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      containerPort: 8080,
+      detectedMetadata: { readiness: storedReport },
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { state: string; requiredCount: number; findings: unknown[]; passed: { id: string }[] };
+    expect(body.state).toBe('READY');
+    expect(body.requiredCount).toBe(0);
+    expect(body.findings).toEqual([]);
+    expect(body.passed.map((p) => p.id)).toEqual(['dockerfile', 'port-unresolved']);
+  });
+
+  it('PATCH containerPort keeps the persisted verdict in step with the page, and clearing it restores the finding', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      compatibilityReason: storedReport.summary,
+      detectedMetadata: { readiness: storedReport },
+    });
+
+    const set = await app.inject({
+      method: 'PATCH',
+      url: `/api/applications/${application.id}`,
+      headers: { cookie: org.cookie },
+      payload: { containerPort: 8080 },
+    });
+    expect(set.statusCode).toBe(200);
+    expect(set.json()).toMatchObject({
+      containerPort: 8080,
+      compatibilityStatus: 'READY',
+      compatibilityReason: 'This app can be deployed through Deployz.',
+    });
+    // The stored report itself is untouched — reconciliation is a view.
+    const [row] = await db.select().from(schema.applications).where(eq(schema.applications.id, application.id));
+    expect((row?.detectedMetadata as { readiness: { findings: unknown[] } }).readiness.findings).toHaveLength(1);
+
+    const cleared = await app.inject({
+      method: 'PATCH',
+      url: `/api/applications/${application.id}`,
+      headers: { cookie: org.cookie },
+      payload: { containerPort: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toMatchObject({
+      containerPort: null,
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      compatibilityReason: storedReport.summary,
+    });
+  });
+
+  it('PATCH of an unrelated field leaves the verdict alone', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      detectedMetadata: { readiness: storedReport },
+    });
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/applications/${application.id}`,
+      headers: { cookie: org.cookie },
+      payload: { healthPath: '/healthz' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ healthPath: '/healthz', compatibilityStatus: 'NEEDS_ATTENTION' });
+  });
+});
+
+
+// ── AI MVP Phase 3: fix-instructions cache ──────────────────────────────────
+describe('server — POST /api/applications/:id/fix-instructions (cache)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  const healthFinding = {
+    id: 'health-check',
+    category: 'health',
+    title: 'Give Deployz a way to check your app',
+    severity: 'required',
+    blocking: false,
+    plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+    whyItMatters: 'During every deployment, Deployz waits for your app to report healthy.',
+    technicalEvidence: 'No health endpoint or container health check was found.',
+    suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+    confidence: 'likely',
+  };
+  const readinessWith = (findings: unknown[]) => ({
+    state: 'ALMOST_READY',
+    requiredCount: findings.length,
+    recommendedCount: 0,
+    summary: 'Deployz found a few things to address before this app can be deployed reliably.',
+    findings,
+    passed: [],
+  });
+
+  function countingGateway(): { gateway: { generate: () => Promise<unknown> }; calls: () => number } {
+    let calls = 0;
+    return {
+      gateway: {
+        async generate() {
+          calls += 1;
+          return {
+            object: { perFinding: [{ id: 'health-check', guidance: `Guidance #${calls}` }], generalNotes: [] },
+            usage: { promptTokens: 100, completionTokens: 50 },
+          };
+        },
+      },
+      calls: () => calls,
+    };
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'fix-instructions-cache@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('reuses the document for the same commit, analysis version and findings; regenerate bypasses; a changed finding set misses', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      detectedMetadata: { readiness: readinessWith([healthFinding]), analysisCommitSha: 'abc123', analysisVersion: 13 },
+    });
+    const counting = countingGateway();
+    const stubApp = await buildServer({ auth, db, aiGateway: counting.gateway as never });
+    const url = `/api/applications/${application.id}/fix-instructions`;
+
+    const first = await postJson(stubApp, url, {}, { cookie: org.cookie });
+    expect(first.statusCode).toBe(200);
+    const firstBody = first.json() as { instructions: string; generatedAt: string; cached: boolean };
+    expect(firstBody.cached).toBe(false);
+    expect(firstBody.instructions).toContain('Guidance #1');
+    expect(counting.calls()).toBe(1);
+
+    const second = await postJson(stubApp, url, {}, { cookie: org.cookie });
+    const secondBody = second.json() as { instructions: string; generatedAt: string; cached: boolean };
+    expect(secondBody).toEqual({ ...firstBody, cached: true });
+    expect(counting.calls()).toBe(1);
+
+    const regenerated = await postJson(stubApp, url, { regenerate: true }, { cookie: org.cookie });
+    const regeneratedBody = regenerated.json() as { instructions: string; cached: boolean };
+    expect(regeneratedBody.cached).toBe(false);
+    expect(regeneratedBody.instructions).toContain('Guidance #2');
+    expect(counting.calls()).toBe(2);
+
+    // The finding set changed (a re-analysis found one more thing) → miss.
+    await db
+      .update(schema.applications)
+      .set({
+        detectedMetadata: {
+          ...(await db.select().from(schema.applications).where(eq(schema.applications.id, application.id)))[0]!
+            .detectedMetadata,
+          readiness: readinessWith([healthFinding, { ...healthFinding, id: 'localhost-binding', title: 'Your app only listens on localhost' }]),
+        },
+      })
+      .where(eq(schema.applications.id, application.id));
+    const changed = await postJson(stubApp, url, {}, { cookie: org.cookie });
+    expect((changed.json() as { cached: boolean }).cached).toBe(false);
+    expect(counting.calls()).toBe(3);
+
+    await stubApp.close();
+  });
+
+  it('a generation failure leaves an earlier cached document untouched', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      detectedMetadata: { readiness: readinessWith([healthFinding]), analysisCommitSha: 'def456', analysisVersion: 13 },
+    });
+    const counting = countingGateway();
+    const okApp = await buildServer({ auth, db, aiGateway: counting.gateway as never });
+    const url = `/api/applications/${application.id}/fix-instructions`;
+    const first = (await postJson(okApp, url, {}, { cookie: org.cookie })).json() as { instructions: string };
+    await okApp.close();
+
+    const failingApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('gateway down');
+        },
+      },
+    });
+    const regenerate = await postJson(failingApp, url, { regenerate: true }, { cookie: org.cookie });
+    expect(regenerate.statusCode).toBe(503);
+    const reused = await postJson(failingApp, url, {}, { cookie: org.cookie });
+    expect(reused.statusCode).toBe(200);
+    expect(reused.json()).toMatchObject({ instructions: first.instructions, cached: true });
+    await failingApp.close();
+  });
+});
+
+// ── Final review: the technical detail is redacted like the context ────────
+describe('server — diagnostics technical detail is redacted', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'diagnostics-redaction@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await client?.close();
+  });
+
+  it('never serves a secret-shaped value in technicalDetail, while keeping the rest of the relay text', async () => {
+    const application = await insertApplication(db, org.organizationId, { analysisStatus: 'COMPLETE', compatibilityStatus: 'READY' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'FAILED' });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'FAILED',
+      idempotencyKey: `${deployment.id}:INSTALL:redaction`,
+      payload: {},
+      failureCode: 'STACK_CREATE_FAILED',
+      result: { success: false, error: 'CreateStack failed: DATABASE_PASSWORD=hunter2 rejected by the database' },
+      finishedAt: new Date(),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/diagnostics`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { technicalDetail: string | null; context: { message: string | null } };
+    expect(body.technicalDetail).toBe('CreateStack failed: DATABASE_PASSWORD=[REDACTED] rejected by the database');
+    expect(body.context.message).toBe('CreateStack failed: DATABASE_PASSWORD=[REDACTED] rejected by the database');
+    expect(JSON.stringify(body)).not.toContain('hunter2');
   });
 });

@@ -1,0 +1,1 @@
+ALTER TABLE "deployment_jobs" ADD COLUMN "ai_explanation_confidence" text;

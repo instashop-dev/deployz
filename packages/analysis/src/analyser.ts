@@ -26,6 +26,8 @@ import {
   detectExternalServiceRequirements,
   detectPackageManager,
   detectBuildCommand,
+  detectRuntime,
+  detectBindAddress,
   detectStartupMigrationEvidence,
   hasPreDeployMigration,
 } from './detectors.js';
@@ -56,8 +58,9 @@ import {
   checkRequiredThirdPartyService,
 } from './rejection.js';
 
+import { classifyEnvVariables } from './env-classification.js';
 import type { RedisRequirement } from './redis.js';
-import { assessRedis } from './redis.js';
+import { assessRedis, resolveRedisEnvBindings } from './redis.js';
 import { deriveAmbiguities } from './evidence.js';
 import { deriveInfrastructureBindings } from './bindings.js';
 
@@ -106,6 +109,8 @@ const DETECTORS = [
   detectExternalServices,
   detectPackageManager,
   detectBuildCommand,
+  detectRuntime,
+  detectBindAddress,
 ] as const;
 
 /** All §10 rejection check functions, in order (redis is handled separately — see `analyseRepo`). */
@@ -226,6 +231,13 @@ function buildMetadata(
         meta['hasBuildCommand'] = f.detected;
         if (f.detected && f.value) meta['buildCommands'] = f.value;
         break;
+      case 'runtime':
+        meta['runtime'] = f.detected ? f.value : null;
+        break;
+      case 'bind-address':
+        meta['bindsLocalhost'] = f.detected;
+        meta['bindAddress'] = f.value ?? null;
+        break;
       default:
         meta[key] = f.detected ? f.value ?? true : false;
     }
@@ -321,9 +333,19 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // §11.3 / §11.2 — structured service requirements and the env-var model.
   const serviceRequirements = detectExternalServiceRequirements(tree);
   metadata['externalServiceRequirements'] = serviceRequirements;
-  metadata['envVarModel'] = detectEnvVarModel(
-    tree,
-    serviceRequirements.map((r) => r.service),
+  // Phase 4 — who supplies each value, decided from the requirements above.
+  metadata['envVarModel'] = classifyEnvVariables(
+    detectEnvVarModel(
+      tree,
+      serviceRequirements.map((r) => r.service),
+    ),
+    {
+      postgresRequired: postgres.required,
+      redisRequired: redis.required,
+      redisBindingNames: resolveRedisEnvBindings(redis.connectionEnvVars).map((binding) => binding.name),
+      storageRequired: findings.find((f) => f.detector === 's3')?.detected === true,
+      externalServices: serviceRequirements.map((r) => r.service),
+    },
   );
 
   metadata['databaseState'] = deriveDatabaseState(findings, rejections);

@@ -9,7 +9,7 @@
  * creating a workspace dependency cycle (cdk already depends on api).
  */
 
-export type { FileTree, DetectorFinding, PostgresRequirement } from './detectors.js';
+export type { FileTree, DetectorFinding, DetectorSource, PostgresRequirement, RuntimeFamily } from './detectors.js';
 export {
   detectDockerfile,
   listDockerfileCandidates,
@@ -25,9 +25,12 @@ export {
   detectS3,
   detectMigrationCommand,
   detectStartupCommand,
+  detectRuntime,
+  detectBindAddress,
   detectExternalServices,
   detectExternalServiceRequirements,
   collectScripts,
+  collectScriptsWithDir,
   detectDeclaredWorkerCommand,
   isRuntimeSourcePath,
 } from './detectors.js';
@@ -74,6 +77,9 @@ export { assessRedis, resolveRedisEnvBindings } from './redis.js';
 export type { AnalysisResult, DatabaseState } from './analyser.js';
 export { analyseRepo } from './analyser.js';
 
+export type { ApplicationAnalysisContext } from './application-analysis.js';
+export { buildApplicationAnalysis, readApplicationAnalysis } from './application-analysis.js';
+
 export type {
   AnalysisAmbiguityKind,
   AnalysisAmbiguity,
@@ -107,11 +113,20 @@ export type {
   PassedCheck,
   ReadinessReport,
   ReadinessReportContext,
+  ReadinessResolution,
 } from './readiness-report.js';
-export { buildReadinessReport, verdictFromReadiness } from './readiness-report.js';
+export { buildReadinessReport, reconcileReadiness, verdictFromReadiness } from './readiness-report.js';
 
 export type { ManifestSource, ManifestReadinessContext } from './manifest.js';
-export { normalizeDeploymentManifest, evaluateManifestReadiness } from './manifest.js';
+export { normalizeDeploymentManifest, evaluateManifestReadiness, generatedEnvKeys } from './manifest.js';
+
+export type { EnvClassificationContext } from './env-classification.js';
+export {
+  MANAGED_DATABASE_ENV_VARS,
+  MANAGED_STORAGE_ENV_VARS,
+  classifyEnvVariables,
+  isGeneratableSecretName,
+} from './env-classification.js';
 
 export type {
   FixInstructionsFacts,
@@ -156,6 +171,7 @@ export {
 } from './ai-gateway.js';
 
 export type {
+  DiagnosticConfidence,
   DiagnosticExplainOptions,
   DiagnosticExplanation,
 } from './diagnostic-explainer.js';

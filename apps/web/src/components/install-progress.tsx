@@ -16,9 +16,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { CustomDomainView } from '@/lib/domains';
 import {
   isTerminalStage,
+  PRE_LAUNCH_HEADLINE,
   STAGE_HEADLINE,
   stepDetailLine,
   stepWaitingOnInput,
+  stepsBeforeLaunch,
   AWAITING_DOMAIN_STEP_DETAIL,
   stepsFromStatus,
 } from '@/lib/deployment-progress';
@@ -73,6 +75,7 @@ export function InstallProgress({
   initialDomain,
   routingTarget,
   preinstall = false,
+  awaitingLaunch = false,
   deployLink = null,
 }: {
   installLinkId: string;
@@ -85,6 +88,10 @@ export function InstallProgress({
    *  server-rendered content (the Deploy to AWS CTA, capability lists) is only
    *  correct while nothing has enrolled yet. */
   preinstall?: boolean;
+  /** True while the customer has not pressed Deploy to AWS yet (the
+   *  deployment is still NOT_INSTALLED): nothing is being created, so the
+   *  card must not claim AWS is at work. */
+  awaitingLaunch?: boolean;
   /** Set on the /deploy page: status and domain calls resolve through the
    *  deploy link (token header) instead of the install link. */
   deployLink?: DeployLinkToken | null;
@@ -128,7 +135,8 @@ export function InstallProgress({
     );
   }
 
-  const headline = STAGE_HEADLINE[status.stage];
+  const beforeLaunch = awaitingLaunch && status.stage === 'WAITING_FOR_AWS';
+  const headline = beforeLaunch ? PRE_LAUNCH_HEADLINE : STAGE_HEADLINE[status.stage];
   // A relay outage never regresses the displayed stage (the server already
   // holds the last confirmed one); it only earns this quiet notice. Repeated
   // client-side fetch failures get the same treatment.
@@ -158,9 +166,11 @@ export function InstallProgress({
             <FailureDetails failure={status.failure} />
           ) : (
             <>
-              <DeploymentProgressSteps steps={activeStepDetail(status)} />
+              <DeploymentProgressSteps
+                steps={beforeLaunch ? stepsBeforeLaunch(status.steps) : activeStepDetail(status)}
+              />
 
-              {status.stage === 'WAITING_FOR_AWS' && quickCreateUrl ? (
+              {status.stage === 'WAITING_FOR_AWS' && !beforeLaunch && quickCreateUrl ? (
                 <Button asChild variant="outline" size="sm" className="self-start">
                   <a href={quickCreateUrl} target="_blank" rel="noopener noreferrer">
                     Open AWS setup

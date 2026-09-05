@@ -47,6 +47,8 @@ export const FIX_INSTRUCTIONS_TIMEOUT_MS = 25_000;
 
 /** The structured deterministic facts the generator may reference. */
 export interface FixInstructionsFacts {
+  /** Runtime family ('node', 'python', …) when detected. */
+  runtime: string | null;
   framework: string | null;
   packageManager: string | null;
   buildCommand: string | null;
@@ -99,6 +101,7 @@ function renderFacts(context: FixInstructionsContext): string[] {
   return [
     factLine('Repository', context.repoFullName),
     ...(context.commitSha ? [factLine('Analysed commit', context.commitSha)] : []),
+    factLine('Runtime', facts.runtime),
     factLine('Framework', facts.framework),
     factLine('Package manager', facts.packageManager),
     factLine('Build command', facts.buildCommand),
@@ -153,6 +156,7 @@ export function buildFixInstructionsAiPrompt(context: FixInstructionsContext): s
       `- id: ${finding.id}`,
       `  severity: ${finding.severity.toUpperCase()}`,
       `  title: ${finding.title}`,
+      `  why it matters: ${finding.whyItMatters}`,
       `  observed: ${finding.technicalEvidence}`,
       `  desired outcome: ${finding.suggestedOutcome}`,
       `  confidence: ${finding.confidence}`,
@@ -228,7 +232,9 @@ export function assembleFixInstructions(
     lines.push(
       `### ${index + 1}. ${finding.title} (${severityLabel(finding)})`,
       '',
-      `- Observed: ${finding.technicalEvidence}`,
+      `- Problem: ${finding.plainEnglishExplanation}`,
+      `- Why this matters: ${finding.whyItMatters}`,
+      `- Detected: ${finding.technicalEvidence}`,
       `- Desired deployment outcome: ${finding.suggestedOutcome}`,
       `- Confidence: ${CONFIDENCE_NOTE[finding.confidence]}`,
       ...(guidance ? ['', `Implementation guidance: ${guidance}`] : []),

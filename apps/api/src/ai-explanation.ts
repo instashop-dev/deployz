@@ -1,6 +1,7 @@
 import { and, eq, inArray, lt, or } from 'drizzle-orm';
 
 import {
+  type DiagnosticConfidence,
   DEFAULT_TIMEOUT_MS,
   explainDiagnostic,
   type AiGateway,
@@ -33,6 +34,8 @@ export interface ExplanationText {
   what: string;
   why: string;
   fix: string;
+  /** How sure the model was; null for deterministic copy. */
+  confidence: DiagnosticConfidence | null;
 }
 
 /** Collaborators for `resolveExplanation`. */
@@ -120,6 +123,7 @@ export async function resolveExplanation(
       what: explanation.what,
       why: explanation.why,
       fix: explanation.fix,
+      confidence: explanation.confidence,
     };
     await db
       .update(schema.deploymentJobs)
@@ -128,6 +132,7 @@ export async function resolveExplanation(
         aiExplanationWhat: text.what,
         aiExplanationWhy: text.why,
         aiExplanationFix: text.fix,
+        aiExplanationConfidence: text.confidence,
         aiExplanationGeneratedAt: new Date(),
       })
       .where(eq(schema.deploymentJobs.id, jobId));
@@ -162,6 +167,7 @@ async function readCached(
       what: schema.deploymentJobs.aiExplanationWhat,
       why: schema.deploymentJobs.aiExplanationWhy,
       fix: schema.deploymentJobs.aiExplanationFix,
+      confidence: schema.deploymentJobs.aiExplanationConfidence,
     })
     .from(schema.deploymentJobs)
     .where(eq(schema.deploymentJobs.id, jobId))
@@ -169,5 +175,8 @@ async function readCached(
 
   if (!row || row.state !== 'READY') return undefined;
   if (row.what === null || row.why === null || row.fix === null) return undefined;
-  return { what: row.what, why: row.why, fix: row.fix };
+  // A row cached before confidence existed reads as medium: the model's text
+  // is served, hedged, rather than dropped or presented as certain.
+  const confidence = row.confidence === 'high' || row.confidence === 'low' ? row.confidence : 'medium';
+  return { what: row.what, why: row.why, fix: row.fix, confidence };
 }

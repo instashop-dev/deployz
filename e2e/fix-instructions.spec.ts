@@ -65,6 +65,11 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   const content = page.getByTestId('fix-instructions-content');
   await expect(content).toContainText('Prepare this repository for deployment through Deployz');
   await expect(content).toContainText('Do not assume Deployz findings are correct');
+  await expect(page.getByTestId('fix-instructions-generated')).toContainText('Generated');
+
+  // Regenerate asks for a fresh document; the result still carries the guardrail.
+  await page.getByTestId('fix-instructions-regenerate').click();
+  await expect(content).toContainText('Do not assume Deployz findings are correct');
 
   // ── Copy instructions to the clipboard. ─────────────────────────────────────
   await page.getByTestId('fix-instructions-copy').click();

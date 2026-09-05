@@ -358,6 +358,7 @@ export default async function InstallPage({
         initialDomain={data.domain}
         routingTarget={data.routingTarget}
         preinstall
+        awaitingLaunch
       />
     </div>
   );

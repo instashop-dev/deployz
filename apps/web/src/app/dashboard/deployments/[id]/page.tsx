@@ -7,6 +7,7 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
+import { PreflightSummary } from '@/components/preflight-summary';
 import { ActivityFeed } from '@/components/activity-feed';
 import { DeploymentHero } from '@/components/deployment-hero';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
@@ -64,6 +65,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { fetchDeploymentPreflight, type PreflightResult } from '@/lib/preflight';
 import { errorMessage } from '@/lib/api-client';
 import { deriveHero, operationInFlight, type HeroModel } from '@/lib/deployment-hero';
 import {
@@ -108,6 +110,7 @@ import {
   fetchReleases,
   type Release,
 } from '@/lib/releases';
+import { formatReleaseVersion } from '@/lib/release-version';
 import { isTerminalStage } from '@/lib/deployment-progress';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
@@ -315,7 +318,7 @@ function DetailBody({
           {detail.version ? (
             <>
               {' · '}
-              <span className="tabular-nums">v{detail.version}</span>
+              <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span>
             </>
           ) : null}
         </p>
@@ -405,7 +408,7 @@ function DeploymentMetadata({ detail }: { detail: FleetDeploymentDetail }) {
         <MetaRow label="Region" value={REGION_LABELS[detail.region as Region] ?? detail.region} />
         <MetaRow
           label="Release"
-          value={detail.version ? <span className="tabular-nums">v{detail.version}</span> : 'Not deployed yet'}
+          value={detail.version ? <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span> : 'Not deployed yet'}
         />
         <MetaRow
           label="Created"
@@ -691,7 +694,7 @@ function DeploymentActions({
                   onSelect={() => setOpen('rollback')}
                   className="flex-col items-start gap-0"
                 >
-                  <span>Rollback{hasPreviousRelease && previousVersion ? ` to v${previousVersion}` : ''}</span>
+                  <span>Rollback{hasPreviousRelease && previousVersion ? ` to ${formatReleaseVersion(previousVersion)}` : ''}</span>
                   {!hasPreviousRelease ? (
                     <span className="text-xs text-muted-foreground">
                       {previousIsCurrent ? PREVIOUS_IS_CURRENT_COPY : NO_PREVIOUS_RELEASE_COPY}
@@ -844,11 +847,11 @@ function DeployUpdateDialog({
             <div className="flex flex-col gap-3 rounded-lg border px-3 py-2.5 text-sm">
               <div className="flex items-center justify-between gap-4">
                 <span className="text-muted-foreground">Current</span>
-                <span className="font-medium">{currentVersion ? `v${currentVersion}` : '—'}</span>
+                <span className="font-medium">{currentVersion ? formatReleaseVersion(currentVersion) : '—'}</span>
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-muted-foreground">New</span>
-                <span className="font-medium">{selected ? `v${selected.version}` : '—'}</span>
+                <span className="font-medium">{selected ? formatReleaseVersion(selected.version) : '—'}</span>
               </div>
             </div>
             <div className="flex flex-col gap-2">
@@ -860,7 +863,7 @@ function DeployUpdateDialog({
                 <SelectContent>
                   {candidates.map((release) => (
                     <SelectItem key={release.id} value={release.id}>
-                      v{release.version}
+                      {formatReleaseVersion(release.version)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -937,12 +940,12 @@ function RollbackDialog({
         <div className="flex flex-col gap-3 rounded-lg border px-3 py-2.5 text-sm">
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Current version</span>
-            <span className="font-medium">{currentVersion ? `v${currentVersion}` : '—'}</span>
+            <span className="font-medium">{currentVersion ? formatReleaseVersion(currentVersion) : '—'}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-muted-foreground">Rollback to</span>
             <span className="font-medium">
-              {previousVersion ? `v${previousVersion}` : 'the previous version'}
+              {previousVersion ? formatReleaseVersion(previousVersion) : 'the previous version'}
             </span>
           </div>
         </div>
@@ -1561,6 +1564,22 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
   const [copied, setCopied] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phase 5: the gate this deployment must pass before provisioning, against
+  // this customer's configuration as it is now.
+  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchDeploymentPreflight(detail.id)
+      .then((result) => {
+        if (!cancelled) setPreflight(result);
+      })
+      .catch(() => {
+        // Guidance only — the install link stays usable; the API enforces the gate.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail.id]);
   const url =
     typeof window === 'undefined'
       ? ''
@@ -1597,6 +1616,7 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
       <h2 id="install-link" className="text-base font-semibold">
         Install link
       </h2>
+      {preflight ? <PreflightSummary result={preflight} /> : null}
       <Card>
         <CardContent className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">

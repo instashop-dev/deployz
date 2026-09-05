@@ -11,9 +11,10 @@
  *
  * The application is deployz-demo/config-required-app, analysed through the
  * REAL analyser over the fixture tree (GITHUB_FIXTURE_MODE): it is a plain
- * Postgres SaaS app whose code reads STRIPE_SECRET_KEY with no fallback, so
+ * Postgres SaaS app whose code reads LICENSE_KEY with no fallback, so
  * deployment creation refuses MANIFEST_NEEDS_CONFIGURATION until the vendor
- * enters the value — the "enter a value" step is real, not staged. Deploys
+ * enters the value — the "enter a value" step is real, not staged. SESSION_SECRET
+ * is classified as Deployz-generated (Phase 4) and is never asked for. Deploys
  * carry the analysed migration command, so the relay's Phase 4 migration
  * stage runs for every DEPLOY_RELEASE (and never for a ROLLBACK) — asserted
  * through the simulated account's migration counter.
@@ -167,7 +168,8 @@ test.describe('lifecycle-sweep', () => {
     const customer = (await customerResponse.json()) as { id: string };
 
     // ── Configuration (enter a value): the deployment-creation gate refuses
-    // until the required STRIPE_SECRET_KEY has a provided value. ────────────────
+    // until the required LICENSE_KEY has a provided value. SESSION_SECRET is
+    // classified as Deployz-generated (Phase 4), so it is never asked for. ──
     const blocked = await request.post(`${API_URL}/api/deployments`, {
       data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
     });
@@ -179,7 +181,7 @@ test.describe('lifecycle-sweep', () => {
     expect(blockedBody.error.details?.findings?.some((f) => f.id === 'required-env-vars-missing')).toBe(true);
 
     const configWrite = await request.put(`${API_URL}/api/applications/${application.id}/config`, {
-      data: { customerId: null, entries: [{ key: 'STRIPE_SECRET_KEY', value: 'sweep-session-secret', isSecret: true }] },
+      data: { customerId: null, entries: [{ key: 'LICENSE_KEY', value: 'sweep-license-key', isSecret: true }] },
     });
     expect(configWrite.ok()).toBeTruthy();
 

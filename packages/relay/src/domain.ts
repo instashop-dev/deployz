@@ -18,6 +18,7 @@ import {
 } from '@aws-sdk/client-acm';
 import {
   AddListenerCertificatesCommand,
+  AddTagsCommand,
   CreateListenerCommand,
   DeleteListenerCommand,
   DescribeListenersCommand,
@@ -65,7 +66,18 @@ export interface ElbClient {
   findTaggedLoadBalancer(tagKey: string, tagValue: string): Promise<LoadBalancerInfo | undefined>;
   describeListeners(loadBalancerArn: string): Promise<ListenerInfo[]>;
   describeTargetGroups(loadBalancerArn: string): Promise<string[]>; // target group arns
-  createHttpsListener(p: { loadBalancerArn: string; certificateArn: string; targetGroupArn: string }): Promise<void>;
+  createHttpsListener(p: {
+    loadBalancerArn: string;
+    certificateArn: string;
+    targetGroupArn: string;
+    tagKey: string;
+    tagValue: string;
+  }): Promise<void>;
+  // Idempotent. The relay creates the 443 listener itself (unlike the 80
+  // listener, which CloudFormation creates and tags), so nothing else ever
+  // stamps the installation tag onto it — call this before modifying or
+  // deleting an existing 443 listener to heal one that predates this tag.
+  ensureListenerTag(listenerArn: string, tagKey: string, tagValue: string): Promise<void>;
   addListenerCertificate(listenerArn: string, certificateArn: string): Promise<void>; // idempotent
   removeListenerCertificate(listenerArn: string, certificateArn: string): Promise<void>; // swallow not-found
   deleteListener(listenerArn: string): Promise<void>;
@@ -99,9 +111,38 @@ interface DomainExecutorDeps {
   acm: AcmClient;
   elb: ElbClient;
   installationId: string;
+  /** Delay between `DeleteCertificate` retries. Defaults to a real timer. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const INSTALLATION_TAG_KEY = 'deployz:installation';
+
+// ACM keeps a certificate's listener association alive for a short time
+// after DeleteListener/RemoveListenerCertificates returns, so a
+// DeleteCertificate issued right after can still see it as in use
+// (observed live: deployment fb7c9a9d, ResourceInUseException). Six
+// attempts ten seconds apart comfortably fits the relay Lambda's five-
+// minute timeout (see RelayFunction in bootstrap-stack.ts) alongside the
+// rest of the command's work.
+const CERTIFICATE_DELETE_RETRY_ATTEMPTS = 6;
+const CERTIFICATE_DELETE_RETRY_DELAY_MS = 10_000;
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Does this AWS error mean ACM still has the certificate attached to a listener? */
+function isCertificateInUse(err: unknown): boolean {
+  const name = typeof (err as { name?: unknown } | undefined)?.name === 'string' ? (err as { name: string }).name : '';
+  const type =
+    typeof (err as { __type?: unknown } | undefined)?.__type === 'string' ? (err as { __type: string }).__type : '';
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return (
+    name.includes('ResourceInUseException') ||
+    type.includes('ResourceInUseException') ||
+    message.includes('ResourceInUseException')
+  );
+}
 
 async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps): Promise<RelayCommandResult> {
   const payload = readPayload(command);
@@ -133,11 +174,14 @@ async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps):
             loadBalancerArn: loadBalancer.arn,
             certificateArn,
             targetGroupArn,
+            tagKey: INSTALLATION_TAG_KEY,
+            tagValue: deps.installationId,
           });
           httpsConfigured = true;
         }
       } else {
         if (httpsListener.defaultCertificateArn !== certificateArn) {
+          await deps.elb.ensureListenerTag(httpsListener.arn, INSTALLATION_TAG_KEY, deps.installationId);
           await deps.elb.addListenerCertificate(httpsListener.arn, certificateArn);
         }
         httpsConfigured = true;
@@ -180,8 +224,14 @@ async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps):
 
 async function removeDomain(command: RelayCommand, deps: DomainExecutorDeps): Promise<RelayCommandResult> {
   const payload = readPayload(command);
+  const sleep = deps.sleep ?? defaultSleep;
 
   try {
+    // Whether this command detached the certificate from a listener —
+    // that association is what ACM is still releasing when
+    // DeleteCertificate reports it in use, so only then is retrying worth it.
+    let detachedFromListener = false;
+
     if (payload.certificateArn) {
       const loadBalancer = await deps.elb.findTaggedLoadBalancer(INSTALLATION_TAG_KEY, deps.installationId);
 
@@ -191,7 +241,9 @@ async function removeDomain(command: RelayCommand, deps: DomainExecutorDeps): Pr
 
         if (httpsListener) {
           if (httpsListener.defaultCertificateArn === payload.certificateArn) {
+            await deps.elb.ensureListenerTag(httpsListener.arn, INSTALLATION_TAG_KEY, deps.installationId);
             await deps.elb.deleteListener(httpsListener.arn);
+            detachedFromListener = true;
 
             const httpListener = listeners.find((listener) => listener.port === 80);
             if (httpListener?.redirectsToHttps) {
@@ -202,11 +254,30 @@ async function removeDomain(command: RelayCommand, deps: DomainExecutorDeps): Pr
             }
           } else {
             await deps.elb.removeListenerCertificate(httpsListener.arn, payload.certificateArn);
+            detachedFromListener = true;
           }
         }
       }
 
-      await deps.acm.deleteCertificate(payload.certificateArn);
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await deps.acm.deleteCertificate(payload.certificateArn);
+          break;
+        } catch (err) {
+          if (!detachedFromListener || !isCertificateInUse(err) || attempt >= CERTIFICATE_DELETE_RETRY_ATTEMPTS) {
+            throw err;
+          }
+          console.log(
+            JSON.stringify({
+              event: 'relay:certificate-still-in-use',
+              certificateArn: payload.certificateArn,
+              attempt,
+              maxAttempts: CERTIFICATE_DELETE_RETRY_ATTEMPTS,
+            }),
+          );
+          await sleep(CERTIFICATE_DELETE_RETRY_DELAY_MS);
+        }
+      }
     }
 
     return {
@@ -373,7 +444,7 @@ const realElbClient: ElbClient = {
       .filter((arn): arn is string => Boolean(arn));
   },
 
-  async createHttpsListener({ loadBalancerArn, certificateArn, targetGroupArn }) {
+  async createHttpsListener({ loadBalancerArn, certificateArn, targetGroupArn, tagKey, tagValue }) {
     await getElbSdkClient().send(
       new CreateListenerCommand({
         LoadBalancerArn: loadBalancerArn,
@@ -381,6 +452,16 @@ const realElbClient: ElbClient = {
         Port: 443,
         Certificates: [{ CertificateArn: certificateArn }],
         DefaultActions: [{ Type: 'forward', TargetGroupArn: targetGroupArn }],
+        Tags: [{ Key: tagKey, Value: tagValue }],
+      }),
+    );
+  },
+
+  async ensureListenerTag(listenerArn, tagKey, tagValue) {
+    await getElbSdkClient().send(
+      new AddTagsCommand({
+        ResourceArns: [listenerArn],
+        Tags: [{ Key: tagKey, Value: tagValue }],
       }),
     );
   },

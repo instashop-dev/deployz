@@ -1187,18 +1187,21 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       "import express from 'express';",
       "import crypto from 'node:crypto';",
       'const app = express();',
-      // A required read: no `??`/`||` fallback, no presence guard. The app
-      // cannot start without a signing secret, so the var is genuinely
-      // required (detectEnvVarModel's narrow rule).
-      'const signingKey = process.env.STRIPE_SECRET_KEY;',
+      // Two required reads: no `??`/`||` fallback, no presence guard. The app
+      // cannot start without them (detectEnvVarModel's narrow rule).
+      // SESSION_SECRET is an app-internal secret Deployz generates (Phase 4);
+      // LICENSE_KEY is the vendor's to provide — the deployment-creation gate
+      // refuses until it has a value.
+      'const signingKey = process.env.SESSION_SECRET;',
+      'const licenseKey = process.env.LICENSE_KEY;',
       'function sign(value: string): string {',
-      '  return crypto.createHmac("sha256", signingKey).update(value).digest("hex");',
+      '  return crypto.createHmac("sha256", signingKey).update(value + licenseKey).digest("hex");',
       '}',
       "app.get('/health', (_req, res) => res.json({ ok: true, tag: sign('health') }));",
       'app.listen(process.env.PORT || 3000);',
       '',
     ].join('\n'),
-    '.env.example': 'DATABASE_URL=\nSTRIPE_SECRET_KEY=\n',
+    '.env.example': 'DATABASE_URL=\nSESSION_SECRET=\nLICENSE_KEY=\n',
   },
   // The same otherwise-READY express-api shape with a mongoose dependency —
   // a MongoDB app whose ONLY blocker is the unsupported database. Used by

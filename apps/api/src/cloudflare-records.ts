@@ -169,6 +169,19 @@ function makeHostnameGuard(prefix: string, zoneName: string) {
 }
 
 /**
+ * ACM reports its DNS-01 record name as an absolute name with a trailing
+ * dot (`_<digest>.d-<id>.<zone>.`), and the relay forwards it verbatim.
+ * Cloudflare names records without the dot, and the namespace guard below
+ * compares against the dot-less hostname — production-verified: every
+ * default-HTTPS DNS write was refused as CLOUDFLARE_DNS_CONFLICT before
+ * reaching the transport, so no deployment ever left WAITING_FOR_DNS. One
+ * trailing dot is the only thing stripped.
+ */
+function stripTrailingDot(name: string): string {
+  return name.endsWith('.') ? name.slice(0, -1) : name;
+}
+
+/**
  * Refuses an ACM validation name unless it is exactly `<label>.<hostname>`
  * where `hostname` is the deployment's already-guarded mutable default
  * hostname. The ACM CNAME for a deployment is always one label beneath the
@@ -498,13 +511,15 @@ export function createCloudflareDnsClient(options: CloudflareDnsClientOptions): 
     deleteDefaultDeploymentRecord: async (deploymentId) => removeRecord(hostnameFor(deploymentId)),
     upsertDefaultValidationRecord: async (deploymentId, validationName, validationValue) => {
       const hostname = hostnameFor(deploymentId);
-      assertValidationRecordName(hostname, validationName);
-      return ensureRecord(validationName, validationValue, false, CLOUDFLARE_VALIDATION_RECORD_COMMENT);
+      const name = stripTrailingDot(validationName);
+      assertValidationRecordName(hostname, name);
+      return ensureRecord(name, validationValue, false, CLOUDFLARE_VALIDATION_RECORD_COMMENT);
     },
     deleteDefaultValidationRecord: async (deploymentId, validationName) => {
       const hostname = hostnameFor(deploymentId);
-      assertValidationRecordName(hostname, validationName);
-      return removeRecord(validationName);
+      const name = stripTrailingDot(validationName);
+      assertValidationRecordName(hostname, name);
+      return removeRecord(name);
     },
     listDefaultRecords: listDefaultRecordsImpl,
   };

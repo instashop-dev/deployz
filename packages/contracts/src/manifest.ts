@@ -31,6 +31,22 @@ export type ManifestEnvBinding = z.infer<typeof manifestEnvBindingSchema>;
  * default, a well-known service credential), and `source` names that evidence
  * so the vendor can see WHY a variable is flagged.
  */
+/**
+ * Who supplies the value (AI MVP Phase 4). `deployz_managed` — injected at
+ * install (database, cache, storage, port); `deployz_generated` — an
+ * app-internal secret Deployz mints inside the customer's account;
+ * `customer_required` — the vendor must supply it; `optional` — read with a
+ * default; `unknown` — declared in a sample file, never read.
+ */
+export const envVariableClassificationSchema = z.enum([
+  'deployz_managed',
+  'deployz_generated',
+  'customer_required',
+  'optional',
+  'unknown',
+]);
+export type EnvVariableClassification = z.infer<typeof envVariableClassificationSchema>;
+
 export const manifestEnvVariableSchema = z
   .object({
     key: z.string().min(1),
@@ -57,6 +73,8 @@ export const manifestEnvVariableSchema = z
      * generatable — old persisted data round-trips unchanged.
      */
     generatable: z.boolean().optional(),
+    /** Absent on rows analysed before classification existed. */
+    classification: envVariableClassificationSchema.optional(),
   })
   .strict();
 export type ManifestEnvVariable = z.infer<typeof manifestEnvVariableSchema>;

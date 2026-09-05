@@ -15,8 +15,9 @@ import {
   FIX_INSTRUCTIONS_TIMEOUT_MS,
   createAiGateway,
   generateFixInstructions,
-  normalizeErrorText,
+  readApplicationAnalysis,
   redactSecrets,
+  verdictFromReadiness,
   type AiGateway,
   type PassedCheck,
   type ReadinessFinding,
@@ -42,6 +43,7 @@ import {
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
   resolveBootstrapTemplate,
+  type ApplicationAnalysis,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
@@ -58,7 +60,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
-import { resolveExplanation } from './ai-explanation.js';
+import { resolveExplanation, type ExplanationText } from './ai-explanation.js';
 import { createFixtureAiGateway } from './ai-fixture.js';
 import {
   createAnalysisRunner,
@@ -68,7 +70,12 @@ import {
   type ReadyCheck,
   type UnsupportedCheck,
 } from './analysis.js';
-import { buildFixInstructionsContext, readReadinessReport } from './fix-instructions.js';
+import {
+  buildFixInstructionsContext,
+  effectiveReadinessReport,
+  fixInstructionsCacheKey,
+  readCachedFixInstructions,
+} from './fix-instructions.js';
 import {
   createCheckoutSession,
   createStripe,
@@ -109,9 +116,12 @@ import {
   type EcrPullGrantDeps,
 } from './ecr-pull-grants.js';
 import { refineFailureCode } from './failure-classification.js';
+import { buildFailureContext, toStructuredEvent } from './failure-context.js';
+import { buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
+import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
-import { readStoredManifest, requireReadyManifest } from './manifest.js';
+import { readStoredManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
   acceptInvitation,
@@ -304,6 +314,8 @@ const CONTRACT_FIELDS = [
  * recorded as claimed column fields. `redisRequired` IS column-backed and stays
  * in CONTRACT_FIELDS above.
  */
+const fixInstructionsBodySchema = z.object({ regenerate: z.boolean().optional() });
+
 const MANIFEST_OVERRIDE_FIELDS = [
   'appRoot',
   'dockerfilePath',
@@ -769,6 +781,8 @@ interface ReadinessResponse {
   passed: PassedCheck[];
   /** The commit the analysis ran against, when known. */
   analyzedCommitSha: string | null;
+  /** What the analysis detected, with source, confidence and evidence. Null until a Version 13+ analysis ran. */
+  detected: ApplicationAnalysis | null;
 }
 
 /** Legacy-row bridge: rebuild findings from the pre-report `checks` shape. */
@@ -824,6 +838,7 @@ function computeReadiness(app: {
   analysisStatus: string;
   compatibilityStatus: string | null;
   compatibilityReason: string | null;
+  containerPort: number | null;
   detectedMetadata: Record<string, unknown> | null;
 }): ReadinessResponse {
   if (app.analysisStatus !== 'COMPLETE') {
@@ -841,6 +856,7 @@ function computeReadiness(app: {
       findings: [],
       passed: [],
       analyzedCommitSha: null,
+      detected: null,
     };
   }
 
@@ -848,7 +864,7 @@ function computeReadiness(app: {
     typeof app.detectedMetadata?.['analysisCommitSha'] === 'string'
       ? (app.detectedMetadata['analysisCommitSha'] as string)
       : null;
-  const report = readReadinessReport(app.detectedMetadata);
+  const report = effectiveReadinessReport(app);
   const body = report
     ? {
         state: report.state as ReadinessState,
@@ -865,6 +881,7 @@ function computeReadiness(app: {
     ...body,
     failureReason: null,
     analyzedCommitSha,
+    detected: readApplicationAnalysis(app.detectedMetadata),
   };
 }
 
@@ -1937,9 +1954,10 @@ export async function buildServer({
       throw new NotFoundError('Installation not found');
     }
     const { deployment, applicationName } = rows[0]!;
-    // Phase 3 readiness gate: the install link is a second boundary where a
-    // non-READY manifest must be stopped before any AWS provisioning.
-    requireReadyManifest(deployment.desiredState);
+    // Phase 3/5 gate: the install link is a second boundary where a
+    // non-READY manifest — or a required value removed since creation — must
+    // be stopped before any AWS provisioning.
+    requirePreflightReady(await runDeploymentPreflight(db, deployment, null));
     if (deployment.state !== 'NOT_INSTALLED') {
       return reply.code(200).send({ state: deployment.state });
     }
@@ -2489,6 +2507,19 @@ export async function buildServer({
       }
       set.detectedMetadata = nextMetadata;
     }
+    // A port or start command the vendor sets (or clears) resolves (or
+    // restores) a readiness finding — keep the persisted verdict in step with
+    // the readiness page, which applies the same reconciliation on read.
+    if (existing.analysisStatus === 'COMPLETE' && (claimed.includes('containerPort') || manifestOnlyChanged)) {
+      const effective = effectiveReadinessReport({
+        containerPort: 'containerPort' in set ? (set.containerPort as number | null) : existing.containerPort,
+        detectedMetadata: nextMetadata,
+      });
+      if (effective) {
+        set.compatibilityStatus = verdictFromReadiness(effective.state);
+        set.compatibilityReason = effective.summary;
+      }
+    }
     set.updatedBy = request.user?.id ?? null;
     const [row] = await db
       .update(schema.applications)
@@ -2571,6 +2602,18 @@ export async function buildServer({
     return computeReadiness(app);
   });
 
+  // GET /api/applications/:id/preflight — the pre-deployment gate for this
+  // application, against the vendor defaults or one customer's configuration
+  // (Phase 5). Read-only; the same evaluation deployment creation enforces.
+  app.get('/api/applications/:id/preflight', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const application = await loadOwnedApplication(db, id, organizationId);
+    const { customerId } = request.query as { customerId?: string };
+    if (customerId) await loadOwnedCustomer(db, customerId, organizationId);
+    return (await runApplicationPreflight(db, application, customerId ?? null)).result;
+  });
+
   // POST /api/applications/:id/fix-instructions — Generate the consolidated
   // coding-agent prompt for the unresolved readiness findings. Read-only with
   // respect to the analysis: generation never changes findings, readiness
@@ -2600,13 +2643,32 @@ export async function buildServer({
         );
       }
 
+      // Same commit, same analysis version, same findings → the same
+      // document. Reuse it instead of paying for another generation; the
+      // vendor can still ask for a fresh one. A re-analysis replaces
+      // detected_metadata wholesale, which drops the cache on its own.
+      const key = fixInstructionsCacheKey(context, application.detectedMetadata?.['analysisVersion']);
+      const { regenerate } = fixInstructionsBodySchema.parse(request.body ?? {});
+      const cached = regenerate ? null : readCachedFixInstructions(application.detectedMetadata, key);
+      if (cached) {
+        return { instructions: cached.instructions, generatedAt: cached.generatedAt, cached: true };
+      }
+
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), FIX_INSTRUCTIONS_TIMEOUT_MS);
       try {
         const instructions = await generateFixInstructions(context, aiGateway, {
           abortSignal: controller.signal,
         });
-        return { instructions, generatedAt: new Date().toISOString() };
+        const generatedAt = new Date().toISOString();
+        const fresh = await loadOwnedApplication(db, id, organizationId);
+        await db
+          .update(schema.applications)
+          .set({
+            detectedMetadata: { ...fresh.detectedMetadata, fixInstructions: { key, instructions, generatedAt } },
+          })
+          .where(eq(schema.applications.id, id));
+        return { instructions, generatedAt, cached: false };
       } catch (error) {
         // Every AI failure (unconfigured gateway, timeout, malformed output,
         // spend limit) is the same retryable condition to the vendor.
@@ -2879,9 +2941,9 @@ export async function buildServer({
       const { publicId } = request.params as { publicId: string };
       const token = firstHeaderValue(request.headers['x-deployz-token']);
       const { deployment, application } = await resolveDeployLink(db, publicId, token);
-      // The same Phase 3 readiness gate the install page enforces: a
-      // non-READY manifest must be stopped before any AWS provisioning.
-      requireReadyManifest(deployment.desiredState);
+      // The same Phase 3/5 gate the install page enforces: a non-READY
+      // manifest must be stopped before any AWS provisioning.
+      requirePreflightReady(await runDeploymentPreflight(db, deployment, application));
       if (deployment.state !== 'NOT_INSTALLED') {
         // Idempotent: reopening the CloudFormation console is not a new attempt.
         return { state: deployment.state };
@@ -4486,6 +4548,16 @@ export async function buildServer({
     return { events };
   });
 
+  // GET /api/deployments/:id/preflight — the gate a not-yet-provisioned
+  // deployment must pass, against this customer's configuration (Phase 5).
+  app.get('/api/deployments/:id/preflight', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
+    return runDeploymentPreflight(db, deployment, application);
+  });
+
   // GET /api/deployments/:id/diagnostics — Diagnostics (§29)
   app.get('/api/deployments/:id/diagnostics', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
@@ -4532,11 +4604,36 @@ export async function buildServer({
         type: schema.deploymentJobs.type,
         failureCode: schema.deploymentJobs.failureCode,
         result: schema.deploymentJobs.result,
+        payload: schema.deploymentJobs.payload,
       })
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, id), eq(schema.deploymentJobs.state, 'FAILED')))
       .orderBy(desc(schema.deploymentJobs.finishedAt))
       .limit(1);
+    // Phase 6: the one bounded, sanitised failure representation — built
+    // from the failed job and the CloudFormation events persisted for it.
+    const failureContext = failedJob
+      ? buildFailureContext({
+          deploymentId: id,
+          job: { type: failedJob.type, failureCode: failedJob.failureCode, result: failedJob.result },
+          attempt: deployment.attemptNumber,
+          stackEvents: await db
+            .select({
+              logicalResourceId: schema.deploymentStackEvents.logicalResourceId,
+              resourceType: schema.deploymentStackEvents.resourceType,
+              resourceStatus: schema.deploymentStackEvents.resourceStatus,
+              resourceStatusReason: schema.deploymentStackEvents.resourceStatusReason,
+            })
+            .from(schema.deploymentStackEvents)
+            .where(and(eq(schema.deploymentStackEvents.deploymentId, id), eq(schema.deploymentStackEvents.jobId, failedJob.id)))
+            .orderBy(schema.deploymentStackEvents.eventAt),
+          // A deploy/rollback payload names the version it targeted.
+          applicationVersion:
+            typeof (failedJob.payload as { version?: unknown } | null)?.version === 'string'
+              ? ((failedJob.payload as { version: string }).version)
+              : null,
+        })
+      : null;
     // §29/§61: the remediation is looked up from the code the relay actually
     // reported. These three fields used to be string literals, identical for
     // every failure, and the fix line told the vendor to read an event log
@@ -4551,24 +4648,13 @@ export async function buildServer({
     // §65 copy map is the whole answer and AI is never consulted. Only
     // UNKNOWN, where the deterministic classifier had nothing to go on, is
     // worth spending a model call on.
-    let explanation = remediation;
-    if (failedJob && failureCode === 'UNKNOWN') {
+    let explanation: ExplanationText = { ...remediation, confidence: null };
+    if (failedJob && failureContext && failureCode === 'UNKNOWN') {
       // §16: the AI explanation is built from the deterministic code plus
-      // STRUCTURED fields only. There is no raw-log field here except this
-      // one — `error.message` is the single free-text slot the boundary
-      // permits, and it carries only the normalized, redacted, truncated
-      // form of the job's error (never the raw text shown to the vendor
-      // below).
-      const errorMessage =
-        typeof jobResult?.error === 'string' && jobResult.error.length > 0
-          ? normalizeErrorText(jobResult.error, { maxLength: 500 })
-          : undefined;
-      const event: StructuredEvent = {
-        source: 'deployment',
-        ...(failedJob.type ? { action: failedJob.type } : {}),
-        ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
-        context: { deploymentState: deployment.state },
-      };
+      // the sanitised failure context only — the relay's error redacted and
+      // truncated, the first failed resources, the attempt and the version.
+      // Never raw text, never application logs.
+      const event: StructuredEvent = toStructuredEvent(failureContext, deployment.state);
 
       // Generated once per attempt and cached; `remediation` is the fallback
       // for every path where AI is unavailable, so the copy map stays the
@@ -4577,7 +4663,7 @@ export async function buildServer({
       explanation = await resolveExplanation(
         { db, gateway: aiGateway },
         { jobId: failedJob.id, failureCode, event },
-        remediation,
+        { ...remediation, confidence: null },
       );
     }
 
@@ -4589,7 +4675,17 @@ export async function buildServer({
       what: explanation.what,
       why: explanation.why,
       fix: explanation.fix,
-      technicalDetail: jobResult?.error ?? null,
+      // Phase 7: deterministic copy is authoritative and carries no
+      // confidence; AI text names how sure the model was so the card can
+      // hedge a medium or low reading instead of presenting it as a verdict.
+      source: explanation.confidence === null ? 'deterministic' : 'ai',
+      confidence: explanation.confidence,
+      // Verbatim in length and wording, but never a secret: the same
+      // redaction the context applies, without its truncation.
+      technicalDetail: typeof jobResult?.error === 'string' ? redactSecrets(jobResult.error) : null,
+      // Phase 6: the normalised context — phase, codes, blamed resource, the
+      // failed events — for the card's technical layer.
+      context: failureContext,
       events,
     };
   });
@@ -5086,10 +5182,10 @@ export async function buildServer({
     // called home, and this is the first point where we know the relay is
     // alive. WAITING_FOR_RELAY is the same first-install case with the
     // launch signal already recorded.
-    // Phase 3 readiness gate: the relay registering is the final boundary
-    // before an INSTALL job is minted. Re-evaluate the stored manifest in case
-    // application overrides changed after the deployment was created.
-    requireReadyManifest(deployment.desiredState);
+    // Phase 3/5 gate: the relay registering is the final boundary before an
+    // INSTALL job is minted. Re-evaluate the stored manifest against the
+    // customer's configuration as it is now.
+    requirePreflightReady(await runDeploymentPreflight(db, deployment, null));
 
     const firstInstall =
       deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY';
@@ -5497,6 +5593,13 @@ export async function buildServer({
         await autoDeploySelectedRelease(deployment);
       } catch (error) {
         request.log.warn({ err: error }, 'auto-deploy after install failed');
+      }
+      // Phase 4: the first configuration pass — vendor/customer values saved
+      // before the install, and the app-internal secrets Deployz generates.
+      try {
+        await queuePostInstallConfig(db, deployment, job.id, configStore);
+      } catch (error) {
+        request.log.warn({ err: error }, 'post-install configuration queue failed');
       }
     }
     // Phase 11: a successful INSTALL means the ALB exists — start (or nudge)
@@ -5953,19 +6056,9 @@ export async function buildServer({
       oldRelayToken(request),
     );
 
-    const view = await getConfig(
-      deployment.applicationId,
-      deployment.customerId,
-      configStore,
-    );
-    return {
-      entries: view.effective.map((entry) => ({
-        key: entry.key,
-        isSecret: entry.isSecret,
-        ...(entry.isSecret ? {} : { value: entry.value }),
-        source: entry.source,
-      })),
-    };
+    // Phase 4: generated keys ride along as `generated: true` entries (no
+    // value — the relay mints them inside the customer's account).
+    return { entries: await buildRelayConfigEntries(db, deployment, configStore) };
   });
 
   return app;

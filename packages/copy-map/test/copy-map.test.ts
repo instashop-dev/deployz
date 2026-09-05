@@ -20,6 +20,7 @@ import {
   RECOVERABILITY_COPY,
   SECRET_MASK,
   customerStackStatusLabel,
+  releaseBuildFailureSummary,
   deploymentStateLabel,
   eventFamily,
   eventResultLabel,
@@ -469,5 +470,25 @@ describe('recoverability and customer stack status label', () => {
     }
     expect(customerStackStatusLabel('ROLLBACK_COMPLETE')).toBe('Setup was rolled back');
     expect(customerStackStatusLabel('DELETE_FAILED')).toBe('Removal was blocked');
+  });
+});
+
+describe('releaseBuildFailureSummary (Phase 8)', () => {
+  it('maps the worker failure reason onto plain words and never names the build service', () => {
+    const cases: [string | null, string][] = [
+      ['CodeBuild reported FAILED — POST_BUILD: COMMAND_EXECUTION_ERROR: docker push denied', 'The version was built but could not be stored in the image registry.'],
+      ['CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build', 'The version could not be built from the repository.'],
+      ['CodeBuild reported TIMED_OUT', 'The version build ran out of time.'],
+      ['CodeBuild reported FAILED — DOWNLOAD_SOURCE: CLIENT_ERROR', 'The build could not fetch the repository.'],
+      ['CodeBuild reported FAILED — PROVISIONING: fault', 'The build could not start.'],
+      ['CodeBuild reported FAILED', 'The version build failed.'],
+      [null, 'The version build failed.'],
+    ];
+    for (const [reason, expected] of cases) {
+      const summary = releaseBuildFailureSummary(reason);
+      expect(summary).toBe(expected);
+      expect(summary).not.toMatch(JARGON_PATTERN);
+      expect(summary).not.toMatch(/CodeBuild/i);
+    }
   });
 });

@@ -2,21 +2,16 @@ import { JSDOM } from 'jsdom';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import {
-  ReadinessResult,
-  automaticHighlights,
-  findingFixSections,
-} from '../src/components/readiness-result';
-import type { ApplicationReadiness, ReadinessFinding } from '../src/lib/readiness';
+import { ReadinessResult, findingFixSections } from '../src/components/readiness-result';
+import type { ApplicationReadiness, DetectedApplication, ReadinessFinding } from '../src/lib/readiness';
 
 /**
- * Component/DOM tests for the deployment readiness cards (§19).
+ * Component/DOM tests for the deployment readiness checklist (§19).
  *
- * The result is rendered with react-dom/server and parsed with jsdom so we
- * can assert on visible text and DOM order without a full browser. The cards
- * must answer, at a glance: can I deploy, what did Deployz already find for
- * me, what configuration does the vendor still need to provide, which
- * findings need code changes, and can Deployz draft a fix prompt.
+ * The card is rendered with react-dom/server and parsed with jsdom so we can
+ * assert on visible text and DOM order without a full browser. The checklist
+ * must answer, at a glance: can I deploy, how many checks block me, what
+ * needs changing, what already passed, and can Deployz help me fix it.
  */
 
 let findingSeq = 0;
@@ -52,6 +47,7 @@ function readiness(overrides: Partial<ApplicationReadiness> = {}): ApplicationRe
     findings: [],
     passed: [],
     analyzedCommitSha: '150f9e3abc',
+    detected: null,
     ...overrides,
   };
 }
@@ -73,14 +69,10 @@ function blockingPair(): ReadinessFinding[] {
   ];
 }
 
-function render(
-  input: ApplicationReadiness,
-  application?: { databaseRequired: boolean; redisRequired: boolean },
-): Document {
+function render(input: ApplicationReadiness): Document {
   const html = renderToString(
     <ReadinessResult
       readiness={input}
-      application={application}
       applicationId="app-1"
       onReanalyse={() => undefined}
     />,
@@ -96,28 +88,7 @@ function orderOf(doc: Document, testid: string): number {
   return [...doc.querySelectorAll('*')].indexOf(element);
 }
 
-describe('automaticHighlights — derived positives', () => {
-  it('claims a provisioned PostgreSQL connection when a database is required', () => {
-    expect(automaticHighlights({ databaseRequired: true, redisRequired: false })).toContain(
-      'PostgreSQL connection provisioned',
-    );
-  });
-
-  it('says Redis is not required when it is not, and stays silent about a worker', () => {
-    expect(automaticHighlights({ databaseRequired: false, redisRequired: false })).toContain(
-      'Redis not required',
-    );
-    expect(automaticHighlights({ databaseRequired: false, redisRequired: false })).toHaveLength(1);
-    expect(automaticHighlights({ databaseRequired: false, redisRequired: true })).toHaveLength(0);
-  });
-
-  it('omits highlights when no application is supplied', () => {
-    expect(automaticHighlights(undefined)).toEqual([]);
-  });
-});
-
 describe('ReadinessResult — blocking state', () => {
-  const application = { databaseRequired: false, redisRequired: false };
   const doc = render(
     readiness({
       state: 'NEEDS_CHANGES',
@@ -130,7 +101,6 @@ describe('ReadinessResult — blocking state', () => {
         passed('public-service', 'Public web service'),
       ],
     }),
-    application,
   );
 
   it('says how many changes are needed before deployment', () => {
@@ -148,133 +118,51 @@ describe('ReadinessResult — blocking state', () => {
     expect(doc.body.textContent).not.toMatch(/almost ready/i);
   });
 
-  it('renders the automatic positives in the What Deployz found card', () => {
-    const card = doc.querySelector('[data-testid="readiness-found"]');
-    expect(card?.textContent).toContain('What Deployz found');
-    const list = card?.querySelector('[data-testid="readiness-found-list"]');
-    expect(list?.textContent).toContain('Application detected');
-    expect(list?.textContent).toContain('Database detected');
-    expect(list?.textContent).toContain('Passed');
-    expect(list?.textContent).toContain('Redis not required');
-    expect(card?.querySelector('svg.lucide-circle')).toBeNull();
-    expect(card?.querySelector('svg.lucide-check')).not.toBeNull();
-  });
-
-  it('keeps blocking incompatibilities in their own card, not as config rows', () => {
-    const incompatible = doc.querySelector('[data-testid="readiness-incompatible"]');
-    expect(incompatible?.textContent).toContain('Changes needed');
-    const finding = doc.querySelector('[data-testid="readiness-finding-container-setup"]');
-    expect(finding?.textContent).toContain('Action needed');
-    expect(finding?.textContent).toContain('No supported container setup was found.');
-    expect(doc.querySelector('[data-testid^="readiness-config-link-"]')).toBeNull();
-  });
-
-  it('orders the verdict, found, incompatible cards then the fix CTA, with the commit last', () => {
-    expect(orderOf(doc, 'readiness-verdict')).toBeGreaterThan(-1);
-    expect(orderOf(doc, 'readiness-found')).toBeLessThan(orderOf(doc, 'readiness-incompatible'));
-    expect(orderOf(doc, 'readiness-incompatible')).toBeLessThan(
-      orderOf(doc, 'generate-fix-instructions'),
-    );
-    expect(orderOf(doc, 'readiness-commit')).toBeGreaterThan(
-      orderOf(doc, 'generate-fix-instructions'),
+  it('shows blockers before passed checks in DOM order', () => {
+    expect(orderOf(doc, 'readiness-required-list')).toBeGreaterThan(-1);
+    expect(orderOf(doc, 'readiness-required-list')).toBeLessThan(
+      orderOf(doc, 'readiness-passed-list'),
     );
   });
 
-  it('renders the fix CTA as a secondary action below the cards', () => {
-    const cta = doc.querySelector('[data-testid="generate-fix-instructions"]');
-    expect(cta).not.toBeNull();
-    expect(cta?.getAttribute('data-variant')).toBe('secondary');
+  it('places the fix CTA below the blockers and above the passed checks', () => {
+    const cta = orderOf(doc, 'generate-fix-instructions');
+    expect(cta).toBeGreaterThan(orderOf(doc, 'readiness-required-list'));
+    expect(cta).toBeLessThan(orderOf(doc, 'readiness-passed-list'));
+  });
+
+  it('supports the CTA with the issue count and the no-repo-writes promise', () => {
     expect(doc.body.textContent).toContain(
       'Creates one prompt to fix these 2 issues with your coding agent.',
     );
     expect(doc.body.textContent).toContain('Deployz never changes your repository.');
   });
 
+  it('annotates the progress indicator accessibly, never as a percentage', () => {
+    const bar = doc.querySelector('[role="progressbar"]');
+    expect(bar?.getAttribute('aria-valuenow')).toBe('4');
+    expect(bar?.getAttribute('aria-valuemax')).toBe('6');
+    expect(bar?.getAttribute('aria-label')).toBe('4 of 6 checks passed');
+    expect(doc.body.textContent).not.toMatch(/%/);
+  });
+
+  it('gives every finding an icon-accompanied status text', () => {
+    for (const id of ['container-setup', 'health-check']) {
+      const item = doc.querySelector(`[data-testid="readiness-finding-${id}"]`);
+      expect(item?.textContent).toContain('Action needed');
+    }
+    expect(doc.body.textContent).not.toContain('✓');
+  });
+
   it('shows the analysed commit last, short form', () => {
     expect(doc.querySelector('[data-testid="readiness-commit"]')?.textContent).toBe(
       'Analysed commit 150f9e3',
     );
+    expect(orderOf(doc, 'readiness-commit')).toBeGreaterThan(orderOf(doc, 'readiness-passed-list'));
   });
 });
 
-describe('ReadinessResult — needs input', () => {
-  const application = { databaseRequired: true, redisRequired: true };
-  const doc = render(
-    readiness({
-      state: 'ALMOST_READY',
-      requiredCount: 1,
-      recommendedCount: 1,
-      findings: [
-        finding({
-          id: 'health-check',
-          blocking: false,
-          title: 'Give Deployz a way to check your app',
-          plainEnglishExplanation: 'Deployz needs a reliable way to confirm your app started.',
-        }),
-        finding({
-          id: 'migrations',
-          severity: 'recommended',
-          blocking: false,
-          title: 'Run database migrations on deploy',
-          plainEnglishExplanation: 'A migration command would keep every database in sync.',
-        }),
-      ],
-      passed: [passed('a', 'A'), passed('b', 'B')],
-    }),
-    application,
-  );
-
-  it('blocks on the one remaining required change', () => {
-    expect(doc.body.textContent).toContain('1 change needed before deployment');
-  });
-
-  it('renders the What Deployz found card with the derived positives and checks', () => {
-    const card = doc.querySelector('[data-testid="readiness-found"]');
-    expect(card?.querySelector('[data-testid="readiness-found-list"]')?.textContent).toContain(
-      'PostgreSQL connection provisioned',
-    );
-    expect(card?.textContent).not.toContain('Redis not required');
-    const check = card?.querySelector('[data-testid="readiness-found-list"] svg.lucide-check');
-    expect(check?.classList.contains('text-emerald-600')).toBe(true);
-  });
-
-  it('lists the required finding in the Needs your input card with a config link', () => {
-    const card = doc.querySelector('[data-testid="needs-input"]');
-    expect(card?.textContent).toContain('Needs your input');
-    const row = card?.querySelector('[data-testid="readiness-finding-health-check"]');
-    expect(row?.textContent).toContain('Give Deployz a way to check your app');
-    expect(row?.textContent).toContain('Deployz needs a reliable way to confirm your app started.');
-    const dot = row?.querySelector('svg.lucide-circle');
-    expect(dot?.classList.contains('text-amber-500')).toBe(true);
-    const link = row?.querySelector('[data-testid="readiness-config-link-health-check"]');
-    expect(link?.getAttribute('href')).toBe('/dashboard/applications/app-1/config');
-    expect(link?.textContent).toBe('Review configuration');
-  });
-
-  it('nests the recommended findings inside the Needs your input card', () => {
-    const card = doc.querySelector('[data-testid="needs-input"]');
-    const recommended = card?.querySelector('[data-testid="readiness-recommended-list"]');
-    expect(recommended).not.toBeNull();
-    expect(recommended?.textContent).toContain('Run database migrations on deploy');
-  });
-
-  it('summarises the card with the required-value count', () => {
-    expect(doc.querySelector('[data-testid="needs-input-summary"]')?.textContent).toBe(
-      'Ready after 1 required value is provided.',
-    );
-  });
-
-  it('keeps the fix CTA available but secondary for code adaptation', () => {
-    const cta = doc.querySelector('[data-testid="generate-fix-instructions"]');
-    expect(cta).not.toBeNull();
-    expect(cta?.getAttribute('data-variant')).toBe('secondary');
-    expect(doc.body.textContent).toContain(
-      'Creates one prompt to fix this 1 issue with your coding agent.',
-    );
-  });
-});
-
-describe('ReadinessResult — all required checks pass', () => {
+describe('ReadinessResult — all checks pass', () => {
   const doc = render(
     readiness({
       state: 'READY',
@@ -289,7 +177,6 @@ describe('ReadinessResult — all required checks pass', () => {
         passed('health', 'Health check'),
       ],
     }),
-    { databaseRequired: false, redisRequired: false },
   );
 
   it('says the app is ready to deploy', () => {
@@ -303,45 +190,65 @@ describe('ReadinessResult — all required checks pass', () => {
     expect(doc.body.textContent).toContain('6 of 6 checks passed');
   });
 
-  it('shows the compact Ready to deploy card instead of the found/needs-input cards', () => {
-    expect(doc.querySelector('[data-testid="readiness-ready"]')).not.toBeNull();
-    const ready = doc.querySelector('[data-testid="readiness-ready"]');
-    expect(ready?.querySelector('svg.lucide-check')).not.toBeNull();
-    expect(doc.querySelector('[data-testid="readiness-found"]')).toBeNull();
-    expect(doc.querySelector('[data-testid="needs-input"]')).toBeNull();
-  });
-
   it('offers no fix CTA when nothing needs changing', () => {
     expect(doc.querySelector('[data-testid="generate-fix-instructions"]')).toBeNull();
   });
+
+  it('labels each passed check in a compact list', () => {
+    expect(doc.body.textContent).toContain('Application detected');
+    const rows = doc.querySelectorAll('[data-testid="readiness-passed-list"] > li');
+    expect(rows).toHaveLength(6);
+    expect(rows[0]?.textContent).toContain('Passed');
+  });
 });
 
-describe('ReadinessResult — READY with recommended findings', () => {
+describe('ReadinessResult — recommended findings', () => {
   const doc = render(
     readiness({
-      state: 'READY',
-      requiredCount: 0,
+      state: 'ALMOST_READY',
+      requiredCount: 1,
       recommendedCount: 1,
       findings: [
+        finding({ id: 'health-check', title: 'Give Deployz a way to check your app' }),
         finding({
-          id: 'worker-command',
+          id: 'migrations',
           severity: 'recommended',
           blocking: false,
-          title: 'Background job runner',
+          title: 'Run database migrations on deploy',
         }),
       ],
-      passed: [passed('a', 'A')],
+      passed: [passed('a', 'A'), passed('b', 'B'), passed('c', 'C'), passed('d', 'D'), passed('e', 'E')],
     }),
-    { databaseRequired: false, redisRequired: true },
   );
 
-  it('still reads as ready, with the recommendation nested in the ready card', () => {
-    expect(doc.body.textContent).toContain('Ready to deploy');
-    const ready = doc.querySelector('[data-testid="readiness-ready"]');
-    expect(ready?.textContent).toContain('Recommended');
-    const recommended = ready?.querySelector('[data-testid="readiness-recommended-list"]');
-    expect(recommended?.textContent).toContain('Background job runner');
-    expect(doc.querySelector('[data-testid="generate-fix-instructions"]')).toBeNull();
+  it('blocks on the one remaining required change', () => {
+    expect(doc.body.textContent).toContain('1 change needed before deployment');
+    expect(doc.body.textContent).toContain(
+      'Your application passed 5 of 7 deployment checks. Fix the item below before deploying.',
+    );
+  });
+
+  it('distinguishes recommended from action-needed without blocking language', () => {
+    expect(doc.querySelector('[data-testid="readiness-finding-migrations"]')?.textContent).toContain(
+      'Recommended',
+    );
+    expect(doc.querySelector('[data-testid="readiness-finding-health-check"]')?.textContent).toContain(
+      'Action needed',
+    );
+  });
+
+  it('uses the singular CTA support copy for one issue', () => {
+    expect(doc.body.textContent).toContain(
+      'Creates one prompt to fix this 1 issue with your coding agent.',
+    );
+  });
+
+  it('orders action-needed before recommended before passed', () => {
+    const required = orderOf(doc, 'readiness-required-list');
+    const recommended = orderOf(doc, 'readiness-recommended-list');
+    const passedList = orderOf(doc, 'readiness-passed-list');
+    expect(required).toBeLessThan(recommended);
+    expect(recommended).toBeLessThan(passedList);
   });
 });
 
@@ -398,28 +305,76 @@ describe('ReadinessResult — finding fix sections', () => {
   });
 });
 
-describe('ReadinessResult — long automatic list collapses', () => {
+describe('ReadinessResult — long passed list collapses', () => {
   const doc = render(
     readiness({
-      state: 'ALMOST_READY',
-      requiredCount: 1,
-      findings: [
-        finding({
-          id: 'health-check',
-          blocking: false,
-          title: 'Give Deployz a way to check your app',
-        }),
-      ],
+      state: 'READY',
+      findings: [],
       passed: Array.from({ length: 7 }, (_, index) => passed(`check-${index}`, `Check ${index + 1}`)),
     }),
-    { databaseRequired: false, redisRequired: false },
   );
 
   it('keeps the count visible and the list collapsed behind it', () => {
-    const card = doc.querySelector('[data-testid="readiness-found"]');
-    const details = card?.querySelector('details[data-testid="readiness-found-collapse"]');
-    expect(details?.querySelector('summary')?.textContent).toContain('What Deployz found (8)');
-    const list = card?.querySelector('[data-testid="readiness-found-list"]');
+    const details = doc.querySelector('details[data-testid="readiness-passed"]');
+    expect(details?.querySelector('summary')?.textContent).toContain('Passed checks (7)');
+    const list = details?.querySelector('[data-testid="readiness-passed-list"]');
     expect(list).not.toBeNull();
+  });
+});
+
+
+describe('ReadinessResult — what Deployz detected', () => {
+  const detected: DetectedApplication = {
+    analysisVersion: 13,
+    runtime: { value: 'node', source: 'dockerfile', confidence: 'confirmed', evidence: [{ file: 'Dockerfile', reason: 'Base image node:20-alpine in Dockerfile' }] },
+    framework: { value: 'express', source: 'package-manifest', confidence: 'confirmed', evidence: [{ reason: 'Framework detected: express' }] },
+    build: { value: null, source: 'none', confidence: 'needs_confirmation', evidence: [] },
+    start: { value: 'node dist/index.js', source: 'dockerfile', confidence: 'confirmed', evidence: [{ reason: 'CMD' }] },
+    network: {
+      port: { value: 3000, source: 'dockerfile', confidence: 'confirmed', evidence: [{ reason: 'Port 3000 detected in Dockerfile (EXPOSE)' }] },
+      bindAddress: { value: null, source: 'none', confidence: 'needs_confirmation', evidence: [] },
+    },
+    database: { required: true, type: 'postgres', confidence: 'confirmed', evidence: [{ reason: 'pg' }] },
+    redis: { required: false, detected: false, supported: true, confidence: 'needs_confirmation', purposes: [], evidence: [] },
+    storage: { persistentLocalRequired: false, objectStorageDetected: false, evidence: [] },
+    healthCheck: { detected: true, path: '/health', confidence: 'confirmed', evidence: [{ reason: 'route' }] },
+    migrations: { detected: false, command: null, tools: [], evidence: [] },
+    environmentVariables: [],
+  };
+
+  const doc = render(
+    readiness({
+      state: 'READY',
+      requiredCount: 0,
+      passed: [passed('dockerfile', 'Container setup found')],
+      detected,
+    }),
+  );
+
+  it('renders the detected facts after the checks with the values in plain words', () => {
+    const section = doc.querySelector('[data-testid="readiness-detected"]');
+    expect(section).not.toBeNull();
+    expect(section?.textContent).toContain('What Deployz detected');
+    expect(orderOf(doc, 'readiness-detected')).toBeGreaterThan(orderOf(doc, 'readiness-passed-list'));
+    expect(orderOf(doc, 'readiness-detected')).toBeLessThan(orderOf(doc, 'readiness-commit'));
+    expect(doc.querySelector('[data-testid="readiness-detected-runtime"]')?.textContent).toContain('Node.js');
+    expect(doc.querySelector('[data-testid="readiness-detected-port"]')?.textContent).toContain('3000');
+    expect(doc.querySelector('[data-testid="readiness-detected-database"]')?.textContent).toContain(
+      'PostgreSQL — Deployz provides a managed database',
+    );
+    expect(doc.querySelector('[data-testid="readiness-detected-build"]')?.textContent).toContain('Not found');
+  });
+
+  it('keeps the evidence behind a disclosure and the top level jargon-free', () => {
+    const runtime = doc.querySelector('[data-testid="readiness-detected-runtime"]');
+    expect(runtime?.querySelector('details summary')?.textContent).toContain('Evidence');
+    expect(runtime?.querySelector('details')?.textContent).toContain('Base image node:20-alpine');
+    expect(doc.body.textContent).not.toMatch(/\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/i);
+    expect(doc.querySelector('[data-testid="readiness-detected-build"] details')).toBeNull();
+  });
+
+  it('is omitted when the analysis predates the projection', () => {
+    const legacy = render(readiness({ state: 'READY', requiredCount: 0, detected: null }));
+    expect(legacy.querySelector('[data-testid="readiness-detected"]')).toBeNull();
   });
 });

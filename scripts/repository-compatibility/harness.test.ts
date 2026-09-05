@@ -353,7 +353,11 @@ describe('production analysis path over a snapshot', () => {
       storage: false,
       worker: false,
       migration: true,
-      migrationCommand: 'prisma migrate deploy',
+      // Bare `prisma migrate deploy` -> npx-prefixed (not runnable where the
+      // relay executes it otherwise); no --schema flag, since this fixture's
+      // single-WORKDIR Dockerfile puts the runtime cwd at the image root,
+      // where `prisma/schema.prisma` is already Prisma's default lookup path.
+      migrationCommand: 'npx prisma migrate deploy',
       unsupported: [],
       gateFindings: [],
     });

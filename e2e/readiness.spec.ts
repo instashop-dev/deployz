@@ -70,6 +70,15 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
     'Your application passed all required deployment checks.',
   );
   await expect(page.getByText('Checking deployment readiness…')).toHaveCount(0);
+
+  // What Deployz detected — the facts the deployment is built from, in plain
+  // words, with the evidence behind a disclosure.
+  const detected = page.getByTestId('readiness-detected');
+  await expect(detected).toBeVisible();
+  await expect(detected.getByTestId('readiness-detected-runtime')).toContainText('Node.js');
+  await expect(detected.getByTestId('readiness-detected-port')).toContainText('3000');
+  await expect(detected.getByTestId('readiness-detected-health')).toContainText('/health');
+  await expect(detected.getByTestId('readiness-detected-database')).toContainText('PostgreSQL');
 });
 
 test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => {
