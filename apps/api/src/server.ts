@@ -118,9 +118,10 @@ import {
 } from './ecr-pull-grants.js';
 import { refineFailureCode } from './failure-classification.js';
 import { buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
+import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
-import { readStoredManifest, requireReadyManifest } from './manifest.js';
+import { readStoredManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
   acceptInvitation,
@@ -1953,9 +1954,10 @@ export async function buildServer({
       throw new NotFoundError('Installation not found');
     }
     const { deployment, applicationName } = rows[0]!;
-    // Phase 3 readiness gate: the install link is a second boundary where a
-    // non-READY manifest must be stopped before any AWS provisioning.
-    requireReadyManifest(deployment.desiredState);
+    // Phase 3/5 gate: the install link is a second boundary where a
+    // non-READY manifest — or a required value removed since creation — must
+    // be stopped before any AWS provisioning.
+    requirePreflightReady(await runDeploymentPreflight(db, deployment, null));
     if (deployment.state !== 'NOT_INSTALLED') {
       return reply.code(200).send({ state: deployment.state });
     }
@@ -2600,6 +2602,18 @@ export async function buildServer({
     return computeReadiness(app);
   });
 
+  // GET /api/applications/:id/preflight — the pre-deployment gate for this
+  // application, against the vendor defaults or one customer's configuration
+  // (Phase 5). Read-only; the same evaluation deployment creation enforces.
+  app.get('/api/applications/:id/preflight', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const application = await loadOwnedApplication(db, id, organizationId);
+    const { customerId } = request.query as { customerId?: string };
+    if (customerId) await loadOwnedCustomer(db, customerId, organizationId);
+    return (await runApplicationPreflight(db, application, customerId ?? null)).result;
+  });
+
   // POST /api/applications/:id/fix-instructions — Generate the consolidated
   // coding-agent prompt for the unresolved readiness findings. Read-only with
   // respect to the analysis: generation never changes findings, readiness
@@ -2927,9 +2941,9 @@ export async function buildServer({
       const { publicId } = request.params as { publicId: string };
       const token = firstHeaderValue(request.headers['x-deployz-token']);
       const { deployment, application } = await resolveDeployLink(db, publicId, token);
-      // The same Phase 3 readiness gate the install page enforces: a
-      // non-READY manifest must be stopped before any AWS provisioning.
-      requireReadyManifest(deployment.desiredState);
+      // The same Phase 3/5 gate the install page enforces: a non-READY
+      // manifest must be stopped before any AWS provisioning.
+      requirePreflightReady(await runDeploymentPreflight(db, deployment, application));
       if (deployment.state !== 'NOT_INSTALLED') {
         // Idempotent: reopening the CloudFormation console is not a new attempt.
         return { state: deployment.state };
@@ -4534,6 +4548,16 @@ export async function buildServer({
     return { events };
   });
 
+  // GET /api/deployments/:id/preflight — the gate a not-yet-provisioned
+  // deployment must pass, against this customer's configuration (Phase 5).
+  app.get('/api/deployments/:id/preflight', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
+    return runDeploymentPreflight(db, deployment, application);
+  });
+
   // GET /api/deployments/:id/diagnostics — Diagnostics (§29)
   app.get('/api/deployments/:id/diagnostics', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
@@ -5134,10 +5158,10 @@ export async function buildServer({
     // called home, and this is the first point where we know the relay is
     // alive. WAITING_FOR_RELAY is the same first-install case with the
     // launch signal already recorded.
-    // Phase 3 readiness gate: the relay registering is the final boundary
-    // before an INSTALL job is minted. Re-evaluate the stored manifest in case
-    // application overrides changed after the deployment was created.
-    requireReadyManifest(deployment.desiredState);
+    // Phase 3/5 gate: the relay registering is the final boundary before an
+    // INSTALL job is minted. Re-evaluate the stored manifest against the
+    // customer's configuration as it is now.
+    requirePreflightReady(await runDeploymentPreflight(db, deployment, null));
 
     const firstInstall =
       deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY';

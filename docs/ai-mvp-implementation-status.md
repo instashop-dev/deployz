@@ -387,3 +387,66 @@ PR #178.
 - `apps/web/test/env-plan.test.ts` (3): grouping, legacy fallback, summary.
 - E2E: `scenario-sweep.spec.ts` (gate on LICENSE_KEY, post-install config
   job over the simulated relay), `config.spec.ts`, `readiness.spec.ts`.
+
+PR #179.
+
+## Phase 5 — Pre-deployment readiness / preflight gate (2026-09-05)
+
+### What the audit found
+
+The manifest gate ran at three boundaries (deployment creation, install-link
+launch, relay registration) plus the deploy-link launch, but only the
+creation call knew the customer's provided env keys — the later boundaries
+passed none, so a required value removed after creation still launched.
+There was no preflight endpoint and nothing shown before the deploy button.
+
+### Decisions
+
+- **One evaluation, four boundaries.** `evaluatePreflight` in
+  `apps/api/src/preflight.ts` combines the manifest gate (unsupported
+  architecture, container setup, port, start command, required env vars
+  against THIS customer's saved keys, generated keys counted as provided)
+  with the readiness report's remaining non-blocking findings as warnings,
+  and lists every check. Deployment creation, the install-link and
+  deploy-link launches and relay registration all call it through
+  `requirePreflightReady`, with the same 422 codes clients already handle
+  (`details.findings` blockers first, then warnings, plus `state`).
+- **No AI on the deploy button.** The preflight reads the persisted analysis,
+  the stored manifest and the configuration rows. Nothing is fetched,
+  nothing is generated.
+- **Warnings never block.** Missing health endpoint, missing migration
+  command, a localhost binding and the worker recommendation surface as
+  warnings; a blocker is a missing Dockerfile/port/start command, an
+  unsupported architecture, or a missing customer-required value.
+
+### Added
+
+1. `evaluatePreflight` / `runApplicationPreflight` (fresh manifest, vendor
+   scope or one customer) / `runDeploymentPreflight` (stored manifest,
+   customer scope) / `requirePreflightReady`. States: READY,
+   READY_WITH_WARNINGS, ACTION_REQUIRED, UNSUPPORTED. Checks: supported
+   architecture, build configuration, start command, port, database, cache,
+   file storage, Deployz-managed variables, required customer variables
+   (missing names listed), health configuration, database migrations, plus
+   one row per readiness warning.
+2. `listProvidedConfigKeys` accepts a null customer (vendor defaults only).
+3. Routes: `GET /api/applications/:id/preflight?customerId=` and
+   `GET /api/deployments/:id/preflight`.
+4. UI: `PreflightSummary` (`apps/web/src/components/preflight-summary.tsx`)
+   on the create-deployment form (against the vendor defaults, refreshed
+   when the application changes; never disables the button — the API is the
+   authority) and beside the install link on a not-yet-installed deployment
+   (against the customer's configuration).
+
+### Tests
+
+- `apps/api/src/preflight.test.ts` (8): every state, missing customer value
+  named and generated ones never, port/start blockers, unsupported, the
+  three warning sources, legacy manifest, determinism, `requirePreflightReady`.
+- `apps/api/src/server.test.ts` (+2): the application route in vendor and
+  customer scope; the install-link launch refuses when a required value was
+  removed after creation and the deployment stays NOT_INSTALLED.
+- `apps/web/test/preflight-summary.test.tsx` (3): presentation per state,
+  ready rendering, blocked/recommended ordering.
+- `e2e/create-deployment.spec.ts`: the preflight shows UNSUPPORTED before
+  submit for the unsupported fixture.

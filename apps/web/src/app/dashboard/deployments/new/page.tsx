@@ -20,7 +20,9 @@ import {
   readinessFindingMessages,
   type RememberedCustomer,
 } from '@/lib/deployments';
+import { fetchApplicationPreflight, type PreflightResult } from '@/lib/preflight';
 import { fetchRegions, type RegionOption } from '@/lib/regions';
+import { PreflightSummary } from '@/components/preflight-summary';
 
 /** Readiness rejection codes the "Review the application's readiness
  *  findings" link applies to (§19) — every other error is shown as plain
@@ -37,6 +39,12 @@ const READINESS_ERROR_CODES = new Set(['MANIFEST_NOT_COMPATIBLE', 'MANIFEST_NEED
 // control plane serves only regions whose regional bootstrap artifacts are
 // confirmed published, so the UI cannot offer a region that would fail to
 // install.
+//
+// Phase 5: the preflight for the selected application renders before the
+// vendor submits — the same deterministic gate the API enforces on creation,
+// evaluated against the vendor defaults (the customer does not exist yet).
+// It never disables the button: the API is the authority, and a refusal
+// still lists its own findings below the button.
 
 const selectClass =
   'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 md:text-sm dark:bg-input/30';
@@ -75,6 +83,8 @@ function NewDeploymentScreen() {
   // application's readiness findings.
   const [readinessApplicationId, setReadinessApplicationId] = useState<string | null>(null);
   const [readinessFindings, setReadinessFindings] = useState<string[]>([]);
+  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(preselectedApplicationId);
+  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +104,29 @@ function NewDeploymentScreen() {
       cancelled = true;
     };
   }, []);
+
+  // The applications list decides the default selection; the preflight
+  // follows whichever application is selected.
+  useEffect(() => {
+    if (appsState.status !== 'loaded' || selectedApplicationId !== null) return;
+    setSelectedApplicationId(appsState.applications[0]?.id ?? null);
+  }, [appsState, selectedApplicationId]);
+
+  useEffect(() => {
+    if (!selectedApplicationId) return;
+    let cancelled = false;
+    setPreflight(null);
+    fetchApplicationPreflight(selectedApplicationId)
+      .then((result) => {
+        if (!cancelled) setPreflight(result);
+      })
+      .catch(() => {
+        // The form still works without the preview; the API enforces the gate.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedApplicationId]);
 
   // Region options come from the control plane so only confirmed-deployable
   // regions are ever offered. A failure to load them is a hard error — a form
@@ -248,6 +281,7 @@ function NewDeploymentScreen() {
                     className={selectClass}
                     required
                     defaultValue={preselectedApplicationId ?? appsState.applications[0]?.id}
+                    onChange={(event) => setSelectedApplicationId(event.currentTarget.value)}
                   >
                     {appsState.applications.map((app) => (
                       <option key={app.id} value={app.id}>
@@ -283,6 +317,13 @@ function NewDeploymentScreen() {
                   )}
                 </div>
               </div>
+
+              {preflight ? (
+                <PreflightSummary
+                  result={preflight}
+                  title="Deployment preflight — with your default configuration"
+                />
+              ) : null}
 
               <div className="flex items-center gap-3">
                 <Button type="submit" disabled={pending || regionsError || regions.length === 0}>
