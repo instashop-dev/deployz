@@ -815,3 +815,25 @@ export const AI_CONFIDENCE_COPY = {
 
 /** Shown beside an AI-written explanation so the vendor knows its origin. */
 export const AI_EXPLANATION_SOURCE_NOTE = 'Explained by Deployz from the failure signals.';
+
+// ── Release build failures (AI MVP Phase 8) ─────────────────────────────────
+
+/**
+ * The plain-English summary of a version build failure, from the failure
+ * reason the worker stores ("CodeBuild reported FAILED — POST_BUILD: …").
+ * Deterministic and ordered; the raw reason stays available as technical
+ * detail. Never names the build service.
+ */
+export function releaseBuildFailureSummary(reason: string | null): string {
+  const text = (reason ?? '').toLowerCase();
+  if (/timed_out|timed out|timeout/.test(text)) return 'The version build ran out of time.';
+  if (/download_source|could not fetch|clone/.test(text)) return 'The build could not fetch the repository.';
+  if (/post_build|docker push|denied: requested access|upload_artifacts/.test(text)) {
+    return 'The version was built but could not be stored in the image registry.';
+  }
+  if (/provisioning|install|queued|submitted/.test(text)) return 'The build could not start.';
+  if (/build:|command_execution_error|docker build|pre_build/.test(text)) {
+    return 'The version could not be built from the repository.';
+  }
+  return 'The version build failed.';
+}

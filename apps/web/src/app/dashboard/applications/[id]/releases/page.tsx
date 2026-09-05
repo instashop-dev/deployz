@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { releaseBuildFailureSummary } from '@deployz/copy-map';
+
 import { fetchDeploymentsForApplication } from '@/lib/deployments';
 import {
   RELEASE_STATUS_BADGE,
@@ -245,10 +247,16 @@ function ReleaseTable({ releases, running }: { releases: Release[]; running: Set
                   <Badge variant={RELEASE_STATUS_BADGE[release.status]}>
                     {releaseStatusLabel(release.status)}
                   </Badge>
-                  {release.status === 'FAILED' && release.failureReason ? (
-                    <p className="mt-1 max-w-xs truncate text-xs text-muted-foreground" title={release.failureReason}>
-                      {release.failureReason}
-                    </p>
+                  {release.status === 'FAILED' ? (
+                    <div className="mt-1 max-w-xs text-xs text-muted-foreground" data-testid={`release-failure-${release.id}`}>
+                      <p>{releaseBuildFailureSummary(release.failureReason)}</p>
+                      {release.failureReason ? (
+                        <details className="mt-0.5">
+                          <summary className="cursor-pointer">Technical detail</summary>
+                          <code className="mt-0.5 block break-all rounded bg-muted px-1.5 py-0.5 font-mono">{release.failureReason}</code>
+                        </details>
+                      ) : null}
+                    </div>
                   ) : null}
                 </td>
                 <td className="py-2.5">
