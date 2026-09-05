@@ -789,4 +789,4 @@ existing machine and adds regression tests at the layer that owns it.
 Documentation: `docs/architecture.md` (steps 7 and 10),
 `docs/deployment-resilience.md` (release availability under failed-update
 semantics), `docs/testing/aws-full-product-canary.md` §8 (checks 6–8),
-`docs/testing/e2e-scenarios.md` (`release-unavailable`).
+`docs/testing/e2e-scenarios.md` (`release-unavailable`). PR #189.
