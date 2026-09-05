@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 4,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 184,
     "entries": 9781,
@@ -33,8 +33,8 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile-postgresql",
@@ -63,6 +63,7 @@
     ],
     "unsupported": [],
     "readinessFindings": [
+      "port-unresolved",
       "database-migrations"
     ],
     "gateFindings": [

@@ -11,7 +11,11 @@ control plane together. Everything below was validated on 2026-09-02/03.
 Use it to validate a release, or after a change to the relay, the templates,
 the install/deploy state machine, or the publish tooling. For everything
 else use the simulated suite (`pnpm e2e`); see
-[`ai-agent-testing-guide.md`](ai-agent-testing-guide.md).
+[`ai-agent-testing-guide.md`](ai-agent-testing-guide.md). The Deploy Link
+variant of the walk (vendor customer page → Generate deploy link →
+`/deploy/<publicId>?token=…` → Deploy to AWS → the same relay pipeline) was
+validated on 2026-09-05; see `docs/deploy-links.md` and the P0 hardening
+record in `docs/ai-mvp-implementation-status.md`.
 
 ## 1. Fix the commit under test
 
@@ -101,7 +105,16 @@ never canary-owned.
    `deployz-bootstrap-<app>-<8 chars>`, template + control-plane URL +
    enrollment code prefilled), tick the IAM acknowledgement, *Create stack*.
    Bootstrap takes ~3 minutes; the relay's first scheduled poll (5-minute
-   EventBridge rate) registers and claims INSTALL.
+   EventBridge rate) registers and claims INSTALL. When the console cannot
+   be opened from the driving browser (the in-app pane blocks the pop-up),
+   press *Deploy to AWS* anyway (it records the launch) and create the same
+   stack with the CLI from the link's values — the template's parameter
+   names are `ControlPlaneUrl` and `EnrollmentCode` (the `param_` prefix in
+   the Quick Create URL is the console's):
+
+   ```bash
+   aws cloudformation create-stack --stack-name <stackName from the link>      --template-url <templateURL from the link>      --parameters ParameterKey=ControlPlaneUrl,ParameterValue=https://api.deployz.dev                   ParameterKey=EnrollmentCode,ParameterValue=<param_EnrollmentCode>      --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+   ```
 4. **Provisioning**: the application stack appears as
    `deployz-app-<installation prefix>`; with Redis required it takes ~10
    minutes. The relay watches for 3 minutes per invocation, writes its SSM

@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 203,
     "entries": 14911,
@@ -34,7 +34,7 @@
     "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "NEEDS_ATTENTION",
     "readinessState": "ALMOST_READY",
-    "runtime": "node",
+    "runtime": "php",
     "appRoot": ".",
     "dockerfilePath": ".devcontainer/Dockerfile",
     "port": null,
@@ -55,6 +55,8 @@
     "requiredEnvVars": [],
     "unsupported": [],
     "readinessFindings": [
+      "port-unresolved",
+      "start-command-missing",
       "health-check"
     ],
     "gateFindings": [

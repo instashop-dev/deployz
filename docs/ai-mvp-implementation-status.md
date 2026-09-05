@@ -790,3 +790,135 @@ Documentation: `docs/architecture.md` (steps 7 and 10),
 `docs/deployment-resilience.md` (release availability under failed-update
 semantics), `docs/testing/aws-full-product-canary.md` §8 (checks 6–8),
 `docs/testing/e2e-scenarios.md` (`release-unavailable`). PR #189.
+
+### Phase 2 — 100-repository compatibility regression (2026-09-05)
+
+`pnpm build` then `pnpm benchmark:compat` on the merged main (`5d99c3e`,
+analysis version 15) and `pnpm vitest run --project repository-compatibility`
+(1 file passed). The run artifacts under
+`docs/testing/repository-compatibility/runs/` are refreshed by this run.
+
+| Metric | Committed run (v11, 100 repositories) | This run (v15, 120 repositories) |
+|---|---|---|
+| Analysed / failed | 100 / 0 | 120 / 0 |
+| Verdict matches | 61 / 100 | 72 / 120 |
+| False acceptances | 6 | 6 |
+| False rejections | 13 | 18 |
+| Unexplained mismatches | 8 | 70 |
+
+- Per-repository verdict diff against the committed run files: only
+  `repo-006` (documenso) and `repo-007` (ghostfolio) changed, both
+  NEEDS_CONFIGURATION → READY. Their only required values are app-internal
+  secrets that Deployz now generates (AI Phase 4, `isGeneratableSecretName`),
+  so the deployment gate no longer needs a customer value; the expected
+  facts predate that capability. No new false acceptance, no new false
+  rejection; the supported/unsupported boundary is unchanged (the six false
+  acceptances are the same six entries).
+- The 70 unexplained mismatches are the 67 mismatches of the frozen
+  `unseen2` set (`repo-201`…`repo-220`, deliberately without registry
+  findings), the two verdict changes above, and `repo-201`, which the first
+  run could not fetch (transient `ECONNABORTED`) and the second run
+  analysed.
+- P0 attribution: `git diff 4b04860..5d99c3e` touches no analysis code
+  (`packages/analysis`, `apps/api/src/analysis.ts`, `preflight.ts`,
+  `manifest.ts`, the harness), so PR #189 cannot change these results.
+- Determinism: a second full run reproduced every result except
+  `repo-201` (fetched this time) and `repo-055`, which differed by one
+  readiness finding because a stale harness process overlapped the first
+  run; three further offline analyses of `repo-055` were identical to the
+  second run.
+
+### Phase 3 — representative repositories from the corpus
+
+Selected for real-AWS coverage (rationale from the corpus notes and the
+Stage A results):
+
+| Corpus id | Repository | Why |
+|---|---|---|
+| repo-006 | documenso/documenso (`instashop-dev/documenso`) | Node/Remix monorepo, nested `docker/Dockerfile`, PostgreSQL + Redis + S3, Prisma migration, generated secrets (`NEXTAUTH_SECRET`, encryption keys), health `/api/health`; the only corpus entry the vendor GitHub App can reach today, so it carries the live install, Deploy Link, HTTPS, diagnostics and unavailable-release checks |
+| repo-051 | docusealco/docuseal | Ruby/Rails, expected READY, discrete `DATABASE_*` binding names, non-standard storage name `S3_ATTACHMENTS_BUCKET`, migrations on every boot, self-generating `SECRET_KEY_BASE`, health `/up` |
+| repo-007 | ghostfolio/ghostfolio | Node/Nx, PostgreSQL + required Redis, generated `ACCESS_TOKEN_SALT`/`JWT_SECRET_KEY`, `prisma migrate deploy` + seed, health `/api/v1/health:3333`; exact Stage A match |
+| repo-003 | thedevs-network/kutt | Node, custom `DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD` bindings (alias path), `JWT_SECRET`, on-boot migration, health `/api/health` |
+| repo-004 | miniflux/v2 | Go static binary, four sibling Dockerfiles, `RUN_MIGRATIONS` flag, health `/healthcheck:8080` |
+
+Backups: repo-017 rallly (turbo monorepo, root build context), repo-083
+windmill (Rust; currently false-rejected, COMP-010).
+
+The four non-Documenso repositories were forked into the vendor account
+(`instashop-dev/docuseal`, `ghostfolio`, `kutt`, `v2`, `rallly`) and their
+default branches pinned to the corpus commits. **Blocker:** the `deployz-dev`
+GitHub App installation (id 156387233) has selected-repository access (11
+repositories) and does not include the forks, so Deployz cannot list,
+analyse or deploy them until the installation's repository access is
+extended (a GitHub account setting the operator must change). Their
+analysis-side coverage stands on the Stage A results above; their live
+install is recorded as remaining work.
+
+### Phase 4 — real AWS canary on main `5d99c3e` (2026-09-05)
+
+Production control plane (API Lambda updated 11:04Z with migration 0031 and
+`ecr:BatchGetImage`; web on Lightsail 11:04Z), templates republished from
+the same commit at 11:08Z (application v1 + Redis variant, Documenso preset,
+bootstrap v1 — required because #187 had changed the relay after the last
+publish), test account 151955775369 / us-east-1, vendor session in the
+in-app browser, AWS CLI for the Quick Create equivalent and the ledger.
+Two concurrent Documenso installs:
+
+| Path | Deployment | Customer | Bootstrap stack | Installation |
+|---|---|---|---|---|
+| Standard install link | `127a6d02` | P0 Canary Std 0905 | `deployz-bootstrap-documenso-127a6d02` | `2d1c3904` |
+| Deploy Link (`source=deploy_link`) | `f59ff5ab` | docu1 | `deployz-bootstrap-documenso-f59ff5ab` | `850efa32` |
+
+| Check | Result |
+|---|---|
+| A Analysis | PASS — Documenso READY (analysis v15): runtime Node.js, port 3000, health `/api/health`, PostgreSQL + Redis + storage, migration command; create-deployment form "Passed checks (11)". The four other selected repositories could not be imported (GitHub App access, Phase 3). |
+| B Standard install | PASS — install link → Deploy to AWS (launch registered, WAITING_FOR_RELAY) → bootstrap stack CREATE_COMPLETE 11:19Z → relay registered 11:22Z → `deployz-app-2d1c3904` (50 resources, Redis variant) → HEALTHY 11:33Z, newest READY release auto-deployed; `curl http://<ALB>/api/health` 200. |
+| C Deploy Link | PASS — vendor customer page: pick documenso + us-east-1 → Generate → raw token shown once. Revoke (confirm dialog) → public route 410 `DEPLOY_LINK_REVOKED`; new link → Regenerate → old token 404, new token 200; no token 404, bad token 404, unknown id 404, token in the query string 404. Customer page `/deploy/<id>?token=…` showed application, region and the four resources; Deploy to AWS → WAITING_FOR_RELAY → bootstrap `f59ff5ab` → relay `850efa32` → `deployz-app-850efa32` → HEALTHY 11:36Z through the same jobs/relay/status pipeline; fleet row `source=deploy_link`; default hostname `d-f59ff5ab-….deployz.dev` ACTIVE 11:48Z (`curl` 200, http→301); release 0.2.3-p0-valid deployed through `POST /api/deployments/:id/deploy` (the dialog's route) → live 12:16Z; Disconnect and Purge as for the standard path. Raw tokens: 0 occurrences in the API Lambda log since 11:00Z; only `token_hash` is stored. Double launch is guarded by the conditional UPDATE (`deploy-links.test.ts`); not re-driven live. |
+| D HTTPS truth | PASS — Infrastructure card sampled through the machine: 11:33Z `defaultHttps` PENDING → "Secure endpoint · Setting up" (hero "A secure address is being set up", `curl https://d-127a6d02-…` DNS failure); 11:40Z WAITING_FOR_DNS → "Waiting for certificate" (`curl` still failing); 11:43Z ACTIVE → "Ready", hero READY over `https://d-127a6d02-….deployz.dev`, `curl` 200 with valid TLS, http → 301. Same sequence on `f59ff5ab`. Ready never appeared before the machine was ACTIVE. |
+| E Diagnostics | PASS — release 0.2.4-p0-badmigration (migration `sh -c "…; exit 1"`) deployed from the Deploy Update dialog → `deploy.failed` 12:04Z, `MIGRATION_FAILED`, deployment UPDATE_AVAILABLE/HEALTHY with 0.2.3-p0-valid still live (hero "Update failed … still live and unaffected"). Diagnostics API: source `deterministic`, confidence `null` (no model call), copy-map what/why/fix, `technicalDetail` "Migration failed: exit code 1 (EssentialContainerExited…)", context DEPLOY_RELEASE / attempt 0 / version. Diagnostics page: "Last relay report" leads with plain words ("Application infrastructure — Found in the customer's AWS account", "Infrastructure setup — Setup finished", …, "No active issues."); the raw check text ("Stack status CREATE_COMPLETE", "Found a complete ECS service") only inside "Technical detail". |
+| F Unavailable release | PASS — valid release 0.2.3-p0-valid deployed normally (pointer advanced 11:57Z after health recovered). With the Deploy Update dialog already open listing 0.2.4-p0-badmigration READY, `aws ecr batch-delete-image imageTag=0.2.4-p0-badmigration`; pressing Deploy → "This version can no longer be deployed because its build is no longer available. Create a new release to deploy it again."; direct `POST /deploy` → 409 `RELEASE_UNAVAILABLE`; no job or `deploy.requested` event; release list and Releases page read Unavailable immediately; 0.2.3 stayed live (`/api/health` 200). The two stale releases from earlier canaries (images deleted on 09-04/05) were already served as Unavailable by the list refresh. |
+| G Disconnect / Purge | PASS — Disconnect from More actions (type-to-confirm) 12:19Z/12:20Z → both app stacks DELETE_FAILED (retained-RDS cascade) → DELETE_COMPLETE 13:07Z/13:09Z → `destroy.completed` 13:11Z/13:12Z, DELETED; the vendor page named what stays behind. Purge from "Permanently remove retained AWS resources" 13:18Z/13:20Z → `purge.completed` 13:57Z/14:01Z, `cleanupState: COMPLETE` (about 40 minutes each; database, secrets, bucket, subnet group, security group, subnet, VPC swept). |
+
+Observations that are not P0 defects: a revoked deploy link leaves its
+NOT_INSTALLED deployment in the fleet; the regenerated link's card row shows
+only Active/Expires until the page reloads; after confirming a purge the page
+shows no "purging" state until the relay reports; the API's `stage` for a
+DELETING deployment reads VERIFYING while the page correctly says "Removing
+deployment". Recorded as post-MVP polish.
+
+### Phase 5 — cleanup and regression (2026-09-05)
+
+- Cleanup: bootstrap stacks `deployz-bootstrap-documenso-127a6d02` and
+  `-f59ff5ab` deleted (DELETE_COMPLETE 14:06Z), the eight canary Lambda log
+  groups (relay, install-id, log-retention) deleted, ECR tags
+  `0.2.3-p0-valid` and `0.2.4-p0-badmigration` deleted, task-definition
+  revisions 41–45 deregistered and deleted, both `d-*` hostnames NXDOMAIN.
+  The post-canary ledger (stacks, RDS, subnet groups, ElastiCache, S3,
+  ECS clusters, load balancers, VPCs, NAT, EIPs, secrets, log groups, IAM,
+  ACM, ECR, SSM) is identical to the pre-canary baseline; the tagging API
+  lists only the two INACTIVE canary clusters/services, as documented in
+  the runbook §5. The standing 2026-09-03 canary installation
+  (`deployz-app-5610b3d3`) was never touched.
+- Regression on main `5d99c3e`: `pnpm build` 9/9; `pnpm lint` clean;
+  `pnpm vitest run` 146 files / 1 skipped of 163 with the local-only
+  worker error (`Timeout calling "onTaskUpdate"`, identical to the
+  pre-change baseline run; CI green on the same commit); `pnpm e2e` (full
+  parallel run under the purge watchers) 168 passed / 28 failed / 8 skipped
+  where every failure was a `page.goto` abort or 60 s timeout from
+  dev-server starvation plus one stale assertion in `e2e/fleet.spec.ts`
+  (the preflight card lists "Database — Passed" on a NOT_INSTALLED
+  deployment; the assertion is now scoped to the infrastructure section);
+  the ten affected spec files rerun serially: 58 passed, 0 failed.
+  `pnpm benchmark:compat` as in Phase 2.
+
+### Remaining limitations
+
+- The four non-Documenso corpus repositories are forked and pinned but not
+  reachable by the vendor GitHub App installation; their live analysis and
+  install are open until the installation's repository access is extended.
+- `resolveAppUrl` still surfaces the default URL at CONFIGURING (documented
+  design); the hero reads READY only with confirmed health plus that URL,
+  and the Infrastructure row now waits for ACTIVE.
+- The release-image guard trusts the registry answer only when it answers;
+  an unreachable registry lets a deploy proceed and the pipeline's own
+  image-pull failure reports it.

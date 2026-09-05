@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 201,
     "entries": 2972,
@@ -38,7 +38,7 @@
     "compatibility": "NOT_COMPATIBLE",
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
-    "runtime": "node",
+    "runtime": "php",
     "appRoot": ".",
     "dockerfilePath": "dev/docker/Dockerfile",
     "port": 8000,
@@ -62,6 +62,8 @@
     ],
     "readinessFindings": [
       "unsupported-multi-service",
+      "port-unresolved",
+      "start-command-missing",
       "health-check"
     ],
     "gateFindings": [

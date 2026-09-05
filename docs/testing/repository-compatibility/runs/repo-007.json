@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 201,
     "entries": 2141,
@@ -33,7 +33,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "READY",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "node",
@@ -52,7 +52,7 @@
     "worker": true,
     "workerCommand": null,
     "migration": true,
-    "migrationCommand": "prisma migrate deploy",
+    "migrationCommand": "npx prisma migrate deploy",
     "externalServices": [
       "stripe"
     ],
@@ -63,9 +63,7 @@
     "readinessFindings": [
       "worker-command"
     ],
-    "gateFindings": [
-      "required-env-vars-missing"
-    ],
+    "gateFindings": [],
     "unresolvedQuestions": [
       "build-command-unknown"
     ]
@@ -74,8 +72,9 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -138,6 +137,14 @@
       "match": true
     }
   ],
-  "mismatches": [],
-  "match": true
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
+      "finding": null
+    }
+  ],
+  "match": false
 }
