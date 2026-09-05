@@ -59,6 +59,12 @@ describe('isGeneratableSecretName', () => {
       'SENTRY_DSN',
       'OAUTH_CLIENT_SECRET',
       'S3_SECRET_KEY',
+      // Shared with another party — must match theirs, never minted.
+      'WEBHOOK_SECRET',
+      'HMAC_SECRET',
+      'LICENSE_SECRET',
+      'PARTNER_SIGNING_KEY',
+      'SHARED_SECRET',
     ]) {
       expect(isGeneratableSecretName(key), key).toBe(false);
     }

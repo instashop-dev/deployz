@@ -653,3 +653,36 @@ PR #184.
 - This record (`docs/ai-mvp-implementation-status.md`) carries the
   per-phase decisions, tests and PRs. The Phase 10 canary result is appended
   here when the transient AWS canary runs.
+
+PR #185.
+
+## Final cross-system review (2026-09-05)
+
+A read-only review of the merged default branch against the plan's
+architecture, UX, reliability and MVP-discipline checks. Confirmed: one
+analysis pipeline and one canonical representation; no path where AI output
+mutates deployment or job state, calls AWS or overrides a deterministic
+verdict or failure code; every AI failure mode degrades to deterministic
+output; no deployment path depends on the model; no repeated model calls;
+the fix-instructions cache write cannot resurrect stale metadata; the
+generated-secret pass leaves stale bindings untouched; the persisted verdict,
+the readiness route and the application PATCH agree; migration 0030 is
+wired consistently. Two findings, both fixed:
+
+1. **Shared secrets must never be minted.** A required secret named
+   `WEBHOOK_SECRET`, `HMAC_SECRET`, `LICENSE_SECRET` or similar has to match
+   another party's value; the classifier treated the bare names as
+   app-internal. `isGeneratableSecretName` now excludes webhook / HMAC /
+   licence / shared / partner / signature / verification / callback
+   secrets and signing keys. Analysis version 13 → 14 so stored models
+   re-run.
+2. **`technicalDetail` was served unredacted.** The diagnostics response
+   carried the relay's raw error while the Phase 6 context redacted the
+   same text. The field now passes through `redactSecrets` (no truncation,
+   so the technical layer stays complete). Regression test in
+   `apps/api/src/server.test.ts`.
+
+Documented, deliberate limitations that remain: vendor-scope secret values
+must be entered per customer after the relay is connected; `PORT_MISMATCH`
+has no live producer because the app's listening port is not observable;
+docker-compose commands are not scanned for a loopback binding.

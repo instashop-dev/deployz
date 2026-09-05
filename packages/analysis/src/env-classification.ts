@@ -56,7 +56,10 @@ const THIRD_PARTY_PREFIX_REGEX =
   /^(?:STRIPE|SMTP|MAIL|MAILGUN|POSTMARK|SES|SENDGRID|RESEND|AWS|S3|GITHUB|GITLAB|GOOGLE|GCP|AZURE|SLACK|DISCORD|TWILIO|OPENAI|ANTHROPIC|CLERK|AUTH0|OKTA|SUPABASE|FIREBASE|SHOPIFY|PAYPAL|SENTRY|DATADOG|CLOUDFLARE|VERCEL|OAUTH|OIDC|SAML|LDAP|TURNSTILE|RECAPTCHA|HCAPTCHA|FACEBOOK|APPLE|MICROSOFT|LINKEDIN|X|TWITTER)_/;
 
 /** A key that names a connection to something outside the app is never minted. */
-const CONNECTION_KEY_REGEX = /(?:_URL|_URI|_DSN|_HOST|_ENDPOINT|_USER|_USERNAME|_PASSWORD|_TOKEN|_API_KEY|_ACCESS_KEY|_CLIENT_SECRET|_WEBHOOK_SECRET)$/;
+const CONNECTION_KEY_REGEX = /(?:_URL|_URI|_DSN|_HOST|_ENDPOINT|_USER|_USERNAME|_PASSWORD|_TOKEN|_API_KEY|_ACCESS_KEY|_CLIENT_SECRET)$/;
+
+/** A secret shared with another party (a webhook signer, a partner HMAC, a licence server) must match theirs — never minted. */
+const SHARED_SECRET_REGEX = /(?:^|_)(?:WEBHOOK|HMAC|LICENSE|LICENCE|SHARED|PARTNER|SIGNATURE|VERIFICATION|CALLBACK)_(?:SECRET|KEY|SECRET_KEY|SIGNING_KEY|SIGNING_SECRET)$/;
 
 function externalServiceKeys(services: string[]): Set<string> {
   const keys = new Set<string>();
@@ -69,7 +72,10 @@ function externalServiceKeys(services: string[]): Set<string> {
 /** True when Deployz can safely mint this variable's value. */
 export function isGeneratableSecretName(key: string): boolean {
   return (
-    GENERATED_SECRET_SUFFIX_REGEX.test(key) && !THIRD_PARTY_PREFIX_REGEX.test(key) && !CONNECTION_KEY_REGEX.test(key)
+    GENERATED_SECRET_SUFFIX_REGEX.test(key) &&
+    !THIRD_PARTY_PREFIX_REGEX.test(key) &&
+    !CONNECTION_KEY_REGEX.test(key) &&
+    !SHARED_SECRET_REGEX.test(key)
   );
 }
 

@@ -4680,7 +4680,9 @@ export async function buildServer({
       // hedge a medium or low reading instead of presenting it as a verdict.
       source: explanation.confidence === null ? 'deterministic' : 'ai',
       confidence: explanation.confidence,
-      technicalDetail: jobResult?.error ?? null,
+      // Verbatim in length and wording, but never a secret: the same
+      // redaction the context applies, without its truncation.
+      technicalDetail: typeof jobResult?.error === 'string' ? redactSecrets(jobResult.error) : null,
       // Phase 6: the normalised context — phase, codes, blamed resource, the
       // failed events — for the card's technical layer.
       context: failureContext,
