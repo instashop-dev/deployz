@@ -1,5 +1,11 @@
 {
   "Parameters": {
+    "paramImageReference": {
+      "Type": "String",
+      "Default": "public.ecr.aws/deployz/fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "Description": "Container image reference (repository@sha256:...) the application's task definitions run. The relay's INSTALL passes the release image per install; the default is the publish-time image.",
+      "NoEcho": false
+    },
     "paramContainerPort": {
       "Type": "Number",
       "Default": "3000",
@@ -1222,7 +1228,9 @@
               "StartPeriod": 60,
               "Timeout": 5
             },
-            "Image": "public.ecr.aws/deployz/fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "Image": {
+              "Ref": "paramImageReference"
+            },
             "LogConfiguration": {
               "LogDriver": "awslogs",
               "Options": {

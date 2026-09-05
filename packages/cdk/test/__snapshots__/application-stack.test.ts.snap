@@ -65,6 +65,12 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       "NoEcho": true,
       "Type": "String",
     },
+    "paramImageReference": {
+      "Default": "public.ecr.aws/deployz/fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "Description": "Container image reference (repository@sha256:...) the application's task definitions run. The relay's INSTALL passes the release image per install; the default is the publish-time image.",
+      "NoEcho": false,
+      "Type": "String",
+    },
   },
   "Resources": {
     "AppConfigSecret251CAC1E": {
@@ -884,7 +890,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
               "StartPeriod": 60,
               "Timeout": 5,
             },
-            "Image": "public.ecr.aws/deployz/fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "Image": {
+              "Ref": "paramImageReference",
+            },
             "LogConfiguration": {
               "LogDriver": "awslogs",
               "Options": {

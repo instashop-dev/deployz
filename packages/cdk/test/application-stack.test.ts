@@ -122,6 +122,8 @@ describe('ApplicationStack', () => {
       expect(name.toLowerCase(), `parameter ${name} looks like a DB credential`).not.toMatch(
         /password|database|dbuser|db_pass/,
       );
+      // The image reference is not a secret (DEPLOY-001).
+      if (name === 'paramImageReference') continue;
       expect(param['NoEcho']).toBe(true);
     }
   });
@@ -206,6 +208,11 @@ describe('ApplicationStack', () => {
       template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
         HealthCheckPath: { Ref: 'paramHealthCheckPath' },
       });
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({ Name: 'App', Image: { Ref: 'paramImageReference' } }),
+        ]),
+      });
     });
 
     it('uses ECS Express Mode when expressMode is true', () => {
@@ -220,7 +227,17 @@ describe('ApplicationStack', () => {
         HealthCheckPath: { Ref: 'paramHealthCheckPath' },
         Cpu: '256',
         Memory: '512',
+        PrimaryContainer: Match.objectLike({ Image: { Ref: 'paramImageReference' } }),
       });
+    });
+  });
+
+  it('declares param_ImageReference with the publish-time image as its default (DEPLOY-001)', () => {
+    const { template } = synth();
+    expect(appParameters(template)['paramImageReference']).toMatchObject({
+      Type: 'String',
+      NoEcho: false,
+      Default: 'public.ecr.aws/deployz/fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000',
     });
   });
 
@@ -245,13 +262,15 @@ describe('ApplicationStack', () => {
     const names = Object.keys(params);
 
     // The only application parameters are the two app-env secrets, the
-    // container-port override and the health path override.
+    // container-port override, the health path override, and the (non-secret)
+    // image reference override.
     expect(names.sort()).toEqual(
       [
         'paramAppApiKey',
         'paramAppSigningSecret',
         'paramContainerPort',
         'paramHealthCheckPath',
+        'paramImageReference',
       ].sort(),
     );
 
@@ -259,17 +278,19 @@ describe('ApplicationStack', () => {
       // `param_` naming prefix — CDK/CloudFormation strip the underscore from
       // the logical ID, leaving a `param`-prefixed name.
       expect(name, `parameter ${name} must use the param_ prefix`).toMatch(/^param[A-Z]/);
-      // NoEcho — the value is never echoed back to the console or API.
+      // NoEcho — the value is never echoed back to the console or API, except
+      // the image reference, which is not a secret (DEPLOY-001).
+      if (name === 'paramImageReference') continue;
       expect(param['NoEcho'], `parameter ${name} must be NoEcho`).toBe(true);
     }
 
-    // Strongest form: every non-synthetic parameter is NoEcho — there is no
-    // echoable parameter anywhere in the template.
+    // Strongest form: every non-synthetic, non-image-reference parameter is
+    // NoEcho — there is no echoable secret parameter anywhere in the template.
     const nonSynthetic = (template.toJSON() as {
       Parameters: Record<string, Record<string, unknown>>;
     })['Parameters'];
     for (const [name, param] of Object.entries(nonSynthetic)) {
-      if (name === 'BootstrapVersion') continue;
+      if (name === 'BootstrapVersion' || name === 'paramImageReference') continue;
       expect(param['NoEcho'], `parameter ${name} must be NoEcho`).toBe(true);
     }
   });
@@ -1051,11 +1072,14 @@ describe('ApplicationStack', () => {
           'paramAppSigningSecret',
           'paramContainerPort',
           'paramHealthCheckPath',
+          'paramImageReference',
           ...Object.values(DOCUMENSO_PARAMETERS),
         ].sort(),
       );
 
       for (const [name, param] of Object.entries(params)) {
+        // The image reference is not a secret (DEPLOY-001).
+        if (name === 'paramImageReference') continue;
         expect(param['NoEcho'], `parameter ${name} must be NoEcho`).toBe(true);
       }
     });

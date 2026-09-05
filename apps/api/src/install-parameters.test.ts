@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { DOCUMENSO_PARAMETERS } from '@deployz/contracts';
+import { DOCUMENSO_PARAMETERS, IMAGE_REFERENCE_PARAMETER } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -111,6 +111,25 @@ async function insertDeployment(
       installationId: `inst-${crypto.randomUUID()}`,
       enrollmentCode: crypto.randomUUID(),
       desiredState: { manifest: READY_MANIFEST },
+      ...overrides,
+    })
+    .returning();
+  return row!;
+}
+
+async function insertRelease(
+  db: Db,
+  applicationId: string,
+  overrides: Partial<typeof schema.releases.$inferInsert> = {},
+): Promise<typeof schema.releases.$inferSelect> {
+  const [row] = await db
+    .insert(schema.releases)
+    .values({
+      applicationId,
+      version: `1.0.${crypto.randomUUID().slice(0, 8)}`,
+      gitSha: crypto.randomUUID().replace(/-/g, ''),
+      releaseStatus: 'READY',
+      imageDigest: `123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture@sha256:${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`,
       ...overrides,
     })
     .returning();
@@ -283,6 +302,56 @@ describe('buildInstallParameters', () => {
     // Default HTTPS is not ACTIVE yet, so it never becomes the public URL; the
     // pre-existing install-time custom-domain value is preserved.
     expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://pending.example.com');
+  });
+
+  // ── DEPLOY-001: a fresh install runs the application's own release ──────
+
+  it('carries the newest READY release image as the image-reference parameter', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    await insertRelease(db, application.id, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    const newest = await insertRelease(db, application.id, {
+      createdAt: new Date('2026-02-01T00:00:00Z'),
+    });
+
+    const parameters = await buildInstallParameters(db, deployment.id);
+
+    expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBe(newest.imageDigest);
+  });
+
+  it('skips an UNAVAILABLE or BUILDING release in favor of the newest usable READY one', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    const usable = await insertRelease(db, application.id, {
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    await insertRelease(db, application.id, {
+      createdAt: new Date('2026-02-01T00:00:00Z'),
+      imageUnavailableAt: new Date('2026-02-02T00:00:00Z'),
+    });
+    await insertRelease(db, application.id, {
+      createdAt: new Date('2026-03-01T00:00:00Z'),
+      releaseStatus: 'BUILDING',
+      imageDigest: null,
+    });
+
+    const parameters = await buildInstallParameters(db, deployment.id);
+
+    expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBe(usable.imageDigest);
+  });
+
+  it('omits the image-reference parameter when the application has no usable release', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    const parameters = await buildInstallParameters(db, deployment.id);
+
+    expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBeUndefined();
   });
 });
 
