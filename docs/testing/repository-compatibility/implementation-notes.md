@@ -68,9 +68,9 @@ to the measured verdicts.
 | 10 AI architecture | Worker/compose/storage required-vs-optional ambiguity (COMP-010/031 residuals) | architecture requirement schema; deterministic policy still decides NOT_COMPATIBLE | COMP-010/025/031/033 reruns | Done (`8a95acd`); inactive when unconfigured |
 | 11 UX | NEEDS_CONFIGURATION surfaces only as a 422 at deployment creation | readiness page hierarchy (understood → automatic → needs input → issues), generatable-secret + binding display | web unit tests + `e2e/scenario-sweep.spec.ts` | Done (`3e0514a`, specs `9cf98aa`) |
 | 12 Rerun | — | `pnpm benchmark:compat` full corpus, append comparison section | harness determinism tests | Done — v11 run at `1e6ad171`; comparison appended to findings.md and final-report.md |
-| 13 Fresh 20 | — | new `set: unseen2` entries, pinned SHAs, two independent ground-truth passes | new run artifact | Not started |
+| 13 Fresh 20 | — | new `set: unseen2` entries, pinned SHAs, two independent ground-truth passes | new run artifact | Done (`5af909f`) — repo-201..220, frozen run: 13/20 verdicts, boundary 75%, FA 0 |
 | 14 Hardening | — | generalizable fixes only, each with regression fixture | full analyzer suite | Done — the deterministic batch (`0a640dd`) plus the final COMP-021/COMP-025 corrections (`cee068c`, `1e6ad17`); COMP-021 accepted as a documented limitation |
-| 15 Docs | — | consolidate README/findings/final-report/mvp-status/ui-system | docs link checks | Partial — findings.md, final-report.md and implementation-notes.md updated for analysis version 11; mvp-status/ui-system consolidation not in this phase |
+| 15 Docs | — | consolidate README/findings/final-report/mvp-status/ui-system | docs link checks | Done — findings.md, final-report.md, implementation-notes.md and the compatibility README carry the v11 state; ui-system.md was already aligned by the Phase 11 restructure |
 
 ## Deterministic finding assignment
 
