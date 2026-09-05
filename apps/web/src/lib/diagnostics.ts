@@ -37,8 +37,30 @@ export interface DiagnosticExplanation {
  * that produced it (rendered behind the expandable layer), and the what/why/fix
  * explanation — all code-driven (no bundles, no log export).
  */
+/** One failed resource from the normalised failure context (Phase 6). */
+export interface DiagnosticFailedResource {
+  logicalResourceId: string;
+  resourceType: string;
+  resourceStatus: string;
+  reason: string | null;
+}
+
+/** The API's normalised failure context — phase, codes, blamed resource, failed events. */
+export interface DiagnosticContext {
+  phase: string;
+  attempt: number | null;
+  failureCode: string;
+  reportedFailureCode: string | null;
+  resourceType: string | null;
+  message: string | null;
+  relevantEvents: DiagnosticFailedResource[];
+  applicationVersion: string | null;
+}
+
 export interface Diagnostic {
   failureCode: FailureCode;
+  /** The normalised context, for the technical layer. Null on older API responses. */
+  context: DiagnosticContext | null;
   /** §61 recoverability class — which affordance the card leads with. */
   recoverability: FailureRecoverability | null;
   event: DiagnosticEvent;
@@ -58,6 +80,7 @@ interface DiagnosticsApiResponse {
    * client must not drop it on the floor.
    */
   technicalDetail?: string | null;
+  context?: DiagnosticContext | null;
   events: Array<{
     occurredAt: string;
     eventType: string;
@@ -82,6 +105,7 @@ export function toDiagnostics(body: DiagnosticsApiResponse): Diagnostic[] {
   return [
     {
       failureCode: body.failureCode as FailureCode,
+      context: body.context ?? null,
       recoverability: (body.recoverability as FailureRecoverability | undefined) ?? null,
       occurredAt: latestEvent?.occurredAt ?? new Date().toISOString(),
       event: {

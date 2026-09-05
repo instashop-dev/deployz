@@ -184,3 +184,37 @@ describe('refineFailureCode', () => {
     ).toBe('UNKNOWN');
   });
 });
+
+describe('refineFailureCode — Phase 6 signatures', () => {
+  it('maps a wrong-region artifact (S3 PermanentRedirect) onto REGION_NOT_SUPPORTED', () => {
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: 'PermanentRedirect: The bucket you are attempting to access must be addressed using the specified endpoint',
+        stackEvents: [],
+      }),
+    ).toBe('REGION_NOT_SUPPORTED');
+  });
+
+  it('separates a container that failed its health checks from one whose process exited', () => {
+    expect(
+      refineFailureCode({ reported: 'UNKNOWN', errorText: '(service app) (task abc) failed container health checks.', stackEvents: [] }),
+    ).toBe('IMAGE_HEALTH_CHECK_FAILED');
+    expect(
+      refineFailureCode({ reported: 'UNKNOWN', errorText: 'Essential container in task exited (exit code 1)', stackEvents: [] }),
+    ).toBe('CONTAINER_START_FAILED');
+    expect(refineFailureCode({ reported: 'UNKNOWN', errorText: 'OutOfMemoryError: container killed', stackEvents: [] })).toBe(
+      'CONTAINER_START_FAILED',
+    );
+  });
+
+  it('still lets an IAM denial win over container wording that follows it', () => {
+    expect(
+      refineFailureCode({
+        reported: 'UNKNOWN',
+        errorText: 'User is not authorized to perform ecs:RunTask; task exited with code 1',
+        stackEvents: [],
+      }),
+    ).toBe('AWS_PERMISSION_DENIED');
+  });
+});

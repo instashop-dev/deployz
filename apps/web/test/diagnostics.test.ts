@@ -43,3 +43,22 @@ describe('toDiagnostics', () => {
     expect((diagnostic.event as DiagnosticEvent).error).toBeUndefined();
   });
 });
+
+describe('toDiagnostics — normalised failure context (Phase 6)', () => {
+  it('carries the context through, and leaves it null on an older response', () => {
+    const context = {
+      phase: 'INSTALL',
+      attempt: 1,
+      failureCode: 'DATABASE_CREATE_FAILED',
+      reportedFailureCode: 'STACK_CREATE_FAILED',
+      resourceType: 'AWS::RDS::DBInstance',
+      message: 'Stack rolled back',
+      relevantEvents: [
+        { logicalResourceId: 'Database', resourceType: 'AWS::RDS::DBInstance', resourceStatus: 'CREATE_FAILED', reason: 'quota' },
+      ],
+      applicationVersion: null,
+    };
+    expect(toDiagnostics({ ...base, context })[0]?.context).toEqual(context);
+    expect(toDiagnostics({ ...base })[0]?.context).toBeNull();
+  });
+});
