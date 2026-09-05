@@ -223,10 +223,14 @@ Run these on the same walk, in order; they cost nothing extra in AWS.
    submit; the install link card must show it for the new deployment; the
    API must refuse the launch (`MANIFEST_NEEDS_CONFIGURATION`) if a
    required customer value is deleted after creation, and allow it once
-   restored.
-5. **Post-install configuration** — after INSTALL succeeds, the activity
-   feed must show a "Configuration updated" event and the job output must
-   list any `generatedKeys` (names only). Verify with the AWS CLI that the
+   restored. Documenso has no customer-required key, so the refusal
+   is only exercisable with an application that has one (the simulated
+   `scenario-sweep` E2E covers it).
+5. **Post-install configuration** — after INSTALL succeeds, and only when
+   the manifest has a vendor-provided or `deployz_generated` value to
+   deliver, the activity feed must show a "Configuration updated" event
+   and the job output must list any `generatedKeys` (names only). Documenso
+   has neither, so no job is queued for it. Verify with the AWS CLI that the
    application's `AppConfigSecret` holds those keys and that the task
    definition binds them.
 6. **Failure diagnosis** — use the version canary's `v3-bad-health`

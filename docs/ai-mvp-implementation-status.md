@@ -634,6 +634,48 @@ transient error or malformed output.
 
 PR #184.
 
+## Phase 10 — Transient AWS canary (2026-09-05)
+
+Documenso, deployed for real from the production control plane (API
+de36e46, web 261e5f3) into the test account (151955775369, us-east-1)
+following `docs/testing/aws-full-product-canary.md` including the §8 AI
+checks. Templates were republished from de36e46 first (application v1,
+documenso preset; bootstrap v1). Deployment a7a715ef, customer "AI MVP
+Canary 0905", installation 8fd0ffb8; the ledger of every canary-owned
+resource lived in the session scratchpad and was diffed against a
+pre-canary inventory at the end.
+
+### What was verified
+
+| Step | Result |
+|---|---|
+| A Analysis | PASS — analysis v14 on commit a89cdfe; "What Deployz detected" showed runtime Node.js, framework Next.js, build `turbo run build`, start `sh start.sh`, port 3000, PostgreSQL required, Redis queue, S3, health `/api/health`, migration `prisma migrate deploy`, each with evidence; the only finding was the recommended worker-command note. No false blocker. |
+| B Fix guidance | PASS — live generation 2.9 s, cached re-open 0.6 s with the generated-at line; Regenerate bypassed the cache. |
+| C Environment | PASS — Environment card: "Nothing for you to provide"; `PORT` managed; 102 optional/unknown keys behind the disclosure. `NEXTAUTH_SECRET` and the encryption keys were never asked for (they are `unknown`: only declared in `.env.example`; the Documenso preset supplies them as install parameters). |
+| D Preflight | PASS — create-deployment form READY_WITH_WARNINGS (11 passed, worker warning); the deployment-scoped preflight on the install-link card agreed; `/launched` moved the deployment to WAITING_FOR_RELAY. The refusal path (`MANIFEST_NEEDS_CONFIGURATION`) cannot be exercised on Documenso, which has no customer-required key; it is covered by the simulated `scenario-sweep` E2E. |
+| E Install | PASS — bootstrap stack CREATE_COMPLETE, relay CONNECTED, application stack CREATE_COMPLETE with 50 resources; ECS 1/1 (rollout COMPLETED), RDS PostgreSQL 16.13 private and encrypted, ElastiCache available, bucket encrypted with public access blocked, ALB active; `/api/health` 200 over the ALB and, after the certificate was issued (checkCycle 1, two CONFIGURE_DOMAIN jobs), over `https://d-a7a715ef-….deployz.dev` with HTTP→HTTPS 301. Deployment HEALTHY with every component HEALTHY; the newest READY release (v0.2.2-e2e-0904) was auto-deployed. |
+| E Post-install configuration | PASS by design — no CONFIG_UPDATE job was queued because Documenso has no vendor-provided value and no `deployz_generated` key (`queuePostInstallConfig` returned `queued: false`); `AppConfigSecret` holds only the preset's install parameters. The generated-key path is covered by the simulated `scenario-sweep` E2E. |
+| F UX | PASS — vendor pages read "Waiting for AWS" / "Setting up in AWS" / "Your application is live" / "Updating your application" / "Update failed … still live and unaffected" / "Removing deployment"; no raw AWS or CloudFormation state at the top level of the deployment page. |
+| G Failure diagnosis | PASS — Deploy Update to the stale release 0.2.1-canary-final (its ECR digest no longer exists). The relay's migration task failed to start (`CannotPullContainerError`); the job failed, the deployment stayed HEALTHY / UPDATE_AVAILABLE and the previous task definition kept serving. Diagnostics: `IMAGE_PULL_FAILED`, recoverability DEPLOYZ_ACTION, `source: deterministic`, `confidence: null` (no model call), context phase DEPLOY_RELEASE / attempt 0 / version 0.2.1-canary-final; the copy-map explanation led the card and the relay text stayed under "Technical detail". |
+| H Cleanup | PASS — Disconnect (DESTROY) deleted the application stack after the known DELETE_FAILED / retain cascade on the retained database's security group and subnet (about 50 minutes); Purge swept the database, its secrets, the bucket, the subnet group, the security group, the subnet and the VPC (about 40 minutes, one orphan kind per relay tick) and reported `connectorStackRetained`. By hand afterwards: the bootstrap stack, its relay log group and the two task-definition revisions. The post-cleanup inventory (stacks, RDS, subnet groups, ElastiCache, S3, ECS, load balancers, VPCs, NAT, EIPs, secrets, ACM, security groups, subnets, log groups, alarms, rules, IAM, SSM) matches the pre-canary baseline exactly; only INACTIVE ECS ARNs linger in the tagging API. No ECR tag was built by the canary. |
+
+### Observations (not defects in the AI pipeline)
+
+- The diagnostics page's "Last relay report" list prints the relay's check
+  details verbatim ("Stack status CREATE_COMPLETE", "Found a complete ECS
+  service"). It is a secondary surface and pre-dates this workstream; a
+  copy-map for relay check names would remove the last AWS wording there.
+- The deployment page's Infrastructure list showed "Secure endpoint ·
+  Ready" while the hero still said the secure address was being set up
+  (the listener exists before the certificate is issued).
+- The activity feed labels a `deployment.step_completed` event "Step
+  Completed" without naming the step.
+- The stale READY release whose image was deleted is still offered by the
+  Deploy Update dialog (known P3 from the 2026-09-04 walk); it is what
+  made the controlled failure possible.
+
+No product bug was found in the AI paths; no fix PR was needed.
+
 ## Phase 11 — Documentation (2026-09-05)
 
 - `docs/ai-analysis.md` (new): the reference — operating principle, the
@@ -651,8 +693,8 @@ PR #184.
   post-install configuration, failure diagnosis) with the AWS CLI
   verifications for generated secrets.
 - This record (`docs/ai-mvp-implementation-status.md`) carries the
-  per-phase decisions, tests and PRs. The Phase 10 canary result is appended
-  here when the transient AWS canary runs.
+  per-phase decisions, tests and PRs, including the Phase 10 canary
+  result.
 
 PR #185.
 
