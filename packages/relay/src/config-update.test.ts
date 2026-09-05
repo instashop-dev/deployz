@@ -4,6 +4,7 @@ import {
   computeEnvChanges,
   computeSecretChanges,
   createConfigUpdateExecutor,
+  generateSecretValue,
   type ConfigSecretsWriter,
   type EffectiveConfigEntry,
 } from './config-update.js';
@@ -442,5 +443,87 @@ describe('createConfigUpdateExecutor', () => {
     })(configCommand({ changedKeys: ['API_KEY'], secrets: [{ key: 'API_KEY', value: 'v' }] }));
     expect(result.success).toBe(false);
     expect(result.error).toContain('AppConfigSecret');
+  });
+});
+
+describe('createConfigUpdateExecutor — generated secrets (Phase 4)', () => {
+  function configCommand(payload: Record<string, unknown> = { reason: 'install' }) {
+    return {
+      id: 'job-config-gen',
+      deploymentId: 'dep-1',
+      type: 'CONFIG_UPDATE' as const,
+      idempotencyKey: 'dep-1:CONFIG_UPDATE:install:job-install',
+      payload,
+    };
+  }
+
+  function deps(
+    entries: EffectiveConfigEntry[],
+    ecsOptions: Parameters<typeof ecsWith>[0] = {},
+    secrets: ConfigSecretsWriter = fakeSecretsWriter(),
+    generateSecret: () => string = () => 'minted-value',
+  ) {
+    return {
+      cfn: cfnWithService({ withConfigSecret: true }),
+      ecs: ecsWith(ecsOptions),
+      secrets,
+      fetchEffectiveConfig: async () => entries,
+      stackName: 'deployz-app',
+      installationId: 'inst-test',
+      generateSecret,
+    };
+  }
+
+  const bindingsOf = (registered: unknown[]) =>
+    (registered[0] as { containerDefinitions: { secrets?: { name: string }[] }[] }).containerDefinitions[0]!.secrets ?? [];
+
+  it('mints a generated secret once, binds it, and reports the key name only', async () => {
+    const registered: unknown[] = [];
+    const secrets = fakeSecretsWriter();
+    const entries: EffectiveConfigEntry[] = [{ key: 'SESSION_SECRET', isSecret: true, source: 'generated', generated: true }];
+
+    const result = await createConfigUpdateExecutor(deps(entries, { registered }, secrets))(configCommand());
+    expect(result.success).toBe(true);
+    expect(secrets.current()).toEqual({ SESSION_SECRET: 'minted-value' });
+    expect(bindingsOf(registered).map((b) => b.name)).toEqual(['SESSION_SECRET']);
+    expect(result.output).toMatchObject({ generatedKeys: ['SESSION_SECRET'], unboundSecretKeys: [] });
+    expect(JSON.stringify(result)).not.toContain('minted-value');
+  });
+
+  it('keeps an existing value instead of minting again (a second install pass, or a vendor-chosen value)', async () => {
+    const registered: unknown[] = [];
+    const secrets = fakeSecretsWriter({ SESSION_SECRET: 'kept' });
+    const entries: EffectiveConfigEntry[] = [{ key: 'SESSION_SECRET', isSecret: true, source: 'generated', generated: true }];
+
+    const result = await createConfigUpdateExecutor(deps(entries, { registered }, secrets))(configCommand());
+    expect(result.success).toBe(true);
+    expect(secrets.current()).toEqual({ SESSION_SECRET: 'kept' });
+    expect(secrets.puts()).toBe(0);
+    expect(result.output).toMatchObject({ generatedKeys: [] });
+  });
+
+  it('never binds a secret key whose value never reached the store, and reports it', async () => {
+    const registered: unknown[] = [];
+    const secrets = fakeSecretsWriter();
+    const entries: EffectiveConfigEntry[] = [
+      { key: 'STRIPE_SECRET_KEY', isSecret: true, source: 'vendor' },
+      { key: 'SESSION_SECRET', isSecret: true, source: 'generated', generated: true },
+      { key: 'LOG_LEVEL', isSecret: false, value: 'info', source: 'vendor' },
+    ];
+
+    const result = await createConfigUpdateExecutor(deps(entries, { registered }, secrets))(configCommand());
+    expect(result.success).toBe(true);
+    expect(bindingsOf(registered).map((b) => b.name)).toEqual(['SESSION_SECRET']);
+    expect(result.output).toMatchObject({ generatedKeys: ['SESSION_SECRET'], unboundSecretKeys: ['STRIPE_SECRET_KEY'] });
+    const env = (registered[0] as { containerDefinitions: { environment: { name: string; value: string }[] }[] })
+      .containerDefinitions[0]!.environment;
+    expect(env).toContainEqual({ name: 'LOG_LEVEL', value: 'info' });
+  });
+
+  it('uses 256 bits of URL-safe randomness by default', () => {
+    const a = generateSecretValue();
+    const b = generateSecretValue();
+    expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(a).not.toBe(b);
   });
 });

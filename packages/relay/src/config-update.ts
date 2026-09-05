@@ -18,7 +18,18 @@
  * Secrets Manager secret — the application template's `AppConfigSecret`
  * (its execution role already grants read, so no new IAM is needed) — so a
  * save that only touched one key leaves the other keys intact.
+ *
+ * Generated secrets (AI MVP Phase 4): an entry flagged `generated` is an
+ * application-internal secret the control plane never holds a value for.
+ * The relay mints it here — cryptographic randomness, inside the customer's
+ * account, once — and keeps it across every later run. A secret key whose
+ * value is absent from the store (a vendor-scope secret entered before the
+ * relay existed, whose value the control plane could not keep) is reported
+ * as unbound rather than bound: binding a missing key would stop every task
+ * from starting.
  */
+
+import { randomBytes } from 'node:crypto';
 
 import {
   GetSecretValueCommand,
@@ -36,7 +47,9 @@ export interface EffectiveConfigEntry {
   readonly isSecret: boolean;
   /** Present only for plain values; secrets are write-only in the control plane. */
   readonly value?: string;
-  readonly source: 'vendor' | 'customer';
+  readonly source: 'vendor' | 'customer' | 'generated';
+  /** Deployz mints this secret inside the customer's account when it is absent. */
+  readonly generated?: boolean;
 }
 
 /**
@@ -62,12 +75,27 @@ export interface ConfigUpdateDeps {
   readonly fetchEffectiveConfig: () => Promise<EffectiveConfigEntry[]>;
   readonly stackName: string;
   readonly installationId: string;
+  /** Mints a generated secret value (injectable for tests). */
+  readonly generateSecret?: () => string;
+}
+
+/** What one configuration pass did with the secret store. */
+export interface ConfigSecretReport {
+  /** Keys minted in this run. */
+  readonly generatedKeys: string[];
+  /** Secret keys the effective config names but the store has no value for — left unbound. */
+  readonly unboundSecretKeys: string[];
 }
 
 type ConfigUpdateOutcome =
-  | { readonly state: 'succeeded'; readonly alreadyApplied: boolean }
+  | { readonly state: 'succeeded'; readonly alreadyApplied: boolean; readonly report: ConfigSecretReport }
   | { readonly state: 'failed'; readonly reason: string }
-  | { readonly state: 'updating' };
+  | { readonly state: 'updating'; readonly report: ConfigSecretReport };
+
+/** 256 bits of randomness, URL-safe — usable as any session/JWT/encryption secret. */
+export function generateSecretValue(): string {
+  return randomBytes(32).toString('base64url');
+}
 
 /**
  * Computes the environment-array delta: which plain entries need to be
@@ -110,6 +138,7 @@ export function computeSecretChanges(
   currentSecrets: readonly { name?: string | undefined; valueFrom?: string | undefined }[],
   secretArn: string,
   removedKeys: readonly string[] = [],
+  availableKeys?: ReadonlySet<string>,
 ): { bindings: { name: string; valueFrom: string }[]; removals: string[] } | null {
   const currentByName = new Map(
     currentSecrets
@@ -120,6 +149,9 @@ export function computeSecretChanges(
   const bindings: { name: string; valueFrom: string }[] = [];
   for (const entry of desired) {
     if (!entry.isSecret) continue;
+    // A key the store holds no value for is never bound (ECS would refuse
+    // to start the task); the caller reports it instead.
+    if (availableKeys !== undefined && !availableKeys.has(entry.key)) continue;
     // Deterministic ECS keyed-json reference into the config secret. The
     // secret ARN can change across re-creates, so a re-point is a change.
     const valueFrom = `${secretArn}:${entry.key}::`;
@@ -192,6 +224,9 @@ async function settleConfigUpdate(
   // config's secret keys (all of them, not just the changed ones).
   const desiredSecrets = desired.filter((entry) => entry.isSecret);
   const hasIncomingValues = Object.keys(secretValues).length > 0;
+  const generatedKeys: string[] = [];
+  const unboundSecretKeys: string[] = [];
+  const availableSecretKeys = new Set<string>();
   let secretArn: string | null = null;
   if (desiredSecrets.length > 0 || hasIncomingValues || removedKeys.length > 0) {
     const arn = findAppConfigSecretArn(resources);
@@ -230,16 +265,35 @@ async function settleConfigUpdate(
         changed = true;
       }
     }
+    // Mint each generated secret exactly once: a value already in the store
+    // (an earlier pass, or a value the vendor chose to set) is kept.
+    for (const entry of desiredSecrets) {
+      if (entry.generated === true && !(typeof merged[entry.key] === 'string' && (merged[entry.key] as string).length > 0)) {
+        merged[entry.key] = (deps.generateSecret ?? generateSecretValue)();
+        generatedKeys.push(entry.key);
+        changed = true;
+      }
+    }
     if (changed) {
       await deps.secrets.putSecretValue({ SecretId: arn, secretString: JSON.stringify(merged) });
     }
+    for (const entry of desiredSecrets) {
+      if (typeof merged[entry.key] === 'string' && (merged[entry.key] as string).length > 0) {
+        availableSecretKeys.add(entry.key);
+      } else {
+        unboundSecretKeys.push(entry.key);
+      }
+    }
   }
 
+  const report: ConfigSecretReport = { generatedKeys, unboundSecretKeys };
   const secretDelta =
-    secretArn === null ? null : computeSecretChanges(desired, currentSecrets, secretArn, removedKeys);
+    secretArn === null
+      ? null
+      : computeSecretChanges(desired, currentSecrets, secretArn, removedKeys, availableSecretKeys);
 
   if (envDelta === null && secretDelta === null) {
-    return { state: 'succeeded', alreadyApplied: true };
+    return { state: 'succeeded', alreadyApplied: true, report };
   }
 
   // Apply the delta: merge changes into the environment array and the
@@ -300,7 +354,7 @@ async function settleConfigUpdate(
     taskDefinition: registered.taskDefinitionArn,
   });
 
-  return { state: 'updating' };
+  return { state: 'updating', report };
 }
 
 export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecutor {
@@ -377,6 +431,9 @@ export function createConfigUpdateExecutor(deps: ConfigUpdateDeps): CommandExecu
         executed: true,
         type: command.type,
         alreadyApplied: outcome.state === 'succeeded',
+        // Key names only — never a value.
+        generatedKeys: outcome.report.generatedKeys,
+        unboundSecretKeys: outcome.report.unboundSecretKeys,
       },
     };
   };

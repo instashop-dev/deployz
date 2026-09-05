@@ -300,3 +300,90 @@ below the findings.
   regeneration keeps the earlier document.
 - `apps/web/test/readiness.test.ts`: generated-at label, jargon-free note.
 - `e2e/fix-instructions.spec.ts`: generated label and regenerate.
+
+PR #178.
+
+## Phase 4 — Environment-variable intelligence (2026-09-05)
+
+### What the audit found
+
+- The §11.2 model already decides `required` and `secret` with high
+  precision from reads, defaults and the external-service catalog. It had
+  no notion of who supplies a value.
+- Two delivery gaps sat underneath the model. The CONFIG_UPDATE fan-out
+  only targets installed deployments and INSTALL carries no configuration,
+  so a value saved before the first install never reached it. And the
+  control plane never stores secret values, so a vendor-scope secret's
+  value was dropped at save time (documented in `apps/api/src/config.ts`) —
+  a later configuration pass would then have bound a key with no value,
+  which stops every task from starting.
+
+### Decisions
+
+- **Classification is deterministic and value-free.** Names, the detected
+  requirements and the external-service catalog decide; the LLM takes no
+  part. Rules live in `packages/analysis/src/env-classification.ts`.
+- **Generated secrets are minted by the relay, inside the customer's
+  account, once.** The control plane never sees the value. Only
+  app-internal secrets qualify (a name ending in SECRET, SECRET_KEY(_BASE),
+  ENCRYPTION_KEY, SIGNING_KEY, APP_KEY, SESSION_KEY, JWT_KEY, COOKIE_KEY,
+  SALT/PEPPER, with no third-party prefix such as STRIPE_/SMTP_/GITHUB_/AWS_
+  and no connection suffix such as _URL/_TOKEN/_API_KEY/_CLIENT_SECRET).
+  A catalog credential is never generated.
+- **The first configuration pass happens after INSTALL.** One CONFIG_UPDATE
+  job per install (idempotent on the install job id, no values in the
+  payload) applies saved plain values, binds saved secrets, mints generated
+  ones and reports what it did — key names only.
+- **A secret without a value is reported, never bound.** The relay binds
+  only keys present in the store and lists the rest as
+  `unboundSecretKeys` in the job output. The vendor-scope secret limitation
+  itself stands (the control plane holds no secret values): a secret entered
+  before a customer's relay is connected must be entered again from that
+  deployment's configuration.
+
+### Added
+
+1. **Contract** — `manifestEnvVariableSchema.classification` (optional:
+   `deployz_managed`, `deployz_generated`, `customer_required`, `optional`,
+   `unknown`), `envVariableClassificationSchema`.
+2. **Classification** (`classifyEnvVariables`, wired in `analyseRepo` after
+   the requirements are known): managed = the names the application stack
+   injects for THIS app (database, cache bindings, storage, PORT/HOSTNAME);
+   generated = required + secret + app-internal; customer-required = the
+   other required keys; optional = read with a default; unknown = declared
+   only in a sample file. `isGeneratableSecretName` is exported for reuse.
+3. **Gate** — `evaluateManifestReadiness` counts generated keys as
+   auto-provided (`generatedEnvKeys`), so the vendor is asked only for what
+   Deployz cannot derive or mint. Rows analysed before Phase 4 keep the old
+   rule (every required key is the vendor's).
+4. **Relay** (`packages/relay/src/config-update.ts`): `generated` entries
+   are minted with 256 bits of `crypto.randomBytes` when absent and kept
+   thereafter; `computeSecretChanges` takes the set of keys the store holds;
+   the job output carries `generatedKeys` and `unboundSecretKeys`.
+5. **API** (`apps/api/src/install-config.ts`): `buildRelayConfigEntries`
+   (the `/api/relay/config` view plus `generated: true` entries for
+   unconfigured generated keys) and `queuePostInstallConfig` (called from
+   the INSTALL-success hook beside the auto-deploy). The simulated relay
+   answers the job as applied.
+6. **UI** — the configuration screen opens with an "Environment" card:
+   "Deployz configures automatically" (managed, generated), "You need to
+   provide" (missing first, ✓ when a value is saved for this scope) and a
+   collapsed "Optional" list, built by `buildEnvPlan` in
+   `apps/web/src/lib/env-plan.ts`. Never a value.
+7. **Fixture** — `deployz-demo/config-required-app` now reads LICENSE_KEY
+   (customer-required) beside SESSION_SECRET (generated); the lifecycle
+   sweep provides LICENSE_KEY.
+
+### Tests
+
+- `packages/analysis/test/env-classification.test.ts` (10): generatable
+  names, managed-only-when-required, service credentials never generated,
+  optional vs unknown, purity, analysis → manifest → gate, legacy model.
+- `packages/relay/src/config-update.test.ts` (+4): mint once and report
+  the key only, keep an existing value, never bind an unbound key, value
+  entropy.
+- `apps/api/src/install-config.test.ts` (3): relay view, one job per
+  install with key names only, nothing queued when nothing applies.
+- `apps/web/test/env-plan.test.ts` (3): grouping, legacy fallback, summary.
+- E2E: `scenario-sweep.spec.ts` (gate on LICENSE_KEY, post-install config
+  job over the simulated relay), `config.spec.ts`, `readiness.spec.ts`.

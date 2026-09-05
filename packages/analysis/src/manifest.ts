@@ -12,6 +12,7 @@
  */
 
 import {
+  envVariableClassificationSchema,
   deploymentManifestOverridesSchema,
   deploymentManifestSchema,
   type DeploymentManifest,
@@ -83,6 +84,7 @@ function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
       if (typeof raw !== 'object' || raw === null) continue;
       const record = raw as Record<string, unknown>;
       if (typeof record['key'] !== 'string' || record['key'].length === 0) continue;
+      const classification = envVariableClassificationSchema.safeParse(record['classification']);
       entries.push({
         key: record['key'],
         required: record['required'] === true,
@@ -90,6 +92,7 @@ function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
         source: Array.isArray(record['source'])
           ? record['source'].filter((s): s is string => typeof s === 'string' && s.length > 0)
           : [],
+        ...(classification.success ? { classification: classification.data } : {}),
       });
     }
     return entries;
@@ -236,6 +239,13 @@ const PROVISIONED_DATABASE_ENV_VARS = [
   'DATABASE_PASSWORD',
 ] as const;
 
+/** The variables Deployz generates for this deployment (Phase 4). */
+export function generatedEnvKeys(manifest: DeploymentManifest): string[] {
+  return manifest.environment.variables
+    .filter((variable) => variable.classification === 'deployz_generated')
+    .map((variable) => variable.key);
+}
+
 /**
  * Evaluate the FINAL manifest before AWS provisioning.
  *
@@ -307,6 +317,9 @@ export function evaluateManifestReadiness(
       for (const binding of manifest.storage.envBindings) autoProvided.add(binding.name);
     }
     for (const key of context.providedEnvKeys) autoProvided.add(key);
+    // Phase 4: Deployz mints app-internal secrets inside the customer's
+    // account on the first configuration pass after install.
+    for (const key of generatedEnvKeys(manifest)) autoProvided.add(key);
 
     const missing = manifest.environment.variables
       .filter((variable) => variable.required && !autoProvided.has(variable.key))
