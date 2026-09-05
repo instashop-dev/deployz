@@ -2491,10 +2491,12 @@ describe('server — POST /api/applications/:id/fix-instructions', () => {
         },
       },
     });
+    // regenerate bypasses the document the first call cached, so the
+    // failure path actually runs.
     const failure = await postJson(
       failingApp,
       `/api/applications/${application.id}/fix-instructions`,
-      {},
+      { regenerate: true },
       { cookie: org.cookie },
     );
     expect(failure.statusCode).toBe(503);
@@ -4468,5 +4470,138 @@ describe('server — readiness reconciliation with the application details', () 
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ healthPath: '/healthz', compatibilityStatus: 'NEEDS_ATTENTION' });
+  });
+});
+
+
+// ── AI MVP Phase 3: fix-instructions cache ──────────────────────────────────
+describe('server — POST /api/applications/:id/fix-instructions (cache)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  const healthFinding = {
+    id: 'health-check',
+    category: 'health',
+    title: 'Give Deployz a way to check your app',
+    severity: 'required',
+    blocking: false,
+    plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+    whyItMatters: 'During every deployment, Deployz waits for your app to report healthy.',
+    technicalEvidence: 'No health endpoint or container health check was found.',
+    suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+    confidence: 'likely',
+  };
+  const readinessWith = (findings: unknown[]) => ({
+    state: 'ALMOST_READY',
+    requiredCount: findings.length,
+    recommendedCount: 0,
+    summary: 'Deployz found a few things to address before this app can be deployed reliably.',
+    findings,
+    passed: [],
+  });
+
+  function countingGateway(): { gateway: { generate: () => Promise<unknown> }; calls: () => number } {
+    let calls = 0;
+    return {
+      gateway: {
+        async generate() {
+          calls += 1;
+          return {
+            object: { perFinding: [{ id: 'health-check', guidance: `Guidance #${calls}` }], generalNotes: [] },
+            usage: { promptTokens: 100, completionTokens: 50 },
+          };
+        },
+      },
+      calls: () => calls,
+    };
+  }
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'fix-instructions-cache@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('reuses the document for the same commit, analysis version and findings; regenerate bypasses; a changed finding set misses', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      detectedMetadata: { readiness: readinessWith([healthFinding]), analysisCommitSha: 'abc123', analysisVersion: 13 },
+    });
+    const counting = countingGateway();
+    const stubApp = await buildServer({ auth, db, aiGateway: counting.gateway as never });
+    const url = `/api/applications/${application.id}/fix-instructions`;
+
+    const first = await postJson(stubApp, url, {}, { cookie: org.cookie });
+    expect(first.statusCode).toBe(200);
+    const firstBody = first.json() as { instructions: string; generatedAt: string; cached: boolean };
+    expect(firstBody.cached).toBe(false);
+    expect(firstBody.instructions).toContain('Guidance #1');
+    expect(counting.calls()).toBe(1);
+
+    const second = await postJson(stubApp, url, {}, { cookie: org.cookie });
+    const secondBody = second.json() as { instructions: string; generatedAt: string; cached: boolean };
+    expect(secondBody).toEqual({ ...firstBody, cached: true });
+    expect(counting.calls()).toBe(1);
+
+    const regenerated = await postJson(stubApp, url, { regenerate: true }, { cookie: org.cookie });
+    const regeneratedBody = regenerated.json() as { instructions: string; cached: boolean };
+    expect(regeneratedBody.cached).toBe(false);
+    expect(regeneratedBody.instructions).toContain('Guidance #2');
+    expect(counting.calls()).toBe(2);
+
+    // The finding set changed (a re-analysis found one more thing) → miss.
+    await db
+      .update(schema.applications)
+      .set({
+        detectedMetadata: {
+          ...(await db.select().from(schema.applications).where(eq(schema.applications.id, application.id)))[0]!
+            .detectedMetadata,
+          readiness: readinessWith([healthFinding, { ...healthFinding, id: 'localhost-binding', title: 'Your app only listens on localhost' }]),
+        },
+      })
+      .where(eq(schema.applications.id, application.id));
+    const changed = await postJson(stubApp, url, {}, { cookie: org.cookie });
+    expect((changed.json() as { cached: boolean }).cached).toBe(false);
+    expect(counting.calls()).toBe(3);
+
+    await stubApp.close();
+  });
+
+  it('a generation failure leaves an earlier cached document untouched', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'NEEDS_ATTENTION',
+      detectedMetadata: { readiness: readinessWith([healthFinding]), analysisCommitSha: 'def456', analysisVersion: 13 },
+    });
+    const counting = countingGateway();
+    const okApp = await buildServer({ auth, db, aiGateway: counting.gateway as never });
+    const url = `/api/applications/${application.id}/fix-instructions`;
+    const first = (await postJson(okApp, url, {}, { cookie: org.cookie })).json() as { instructions: string };
+    await okApp.close();
+
+    const failingApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          throw new Error('gateway down');
+        },
+      },
+    });
+    const regenerate = await postJson(failingApp, url, { regenerate: true }, { cookie: org.cookie });
+    expect(regenerate.statusCode).toBe(503);
+    const reused = await postJson(failingApp, url, {}, { cookie: org.cookie });
+    expect(reused.statusCode).toBe(200);
+    expect(reused.json()).toMatchObject({ instructions: first.instructions, cached: true });
+    await failingApp.close();
   });
 });

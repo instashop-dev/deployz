@@ -4,8 +4,10 @@ import {
   ONBOARDING_STEPS,
   READINESS_STATE_PRESENTATION,
   READINESS_SUPPORT_READY,
+  FIX_INSTRUCTIONS_REUSED_NOTE,
   deriveOnboardingStep,
   detectedFactRows,
+  fixInstructionsGeneratedLabel,
   readinessBlockedSummary,
   readinessChangesHeading,
   readinessChecksLabel,
@@ -14,6 +16,7 @@ import {
   readinessStateHeading,
   type ApplicationReadiness,
   type DetectedApplication,
+  type DetectedFact,
   type FactSource,
 } from '../src/lib/readiness';
 
@@ -382,7 +385,7 @@ describe('readinessFailure (FAILED analysis)', () => {
 // ── What Deployz detected (AI MVP Phase 2) ──────────────────────────────────
 
 function detectedFixture(overrides: Partial<DetectedApplication> = {}): DetectedApplication {
-  const fact = <T,>(value: T, source: FactSource = 'dockerfile'): DetectedApplication['build'] & { value: T } => ({
+  const fact = <T,>(value: T, source: FactSource = 'dockerfile'): DetectedFact<T> => ({
     value,
     source,
     confidence: source === 'source' || source === 'ai' ? 'likely' : 'confirmed',
@@ -458,5 +461,13 @@ describe('detectedFactRows', () => {
     expect(rows.find((r) => r.id === 'port')?.hint).toBe('Inferred from the source code · Likely');
     expect(rows.find((r) => r.id === 'redis')?.value).toBe('Redis — provisioned automatically (queue)');
     expect(rows.find((r) => r.id === 'storage')?.value).toBe('Object storage — Deployz provides a bucket');
+  });
+});
+
+describe('fixInstructionsGeneratedLabel', () => {
+  it('names when the document was generated, and degrades for an unparseable date', () => {
+    expect(fixInstructionsGeneratedLabel('2026-09-05T10:00:00.000Z')).toMatch(/^Generated .*2026/);
+    expect(fixInstructionsGeneratedLabel('not a date')).toBe('Generated for this analysis');
+    expect(FIX_INSTRUCTIONS_REUSED_NOTE).not.toMatch(JARGON);
   });
 });

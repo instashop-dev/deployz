@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   reconcileReadiness,
   type FixInstructionsContext,
@@ -65,6 +67,48 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+/** A cached fix-instructions document, stored on `detected_metadata.fixInstructions`. */
+export interface CachedFixInstructions {
+  /** `fixInstructionsCacheKey` of the context the document was generated for. */
+  key: string;
+  instructions: string;
+  generatedAt: string;
+}
+
+/**
+ * The cache key for one generation: the analysed commit, the analysis
+ * version, every fact, and every finding's id, evidence and confidence. Any
+ * change in what the document would be built from changes the key, so a
+ * cached document is only ever reused for the same repository state and the
+ * same findings.
+ */
+export function fixInstructionsCacheKey(context: FixInstructionsContext, analysisVersion: unknown): string {
+  const material = JSON.stringify({
+    commitSha: context.commitSha,
+    analysisVersion: typeof analysisVersion === 'number' ? analysisVersion : null,
+    facts: context.facts,
+    findings: context.findings.map((f) => [f.id, f.technicalEvidence, f.suggestedOutcome, f.confidence]),
+  });
+  return createHash('sha256').update(material).digest('hex');
+}
+
+/** The stored document when it was generated for exactly this key, else null. */
+export function readCachedFixInstructions(
+  metadata: Record<string, unknown> | null,
+  key: string,
+): CachedFixInstructions | null {
+  const raw = metadata?.['fixInstructions'] as Partial<CachedFixInstructions> | undefined;
+  if (
+    raw?.key !== key ||
+    typeof raw.instructions !== 'string' ||
+    raw.instructions.length === 0 ||
+    typeof raw.generatedAt !== 'string'
+  ) {
+    return null;
+  }
+  return { key, instructions: raw.instructions, generatedAt: raw.generatedAt };
+}
+
 /**
  * Build the generation context from an application row, or null when there is
  * nothing to generate for (no stored report, or no unresolved findings).
@@ -83,6 +127,7 @@ export function buildFixInstructionsContext(
     repoFullName: application.repoFullName,
     commitSha: asString(metadata?.['analysisCommitSha']),
     facts: {
+      runtime: asString(metadata?.['runtime']),
       framework: asString(metadata?.['framework']),
       packageManager: asString(metadata?.['packageManager']),
       buildCommand: firstString(metadata?.['buildCommands']),

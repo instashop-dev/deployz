@@ -251,3 +251,52 @@ lint on analysis/contracts/api, `tsc --noEmit` on the API. PR #176.
 - `e2e/readiness.spec.ts`: the detected section for the fixture repository.
 - Every GitHub fixture repository keeps its readiness state (checked by
   running the report over `GITHUB_FIXTURE_FILE_TREES`).
+
+PR #177.
+
+## Phase 3 — AI remediation and fix instructions (2026-09-05)
+
+The existing "Generate fix instructions" flow is extended, not replaced:
+the same route, the same generator, the same dialog, the same CTA placed
+below the findings.
+
+### Audited existing (unchanged)
+
+- `generateFixInstructions` builds the document deterministically around
+  the model's per-finding guidance; the guardrail, validation and
+  completion-report sections are templated. No repository file content
+  reaches the model — only facts and finding evidence.
+- The dialog renders one consolidated document with copy, regenerate and
+  re-analyse actions; any AI failure is a retryable 503.
+
+### Added
+
+1. **Cache** (`apps/api/src/fix-instructions.ts`, `POST /api/applications/
+   :id/fix-instructions`). `fixInstructionsCacheKey` hashes the analysed
+   commit, the analysis version, every fact and every finding's id,
+   evidence, outcome and confidence. A generated document is stored as
+   `detected_metadata.fixInstructions = {key, instructions, generatedAt}`
+   and reused (`cached: true`) while the key matches. `{regenerate: true}`
+   bypasses the cache. A re-analysis replaces the metadata wholesale, so a
+   new commit or a changed finding set invalidates on its own; a failed
+   regeneration leaves the earlier document in place.
+2. **Targeting.** The prompt and the document carry the detected runtime
+   (from Phase 1) beside the framework, and each finding block now reads
+   Problem / Why this matters / Detected / Desired deployment outcome /
+   Confidence / Implementation guidance, so the coding agent gets the
+   reason as well as the evidence. The Phase 2 findings (port, start
+   command, localhost binding) flow through unchanged; a finding the vendor
+   resolved through the application details never reaches the document.
+3. **Dialog.** Shows when the document was generated and, for a reused
+   document, "Reused the instructions generated earlier for this analysis.
+   Regenerate to write them again." Regenerate requests a fresh document.
+
+### Tests
+
+- `apps/api/src/fix-instructions.test.ts`: key determinism and
+  sensitivity (commit, version, fact, finding), stored-document reading.
+- `apps/api/src/server.test.ts`: one generation per key, `cached: true` on
+  reuse, regenerate bypass, a changed finding set misses, a failed
+  regeneration keeps the earlier document.
+- `apps/web/test/readiness.test.ts`: generated-at label, jargon-free note.
+- `e2e/fix-instructions.spec.ts`: generated label and regenerate.
