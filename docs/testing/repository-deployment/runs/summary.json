@@ -1,0 +1,153 @@
+{
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "total": 120,
+  "expectedDeployable": 65,
+  "expectedUnsupported": 55,
+  "gate": {
+    "attempted": 120,
+    "correctAccept": 47,
+    "correctReject": 49,
+    "falseAcceptance": 6,
+    "falseRejection": 18,
+    "configuredReady": 23
+  },
+  "build": {
+    "attempted": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "successRateAmongDeployable": 0
+  },
+  "infrastructure": {
+    "attempted": 0,
+    "succeeded": 0,
+    "failed": 0
+  },
+  "runtime": {
+    "ecsRunning": 0,
+    "albHealthy": 0,
+    "httpsReachable": 0,
+    "applicationResponseValid": 0
+  },
+  "dependencies": {
+    "postgres": 0,
+    "redis": 0,
+    "storage": 0,
+    "migration": 0
+  },
+  "trueDeploymentSuccess": 0,
+  "trueDeploymentSuccessRate": 0,
+  "cleanup": {
+    "destroys": 0,
+    "destroyFailures": 0,
+    "leaks": 0,
+    "successRate": 0
+  },
+  "byClassification": {
+    "EXPECTED_UNSUPPORTED": 49,
+    "GATE_ERROR": 24,
+    "PASS": 47
+  },
+  "byFailureStage": {
+    "EXPECTED_UNSUPPORTED": 49,
+    "GATE_ERROR": 24
+  },
+  "byRootCause": {
+    "CORRECTLY_UNSUPPORTED": 49
+  },
+  "byFinding": {
+    "DEPLOY-002": [
+      "repo-001",
+      "repo-002",
+      "repo-008",
+      "repo-051",
+      "repo-090",
+      "repo-092"
+    ],
+    "DEPLOY-003": [
+      "repo-005",
+      "repo-022",
+      "repo-023",
+      "repo-024",
+      "repo-041",
+      "repo-043",
+      "repo-053",
+      "repo-055",
+      "repo-060",
+      "repo-082",
+      "repo-083",
+      "repo-087",
+      "repo-094",
+      "repo-204",
+      "repo-206",
+      "repo-207",
+      "repo-211",
+      "repo-220"
+    ],
+    "DEPLOY-004": [
+      "repo-072",
+      "repo-074",
+      "repo-084",
+      "repo-088",
+      "repo-089",
+      "repo-097"
+    ],
+    "DEPLOY-005": [
+      "repo-003",
+      "repo-021",
+      "repo-035",
+      "repo-039"
+    ]
+  },
+  "bySet": {
+    "improvement": {
+      "total": 80,
+      "expectedDeployable": 46,
+      "deployed": 0,
+      "trueDeploymentSuccess": 0,
+      "expectedUnsupported": 34,
+      "gateCorrect": 69
+    },
+    "unseen": {
+      "total": 20,
+      "expectedDeployable": 9,
+      "deployed": 0,
+      "trueDeploymentSuccess": 0,
+      "expectedUnsupported": 11,
+      "gateCorrect": 12
+    },
+    "unseen2": {
+      "total": 20,
+      "expectedDeployable": 10,
+      "deployed": 0,
+      "trueDeploymentSuccess": 0,
+      "expectedUnsupported": 10,
+      "gateCorrect": 15
+    }
+  },
+  "byCohort": {
+    "boundary": {
+      "total": 24,
+      "expectedDeployable": 2,
+      "deployed": 0,
+      "trueDeploymentSuccess": 0,
+      "expectedUnsupported": 22,
+      "gateCorrect": 20
+    },
+    "messy": {
+      "total": 27,
+      "expectedDeployable": 18,
+      "deployed": 0,
+      "trueDeploymentSuccess": 0,
+      "expectedUnsupported": 9,
+      "gateCorrect": 22
+    },
+    "realistic": {
+      "total": 69,
+      "expectedDeployable": 45,
+      "deployed": 0,
+      "trueDeploymentSuccess": 0,
+      "expectedUnsupported": 24,
+      "gateCorrect": 54
+    }
+  }
+}

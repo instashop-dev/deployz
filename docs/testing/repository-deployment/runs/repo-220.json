@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-220",
+  "repository": "headlamp-k8s/headlamp",
+  "commit": "69bfa236dab6c1c00658e11af1d21762d00c0700",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "unseen2",
+  "cohort": "boundary",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "gate",
+  "gate": {
+    "status": "FAIL",
+    "verdict": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "outcome": "false-rejection",
+    "gateFindings": [
+      "unsupported",
+      "health-path-required",
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "ELECTRON_START_URL",
+      "HEADLAMP_BACKEND_TOKEN",
+      "HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES",
+      "HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS",
+      "HEADLAMP_CONFIG_ENABLE_HELM",
+      "HEADLAMP_WINDOWS_CLIENT_ID",
+      "HEADLAMP_WINDOWS_SIGN_EMAIL",
+      "REACT_APP_HEADLAMP_BACKEND_TOKEN"
+    ],
+    "missingKeys": [
+      "ELECTRON_START_URL",
+      "HEADLAMP_BACKEND_TOKEN",
+      "HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES",
+      "HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS",
+      "HEADLAMP_CONFIG_ENABLE_HELM",
+      "HEADLAMP_WINDOWS_CLIENT_ID",
+      "HEADLAMP_WINDOWS_SIGN_EMAIL",
+      "REACT_APP_HEADLAMP_BACKEND_TOKEN"
+    ],
+    "unsupported": [
+      "kubernetes"
+    ],
+    "configuredVerdict": "NOT_COMPATIBLE",
+    "configuredFindings": [
+      "unsupported",
+      "health-path-required",
+      "required-env-vars-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 4466,
+      "healthPath": "/",
+      "healthMode": "vendor_required",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": false,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "GATE_ERROR",
+  "failureStage": "GATE_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "false-rejection: unsupported, health-path-required, required-env-vars-missing",
+  "findingIds": [
+    "DEPLOY-003"
+  ],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

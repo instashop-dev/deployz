@@ -4,14 +4,193 @@
 # Every entry references a Stage A id (docs/testing/repository-compatibility/
 # benchmark.yaml) and adds only what a vendor could set through the product:
 # `overrides` (PATCH /api/applications/:id), `config` (non-secret values the
-# vendor types into the Configuration screen), `secrets` (keys the harness
-# generates at run time — values are never stored), `verify` (what Stage B
-# probes) and `dependencies` (which checks to run). `fork` names the copy
-# the vendor GitHub App installation can read; default instashop-dev/<repo>.
+# vendor types into the Configuration screen; `${DEPLOYZ_APP_URL}` stands for
+# the deployment's permanent default-HTTPS address), `secrets` (keys the
+# harness generates at run time — values are never stored; an object form
+# names the format the app validates), `verify` (what Stage B probes) and
+# `dependencies` (which checks to run). `fork` names the copy the vendor
+# GitHub App installation can read; default instashop-dev/<repo>.
 #
-# Waves are filled in as the phases select them (README "Rollout").
+# Values here are what the Stage A notes establish as the app's own
+# requirements. Nothing here patches a repository; a key the analyser wrongly
+# demands is still provided (a vendor would have to), and the mismatch is the
+# gate audit's finding, not the configuration's.
 version: 1
 
-waves: {}
+waves:
+  wave-1: [repo-008, repo-001, repo-051, repo-004, repo-035, repo-003, repo-007, repo-021, repo-039, repo-016]
 
-repositories: []
+repositories:
+  - id: repo-008
+    findings: [DEPLOY-002]
+    config:
+      - { key: BASE_URL, value: "${DEPLOYZ_APP_URL}" }
+    verify: { healthPath: /health, appPath: / }
+    notes:
+      - "Go binary in a scratch image (no shell, no curl); config.yaml baked in. Port 8080 from ENV PORT / EXPOSE; health api/api.go /health."
+      - "BASE_URL is demanded by the gate (COMP-016 residual); the app does not need it. Provided so the funnel measures the deployment path."
+
+  - id: repo-001
+    findings: [DEPLOY-002]
+    config:
+      - { key: CLOUD_MODE, value: "" }
+      - { key: CLICKHOUSE_URL, value: "" }
+      - { key: KAFKA_URL, value: "" }
+      - { key: KAFKA_BROKER, value: "" }
+      - { key: KAFKA_MAX_MESSAGE_BYTES, value: "" }
+    verify: { healthPath: /api/heartbeat, appPath: /login }
+    notes:
+      - "Next.js + Prisma; boots on DATABASE_URL alone (APP_SECRET falls back to it). Migrations run by scripts/start-docker.sh at boot."
+      - "The gate demands the optional ClickHouse/Kafka/cloud-mode keys (COMP-023 residual); empty values keep those integrations off, as the app treats an unset key."
+
+  - id: repo-051
+    findings: [DEPLOY-002]
+    fork: instashop-dev/docuseal
+    secrets: [SIDEKIQ_BASIC_AUTH_PASSWORD]
+    verify: { healthPath: /up, appPath: / }
+    notes:
+      - "Rails; reads DATABASE_HOST/PORT/USER/PASSWORD/NAME (Deployz's own names). Migrations at boot (config/initializers/migrate.rb). Storage stays on local disk (S3 is optional via S3_ATTACHMENTS_BUCKET)."
+
+  - id: repo-004
+    fork: instashop-dev/v2
+    overrides:
+      dockerfilePath: packaging/docker/alpine/Dockerfile
+      buildContext: .
+      containerPort: 8080
+      healthPath: /healthcheck
+    config:
+      - { key: RUN_MIGRATIONS, value: "1" }
+      - { key: CREATE_ADMIN, value: "1" }
+      - { key: ADMIN_USERNAME, value: admin }
+      - { key: BASE_URL, value: "${DEPLOYZ_APP_URL}" }
+    secrets:
+      - { key: ADMIN_PASSWORD, format: password }
+    verify: { healthPath: /healthcheck, appPath: / }
+    notes:
+      - "Go; reads DATABASE_URL. The Dockerfile under packaging/docker/alpine copies the repository root, so the build context is the root, not the Dockerfile's directory."
+
+  - id: repo-035
+    findings: [DEPLOY-005]
+    secrets: [SECRET_KEY]
+    verify: { healthPath: /healthcheck, appPath: / }
+    notes:
+      - "Flask; reads SQLALCHEMY_DATABASE_URI (a full postgresql:// URI) — the injected DATABASE_URL must reach it under that name. Migrations run at boot."
+
+  - id: repo-003
+    findings: [DEPLOY-005]
+    fork: instashop-dev/kutt
+    overrides:
+      healthPath: /api/health
+    config:
+      - { key: DB_CLIENT, value: pg }
+      - { key: DB_SSL, value: "true" }
+      - { key: ADMIN_EMAILS, value: admin@example.com }
+    secrets: [JWT_SECRET]
+    verify: { healthPath: /api/health, appPath: / }
+    notes:
+      - "Node/Express; PostgreSQL is selected with DB_CLIENT=pg and read from DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD (no DATABASE_URL). RDS forces TLS, hence DB_SSL. Health is /api/health; the analyser's /health is wrong (COMP-005)."
+
+  - id: repo-007
+    fork: instashop-dev/ghostfolio
+    secrets: [ACCESS_TOKEN_SALT, JWT_SECRET_KEY]
+    verify: { healthPath: /api/v1/health, appPath: / }
+    notes:
+      - "NestJS + Prisma; reads DATABASE_URL and REDIS_HOST/REDIS_PORT (Redis required: Bull + the health check). Migrations run by docker/entrypoint.sh at boot. Port 3333."
+
+  - id: repo-021
+    findings: [DEPLOY-005]
+    config:
+      - { key: DB_CLIENT, value: pg }
+      - { key: DB_SSL, value: "true" }
+      - { key: DB_SSL__REJECT_UNAUTHORIZED, value: "false" }
+      - { key: ADMIN_EMAIL, value: admin@example.com }
+      - { key: PUBLIC_URL, value: "${DEPLOYZ_APP_URL}" }
+    secrets:
+      - KEY
+      - SECRET
+      - { key: ADMIN_PASSWORD, format: password }
+    verify: { healthPath: /server/health, appPath: /admin/login }
+    notes:
+      - "Node; PostgreSQL via DB_CLIENT=pg with DB_HOST/DB_PORT/DB_DATABASE/DB_USER/DB_PASSWORD (or DB_CONNECTION_STRING). Migrations run at boot. Port 8055."
+
+  - id: repo-039
+    findings: [DEPLOY-005]
+    overrides:
+      dockerfilePath: scripts/Dockerfile
+      buildContext: .
+      containerPort: 5230
+      healthPath: /healthz
+    config:
+      - { key: MEMOS_DRIVER, value: postgres }
+    verify: { healthPath: /healthz, appPath: / }
+    notes:
+      - "Go; PostgreSQL is selected with MEMOS_DRIVER=postgres and read from MEMOS_DSN (a connection string). Migrations run at boot. The Dockerfile ships the backend with a stub frontend page (Stage A note); health and API still answer."
+
+  - id: repo-016
+    config:
+      - { key: URL, value: "${DEPLOYZ_APP_URL}" }
+      - { key: FORCE_HTTPS, value: "false" }
+      - { key: FILE_STORAGE, value: local }
+    secrets:
+      - { key: SECRET_KEY, format: hex64 }
+      - UTILS_SECRET
+    dependencies: { storage: skip }
+    verify: { healthPath: /_health, appPath: / }
+    notes:
+      - "Node (Koa/Sequelize); reads DATABASE_URL and REDIS_URL, needs URL, SECRET_KEY (64 hex) and UTILS_SECRET at boot. Migrations via `sequelize db:migrate` (pre-deploy). Wave 1 keeps FILE_STORAGE=local so the PostgreSQL + Redis path is measured on its own; S3 (AWS_S3_UPLOAD_BUCKET_NAME) is a later wave."
+
+  # Entries below only attribute a gate-audit outcome to a registry finding (no vendor configuration yet).
+  - id: repo-002
+    findings: [DEPLOY-002]
+  - id: repo-005
+    findings: [DEPLOY-003]
+  - id: repo-022
+    findings: [DEPLOY-003]
+  - id: repo-023
+    findings: [DEPLOY-003]
+  - id: repo-024
+    findings: [DEPLOY-003]
+  - id: repo-041
+    findings: [DEPLOY-003]
+  - id: repo-043
+    findings: [DEPLOY-003]
+  - id: repo-053
+    findings: [DEPLOY-003]
+  - id: repo-055
+    findings: [DEPLOY-003]
+  - id: repo-060
+    findings: [DEPLOY-003]
+  - id: repo-072
+    findings: [DEPLOY-004]
+  - id: repo-074
+    findings: [DEPLOY-004]
+  - id: repo-082
+    findings: [DEPLOY-003]
+  - id: repo-083
+    findings: [DEPLOY-003]
+  - id: repo-084
+    findings: [DEPLOY-004]
+  - id: repo-087
+    findings: [DEPLOY-003]
+  - id: repo-088
+    findings: [DEPLOY-004]
+  - id: repo-089
+    findings: [DEPLOY-004]
+  - id: repo-090
+    findings: [DEPLOY-002]
+  - id: repo-092
+    findings: [DEPLOY-002]
+  - id: repo-094
+    findings: [DEPLOY-003]
+  - id: repo-097
+    findings: [DEPLOY-004]
+  - id: repo-204
+    findings: [DEPLOY-003]
+  - id: repo-206
+    findings: [DEPLOY-003]
+  - id: repo-207
+    findings: [DEPLOY-003]
+  - id: repo-211
+    findings: [DEPLOY-003]
+  - id: repo-220
+    findings: [DEPLOY-003]

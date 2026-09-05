@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-091",
+  "repository": "nextcloud/server",
+  "commit": "132944d52ffaa91986210a1e4d5b71acf00f8117",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "unseen",
+  "cohort": "messy",
+  "customerRealism": "high",
+  "difficulty": 5,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "gate",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "port-missing",
+      "start-command-missing",
+      "health-path-required"
+    ],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": "NEEDS_CONFIGURATION",
+    "configuredFindings": [
+      "port-missing",
+      "start-command-missing",
+      "health-path-required"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": ".devcontainer/Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": null,
+      "healthPath": "/",
+      "healthMode": "vendor_required",
+      "migrationCommand": null,
+      "migrationMode": "none",
+      "postgres": false,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "PASS",
+  "failureStage": null,
+  "rootCause": null,
+  "rootCauseEvidence": null,
+  "findingIds": [],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

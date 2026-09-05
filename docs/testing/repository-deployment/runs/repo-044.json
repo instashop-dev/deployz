@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-044",
+  "repository": "firefly-iii/firefly-iii",
+  "commit": "9e9d6f493218bc7a0652210735febe713b22df87",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NOT_COMPATIBLE",
+  "expectedDeployable": false,
+  "mode": "gate",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "outcome": "correct-reject",
+    "gateFindings": [
+      "unsupported",
+      "dockerfile-missing",
+      "start-command-missing",
+      "health-path-required"
+    ],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [
+      "mysql"
+    ],
+    "configuredVerdict": "NOT_COMPATIBLE",
+    "configuredFindings": [
+      "unsupported",
+      "dockerfile-missing",
+      "start-command-missing",
+      "health-path-required"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": null,
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 5000,
+      "healthPath": "/",
+      "healthMode": "vendor_required",
+      "migrationCommand": null,
+      "migrationMode": "none",
+      "postgres": false,
+      "redis": true,
+      "storage": false,
+      "databaseBindings": [],
+      "redisBindings": [
+        "REDIS_HOST",
+        "REDIS_PORT"
+      ],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "EXPECTED_UNSUPPORTED",
+  "failureStage": "EXPECTED_UNSUPPORTED",
+  "rootCause": "CORRECTLY_UNSUPPORTED",
+  "rootCauseEvidence": "rejected on mysql",
+  "findingIds": [],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

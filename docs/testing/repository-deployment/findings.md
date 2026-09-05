@@ -14,6 +14,10 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | Id | Stage | Root cause | Resolution | Affected |
 | --- | --- | --- | --- | --- |
 | DEPLOY-001 | INFRA_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | every non-Documenso application (by inspection; Wave 1 measures it) |
+| DEPLOY-002 | CONFIG_ERROR | ANALYSIS_BUG | OPEN | repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 (gate audit, analysis version 15) |
+| DEPLOY-003 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 18 expected-deployable repositories the gate rejects (gate audit, analysis version 15) |
+| DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
+| DEPLOY-005 | ENV_BINDING_ERROR | DEPLOYZ_BUG | OPEN | predicted from the gate audit for repo-003, repo-021, repo-035, repo-039 (and every app that reads its database under its own name); Wave 1 measures it |
 
 ---
 
@@ -80,4 +84,131 @@ everywhere the task definitions reference the container image;
 `packages/contracts/src/index.ts` exports its logical id as
 `IMAGE_REFERENCE_PARAMETER`; `apps/api/src/install-parameters.ts`
 (`buildInstallParameters`) sets it to the deployment's application's newest
-READY release with a known image, omitting the key when there is none.
+READY release with a known image, omitting the key when there is none
+(PR #197, main `1f85974`).
+
+---
+
+## DEPLOY-002 — The gate demands values for variables the application does not need
+
+**Stage** CONFIG_ERROR (the vendor must type values before the first
+deploy) · **Root cause** ANALYSIS_BUG · **Resolution** OPEN · **Found**
+Phase 2 gate audit (analysis version 15).
+
+**Behaviour.** `evaluateManifestReadiness` refuses a deployment with
+`required-env-vars-missing` for variables the environment model marks
+required although the application reads them with a default, only inside
+an optional integration, or only in a test/build context. Stage A records
+the analyser side as COMP-023 (bare reads inside guarded branches), COMP-016
+and COMP-041, all "fixed, residual". On the product side the residual is
+not cosmetic: a READY repository becomes NEEDS_CONFIGURATION and the vendor
+must invent values — umami's `CLOUD_MODE`, `CLICKHOUSE_URL`, `KAFKA_*`;
+unleash's fifty rate-limit and `INIT_*` tokens; gatus's `BASE_URL`;
+docuseal's `SIDEKIQ_BASIC_AUTH_PASSWORD`; dashy's `API_TOKEN`,
+`IS_SERVER`, `VUE_APP_CONFIG_VALID`.
+
+**Effect.** Friction, not a failed deployment: with any value the funnel
+proceeds. Stage B configures those keys (`deploy-config.yaml` notes say
+which) so the deployment path is still measured, and counts the
+repositories here.
+
+**Affected.** repo-001 (umami), repo-002 (unleash), repo-008 (gatus),
+repo-051 (docuseal), repo-092 (dashy); repo-090 (pgweb) is the sibling
+`health-path-required` demand (COMP-041) — 6 of the 8 READY expectations
+in the corpus.
+
+**Decision.** Carried to the final report as CONSIDER_FOR_MVP: the fix is
+analyser precision (Stage A's open COMP-023/016/041 work), not a
+deployment-path change.
+
+---
+
+## DEPLOY-003 — The gate rejects 18 expected-deployable repositories on reference files
+
+**Stage** GATE_ERROR (false rejection: the repository never reaches the
+build) · **Root cause** ANALYSIS_MISSING_SIGNAL · **Resolution**
+DEFERRED_WITH_REASON · **Found** Phase 2 gate audit (analysis version 15,
+120 repositories, 65 expected deployable).
+
+**Behaviour.** `evaluateManifestReadiness` returns NOT_COMPATIBLE for 18 of
+the 65 expected-deployable repositories (27.7%; 13 of them
+`customer_realism: high`). Every one is a known Stage A finding:
+
+| Rejection | Repositories | Stage A |
+| --- | --- | --- |
+| `docker-compose-multi-service` from a reference/dev compose file or an optional worker service | repo-024 cal.com, repo-043 huginn, repo-083 windmill, repo-206 nocobase, repo-005 flagsmith, repo-022 ToolJet, repo-082 mattermost, repo-207 khoj, repo-204 shlink (with `rabbitmq`), repo-055 nocodb (with `kubernetes`) | COMP-010, COMP-009, COMP-026 |
+| `local-filesystem` from a declared volume whose S3 alternative or PostgreSQL driver the analyser cannot see | repo-023 requarks/wiki, repo-060 wallabag, repo-087 TandoorRecipes, repo-094 homarr, repo-211 AFFiNE | COMP-024 |
+| `background-worker` for a worker that runs in the web process | repo-053 n8n | COMP-010 |
+| `terraform` / `kubernetes` from an app's own dogfood or optional target | repo-041 coder, repo-220 headlamp | COMP-017/COMP-040, unseen2 residual |
+
+**Effect.** These repositories get a Stage B outcome of GATE_ERROR with no
+AWS cost; the deployment path is never measured for them, and a real
+vendor with one of these applications is turned away at analysis.
+
+**Why deferred.** Stage A already owns these as open analyser findings
+with their own fix plan (reference-file scoping, optional-service
+classification, data-directory alternatives), and none is a
+deployment-path defect. Changing the rejection rules during Stage B would
+move the Stage A baseline mid-audit; the final report ranks the item
+(FIX_BEFORE_MVP candidate by realistic repositories affected) and the
+rerun after any Stage A fix is `pnpm benchmark:deploy --gate --finding
+DEPLOY-003`.
+
+---
+
+## DEPLOY-004 — The gate accepts 6 expected-unsupported repositories
+
+**Stage** GATE_ERROR (false acceptance) · **Root cause**
+ANALYSIS_MISSING_SIGNAL · **Resolution** DEFERRED_WITH_REASON · **Found**
+Phase 2 gate audit (analysis version 15).
+
+**Behaviour.** Six repositories Stage A expects to be NOT_COMPATIBLE come
+out NEEDS_CONFIGURATION: repo-072 zulip (COMP-002, RabbitMQ read with a
+default), repo-074 vaultwarden (COMP-025, undeclared data directory),
+repo-084 nango and repo-088 netbox (COMP-015, a declared worker outside
+Node), repo-089 Stirling-PDF and repo-097 plausible (COMP-037, unsupported
+engines in JVM/Elixir manifests).
+
+**Effect.** Stage B never provisions them: an expected-unsupported entry
+is planned `gate-only` (README "Rollout"), so no AWS resource is created
+for a false acceptance and the result records GATE_ERROR. A real vendor
+would reach the install and fail at runtime (a missing broker, a lost data
+directory, a worker that never starts).
+
+**Why deferred.** As DEPLOY-003: open Stage A findings with their own plan,
+no deployment-path change involved. Ranked in the final report.
+
+---
+
+## DEPLOY-005 — Applications that read the database or storage under their own variable names get no binding
+
+**Stage** ENV_BINDING_ERROR (predicted; Wave 1 measures it) · **Root
+cause** DEPLOYZ_BUG · **Resolution** OPEN · **Found** Phase 2 gate audit,
+from the manifest facts the deployment would act on.
+
+**Behaviour.** The deployment injects the managed database under
+`DATABASE_URL` + `DATABASE_HOST/PORT/NAME/USER/PASSWORD` and the bucket
+under `AWS_S3_BUCKET`, plus whatever names the manifest's `envBindings`
+add (Stage A phase 2, applied post-install by
+`packages/relay/src/binding-alias.ts`). In the gate audit the manifests of
+the Wave 1 repositories that read the database under their own names carry
+only the standard names: repo-003 kutt (`DB_HOST`, `DB_PORT`, `DB_NAME`,
+`DB_USER`, `DB_PASSWORD`), repo-021 directus (`DB_HOST`, …,
+`DB_DATABASE`), repo-035 ihatemoney (`SQLALCHEMY_DATABASE_URI`), repo-039
+memos (`MEMOS_DSN`); only ghostfolio's `POSTGRES_*` and outline's
+`AWS_S3_UPLOAD_BUCKET_NAME` were picked up. There is no vendor surface to
+add a binding (the configuration screen stores literal values, and the
+bucket name and database address exist only after the install), so the
+application boots without a database.
+
+**Effect.** For such an application the first task cannot connect
+(`DATABASE_ERROR` / `ENV_BINDING_ERROR`); the install fails on the health
+check or the app runs on a default engine (SQLite) that is not durable.
+
+**Generic fix candidates.** (a) Analyser: read the app's own connection
+variable names where the Stage A notes show them (env samples, settings
+modules, `os.Getenv`/`viper` reads) — the phase-2 alias detection widened
+to non-Node shapes; (b) product: let the vendor map a provisioned value to
+a variable name on the configuration screen (`DEPLOYZ_DATABASE_URL`
+placeholders resolved by the relay at install), which needs no analyser
+signal. Decision after Wave 1 evidence.

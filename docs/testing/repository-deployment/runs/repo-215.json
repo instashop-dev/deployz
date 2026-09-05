@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-215",
+  "repository": "pixelfed/pixelfed",
+  "commit": "25e1384dbebf4fa779d2e710ed71fb0a62975db7",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "unseen2",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NOT_COMPATIBLE",
+  "expectedDeployable": false,
+  "mode": "gate",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "outcome": "correct-reject",
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "start-command-missing"
+    ],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [
+      "background-worker",
+      "docker-compose-multi-service"
+    ],
+    "configuredVerdict": "NOT_COMPATIBLE",
+    "configuredFindings": [
+      "unsupported",
+      "unsupported",
+      "start-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 8080,
+      "healthPath": "/api/pixelfed/v2/status",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "none",
+      "postgres": false,
+      "redis": true,
+      "storage": true,
+      "databaseBindings": [],
+      "redisBindings": [
+        "REDIS_HOST",
+        "REDIS_PORT"
+      ],
+      "storageBindings": [
+        "AWS_S3_BUCKET"
+      ],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "EXPECTED_UNSUPPORTED",
+  "failureStage": "EXPECTED_UNSUPPORTED",
+  "rootCause": "CORRECTLY_UNSUPPORTED",
+  "rootCauseEvidence": "rejected on background-worker, docker-compose-multi-service",
+  "findingIds": [],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

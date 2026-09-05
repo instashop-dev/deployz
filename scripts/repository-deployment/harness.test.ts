@@ -110,7 +110,7 @@ describe('deploy-config', () => {
   it('parses and defaults', () => {
     expect(DEPLOY_CONFIG.waves['wave-1']).toEqual(['repo-002', 'repo-001']);
     expect(configFor(DEPLOY_CONFIG, 'repo-001').secrets).toEqual(['JWT_SECRET', { key: 'SECRET_KEY', format: 'hex64' }]);
-    expect(configFor(DEPLOY_CONFIG, 'repo-999')).toEqual({ id: 'repo-999', notes: [] });
+    expect(configFor(DEPLOY_CONFIG, 'repo-999')).toEqual({ id: 'repo-999', findings: [], notes: [] });
     expect(providedKeys(configFor(DEPLOY_CONFIG, 'repo-001'))).toEqual(['APP_URL', 'DB_CLIENT', 'JWT_SECRET', 'SECRET_KEY']);
     expect(appUrlKeys(configFor(DEPLOY_CONFIG, 'repo-001'))).toEqual(['APP_URL']);
     expect(generateSecret('hex64')).toMatch(/^[0-9a-f]{64}$/);
@@ -138,6 +138,8 @@ describe('deploy-config', () => {
     const ids = new Set(benchmark.repositories.map((entry) => entry.id));
     for (const entry of config.repositories) expect(ids, `${entry.id} is not a Stage A id`).toContain(entry.id);
     for (const members of Object.values(config.waves)) for (const id of members) expect(ids).toContain(id);
+    const registry = new Set([...readFileSync(join(STAGE_B_DIR, 'findings.md'), 'utf8').matchAll(/^\| (DEPLOY-\d{3}) \|/gm)].map((m) => m[1]!));
+    for (const entry of config.repositories) for (const id of entry.findings) expect(registry, `${entry.id} references unregistered ${id}`).toContain(id);
   });
 });
 
@@ -269,8 +271,8 @@ describe('selection and CLI', () => {
   });
 
   it('points Deployz at the fork the installation can read', () => {
-    expect(repositoryUsedFor(BENCHMARK.repositories[0]!, { id: 'repo-001', notes: [] })).toEqual({ repositoryUsed: 'instashop-dev/api', repositoryForm: 'fork' });
-    expect(repositoryUsedFor(BENCHMARK.repositories[0]!, { id: 'repo-001', fork: 'instashop-dev/acme-api', notes: [] }).repositoryUsed).toBe('instashop-dev/acme-api');
+    expect(repositoryUsedFor(BENCHMARK.repositories[0]!, { id: 'repo-001', findings: [], notes: [] })).toEqual({ repositoryUsed: 'instashop-dev/api', repositoryForm: 'fork' });
+    expect(repositoryUsedFor(BENCHMARK.repositories[0]!, { id: 'repo-001', fork: 'instashop-dev/acme-api', findings: [], notes: [] }).repositoryUsed).toBe('instashop-dev/acme-api');
   });
 });
 
@@ -334,10 +336,10 @@ describe('gate', () => {
   });
 
   it('follows the health-path precedence', () => {
-    expect(resolveHealthPath({ id: 'repo-001', notes: [], verify: { healthPath: '/api/health' } }, '/health', 'explicit', undefined)).toEqual({ path: '/api/health', source: 'stage-b' });
-    expect(resolveHealthPath({ id: 'repo-001', notes: [] }, '/health', 'explicit', '/status')).toEqual({ path: '/health', source: 'manifest' });
-    expect(resolveHealthPath({ id: 'repo-001', notes: [] }, '/health', 'vendor_required', '/status')).toEqual({ path: '/status', source: 'repository-evidence' });
-    expect(resolveHealthPath({ id: 'repo-001', notes: [] }, null, null, undefined)).toEqual({ path: '/', source: 'fallback' });
+    expect(resolveHealthPath({ id: 'repo-001', findings: [], notes: [], verify: { healthPath: '/api/health' } }, '/health', 'explicit', undefined)).toEqual({ path: '/api/health', source: 'stage-b' });
+    expect(resolveHealthPath({ id: 'repo-001', findings: [], notes: [] }, '/health', 'explicit', '/status')).toEqual({ path: '/health', source: 'manifest' });
+    expect(resolveHealthPath({ id: 'repo-001', findings: [], notes: [] }, '/health', 'vendor_required', '/status')).toEqual({ path: '/status', source: 'repository-evidence' });
+    expect(resolveHealthPath({ id: 'repo-001', findings: [], notes: [] }, null, null, undefined)).toEqual({ path: '/', source: 'fallback' });
   });
 });
 

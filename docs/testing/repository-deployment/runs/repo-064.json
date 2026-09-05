@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-064",
+  "repository": "casdoor/casdoor",
+  "commit": "92a601cd611f94eebb153a70ef8db7f59ae34d20",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "gate",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "health-path-required",
+      "migration-command-missing"
+    ],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": "NEEDS_CONFIGURATION",
+    "configuredFindings": [
+      "health-path-required",
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 8000,
+      "healthPath": "/",
+      "healthMode": "vendor_required",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": false,
+      "storage": true,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [],
+      "storageBindings": [
+        "AWS_S3_BUCKET"
+      ],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "PASS",
+  "failureStage": null,
+  "rootCause": null,
+  "rootCauseEvidence": null,
+  "findingIds": [],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

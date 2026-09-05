@@ -277,6 +277,7 @@ export async function runGateAudit(
       const raw = await session.analyse(entry);
       const { gate } = gateSection(entry, raw, repoConfig, ANALYSIS_VERSION);
       result.gate = gate;
+      result.findingIds = [...repoConfig.findings];
       if (!existing || existing.mode === 'gate') {
         result.deployzCommit = sha;
         result.mode = 'gate';
@@ -394,6 +395,7 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
   const repoConfig = configFor(config, entry.id);
   const runId = stageBRunId(entry.id);
   const result = emptyResult(identityFor(entry, series.sha, 'deploy', runId));
+  result.findingIds = [...repoConfig.findings];
   const evidence = openLedger(
     options.evidenceDir,
     series.config,

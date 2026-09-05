@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-211",
+  "repository": "toeverything/AFFiNE",
+  "commit": "2365c365574829b0cc72219e85fc412c498d2b00",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "unseen2",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 3,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "gate",
+  "gate": {
+    "status": "FAIL",
+    "verdict": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "outcome": "false-rejection",
+    "gateFindings": [
+      "unsupported",
+      "health-path-required",
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "AFFINE_PRIVATE_KEY",
+      "DATABASE_URL",
+      "NAPI_RS_NATIVE_LIBRARY_PATH"
+    ],
+    "missingKeys": [
+      "AFFINE_PRIVATE_KEY",
+      "NAPI_RS_NATIVE_LIBRARY_PATH"
+    ],
+    "unsupported": [
+      "local-filesystem"
+    ],
+    "configuredVerdict": "NOT_COMPATIBLE",
+    "configuredFindings": [
+      "unsupported",
+      "health-path-required",
+      "required-env-vars-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": ".render/Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".render",
+      "port": 3010,
+      "healthPath": "/",
+      "healthMode": "vendor_required",
+      "migrationCommand": "yarn cli admit-legacy-context-blobs && yarn prisma migrate deploy && yarn cli run",
+      "migrationMode": "pre_deploy",
+      "postgres": true,
+      "redis": true,
+      "storage": false,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "REDIS_URL"
+      ],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "GATE_ERROR",
+  "failureStage": "GATE_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "false-rejection: unsupported, health-path-required, required-env-vars-missing",
+  "findingIds": [
+    "DEPLOY-003"
+  ],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

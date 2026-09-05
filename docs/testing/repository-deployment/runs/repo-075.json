@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-075",
+  "repository": "dgtlmoon/changedetection.io",
+  "commit": "050172129e84b256a775e693080ec3d22752d999",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NOT_COMPATIBLE",
+  "expectedDeployable": false,
+  "mode": "gate",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "outcome": "correct-reject",
+    "gateFindings": [
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "MALLOC_ARENA_MAX"
+    ],
+    "missingKeys": [
+      "MALLOC_ARENA_MAX"
+    ],
+    "unsupported": [
+      "local-filesystem"
+    ],
+    "configuredVerdict": "NOT_COMPATIBLE",
+    "configuredFindings": [
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 5000,
+      "healthPath": "/status",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "none",
+      "postgres": false,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "EXPECTED_UNSUPPORTED",
+  "failureStage": "EXPECTED_UNSUPPORTED",
+  "rootCause": "CORRECTLY_UNSUPPORTED",
+  "rootCauseEvidence": "rejected on local-filesystem",
+  "findingIds": [],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

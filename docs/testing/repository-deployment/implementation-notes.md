@@ -150,7 +150,7 @@ records `repositoryForm: "fork"`.
 | --- | --- | --- |
 | 0 Audit + architecture | this note, `README.md`, `findings.md` with DEPLOY-001 | Done — this PR |
 | 1 Harness | `scripts/repository-deployment/`, `pnpm benchmark:deploy`, tests, `deploy-config.yaml` skeleton | Done — 37 harness tests (`pnpm vitest run --project repository-deployment`); the gate audit smoke-ran offline on repo-001/repo-013 |
-| 2 B1 gate audit, all 100 | `runs/*.json` gate sections, `summary.*`, gate findings, analyser fixes with regression tests where in scope | Pending |
+| 2 B1 gate audit, all 100 | `runs/*.json` gate sections, `summary.*`, gate findings, analyser fixes with regression tests where in scope | Done — 120 of 120 analysed offline at analysis version 15; gate 47 correct accepts / 49 correct rejects / 6 false acceptances / 18 false rejections (identical to the Stage A v15 run); deterministic on rerun; DEPLOY-002/003/004 recorded, DEPLOY-005 predicted; no analyser change (all mistakes are open Stage A findings, deferred with reason) |
 | 3a DEPLOY-001 fix | image parameter + INSTALL payload + relay pass-through + tests + republish recipe | Pending |
 | 3 Wave 1 (10) | full funnel, serial, systemic fixes | Pending |
 | 4 Wave 2 (15) | full funnel, wave-wide cleanup audit | Pending |
@@ -170,3 +170,37 @@ pre-deploy command, ports without `EXPOSE`, monorepo Docker build context,
 generated secrets reaching the task before the first request, non-Node
 environment schemas, container health commands that need `curl`, and the
 RDS `rds.force_ssl` default for clients that connect without TLS.
+
+## 6. Phase 2 record — the gate audit
+
+`pnpm benchmark:deploy --gate` over all 120 entries (100 + `unseen2`),
+offline on the Stage A snapshot cache, at analysis version 15 on Deployz
+`3be8bb8`. Every entry analysed; nothing failed. The Stage B view of the
+gate matches the Stage A v15 run exactly (6 false acceptances, 18 false
+rejections), which is the expected result: the harness drives the same
+`runApplicationAnalysis` → `evaluateManifestReadiness` path and adds only
+the Stage B reading (expected deployable vs verdict) and the offline B2
+evaluation with `deploy-config.yaml` applied.
+
+What the audit decided:
+
+- **No analyser change in Phase 2.** All 24 gate mistakes are attributed
+  to open Stage A findings (COMP-002/009/010/015/017/024/025/026/037/040);
+  they are recorded as DEPLOY-003 (false rejections) and DEPLOY-004
+  (false acceptances) and deferred to the Stage A plan so the baseline
+  does not move mid-audit.
+- **Configuration over-demands** (DEPLOY-002): six READY expectations
+  become NEEDS_CONFIGURATION on keys the app does not need; the wave
+  configuration provides them so the deployment path is still measured.
+- **Predicted binding gap** (DEPLOY-005): the manifests of kutt, directus,
+  ihatemoney and memos carry no alias for the names those apps read the
+  database under. Wave 1 confirms or refutes it before any fix.
+- **Wave 1 configuration validated offline:** all ten Wave 1 entries are
+  READY once `deploy-config.yaml` is applied (`gate.configuredVerdict`),
+  so no Wave 1 attempt can stop at CONFIG_ERROR for a known reason.
+- **Two harness traps** found and fixed on the way: the Stage A cache
+  copied from the older Stage A worktree lacked the blobs the COMP-033
+  descriptor fetch reads (three cloud-descriptor repositories came out as
+  false acceptances until the 120-repository cache from the v15 run was
+  used), and the harness imports the built `dist`, so `pnpm build` must
+  precede a run (analysis version 14 was reported until rebuilt).
