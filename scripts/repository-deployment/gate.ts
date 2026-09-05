@@ -78,6 +78,7 @@ export function gateSection(
         outcome: null,
         gateFindings: [],
         requiredKeys: [],
+        missingKeys: [],
         unsupported: [],
         configuredVerdict: null,
         configuredFindings: [],
@@ -102,6 +103,7 @@ export function gateSection(
       outcome,
       gateFindings: actual.gateFindings,
       requiredKeys: actual.requiredEnvVars,
+      missingKeys: missingKeys(raw.gate),
       unsupported: actual.unsupported,
       configuredVerdict: configured.gate.state,
       configuredFindings: configured.gate.findings.map((finding) => finding.id),
@@ -113,6 +115,13 @@ export function gateSection(
     manifest: raw.manifest,
     configuredManifest: configured.manifest,
   };
+}
+
+/** The keys the gate's `required-env-vars-missing` finding names — what a vendor must still provide. */
+export function missingKeys(gate: ManifestReadinessResult): string[] {
+  const finding = gate.findings.find((f) => f.id === 'required-env-vars-missing');
+  const match = finding ? /no value yet: (.+?)\. Set them/.exec(finding.message) : null;
+  return match?.[1] ? match[1].split(',').map((key) => key.trim()).filter(Boolean).sort() : [];
 }
 
 /** The manifest facts a deployment acts on, in the result's shape. */

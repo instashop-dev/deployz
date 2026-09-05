@@ -12,7 +12,7 @@ import { classifyFailure } from './classify.js';
 import { appUrlKeys, configFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
 import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps } from './deploy.js';
 import { sanitize } from './evidence.js';
-import { gateOutcome, manifestFacts, overridesToManifest } from './gate.js';
+import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
 import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
 import {
   BENCHMARK_PATH,
@@ -184,7 +184,7 @@ describe('result model', () => {
   it('summarizes the funnel and the true-deployment-success metric', () => {
     const pass: StageBResult = {
       ...emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'run-1')),
-      gate: { ...emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'run-1')).gate, status: 'PASS', verdict: 'NEEDS_CONFIGURATION', outcome: 'correct-accept', configuredVerdict: 'READY' },
+      gate: { ...emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'run-1')).gate, status: 'PASS', verdict: 'NEEDS_CONFIGURATION', outcome: 'correct-accept', configuredVerdict: 'READY', missingKeys: ['APP_KEY'] },
       build: { ...emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'run-1')).build, status: 'PASS' },
       deployment: { ...emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'run-1')).deployment, status: 'PASS' },
       runtime: { ...emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'run-1')).runtime, ecs: 'HEALTHY', alb: 'HEALTHY', https: 'PASS' },
@@ -292,6 +292,11 @@ describe('gate', () => {
       redisRequired: false,
     });
     expect(overridesToManifest(undefined)).toEqual({});
+  });
+
+  it('reads the keys the gate blocks on out of its finding', () => {
+    expect(missingKeys({ state: 'NEEDS_CONFIGURATION', findings: [{ id: 'required-env-vars-missing', category: 'configuration', severity: 'error', message: "This app requires environment variables that have no value yet: SECRET_KEY, APP_URL. Set them in the application's Configuration screen before deploying." }] })).toEqual(['APP_URL', 'SECRET_KEY']);
+    expect(missingKeys({ state: 'READY', findings: [] })).toEqual([]);
   });
 
   it('records the manifest facts a deployment acts on', () => {

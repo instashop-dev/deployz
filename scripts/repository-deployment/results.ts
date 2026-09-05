@@ -75,8 +75,10 @@ export const gateResultSchema = z
     analysisVerdict: z.string().nullable(),
     outcome: z.enum(GATE_OUTCOMES).nullable(),
     gateFindings: z.array(z.string()),
-    /** Required env keys the gate says have no value yet. */
+    /** Every env key the manifest marks required (before Deployz-provided keys are subtracted). */
     requiredKeys: z.array(z.string()),
+    /** The keys the gate actually blocks on: required, not provided by Deployz, no vendor value. */
+    missingKeys: z.array(z.string()),
     unsupported: z.array(z.string()),
     /** The gate's verdict once the Stage B vendor configuration is applied (offline evaluation). */
     configuredVerdict: z.enum(COMPATIBILITY_STATES).nullable(),
@@ -282,6 +284,7 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
       outcome: null,
       gateFindings: [],
       requiredKeys: [],
+      missingKeys: [],
       unsupported: [],
       configuredVerdict: null,
       configuredFindings: [],
