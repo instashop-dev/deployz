@@ -3525,18 +3525,29 @@ export async function buildServer({
       );
     }
 
-    const [row] = await db
-      .insert(schema.releases)
-      .values({
-        applicationId: id,
-        version: body.version,
-        gitSha: body.gitSha,
-        migrationCommand: body.migrationCommand ?? null,
-        buildStatus: 'PENDING',
-        createdBy: request.user?.id ?? null,
-        updatedBy: request.user?.id ?? null,
-      })
-      .returning();
+    const row = await db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(schema.releases)
+        .values({
+          applicationId: id,
+          version: body.version,
+          gitSha: body.gitSha,
+          migrationCommand: body.migrationCommand ?? null,
+          buildStatus: 'PENDING',
+          createdBy: request.user?.id ?? null,
+          updatedBy: request.user?.id ?? null,
+        })
+        .returning();
+      await recordEvent(tx, {
+        organizationId,
+        eventType: 'release.created',
+        actorType: 'user',
+        actorId: request.user!.id,
+        releaseId: inserted!.id,
+        payload: { schemaVersion: 1, applicationId: id },
+      });
+      return inserted;
+    });
     // A release with no build is a release that can never deploy: the
     // §21 image digest only exists once CodeBuild has pushed the image.
     // The worker fetches the repository source and starts that build.
@@ -3853,6 +3864,21 @@ export async function buildServer({
         payload: targetPayload,
         requestedBy: request.user?.id ?? null,
       });
+      if (created) {
+        // Telemetry alignment: the single-deploy route and auto-deploy go
+        // through markJobRequested and emit deploy.requested; bulk targets
+        // used to be queued here directly and got no event. inFlightState is
+        // null to preserve bulk's exact behaviour — it never advanced a
+        // deployment's state the way the single-deploy route does.
+        await markJobRequested({
+          deployment,
+          jobId: job.id,
+          inFlightState: null,
+          eventType: 'deploy.requested',
+          actorId: request.user?.id ?? null,
+          releaseId: body.releaseId,
+        });
+      }
       results.push({
         deploymentId: deployment.id,
         status: created ? 'REQUESTED' : 'ALREADY_REQUESTED',
@@ -5487,6 +5513,21 @@ export async function buildServer({
           result: 'pending',
         });
       }
+      // This tx only ever runs on the FIRST successful enrollment (the
+      // enrollmentUsedAt guard above already idempotented same-relay replays
+      // and refused second parties) — so this IS relay.connected. Heartbeats
+      // never reach this code; a re-enrollment after an admin relay reset
+      // (fresh enrollment code) is a distinguishable new first connection and
+      // emits again by design. The deploymentId column is the join key.
+      await recordEvent(tx, {
+        organizationId: deployment.organizationId,
+        eventType: 'relay.connected',
+        actorType: 'relay',
+        actorId: body.installationId!,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        payload: { schemaVersion: 1 },
+      });
       // In the register tx, reached only on the first registration (the
       // enrollmentUsedAt guard above already idempotented replays).
       await recordEvent(tx, {

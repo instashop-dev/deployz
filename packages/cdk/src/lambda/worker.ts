@@ -29,6 +29,59 @@ import type { S3Client } from '../quick-create/publish.js';
 
 export type { S3Client };
 
+// ── Release build events ────────────────────────────────────────────────
+//
+// This package cannot import apps/api/src/events.ts (that module is not one
+// of @deployz/api's exported entry points), so the release.build_* rows are
+// written directly here, the same way the operation.* watchdog inserts are.
+// Payloads carry only ids and stable codes — never raw CodeBuild logs or
+// exception text (the human-readable failure reason lives on
+// releases.failure_reason, not in the event log).
+
+type ReleaseBuildEventType =
+  | 'release.build_started'
+  | 'release.build_completed'
+  | 'release.build_failed';
+
+/** Stable lowercase failure codes mirroring the actual failure paths. */
+type ReleaseBuildFailureCode = 'build_failed' | 'build_cancelled' | 'build_timeout';
+
+/**
+ * Map a CodeBuild terminal status onto the stable vocabulary. Anything not
+ * clearly a cancel or a timeout is a plain build failure.
+ */
+function buildFailureCode(status: string | undefined): ReleaseBuildFailureCode {
+  if (status === 'STOPPED' || status === 'STOPPING') return 'build_cancelled';
+  if (status === 'TIMED_OUT') return 'build_timeout';
+  return 'build_failed';
+}
+
+async function insertReleaseBuildEvent(
+  tx: Pick<RuntimeDb, 'insert'>,
+  event: {
+    organizationId: string;
+    releaseId: string;
+    applicationId: string;
+    eventType: ReleaseBuildEventType;
+    result: 'pending' | 'success' | 'failure';
+    failureCode?: ReleaseBuildFailureCode;
+  },
+): Promise<void> {
+  await tx.insert(schema.eventLogs).values({
+    actorType: 'system',
+    actorId: 'build-worker',
+    organizationId: event.organizationId,
+    releaseId: event.releaseId,
+    eventType: event.eventType,
+    result: event.result,
+    payload: {
+      schemaVersion: 1,
+      applicationId: event.applicationId,
+      ...(event.failureCode !== undefined ? { failureCode: event.failureCode } : {}),
+    },
+  });
+}
+
 // ── Event shapes ─────────────────────────────────────────────────────────
 
 export interface CodeBuildStateChangeEvent {
@@ -150,7 +203,7 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
   const { release, application } = row;
   const installationId = application.githubInstallationId;
   if (!installationId) {
-    await failRelease(db, releaseId, 'No GitHub installation is linked to this application');
+    await failRelease(db, releaseId, 'No GitHub installation is linked to this application', 'build_failed');
     return;
   }
 
@@ -212,30 +265,72 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
     // Pin the release to this build attempt so a terminal event from any
     // earlier attempt (redelivered, or racing a retried build) reads as
     // stale instead of corrupting the result.
-    await db
-      .update(schema.releases)
-      .set({
-        buildStatus: 'BUILDING',
-        releaseStatus: 'BUILDING',
-        ...(buildId ? { currentBuildId: buildId } : {}),
-      })
-      .where(eq(schema.releases.id, releaseId));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.releases)
+        .set({
+          buildStatus: 'BUILDING',
+          releaseStatus: 'BUILDING',
+          ...(buildId ? { currentBuildId: buildId } : {}),
+        })
+        .where(eq(schema.releases.id, releaseId));
+      await insertReleaseBuildEvent(tx, {
+        organizationId: application.organizationId,
+        releaseId,
+        applicationId: application.id,
+        eventType: 'release.build_started',
+        result: 'pending',
+      });
+    });
   } catch (error) {
-    await failRelease(db, releaseId, error instanceof Error ? error.message : String(error));
+    await failRelease(
+      db,
+      releaseId,
+      error instanceof Error ? error.message : String(error),
+      'build_failed',
+    );
     throw error;
   }
 }
 
-async function failRelease(db: RuntimeDb, releaseId: string, reason: string): Promise<void> {
+async function failRelease(
+  db: RuntimeDb,
+  releaseId: string,
+  reason: string,
+  failureCode: ReleaseBuildFailureCode,
+): Promise<void> {
   console.error(`release ${releaseId} build failed: ${reason}`);
-  await db
-    .update(schema.releases)
-    .set({
-      buildStatus: 'FAILED',
-      releaseStatus: 'FAILED',
-      failureReason: reason.slice(0, 500),
-    })
-    .where(eq(schema.releases.id, releaseId));
+  // The event needs organization_id (releases has no such column), so the
+  // application join resolves it — same join buildRelease and
+  // recordBuildResult make. The release may have been deleted meanwhile;
+  // the update still runs (no-op) and only an existing release emits.
+  const rows = await db
+    .select({ application: schema.applications })
+    .from(schema.releases)
+    .innerJoin(schema.applications, eq(schema.releases.applicationId, schema.applications.id))
+    .where(eq(schema.releases.id, releaseId))
+    .limit(1);
+  const application = rows[0]?.application;
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.releases)
+      .set({
+        buildStatus: 'FAILED',
+        releaseStatus: 'FAILED',
+        failureReason: reason.slice(0, 500),
+      })
+      .where(eq(schema.releases.id, releaseId));
+    if (application) {
+      await insertReleaseBuildEvent(tx, {
+        organizationId: application.organizationId,
+        releaseId,
+        applicationId: application.id,
+        eventType: 'release.build_failed',
+        result: 'failure',
+        failureCode,
+      });
+    }
+  });
 }
 
 // ── CONFIG_UPDATE ────────────────────────────────────────────────────────
@@ -366,11 +461,13 @@ export async function recordBuildResult(
   if (!releaseId) return; // A build the control plane did not start.
 
   const releaseRows = await db
-    .select()
+    .select({ release: schema.releases, application: schema.applications })
     .from(schema.releases)
+    .innerJoin(schema.applications, eq(schema.releases.applicationId, schema.applications.id))
     .where(eq(schema.releases.id, releaseId))
     .limit(1);
-  const release = releaseRows[0];
+  const release = releaseRows[0]?.release;
+  const application = releaseRows[0]?.application;
   if (!release) return;
 
   // Build-attempt correlation: an event for any build other than the one
@@ -407,20 +504,32 @@ export async function recordBuildResult(
       db,
       releaseId,
       `CodeBuild reported ${status}${detail === null ? '' : ` — ${detail}`}`,
+      buildFailureCode(status),
     );
     return;
   }
 
   const imageDigest = readVariable(exported, 'IMAGE_DIGEST');
   if (!imageDigest) {
-    await failRelease(db, releaseId, 'Build succeeded without an image digest');
+    await failRelease(db, releaseId, 'Build succeeded without an image digest', 'build_failed');
     return;
   }
 
-  await db
-    .update(schema.releases)
-    .set({ imageDigest, buildStatus: 'SUCCEEDED', releaseStatus: 'READY' })
-    .where(eq(schema.releases.id, releaseId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.releases)
+      .set({ imageDigest, buildStatus: 'SUCCEEDED', releaseStatus: 'READY' })
+      .where(eq(schema.releases.id, releaseId));
+    if (application) {
+      await insertReleaseBuildEvent(tx, {
+        organizationId: application.organizationId,
+        releaseId,
+        applicationId: application.id,
+        eventType: 'release.build_completed',
+        result: 'success',
+      });
+    }
+  });
 }
 
 // ── Dispatch ─────────────────────────────────────────────────────────────
@@ -801,7 +910,7 @@ export async function sweepStuckBuilds(deps: WorkerDeps, now: Date = new Date())
   for (const release of stuck) {
     const build = buildsById.get(normalizeBuildId(release.currentBuildId as string));
     if (!build) {
-      await failRelease(db, release.id, 'CodeBuild no longer has a record of this build');
+      await failRelease(db, release.id, 'CodeBuild no longer has a record of this build', 'build_timeout');
       swept += 1;
       continue;
     }

@@ -232,13 +232,15 @@ describe('deployment lifecycle — states, events, and removal', () => {
       .set({ state: 'HEALTHY' })
       .where(eq(schema.deployments.id, deployment.id));
 
-    await send(
+    const version = `9.9.${crypto.randomUUID().slice(0, 4)}`;
+    const created = await send(
       app,
       'POST',
       `/api/applications/${applicationId}/releases`,
-      { version: `9.9.${crypto.randomUUID().slice(0, 4)}`, gitSha: 'a'.repeat(40) },
+      { version, gitSha: 'a'.repeat(40) },
       { cookie },
     );
+    expect(created.statusCode).toBe(201);
 
     const [row] = await db
       .select()
@@ -247,6 +249,17 @@ describe('deployment lifecycle — states, events, and removal', () => {
     // UPDATE_AVAILABLE was read by the billing rule and the bulk-deploy gate
     // but written nowhere, so the fleet could never show who needed updating.
     expect(row!.state).toBe('UPDATE_AVAILABLE');
+
+    // release.created is recorded in the same transaction as the insert.
+    const [release] = await db.select().from(schema.releases).where(eq(schema.releases.version, version));
+    const releaseCreated = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.eventType, 'release.created'));
+    const event = releaseCreated.find((candidate) => candidate.releaseId === release!.id);
+    expect(event).toBeDefined();
+    expect(event!.payload).toMatchObject({ schemaVersion: 1, applicationId });
+    expect(event!.result).toBe('success');
   });
 });
 

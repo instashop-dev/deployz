@@ -51,6 +51,9 @@ export type DeploymentEventType =
   // The watchdog re-offered a stuck job to a live relay (reconcile-before-
   // fail); the describe-first executors converge on real AWS state.
   | 'operation.requeued'
+  // Funnel: a deployment record was created (manual POST /api/deployments or
+  // a deploy link) — origin attribution rides in payload.source.
+  | 'deployment.created'
   // A derived deployment `step` (apps/api/src/deployment-status.ts) finished —
   // written by apps/api/src/step-timings.ts's advanceStepTimings, from the
   // relay-authenticated write paths only. Not a lifecycle transition; the
@@ -63,6 +66,10 @@ export type DeploymentEventType =
   | 'health.unhealthy'
   | 'health.recovered'
   | 'ecs.rollout_failed'
+  // The relay's first successful enrollment (written inside the register tx —
+  // replays early-return before it). A re-enrollment after an admin relay
+  // reset is a distinguishable new first connection and emits again.
+  | 'relay.connected'
   | 'relay.reenrollment.requested'
   // domain family — custom-domains MVP.
   | 'domain.added'
@@ -90,7 +97,15 @@ export type DeploymentEventType =
   | 'application.analysis_failed'
   | 'application.preflight_evaluated'
   | 'application.configuration_saved'
-  | 'customer.created';
+  | 'customer.created'
+  // release/build telemetry. `release.created` is written by the release
+  // route; `release.build_*` by the cdk worker (packages/cdk/src/lambda/
+  // worker.ts, which cannot import this module and writes the rows directly —
+  // same vocabulary, same payload contract).
+  | 'release.created'
+  | 'release.build_started'
+  | 'release.build_completed'
+  | 'release.build_failed';
 
 export interface DeploymentEvent {
   readonly organizationId: string;

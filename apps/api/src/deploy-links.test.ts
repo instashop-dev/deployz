@@ -241,6 +241,16 @@ describe('deploy links', () => {
     expect(events[0]!.actorType).toBe('user');
     expect(events[0]!.actorId).toBe(orgA.userId);
 
+    // The shared creation funnel: a deploy-link deployment records
+    // deployment.created with the source the insert actually wrote.
+    const created = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deployment.created'), eq(schema.eventLogs.deploymentId, deploymentId)));
+    expect(created).toHaveLength(1);
+    expect(created[0]!.payload).toMatchObject({ schemaVersion: 1, source: 'deploy_link' });
+    expect(created[0]!.actorId).toBe(orgA.userId);
+
     const [link] = await db.select().from(schema.deployLinks).where(eq(schema.deployLinks.id, publicId));
     // Only the sha256 hash is stored — never the raw secret, and no 'token' column exists.
     expect(link!.tokenHash).toBeDefined();
@@ -514,7 +524,19 @@ describe('deploy links', () => {
       }),
     });
     expect(manual.statusCode, manual.body).toBe(201);
-    expect((manual.json() as { source: string }).source).toBe('manual');
+    const body = manual.json() as { source: string; id: string };
+    expect(body.source).toBe('manual');
+
+    // The shared creation funnel records deployment.created with the manual
+    // origin on the same handle as the insert.
+    const created = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deployment.created'), eq(schema.eventLogs.deploymentId, body.id)));
+    expect(created).toHaveLength(1);
+    expect(created[0]!.payload).toMatchObject({ schemaVersion: 1, source: 'manual' });
+    expect(created[0]!.actorType).toBe('user');
+    expect(created[0]!.actorId).toBe(orgA.userId);
   });
 
   // ── Phase 3: the hosted customer page's public flow routes ────────────────
