@@ -107,7 +107,10 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // database, cache, storage, health check, migrations, env vars — each with
 // source, confidence and evidence) — stored metadata from Version 12 must
 // re-run so the readiness page can show what was detected.
-export const ANALYSIS_VERSION = 13;
+// Version 14 stops classifying secrets shared with another party
+// (WEBHOOK_SECRET, HMAC_SECRET, LICENSE_SECRET, …) as Deployz-generated —
+// stored env-var models from Version 13 must re-run.
+export const ANALYSIS_VERSION = 14;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

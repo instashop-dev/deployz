@@ -4606,3 +4606,53 @@ describe('server — POST /api/applications/:id/fix-instructions (cache)', () =>
     await failingApp.close();
   });
 });
+
+// ── Final review: the technical detail is redacted like the context ────────
+describe('server — diagnostics technical detail is redacted', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'diagnostics-redaction@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await client?.close();
+  });
+
+  it('never serves a secret-shaped value in technicalDetail, while keeping the rest of the relay text', async () => {
+    const application = await insertApplication(db, org.organizationId, { analysisStatus: 'COMPLETE', compatibilityStatus: 'READY' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'FAILED' });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'FAILED',
+      idempotencyKey: `${deployment.id}:INSTALL:redaction`,
+      payload: {},
+      failureCode: 'STACK_CREATE_FAILED',
+      result: { success: false, error: 'CreateStack failed: DATABASE_PASSWORD=hunter2 rejected by the database' },
+      finishedAt: new Date(),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/diagnostics`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { technicalDetail: string | null; context: { message: string | null } };
+    expect(body.technicalDetail).toBe('CreateStack failed: DATABASE_PASSWORD=[REDACTED] rejected by the database');
+    expect(body.context.message).toBe('CreateStack failed: DATABASE_PASSWORD=[REDACTED] rejected by the database');
+    expect(JSON.stringify(body)).not.toContain('hunter2');
+  });
+});
