@@ -21,7 +21,8 @@
     "dev": "turbo run dev",
     "admin:customer-cleanup": "tsx scripts/customer-reset/index.ts",
     "canary:fixture-repo": "tsx scripts/version-canary/fixture-repo.ts",
-    "benchmark:compat": "tsx scripts/repository-compatibility/index.ts"
+    "benchmark:compat": "tsx scripts/repository-compatibility/index.ts",
+    "benchmark:deploy": "tsx scripts/repository-deployment/index.ts"
   },
   "devDependencies": {
     "@aws-sdk/client-cloudformation": "^3.1115.0",
