@@ -233,6 +233,12 @@ finding whose `facts` cover it; the summary counts explained mismatches by
 finding type. An *unexplained* mismatch is the audit's open work: it must
 become a finding (and a fix, or a documented gap) before the phase closes.
 
+Stage B — whether the product can actually build, deploy, run and remove
+the repositories this corpus expects to be deployable — is the separate
+deployment audit in
+[`../repository-deployment/README.md`](../repository-deployment/README.md);
+it reads this benchmark by id and never copies it.
+
 [`implementation-notes.md`](implementation-notes.md) is the current
 hardening plan: what the analyser already does, the remaining gaps, and
 where each planned change lands (anti-duplication map for new work).
