@@ -57,6 +57,7 @@ import migration0027 from '../../../db/drizzle/0027_fat_speed.sql';
 import migration0028 from '../../../db/drizzle/0028_red_whale.sql';
 import migration0029 from '../../../db/drizzle/0029_normal_patch.sql';
 import migration0030 from '../../../db/drizzle/0030_material_texas_twister.sql';
+import migration0031 from '../../../db/drizzle/0031_release_image_availability.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -101,6 +102,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0028_red_whale': migration0028,
   '0029_normal_patch': migration0029,
   '0030_material_texas_twister': migration0030,
+  '0031_release_image_availability': migration0031,
 };
 
 interface RdsSecret {

@@ -586,6 +586,41 @@ test('live while a secure address is being set up: no nudge to do work nobody ne
   await shoot(page, 'live-securing-address');
 });
 
+test('the secure endpoint row follows the HTTPS truth, never the load balancer alone', async ({ page }) => {
+  // P0: CloudFormation reports the load balancer complete long before the
+  // certificate is issued. The API overlays the HTTPS machine state on the
+  // endpoint component; the row must say so instead of "Ready".
+  const { infrastructure } = await open(page, {
+    detail: detail({
+      customDomain: null,
+      appUrl: 'http://deployz-alb-1a2b3c4d.us-east-2.elb.amazonaws.com',
+      deploymentStatus: vendorStatus({
+        stage: 'VERIFYING',
+        step: 'TLS',
+        currentActivity: 'Waiting for a secure address.',
+        needsDomainSetup: false,
+        url: 'http://deployz-alb-1a2b3c4d.us-east-2.elb.amazonaws.com',
+      }),
+    }),
+    infra: infra({
+      summary: { status: 'provisioning', componentCount: 4, technicalResourceCount: 8 },
+      components: [
+        component('application', 'Application', 'ready'),
+        component('database', 'Database', 'ready', 'retain', 'RDS'),
+        {
+          ...component('endpoint', 'Secure endpoint', 'provisioning', 'delete', 'ELB'),
+          httpsState: 'WAITING_FOR_CERTIFICATE',
+        },
+        component('network', 'Network', 'ready', 'delete', 'VPC'),
+      ],
+    }),
+  });
+
+  await expect(infrastructure.getByText('Secure endpoint', { exact: true })).toBeVisible();
+  await expect(infrastructure.getByText('Waiting for certificate', { exact: true })).toBeVisible();
+  await expect(infrastructure.getByText('Ready', { exact: true })).toHaveCount(3);
+});
+
 test('failed first install: retry is the primary action and the raw AWS reason stays in the disclosure', async ({
   page,
 }) => {

@@ -8,6 +8,7 @@ import {
 } from '../src/lib/deployment-vocabulary';
 import {
   infraCheckLabel,
+  infraCheckPresentation,
   readInfraChecks,
   redisProvisioningStatus,
   relativeTime,
@@ -55,14 +56,17 @@ describe('measured health vocabulary', () => {
 });
 
 describe('relay infra checks', () => {
-  it('maps raw check names to friendly names', () => {
-    expect(infraCheckLabel('stack-exists')).toBe('Stack');
-    expect(infraCheckLabel('compute')).toBe('Compute');
-    expect(infraCheckLabel('ingress')).toBe('Ingress');
+  it('maps raw check names to friendly, jargon-free names', () => {
+    expect(infraCheckLabel('stack-exists')).toBe('Application infrastructure');
+    expect(infraCheckLabel('stack-complete')).toBe('Infrastructure setup');
+    expect(infraCheckLabel('stack-tagged')).toBe('Infrastructure ownership');
+    expect(infraCheckLabel('compute')).toBe('Application service');
+    expect(infraCheckLabel('ingress')).toBe('Load balancer');
     expect(infraCheckLabel('database')).toBe('Database');
     expect(infraCheckLabel('storage')).toBe('Storage');
-    expect(infraCheckLabel('cache')).toBe('Redis');
-    expect(infraCheckLabel('anything-else')).toBe('anything-else');
+    expect(infraCheckLabel('cache')).toBe('Cache');
+    expect(infraCheckLabel('verification-error')).toBe('Verification');
+    expect(infraCheckLabel('anything-else')).toBe('Infrastructure check');
   });
 
   it('reads well-formed checks and drops malformed ones', () => {
@@ -83,6 +87,68 @@ describe('relay infra checks', () => {
   it('returns nothing when no relay report exists', () => {
     expect(readInfraChecks(null)).toEqual([]);
     expect(readInfraChecks({})).toEqual([]);
+  });
+});
+
+describe('infraCheckPresentation', () => {
+  it('presents a passed check with its plain-English status text', () => {
+    const presentation = infraCheckPresentation({
+      name: 'compute',
+      passed: true,
+      detail: 'Found a complete ECS service',
+    });
+    expect(presentation).toEqual({
+      label: 'Application service',
+      outcome: 'passed',
+      statusText: 'Running',
+      problem: null,
+      nextAction: null,
+    });
+  });
+
+  it('presents a failed required check with a problem and next action', () => {
+    const presentation = infraCheckPresentation({
+      name: 'database',
+      passed: false,
+      detail: 'No complete database (AWS::RDS::DBInstance) in the stack',
+    });
+    expect(presentation.label).toBe('Database');
+    expect(presentation.outcome).toBe('issue');
+    expect(presentation.statusText).toBe('Needs attention');
+    expect(presentation.problem).toBe('The database was not created.');
+    expect(presentation.nextAction).toBe(
+      'Wait for the current operation to finish. If this stays, open the issues below.',
+    );
+  });
+
+  it('presents a failed informational cache check as not_required', () => {
+    const presentation = infraCheckPresentation({
+      name: 'cache',
+      passed: false,
+      required: false,
+      detail: 'No cache cluster in the stack — not provisioned',
+    });
+    expect(presentation).toEqual({
+      label: 'Cache',
+      outcome: 'not_required',
+      statusText: 'Not provisioned (this application does not require a cache)',
+      problem: null,
+      nextAction: null,
+    });
+  });
+
+  it('falls back to the generic copy for an unknown check name', () => {
+    const presentation = infraCheckPresentation({
+      name: 'something-new',
+      passed: false,
+      detail: 'raw detail',
+    });
+    expect(presentation.label).toBe('Infrastructure check');
+    expect(presentation.outcome).toBe('issue');
+    expect(presentation.problem).toBe("A check on the deployment's infrastructure did not pass.");
+    expect(presentation.nextAction).toBe(
+      'Open the issues below for the cause, or wait for the next check.',
+    );
   });
 });
 

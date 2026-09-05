@@ -4,7 +4,7 @@
 
 import { apiUrl } from '@/lib/api-url';
 
-export type ReleaseStatus = 'BUILDING' | 'READY' | 'FAILED';
+export type ReleaseStatus = 'BUILDING' | 'READY' | 'FAILED' | 'UNAVAILABLE';
 
 export interface Release {
   id: string;
@@ -80,13 +80,19 @@ export const RELEASE_STATUS_BADGE: Record<ReleaseStatus, 'default' | 'secondary'
   BUILDING: 'secondary',
   READY: 'default',
   FAILED: 'destructive',
+  UNAVAILABLE: 'secondary',
 };
 
 export const RELEASE_STATUS_LABEL: Record<ReleaseStatus, string> = {
   BUILDING: 'Building',
   READY: 'Ready',
   FAILED: 'Failed',
+  UNAVAILABLE: 'Unavailable',
 };
+
+/** Copy shown under an UNAVAILABLE release's status badge. */
+export const RELEASE_UNAVAILABLE_COPY =
+  'The build for this version is no longer available. Create a new release to deploy it again.';
 
 export function releaseStatusLabel(status: string): string {
   return RELEASE_STATUS_LABEL[status as ReleaseStatus] ?? status;

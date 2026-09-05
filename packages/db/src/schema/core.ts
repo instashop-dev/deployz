@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
 import { analysisStatusEnum, buildStatusEnum, compatibilityStatusEnum, releaseStatusEnum } from '../enums.js';
 import { organization } from './auth.js';
@@ -71,6 +71,13 @@ export const releases = pgTable('releases', {
   releaseStatus: releaseStatusEnum('release_status').notNull().default('BUILDING'),
   // Why a build failed, in a vendor-presentable sentence. Null unless FAILED.
   failureReason: text('failure_reason'),
+  // A READY release whose image no longer exists in the registry is not a
+  // deployable release: set once the control plane observed the image
+  // missing (deploy-time check or the throttled list refresh), sticky.
+  imageUnavailableAt: timestamp('image_unavailable_at', { withTimezone: true }),
+  // When the registry last answered for this release's image; throttles the
+  // list refresh so a page load is never continuous registry polling.
+  imageCheckedAt: timestamp('image_checked_at', { withTimezone: true }),
   ...auditFields(),
 }, (t) => [
   // §36 one release per version per application — "deploy 1.0.0" must name

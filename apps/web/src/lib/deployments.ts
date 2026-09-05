@@ -159,6 +159,17 @@ export type InfrastructureComponentStatus =
 
 export type InfrastructureLifecycle = 'delete' | 'retain' | 'snapshot' | 'conditional';
 
+/** The truthful HTTPS provisioning state for the `endpoint` component, when
+ *  the API applied it. Present only on `endpoint` and only when the API
+ *  applied the HTTPS truth — older responses and E2E fixtures omit it. */
+export type InfrastructureHttpsState =
+  | 'SETTING_UP'
+  | 'WAITING_FOR_CERTIFICATE'
+  | 'ACTIVATING'
+  | 'READY'
+  | 'FAILED'
+  | 'REMOVING';
+
 export type InfrastructureConnectionState = 'connected' | 'disconnected';
 export type InfrastructureSnapshotState = 'fresh' | 'stale' | 'none';
 
@@ -189,6 +200,9 @@ export interface InfrastructureComponent {
   region: string;
   lifecycle: InfrastructureLifecycle;
   resources: InfrastructureResource[];
+  /** Present only on the `endpoint` component, and only when the API
+   *  applied the HTTPS truth. */
+  httpsState?: InfrastructureHttpsState;
 }
 
 export interface InfrastructureSummary {
@@ -335,6 +349,9 @@ export class DeploymentActionError extends Error {
 export function actionErrorMessage(caught: unknown, fallback: string): string {
   if (caught instanceof DeploymentActionError && caught.code === 'DEPLOYMENT_BUSY') {
     return 'Another operation is already running on this deployment. Wait for it to finish, then try again.';
+  }
+  if (caught instanceof DeploymentActionError && caught.code === 'RELEASE_UNAVAILABLE') {
+    return 'This version can no longer be deployed because its build is no longer available. Create a new release to deploy it again.';
   }
   return fallback;
 }

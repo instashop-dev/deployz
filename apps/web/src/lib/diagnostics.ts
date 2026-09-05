@@ -1,3 +1,5 @@
+import { relayCheckCopy } from '@deployz/copy-map';
+
 import type { FailureCode, FailureRecoverability } from './diagnostic-vocabulary';
 
 // Diagnostics data access. Wired to the real
@@ -169,20 +171,47 @@ export function infraCheckIsIssue(check: InfraCheck): boolean {
   return !check.passed && check.required !== false;
 }
 
-/** Friendly names for the raw check names the relay reports. */
-const INFRA_CHECK_LABELS: Record<string, string> = {
-  'stack-exists': 'Stack',
-  'stack-complete': 'Stack',
-  'stack-tagged': 'Stack',
-  compute: 'Compute',
-  ingress: 'Ingress',
-  database: 'Database',
-  storage: 'Storage',
-  cache: 'Redis',
-};
-
 export function infraCheckLabel(name: string): string {
-  return INFRA_CHECK_LABELS[name] ?? name;
+  return relayCheckCopy(name).label;
+}
+
+/** How one relay check should present: matches its passed/required state. */
+export type InfraCheckOutcome = 'passed' | 'issue' | 'not_required';
+
+/** The §65 plain-English presentation of one relay check. */
+export interface InfraCheckPresentation {
+  label: string;
+  outcome: InfraCheckOutcome;
+  /** Compact status text — never the raw `detail` string. */
+  statusText: string;
+  /** The plain-English problem, present only when `outcome` is 'issue'. */
+  problem: string | null;
+  /** What to do next, present only when `outcome` is 'issue'. */
+  nextAction: string | null;
+}
+
+/** Maps one relay check onto its §65 plain-English presentation. */
+export function infraCheckPresentation(check: InfraCheck): InfraCheckPresentation {
+  const copy = relayCheckCopy(check.name);
+  if (check.passed) {
+    return { label: copy.label, outcome: 'passed', statusText: copy.passed, problem: null, nextAction: null };
+  }
+  if (check.required === false) {
+    return {
+      label: copy.label,
+      outcome: 'not_required',
+      statusText: copy.notRequired ?? 'Not required',
+      problem: null,
+      nextAction: null,
+    };
+  }
+  return {
+    label: copy.label,
+    outcome: 'issue',
+    statusText: 'Needs attention',
+    problem: copy.failed.problem,
+    nextAction: copy.failed.nextAction,
+  };
 }
 
 /** Reads the relay's infrastructure checks out of observedState, if any. */

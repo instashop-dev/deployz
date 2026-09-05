@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   fetchDiagnostics,
   infraCheckIsIssue,
-  infraCheckLabel,
+  infraCheckPresentation,
   readInfraChecks,
   relativeTime,
   type Diagnostic,
@@ -119,24 +119,75 @@ function DiagnosticsBody({
             </p>
           ) : null}
           <Card>
-            <CardContent className="flex flex-col gap-2 py-4">
+            <CardContent className="flex flex-col gap-4 py-4">
+              {checks.some((check) => infraCheckIsIssue(check)) ? (
+                <ul className="flex flex-col gap-3" data-testid="relay-report-issues">
+                  {checks
+                    .filter((check) => infraCheckIsIssue(check))
+                    .map((check) => {
+                      const presentation = infraCheckPresentation(check);
+                      return (
+                        <li key={check.name} className="flex flex-col gap-0.5">
+                          <span className="text-sm font-medium">{presentation.label}</span>
+                          <span className="text-sm text-muted-foreground">{presentation.problem}</span>
+                          <span className="text-sm text-muted-foreground">
+                            What to do next: {presentation.nextAction}
+                          </span>
+                        </li>
+                      );
+                    })}
+                </ul>
+              ) : null}
+
               <ul className="flex flex-col gap-1.5">
-                {checks.map((check) => (
-                  <li key={`${check.name}-${check.detail}`} className="flex items-baseline gap-3">
-                    <span
-                      aria-hidden
-                      className={`mt-1.5 size-2 shrink-0 rounded-full ${check.passed ? 'bg-primary' : infraCheckIsIssue(check) ? 'bg-destructive' : 'bg-muted-foreground'}`}
-                    />
-                    <span className="text-sm font-medium">{infraCheckLabel(check.name)}</span>
-                    <span className="ml-auto text-right text-xs text-muted-foreground">
-                      {check.detail}
-                    </span>
-                  </li>
-                ))}
+                {checks.map((check) => {
+                  const presentation = infraCheckPresentation(check);
+                  return (
+                    <li key={check.name} className="flex items-baseline gap-3">
+                      <span
+                        aria-hidden
+                        className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                          presentation.outcome === 'passed'
+                            ? 'bg-primary'
+                            : presentation.outcome === 'issue'
+                              ? 'bg-destructive'
+                              : 'bg-muted-foreground'
+                        }`}
+                      />
+                      <span className="text-sm font-medium">{presentation.label}</span>
+                      <span className="ml-auto text-right text-xs text-muted-foreground">
+                        {presentation.statusText}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
               {checks.every((check) => !infraCheckIsIssue(check)) ? (
                 <p className="text-sm text-muted-foreground">No active issues.</p>
               ) : null}
+
+              <details className="group rounded-lg border">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                  Technical detail
+                  <ChevronDown
+                    aria-hidden
+                    className="size-4 text-muted-foreground transition-transform group-open:rotate-180"
+                  />
+                </summary>
+                <div
+                  className="flex flex-col gap-2 border-t px-3 py-2.5 text-xs text-muted-foreground"
+                  data-testid="relay-report-technical"
+                >
+                  {checks.map((check) => (
+                    <div key={check.name} className="flex flex-col gap-0.5">
+                      <span className="font-medium text-foreground">{check.name}</span>
+                      <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono">
+                        {check.detail}
+                      </code>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </CardContent>
           </Card>
         </section>

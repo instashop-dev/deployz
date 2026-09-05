@@ -19,9 +19,9 @@ import {
   INFRASTRUCTURE_COMPONENT_PURPOSE,
   INFRASTRUCTURE_LIFECYCLE_LABEL,
   INFRASTRUCTURE_STATUS_BADGE,
-  INFRASTRUCTURE_STATUS_LABEL,
   INFRASTRUCTURE_SUMMARY_STATUS_BADGE,
   INFRASTRUCTURE_SUMMARY_STATUS_LABEL,
+  infrastructureComponentStatusLabel,
 } from '@/lib/deployment-vocabulary';
 
 interface InfrastructureSectionProps {
@@ -124,7 +124,7 @@ function ComponentRow({
           </span>
         </div>
         <Badge variant={INFRASTRUCTURE_STATUS_BADGE[component.status]}>
-          {INFRASTRUCTURE_STATUS_LABEL[component.status]}
+          {infrastructureComponentStatusLabel(component)}
         </Badge>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">

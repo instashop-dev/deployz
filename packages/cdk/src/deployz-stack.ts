@@ -193,13 +193,16 @@ export class DeployzStack extends Stack {
 
     // Phase 1.1: the API rewrites the ECR repository policy to grant/revoke
     // per-installation cross-account pull access. Scoped to this repository,
-    // not ecr:* on everything.
+    // not ecr:* on everything. BatchGetImage is the release-image
+    // availability check (a READY release whose image was deleted is refused
+    // before a deploy is queued).
     apiLambda.function.addToRolePolicy(
       new PolicyStatement({
         actions: [
           'ecr:GetRepositoryPolicy',
           'ecr:SetRepositoryPolicy',
           'ecr:DeleteRepositoryPolicy',
+          'ecr:BatchGetImage',
         ],
         resources: [buildPipeline.repository.repositoryArn],
       }),

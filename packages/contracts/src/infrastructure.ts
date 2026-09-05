@@ -222,6 +222,22 @@ export interface InfrastructureTechnicalResource {
   readonly statusReason: string | null;
 }
 
+/**
+ * The secure-endpoint truth for the `endpoint` component. CloudFormation
+ * reports the load balancer complete long before HTTPS works, so the API
+ * overlays the default-HTTPS / custom-domain machine state here: the
+ * component reads READY only once the secure address actually serves.
+ */
+export const infrastructureHttpsStateSchema = z.enum([
+  'SETTING_UP',
+  'WAITING_FOR_CERTIFICATE',
+  'ACTIVATING',
+  'READY',
+  'FAILED',
+  'REMOVING',
+]);
+export type InfrastructureHttpsState = z.infer<typeof infrastructureHttpsStateSchema>;
+
 export interface InfrastructureComponentSummary {
   readonly kind: InfrastructureComponentKind;
   readonly name: string;
@@ -231,6 +247,8 @@ export interface InfrastructureComponentSummary {
   readonly region: string;
   readonly lifecycle: InfrastructureLifecycle;
   readonly resources: readonly InfrastructureTechnicalResource[];
+  /** Present on the `endpoint` component once the API overlaid the HTTPS truth. */
+  readonly httpsState?: InfrastructureHttpsState;
 }
 
 export interface AggregateInfrastructureOptions {
@@ -269,6 +287,18 @@ const COMPONENT_STATUS_PRIORITY: readonly InfrastructureComponentStatus[] = [
 // deleted state it is. A deployment with nothing summarizable falls back to
 // 'unknown' — never to a healthy-looking value.
 const SUMMARY_STATUS_PRIORITY = COMPONENT_STATUS_PRIORITY.filter((status) => status !== 'removed');
+
+/** The summary rollup over component statuses — the same order the aggregate
+ *  uses, exported so a caller that overlays a component status (the endpoint's
+ *  HTTPS truth) can re-derive the summary instead of copying the priority. */
+export function summarizeInfrastructureStatus(
+  components: ReadonlyArray<{ readonly status: InfrastructureComponentStatus }>,
+): InfrastructureComponentStatus {
+  return (
+    SUMMARY_STATUS_PRIORITY.find((candidate) => components.some((component) => component.status === candidate)) ??
+    'unknown'
+  );
+}
 
 const AWS_SERVICE_PREFIXES: ReadonlyArray<readonly [prefix: string, label: string]> = [
   ['AWS::RDS::', 'RDS'],
@@ -383,11 +413,7 @@ export function aggregateInfrastructureComponents(
     });
   }
 
-  const summaryStatus =
-    SUMMARY_STATUS_PRIORITY.find((candidate) => components.some((component) => component.status === candidate)) ??
-    'unknown';
-
-  return { components, summaryStatus };
+  return { components, summaryStatus: summarizeInfrastructureStatus(components) };
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +456,7 @@ export const infrastructureComponentSummarySchema = z
     region: z.string(),
     lifecycle: infrastructureLifecycleSchema,
     resources: z.array(infrastructureResourceSchema),
+    httpsState: infrastructureHttpsStateSchema.optional(),
   })
   .strict();
 

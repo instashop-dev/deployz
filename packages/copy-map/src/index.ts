@@ -784,6 +784,131 @@ export function readinessFixCtaSupport(issuesCount: number): string {
   } with your coding agent.`;
 }
 
+// ── §65 relay verification checks ───────────────────────────────────────────
+
+/** The relay's infrastructure-verification check names (packages/relay/src/verify.ts). */
+export const RELAY_CHECK_NAMES = [
+  'stack-exists',
+  'stack-complete',
+  'stack-tagged',
+  'compute',
+  'ingress',
+  'database',
+  'storage',
+  'cache',
+  'verification-error',
+] as const;
+
+export type RelayCheckName = (typeof RELAY_CHECK_NAMES)[number];
+
+export interface RelayCheckCopy {
+  /** Plain-English name of what was checked. */
+  label: string;
+  /** Shown when the check passed. */
+  passed: string;
+  /** Shown when a REQUIRED check failed: the problem, then what to do. */
+  failed: { problem: string; nextAction: string };
+  /** Shown when an informational (required: false) check did not pass. */
+  notRequired?: string;
+}
+
+/**
+ * §65 jargon-free copy for each relay verification check. The raw `detail`
+ * string the relay reports (e.g. "Stack status CREATE_COMPLETE") stays behind
+ * the diagnostics page's "Technical detail" disclosure — this is what shows
+ * first.
+ */
+export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
+  'stack-exists': {
+    label: 'Application infrastructure',
+    passed: "Found in the customer's AWS account",
+    failed: {
+      problem: "Deployz could not find this deployment's infrastructure in the customer's AWS account.",
+      nextAction: 'Confirm the installation finished and the Deployz connector runs in the same AWS account and region.',
+    },
+  },
+  'stack-complete': {
+    label: 'Infrastructure setup',
+    passed: 'Setup finished',
+    failed: {
+      problem: 'The infrastructure setup did not finish successfully.',
+      nextAction: 'Open the issues below for the cause, or retry the installation from the deployment page.',
+    },
+  },
+  'stack-tagged': {
+    label: 'Infrastructure ownership',
+    passed: 'Belongs to this deployment',
+    failed: {
+      problem: 'The infrastructure found in AWS belongs to a different installation.',
+      nextAction: 'Remove the other installation, or install this deployment into a different AWS account or region.',
+    },
+  },
+  compute: {
+    label: 'Application service',
+    passed: 'Running',
+    failed: {
+      problem: 'The application service was not created.',
+      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+    },
+  },
+  ingress: {
+    label: 'Load balancer',
+    passed: 'Running',
+    failed: {
+      problem: 'The load balancer was not created.',
+      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+    },
+  },
+  database: {
+    label: 'Database',
+    passed: 'Available',
+    failed: {
+      problem: 'The database was not created.',
+      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+    },
+  },
+  storage: {
+    label: 'Storage',
+    passed: 'Available',
+    failed: {
+      problem: 'The storage bucket was not created.',
+      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+    },
+  },
+  cache: {
+    label: 'Cache',
+    passed: 'Available',
+    failed: {
+      problem: 'The cache was not created.',
+      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+    },
+    notRequired: 'Not provisioned (this application does not require a cache)',
+  },
+  'verification-error': {
+    label: 'Verification',
+    passed: 'Completed',
+    failed: {
+      problem: 'Deployz could not verify the infrastructure on the last check.',
+      nextAction: 'Wait for the next check. If this repeats, contact Deployz support.',
+    },
+  },
+};
+
+/** Fallback copy for a relay check name this module does not recognize. */
+export const RELAY_CHECK_FALLBACK_COPY: RelayCheckCopy = {
+  label: 'Infrastructure check',
+  passed: 'Passed',
+  failed: {
+    problem: "A check on the deployment's infrastructure did not pass.",
+    nextAction: 'Open the issues below for the cause, or wait for the next check.',
+  },
+};
+
+/** §65 lookup for a relay check name — falls back safely to the generic copy. */
+export function relayCheckCopy(name: string): RelayCheckCopy {
+  return RELAY_CHECK_COPY[name as RelayCheckName] ?? RELAY_CHECK_FALLBACK_COPY;
+}
+
 // ── §42 onboarding steps ────────────────────────────────────────────────────
 
 /** The six §42 onboarding steps, in exact order. Success = readiness (§5). */
