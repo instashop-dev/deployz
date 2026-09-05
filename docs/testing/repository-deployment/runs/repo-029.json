@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-029",
+  "repository": "postalsys/emailengine",
+  "commit": "1933e5d9952fab26fbd3f4a630adfc0ca341717a",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "gate",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "port-missing",
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "EENGINE_TOKEN_LOG_AGE",
+      "EE_ENV_LOADED",
+      "ENCRYPT_SECRET",
+      "TF_CPP_MIN_LOG_LEVEL",
+      "UV_THREADPOOL_SIZE"
+    ],
+    "missingKeys": [
+      "EENGINE_TOKEN_LOG_AGE",
+      "EE_ENV_LOADED",
+      "TF_CPP_MIN_LOG_LEVEL",
+      "UV_THREADPOOL_SIZE"
+    ],
+    "unsupported": [],
+    "configuredVerdict": "NEEDS_CONFIGURATION",
+    "configuredFindings": [
+      "port-missing",
+      "required-env-vars-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": null,
+      "healthPath": "/health",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "none",
+      "postgres": false,
+      "redis": true,
+      "storage": false,
+      "databaseBindings": [],
+      "redisBindings": [
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "REDIS_URL"
+      ],
+      "storageBindings": [],
+      "generatedKeys": [
+        "ENCRYPT_SECRET"
+      ]
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "PASS",
+  "failureStage": null,
+  "rootCause": null,
+  "rootCauseEvidence": null,
+  "findingIds": [],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

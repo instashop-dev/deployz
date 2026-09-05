@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-078",
+  "repository": "GoogleCloudPlatform/microservices-demo",
+  "commit": "b9a978db9e01f4ad3dca9494a22cb9edc17548fe",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NOT_COMPATIBLE",
+  "expectedDeployable": false,
+  "mode": "gate",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "outcome": "correct-reject",
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "health-path-required",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "requiredKeys": [
+      "ALLOYDB_CLUSTER_NAME",
+      "ALLOYDB_DATABASE_NAME",
+      "ALLOYDB_INSTANCE_NAME",
+      "ALLOYDB_SECRET_NAME",
+      "ALLOYDB_TABLE_NAME",
+      "ENABLE_TRACING",
+      "GCP_PROJECT_ID",
+      "PROJECT_ID",
+      "REGION"
+    ],
+    "missingKeys": [
+      "ALLOYDB_CLUSTER_NAME",
+      "ALLOYDB_INSTANCE_NAME",
+      "ALLOYDB_SECRET_NAME",
+      "ALLOYDB_TABLE_NAME",
+      "ENABLE_TRACING",
+      "GCP_PROJECT_ID",
+      "PROJECT_ID",
+      "REGION"
+    ],
+    "unsupported": [
+      "kubernetes",
+      "terraform"
+    ],
+    "configuredVerdict": "NOT_COMPATIBLE",
+    "configuredFindings": [
+      "unsupported",
+      "unsupported",
+      "health-path-required",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": "src/adservice/Dockerfile",
+      "buildContext": ".",
+      "appRoot": "src/adservice",
+      "port": 9555,
+      "healthPath": "/",
+      "healthMode": "vendor_required",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [
+        "ALLOYDB_DATABASE_NAME",
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "EXPECTED_UNSUPPORTED",
+  "failureStage": "EXPECTED_UNSUPPORTED",
+  "rootCause": "CORRECTLY_UNSUPPORTED",
+  "rootCauseEvidence": "rejected on kubernetes, terraform",
+  "findingIds": [],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

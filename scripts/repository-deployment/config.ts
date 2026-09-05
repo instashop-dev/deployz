@@ -106,6 +106,8 @@ export const repositoryConfigSchema = z
     secrets: z.array(secretSpecSchema).optional(),
     verify: verifySchema.optional(),
     dependencies: dependenciesSchema.optional(),
+    /** Registry findings (findings.md) that explain this entry's known outcome. */
+    findings: z.array(z.string().regex(/^DEPLOY-\d{3}$/)).default([]),
     notes: z.array(z.string()).default([]),
   })
   .strict();
@@ -156,7 +158,7 @@ export function loadDeployConfig(path: string): DeployConfig {
 
 /** The configuration for one Stage A entry — an empty one when nothing is configured. */
 export function configFor(config: DeployConfig, id: string): RepositoryConfig {
-  return config.repositories.find((entry) => entry.id === id) ?? { id, notes: [] };
+  return config.repositories.find((entry) => entry.id === id) ?? { id, findings: [], notes: [] };
 }
 
 /** Every configuration key the harness will provide for an entry (values and generated secrets). */

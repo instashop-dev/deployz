@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-084",
+  "repository": "NangoHQ/nango",
+  "commit": "f9667ac2be24667df6ee89259c08748f4b08cf9e",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "unseen",
+  "cohort": "realistic",
+  "customerRealism": "medium",
+  "difficulty": 4,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NOT_COMPATIBLE",
+  "expectedDeployable": false,
+  "mode": "gate",
+  "gate": {
+    "status": "FAIL",
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "outcome": "false-acceptance",
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "LOCAL_NANGO_USER_ID",
+      "NANGO_ADMIN_KEY"
+    ],
+    "missingKeys": [
+      "LOCAL_NANGO_USER_ID",
+      "NANGO_ADMIN_KEY"
+    ],
+    "unsupported": [],
+    "configuredVerdict": "NEEDS_CONFIGURATION",
+    "configuredFindings": [
+      "required-env-vars-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 8080,
+      "healthPath": "/sync/status",
+      "healthMode": "explicit",
+      "migrationCommand": "cd packages/database/lib && knex migrate:make $1 --esm --knexfile ./knexfile.cjs",
+      "migrationMode": "pre_deploy",
+      "postgres": true,
+      "redis": true,
+      "storage": true,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "REDIS_URL"
+      ],
+      "storageBindings": [
+        "AWS_S3_BUCKET"
+      ],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "GATE_ERROR",
+  "failureStage": "GATE_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "false-acceptance: required-env-vars-missing",
+  "findingIds": [
+    "DEPLOY-004"
+  ],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}

@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-031",
+  "repository": "gethomepage/homepage",
+  "commit": "ddc5adc91ccd8026c7250619febc564953b4481a",
+  "repositoryForm": null,
+  "repositoryUsed": null,
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "runId": null,
+  "stageAExpected": "NOT_COMPATIBLE",
+  "expectedDeployable": false,
+  "mode": "gate",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "outcome": "correct-reject",
+    "gateFindings": [
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "HOMEPAGE_ALLOWED_HOSTS",
+      "HOMEPAGE_AUTH_SECRET",
+      "HOMEPAGE_BUILDTIME",
+      "HOMEPAGE_CONFIG_DIR",
+      "HOMEPAGE_MCP_TOKEN",
+      "NEXTAUTH_SECRET",
+      "NEXTAUTH_URL",
+      "NEXT_PUBLIC_BUILDTIME",
+      "NEXT_PUBLIC_REVISION",
+      "NEXT_PUBLIC_VERSION"
+    ],
+    "missingKeys": [
+      "HOMEPAGE_ALLOWED_HOSTS",
+      "HOMEPAGE_BUILDTIME",
+      "HOMEPAGE_CONFIG_DIR",
+      "HOMEPAGE_MCP_TOKEN",
+      "NEXTAUTH_URL",
+      "NEXT_PUBLIC_BUILDTIME",
+      "NEXT_PUBLIC_REVISION",
+      "NEXT_PUBLIC_VERSION"
+    ],
+    "unsupported": [
+      "local-filesystem"
+    ],
+    "configuredVerdict": "NOT_COMPATIBLE",
+    "configuredFindings": [
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 15,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 3000,
+      "healthPath": "/api/healthcheck",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "none",
+      "postgres": false,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": [
+        "HOMEPAGE_AUTH_SECRET",
+        "NEXTAUTH_SECRET"
+      ]
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "NOT_ATTEMPTED",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "EXPECTED_UNSUPPORTED",
+  "failureStage": "EXPECTED_UNSUPPORTED",
+  "rootCause": "CORRECTLY_UNSUPPORTED",
+  "rootCauseEvidence": "rejected on local-filesystem",
+  "findingIds": [],
+  "timing": {
+    "startedAt": null,
+    "finishedAt": null,
+    "totalMs": null
+  },
+  "evidence": {}
+}
