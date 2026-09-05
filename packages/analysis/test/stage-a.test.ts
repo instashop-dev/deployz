@@ -314,7 +314,13 @@ describe('COMP-023 — a bare read stored in configuration is optional unless th
 describe('COMP-016 — the deployment gate counts every injected database variable as provided', () => {
   it('does not ask the vendor for DATABASE_HOST/PORT/NAME/USER/PASSWORD when PostgreSQL is provisioned', () => {
     const tree: FileTree = {
-      Dockerfile: 'FROM node:22\nEXPOSE 4242\nCMD ["node", "dist/server.js"]\n',
+      Dockerfile: [
+        'FROM node:22',
+        'EXPOSE 4242',
+        'HEALTHCHECK CMD curl -f http://localhost:4242/health || exit 1',
+        'CMD ["node", "dist/server.js"]',
+        '',
+      ].join('\n'),
       'package.json': JSON.stringify({ scripts: { start: 'node dist/server.js' }, dependencies: { pg: '^8.12.0' } }),
       '.env.example': 'DATABASE_URL=\n',
       'src/lib/create-config.ts': [

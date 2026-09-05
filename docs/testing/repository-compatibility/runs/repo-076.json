@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 203,
     "entries": 5472,
@@ -44,7 +44,7 @@
     "port": 3080,
     "startCommand": "CMD: [\"npm\", \"run\", \"backend\"]",
     "healthDetected": true,
-    "healthPath": "/health",
+    "healthPath": "/oauth/status",
     "postgres": false,
     "postgresDetected": false,
     "redis": false,
@@ -167,8 +167,9 @@
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": "/health",
-      "match": true
+      "actual": "/oauth/status",
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "unsupported",
@@ -194,6 +195,13 @@
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/health",
+      "actual": "/oauth/status",
+      "finding": null
     },
     {
       "fact": "unsupported",

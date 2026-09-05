@@ -657,9 +657,16 @@ const HEALTH_ROUTE_FILE_REGEX =
 const LOCKFILE_BASENAME_REGEX =
   /^(?:pnpm-lock\.yaml|yarn\.lock|package-lock\.json|bun\.lockb?|bun\.lock)$/;
 
+// Deployment descriptors the §10 cloud/infra rejection checks read (COMP-033):
+// Terraform (.tf), Bicep (.bicep), Kustomize and Helm. A bounded set — the
+// detectors' own IaC patterns — so `isRelevantPath` and the checks agree.
+const DEPLOYMENT_DESCRIPTOR_REGEX =
+  /(?:^|\/)(?:kustomization\.ya?ml|Chart\.ya?ml|.*\.tf|.*\.bicep)$/i;
+
 function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
 }
+
 
 // Mirrors exactly what packages/analysis/src/detectors.ts, rejection.ts and
 // redis.ts read from the file tree — see those files for the authoritative
@@ -672,6 +679,7 @@ function isRelevantPath(path: string): boolean {
   if (PRISMA_SCHEMA_REGEX.test(path)) return true;
   if (COMPOSE_REGEX.test(path)) return true;
   if (ENV_SAMPLE_REGEX.test(path)) return true;
+  if (DEPLOYMENT_DESCRIPTOR_REGEX.test(path)) return true;
   const isRoot = !path.includes('/');
   if (isRoot) {
     if (/^\.env(\.\w+)?$/i.test(path)) return true;
@@ -854,14 +862,24 @@ async function fetchBlobContent(
   fetchFn: FetchFn,
 ): Promise<string | null> {
   const url = `${GITHUB_API_BASE}/repos/${ref.owner}/${ref.repo}/git/blobs/${sha}`;
-  const response = await fetchFn(url, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${installationToken}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
+  let response: Awaited<ReturnType<FetchFn>>;
+  try {
+    response = await fetchFn(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${installationToken}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+  } catch {
+    // A fetch seam that throws — a network drop, or the benchmark snapshot
+    // fetch refusing an offline cache miss — leaves this one blob as
+    // unreadable as an HTTP error does. A single unreadable file should not
+    // fail the whole analysis — the detectors treat a missing key as "not
+    // present", which is the correct degraded behaviour here too.
+    return null;
+  }
   if (response.status < 200 || response.status >= 300) {
     // A single unreadable file should not fail the whole analysis — the
     // detectors treat a missing key as "not present", which is the correct
@@ -952,7 +970,7 @@ export async function buildFileTreeForAnalysis(
 // Phase 14 adds three fixture trees that only ever appear as
 // repoFullName-driven analysis targets (NOT in GITHUB_FIXTURE_INSTALLATIONS,
 // so the repo picker never offers them): config-required-app is
-// express-api's shape plus a genuine required env var (SESSION_SECRET read
+// express-api's shape plus a genuine required env var (STRIPE_SECRET_KEY read
 // with no fallback) — the §11.2 missing-required-config gate fires at
 // deployment creation until the vendor enters a value; mongodb-app is the
 // same READY shape plus a mongoose dependency, so its only blocker is the
@@ -1144,7 +1162,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   },
   // Express-api's exact READY shape (Dockerfile + HEALTHCHECK + /health +
   // Postgres + migration script) plus one genuine required env var: the code
-  // READS SESSION_SECRET with no fallback and no guard, and the sample file
+  // READS STRIPE_SECRET_KEY (an external vendor credential, never auto-generated) with no fallback
   // only declares it (no usable default). Analysis-level readiness stays READY
   // (required env values are unknowable to the analyser); the §11.2
   // deployment-creation gate refuses MANIFEST_NEEDS_CONFIGURATION until the
@@ -1296,3 +1314,6 @@ export async function getFileTreeForAnalysis(
     opts.fetchFn,
   );
 }
+
+
+

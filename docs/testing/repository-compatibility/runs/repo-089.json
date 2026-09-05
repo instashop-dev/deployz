@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 202,
     "entries": 8524,
@@ -36,7 +36,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "node",
@@ -59,12 +59,45 @@
     "externalServices": [
       "openai"
     ],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "CHUNKED_REASONER_WORKER_TIMEOUT_SECONDS",
+      "CONFIG_CACHE_POLL_INTERVAL_SECONDS",
+      "CONTRADICTION_BUCKET_CHUNK_OVERLAP",
+      "CONTRADICTION_BUCKET_CHUNK_SIZE",
+      "CONTRADICTION_CANONICALISER_BATCH_SIZE",
+      "CONTRADICTION_DETECT_CONCURRENCY",
+      "DOCUMENTS_REAPER_INTERVAL_SECONDS",
+      "STIRLING_CHUNKED_REASONER_CHARS_PER_SLICE",
+      "STIRLING_CHUNKED_REASONER_CONCURRENCY",
+      "STIRLING_CHUNKED_REASONER_NOTES_CHAR_BUDGET",
+      "STIRLING_DOCUMENTS_BACKEND",
+      "STIRLING_DOCUMENTS_PGVECTOR_DSN",
+      "STIRLING_DOCUMENTS_PGVECTOR_POOL_MAX_SIZE",
+      "STIRLING_DOCUMENTS_PGVECTOR_POOL_MIN_SIZE",
+      "STIRLING_DOCUMENTS_SQLITE_PATH",
+      "STIRLING_FAST_MODEL",
+      "STIRLING_FAST_MODEL_MAX_TOKENS",
+      "STIRLING_MAX_CHARACTERS",
+      "STIRLING_MAX_PAGES",
+      "STIRLING_MODEL_MAX_CONCURRENCY",
+      "STIRLING_POSTHOG_API_KEY",
+      "STIRLING_POSTHOG_ENABLED",
+      "STIRLING_POSTHOG_HOST",
+      "STIRLING_RAG_CHUNK_OVERLAP",
+      "STIRLING_RAG_CHUNK_SIZE",
+      "STIRLING_RAG_EMBEDDING_MODEL",
+      "STIRLING_RAG_MAX_SEARCHES",
+      "STIRLING_RAG_TOP_K",
+      "STIRLING_REQUIRE_USER_ID",
+      "STIRLING_SMART_MODEL",
+      "STIRLING_SMART_MODEL_MAX_TOKENS"
+    ],
     "unsupported": [],
     "readinessFindings": [
       "database-migrations"
     ],
     "gateFindings": [
+      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -77,7 +110,7 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "READY",
+      "actual": "NEEDS_CONFIGURATION",
       "match": false,
       "kind": "false-acceptance"
     },
@@ -157,7 +190,7 @@
       "fact": "compatibility",
       "kind": "false-acceptance",
       "expected": "NOT_COMPATIBLE",
-      "actual": "READY",
+      "actual": "NEEDS_CONFIGURATION",
       "finding": {
         "id": "COMP-037",
         "type": "ANALYSIS_MISSING_SIGNAL"

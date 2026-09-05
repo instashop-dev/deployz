@@ -78,8 +78,39 @@ describe('manifestEnvBindingSchema', () => {
     });
   });
 
+  it('accepts the postgres binding kinds (url + discrete parts)', () => {
+    for (const kind of ['url', 'host', 'port', 'database', 'username', 'password']) {
+      expect(manifestEnvBindingSchema.parse({ name: 'MEMOS_DSN', kind }).kind).toBe(kind);
+    }
+  });
+
   it('rejects an unknown binding kind', () => {
     expect(() => manifestEnvBindingSchema.parse({ name: 'X', kind: 'secret' })).toThrow();
+  });
+});
+
+describe('database.envBindings (Stage B phase 2)', () => {
+  it('accepts a manifest whose database section carries envBindings', () => {
+    const parsed = deploymentManifestSchema.parse({
+      ...READY_MANIFEST,
+      database: {
+        postgres: true,
+        envBindings: [
+          { name: 'DATABASE_URL', kind: 'url' },
+          { name: 'DATABASE_HOST', kind: 'host' },
+          { name: 'PAPERLESS_DBUSER', kind: 'username' },
+          { name: 'PAPERLESS_DBPASS', kind: 'password' },
+        ],
+      },
+    });
+    expect(parsed.database.envBindings).toHaveLength(4);
+  });
+
+  it('still validates an OLD stored manifest that has no database.envBindings', () => {
+    const parsed = deploymentManifestSchema.parse(READY_MANIFEST);
+    // database.envBindings is optional: an old stored manifest round-trips
+    // with exactly the database section it was written with.
+    expect(parsed.database).toEqual({ postgres: true });
   });
 });
 
@@ -129,5 +160,48 @@ describe('manifestReadinessResultSchema', () => {
 
   it('rejects a state outside the enum', () => {
     expect(() => manifestReadinessResultSchema.parse({ state: 'MAYBE', findings: [] })).toThrow();
+  });
+});
+
+describe("environment variable purpose/confidence (Stage B phase 3)", () => {
+  it("accepts a variable carrying purpose and confidence", () => {
+    const parsed = deploymentManifestSchema.parse({
+      ...READY_MANIFEST,
+      environment: {
+        variables: [
+          {
+            key: "STRIPE_SECRET_KEY",
+            required: true,
+            secret: true,
+            source: [],
+            purpose: "external_credential",
+            confidence: "high",
+          },
+        ],
+      },
+    });
+    expect(parsed.environment.variables[0]).toMatchObject({
+      purpose: "external_credential",
+      confidence: "high",
+    });
+  });
+
+  it("still validates an OLD stored variable without purpose/confidence", () => {
+    const parsed = deploymentManifestSchema.parse(READY_MANIFEST);
+    expect(parsed.environment.variables[0]).not.toHaveProperty("purpose");
+    expect(parsed.environment.variables[0]).not.toHaveProperty("confidence");
+  });
+
+  it("rejects an unknown purpose value", () => {
+    expect(() =>
+      deploymentManifestSchema.parse({
+        ...READY_MANIFEST,
+        environment: {
+          variables: [
+            { key: "X", required: false, secret: false, source: [], purpose: "vendor_thing" },
+          ],
+        },
+      }),
+    ).toThrow();
   });
 });

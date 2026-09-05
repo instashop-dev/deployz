@@ -45,6 +45,9 @@ findings:
   - { id: COMP-036, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
   - { id: COMP-037, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
   - { id: COMP-038, type: ANALYSIS_BUG, facts: [dockerfilePath, appRoot, port] }
+  - { id: COMP-039, type: ANALYSIS_BUG, facts: [healthPath] }
+  - { id: COMP-040, type: ANALYSIS_BUG, facts: [unsupported, compatibility] }
+  - { id: COMP-041, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
 
 repositories:
   - id: repo-001
@@ -156,7 +159,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-014]
+    findings: [COMP-014, COMP-039]
     notes:
       - "Four Dockerfiles: packaging/docker/alpine and packaging/docker/distroless build the app (EXPOSE 8080, ENV LISTEN_ADDR=0.0.0.0:8080, CMD /usr/bin/miniflux); packaging/debian and packaging/rpm build OS packages."
       - "PostgreSQL only (go.mod lib/pq). Migrations: `miniflux -migrate` or RUN_MIGRATIONS=1 (internal/cli/cli.go, internal/config/options.go)."
@@ -993,7 +996,7 @@ repositories:
         - local-filesystem
     customer_realism: high
     difficulty: 4
-    findings: [COMP-011, COMP-015, COMP-014]
+    findings: [COMP-011, COMP-015, COMP-014, COMP-039]
     notes:
       - "Default branch is 'dev' (GitHub default_branch), not 'main'; commit pinned from repos/.../commits/dev. Root Dockerfile: multi-stage (compile-frontend Angular src-ui/ -> main-app Django); VOLUME for data/media/consume/export; ENTRYPOINT [\"/init\"] (s6-overlay); EXPOSE 8000; HEALTHCHECK curl http://localhost:8000 (root path)."
       - "docker/rootfs/etc/s6-overlay/s6-rc.d/: svc-webserver (gunicorn), svc-worker (celery worker), svc-scheduler (celery beat), svc-consumer (file-consumption loop) and svc-flower all run as separate s6-supervised OS processes inside the SAME single container built from the ONE root Dockerfile -- no separate Compose worker service, Procfile, or extra Dockerfile is declared. init-migrations runs 'manage.py migrate' before svc-webserver starts (dependency chain in init-complete)."
@@ -1253,7 +1256,7 @@ repositories:
       unsupported: []
     customer_realism: medium
     difficulty: 5
-    findings: [COMP-017, COMP-012, COMP-014, COMP-005]
+    findings: [COMP-017, COMP-012, COMP-014, COMP-005, COMP-040]
     notes:
       - "scripts/Dockerfile's own header comment: 'Since it's multi-arch and cross-compiled, it cannot have ANY RUN commands... All binaries are built using the go toolchain on the host and then copied into the build context by scripts/build_docker.sh.' `ARG BASE_IMAGE` has no default and `COPY --chown=1000:1000 --chmod=755 coder /opt/coder` copies a prebuilt Go binary that only scripts/build_docker.sh (outside this Dockerfile) produces. No other Dockerfile in the repo builds the coderd server from source (scripts/Dockerfile.base only builds a tooling base image; dogfood/* and examples/* Dockerfiles are for workspace templates/dev containers, not the server) -> 'a Dockerfile that copies an artifact no build step produces' -> NEEDS_CONFIGURATION."
       - "compose.yaml (repo root, official reference deployment): CODER_HTTP_ADDRESS 0.0.0.0:7080 (ports 7080:7080), CODER_PG_CONNECTION_URL required (postgresql://...@database/...), CODER_ACCESS_URL required with no default and documented as unable to be localhost/127.0.0.1 -> a required externally-reachable URL is exactly the kind of value-with-no-default that drives NEEDS_CONFIGURATION."
@@ -1842,7 +1845,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-015, COMP-014]
+    findings: [COMP-015, COMP-014, COMP-039]
     notes:
       - "Single root Dockerfile: node:24-alpine builds the Vue frontend (frontend/, pnpm), ghcr.io/techknowlogick/xgo:go-1.27.x builds the Go API via `mage build:clean` / `mage release:xgo` (embeds the built frontend assets into the binary), final stage FROM scratch copies just the static binary. EXPOSE 3456. ENTRYPOINT [\"/app/vikunja/vikunja\"] (default subcommand is 'web'). Matches the cohort hint 'embedded frontend' exactly - one binary serves both API and UI."
       - "'extra go modules' hint confirmed: build/go.mod (mage build tooling) and veans/go.mod exist alongside the root go.mod; these are build-time/tooling submodules, not separate deployable services, so monorepo: false."
@@ -2259,7 +2262,7 @@ repositories:
         - kafka
     customer_realism: medium
     difficulty: 2
-    findings: [COMP-005]
+    findings: [COMP-005, COMP-040]
     notes:
       - Kafdrop is a Kafka cluster web UI/monitor; its entire purpose is to connect to and browse an external Apache Kafka broker, matching the MVP boundary's 'Kafka' exclusion intrinsically, independent of whether the connection string has a default.
       - "src/main/resources/application.yml: 'kafka: brokerConnect: localhost:9092' (has a default, so not a missing-required-env-var case) and 'server: port: ${SERVER_PORT:9000}'; src/main/docker/Dockerfile: 'FROM eclipse-temurin:25.0.4_7-jdk', 'EXPOSE 9000', 'ENTRYPOINT [\"/kafdrop.sh\"]' which execs 'java ... -jar /kafdrop*/kafdrop*jar ${CMD_ARGS}' (CMD_ARGS conventionally carries '--kafka.brokerConnect=...' etc., per docker-compose/kafka-kafdrop/docker-compose.yaml which sets 'KAFKA_BROKERCONNECT: kafka:29092' as an env var, Spring-relaxed-bound to kafka.brokerConnect)."
@@ -2348,7 +2351,7 @@ repositories:
         - mongodb
     customer_realism: high
     difficulty: 2
-    findings: [COMP-026, COMP-014]
+    findings: [COMP-026, COMP-014, COMP-039]
     notes:
       - "api/db/connect.js: `const MONGO_URI = process.env.MONGO_URI; if (!MONGO_URI) throw new Error(...)` and `mongoose.connect(MONGO_URI, ...)` — Mongoose/MongoDB is the only persistence layer in the codebase; no PostgreSQL/relational option anywhere -> NOT_COMPATIBLE [mongodb]."
       - 'Dockerfile (repo root): FROM node:24.16.0-alpine, builds the full monorepo (npm workspaces: api, client, packages/data-provider, packages/data-schemas, packages/api) via `npm run frontend`, EXPOSE 3080, ENV HOST=0.0.0.0, CMD ["npm","run","backend"] -> `npm run backend` = `cross-env NODE_ENV=production node api/server/index.js` (root package.json scripts). Builds from the repository alone.'
@@ -2620,7 +2623,7 @@ repositories:
         - background-worker
     customer_realism: medium
     difficulty: 4
-    findings: [COMP-015, COMP-027, COMP-028]
+    findings: [COMP-015, COMP-027, COMP-028, COMP-039]
     notes:
       - "docs/guides/platform/self-hosting.mdx states the architecture explicitly: 'Nango consists of several core services' — Server, Orchestrator, Jobs, Runner, Persist (all separate Node services), plus Postgres, Redis, Object Storage (S3) and ElasticSearch. Recommended config lists '5 Node services (Server, Persist, Runner, Jobs, Orchestrator)' and default deployment is via Helm charts. Self-hosting itself is gated behind an Enterprise plan."
       - Dockerfile (repo root) builds the FULL monorepo (all packages, backend + frontend) from source but ends at `EXPOSE 8080` with no CMD/ENTRYPOINT at all — it inherits the base node image's default `CMD ["node"]`, which does not start the app. It is a base layer other images build on, not a runnable production image by itself.
@@ -2812,6 +2815,7 @@ repositories:
       unsupported: []
     customer_realism: medium
     difficulty: 2
+    findings: [COMP-041]
     notes:
       - 'Root Dockerfile: multi-stage golang:1.25-trixie build -> debian:trixie-slim runtime with postgresql-client tools installed. EXPOSE 8081; ENTRYPOINT ["/usr/bin/pgweb", "--bind=0.0.0.0", "--listen=8081"] -> port: 8081, appRoot: . .'
       - "pgweb is a single-binary web UI/client for browsing a PostgreSQL database, not an app with its own persistent schema. pkg/command/options.go:getPrefixedEnvVar('DATABASE_URL') checks PGWEB_DATABASE_URL first, and when unset falls back to plain DATABASE_URL (with only a deprecation log line, still functional) -> Deployz's injected DATABASE_URL is picked up with zero extra configuration -> postgres: true, compatibility: READY."
@@ -3125,3 +3129,470 @@ repositories:
       - "Storage: compose comments show PENPOT_OBJECTS_STORAGE_BACKEND defaulting to 'fs' (local docker volume) with a documented alternative 'PENPOT_OBJECTS_STORAGE_BACKEND: s3' block -> local-disk default with S3 option -> storage: true."
       - "Worker/background jobs: penpot-exporter is a distinct application container that consumes export jobs via Valkey (PENPOT_EXPORTER_MAX_CONCURRENT_JOBS etc.) — this is itself one of the 4 app containers counted above, so it is folded into docker-compose-multi-service rather than double-counted as background-worker; backend/src/app/migrations.clj and the SQL migrations under backend/src/app/migrations/sql/ apply automatically at backend startup -> migration: true, worker: true (job-processing code exists)."
       - "monorepo: true — frontend/, backend/, exporter/, media-processor/, mcp/, library/, render-wasm/, plugins/ are independently versioned, independently built sub-projects (separate package.json/deps.edn/Cargo.toml each) sharing one repository."
+  - id: repo-201
+    repository: DIYgod/RSSHub
+    commit: 3e11afc95616d6b81d2c84d6dceb57fa52e4eb08
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: READY
+      runtime: [node]
+      monorepo: false
+      postgres: false
+      redis: false
+      storage: false
+      worker: false
+      migration: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 1200
+      healthPath: /healthz
+      unsupported: []
+    customer_realism: high
+    difficulty: 2
+    notes: []
+  - id: repo-202
+    repository: element-hq/synapse
+    commit: a0b5a45c918a765e90a87873ac25e83b857509a1
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [python]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 8008
+      healthPath: /health
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    notes:
+      - "media_store and signing keys live under /data with no S3 alternative (immich/kanboard precedent)."
+  - id: repo-203
+    repository: getfider/fider
+    commit: f164f69172002aba6296980c27160a196191dbd6
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [go]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /_health
+      unsupported: []
+    customer_realism: high
+    difficulty: 2
+    notes:
+      - "DATABASE_URL, JWT_SECRET and BASE_URL are required (no defaults)."
+  - id: repo-204
+    repository: shlinkio/shlink
+    commit: d012afd16a5d9a4d001c921d9bf9f411e9ffdc13
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [php]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /rest/health
+      unsupported: []
+    customer_realism: high
+    difficulty: 2
+    notes:
+      - "DB_DRIVER is selectable; the docker entrypoint runs the installer and migrations on first boot."
+  - id: repo-205
+    repository: alfio-event/alf.io
+    commit: 6296c0c855b13050a19ad111f88bc804ab85bdaf
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [java]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: src/main/dist/Dockerfile
+      port: 8080
+      unsupported: []
+    customer_realism: high
+    difficulty: 3
+    notes:
+      - "The image Dockerfile COPYs a Gradle-built jar (COMP-021 limitation class): a working image must be supplied."
+  - id: repo-206
+    repository: nocobase/nocobase
+    commit: 4901246cc508520ee41db07e4282c19728058a56
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: false
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /api/__health_check
+      unsupported: []
+    customer_realism: high
+    difficulty: 2
+    notes:
+      - "nginx serves port 80 (official compose maps 13000:80); the node gateway (APP_PORT) sits upstream."
+  - id: repo-207
+    repository: khoj-ai/khoj
+    commit: ae229ca894c0b80ad84664afcfdde523b5e87057
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [python]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 42110
+      healthPath: /api/health
+      unsupported: []
+    customer_realism: medium
+    difficulty: 3
+    notes:
+      - "pgvector extension is required; migrations run at boot."
+  - id: repo-208
+    repository: baserow/baserow
+    commit: c8f78278d8799a9c5f8c4b5ea5be895e2d5037b3
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [python]
+      monorepo: true
+      postgres: false
+      redis: false
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: backend/Dockerfile
+      port: 8000
+      healthPath: /api/_health/
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    notes:
+      - "The recommended all-in-one image embeds PostgreSQL and Redis under /baserow/data (local filesystem); the advanced shape adds multi-service containers and workers."
+  - id: repo-209
+    repository: searxng/searxng
+    commit: 23e7e4da008fdc9ac5b27b2625faa9144d46f208
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [python]
+      monorepo: false
+      postgres: false
+      redis: false
+      storage: false
+      worker: false
+      migration: false
+      appRoot: .
+      dockerfilePath: container/dist.dockerfile
+      port: 8080
+      unsupported: []
+    customer_realism: high
+    difficulty: 1
+    notes:
+      - "SEARXNG_BASE_URL and a secret_key (settings.yml) are required."
+  - id: repo-210
+    repository: FreshRSS/FreshRSS
+    commit: e5f99067814471cd6b1e0990f01a280a569a5300
+    cohort: realistic
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [php]
+      monorepo: false
+      postgres: false
+      redis: false
+      storage: false
+      worker: false
+      migration: false
+      appRoot: .
+      dockerfilePath: Docker/Dockerfile
+      port: 80
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 2
+    notes:
+      - "Named data/extensions volumes, sqlite-first install."
+  - id: repo-211
+    repository: toeverything/AFFiNE
+    commit: 2365c365574829b0cc72219e85fc412c498d2b00
+    cohort: messy
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: true
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: .github/deployment/node/Dockerfile
+      port: 3010
+      unsupported: []
+    customer_realism: medium
+    difficulty: 3
+    notes:
+      - "AllInOne image flavor runs workers in-process; the self-host compose is one app plus a one-shot migration; pgvector and S3-compatible storage caveats."
+  - id: repo-212
+    repository: NodeBB/NodeBB
+    commit: 7457d23ebd7e3eb78f144ca960d764f8b2bf06d0
+    cohort: messy
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: false
+      worker: false
+      migration: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 4567
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 2
+    notes:
+      - "uploads/config/build volumes, no S3 in core; the data store is selectable (mongo/redis/postgres)."
+  - id: repo-213
+    repository: langfuse/langfuse
+    commit: 7637df1e1aadddbbfd0a45b960ecc97451381ce5
+    cohort: messy
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: true
+      storage: true
+      worker: true
+      migration: true
+      appRoot: web
+      dockerfilePath: web/Dockerfile
+      port: 3000
+      unsupported:
+        - docker-compose-multi-service
+        - background-worker
+        - other-database
+    customer_realism: high
+    difficulty: 2
+    notes: []
+  - id: repo-214
+    repository: makeplane/plane
+    commit: da1a7ab85012d16836459a10dd92ec55eb739c69
+    cohort: messy
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node, python]
+      monorepo: true
+      postgres: true
+      redis: true
+      storage: true
+      worker: true
+      migration: true
+      appRoot: apps/web
+      dockerfilePath: apps/web/Dockerfile.web
+      port: 3000
+      healthPath: /
+      unsupported:
+        - docker-compose-multi-service
+        - background-worker
+        - rabbitmq
+    customer_realism: high
+    difficulty: 3
+    notes: []
+  - id: repo-215
+    repository: pixelfed/pixelfed
+    commit: 25e1384dbebf4fa779d2e710ed71fb0a62975db7
+    cohort: messy
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [php]
+      monorepo: false
+      postgres: false
+      redis: true
+      storage: false
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      unsupported:
+        - docker-compose-multi-service
+        - background-worker
+        - mysql
+    customer_realism: medium
+    difficulty: 2
+    notes:
+      - "MySQL-only per env/compose drivers; S3 optional so no local-filesystem."
+  - id: repo-216
+    repository: RocketChat/Rocket.Chat
+    commit: 67f2bda92e3ed13abd60f5ad2a1d8dd74e4516c0
+    cohort: boundary
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: false
+      redis: false
+      storage: false
+      worker: false
+      migration: false
+      appRoot: .
+      dockerfilePath: apps/meteor/.docker/Dockerfile.debian
+      port: 3000
+      unsupported:
+        - mongodb
+    customer_realism: high
+    difficulty: 3
+    notes:
+      - "No postgres adapter at this pin; uploads live on a VOLUME with an S3 admin option."
+  - id: repo-217
+    repository: PostHog/posthog
+    commit: c3c5a35a60db2bf7742935a9098880a01eede922
+    cohort: boundary
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [python, node]
+      monorepo: true
+      postgres: true
+      redis: true
+      storage: false
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+      unsupported:
+        - docker-compose-multi-service
+        - background-worker
+        - other-database
+        - kafka
+    customer_realism: medium
+    difficulty: 3
+    notes: []
+  - id: repo-218
+    repository: gotify/server
+    commit: 14bfc256276775c425f988d621dccfe705de18ac
+    cohort: boundary
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [go]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 80
+      healthPath: /health
+      unsupported: []
+    customer_realism: high
+    difficulty: 1
+    notes:
+      - "Postgres is env-selectable (kutt/healthchecks precedent); gorm AutoMigrate runs at boot."
+  - id: repo-219
+    repository: appwrite/appwrite
+    commit: 4ed30762b408d13df48e24e75e2fb7dbb994239e
+    cohort: boundary
+    set: unseen2
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [php, node]
+      monorepo: false
+      postgres: true
+      redis: true
+      storage: false
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      unsupported:
+        - docker-compose-multi-service
+        - background-worker
+        - mongodb
+        - other-database
+    customer_realism: medium
+    difficulty: 3
+    notes:
+      - "MariaDB is only a profile; MongoDB is the default DocumentsDB."
+  - id: repo-220
+    repository: headlamp-k8s/headlamp
+    commit: 69bfa236dab6c1c00658e11af1d21762d00c0700
+    cohort: boundary
+    set: unseen2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [go, node]
+      monorepo: false
+      postgres: false
+      redis: false
+      storage: false
+      worker: false
+      migration: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 4466
+      unsupported: []
+    customer_realism: medium
+    difficulty: 2
+    notes:
+      - "The cluster is an optional external target (kubeconfig/dynamic); no infrastructure is required."

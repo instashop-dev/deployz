@@ -1,0 +1,235 @@
+{
+  "id": "repo-208",
+  "repository": "baserow/baserow",
+  "commit": "c8f78278d8799a9c5f8c4b5ea5be895e2d5037b3",
+  "set": "unseen2",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
+  "analysisVersion": 11,
+  "tree": {
+    "files": 201,
+    "entries": 11755,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": true,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "backend/Dockerfile",
+    "port": 8000,
+    "healthPath": "/api/_health/",
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "heroku.Dockerfile",
+    "port": 80,
+    "startCommand": "CMD: []",
+    "healthDetected": true,
+    "healthPath": "/_health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": true,
+    "workerCommand": "celery-worker",
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "openai",
+      "sentry"
+    ],
+    "requiredEnvVars": [
+      "BASEROW_FRONTEND_COOKIE_PREFIX"
+    ],
+    "unsupported": [
+      "background-worker",
+      "docker-compose-multi-service",
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "local-file-storage",
+      "background-worker-unsupported",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "unsupported",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "backend/Dockerfile",
+      "actual": "heroku.Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": 80,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/_health/",
+      "actual": "/_health",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "background-worker",
+        "docker-compose-multi-service",
+        "local-filesystem"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "backend/Dockerfile",
+      "actual": "heroku.Dockerfile",
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8000,
+      "actual": 80,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/api/_health/",
+      "actual": "/_health",
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "background-worker",
+        "docker-compose-multi-service",
+        "local-filesystem"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}

@@ -81,6 +81,21 @@ export type { ApplicationAnalysisContext } from './application-analysis.js';
 export { buildApplicationAnalysis, readApplicationAnalysis } from './application-analysis.js';
 
 export type {
+  AnalysisAmbiguityKind,
+  AnalysisAmbiguity,
+  EvidenceItem,
+  RepositoryEvidence,
+} from './evidence.js';
+export { deriveAmbiguities, collectRepositoryEvidence, legacyQuestionString } from './evidence.js';
+
+export type {
+  BindingResource,
+  BindingSemantic,
+  InfrastructureBinding,
+} from './bindings.js';
+export { deriveInfrastructureBindings } from './bindings.js';
+
+export type {
   CompatibilityVerdict,
   IssueSeverity,
   CompatibilityIssue,
@@ -178,9 +193,11 @@ export {
   REPO_AI_MAX_PROMPT_TOKENS,
   REPO_AI_MAX_TOTAL_TOKENS,
   REPO_AI_TIMEOUT_MS,
+  REPOSITORY_AI_PROMPT_VERSION,
   MAX_AI_CONTEXT_FILES,
   MAX_AI_FILE_CHARS,
   repositoryAiSchema,
+  aiFieldSchema,
   collectUnresolvedQuestions,
   selectAiContextFiles,
   buildRepositoryAiPrompt,

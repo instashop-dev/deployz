@@ -28,6 +28,8 @@ import {
   detectBuildCommand,
   detectRuntime,
   detectBindAddress,
+  detectStartupMigrationEvidence,
+  hasPreDeployMigration,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -52,11 +54,15 @@ import {
   checkAzure,
   checkGcp,
   checkGpu,
+  checkExplicitPersistentDataDir,
+  checkRequiredThirdPartyService,
 } from './rejection.js';
 
 import { classifyEnvVariables } from './env-classification.js';
 import type { RedisRequirement } from './redis.js';
 import { assessRedis, resolveRedisEnvBindings } from './redis.js';
+import { deriveAmbiguities } from './evidence.js';
+import { deriveInfrastructureBindings } from './bindings.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -127,6 +133,8 @@ const REJECTION_CHECKS = [
   checkAzure,
   checkGcp,
   checkGpu,
+  checkExplicitPersistentDataDir,
+  checkRequiredThirdPartyService,
 ] as const;
 
 /**
@@ -274,6 +282,47 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
 
   const metadata = buildMetadata(findings, redis, postgres);
 
+  // Stage B phase 5: surface the health endpoint's resolved path and MODE so
+  // manifest normalization never silently assumes `/health`. `vendor_required`
+  // means no health evidence exists — the deployment gate must ask the vendor.
+  const healthFinding = findings.find((f) => f.detector === 'health-endpoint');
+  if (healthFinding?.detected) {
+    metadata['healthPath'] = healthFinding.path ?? null;
+    metadata['healthMode'] = healthFinding.mode ?? 'explicit';
+  } else {
+    metadata['healthPath'] = null;
+    metadata['healthMode'] = 'vendor_required';
+  }
+
+  // Stage B phase 7 (COMP-030): the port's provenance, so the deployment gate
+  // can prefill a framework default without ever auto-deploying on a guess.
+  const portFinding = findings.find((f) => f.detector === 'port');
+  if (portFinding?.detected && typeof portFinding.value === 'string') {
+    metadata['portSource'] = portFinding.portSource;
+    metadata['portConfidence'] = portFinding.portConfidence;
+  }
+
+  // Stage B phase 6 (COMP-014): migration MODE — how the database schema is
+  // updated. `pre_deploy` (a deploy-safe migration script), `startup` (the
+  // app runs migrations when it starts — evidence recorded, command never
+  // invented), `unknown` (required database, no migration evidence anywhere),
+  // or `none` (no database, so no migrations to run).
+  const postgresMeta = metadata['postgres'] as { required?: unknown } | undefined;
+  if (metadata['usesPostgresql'] !== true) {
+    metadata['migrationMode'] = 'none';
+  } else if (postgresMeta?.required !== true) {
+    // A detected-but-unconfirmed database: keep the gentle recommendation.
+    metadata['migrationMode'] = 'unknown';
+  } else if (hasPreDeployMigration(tree)) {
+    metadata['migrationMode'] = 'pre_deploy';
+  } else {
+    const startupEvidence = detectStartupMigrationEvidence(tree);
+    metadata['migrationMode'] = startupEvidence.length > 0 ? 'startup' : 'unknown';
+    if (startupEvidence.length > 0) {
+      metadata['migrationStartupEvidence'] = startupEvidence;
+    }
+  }
+
   // §11.4 — the full unsupported-reason list the manifest gate turns into
   // NOT_COMPATIBLE. Kept as plain strings on the metadata so a deployment
   // created from STORED detected_metadata blocks exactly like one created
@@ -301,7 +350,17 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
 
   metadata['databaseState'] = deriveDatabaseState(findings, rejections);
 
-  return { findings, rejections, metadata };
+  const result: AnalysisResult = { findings, rejections, metadata };
+  // §15 typed evidence surface: the facts the deterministic pipeline left
+  // unresolved (build target, start/build/port, DB/cache/storage bindings,
+  // health path, migration strategy, worker gate). Purely derived — it never
+  // feeds back into a finding, rejection, or verdict.
+  metadata['ambiguities'] = deriveAmbiguities(tree, result);
+  // Stage B phase 2: the env var names each provisioned value must be injected
+  // under (MEMOS_DSN, PAPERLESS_DBHOST, CELERY_BROKER_URL, …). Purely derived
+  // read-model over the env-var model — never feeds back into a verdict.
+  metadata['infrastructureBindings'] = deriveInfrastructureBindings(tree, result);
+  return result;
 }
 
 /**

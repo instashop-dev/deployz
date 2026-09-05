@@ -88,6 +88,13 @@ import {
   type StackInstaller,
 } from './install.js';
 import {
+  bindingAliasesFromPayload,
+  createBindingAliasApplier,
+  manifestBindingAliases,
+  type BindingAlias,
+  type BindingAliasApplyOutcome,
+} from './binding-alias.js';
+import {
   createPendingStore,
   memoryPendingStore,
   pendingParameterName,
@@ -593,6 +600,18 @@ export interface InstallExecutorDeps {
   readonly recover?: (stackName: string) => Promise<RecoveryReport>;
   /** CloudFormation execution role ARN (`role/deployz/*`), when configured. */
   readonly executionRoleArn?: string;
+  /**
+   * Stage B phase 2 — post-install binding-alias registration. When provided,
+   * a successfully verified install registers one extra task-definition
+   * revision carrying the manifest's alias bindings (MEMOS_DSN,
+   * PAPERLESS_DBHOST…, S3_ATTACHMENTS_BUCKET) before success is reported. A
+   * failed registration fails the install honestly. Optional so pre-existing
+   * test doubles and legacy wiring keep compiling unchanged.
+   */
+  readonly applyBindingAliases?: (options: {
+    stackName: string;
+    aliases: readonly BindingAlias[];
+  }) => Promise<BindingAliasApplyOutcome>;
   /** Clock for the pending marker's `startedAt`. */
   readonly now?: () => string;
   /**
@@ -739,6 +758,31 @@ async function settleInstall(
       checks: [],
       reason: `Verification could not run: ${String(err)}`,
     };
+  }
+
+  if (verification.verified) {
+    // Stage B phase 2: a fresh dynamic install must carry the manifest's
+    // binding aliases, which the pre-published template cannot know about.
+    // The full manifest rides the creating payload; a resumed install's
+    // compacted marker carries the alias list instead.
+    const aliases = manifest
+      ? manifestBindingAliases(manifest)
+      : bindingAliasesFromPayload(request.payload);
+    if (aliases.length > 0 && deps.applyBindingAliases) {
+      const applied = await deps.applyBindingAliases({
+        stackName: request.stackName,
+        aliases,
+      });
+      if (applied.state === 'failed') {
+        return {
+          deferred: false,
+          success: false,
+          error:
+            applied.reason ?? 'Installed, but the binding aliases could not be registered',
+          output: { stackStatus: outcome.status, outputs: outcome.outputs },
+        };
+      }
+    }
   }
 
   return {
@@ -1189,6 +1233,7 @@ export function compactPendingInstallPayload(
   const { manifest: _manifest, ...rest } = payload;
   const manifest = readDeploymentManifest(payload);
   const verifyOptions = readVerifyOptionsFromPayload(payload);
+  const aliases = manifest ? manifestBindingAliases(manifest) : [];
 
   return {
     ...rest,
@@ -1197,6 +1242,10 @@ export function compactPendingInstallPayload(
       ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
     },
     redisRequired: verifyOptions.redisRequired ?? manifest?.redis.required ?? false,
+    // Stage B phase 2: the compact alias list survives the SSM size cap so a
+    // resumed install can still register the manifest's binding aliases after
+    // the stack settles (the full manifest cannot ride the pending marker).
+    ...(aliases.length > 0 ? { bindingAliases: aliases } : {}),
   };
 }
 
@@ -1241,6 +1290,14 @@ function createDefaultInstallDeps(
         ...(budgetMs !== undefined ? { budgetMs } : {}),
       }),
     verify: (options) => verifyInstallation({ ...options, cfn: getCloudFormationReader() }),
+    // Stage B phase 2: after a verified fresh install, copy the standard
+    // injected env/secret values onto the manifest's alias names on a new
+    // task-definition revision (see ./binding-alias.ts).
+    applyBindingAliases: createBindingAliasApplier({
+      cfn: getCloudFormationReader(),
+      ecs: getEcsDeployClient(),
+      installationId,
+    }),
     pending: getPendingStore(installationId),
     ...(reportContext
       ? {

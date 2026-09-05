@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 201,
     "entries": 16823,
@@ -32,7 +32,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "NEEDS_ATTENTION",
     "readinessState": "ALMOST_READY",
     "runtime": "node",
@@ -60,6 +60,7 @@
       "database-migrations"
     ],
     "gateFindings": [
+      "health-path-required",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -71,9 +72,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -132,16 +132,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-017",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",

@@ -95,6 +95,9 @@ function portFact(
   metadata: Record<string, unknown>,
   aiResolved: string[],
 ): Fact<number | null> {
+  // A framework-default port (Stage B phase 7) is a prefill, never a resolved
+  // fact — the vendor must confirm it before the deployment gate accepts it.
+  if (metadata['portSource'] === 'framework-default') return unknownFact(null);
   const raw = typeof metadata['port'] === 'string' ? Number.parseInt(metadata['port'], 10) : Number.NaN;
   if (!Number.isFinite(raw) || raw <= 0) return unknownFact(null);
   if (aiResolved.includes('port')) {

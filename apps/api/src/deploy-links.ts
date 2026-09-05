@@ -130,9 +130,11 @@ export async function createDeploymentRecord(
 ): Promise<CreatedDeployment> {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
   await loadOwnedCustomer(db, params.customerId, params.organizationId);
-  // Phase 5: the one preflight every path into provisioning runs — the
-  // manifest gate against THIS customer's configuration plus the readiness
-  // report's remaining findings. Warnings never block.
+  // The one preflight every path into provisioning runs — the manifest gate
+  // against THIS customer's configuration plus the readiness report's
+  // remaining findings. Generated secrets are never minted on the control
+  // plane (#186): the relay mints them inside the customer's account after
+  // install, and the preflight counts them as auto-provided.
   const { manifest, result } = await runApplicationPreflight(db, application, params.customerId);
   requirePreflightReady(result);
   const [row] = await db

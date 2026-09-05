@@ -1,0 +1,161 @@
+{
+  "id": "repo-209",
+  "repository": "searxng/searxng",
+  "commit": "23e7e4da008fdc9ac5b27b2625faa9144d46f208",
+  "set": "unseen2",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 1,
+  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
+  "analysisVersion": 11,
+  "tree": {
+    "files": 201,
+    "entries": 1216,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": false,
+    "appRoot": ".",
+    "dockerfilePath": "container/dist.dockerfile",
+    "port": 8080,
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "container/builder.dockerfile",
+    "port": 5000,
+    "startCommand": null,
+    "healthDetected": true,
+    "healthPath": "/healthz",
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [
+      "GITHUB_REF_NAME",
+      "GITHUB_REPOSITORY",
+      "SEARXNG_DEBUG"
+    ],
+    "unsupported": [],
+    "readinessFindings": [],
+    "gateFindings": [
+      "start-command-missing",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "start-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "container/dist.dockerfile",
+      "actual": "container/builder.dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": 5000,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "container/dist.dockerfile",
+      "actual": "container/builder.dockerfile",
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8080,
+      "actual": 5000,
+      "finding": null
+    }
+  ],
+  "match": false
+}

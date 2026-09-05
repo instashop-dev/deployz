@@ -32,6 +32,21 @@ export interface DetectorFinding {
    */
   path?: string | undefined;
   /**
+   * Stage B phase 5 — how the health endpoint is known, set only by the
+   * `health-endpoint` detector: `explicit` (a declared route or HEALTHCHECK
+   * URL names the path), `root` (the app's own HEALTHCHECK probes `/`), or
+   * `vendor_required` (no evidence at all — Deployz must not guess).
+   */
+  mode?: 'explicit' | 'root' | 'vendor_required' | undefined;
+  /**
+   * Stage B phase 7 (COMP-030) — where a `port` finding came from:
+   * `dockerfile-expose` | `compose` | `env` | `runtime-literal` |
+   * `framework-default`. Set only by the `port` detector.
+   */
+  portSource?: string | undefined;
+  /** Stage B phase 7 — how confident the port detection is. */
+  portConfidence?: 'high' | 'medium' | 'low' | undefined;
+  /**
    * Where the winning value was read from, for the detectors whose value
    * the canonical application analysis reports as a fact (framework, port,
    * health endpoint, start/build/migration commands, runtime, bind address).
@@ -282,6 +297,11 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
     }
     if (isServiceKey && keyLine[1] === 'image') current.image = /^["']?([^\s"']+)/.exec(keyLine[2] ?? '')?.[1] ?? null;
     if (isServiceKey && keyLine[1] === 'profiles') current.optional = true;
+    // COMP-010: `deploy.replicas: 0` declares an OPTIONAL service (a worker
+    // kept for reference but never scaled by the default stack).
+    if (isServiceKey && keyLine[1] === 'replicas' && (keyLine[2] ?? '').trim() === '0') {
+      current.optional = true;
+    }
     if (isServiceKey && keyLine[1] === 'volumes' && (keyLine[2] ?? '') === '') inVolumes = true;
     if (isServiceKey && keyLine[1] === 'command') {
       const value = (keyLine[2] ?? '').trim();
@@ -556,84 +576,156 @@ function exposedPort(dockerfile: string): string | null {
 }
 
 /**
+ * The candidate port + its provenance. Explicit sources always outrank the
+ * framework default, which is stored separately (low confidence, prefill only).
+ */
+interface PortCandidate {
+  value: string;
+  source: 'dockerfile-expose' | 'compose' | 'env' | 'runtime-literal' | 'framework-default';
+  confidence: 'high' | 'medium' | 'low';
+  details: string;
+}
+
+/** A literal numeric port (2-5 digits). */
+const LITERAL_PORT = /^(\d{2,5})$/;
+
+/**
+ * Runtime literals that name the port the app listens on — static, easy
+ * patterns only. Placeholder/env-dependent values are never a candidate.
+ */
+function runtimeLiteralPort(tree: FileTree): { value: string; details: string } | null {
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    // Go: http.ListenAndServe(":8080", nil) / Addr: ":8080"
+    if (/\.go$/.test(path)) {
+      const go = /(?:http\.ListenAndServe\(\s*"|Addr\s*:\s*"):(\d{2,5})"/.exec(content);
+      if (go?.[1]) return { value: go[1], details: `Go ListenAndServe port ${go[1]} (${path})` };
+    }
+    // Python: app.run(port=8000) / uvicorn.run(app, port=8000) / --port 8000
+    if (/\.py$/.test(path)) {
+      const py = /\b(?:app\.run|uvicorn\.run)\([^)]*port\s*=\s*(\d{2,5})/.exec(content);
+      if (py?.[1]) return { value: py[1], details: `Python run(port=...) ${py[1]} (${path})` };
+    }
+    // Java: server.port=8080 / server: { port: 8080 } (non-placeholder)
+    if (/\.(?:properties|ya?ml)$/.test(path) && /(?:^|\/)application\./.test(path)) {
+      const java = /^\s*server\s*[:.]\s*port\s*[:=]\s*(\d{2,5})\s*$/m.exec(content);
+      if (java?.[1]) return { value: java[1], details: `server.port ${java[1]} (${path})` };
+    }
+  }
+  // uvicorn --port in a start command / rails server -p / artisan serve --port.
+  for (const [, command] of collectScripts(tree)) {
+    const uv = /uvicorn[^\n]*--port\s+(\d{2,5})/.exec(command);
+    if (uv?.[1]) return { value: uv[1], details: `uvicorn --port ${uv[1]} (start script)` };
+    const rails = /rails\s+server\s+-p\s+(\d{2,5})/.exec(command);
+    if (rails?.[1]) return { value: rails[1], details: `rails server -p ${rails[1]} (start script)` };
+    const artisan = /artisan\s+serve[^\n]*--port\s*=?\s*(\d{2,5})/.exec(command);
+    if (artisan?.[1]) return { value: artisan[1], details: `artisan serve --port ${artisan[1]} (start script)` };
+  }
+  return null;
+}
+
+/** True when the runtime is detected with existing high-confidence evidence. */
+function hasFrameworkMarker(tree: FileTree): boolean {
+  const names = collectDependencyNames(tree);
+  const raw = [...Object.values(tree)].join('\n');
+  if (names.includes('next')) return true;
+  if (names.includes('@nestjs/core') || names.includes('express') || names.includes('fastify')) return true;
+  if (/django|manage\.py|flask|uvicorn|fastapi|requirements\.txt/.test(raw)) return true;
+  if (names.includes('rails') || /Gemfile/.test(raw)) return true;
+  if (/spring-boot|spring\.framework/.test(raw)) return true;
+  if (/phoenix|mix\.exs/.test(raw)) return true;
+  if (/laravel|artisan/.test(raw)) return true;
+  return false;
+}
+
+/** The framework's conventional default port, when the runtime is present. */
+function frameworkDefaultPort(tree: FileTree): string | null {
+  if (!hasFrameworkMarker(tree)) return null;
+  const names = collectDependencyNames(tree);
+  if (names.includes('next') || names.includes('express') || names.includes('fastify') || names.includes('@nestjs/core')) {
+    return '3000';
+  }
+  const raw = [...Object.values(tree)].join('\n');
+  if (/manage\.py/.test(raw) || /uvicorn|fastapi/.test(raw)) return '8000';
+  if (/flask/.test(raw)) return '5000';
+  if (/Gemfile/.test(raw)) return '3000';
+  if (/spring-boot|spring\.framework/.test(raw)) return '8080';
+  if (/phoenix|mix\.exs/.test(raw)) return '4000';
+  if (/laravel|artisan/.test(raw)) return '8000';
+  return null;
+}
+
+/**
  * Detect the application port from env files, docker-compose, the selected
- * Dockerfile, or source code.
+ * Dockerfile, runtime literals, or — as a LAST-RESORT prefill — the detected
+ * framework's conventional default. Explicit evidence always outranks the
+ * default; the default is returned as `framework-default` / low confidence so
+ * the deployment gate can keep refusing to auto-deploy on a guessed port.
  */
 export function detectPort(tree: FileTree): DetectorFinding {
-  // 1. Check env files (.env, .env.example)
+  const result = (candidate: PortCandidate, source: DetectorSource): DetectorFinding => ({
+    detector: 'port',
+    detected: true,
+    value: candidate.value,
+    details: candidate.details,
+    source,
+    portSource: candidate.source,
+    portConfidence: candidate.confidence,
+  });
+
+  // 1. Env files (.env, .env.example) — explicit env config.
   for (const path of Object.keys(tree)) {
     if (/^\.env(\.\w+)?$/i.test(path)) {
-      const content = tree[path];
-      if (!content) continue;
-      const match = PORT_ENV_REGEX.exec(content);
-      if (match && match[1]) {
-        return {
-          detector: 'port',
-          detected: true,
-          value: match[1],
-          details: `Port ${match[1]} detected in ${path}`,
-          source: 'env-file',
-        };
+      const match = PORT_ENV_REGEX.exec(tree[path] ?? '');
+      if (match?.[1]) {
+        return result(
+          { value: match[1], source: 'env', confidence: 'high', details: `Port ${match[1]} detected in ${path}` },
+          'env-file',
+        );
       }
     }
   }
 
-  // 2. Check docker-compose.yml
+  // 2. docker-compose ${PORT:-NNNN} default.
   const dcContent = findFileContent(tree, /^docker-compose\.ya?ml$/i);
   if (dcContent) {
     const match = PORT_DOCKER_COMPOSE_REGEX.exec(dcContent);
-    if (match && match[1]) {
-      return {
-        detector: 'port',
-        detected: true,
-        value: match[1],
-        details: `Port ${match[1]} detected in docker-compose`,
-        source: 'compose',
-      };
+    if (match?.[1]) {
+      return result(
+        { value: match[1], source: 'compose', confidence: 'high', details: `Port ${match[1]} detected in docker-compose` },
+        'compose',
+      );
     }
   }
 
-  // 3. The selected Dockerfile's explicit ENV PORT — the container's own
-  //    configuration outranks a code default it may override.
+  // 3. The selected Dockerfile's explicit ENV PORT.
   const dockerfile = selectedDockerfile(tree);
   const envPort = dockerfile ? DOCKERFILE_ENV_PORT_REGEX.exec(dockerfile.content) : null;
   if (dockerfile && envPort?.[1]) {
-    return {
-      detector: 'port',
-      detected: true,
-      value: envPort[1],
-      details: `Port ${envPort[1]} detected in ${dockerfile.path} (ENV PORT)`,
-      source: 'dockerfile',
-    };
+    return result(
+      { value: envPort[1], source: 'env', confidence: 'high', details: `Port ${envPort[1]} detected in ${dockerfile.path} (ENV PORT)` },
+      'dockerfile',
+    );
   }
 
-  // 4. The selected Dockerfile's EXPOSE instruction — the image's own
-  //    statement of its port outranks a code default, which may belong to
-  //    another runtime in the same repository (a Django image next to a
-  //    Node frontend) and which Deployz overrides through PORT anyway.
+  // 4. The selected Dockerfile's EXPOSE instruction.
   const exposed = dockerfile ? exposedPort(dockerfile.content) : null;
   if (dockerfile && exposed) {
-    return {
-      detector: 'port',
-      detected: true,
-      value: exposed,
-      details: `Port ${exposed} detected in ${dockerfile.path} (EXPOSE)`,
-      source: 'dockerfile',
-    };
+    return result(
+      { value: exposed, source: 'dockerfile-expose', confidence: 'high', details: `Port ${exposed} detected in ${dockerfile.path} (EXPOSE)` },
+      'dockerfile',
+    );
   }
 
-  // 5. Check source code for process.env.PORT || fallback
+  // 5. Source code: process.env.PORT || fallback.
   for (const [path, content] of Object.entries(tree)) {
     if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
       const match = PORT_PROCESS_REGEX.exec(content);
-      if (match && match[1]) {
-        return {
-          detector: 'port',
-          detected: true,
-          value: match[1],
-          details: `Default port ${match[1]} detected in ${path}`,
-          source: 'source',
-        };
+      if (match?.[1]) {
+        return result(
+          { value: match[1], source: 'runtime-literal', confidence: 'high', details: `Default port ${match[1]} detected in ${path}` },
+          'source',
+        );
       }
     }
   }
@@ -642,14 +734,34 @@ export function detectPort(tree: FileTree): DetectorFinding {
   for (const path of listProductionComposeFiles(tree)) {
     const match = COMPOSE_PORT_MAPPING_REGEX.exec(tree[path] ?? '');
     if (match?.[1]) {
-      return {
-        detector: 'port',
-        detected: true,
-        value: match[1],
-        details: `Port ${match[1]} detected in ${path} (ports mapping)`,
-        source: 'compose',
-      };
+      return result(
+        { value: match[1], source: 'compose', confidence: 'high', details: `Port ${match[1]} detected in ${path} (ports mapping)` },
+        'compose',
+      );
     }
+  }
+
+  // 7. Runtime literals (Go/Python/Java/Ruby/PHP start commands).
+  const literal = runtimeLiteralPort(tree);
+  if (literal) {
+    return result(
+      { value: literal.value, source: 'runtime-literal', confidence: 'high', details: literal.details },
+      'source',
+    );
+  }
+
+  // 8. Framework default — prefill only, never silently deployable.
+  const frameworkDefault = frameworkDefaultPort(tree);
+  if (frameworkDefault && LITERAL_PORT.test(frameworkDefault)) {
+    return result(
+      {
+        value: frameworkDefault,
+        source: 'framework-default',
+        confidence: 'low',
+        details: `Framework default port ${frameworkDefault}`,
+      },
+      'source',
+    );
   }
 
   return { detector: 'port', detected: false };
@@ -665,9 +777,9 @@ const HEALTHCHECK_REGEX = /HEALTHCHECK\b/i;
 // the detector's normalized `path`. Neither group changes which strings
 // match — `get(` with no receiver still matches.
 const HEALTH_ROUTE_REGEX =
-  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/i;
+  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\b/i;
 const HEALTH_HTTP_ADAPTER_REGEX =
-  /\.getHttpAdapter\(\)\..*?['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat))\b/;
+  /\.getHttpAdapter\(\)\..*?['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\b/;
 const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
 // File-based routing (Next.js, Remix, Nuxt, SvelteKit) declares the path in
 // the FILE NAME, so there is no route string to match: `api/health.ts`,
@@ -701,7 +813,7 @@ const HEALTH_PATH_PRIORITY = {
   // moved route, so it ranks below anything found in code (Stage A COMP-005).
   HEALTHCHECK_URL: 2,
 } as const;
-const HEALTH_PATH_SEGMENT_REGEX = /(?:^|\/)(?:health|healthz|healthcheck|heartbeat|readyz|livez)$/i;
+const HEALTH_PATH_SEGMENT_REGEX = /(?:^|\/)(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health)$/i;
 // A health URL in a container/compose health check: `curl -f http://localhost:3000/api/heartbeat`.
 // The host is the container itself (localhost, a loopback/any address, or a
 // `$VAR`), never a documentation link that happens to sit on the same line.
@@ -710,13 +822,15 @@ const HEALTHCHECK_URL_REGEX =
 // A HEALTHCHECK that runs a script shipped in the image (`CMD node
 // healthcheck.js`) names its URL inside that script (Stage A COMP-034).
 const HEALTHCHECK_SCRIPT_REGEX = /[\w./-]+\.(?:[cm]?js|sh|py|rb)\b/g;
-// Route registrations in Go, Python and Ruby name their path as a plain
-// string literal on the registering call: `HandleFunc("GET /healthcheck", …)`,
-// `app.Get("/health", …)`, `@app.route('/health')`, `path('health/', …)`,
-// `get '/health'`. Only the well-known health segments count.
+// Route registrations in Go, Python, Ruby, PHP, .NET, Elixir, Rails and JVM
+// name their path as a plain string literal on the registering call:
+// `HandleFunc("GET /healthcheck", …)`, `app.Get("/health", …)`,
+// `@app.route('/health')`, `path('health/', …)`, `get '/up'`,
+// `Route::get('/up')`, `MapGet("/health", …)`, `@GetMapping("/x")`.
+// Only literals whose LAST segment is a well-known health name count.
 const HEALTH_ROUTE_LITERAL_REGEX =
-  /(?:HandleFunc|Handle|GET|Get|get|route|path|add_url_rule|url)\s*\(?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez))\/?["']/;
-const LANGUAGE_SOURCE_REGEX = /\.(go|py|rb)$/;
+  /(?:HandleFunc|Handle|GET|Get|get|Post|post|Put|put|Route|Map|path|add_url_rule|url|GetMapping|RequestMapping|value)\s*(?:\(|::)?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w.-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\/?["']/gi;
+const LANGUAGE_SOURCE_REGEX = /\.(?:go|py|rb|php|cs|java|kt|kts|scala|ex|exs)$/i;
 
 /** Ensure a captured/derived health path starts with a leading slash. */
 function normalizeHealthPath(raw: string): string {
@@ -790,6 +904,39 @@ function composeMountedPath(
   return composed ? path : undefined;
 }
 
+// ── Stage B phase 5 (COMP-005): Spring Boot helpers ─────────────────────────
+
+/** `server.servlet.context-path` from application.properties/yml, when literal. */
+function findSpringContextPath(tree: FileTree): string {
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !/(?:^|\/)application\.(?:properties|ya?ml)$/i.test(path)) continue;
+    const flat = /server\.servlet\.context-path\s*[:=]\s*"?(\/[^\s"#]*)["]?/.exec(content);
+    if (flat?.[1]) return flat[1];
+    // application.yml nests the key: `context-path: /svc` under `servlet:`.
+    const nested = /^\s*context-path\s*:\s*"?(\/[^\s"#]*)["]?/m.exec(content);
+    if (nested?.[1]) return nested[1];
+  }
+  return '';
+}
+
+/**
+ * Whether Spring Actuator's web exposure still serves health. Only an
+ * EXPLICIT configuration that excludes health disables it — the default
+ * (health exposed) stays enabled.
+ */
+function findActuatorExposure(tree: FileTree): 'enabled' | 'excluded' {
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !/(?:^|\/)application\.(?:properties|ya?ml)$/i.test(path)) continue;
+    const includeMatch = /management\.endpoints\.web\.exposure\.include\s*[:=]\s*"?([^"\s#]*)["]?/.exec(content);
+    const excludeMatch = /management\.endpoints\.web\.exposure\.exclude\s*[:=]\s*"?([^"\s#]*)["]?/.exec(content);
+    const included = includeMatch?.[1] ?? '';
+    const excluded = excludeMatch?.[1] ?? '';
+    if (excluded.includes('health')) return 'excluded';
+    if (included.length > 0 && !included.includes('health') && !included.includes('*')) return 'excluded';
+  }
+  return 'enabled';
+}
+
 /**
  * Detect a health check endpoint from Dockerfile HEALTHCHECK, package.json scripts,
  * route patterns in source code, or a file-based route path.
@@ -852,14 +999,76 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 1c. Route registrations in Go, Python and Ruby runtime source.
+  // 1c. Route registrations across frameworks (Go/Python/Ruby/PHP/.NET/JVM/
+  //     Elixir/Rails) name their health route as a plain string literal.
+  //     Stage B phase 5 (COMP-005): health-ish names now include the common
+  //     non-standard routes (/up, /status, /ping, /alive, /_health, …) — a
+  //     declaration must exist; a name is never assumed on its own.
+  const actuatorDependency = Object.entries(tree).some(
+    ([path, content]) =>
+      content &&
+      /(?:^|\/)(?:pom\.xml|build\.gradle(?:\.kts)?)$/.test(path) &&
+      /spring-boot(?:-starter)?-actuator/.test(content),
+  );
   for (const [path, content] of Object.entries(tree)) {
     if (!LANGUAGE_SOURCE_REGEX.test(path) || !content || !isRuntimeSourcePath(path)) continue;
-    const match = HEALTH_ROUTE_LITERAL_REGEX.exec(content);
-    if (match?.[1]) {
+
+    // ── Spring Boot Actuator: /actuator/health when the dependency exists and
+    //    the exposure config does not exclude health. ──
+    if (actuatorDependency && /\.(?:java|kt|kts|scala)$/.test(path)) {
+      const contextPath = findSpringContextPath(tree);
+      const exposure = findActuatorExposure(tree);
+      if (exposure !== 'excluded') {
+        sources.push(`actuator health (${path})`);
+        pathCandidates.push({
+          path: `${contextPath}/actuator/health`,
+          // The actuator default ranks BELOW an explicit route declaration in
+          // code — a controller that maps its own health path wins.
+          priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL,
+          source: 'source',
+        });
+      }
+    }
+
+    // Class-level @RequestMapping("/api/v1") prefixes a controller's methods.
+    const javaPrefixes: string[] = [];
+    if (/\.(?:java|kt)$/.test(path)) {
+      for (const m of content.matchAll(/@RequestMapping\(\s*["'](\/[^"']+)["']/g)) {
+        if (m[1] && !HEALTH_PATH_SEGMENT_REGEX.test(m[1])) javaPrefixes.push(m[1]);
+      }
+    }
+
+    for (const match of content.matchAll(HEALTH_ROUTE_LITERAL_REGEX)) {
+      const raw = match[1];
+      if (!raw) continue;
+      let routePath = raw.startsWith('/') ? raw : `/${raw}`;
+      // Laravel API routes are served under /api; the file says so.
+      if (/(?:^|\/)routes\/api\.php$/i.test(path) && !routePath.startsWith('/api')) {
+        routePath = `/api${routePath}`;
+      }
+      if (javaPrefixes.length > 0 && !routePath.startsWith(javaPrefixes[0]!)) {
+        routePath = `${javaPrefixes[0]!.replace(/\/+$/, '')}${routePath}`;
+      }
       sources.push(`health route (${path})`);
       pathCandidates.push({
-        path: normalizeHealthPath(match[1]),
+        path: routePath,
+        priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+        source: 'source',
+      });
+    }
+  }
+
+  // ── Phoenix (Elixir): routes are declared inside `scope "/api/v1" do` ────
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.(?:ex|exs)$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    const scopes = [...content.matchAll(/scope\s+["'](\/[^"']*)["']/g)].map((m) => m[1] ?? '');
+    for (const match of content.matchAll(/\b(?:get|post)\s+["'](\/[^"']*)["']/g)) {
+      const raw = match[1]!;
+      if (!HEALTH_PATH_SEGMENT_REGEX.test(raw)) continue;
+      const routePath = scopes.length > 0 ? `${scopes[0]!.replace(/\/+$/, '')}${raw}` : raw;
+      sources.push(`health route (${path})`);
+      pathCandidates.push({
+        path: routePath,
         priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
         source: 'source',
       });
@@ -933,6 +1142,9 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     undefined,
   );
   const path = bestCandidate?.path ?? '/health';
+  // Stage B phase 5: `/` is a ROOT check (the app's own HEALTHCHECK probes the
+  // home page) — never treated as an explicit health route.
+  const mode = path === '/' ? 'root' : 'explicit';
 
   return {
     detector: 'health-endpoint',
@@ -942,6 +1154,7 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     path,
     // Without a literal path the evidence is the image's own HEALTHCHECK or
     // a package.json script — never a route Deployz read from source.
+    mode,
     source: bestCandidate?.source ?? (dockerfile && HEALTHCHECK_REGEX.test(dockerfile.content) ? 'dockerfile' : 'package-manifest'),
   };
 }
@@ -1283,7 +1496,15 @@ const DATABASE_VOLUME_REGEX = /(?:database|\bdb\b|sqlite|postgres|pgdata|mysql|m
 // and customisation directories the operator fills before start (themes,
 // plugins, certificates) carry no state the app writes at runtime.
 const NON_STATE_MOUNT_REGEX =
-  /:ro$|\.sock(?::|$)|[^/]\.[a-z]{2,5}(?::[a-z]+)?$|\/(?:custom|config|conf|plugins?|themes?|certs?|ssl|secrets?|extensions?|addons?)\/?(?::[a-z]+)?$/i;
+  /:ro$|\.sock(?::|$)|[^/]\.[a-z]{2,5}(?::[a-z]+)?$|\.env(?::[a-z]+)?$|\/(?:custom|config|conf|plugins?|themes?|certs?|ssl|secrets?|extensions?|addons?)\/?(?::[a-z]+)?$/i;
+// Container-side paths that hold only transient state — logs, caches, search
+// indexes and temp dirs. A volume mounted there is a log/cache volume, not
+// durable application data: a cache write, a temp file, a generated asset and
+// a log line are all lost harmlessly (the same boundary the write-call rule
+// draws above). Named volumes whose container path is `/tmp/…`, `…/logs`,
+// `…/cache`, `…/.cache` or a search/index dir are not durable app state.
+const EPHEMERAL_CONTAINER_PATH_REGEX =
+  /^\/(?:tmp|var\/tmp)\b|\/(?:logs?|log|cache|\.cache|search|indexes?|sessions?|run|var\/run)(?:\/|$)/i;
 
 /**
  * Detect durable local-disk state the image declares (Dockerfile VOLUME, a
@@ -1300,6 +1521,9 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
     const paths = raw.startsWith('[') ? raw.match(/"([^"]+)"/g)?.map((p) => p.slice(1, -1)) ?? [] : raw.split(/\s+/);
     for (const volume of paths) {
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
+      // A VOLUME for logs/caches/tmp (`VOLUME /tmp/…`, `VOLUME /…/cache`) is
+      // transient state, not durable application data.
+      if (EPHEMERAL_CONTAINER_PATH_REGEX.test(volume)) continue;
       detected.push(`VOLUME ${volume} (${dockerfile?.path})`);
     }
   }
@@ -1313,6 +1537,11 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
       // carries project files, not state written at runtime.
       const source = volume.includes(':') ? volume.slice(0, volume.indexOf(':')).replace(/^\.\//, '') : null;
       if (source && !source.startsWith('/') && Object.keys(tree).some((path) => path.startsWith(`${source}/`))) continue;
+      // The container-side mount target decides what the volume holds — a
+      // named volume at `/tmp/…`, `…/logs`, `…/cache` or `…/.cache` is a
+      // log/cache volume (transient), not durable app data.
+      const target = volume.includes(':') ? volume.slice(volume.indexOf(':') + 1).replace(/:(?:rw|ro|z|Z)+$/, '') : volume;
+      if (EPHEMERAL_CONTAINER_PATH_REGEX.test(target)) continue;
       detected.push(`volume ${volume} (${compose?.file} ${service.name})`);
     }
   }
@@ -1548,6 +1777,101 @@ const MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
   { pattern: /npx\s+migrate/, name: 'npx migrate' },
   { pattern: /node-pg-migrate/, name: 'node-pg-migrate' },
 ];
+
+// ── Stage B phase 6 (COMP-014): migrations that run OUTSIDE package.json ───
+
+/** A dev-mode migration command — never deploy/startup evidence. */
+const MIGRATION_DEV_REGEX = /migrate[\s:-]dev\b/i;
+
+/** Migration commands an application can legitimately run at STARTUP. */
+const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
+  { pattern: /python\s+manage\.py\s+migrate\b/, name: 'python manage.py migrate' },
+  { pattern: /prisma\s+migrate\s+deploy\b/, name: 'prisma migrate deploy' },
+  { pattern: /rails\s+db:(?:prepare|migrate)\b/, name: 'rails db:prepare/db:migrate' },
+  { pattern: /flask\s+db\s+upgrade\b/, name: 'flask db upgrade' },
+  { pattern: /alembic\s+upgrade\s+head\b/, name: 'alembic upgrade head' },
+  { pattern: /php\s+artisan\s+migrate\s+--force/, name: 'php artisan migrate --force' },
+  { pattern: /knex\s+migrate:(?:latest|up)\b/, name: 'knex migrate:latest' },
+  { pattern: /typeorm\s+migration:run\b/, name: 'typeorm migration:run' },
+  { pattern: /\bflyway\s+migrate\b/, name: 'flyway migrate' },
+  { pattern: /\bliquibase\s+(?:update|migrate)\b/, name: 'liquibase update/migrate' },
+];
+
+/** A deploy-safe migration command text (the same family apps/api resolves). */
+const DEPLOY_MIGRATION_COMMAND_REGEX =
+  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
+
+/** One piece of startup-migration evidence. */
+export interface MigrationStartupEvidence {
+  /** Where the command lives: a script name, Dockerfile CMD/ENTRYPOINT, or a shell script path. */
+  readonly source: string;
+  readonly pattern: string;
+}
+
+/** True when the command text is deploy-shaped and not dev-mode. */
+export function isDeploySafeMigrationCommand(command: string): boolean {
+  return !MIGRATION_DEV_REGEX.test(command) && DEPLOY_MIGRATION_COMMAND_REGEX.test(command);
+}
+
+/**
+ * A deploy-safe migration script exists in any package.json (script key or a
+ * deploy-shaped command value), mirroring apps/api's resolveMigrationCommand
+ * convention — this is the mode='pre_deploy' signal.
+ */
+export function hasPreDeployMigration(tree: FileTree): boolean {
+  for (const [key, command] of collectScripts(tree)) {
+    // A migration chained into the app's own start/dev command runs at
+    // STARTUP, not as a pre-deploy step — never pre_deploy evidence.
+    if (key === 'start' || key === 'dev') continue;
+    if (isDeploySafeMigrationCommand(command)) return true;
+    if (/migrat/i.test(key) && !MIGRATION_DEV_REGEX.test(command)) return true;
+  }
+  return false;
+}
+
+/**
+ * Migrations that run when the APPLICATION STARTS: the app's own start
+ * script, the selected Dockerfile's CMD/ENTRYPOINT, or an entrypoint/start/
+ * boot shell script next to the Dockerfile (or at the app root). Evidence
+ * only — the command is never invented into the manifest.
+ */
+export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartupEvidence[] {
+  const evidence: MigrationStartupEvidence[] = [];
+  const consider = (command: string, source: string): void => {
+    if (MIGRATION_DEV_REGEX.test(command)) return;
+    for (const { pattern, name } of STARTUP_MIGRATION_PATTERNS) {
+      if (pattern.test(command)) {
+        evidence.push({ source, pattern: name });
+        return;
+      }
+    }
+  };
+
+  for (const [name, command] of collectScripts(tree)) {
+    if (name === 'start' || name === 'dev') consider(command, `package.json script "${name}"`);
+  }
+
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile) {
+    const cmd = CMD_REGEX.exec(dockerfile.content)?.[1];
+    if (cmd) consider(cmd, `CMD (${dockerfile.path})`);
+    const entry = ENTRYPOINT_REGEX.exec(dockerfile.content)?.[1];
+    if (entry) consider(entry, `ENTRYPOINT (${dockerfile.path})`);
+  }
+
+  const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    const basename = (path.split('/').pop() ?? '').toLowerCase();
+    const isBootScript = /^entrypoint(?:\.|$)|^start\.sh$|^boot\.sh$|^startup\.sh$/.test(basename);
+    const nearRoot =
+      !path.includes('/') || (dockerDir.length > 0 && path.startsWith(`${dockerDir}/`));
+    if (!isBootScript || !nearRoot) continue;
+    consider(content, path);
+  }
+
+  return evidence;
+}
 
 /**
  * Detect migration commands from package.json scripts.
@@ -1800,6 +2124,271 @@ function isPlaceholderValue(value: string): boolean {
   return /^<[^>]*>$|^(?:your|your[-_ ]|xxx+|changeme|change[-_ ]me|example|placeholder|\.\.\.)$/i.test(trimmed);
 }
 
+// ── Stage B phase 3 (COMP-017): schema-library / helper-form env reads ──────
+// Narrow, evidence-backed recognition of the common "required config behind an
+// abstraction" shapes: zod object schemas, envalid validators, throwing
+// `env('KEY')` helpers, pydantic BaseSettings, JVM @Value, Go os.Getenv,
+// .NET GetConnectionString. No general program interpretation.
+
+const JAVA_SOURCE_REGEX = /\.(?:java|kt|kts|scala)$/;
+const DOTNET_SOURCE_REGEX = /\.cs$/;
+const ENV_KEY_LITERAL = /[A-Z][A-Z0-9_]*/;
+
+/** A key literal `[A-Z][A-Z0-9_]*`, or null when the placeholder is not env-shaped. */
+function envKeyLiteral(raw: string): string | null {
+  return ENV_KEY_LITERAL.test(raw) ? raw : null;
+}
+
+/** The characters of a member/chain expression up to its closing delimiter (comma or brace). */
+function sliceToChainEnd(content: string, start: number, limit = 240): string {
+  let depth = 0;
+  for (let i = start; i < content.length && i - start < limit; i += 1) {
+    const ch = content[i];
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1);
+    if (depth === 0 && (ch === ',' || ch === '}')) return content.slice(start, i);
+  }
+  return content.slice(start, Math.min(content.length, start + limit));
+}
+
+/** zod object schemas used with process.env (`CORE_SECRET: z.string().min(1)`). */
+function scanZodEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  const isZod = /(?:from\s+['"]zod['"]|require\(\s*['"]zod['"]\s*\))/.test(content);
+  if (!isZod || !content.includes('.object(') || !content.includes('process.env')) return [];
+  const found: { key: string; needsValue: boolean }[] = [];
+  const memberRegex = /^\s*([A-Z][A-Z0-9_]*)\s*:\s*z\./gm;
+  let match: RegExpExecArray | null;
+  while ((match = memberRegex.exec(content)) !== null) {
+    const chain = sliceToChainEnd(content, memberRegex.lastIndex);
+    const optional = /(?:\.default\s*\(|\.optional\s*\(|\.nullish\s*\(|\.catch\s*\()/.test(chain);
+    found.push({ key: match[1]!, needsValue: !optional });
+  }
+  return found;
+}
+
+/** envalid validator objects fed to `cleanEnv` (`KEY: str()` vs `str({ default })`). */
+function scanEnvalidReads(content: string): { key: string; needsValue: boolean }[] {
+  if (!content.includes('cleanEnv(') && !content.includes('envalid')) return [];
+  const found: { key: string; needsValue: boolean }[] = [];
+  const memberRegex =
+    /^\s*([A-Z][A-Z0-9_]*)\s*:\s*\b(?:str|num|bool|json|url|email|host|port|makeValidator)\s*\(/gm;
+  let match: RegExpExecArray | null;
+  while ((match = memberRegex.exec(content)) !== null) {
+    const args = sliceToChainEnd(content, memberRegex.lastIndex);
+    const optional = /(?:default|devDefault)\s*:|\.optional\s*\(/.test(args);
+    found.push({ key: match[1]!, needsValue: !optional });
+  }
+  return found;
+}
+
+/** A file-local `env('KEY')` helper that throws when the variable is missing. */
+function hasThrowingEnvHelper(content: string): boolean {
+  const helperMatch = /(?:function\s+env\b[^{]*\{|=\s*\(\s*[^)]*\)\s*=>\s*\{)/.exec(content);
+  if (!helperMatch) return false;
+  const body = content.slice(helperMatch.index, Math.min(content.length, helperMatch.index + 600));
+  return body.includes('process.env') && /throw\b/.test(body);
+}
+
+/** Calls of a throwing `env('KEY')` helper. */
+function scanEnvHelperReads(content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const callRegex = /\benv\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = callRegex.exec(content)) !== null) {
+    found.push({ key: match[1]!, needsValue: true });
+  }
+  return found;
+}
+
+/** pydantic v2 BaseSettings class fields (required unless defaulted/optional). */
+function scanPydanticSettingsReads(content: string): { key: string; needsValue: boolean }[] {
+  if (!content.includes('BaseSettings') || !/(?:from\s+pydantic|pydantic_settings)\s*import|import\s+pydantic/.test(content)) {
+    return [];
+  }
+  const found: { key: string; needsValue: boolean }[] = [];
+  const classRegex = /^\s*class\s+\w+\s*\(\s*BaseSettings\s*\)\s*:/gm;
+  let _classMatch: RegExpExecArray | null;
+  while ((_classMatch = classRegex.exec(content)) !== null) {
+    const blockStart = content.indexOf('\n', classRegex.lastIndex) + 1;
+    const nextTopLevel = content.search(/\n\s*(?:class|def|@)\s/g);
+    const blockEnd = nextTopLevel > blockStart ? nextTopLevel : content.length;
+    const block = content.slice(blockStart, blockEnd);
+    const fieldRegex = /^\s*([A-Za-z_]\w*)\s*:\s*([^=\n#]+?)(?:\s*=\s*([^\n#]+))?(?:\s*#.*)?$/gm;
+    let fieldMatch: RegExpExecArray | null;
+    while ((fieldMatch = fieldRegex.exec(block)) !== null) {
+      const name = fieldMatch[1]!;
+      if (name.startsWith('_')) continue;
+      const annotation = fieldMatch[2] ?? '';
+      const assignment = (fieldMatch[3] ?? '').trim();
+      const optionalAnnotation = /\bOptional\b|\bNone\b|\|?\s*None\s*(?:$|,)|=\s*None/.test(annotation);
+      let needsValue: boolean;
+      if (assignment.length === 0) {
+        needsValue = !optionalAnnotation;
+      } else if (assignment.startsWith('Field(')) {
+        // `Field(...)` / `Field(alias=...)` with no default ⇒ required; any
+        // `default=`, `= None`, or `optional` ⇒ not.
+        needsValue = !/default\s*=|optional\s*=|=\s*None\b/.test(assignment);
+      } else {
+        needsValue = false; // a literal default or `= None`
+      }
+      // The env var Pydantic reads: the field's own uppercase name, or an
+      // explicit Field(alias=...) when present.
+      const alias = /alias\s*=\s*['"]([A-Z_][A-Z0-9_]*)['"]/.exec(assignment)?.[1];
+      const key = alias ?? name.toUpperCase();
+      found.push({ key, needsValue });
+    }
+  }
+  return found;
+}
+
+/** JVM `@Value("${KEY}")` (required unless `:default`) and `System.getenv("KEY")`. */
+function scanJvmEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const valueRegex = /@Value\s*\(\s*"\$\{\s*([^}]+)\}\s*"/g;
+  let match: RegExpExecArray | null;
+  while ((match = valueRegex.exec(content)) !== null) {
+    const placeholder = match[1]!;
+    const hasDefault = placeholder.includes(':');
+    const key = envKeyLiteral(hasDefault ? placeholder.slice(0, placeholder.indexOf(':')) : placeholder);
+    if (key !== null && !placeholder.includes('.')) {
+      found.push({ key, needsValue: !hasDefault });
+    }
+  }
+  const getenvRegex = /System\.getenv\(\s*"([A-Z][A-Z0-9_]*)"\s*\)/g;
+  while ((match = getenvRegex.exec(content)) !== null) {
+    found.push({ key: match[1]!, needsValue: false });
+  }
+  return found;
+}
+
+/** Go `os.Getenv` / `os.LookupEnv`, required only with an adjacent missing-check or a required struct tag. */
+function scanGoEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const readRegex = /os\.(?:Getenv|LookupEnv)\(\s*"([A-Z][A-Z0-9_]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = readRegex.exec(content)) !== null) {
+    const key = match[1]!;
+    // `if os.Getenv("KEY") == "" { log.Fatal/panic… }` — the app refuses to
+    // boot without the value. The window starts before the call so the
+    // enclosing `if` is visible.
+    const from = Math.max(0, match.index - 60);
+    const vicinity = content.slice(from, Math.min(content.length, match.index + 240));
+    const missingCheck = new RegExp(
+      `if\\s+os\\.(?:Getenv|LookupEnv)\\(\\s*"${key}"[^)]*\\)\\s*==\\s*""\\s*\\{`,
+    ).test(vicinity);
+    const refuses = missingCheck && /log\.Fatal|panic\s*\(|log\.Panic/.test(vicinity);
+    found.push({ key, needsValue: refuses });
+  }
+  // envconfig struct tags: `envconfig:"KEY,required"` (inline option) or a
+  // tag carrying both the env name and a required/validate marker.
+  const tagRegex = /envconfig:"([A-Z][A-Z0-9_]*)(?:,([^"]*))?"/g;
+  while ((match = tagRegex.exec(content)) !== null) {
+    const key = match[1]!;
+    const options = match[2] ?? '';
+    // A single backtick-delimited struct tag that also declares
+    // required:"true" / validate:"required" for this key.
+    const combined = new RegExp(
+      'envconfig:"' + key + '"[^`]*(?:required:"true"|validate:"required")',
+    ).test(content);
+    found.push({ key, needsValue: options.includes('required') || combined });
+  }
+  return found;
+}
+
+/** .NET `GetConnectionString`/`GetRequiredSection`, required only behind a `?? throw`. */
+function scanDotnetEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const readRegex = /(GetRequiredSection|GetConnectionString)\(\s*"([A-Z][A-Z0-9_]*)"\s*\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = readRegex.exec(content)) !== null) {
+    const method = match[1]!;
+    const tail = content.slice(match.index + match[0].length, match.index + match[0].length + 120);
+    const throwGuarded = /\?\?\s*(?:throw\b|new\b)/.test(tail);
+    found.push({ key: match[2]!, needsValue: method === 'GetRequiredSection' || throwGuarded });
+  }
+  return found;
+}
+
+// ── Stage B phase 3 (COMP-017): env-var purpose classification ──────────────
+
+/** Standard provisioned env names the manifest/cdk always inject. */
+const INFRA_BINDING_NAMES = new Set<string>([
+  'DATABASE_URL',
+  'DATABASE_HOST',
+  'DATABASE_PORT',
+  'DATABASE_NAME',
+  'DATABASE_USER',
+  'DATABASE_PASSWORD',
+  'POSTGRES_URL',
+  'POSTGRESQL_URL',
+  'REDIS_URL',
+  'REDIS_HOST',
+  'REDIS_PORT',
+  'CELERY_BROKER_URL',
+  'CELERY_RESULT_BACKEND',
+  'QUEUE_REDIS_URL',
+  'CACHE_URL',
+  'STORAGE_BUCKET',
+  'S3_BUCKET',
+  'AWS_S3_BUCKET',
+  'AWS_REGION',
+  'S3_REGION',
+  'S3_ENDPOINT',
+]);
+
+/** Alias shapes the infrastructure-binding phase can inject (MEMOS_DSN, PAPERLESS_DBHOST…). */
+const INFRA_BINDING_ALIAS_REGEX =
+  /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_DBHOST|_DBPORT|_DBNAME|_DBUSER|_DBPASS|_BUCKET(?:_NAME)?|_S3_REGION)$/i;
+
+/** Every §11.3 external-service catalog key (a vendor credential name). */
+function externalServiceCatalogKeys(): Set<string> {
+  const keys = new Set<string>();
+  for (const def of EXTERNAL_SERVICE_CATALOG) {
+    for (const key of def.keys) keys.add(key);
+  }
+  return keys;
+}
+
+export type EnvVarPurpose =
+  | 'internal_secret'
+  | 'external_credential'
+  | 'infrastructure_binding'
+  | 'optional_configuration'
+  | 'unknown';
+
+/**
+ * Stage B phase 4 — whether a variable is a Deployz-GENERATABLE application
+ * INTERNAL secret (never an external vendor credential, never a provisioned
+ * binding). The eligible class: secret-shaped names like AUTH_SECRET /
+ * SESSION_SECRET / JWT_SECRET / SECRET_KEY / ENCRYPTION_KEY /
+ * NEXTAUTH_SECRET / COOKIE_SECRET / APP_SECRET — they all fall out of the
+ * purpose rule below; no name list is the source of truth.
+ */
+const GENERIC_VENDOR_CREDENTIAL_SHAPE =
+  /_(?:API_KEY|API_SECRET|CLIENT_SECRET|CLIENT_ID|ACCESS_KEY|ACCESS_TOKEN|SECRET_KEY|PRIVATE_KEY|PUBLIC_KEY)$/i;
+
+/** External-credential double-guard: catalog keys or a generic vendor-credential name shape. */
+export function isExternalCredentialShape(key: string): boolean {
+  return externalServiceCatalogKeys().has(key) || GENERIC_VENDOR_CREDENTIAL_SHAPE.test(key);
+}
+
+/** Deterministic purpose for one env var key. */
+export function classifyEnvVarPurpose(key: string): { purpose: EnvVarPurpose; confidence: 'high' | 'medium' | 'low' } {
+  if (isExternalCredentialShape(key)) {
+    return { purpose: 'external_credential', confidence: 'high' };
+  }
+  if (INFRA_BINDING_NAMES.has(key)) {
+    return { purpose: 'infrastructure_binding', confidence: 'high' };
+  }
+  if (INFRA_BINDING_ALIAS_REGEX.test(key)) {
+    return { purpose: 'infrastructure_binding', confidence: 'medium' };
+  }
+  if (isSecretName(key)) {
+    return { purpose: 'internal_secret', confidence: 'medium' };
+  }
+  return { purpose: 'optional_configuration', confidence: 'medium' };
+}
+
 /**
  * The §11.2 env-var model — every environment variable the app reads or
  * declares, with honest required/secret/source attributes.
@@ -1824,6 +2413,30 @@ function isPlaceholderValue(value: string): boolean {
  * **throw** for that key still means required (Documenso's
  * NEXT_PRIVATE_DATABASE_REPLICA_URLS, COMP false-positive fix).
  */
+/** Engine-selector variables that decide which database engine the app uses. */
+const ENGINE_SELECTOR_NAMES = ['DB', 'DB_ENGINE', 'DATABASE_ENGINE', 'DB_CLIENT', 'DB_BACKEND'];
+
+/**
+ * COMP-022 — engine selectors defaulting to a non-PostgreSQL engine while a
+ * PostgreSQL driver is also present. The selector read must then be REQUIRED:
+ * without a value the app boots on SQLite inside the container and silently
+ * drops data instead of using the provisioned database.
+ */
+function unresolvedEngineSelectors(tree: FileTree): Set<string> {
+  const selectors = new Set<string>();
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    for (const name of ENGINE_SELECTOR_NAMES) {
+      const defaulted = new RegExp(
+        `(?:["']${name}["']\\s*[,)]\\s*["']?(?:sqlite|sqlite3)|process\\.env\\.${name}\\s*\\|\\|\\s*["'](?:sqlite|sqlite3)|os\\.getenv\\s*\\(\\s*["']${name}["'][^)]*["'](?:sqlite|sqlite3))`,
+      ).test(content);
+      if (defaulted) selectors.add(name);
+    }
+  }
+  if (selectors.size === 0) return selectors;
+  return detectPostgresql(tree).detected ? selectors : new Set<string>();
+}
+
 export function detectEnvVarModel(tree: FileTree, externalServices: string[] = []): ManifestEnvVariable[] {
   // ── 1. Declarations: every KEY=VALUE line in any env file we ship with. ──
   const declarations = new Map<string, { realValue: boolean; sampleEmpty: boolean; files: string[] }>();
@@ -1939,6 +2552,16 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         const bareNeedsValue = isBareAssignment ? throwGuarded : isBareChainAccess ? !returnGuarded : true;
         recordRead(key, !hasFallback && !isGuard && bareNeedsValue, path);
       }
+      // Stage B phase 3 (COMP-017): schema-library and helper-form reads —
+      // zod object schemas parsed against process.env, envalid validator
+      // objects, and a file-local throwing `env('KEY')` helper.
+      for (const entry of [
+        ...scanZodEnvReads(content),
+        ...scanEnvalidReads(content),
+        ...(hasThrowingEnvHelper(content) ? scanEnvHelperReads(content) : []),
+      ]) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
     } else if (/schema\.prisma$/i.test(path)) {
       const envRegex = /env\(\s*["']([A-Z_][A-Z0-9_]*)["']\s*\)/g;
       let match: RegExpExecArray | null;
@@ -1957,12 +2580,28 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // index form `os.environ['X']` REQUIRES the variable.
         if (match[1]) recordRead(match[1], false, path);
       }
+      // Stage B phase 3 (COMP-017): pydantic v2 BaseSettings class fields.
+      for (const entry of scanPydanticSettingsReads(content)) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
     } else if (RB_SOURCE.test(path)) {
       const fetchRegex = /ENV\.fetch\(\s*["']([A-Z_][A-Z0-9_]*)["']/g;
       let match: RegExpExecArray | null;
       while ((match = fetchRegex.exec(content)) !== null) {
         const hasDefault = content.slice(match.index, match.index + 80).includes(',');
         if (match[1]) recordRead(match[1], !hasDefault, path);
+      }
+    } else if (JAVA_SOURCE_REGEX.test(path)) {
+      for (const entry of scanJvmEnvReads(content)) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
+    } else if (GO_SOURCE.test(path)) {
+      for (const entry of scanGoEnvReads(content)) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
+    } else if (DOTNET_SOURCE_REGEX.test(path)) {
+      for (const entry of scanDotnetEnvReads(content)) {
+        recordRead(entry.key, entry.needsValue, path);
       }
     }
   }
@@ -1987,8 +2626,11 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
 
     // A defaulted/guarded read that never NEEDS the value is never required,
     // even when a sample line is empty — and a platform-provided variable is
-    // never the vendor's to configure.
-    const required = needsValue && !hasDefault && !isPlatformEnvVar(key);
+    // never the vendor's to configure. COMP-022: an engine selector defaulting
+    // to SQLite next to a PostgreSQL driver is the one exception — it must be
+    // set for the provisioned database to be used.
+    const required =
+      (needsValue || unresolvedEngineSelectors(tree).has(key)) && !hasDefault && !isPlatformEnvVar(key);
 
     let secret = isSecretName(key);
     // §11.3 upgrade: an evidenced well-known service credential is a secret
@@ -1998,9 +2640,27 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       secret = true;
       source.push(`${serviceKey.service} requires ${key}`);
     }
+    // Stage B phase 3: deterministic purpose/confidence for every variable —
+    // infra binding name or alias, external-service credential, internal
+    // secret, or plain configuration.
+    const classification = classifyEnvVarPurpose(key);
+    // Stage B phase 4: application-INTERNAL required secrets Deployz can
+    // generate (never external vendor credentials, never provisioned
+    // bindings). `generatable` is set only when true — absence reads as "not
+    // generatable", keeping old data valid.
+    const generatable =
+      classification.purpose === 'internal_secret' && required && !isExternalCredentialShape(key);
     // Never drop a var the app declares-and-reads from the config surface —
     // but drop nothing: a sample-only var is still worth listing as optional.
-    entries.push({ key, required, secret, source });
+    entries.push({
+      key,
+      required,
+      secret,
+      source,
+      purpose: classification.purpose,
+      confidence: classification.confidence,
+      ...(generatable ? { generatable: true } : {}),
+    });
   }
 
   return entries;

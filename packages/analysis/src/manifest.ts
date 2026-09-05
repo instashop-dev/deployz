@@ -17,12 +17,14 @@ import {
   deploymentManifestSchema,
   type DeploymentManifest,
   type DeploymentManifestOverrides,
+  type ManifestEnvBinding,
   type ManifestEnvVariable,
   type ManifestReadinessFinding,
   type ManifestReadinessResult,
 } from '@deployz/contracts';
 
 import type { AnalysisResult } from './analyser.js';
+import type { BindingSemantic, InfrastructureBinding } from './bindings.js';
 import { resolveRedisEnvBindings } from './redis.js';
 
 /** Anything carrying the flat detector metadata record. */
@@ -56,6 +58,117 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/** The analysed migration mode from metadata, when present and valid. */
+function migrationModeOf(meta: Record<string, unknown>): DeploymentManifest['migration']['mode'] {
+  const mode = meta['migrationMode'];
+  return mode === 'pre_deploy' || mode === 'startup' || mode === 'none' || mode === 'unknown'
+    ? mode
+    : undefined;
+}
+
+/**
+ * The manifest health section (Stage B phase 5). A vendor-supplied path is
+ * always `explicit`; otherwise the analysed health mode decides: `root` when
+ * the app's own HEALTHCHECK probes `/`, `explicit` when a route/HEALTHCHECK
+ * URL names the path, and `vendor_required` when there is NO health evidence —
+ * no silent `/health` assumption (the deployment gate blocks that case). Only
+ * metadata written before the mode existed keeps the historical default.
+ */
+function normalizeHealthSection(
+  overridePath: string | null | undefined,
+  meta: Record<string, unknown>,
+): DeploymentManifest['health'] {
+  if (overridePath !== undefined && overridePath !== null) {
+    return { path: overridePath, mode: 'explicit' };
+  }
+  const mode = meta['healthMode'];
+  const metaPath = typeof meta['healthPath'] === 'string' ? meta['healthPath'] : null;
+  if (mode === 'root') return { path: metaPath ?? '/', mode: 'root' };
+  if (mode === 'explicit') return { path: metaPath ?? '/health', mode: 'explicit' };
+  if (mode === 'vendor_required') return { path: '/', mode: 'vendor_required' };
+  return { path: '/health' };
+}
+
+/** A binding semantic expressible in the manifest vocabulary, or null for the read-model-only ones. */
+function toManifestKind(semantic: BindingSemantic): ManifestEnvBinding['kind'] | null {
+  switch (semantic) {
+    case 'url':
+    case 'host':
+    case 'port':
+    case 'bucket':
+    case 'database':
+    case 'username':
+    case 'password':
+      return semantic;
+    case 'region':
+    case 'endpoint':
+      return null;
+  }
+}
+
+/**
+ * The env vars (with their semantics) each provisioned value is injected
+ * under. Standard injected names always lead (compat); detected aliases follow
+ * in deterministic order.
+ */
+function toEnvBindings(
+  bindings: readonly InfrastructureBinding[],
+  standard: readonly { name: string; kind: ManifestEnvBinding['kind'] }[],
+): ManifestEnvBinding[] {
+  const seen = new Set<string>(standard.map((entry) => entry.name));
+  const entries: ManifestEnvBinding[] = [...standard];
+  const sorted = [...bindings].sort((a, b) => a.applicationVariable.localeCompare(b.applicationVariable));
+  for (const binding of sorted) {
+    if (seen.has(binding.applicationVariable)) continue;
+    const kind = toManifestKind(binding.semantic);
+    if (kind === null) continue;
+    seen.add(binding.applicationVariable);
+    entries.push({ name: binding.applicationVariable, kind });
+  }
+  return entries;
+}
+
+/** Stage B phase 2 postgres bindings — standard injected names first, then detected aliases. */
+const STANDARD_DATABASE_BINDINGS: readonly { name: string; kind: ManifestEnvBinding['kind'] }[] = [
+  { name: 'DATABASE_URL', kind: 'url' },
+  { name: 'DATABASE_HOST', kind: 'host' },
+  { name: 'DATABASE_PORT', kind: 'port' },
+  { name: 'DATABASE_NAME', kind: 'database' },
+  { name: 'DATABASE_USER', kind: 'username' },
+  { name: 'DATABASE_PASSWORD', kind: 'password' },
+];
+
+/** The canonical storage binding plus detected alias bucket names. */
+const STANDARD_STORAGE_BINDINGS: readonly { name: string; kind: ManifestEnvBinding['kind'] }[] = [
+  { name: 'AWS_S3_BUCKET', kind: 'bucket' },
+];
+/** Bucket names the stack already injects — never repeated as detected aliases. */
+const INJECTED_BUCKET_NAMES = new Set(['STORAGE_BUCKET', 'S3_BUCKET', 'AWS_S3_BUCKET']);
+
+/**
+ * Env var names (with semantics) that each provisioned value is injected
+ * under — read off `metadata.infrastructureBindings` (Stage B phase 2). A
+ * row analysed before the field existed carries none, so the caller falls
+ * back to the standard injected names only.
+ */
+function readInfrastructureBindings(meta: Record<string, unknown>): InfrastructureBinding[] {
+  const raw = meta['infrastructureBindings'];
+  if (!Array.isArray(raw)) return [];
+  const bindings: InfrastructureBinding[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const record = entry as Partial<InfrastructureBinding>;
+    if (
+      (record.resource === 'postgres' || record.resource === 'redis' || record.resource === 's3') &&
+      typeof record.applicationVariable === 'string' &&
+      typeof record.semantic === 'string'
+    ) {
+      bindings.push(record as InfrastructureBinding);
+    }
+  }
+  return bindings;
+}
+
 // Directories that hold container/packaging tooling, not application code:
 // a Dockerfile under `docker/` or `packaging/…` is written to build the app
 // from the repository root (Stage A COMP-020).
@@ -84,6 +197,18 @@ function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
       if (typeof raw !== 'object' || raw === null) continue;
       const record = raw as Record<string, unknown>;
       if (typeof record['key'] !== 'string' || record['key'].length === 0) continue;
+      const purpose =
+        record['purpose'] === 'internal_secret' ||
+        record['purpose'] === 'external_credential' ||
+        record['purpose'] === 'infrastructure_binding' ||
+        record['purpose'] === 'optional_configuration' ||
+        record['purpose'] === 'unknown'
+          ? record['purpose']
+          : undefined;
+      const confidence =
+        record['confidence'] === 'high' || record['confidence'] === 'medium' || record['confidence'] === 'low'
+          ? record['confidence']
+          : undefined;
       const classification = envVariableClassificationSchema.safeParse(record['classification']);
       entries.push({
         key: record['key'],
@@ -92,6 +217,9 @@ function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
         source: Array.isArray(record['source'])
           ? record['source'].filter((s): s is string => typeof s === 'string' && s.length > 0)
           : [],
+        ...(purpose !== undefined ? { purpose } : {}),
+        ...(confidence !== undefined ? { confidence } : {}),
+        ...(record['generatable'] === true ? { generatable: true } : {}),
         ...(classification.success ? { classification: classification.data } : {}),
       });
     }
@@ -192,11 +320,27 @@ export function normalizeDeploymentManifest(
         (typeof meta['port'] === 'string' && meta['port'].length > 0
           ? Number.parseInt(meta['port'], 10) || null
           : null),
+      // Stage B phase 7: a framework-default port is a prefill only — the
+      // gate still requires the vendor to confirm it (portIsDefault).
+      ...(overrides.port === undefined && meta['portSource'] === 'framework-default'
+        ? { portIsDefault: true }
+        : {}),
     },
-    health: {
-      path: overrides.healthPath ?? '/health',
+    health: normalizeHealthSection(overrides.healthPath, meta),
+    database: {
+      postgres: postgresRequired,
+      // Stage B phase 2: the names the RDS URL/parts are injected under —
+      // the standard DATABASE_* names always, plus the aliases the app reads
+      // (MEMOS_DSN, PAPERLESS_DBHOST, …). Absent when no DB is provisioned.
+      ...(postgresRequired
+        ? {
+            envBindings: toEnvBindings(
+              readInfrastructureBindings(meta).filter((b) => b.resource === 'postgres'),
+              STANDARD_DATABASE_BINDINGS,
+            ),
+          }
+        : {}),
     },
-    database: { postgres: postgresRequired },
     redis: {
       required: redisRequired,
       // Deployz always injects the standard bindings for a required cache;
@@ -208,14 +352,30 @@ export function normalizeDeploymentManifest(
     },
     storage: {
       required: storageRequired,
-      envBindings: storageRequired ? [{ name: 'AWS_S3_BUCKET', kind: 'bucket' }] : [],
+      // The canonical AWS_S3_BUCKET always first (compat), then the alias
+      // bucket names the app reads (S3_ATTACHMENTS_BUCKET, …) — names the
+      // stack already injects are never repeated.
+      envBindings: storageRequired
+        ? toEnvBindings(
+            readInfrastructureBindings(meta).filter(
+              (b) =>
+                b.resource === 's3' &&
+                b.semantic === 'bucket' &&
+                !INJECTED_BUCKET_NAMES.has(b.applicationVariable),
+            ),
+            STANDARD_STORAGE_BINDINGS,
+          )
+        : [],
     },
     migration: {
       // `metadata.migrationCommands` holds the detector's PATTERN LABELS
       // ("prisma migrate", "drizzle-kit"), never a runnable command — the
       // deploy-safe command is resolved per analysis into the application
-      // column that arrives as the override (Stage A COMP-006).
+      // column that arrives as the override (Stage A COMP-006). Stage B
+      // phase 6: the analysed migration MODE rides along (pre_deploy /
+      // startup / none / unknown).
       command: overrides.migrationCommand ?? null,
+      ...(migrationModeOf(meta) !== undefined ? { mode: migrationModeOf(meta) } : {}),
     },
     worker: { command: workerCommand },
     environment: {
@@ -281,12 +441,13 @@ export function evaluateManifestReadiness(
       message: 'No Dockerfile was found; Deployz cannot build an image without container instructions.',
     });
   }
-  if (!manifest.web.port) {
+  if (!manifest.web.port || manifest.web.portIsDefault === true) {
     errors.push({
       id: 'port-missing',
       category: 'application',
       severity: 'error',
-      message: 'The application port is unknown; Deployz cannot route traffic to a container without it.',
+      message:
+        'The application port is unknown; Deployz cannot route traffic to a container without it.',
     });
   }
   if (!manifest.web.command) {
@@ -295,6 +456,16 @@ export function evaluateManifestReadiness(
       category: 'application',
       severity: 'error',
       message: 'No start command was found; the container would boot with nothing to run.',
+    });
+  }
+  if (manifest.health.mode === 'vendor_required') {
+    errors.push({
+      id: 'health-path-required',
+      category: 'health',
+      severity: 'error',
+      message:
+        'No health check route or container health check was found, so Deployz does not know when the app is ready. ' +
+        'Expose a health route (for example /health) or add a container health check before deploying.',
     });
   }
 
@@ -306,9 +477,12 @@ export function evaluateManifestReadiness(
     const autoProvided = new Set<string>();
     // The application stack injects the URL and the discrete connection
     // parts alike (packages/cdk application-stack: DATABASE_HOST/PORT/NAME/
-    // USER plus the password secret).
+    // USER plus the password secret). Stage B phase 2: the manifest's own
+    // binding names (an app that reads only MEMOS_DSN or PAPERLESS_DBHOST
+    // must not be blocked as missing required env) are auto-provided too.
     if (manifest.database.postgres) {
       for (const name of PROVISIONED_DATABASE_ENV_VARS) autoProvided.add(name);
+      for (const binding of manifest.database.envBindings ?? []) autoProvided.add(binding.name);
     }
     if (manifest.redis.required) {
       for (const binding of manifest.redis.envBindings) autoProvided.add(binding.name);

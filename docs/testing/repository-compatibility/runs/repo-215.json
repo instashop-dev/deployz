@@ -1,0 +1,184 @@
+{
+  "id": "repo-215",
+  "repository": "pixelfed/pixelfed",
+  "commit": "25e1384dbebf4fa779d2e710ed71fb0a62975db7",
+  "set": "unseen2",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
+  "analysisVersion": 11,
+  "tree": {
+    "files": 102,
+    "entries": 3116,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "php"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": true,
+    "worker": true,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080,
+    "unsupported": [
+      "docker-compose-multi-service",
+      "background-worker",
+      "mysql"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080,
+    "startCommand": null,
+    "healthDetected": true,
+    "healthPath": "/api/pixelfed/v2/status",
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": true,
+    "workerCommand": "php artisan horizon",
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "resend"
+    ],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "background-worker",
+      "docker-compose-multi-service"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "background-worker-unsupported"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "start-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "start-command-unknown",
+      "build-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": 8080,
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "mysql"
+      ],
+      "actual": [
+        "background-worker",
+        "docker-compose-multi-service"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "mysql"
+      ],
+      "actual": [
+        "background-worker",
+        "docker-compose-multi-service"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}

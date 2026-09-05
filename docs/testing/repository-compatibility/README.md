@@ -233,6 +233,10 @@ finding whose `facts` cover it; the summary counts explained mismatches by
 finding type. An *unexplained* mismatch is the audit's open work: it must
 become a finding (and a fix, or a documented gap) before the phase closes.
 
+[`implementation-notes.md`](implementation-notes.md) is the current
+hardening plan: what the analyser already does, the remaining gaps, and
+where each planned change lands (anti-duplication map for new work).
+
 ## Rules for fixing bugs vs recording capability gaps
 
 - Fix only `ANALYSIS_BUG` and `ANALYSIS_MISSING_SIGNAL`. The fix sequence is

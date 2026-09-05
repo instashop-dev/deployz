@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 71,
     "entries": 176,
@@ -32,7 +32,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "NEEDS_ATTENTION",
     "readinessState": "ALMOST_READY",
     "runtime": "unknown",
@@ -60,6 +60,7 @@
       "database-migrations"
     ],
     "gateFindings": [
+      "health-path-required",
       "migration-command-missing"
     ],
     "unresolvedQuestions": []
@@ -68,8 +69,9 @@
     {
       "fact": "compatibility",
       "expected": "READY",
-      "actual": "READY",
-      "match": true
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -126,6 +128,14 @@
       "match": true
     }
   ],
-  "mismatches": [],
-  "match": true
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    }
+  ],
+  "match": false
 }

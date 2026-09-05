@@ -1,0 +1,156 @@
+{
+  "id": "repo-203",
+  "repository": "getfider/fider",
+  "commit": "f164f69172002aba6296980c27160a196191dbd6",
+  "set": "unseen2",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
+  "analysisVersion": 11,
+  "tree": {
+    "files": 201,
+    "entries": 1132,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "go"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "healthPath": "/_health",
+    "unsupported": []
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "startCommand": "CMD: ./fider migrate && ./fider",
+    "healthDetected": true,
+    "healthPath": "/_health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "build-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/_health",
+      "actual": "/_health",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    }
+  ],
+  "match": false
+}

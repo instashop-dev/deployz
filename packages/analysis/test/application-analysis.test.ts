@@ -229,14 +229,25 @@ describe('buildApplicationAnalysis', () => {
   it('reports AI-resolved facts as AI-sourced with likely confidence and never displaces a detector value', () => {
     const analysis = analyseRepo(ambiguousTree);
     expect(analysis.metadata['port']).toBeNull();
+    // The merged repository-ai schema carries per-field confidence and
+    // evidence; high-confidence answered fields are auto-used.
+    const field = (value: string | number | null, confidence = 0.95) => ({
+      value,
+      confidence,
+      evidencePaths: ['Dockerfile'],
+      explanation: 'fixture answer',
+    });
     const merged = mergeAiAnalysis(analysis.metadata, {
-      workingDirectory: '.',
-      buildCommand: null,
-      startCommand: 'node dist/server.js',
-      port: 8080,
-      postgres: { required: false, evidence: [] },
-      redis: { required: false, evidence: [] },
-      migrationCommand: null,
+      dockerfile: field(null),
+      workingDirectory: field('.'),
+      buildCommand: field(null),
+      startCommand: field('node dist/server.js'),
+      port: field(8080),
+      postgresRequired: field(false),
+      redisRequired: field(false),
+      healthPath: field(null),
+      migrationMode: field(null),
+      storageRequired: field(null),
       warnings: [],
     });
 

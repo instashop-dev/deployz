@@ -444,6 +444,57 @@ describe('createConfigUpdateExecutor', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('AppConfigSecret');
   });
+
+  it('keeps Stage B binding-alias entries across a later config update (stack-managed, never removed or duplicated)', async () => {
+    // The running definition carries the alias entries the install registered:
+    // S3_ATTACHMENTS_BUCKET as plain env, MEMOS_DSN as a DB-url secret.
+    const aliasTaskDefinition: EcsTaskDefinition = {
+      family: 'app',
+      cpu: '256',
+      memory: '512',
+      networkMode: 'awsvpc',
+      requiresCompatibilities: ['FARGATE'],
+      containerDefinitions: [
+        {
+          name: 'app',
+          image: 'repo@sha256:aaa',
+          environment: [
+            { name: 'LOG_LEVEL', value: 'info' },
+            { name: 'S3_ATTACHMENTS_BUCKET', value: 'deployz-app-storage' },
+          ],
+          secrets: [
+            { name: 'MEMOS_DSN', valueFrom: 'arn:aws:secretsmanager:us-east-1:1:secret:DatabaseUrl-XYZ' },
+          ],
+        },
+      ],
+    };
+    const registered: unknown[] = [];
+    const entries: EffectiveConfigEntry[] = [
+      { key: 'LOG_LEVEL', isSecret: false, value: 'debug', source: 'vendor' },
+    ];
+
+    const result = await createConfigUpdateExecutor(
+      deps(entries, { taskDefinition: aliasTaskDefinition, registered }),
+    )(configCommand({ changedKeys: ['LOG_LEVEL'] }));
+    expect(result.success).toBe(true);
+
+    const input = registered[0] as {
+      containerDefinitions: {
+        environment: { name: string; value: string }[];
+        secrets: { name: string; valueFrom: string }[];
+      }[];
+    };
+    const env = input.containerDefinitions[0]!.environment;
+    const secrets = input.containerDefinitions[0]!.secrets;
+    expect(env).toContainEqual({ name: 'S3_ATTACHMENTS_BUCKET', value: 'deployz-app-storage' });
+    expect(secrets).toContainEqual({
+      name: 'MEMOS_DSN',
+      valueFrom: 'arn:aws:secretsmanager:us-east-1:1:secret:DatabaseUrl-XYZ',
+    });
+    // Exactly one of each — the config delta never duplicates stack-managed entries.
+    expect(env.filter((entry) => entry.name === 'S3_ATTACHMENTS_BUCKET')).toHaveLength(1);
+    expect(secrets.filter((entry) => entry.name === 'MEMOS_DSN')).toHaveLength(1);
+  });
 });
 
 describe('createConfigUpdateExecutor — generated secrets (Phase 4)', () => {

@@ -410,6 +410,40 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(calls).toHaveLength(4);
   });
 
+  it('fetches deployment descriptors the cloud checks read (COMP-033)', async () => {
+    const calls: string[] = [];
+    const fetchFn: FetchFn = async (url) => {
+      calls.push(url);
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 10 },
+            { path: 'manifests/kustomization.yaml', type: 'blob', sha: 'sha-kustomize', size: 10 },
+            { path: 'charts/app/Chart.yaml', type: 'blob', sha: 'sha-chart', size: 10 },
+            { path: 'infra/main.tf', type: 'blob', sha: 'sha-tf', size: 10 },
+            { path: 'infra/main.bicep', type: 'blob', sha: 'sha-bicep', size: 10 },
+            { path: 'README.md', type: 'blob', sha: 'sha-readme', size: 10 }, // still irrelevant
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree).sort()).toEqual([
+      'charts/app/Chart.yaml',
+      'infra/main.bicep',
+      'infra/main.tf',
+      'manifests/kustomization.yaml',
+      'package.json',
+    ]);
+  });
+
   it('fetches the additional manifest/compose/env-sample/source shapes Redis detection needs (§7 of the Redis MVP)', async () => {
     const calls: string[] = [];
     const fetchFn: FetchFn = async (url) => {
@@ -671,6 +705,32 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     };
     const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
     expect(tree).toEqual({});
+  });
+
+  it('drops a file whose blob content fetch THROWS rather than failing the whole analysis', async () => {
+    // A fetch seam that rejects — a network drop, or the benchmark snapshot
+    // fetch refusing an offline cache miss for one blob — must degrade to
+    // "file not present" exactly like an HTTP error does, not abort the tree
+    // build (repo-084 NangoHQ/nango offline crash).
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'package.json', type: 'blob', sha: 'sha-a', size: 10 },
+            { path: 'src/server.ts', type: 'blob', sha: 'sha-b', size: 10 },
+          ],
+        });
+      }
+      if (url.includes('/git/blobs/sha-a')) {
+        throw new Error('snapshot cache miss for acme/widgets blob sha-a (offline)');
+      }
+      return makeFetchResponse(200, {
+        content: Buffer.from('content-b').toString('base64'),
+        encoding: 'base64',
+      });
+    };
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+    expect(tree).toEqual({ 'src/server.ts': 'content-b' });
   });
 });
 

@@ -19,7 +19,7 @@ import { z } from 'zod';
 export const manifestEnvBindingSchema = z
   .object({
     name: z.string().min(1),
-    kind: z.enum(['url', 'host', 'port', 'bucket']),
+    kind: z.enum(['url', 'host', 'port', 'bucket', 'database', 'username', 'password']),
   })
   .strict();
 export type ManifestEnvBinding = z.infer<typeof manifestEnvBindingSchema>;
@@ -56,6 +56,23 @@ export const manifestEnvVariableSchema = z
     secret: z.boolean(),
     /** Evidence strings: file paths, reads, or service detections that produced this entry. */
     source: z.array(z.string()),
+    /**
+     * What the variable is for (Stage B phase 3). Absent on variables written
+     * before the field existed — optional, not defaulted, so old persisted
+     * data round-trips unchanged.
+     */
+    purpose: z
+      .enum(['internal_secret', 'external_credential', 'infrastructure_binding', 'optional_configuration', 'unknown'])
+      .optional(),
+    /** How sure the purpose classification is (exact known-name vs name-shape heuristic). */
+    confidence: z.enum(['high', 'medium', 'low']).optional(),
+    /**
+     * Deployz can generate a value for this variable (Stage B phase 4): an
+     * application-INTERNAL required secret, never an external vendor
+     * credential or a provisioned binding. Absent/undefined = not
+     * generatable — old persisted data round-trips unchanged.
+     */
+    generatable: z.boolean().optional(),
     /** Absent on rows analysed before classification existed. */
     classification: envVariableClassificationSchema.optional(),
   })
@@ -90,18 +107,45 @@ export const deploymentManifestSchema = z
         command: z.string().nullable(),
         /** TCP port the app listens on, or null when undetected. */
         port: z.number().int().nullable(),
+        /**
+         * True when the port is a framework DEFAULT (Stage B phase 7,
+         * optional/additive): the value is a prefill only and the deployment
+         * gate still requires the vendor to confirm it.
+         */
+        portIsDefault: z.boolean().optional(),
       })
       .strict(),
     health: z
       .object({
-        /** ALB/container health-check path. Defaults to `/health`. */
+        /**
+         * ALB/container health-check path. Stage B phase 5: for
+         * `vendor_required` mode this is a neutral placeholder — the manifest
+         * gate blocks the deployment, so the value is never provisioned.
+         */
         path: z.string().min(1),
+        /**
+         * How the path is known (Stage B phase 5, optional/additive):
+         * `explicit` — a declared route or HEALTHCHECK URL names it; `root` —
+         * the app's own HEALTHCHECK probes `/`; `vendor_required` — no health
+         * evidence exists and the vendor must supply one. Absent on manifests
+         * written before the field existed (legacy default behaviour).
+         */
+        mode: z.enum(['explicit', 'root', 'vendor_required']).optional(),
       })
       .strict(),
     database: z
       .object({
         /** Whether Deployz provisions a managed PostgreSQL instance. */
         postgres: z.boolean(),
+        /**
+         * Env vars injected pointing at the managed database. Stage B phase 2:
+         * absent on manifests written before the field existed (optional, not
+         * defaulted, so an old stored manifest round-trips byte-identical).
+         * `url`-kind bindings carry the whole `postgresql://` connection URL,
+         * `host`/`port`/`database`/`username`/`password`-kind bindings carry
+         * just that part.
+         */
+        envBindings: z.array(manifestEnvBindingSchema).optional(),
       })
       .strict(),
     redis: z
@@ -122,6 +166,15 @@ export const deploymentManifestSchema = z
       .object({
         /** Unattended migration command run on deploy, or null. */
         command: z.string().nullable(),
+        /**
+         * How the database schema is updated (Stage B phase 6, optional/
+         * additive): `pre_deploy` — Deployz runs the command before the new
+         * version starts; `startup` — the app runs migrations when it starts
+         * (informational; no command is invented); `none` — no database;
+         * `unknown` — a required database but no migration evidence. Absent
+         * on manifests written before the field existed.
+         */
+        mode: z.enum(['pre_deploy', 'startup', 'none', 'unknown']).optional(),
       })
       .strict(),
     worker: z

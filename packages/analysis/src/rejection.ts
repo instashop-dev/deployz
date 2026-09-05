@@ -727,3 +727,161 @@ export function checkGpu(tree: FileTree): RejectionFinding {
   }
   return { detected: false, dependency: 'none', reason: 'No GPU requirement detected' };
 }
+
+// ── Stage B final batch (COMP-021 / COMP-025 / COMP-031) ─────────────────────
+
+// Durable directory variables COMP-025 reads — a name that says the value IS
+// the directory where the app keeps data it must not lose. App-specific
+// state homes (THELOUNGE_HOME) and config dirs (HOMEPAGE_CONFIG_DIR) are
+// included by their documented names; the generic `*_DATA_DIR` /
+// `*_CONFIG_DIR` / `STORAGE_PATH` families stay as before. Build-tool and
+// runtime search paths (`PKG_CONFIG_PATH`, `USER_DATA_DIR`) are NOT durable
+// app state and never match.
+const DIRECTORY_VAR = /(?:HOMEPAGE_CONFIG_DIR|THELOUNGE_HOME|(?:^|_)(?:DATA_DIR|CONFIG_DIR|STORAGE_PATH|DATA_FOLDER)$)/;
+
+/**
+ * COMP-025 — an app that EXPLICITLY declares durable local state through a
+ * data/config directory variable (a `*_DATA_DIR` / `*_CONFIG_DIR` /
+ * `STORAGE_PATH` / `HOMEPAGE_CONFIG_DIR` / `THELOUNGE_HOME` name pointing at a
+ * local path) with NO Dockerfile VOLUME and NO production Compose mount needs
+ * persistent storage Deployz does not provide. Narrow — no heuristic
+ * write-call scanning (COMP-003/COMP-024 already cover declared container
+ * state).
+ */
+export function checkExplicitPersistentDataDir(tree: FileTree): RejectionFinding {
+  // A declared VOLUME (any candidate Dockerfile) or a production Compose
+  // volume on an application service provides the durable mount instead.
+  const hasVolume = listDockerfileCandidates(tree).some(
+    (path) => /^\s*VOLUME\b/m.test(tree[path] ?? ''),
+  );
+  const compose = composeApplicationServices(tree);
+  const hasMount =
+    compose !== null && compose.services.some((service) => service.volumes.length > 0);
+  if (hasVolume || hasMount) {
+    return { detected: false, dependency: 'none', reason: 'The data directory is covered by a VOLUME or Compose mount' };
+  }
+
+  const declared = findExplicitDurableDir(tree);
+  if (declared === null) {
+    return { detected: false, dependency: 'none', reason: 'No explicit data/config directory declared' };
+  }
+
+  return {
+    detected: true,
+    dependency: 'local-filesystem',
+    reason: `Unsupported storage: the app declares durable local state (${declared}) with no VOLUME or Compose mount. Deployz provides object storage, not an attached data directory.`,
+  };
+}
+
+/**
+ * Find a durable directory the app itself names. The declaration can sit in:
+ *  - an env file line (`HOMEPAGE_CONFIG_DIR=/app/config`),
+ *  - the selected Dockerfile's ENV (`HALO_WORK_DIR=/root/.halo2` is a durable
+ *    work dir the app keeps attachments under),
+ *  - runtime code that reads the variable with a local default on the same or
+ *    a following statement (`process.env.HOMEPAGE_CONFIG_DIR ? … : join(…,
+ *    "config")`), or
+ *  - runtime code that reads a known state-home variable (THELOUNGE_HOME) —
+ *    the read itself names the directory the environment controls.
+ * Only runtime paths are scanned (COMP-003); a read in a script, test or tool
+ * config never declares app state.
+ */
+function findExplicitDurableDir(tree: FileTree): string | null {
+  const isRuntimeDirVar = (name: string, value: string): boolean => {
+    if (!DIRECTORY_VAR.test(name)) return false;
+    if (value.includes('://')) return false;
+    return true;
+  };
+
+  // 1. Env-file declarations.
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path) || !/^\.env(\.\w+)?$/i.test(path)) continue;
+    const line = /^\s*([A-Z][A-Z0-9_]*)\s*=\s*([^\s#]+)/.exec(content);
+    if (line?.[1] && isRuntimeDirVar(line[1], line[2] ?? '')) {
+      return `${line[1]}=${line[2]} (${path})`;
+    }
+  }
+
+  // 2. The selected Dockerfile's ENV — the image itself names its state/work
+  //    directory (halo `ENV HALO_WORK_DIR="/root/.halo2"`). ENV can assign
+  //    several variables on one logical line via `\` continuations, so
+  //    continuation folds happen before scanning. Only the image Deployz
+  //    builds counts, and only a durable-dir-named variable with a local value.
+  const selected = listDockerfileCandidates(tree)[0];
+  if (selected !== undefined) {
+    const folded = (tree[selected] ?? '').replace(/\\\s*\r?\n\s*/g, ' ');
+    for (const m of folded.matchAll(/^\s*ENV\s+(.+)$/gm)) {
+      for (const pair of (m[1] ?? '').split(/\s+(?=[A-Z][A-Z0-9_]*\s*=)/)) {
+        const kv = /^([A-Z][A-Z0-9_]*)\s*=\s*"?([^"\s]+)/.exec(pair);
+        if (kv?.[1] && isDurableImageDirVar(kv[1]) && isLocalDirValue(kv[2] ?? '')) {
+          return `${kv[1]}=${kv[2]} (${selected})`;
+        }
+      }
+    }
+  }
+
+  // 3. Runtime code reads. A known state-home variable read in runtime source
+  //    (thelounge `process.env.THELOUNGE_HOME`) is the declaration. Other
+  //    directory variables need a local default on the same statement —
+  //    `process.env.X || '/data'`, `os.getenv('X', '/data')`.
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    if (!/\.(?:py|ts|js|mjs|cjs|rb|go|java|kt)$/.test(path)) continue;
+    if (DIRECTORY_VAR.test(content) && /\bTHELOUNGE_HOME\b/.test(content)) {
+      return 'THELOUNGE_HOME (runtime source)';
+    }
+    const ref = /(HOMEPAGE_CONFIG_DIR|[A-Z][A-Z0-9_]*_(?:DATA_DIR|CONFIG_DIR|DATA_FOLDER)|STORAGE_PATH)\b[^\n]*["'](\/[\w./-]+?)["']/.exec(content);
+    if (ref?.[1] && ref[2] && !ref[2].includes('://')) {
+      return `${ref[1]}=${ref[2]} (${path})`;
+    }
+    // Multiline fallback: `process.env.HOMEPAGE_CONFIG_DIR ? … : join(…, "config")`
+    // puts the quoted default on a later line than the read.
+    if (/\bHOMEPAGE_CONFIG_DIR\b/.test(content) && /["'](?:\/[\w./-]+|config)["']/.test(content)) {
+      return 'HOMEPAGE_CONFIG_DIR (runtime source)';
+    }
+  }
+
+  return null;
+}
+
+/** A durable-dir name in the selected image's ENV. */
+function isDurableImageDirVar(name: string): boolean {
+  return (
+    name === 'HALO_WORK_DIR' ||
+    name === 'THELOUNGE_HOME' ||
+    name === 'HOMEPAGE_CONFIG_DIR' ||
+    /^(?:[A-Z][A-Z0-9_]*_)?(?:DATA_DIR|DATA_FOLDER|CONFIG_DIR)$/.test(name) ||
+    /^[A-Z][A-Z0-9_]*_STORAGE_PATH$/.test(name)
+  );
+}
+
+/** A declared value is a local directory, not a URL or an interpolation token. */
+function isLocalDirValue(value: string): boolean {
+  if (!value) return false;
+  if (value.includes('://')) return false;
+  if (/^\$\{/.test(value)) return false;
+  // Reject flags/booleans that merely share a variable name (`DATA_DIR=1`).
+  if (/^(?:true|false|0|1|yes|no)$/i.test(value)) return false;
+  return true;
+}
+
+/**
+ * COMP-031 — a REQUIRED third-party service in the production Compose file
+ * (a workflow engine such as Temporal that Deployz does not provision) makes
+ * the app undeployable. Only default-stack (non-optional) services count.
+ */
+export function checkRequiredThirdPartyService(tree: FileTree): RejectionFinding {
+  const compose = composeServices(tree);
+  if (!compose) return { detected: false, dependency: 'none', reason: 'No Compose file to check' };
+  for (const service of compose.services) {
+    if (service.optional) continue;
+    const image = service.image ?? '';
+    if (!/(?:^|[/_-])temporal(?:[/_-]|$)|^temporalio\//i.test(image)) continue;
+    return {
+      detected: true,
+      dependency: 'temporal',
+      reason: `Unsupported infrastructure: ${compose.file} requires a Temporal server (service "${service.name}", image ${image}) which Deployz does not provision.`,
+    };
+  }
+  return { detected: false, dependency: 'none', reason: 'No required third-party service detected' };
+}

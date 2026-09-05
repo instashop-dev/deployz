@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 201,
     "entries": 2972,
@@ -41,7 +41,7 @@
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "dev/docker/Dockerfile",
-    "port": null,
+    "port": 8000,
     "startCommand": null,
     "healthDetected": false,
     "healthPath": null,
@@ -66,8 +66,8 @@
     ],
     "gateFindings": [
       "unsupported",
-      "port-missing",
-      "start-command-missing"
+      "start-command-missing",
+      "health-path-required"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
@@ -128,7 +128,7 @@
     {
       "fact": "port",
       "expected": 80,
-      "actual": null,
+      "actual": 8000,
       "match": false,
       "kind": "fact"
     },
@@ -166,7 +166,7 @@
       "fact": "port",
       "kind": "fact",
       "expected": 80,
-      "actual": null,
+      "actual": 8000,
       "finding": {
         "id": "COMP-030",
         "type": "ANALYSIS_MISSING_SIGNAL"

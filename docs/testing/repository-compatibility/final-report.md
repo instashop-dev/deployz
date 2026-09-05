@@ -248,3 +248,150 @@ remaining mismatches each have a second, product-level cause. The
 before/after table and the remaining-gap list are in
 [`findings.md`](findings.md#post-hardening-summary-phase-6-analysis-version-10);
 the rankings and decisions in sections 3–5 stand.
+
+## 8. Stage B addendum (analysis version 11)
+
+After the Stage A decision report, the Stage B batch (analysis version 11,
+Deployz `1e6ad171`) implemented the FIX_BEFORE_MVP and CONSIDER_FOR_MVP
+items that are analyser work: typed evidence/ambiguity (phase 1), binding
+aliases (phase 2), env-schema required reads (phase 3), generated secrets
+(phase 4), health modes (phase 5), migration modes (phase 6), port
+provenance (phase 7), the remaining Stage A findings COMP-010/021/022/025/
+031/033 (phase 7b), the AI resolver and its consumers (phases 8–10) and
+the readiness UX (phase 11). The AI resolver is unconfigured in this run,
+so every result is deterministic. The corpus was rerun in full; results
+are the frozen v11 run artifacts in `runs/` at Deployz `1e6ad171`,
+compared against the committed v10 run (`runs/` at `5a443f6`).
+
+### 8.1 Whole-corpus results
+
+| Set | n | Verdict accuracy | Boundary accuracy | False rejections | False acceptances | All facts match |
+| --- | --- | --- | --- | --- | --- | --- |
+| Improvement (80), before | 80 | 41 (51.3%) | 63 (78.8%) | 8 of 46 (17.4%) | 9 of 34 (26.5%) | 4 |
+| Improvement (80), v11 | 80 | 51 (63.8%) | 69 (86.3%) | 9 of 46 (19.6%) | 2 of 34 (5.9%) | 5 |
+| Unseen (20), before | 20 | 10 (50.0%) | 11 (55.0%) | 4 of 9 (44.4%) | 5 of 11 (45.5%) | 1 |
+| Unseen (20), v11 | 20 | 10 (50.0%) | 12 (60.0%) | 4 of 9 (44.4%) | 4 of 11 (36.4%) | 0 |
+| **Whole corpus, before** | 100 | **51 (51.0%)** | **74 (74.0%)** | **12 of 55 (21.8%)** | **14 of 45 (31.1%)** | 5 |
+| **Whole corpus, v11** | 100 | **61 (61.0%)** | **81 (81.0%)** | **13 of 55 (23.6%)** | **6 of 45 (13.3%)** | 5 |
+| `realistic` cohort, before | 59 | 30 (50.8%) | 46 (78.0%) | 8 of 38 (21.1%) | 5 of 21 (23.8%) | 3 |
+| `realistic` cohort, v11 | 59 | 32 (54.2%) | 47 (79.7%) | 9 of 38 (23.7%) | 3 of 21 (14.3%) | 3 |
+| `realistic` + high realism, before | 54 | 27 (50.0%) | 42 (77.8%) | 8 of 36 (22.2%) | 4 of 18 (22.2%) | 2 |
+| `realistic` + high realism, v11 | 54 | 30 (55.6%) | 44 (81.5%) | 8 of 36 (22.2%) | 2 of 18 (11.1%) | 3 |
+| `messy` cohort, before | 22 | 8 (36.4%) | 15 (68.2%) | 4 of 17 (23.5%) | 3 of 5 (60.0%) | 1 |
+| `messy` cohort, v11 | 22 | 13 (59.1%) | 18 (81.8%) | 4 of 17 (23.5%) | 0 of 5 (0.0%) | 1 |
+| `boundary` cohort, before | 19 | 13 (68.4%) | 13 (68.4%) | 0 of 0 | 6 of 19 (31.6%) | 1 |
+| `boundary` cohort, v11 | 19 | 16 (84.2%) | 16 (84.2%) | 0 of 0 | 3 of 19 (15.8%) | 1 |
+
+The gap between verdict accuracy (61%) and boundary accuracy (81%) is
+still the READY / NEEDS_CONFIGURATION line: 20 repositories sit on the
+right side of the rejection boundary but on the wrong side of the
+configuration line (was 23 at v10). 8 mismatches carry no finding id in
+this run; they are recorded as three new findings (COMP-039, COMP-040,
+COMP-041) in [`findings.md`](findings.md).
+
+### 8.2 What landed
+
+- **A deterministic findings batch, not an AI batch.** Phases 1–7b are all
+  deterministic and are the entire measurable improvement of this run.
+  Binding aliases (phase 2) mean the deployment gate recognises the
+  app's own database/Redis/S3 variable names (`MEMOS_DSN`,
+  `PAPERLESS_DBHOST`, `S3_ATTACHMENTS_BUCKET`, …) as auto-provided.
+  Health paths (phase 5) now carry an explicit mode instead of a silent
+  `/health` default, and health-route literals are read across
+  Go/Python/Ruby/PHP/.NET/JVM/Elixir/Rails. Migration modes (phase 6)
+  stopped the gate warning 55% of apps about a "missing" migration
+  command when migrations run at boot. Ports (phase 7) are read from
+  runtime literals and Compose container-side mappings, with a
+  framework default surfacing as a vendor confirmation, never a guess.
+- **Secret generation and the configuration UX.** Phases 4 and 11 are
+  product-layer: secret-named required variables are generated at the
+  deployment/relay boundary (never logged, never AI-prompted), and
+  NEEDS_CONFIGURATION is presented as a readiness hierarchy. They do not
+  change verdicts in this benchmark, which has no configured AI gateway;
+  the AI resolver (phases 8–10) shipped but contributed nothing to these
+  numbers.
+- **The remaining Stage A findings moved.** COMP-033 (deployment
+  descriptors the fetch dropped) is fixed — argo-cd, microservices-demo
+  and azure-search-openai-demo now reject on their cloud families.
+  COMP-031's false acceptance is gone (postiz rejects on its required
+  Temporal server). COMP-025's durable-data-directory detection reduced
+  its repositories from 5 to 2 and its verdict flips from 4 to 1.
+  COMP-017's env-schema reads resolved 4 of its 15 repositories.
+  COMP-021's missing-`COPY` rejection was implemented then removed as
+  unsound under the 200-file cap and is now a documented limitation.
+
+### 8.3 Honest gaps
+
+The realistic cohort — the plausible-customer set — is still short of the
+audit's quality bar: 32 of 59 verdicts (54%), boundary accuracy 47 of 59
+(79.7%), 9 false rejections and 3 false acceptances. False acceptances
+were nearly halved corpus-wide (14 → 6) but false rejections rose by one
+(coder), five previously-correct health paths regressed under the
+phase-5 vocabulary widening (COMP-039), and the cloud-descriptor fetch
+(COMP-033) over-fired on apps that ship their own chart/Terraform
+(COMP-040). Three repositories gained a NEW verdict mismatch on v11,
+all in the realistic cohort: coder (a false rejection on its own dogfood
+Terraform, COMP-040), livebook (configuration-detection: the Phoenix
+framework-default port 4000 prefills where the benchmark documented
+8080, COMP-030) and pgweb (configuration-detection: a TCP-probe health
+check is invisible to the vendor-required gate, COMP-041). Stirling-PDF
+moved READY → NEEDS_CONFIGURATION on the same underlying causes but is
+still a false acceptance. The unseen set is flat at 10 of 20, and its
+last all-facts match (pgweb) is gone.
+
+Remaining open findings, in the decision report's order: health paths
+that no literal regex reads (COMP-005, 45 repositories, plus the new
+over-match COMP-039); required secrets in still-unread settings shapes
+(COMP-017, 10); migration-command fact mismatches with no verdict impact
+(COMP-014, 55); optional compose workers (COMP-010, 5 false rejections);
+ports without a confident signal (COMP-030, 9); undeclared data
+directories (COMP-025, 2); and the product gaps G1–G3 that stay outside
+the MVP. The G4/G5 product items (generated secrets, binding aliases)
+landed in phases 2 and 4.
+
+## 9. Fresh unseen-set addendum (unseen2, analysis version 11)
+
+A second unseen set (`unseen2`, repo-201..220: 10 realistic, 5 messy, 5
+boundary) was measured after the Stage B comparison, with the SAME frozen
+analyser (analysis version 11, Deployz `1e6ad17`). No analyser code
+changed for this run. Expected facts were produced by two independent
+ground-truth passes (README/research-level and full-tree snapshot) and
+reconciled by the orchestrator against corpus precedent; the provisional
+facts used during repository selection were replaced with the reconciled
+final facts before the run. Every unseen2 entry intentionally references
+no findings, so every recorded mismatch is UNEXPLAINED — the run measures
+raw verdict and fact accuracy without asserting which known finding
+applies.
+
+### 9.1 Results
+
+| Metric | unseen2 (v11) |
+| --- | --- |
+| Verdict matches | 13 / 20 (65%) |
+| Boundary accuracy | 15 / 20 (75%) |
+| False rejections | 5 of 10 deployable (50%) |
+| False acceptances | 0 of 10 rejected (0%) |
+| All facts match | 0 |
+| Failed analyses | 0 (no 200-file-cap truncation either) |
+
+| Cohort | n | Verdict | Boundary | False rejections | False acceptances |
+| --- | --- | --- | --- | --- | --- |
+| `realistic` | 10 | 6 (60%) | 7 (70%) | 3 of 7 | 0 of 3 |
+| `messy` | 5 | 4 (80%) | 4 (80%) | 1 of 1 | 0 of 4 |
+| `boundary` | 5 | 3 (60%) | 4 (80%) | 1 of 2 | 0 of 3 |
+
+Verdict mismatches: 5 false rejections (shlink, nocobase, khoj, AFFiNE,
+headlamp) and 2 configuration-detection mismatches (fider, gotify come
+out READY instead of NEEDS_CONFIGURATION). All 10 NOT_COMPATIBLE
+expectations were rejected correctly — zero false acceptances. The
+verdict rate (65%) is higher than the unseen1 set's 50% but the
+realistic cohort (60%) remains short of the audit's bar; the per-finding
+detail and mismatch classification are in
+[`findings.md`](findings.md#fresh-unseen-set-unseen2-analysis-version-11).
+
+The result confirms the two residual analyser directions the main corpus
+already showed: single-image all-in-one apps (khoj, AFFiNE, baserow) are
+read from their reference compose file as multi-service and rejected
+despite an in-process all-in-one image, and DB-admin/tool apps (fider,
+gotify, headlamp) still hide their required configuration or treat an
+optional external target (a Kubernetes cluster) as infrastructure.

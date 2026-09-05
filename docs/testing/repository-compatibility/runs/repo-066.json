@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 201,
     "entries": 2508,
@@ -66,12 +66,15 @@
       "KARAKEEP_CUSTOM_HEADERS"
     ],
     "unsupported": [
+      "kubernetes",
       "sqlite"
     ],
     "readinessFindings": [
-      "unsupported-database-sqlite"
+      "unsupported-database-sqlite",
+      "unsupported-architecture"
     ],
     "gateFindings": [
+      "unsupported",
       "unsupported",
       "required-env-vars-missing"
     ],
@@ -151,9 +154,11 @@
         "sqlite"
       ],
       "actual": [
+        "kubernetes",
         "sqlite"
       ],
-      "match": true
+      "match": false,
+      "kind": "fact"
     }
   ],
   "mismatches": [
@@ -184,6 +189,21 @@
       "actual": "/health",
       "finding": {
         "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "sqlite"
+      ],
+      "actual": [
+        "kubernetes",
+        "sqlite"
+      ],
+      "finding": {
+        "id": "COMP-015",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

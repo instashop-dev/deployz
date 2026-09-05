@@ -325,8 +325,9 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
 
     // §11.1 end-to-end: analysis → manifest → manifest readiness. The MVP is
     // ONE selected app; the manifest gate must point at the nested app with a
-    // repo-root build context and classify the monorepo as deployable (the
-    // missing health check is a semantic finding, not a manifest blocker).
+    // repo-root build context. Stage B phase 5: this fixture has NO health
+    // evidence at all, so the gate asks the vendor for a health path instead
+    // of silently defaulting to /health.
     const manifest = normalizeDeploymentManifest(analysis, {});
     expect(manifest.application.root).toBe('apps/api');
     expect(manifest.application.dockerfilePath).toBe('apps/api/Dockerfile');
@@ -334,7 +335,10 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(manifest.web.command).toContain('src/index.js');
     expect(manifest.web.port).toBe(3000);
     expect(manifest.unsupported).toEqual([]);
-    expect(evaluateManifestReadiness(manifest).state).toBe('READY');
+    expect(manifest.health.mode).toBe('vendor_required');
+    const gate = evaluateManifestReadiness(manifest);
+    expect(gate.state).toBe('NEEDS_CONFIGURATION');
+    expect(gate.findings.some((f) => f.id === 'health-path-required')).toBe(true);
     // The same flow accepts the vendor-corrected overrides verbatim — the
     // PATCH surface feeds this exact normalizer at deployment creation.
     const overridden = normalizeDeploymentManifest(analysis, {
@@ -1100,17 +1104,26 @@ describe('analysis — runApplicationAnalysis (AI fallback)', () => {
   }
 
   it('fills a missing start command from a valid AI answer and records aiResolved', async () => {
+    const field = (value: string | boolean | number | null, confidence = 0.95) => ({
+      value,
+      confidence,
+      evidencePaths: ['Dockerfile'],
+      explanation: 'fixture answer',
+    });
     const aiGateway: AiGateway = {
       async generate() {
         return {
           object: {
-            workingDirectory: '.',
-            buildCommand: null,
-            startCommand: 'node index.js',
-            port: null,
-            postgres: { required: false, evidence: [] },
-            redis: { required: false, evidence: [] },
-            migrationCommand: null,
+            dockerfile: field(null),
+            workingDirectory: field('.'),
+            buildCommand: field(null),
+            startCommand: field('node index.js'),
+            port: field(null),
+            postgresRequired: field(false),
+            redisRequired: field(false),
+            healthPath: field(null),
+            migrationMode: field(null),
+            storageRequired: field(null),
             warnings: [],
           },
           usage: { promptTokens: 500, completionTokens: 50 },

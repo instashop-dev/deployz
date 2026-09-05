@@ -281,10 +281,16 @@ test.describe('monorepo-classified-deploy (C)', () => {
     const readiness = await getReadiness(request, applicationId);
     expect(readiness.analysisStatus).toBe('COMPLETE');
     // The classification Phase 7 unit-tests is E2E-real here: ALMOST_READY
-    // with the health-check finding only — a semantic finding, not a manifest
-    // blocker, so the deployment below is allowed.
+    // with the health-check finding only. Phase 5 removed the silent /health
+    // default, so the vendor supplies the health path through the override
+    // surface; the semantic readiness state is unchanged by the override.
     expect(readiness.state).toBe('ALMOST_READY');
     expect(readiness.findings).toEqual([expect.objectContaining({ id: 'health-check' })]);
+
+    const healthPatch = await request.patch(`${API_URL}/api/applications/${applicationId}`, {
+      data: { healthPath: '/health' },
+    });
+    expect(healthPatch.ok()).toBeTruthy();
 
     const customerId = await createCustomer(request, suffix);
     const deploymentResponse = await request.post(`${API_URL}/api/deployments`, {

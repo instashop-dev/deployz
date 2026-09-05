@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
-    "files": 77,
+    "files": 107,
     "entries": 458,
     "truncated": false
   },
@@ -40,9 +40,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": "src/adservice",
     "dockerfilePath": "src/adservice/Dockerfile",
@@ -72,12 +72,20 @@
       "PROJECT_ID",
       "REGION"
     ],
-    "unsupported": [],
+    "unsupported": [
+      "kubernetes",
+      "terraform"
+    ],
     "readinessFindings": [
+      "unsupported-architecture",
+      "unsupported-architecture",
       "health-check",
       "database-migrations"
     ],
     "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "health-path-required",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
@@ -90,9 +98,8 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -160,22 +167,14 @@
         "kubernetes",
         "terraform"
       ],
-      "actual": [],
-      "match": false,
-      "kind": "fact"
+      "actual": [
+        "kubernetes",
+        "terraform"
+      ],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-033",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "postgres",
       "kind": "fact",
@@ -233,19 +232,6 @@
       "actual": null,
       "finding": {
         "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "kubernetes",
-        "terraform"
-      ],
-      "actual": [],
-      "finding": {
-        "id": "COMP-033",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

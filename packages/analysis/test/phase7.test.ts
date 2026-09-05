@@ -48,12 +48,27 @@ describe('detectEnvVarModel (§11.2)', () => {
     };
     const model = detectEnvVarModel(tree);
     expect(model).toEqual([
-      { key: 'INTERNAL_API_TOKEN', required: true, secret: true, source: ['read in src/index.js'] },
+      {
+        key: 'INTERNAL_API_TOKEN',
+        required: true,
+        secret: true,
+        source: ['read in src/index.js'],
+        purpose: 'internal_secret',
+        confidence: 'medium',
+        generatable: true,
+      },
     ]);
     // A non-secret option stored as-is proves nothing about need (COMP-023).
     const stored = detectEnvVarModel({ 'src/index.js': 'const url = process.env.INTERNAL_API_URL;\n' });
     expect(stored).toEqual([
-      { key: 'INTERNAL_API_URL', required: false, secret: false, source: ['read in src/index.js'] },
+      {
+        key: 'INTERNAL_API_URL',
+        required: false,
+        secret: false,
+        source: ['read in src/index.js'],
+        purpose: 'optional_configuration',
+        confidence: 'medium',
+      },
     ]);
   });
 
@@ -92,6 +107,8 @@ describe('detectEnvVarModel (§11.2)', () => {
         required: false,
         secret: false,
         source: ['read in packages/prisma/index.ts'],
+        purpose: 'optional_configuration',
+        confidence: 'medium',
       },
     ]);
   });
@@ -582,7 +599,8 @@ describe('fixture classification (analysis → manifest → readiness)', () => {
         'CMD ["node", "src/index.js"]',
         '',
       ].join('\n'),
-      'apps/api/src/index.js': 'app.listen(process.env.PORT || 3000);\n',
+      'apps/api/src/index.js':
+        "app.get('/health', (_req, res) => res.json({ ok: true }));\napp.listen(process.env.PORT || 3000);\n",
     };
     const analysis = analyseRepo(tree);
     const manifest = normalizeDeploymentManifest(analysis, {});

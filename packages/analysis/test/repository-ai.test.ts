@@ -290,16 +290,36 @@ const baseAiInput: RepositoryAiInput = {
   unresolved: ['start-command-unknown'],
 };
 
-const validAiObject = {
-  workingDirectory: '.',
-  buildCommand: null,
-  startCommand: 'node dist/index.js',
-  port: 3000,
-  postgres: { required: false, evidence: [] },
-  redis: { required: false, evidence: [] },
-  migrationCommand: null,
-  warnings: [],
-};
+/** Build one structured inference field. */
+function aiField(
+  value: string | boolean | number | null,
+  confidence = 0.95,
+  evidencePaths: string[] = ['test/evidence'],
+): { value: string | boolean | number | null; confidence: number; evidencePaths: string[]; explanation: string } {
+  return { value, confidence, evidencePaths, explanation: 'fixture answer' };
+}
+
+/** The full structured answer, all fields present. */
+function structuredAi(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const field = (value: string | boolean | number | null, evidencePaths: string[] = ['test/evidence']) =>
+    aiField(value, 0.95, evidencePaths);
+  return {
+    dockerfile: field(null),
+    workingDirectory: field('.'),
+    buildCommand: field(null),
+    startCommand: field(null),
+    port: field(null),
+    postgresRequired: field(false),
+    redisRequired: field(false),
+    healthPath: field(null),
+    migrationMode: field(null),
+    storageRequired: field(null),
+    warnings: [],
+    ...overrides,
+  };
+}
+
+const validAiObject = repositoryAiSchema.parse(structuredAi({ startCommand: aiField('node dist/index.js') }));
 
 function fixtureGateway(response: AiGatewayResponse): AiGateway {
   return { async generate() { return response; } };
@@ -360,18 +380,43 @@ describe('analyseRepositoryWithAi', () => {
 // mergeAiAnalysis
 // ==========================================================================
 
-function baseAiAnalysis(overrides: Partial<RepositoryAiAnalysis> = {}): RepositoryAiAnalysis {
-  return repositoryAiSchema.parse({
-    workingDirectory: '.',
-    buildCommand: null,
-    startCommand: null,
-    port: null,
-    postgres: { required: false, evidence: [] },
-    redis: { required: false, evidence: [] },
-    migrationCommand: null,
-    warnings: [],
-    ...overrides,
-  });
+function baseAiAnalysis(overrides: Record<string, unknown> = {}): RepositoryAiAnalysis {
+  const built = structuredAi();
+  const flatten = (
+    key: string,
+    legacy: unknown,
+    structuredKey: string,
+    confidenceFor: (value: { required: boolean; evidence: string[] }) => number,
+  ) => {
+    const existing = overrides[key];
+    if (existing === undefined) return;
+    const rec = existing as { required: boolean; evidence: string[] };
+    built[structuredKey] = aiField(rec.required, confidenceFor(rec), rec.evidence);
+  };
+  for (const [legacy, structured] of [
+    ['buildCommand', 'buildCommand'],
+    ['startCommand', 'startCommand'],
+    ['workingDirectory', 'workingDirectory'],
+    ['port', 'port'],
+  ] as const) {
+    if (overrides[legacy] !== undefined && !isStructuredField(overrides[legacy])) {
+      built[structured] = aiField(overrides[legacy] as string | number | boolean);
+    }
+  }
+  flatten('postgres', overrides['postgres'], 'postgresRequired', (v) => (v.required && v.evidence.length > 0 ? 0.95 : 0.2));
+  flatten('redis', overrides['redis'], 'redisRequired', (v) => (v.required && v.evidence.length > 0 ? 0.95 : 0.2));
+  // Structured overrides (healthPath/migrationMode/storageRequired â€¦) pass through.
+  for (const [key, value] of Object.entries(overrides)) {
+    if (isStructuredField(value) || key === 'warnings' || key === 'dockerfile') {
+      if (key !== 'warnings') built[key] = value;
+      else built['warnings'] = value;
+    }
+  }
+  return repositoryAiSchema.parse(built);
+}
+
+function isStructuredField(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && typeof (value as { confidence?: unknown }).confidence === 'number';
 }
 
 describe('mergeAiAnalysis', () => {
@@ -495,5 +540,170 @@ describe('mergeAiAnalysis', () => {
     const outcome = mergeAiAnalysis(metadata, ai);
 
     expect(outcome.warnings).toContain('could not determine build tool');
+  });
+});
+
+
+// ==========================================================================
+// Stage B phase 8 — typed ambiguity resolver core
+// ==========================================================================
+
+describe("phase 8 typed-ambiguity resolver", () => {
+  it("carries the typed ambiguity list in the prompt alongside the question strings, and forbids prompt tricks", () => {
+    const prompt = buildRepositoryAiPrompt({
+      ...baseAiInput,
+      unresolved: ["database-requirement-unclear"],
+      ambiguities: [
+        { kind: "DATABASE_BINDING", detail: "PostgreSQL usage was detected but no connection binding was confirmed as required." },
+      ],
+    });
+    expect(prompt).toContain("Typed ambiguities");
+    expect(prompt).toContain("DATABASE_BINDING");
+    expect(prompt).toContain("never request credentials");
+    expect(prompt).toContain("evidencePaths");
+  });
+
+  it("calls the gateway exactly once on the happy path", async () => {
+    let calls = 0;
+    const counting: AiGateway = {
+      async generate() {
+        calls += 1;
+        return { object: validAiObject, usage: { promptTokens: 1, completionTokens: 1 } };
+      },
+    };
+    await analyseRepositoryWithAi(baseAiInput, counting);
+    expect(calls).toBe(1);
+  });
+
+  it("healthPath: >=0.9 auto-fills only when the health mode is vendor_required", () => {
+    const auto = mergeAiAnalysis(
+      { healthMode: "vendor_required" },
+      baseAiAnalysis({ healthPath: aiField("/health", 0.95) }),
+    );
+    expect(auto.metadata["healthPath"]).toBe("/health");
+    expect(auto.metadata["healthMode"]).toBe("explicit");
+    expect(auto.aiResolved).toContain("healthPath");
+
+    const blocked = mergeAiAnalysis(
+      { healthMode: "explicit", healthPath: "/custom" },
+      baseAiAnalysis({ healthPath: aiField("/health", 0.95) }),
+    );
+    expect(blocked.metadata["healthPath"]).toBe("/custom");
+  });
+
+  it("healthPath: 0.7-0.89 records a suggestion without changing the gate; <0.7 is ignored", () => {
+    const suggested = mergeAiAnalysis(
+      { healthMode: "vendor_required" },
+      baseAiAnalysis({ healthPath: aiField("/health", 0.8) }),
+    );
+    expect(suggested.metadata["healthPath"]).toBeUndefined();
+    expect(suggested.metadata["aiSuggestions"]).toMatchObject({
+      healthPath: { value: "/health", confidence: 0.8 },
+    });
+    expect(suggested.aiResolved).toContain("suggestion:healthPath");
+
+    const ignored = mergeAiAnalysis(
+      { healthMode: "vendor_required" },
+      baseAiAnalysis({ healthPath: aiField("/health", 0.5) }),
+    );
+    expect(ignored.metadata["healthPath"]).toBeUndefined();
+    expect(ignored.metadata["aiSuggestions"]).toBeUndefined();
+  });
+
+  it("migrationMode suggestion fills only an unknown mode; resolved modes are never overwritten", () => {
+    const filled = mergeAiAnalysis(
+      { migrationMode: "unknown" },
+      baseAiAnalysis({ migrationMode: aiField("startup", 0.95) }),
+    );
+    expect(filled.metadata["migrationMode"]).toBe("startup");
+    expect(filled.aiResolved).toContain("migrationMode");
+
+    const untouched = mergeAiAnalysis(
+      { migrationMode: "pre_deploy" },
+      baseAiAnalysis({ migrationMode: aiField("startup", 0.95) }),
+    );
+    expect(untouched.metadata["migrationMode"]).toBe("pre_deploy");
+  });
+
+  it("storageRequired auto-fills only when storage is undetected; deterministic true always wins", () => {
+    const filled = mergeAiAnalysis({}, baseAiAnalysis({ storageRequired: aiField(true, 0.95) }));
+    expect(filled.metadata["usesS3"]).toBe(true);
+    expect(filled.aiResolved).toContain("storageRequired");
+
+    const kept = mergeAiAnalysis({ usesS3: true }, baseAiAnalysis({ storageRequired: aiField(true, 0.95) }));
+    expect(kept.metadata["usesS3"]).toBe(true);
+    expect(kept.aiResolved).not.toContain("storageRequired");
+  });
+});
+
+
+// ==========================================================================
+// Phase 9 — AI binding candidates
+// ==========================================================================
+
+describe("phase 9 AI binding candidates", () => {
+  function analysisWithBindings(bindings: unknown): RepositoryAiAnalysis {
+    return repositoryAiSchema.parse(structuredAi({ bindings }));
+  }
+
+  it("adds a high-confidence binding as source ai and serializes to infrastructureBindings", () => {
+    const outcome = mergeAiAnalysis(
+      { infrastructureBindings: [] },
+      analysisWithBindings({
+        postgres: { applicationVariable: "MEMOS_DSN", confidence: 0.95, evidencePaths: ["src/config.ts"], explanation: "app reads MEMOS_DSN" },
+      }),
+    );
+    const bindings = outcome.metadata["infrastructureBindings"] as Array<Record<string, unknown>>;
+    expect(bindings).toEqual([
+      expect.objectContaining({
+        resource: "postgres",
+        applicationVariable: "MEMOS_DSN",
+        source: "ai",
+        confidence: "high",
+      }),
+    ]);
+    expect(outcome.aiResolved).toContain("bindings.postgres");
+  });
+
+  it("deterministic high-confidence bindings always win (no AI candidate added)", () => {
+    const existing = [
+      { resource: "redis", semantic: "url", applicationVariable: "REDIS_URL", source: "explicit", confidence: "high" },
+    ];
+    const outcome = mergeAiAnalysis(
+      { infrastructureBindings: existing },
+      analysisWithBindings({ redis: { applicationVariable: "QUEUE_REDIS_URL", confidence: 0.95, evidencePaths: ["x"], explanation: "x" } }),
+    );
+    expect(outcome.metadata["infrastructureBindings"]).toEqual(existing);
+    expect(outcome.aiResolved).not.toContain("bindings.redis");
+  });
+
+  it("0.7-0.89 records a suggestion only; <0.7 is ignored", () => {
+    const suggested = mergeAiAnalysis(
+      { infrastructureBindings: [] },
+      analysisWithBindings({ s3: { applicationVariable: "S3_ATTACHMENTS_BUCKET", confidence: 0.8, evidencePaths: ["x"], explanation: "x" } }),
+    );
+    expect(suggested.metadata["infrastructureBindings"]).toEqual([]);
+    expect(suggested.metadata["aiSuggestions"]).toMatchObject({
+      bindings: { s3: { applicationVariable: "S3_ATTACHMENTS_BUCKET", confidence: 0.8 } },
+    });
+
+    const ignored = mergeAiAnalysis(
+      { infrastructureBindings: [] },
+      analysisWithBindings({ postgres: { applicationVariable: "MEMOS_DSN", confidence: 0.5, evidencePaths: ["x"], explanation: "x" } }),
+    );
+    expect(ignored.metadata["infrastructureBindings"]).toEqual([]);
+    expect(ignored.metadata["aiSuggestions"]).toBeUndefined();
+  });
+
+  it("rejects a non-env-shaped applicationVariable at the schema boundary", () => {
+    expect(() =>
+      analysisWithBindings({ postgres: { applicationVariable: "db url", confidence: 0.95, evidencePaths: ["x"], explanation: "x" } }),
+    ).toThrow();
+  });
+
+  it("an absent bindings field has zero effect", () => {
+    const outcome = mergeAiAnalysis({ infrastructureBindings: [] }, baseAiAnalysis({}));
+    expect(outcome.metadata["infrastructureBindings"]).toEqual([]);
+    expect(outcome.aiResolved.filter((k) => k.startsWith("bindings"))).toEqual([]);
   });
 });
