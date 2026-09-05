@@ -256,3 +256,19 @@ export const RECOVERABILITY_COPY: Record<FailureRecoverability, string> = {
   DEPLOYZ_ACTION: 'This needs a fix on the Deployz side — contact support rather than retrying.',
   TERMINAL: 'Retrying will not help until the underlying requirement changes.',
 };
+
+// ── AI explanation confidence (AI MVP Phase 7) ──────────────────────────────
+
+/**
+ * How the diagnostic card frames an AI-written explanation. High confidence
+ * reads like deterministic copy; anything lower is presented as a reading,
+ * never a verdict. Null means no hedge line.
+ */
+export const AI_CONFIDENCE_COPY = {
+  high: null,
+  medium: 'Deployz is fairly sure of this reading. Check the technical detail before acting on it.',
+  low: 'Deployz could not determine the exact cause. This is its best reading of the most relevant failure — treat it as a lead, not a verdict.',
+} as const;
+
+/** Shown beside an AI-written explanation so the vendor knows its origin. */
+export const AI_EXPLANATION_SOURCE_NOTE = 'Explained by Deployz from the failure signals.';

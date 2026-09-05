@@ -492,4 +492,49 @@ PR #180.
   redaction of tokens and secret-shaped pairs, cancellation noise dropped,
   event cap and reason truncation, the AI event shape.
 - `apps/api/src/failure-classification.test.ts` (+3).
-- `apps/web/test/diagnostics.test.ts` (+1).
+- `apps/web/test/diagnostics.test.ts` (+1), `apps/web/test/diagnostic-card.test.tsx` (2).
+
+PR #181.
+
+## Phase 7 — AI deployment failure diagnosis (2026-09-05)
+
+### Audited existing (unchanged)
+
+- AI is consulted only for `UNKNOWN`; every known code is answered from the
+  copy map without a model call. The explanation is generated once per
+  attempt behind an atomic claim and cached on `deployment_jobs`; every
+  failure mode degrades to the deterministic copy. The model's echoed
+  failure code is always overridden by the deterministic one.
+- The prompt is built from the Phase 6 context only — never raw logs.
+
+### Added
+
+1. **Confidence in the structured output.** `diagnosticExplanationSchema`
+   requires `confidence: high | medium | low`; the prompt tells the model
+   to mark `high` only when the evidence names the cause directly and to
+   name the most relevant failure signal with `low` when it is inferring.
+   Malformed output (no confidence, unknown level, extra keys) still fails
+   validation and degrades to deterministic copy.
+2. **Cache** — `deployment_jobs.ai_explanation_confidence` (migration 0030,
+   nullable text; wired into the Lambda migration map). A row cached before
+   the column existed is served as `medium`, hedged, rather than dropped.
+3. **Route** — `GET /api/deployments/:id/diagnostics` adds `source`
+   (`deterministic` | `ai`) and `confidence` (null for deterministic copy).
+4. **UI** — the diagnostic card hedges a medium or low AI reading before the
+   text ("Deployz could not determine the exact cause. This is its best
+   reading of the most relevant failure — treat it as a lead, not a
+   verdict.") and names the source under it. Copy lives in
+   `@deployz/copy-map` (`AI_CONFIDENCE_COPY`, `AI_EXPLANATION_SOURCE_NOTE`)
+   with the web mirror under parity test. Deterministic copy is unchanged.
+
+### Tests
+
+- `packages/analysis/test/diagnostic-explainer.test.ts` (4): schema
+  strictness, prompt honesty rule and redaction, confidence returned with
+  the deterministic code, older-shaped output rejected.
+- `apps/api/src/ai-explanation.test.ts`: the cached text carries the
+  confidence.
+- `apps/api/src/server.test.ts`: a known code is `deterministic` with no
+  confidence.
+- `apps/web/test/diagnostics.test.ts` (+1), `apps/web/test/diagnostic-card.test.tsx` (+2),
+  `apps/web/test/copy-map-parity.test.ts`.

@@ -12,6 +12,8 @@ const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN)\b/i;
 
 const diagnostic: Diagnostic = {
   failureCode: 'DATABASE_CREATE_FAILED',
+  explanationSource: 'deterministic',
+  confidence: null,
   recoverability: 'USER_ACTION',
   occurredAt: '2026-09-05T00:00:00.000Z',
   event: { source: 'deployment', action: 'INSTALL' },
@@ -56,5 +58,31 @@ describe('DiagnosticCard — technical context', () => {
     const doc = render({ ...diagnostic, context: null });
     expect(doc.querySelector('[data-testid="diagnostic-failed-resources"]')).toBeNull();
     expect(doc.querySelector('details')?.textContent).toContain('DATABASE_CREATE_FAILED');
+  });
+});
+
+describe('DiagnosticCard — AI confidence (Phase 7)', () => {
+  const aiDiagnostic: Diagnostic = {
+    ...diagnostic,
+    failureCode: 'UNKNOWN',
+    explanationSource: 'ai',
+    confidence: 'low',
+    explanation: { what: 'The most relevant failure was the database step.', why: 'A limit may have been hit.', fix: 'Check the limits and retry.' },
+  };
+
+  it('hedges a low-confidence AI reading before the text and names the source', () => {
+    const doc = render(aiDiagnostic);
+    const hedge = doc.querySelector('[data-testid="diagnostic-confidence"]');
+    expect(hedge?.textContent).toContain('Deployz could not determine the exact cause');
+    expect([...doc.querySelectorAll('*')].indexOf(hedge!)).toBeLessThan([...doc.querySelectorAll('*')].indexOf(doc.querySelector('dl')!));
+    expect(doc.querySelector('[data-testid="diagnostic-source"]')?.textContent).toContain('Explained by Deployz');
+    expect(doc.body.textContent).not.toMatch(JARGON);
+  });
+
+  it('shows no hedge for high confidence, and neither line for deterministic copy', () => {
+    expect(render({ ...aiDiagnostic, confidence: 'high' }).querySelector('[data-testid="diagnostic-confidence"]')).toBeNull();
+    const deterministic = render({ ...aiDiagnostic, explanationSource: 'deterministic', confidence: null });
+    expect(deterministic.querySelector('[data-testid="diagnostic-confidence"]')).toBeNull();
+    expect(deterministic.querySelector('[data-testid="diagnostic-source"]')).toBeNull();
   });
 });

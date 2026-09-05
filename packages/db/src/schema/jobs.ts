@@ -53,6 +53,9 @@ export const deploymentJobs = pgTable('deployment_jobs', {
   aiExplanationWhat: text('ai_explanation_what'),
   aiExplanationWhy: text('ai_explanation_why'),
   aiExplanationFix: text('ai_explanation_fix'),
+  // How sure the model was (high / medium / low) — the card hedges a
+  // medium or low explanation instead of presenting a guess as a verdict.
+  aiExplanationConfidence: text('ai_explanation_confidence'),
   // When the GENERATING claim was taken. Lets a later request reclaim a row
   // orphaned by a process that died mid-generation, which would otherwise pin
   // the attempt in GENERATING forever.

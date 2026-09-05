@@ -13,7 +13,7 @@ import { resolveExplanation, type ExplanationDeps } from './ai-explanation.js';
 // Gateways
 // ==========================================================================
 
-const modelText = { failureCode: 'PORT_MISMATCH', what: 'AI what', why: 'AI why', fix: 'AI fix' };
+const modelText = { failureCode: 'PORT_MISMATCH', what: 'AI what', why: 'AI why', fix: 'AI fix', confidence: 'low' };
 
 /** Records how many times the model was actually invoked. */
 function countingGateway(calls: { n: number }, delayMs = 0): AiGateway {
@@ -148,7 +148,7 @@ describe('resolveExplanation', () => {
       fallback,
     );
 
-    expect(text).toEqual({ what: 'AI what', why: 'AI why', fix: 'AI fix' });
+    expect(text).toEqual({ what: 'AI what', why: 'AI why', fix: 'AI fix', confidence: 'low' });
     expect(calls.n).toBe(1);
   });
 
@@ -190,7 +190,7 @@ describe('resolveExplanation', () => {
       fallback,
     );
 
-    expect(second).toEqual({ what: 'AI what', why: 'AI why', fix: 'AI fix' });
+    expect(second).toEqual({ what: 'AI what', why: 'AI why', fix: 'AI fix', confidence: 'low' });
     expect(calls.n).toBe(1);
   });
 

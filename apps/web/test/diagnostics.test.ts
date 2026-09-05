@@ -62,3 +62,18 @@ describe('toDiagnostics — normalised failure context (Phase 6)', () => {
     expect(toDiagnostics({ ...base })[0]?.context).toBeNull();
   });
 });
+
+describe('toDiagnostics — explanation source and confidence (Phase 7)', () => {
+  it('marks deterministic copy as such, and carries the AI confidence (medium when the API sent none)', () => {
+    expect(toDiagnostics({ ...base })[0]).toMatchObject({ explanationSource: 'deterministic', confidence: null });
+    expect(toDiagnostics({ ...base, source: 'deterministic', confidence: null })[0]).toMatchObject({
+      explanationSource: 'deterministic',
+      confidence: null,
+    });
+    expect(toDiagnostics({ ...base, failureCode: 'UNKNOWN', source: 'ai', confidence: 'low' })[0]).toMatchObject({
+      explanationSource: 'ai',
+      confidence: 'low',
+    });
+    expect(toDiagnostics({ ...base, failureCode: 'UNKNOWN', source: 'ai' })[0]?.confidence).toBe('medium');
+  });
+});

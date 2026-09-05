@@ -1546,7 +1546,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       headers: { cookie: org.cookie },
     });
     expect(diagnostics.statusCode).toBe(200);
-    expect((diagnostics.json() as { failureCode: string }).failureCode).toBe('IMAGE_HEALTH_CHECK_FAILED');
+    expect(diagnostics.json()).toMatchObject({ failureCode: 'IMAGE_HEALTH_CHECK_FAILED', source: 'deterministic', confidence: null });
   });
 
   // §22/§23/§42: known failure codes bypass AI entirely — the deterministic
@@ -1615,6 +1615,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
               what: 'The app failed for a reason the classifier could not identify.',
               why: 'The deploy reported an error that did not match a known failure pattern.',
               fix: 'Check the logs and contact support if this keeps happening.',
+              confidence: 'low',
             },
             usage: { promptTokens: 20, completionTokens: 10 },
           };

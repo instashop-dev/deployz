@@ -64,8 +64,16 @@ export const diagnosticExplanationSchema = z
     why: z.string(),
     /** How to fix it — plain English, §65 jargon-free. */
     fix: z.string(),
+    /**
+     * How sure the model is. `high` only when the evidence names the cause
+     * directly; `low` when it is reading between the lines. The UI hedges
+     * anything below high — a guess is never presented as a verdict.
+     */
+    confidence: z.enum(['high', 'medium', 'low']),
   })
   .strict();
+
+export type DiagnosticConfidence = DiagnosticExplanation['confidence'];
 
 /** The validated diagnostic explanation (the AI text + the deterministic code). */
 export type DiagnosticExplanation = z.infer<typeof diagnosticExplanationSchema>;
@@ -124,10 +132,13 @@ export function buildDiagnosticPrompt(
   }
   lines.push(
     '',
-    'Respond with JSON matching the schema: {"failureCode", "what", "why", "fix"}.',
+    'Respond with JSON matching the schema: {"failureCode", "what", "why", "fix", "confidence"}.',
     '- what: what went wrong, in one or two plain sentences.',
     '- why: why it happened, in plain language.',
     '- fix: how to fix it, in plain language (or "contact support" if the developer cannot fix it).',
+    '- confidence: "high" only when the evidence above names the cause directly; "medium" when the ' +
+      'cause is likely but not stated; "low" when you are inferring it. Never overstate certainty — ' +
+      'when unsure, say what the most relevant failure signal was and mark confidence "low".',
     'Use plain language only — no AWS/ECS/CFN/IAM service names, no code, no config, ' +
       'no raw log text.',
   );
@@ -189,5 +200,6 @@ export async function explainDiagnostic(
     what: parsed.what,
     why: parsed.why,
     fix: parsed.fix,
+    confidence: parsed.confidence,
   };
 }
