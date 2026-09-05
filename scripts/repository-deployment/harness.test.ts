@@ -9,10 +9,10 @@ import { loadConfig } from '../version-canary/config.js';
 import type { DeploymentDetail } from '../version-canary/control-plane.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
-import { configFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
-import { runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps } from './deploy.js';
+import { appUrlKeys, configFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
+import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps } from './deploy.js';
 import { sanitize } from './evidence.js';
-import { gateOutcome, overridesToManifest } from './gate.js';
+import { gateOutcome, manifestFacts, overridesToManifest } from './gate.js';
 import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
 import {
   BENCHMARK_PATH,
@@ -91,7 +91,8 @@ repositories:
       healthPath: /healthz
     config:
       - { key: DB_CLIENT, value: pg }
-    secrets: [JWT_SECRET]
+      - { key: APP_URL, value: '\${DEPLOYZ_APP_URL}/app' }
+    secrets: [JWT_SECRET, { key: SECRET_KEY, format: hex64 }]
     verify:
       appPath: /
       observationSeconds: 30
@@ -108,9 +109,14 @@ afterAll(() => {
 describe('deploy-config', () => {
   it('parses and defaults', () => {
     expect(DEPLOY_CONFIG.waves['wave-1']).toEqual(['repo-002', 'repo-001']);
-    expect(configFor(DEPLOY_CONFIG, 'repo-001').secrets).toEqual(['JWT_SECRET']);
+    expect(configFor(DEPLOY_CONFIG, 'repo-001').secrets).toEqual(['JWT_SECRET', { key: 'SECRET_KEY', format: 'hex64' }]);
     expect(configFor(DEPLOY_CONFIG, 'repo-999')).toEqual({ id: 'repo-999', notes: [] });
-    expect(providedKeys(configFor(DEPLOY_CONFIG, 'repo-001'))).toEqual(['DB_CLIENT', 'JWT_SECRET']);
+    expect(providedKeys(configFor(DEPLOY_CONFIG, 'repo-001'))).toEqual(['APP_URL', 'DB_CLIENT', 'JWT_SECRET', 'SECRET_KEY']);
+    expect(appUrlKeys(configFor(DEPLOY_CONFIG, 'repo-001'))).toEqual(['APP_URL']);
+    expect(generateSecret('hex64')).toMatch(/^[0-9a-f]{64}$/);
+    expect(generateSecret('hex32')).toMatch(/^[0-9a-f]{32}$/);
+    expect(generateSecret('password')).toMatch(/^Sb-[A-Za-z0-9_-]+-1$/);
+    expect(generateSecret('base64url')).not.toBe(generateSecret('base64url'));
   });
 
   it('refuses duplicates, a key both configured and generated, an unknown field, and a repeated wave member', () => {
@@ -123,6 +129,7 @@ describe('deploy-config', () => {
 
   it('never accepts a secret value', () => {
     expect(() => parseDeployConfig('version: 1\nrepositories:\n  - id: repo-001\n    secrets: [{ key: A, value: x }]\n')).toThrow();
+    expect(() => parseDeployConfig('version: 1\nrepositories:\n  - id: repo-001\n    secrets: [{ key: A, format: plain }]\n')).toThrow();
   });
 
   it('parses the committed deploy-config and references only Stage A ids', () => {
@@ -254,7 +261,7 @@ describe('selection and CLI', () => {
       ['repo-002', 'gate-only'],
     ]);
     expect(plan[0]?.repositoryUsed).toBe('instashop-dev/api');
-    expect(plan[0]?.configuredKeys).toEqual(['DB_CLIENT', 'JWT_SECRET']);
+    expect(plan[0]?.configuredKeys).toEqual(['APP_URL', 'DB_CLIENT', 'JWT_SECRET', 'SECRET_KEY']);
     const done = { ...emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'r')), classification: 'PASS' as const };
     expect(buildPlan(BENCHMARK.repositories, DEPLOY_CONFIG, [done], { gate: false, force: false })[0]?.action).toBe('skip-has-result');
     expect(buildPlan(BENCHMARK.repositories, DEPLOY_CONFIG, [done], { gate: false, force: true })[0]?.action).toBe('full-funnel');
@@ -285,6 +292,40 @@ describe('gate', () => {
       redisRequired: false,
     });
     expect(overridesToManifest(undefined)).toEqual({});
+  });
+
+  it('records the manifest facts a deployment acts on', () => {
+    const facts = manifestFacts({
+      application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'docker/Dockerfile' },
+      build: { command: null, context: '.' },
+      web: { command: 'node server.js', port: 8080 },
+      health: { path: '/healthz', mode: 'explicit' },
+      database: { postgres: true, envBindings: [{ name: 'DB_HOST', kind: 'host' }, { name: 'DATABASE_URL', kind: 'url' }] },
+      redis: { required: false, envBindings: [] },
+      storage: { required: true, envBindings: [{ name: 'S3_BUCKET', kind: 'bucket' }] },
+      migration: { command: null, mode: 'startup' },
+      worker: { command: null },
+      environment: { variables: [{ key: 'SECRET_KEY', required: true, secret: true, source: [], classification: 'deployz_generated' }, { key: 'X', required: false, secret: false, source: [] }] },
+      externalServices: [],
+      unsupported: [],
+    });
+    expect(facts).toEqual({
+      dockerfilePath: 'docker/Dockerfile',
+      buildContext: '.',
+      appRoot: '.',
+      port: 8080,
+      healthPath: '/healthz',
+      healthMode: 'explicit',
+      migrationCommand: null,
+      migrationMode: 'startup',
+      postgres: true,
+      redis: false,
+      storage: true,
+      databaseBindings: ['DATABASE_URL', 'DB_HOST'],
+      redisBindings: [],
+      storageBindings: ['S3_BUCKET'],
+      generatedKeys: ['SECRET_KEY'],
+    });
   });
 
   it('follows the health-path precedence', () => {
@@ -366,8 +407,9 @@ interface Script {
   taskEnv?: { environment: string[]; secrets: string[] };
 }
 
-function fakes(script: Script): { deps: DeployDeps; calls: string[] } {
+function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Record<string, unknown>[] } {
   const calls: string[] = [];
+  const puts: Record<string, unknown>[] = [];
   const releaseId = 'rel-1';
   let deployment: DeploymentDetail & { defaultHttps?: unknown } = {
     id: 'dep-1',
@@ -390,8 +432,9 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[] } {
   };
   let reads = 0;
   const api: ControlPlaneLike = {
-    async request<T>(method: string, path: string): Promise<{ status: number; body: T; headers: Headers }> {
+    async request<T>(method: string, path: string, body?: unknown): Promise<{ status: number; body: T; headers: Headers }> {
       calls.push(`${method} ${path}`);
+      if (method === 'PUT') puts.push(body as Record<string, unknown>);
       if (path.endsWith('/preflight')) {
         return { status: 200, body: (script.preflight ?? { state: 'READY', ready: true, blockers: [], warnings: [] }) as T, headers: new Headers() };
       }
@@ -530,7 +573,7 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[] } {
     generateSecret: () => 'never-stored-secret-value-9f2a',
     pollIntervalMs: 1,
   };
-  return { deps, calls };
+  return { deps, calls, puts };
 }
 
 function attempt(entry: BenchmarkEntry, script: Script, config = configFor(DEPLOY_CONFIG, entry.id)) {
@@ -538,8 +581,8 @@ function attempt(entry: BenchmarkEntry, script: Script, config = configFor(DEPLO
   const runId = stageBRunId(entry.id);
   const evidence = openLedger(evidenceDir, loadConfig({}), { repoId: entry.id, repository: entry.repository, commit: entry.commit, deployzCommit: SHA, cleanupNeeded: false }, runId);
   const result = emptyResult(identityFor(entry, SHA, 'deploy', runId));
-  const { deps, calls } = fakes(script);
-  return { run: () => runRepositoryAttempt(deps, { benchmark: entry, config, repositoryUsed: 'instashop-dev/api', repositoryForm: 'fork', evidence, result }), calls, evidence, result, evidenceDir };
+  const { deps, calls, puts } = fakes(script);
+  return { run: () => runRepositoryAttempt(deps, { benchmark: entry, config, repositoryUsed: 'instashop-dev/api', repositoryForm: 'fork', evidence, result }), calls, puts, evidence, result, evidenceDir };
 }
 
 describe('the funnel', () => {
@@ -547,15 +590,20 @@ describe('the funnel', () => {
   const unsupported = BENCHMARK.repositories[1]!;
 
   it('passes end to end with the release serving, HTTPS active and dependencies bound', async () => {
-    const { run, calls, result, evidence } = attempt(deployable, {});
+    const { run, calls, puts, result, evidence } = attempt(deployable, {});
     const out = await run();
     expect(out.classification).toBe('PASS');
+    // The vendor scope gets the placeholder (the gate needs the key); the customer scope gets the real address.
+    const vendorPut = puts.find((p) => p['customerId'] === undefined)!;
+    expect((vendorPut['entries'] as { key: string; value: string }[]).find((e) => e.key === 'APP_URL')?.value).toBe('https://pending.deployz.dev/app');
+    const customerPut = puts.find((p) => p['customerId'] === 'cust-1')!;
+    expect(customerPut['entries']).toEqual([{ key: 'APP_URL', value: `${defaultDeploymentUrl('dep-1')}/app`, isSecret: false }]);
     expect(out.build.imageDigest).toBe('sha256:deadbeef');
     expect(out.deployment.status).toBe('PASS');
     expect(out.runtime).toMatchObject({ ecs: 'HEALTHY', alb: 'HEALTHY', https: 'PASS', healthPath: '/healthz', healthPathSource: 'stage-b', releaseServing: true });
     expect(out.dependencies).toMatchObject({ postgres: 'PASS', redis: 'NOT_REQUIRED', storage: 'NOT_REQUIRED' });
-    expect(out.configuration.keys).toEqual(['DB_CLIENT', 'JWT_SECRET']);
-    expect(out.configuration.generatedKeys).toEqual(['JWT_SECRET']);
+    expect(out.configuration.keys).toEqual(['APP_URL', 'DB_CLIENT', 'JWT_SECRET', 'SECRET_KEY']);
+    expect(out.configuration.generatedKeys).toEqual(['JWT_SECRET', 'SECRET_KEY']);
     expect(calls).toContain('patch containerPort,healthPath');
     expect(calls).toContain(`createRelease ${SHA}`);
     expect(calls).toContain('createStack deployz-bootstrap-x-12345678 ApplicationTemplateUrl,ControlPlaneUrl,EnrollmentCode');
@@ -689,6 +737,35 @@ describe('cleanup', () => {
     applyCleanupToClassification(result);
     expect(result.classification).toBe('CLEANUP_LEAK');
     expect(result.failureStage).toBe('CLEANUP_LEAK');
+  });
+
+  it('still removes a built image when the funnel stopped before the deployment existed', async () => {
+    const { run, evidence, result } = attempt(deployable, { createDeploymentError: { status: 422, code: 'MANIFEST_NEEDS_CONFIGURATION', message: 'needs APP_KEY' } });
+    await run();
+    expect(stageBRun(evidence).releases['release']?.imageDigest).toBe('sha256:deadbeef');
+    const calls: string[] = [];
+    const section = await cleanupAttempt(
+      {
+        config: loadConfig({}),
+        api: {} as never,
+        evidence,
+        teardown: {
+          destroyThroughProduct: async () => {
+            calls.push('destroy');
+          },
+          removeCanaryLeftovers: async () => {
+            calls.push('leftovers');
+          },
+          leakAudit: async () => {
+            calls.push('audit');
+          },
+        },
+        now: Date.now,
+      },
+      result,
+    );
+    expect(section.status).toBe('PASS');
+    expect(calls).toEqual(['destroy', 'leftovers', 'audit']);
   });
 
   it('needs no cleanup when nothing was created', async () => {

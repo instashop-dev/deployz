@@ -16,7 +16,7 @@ import type { Evidence } from '../version-canary/evidence.js';
 import { ControlPlaneError, describeDeployment, waitFor, type DeploymentDetail } from '../version-canary/control-plane.js';
 import { parseQuickCreateUrl } from '../version-canary/steps.js';
 import { classifyFailure, type FailureEvidence, type FunnelPoint } from './classify.js';
-import { providedKeys, type RepositoryConfig } from './config.js';
+import { APP_URL_TOKEN, appUrlKeys, providedKeys, secretFormat, secretKey, type RepositoryConfig, type SecretFormat } from './config.js';
 import type { StoppedTask, TaskDefinitionEnv, DependencyPresence } from './evidence.js';
 import { stageBRun } from './ledger.js';
 import type { StageBResult } from './results.js';
@@ -99,7 +99,7 @@ export interface DeployDeps {
   timeouts: Timeouts;
   /** Leaves the environment in place after verification (debugging only). */
   keep: boolean;
-  generateSecret?: (() => string) | undefined;
+  generateSecret?: ((format: SecretFormat) => string) | undefined;
   pollIntervalMs?: number | undefined;
 }
 
@@ -215,7 +215,7 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
     // ── Configuration ───────────────────────────────────────────────────
     point = 'configuration';
     const keys = providedKeys(config);
-    const generated = [...(config.secrets ?? [])];
+    const generated = (config.secrets ?? []).map(secretKey);
     result.configuration.overrides = { ...(config.overrides ?? {}) };
     result.configuration.keys = keys;
     result.configuration.generatedKeys = generated;
@@ -225,8 +225,8 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
     const preflight = await step('configuration', () =>
       evidence.step('Vendor configuration and preflight', async (details) => {
         const entries = [
-          ...(config.config ?? []).map((value) => ({ key: value.key, value: value.value, isSecret: false })),
-          ...generated.map((key) => ({ key, value: (deps.generateSecret ?? defaultSecret)(), isSecret: true })),
+          ...(config.config ?? []).map((value) => ({ key: value.key, value: value.value.replaceAll(APP_URL_TOKEN, APP_URL_PLACEHOLDER), isSecret: false })),
+          ...(config.secrets ?? []).map((spec) => ({ key: secretKey(spec), value: (deps.generateSecret ?? generateSecret)(secretFormat(spec)), isSecret: true })),
         ];
         if (entries.length > 0) {
           await deps.api.request('PUT', `/api/applications/${applicationId}/config`, { entries });
@@ -346,6 +346,21 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         evidence.save();
         result.deployment.deploymentId = deployment.id;
         details['deploymentId'] = deployment.id;
+
+        // Values that carry the deployment's own address are written at the
+        // customer scope now that the permanent hostname is known — what a
+        // vendor does after creating the deployment and reading its URL.
+        const urlKeys = appUrlKeys(config);
+        if (urlKeys.length > 0) {
+          const appUrl = defaultDeploymentUrl(deployment.id);
+          await deps.api.request('PUT', `/api/applications/${applicationId}/config`, {
+            customerId: customer.id,
+            entries: (config.config ?? [])
+              .filter((value) => urlKeys.includes(value.key))
+              .map((value) => ({ key: value.key, value: value.value.replaceAll(APP_URL_TOKEN, appUrl), isSecret: false })),
+          });
+          details['appUrlKeys'] = urlKeys;
+        }
 
         const info = await deps.api.getInstallInfo(deployment.installLinkId);
         assert(info.quickCreateUrl, 'harness', 'install link carries no Quick Create URL (bootstrap template unpublished?)');
@@ -500,7 +515,8 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         const https = (detail as unknown as { defaultHttps?: { status?: string; hostname?: string; lastError?: string | null } | null }).defaultHttps;
         details['defaultHttps'] = https;
         assert(https?.status === 'ACTIVE', 'https', `default HTTPS ${https?.status ?? 'none'}: ${https?.lastError ?? ''}`, { httpsStatus: https?.status ?? null });
-        const url = detail.appUrl ?? `https://${https.hostname}`;
+        const url = `https://${https.hostname}`;
+        assert(appUrlKeys(config).length === 0 || url === defaultDeploymentUrl(deploymentId), 'harness', `the configured app URL ${defaultDeploymentUrl(deploymentId)} differs from the issued hostname ${url}`);
         result.runtime.appUrl = url;
         details['appUrl'] = url;
         const probe = await deps.probe(`${url}${health.path}`);
@@ -598,8 +614,25 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
   return result;
 }
 
-function defaultSecret(): string {
-  return randomBytes(32).toString('base64url');
+/** A fresh secret in the shape the application validates; never logged, never recorded. */
+export function generateSecret(format: SecretFormat): string {
+  switch (format) {
+    case 'hex32':
+      return randomBytes(16).toString('hex');
+    case 'hex64':
+      return randomBytes(32).toString('hex');
+    case 'password':
+      return `Sb-${randomBytes(12).toString('base64url')}-1`;
+    default:
+      return randomBytes(32).toString('base64url');
+  }
+}
+
+const APP_URL_PLACEHOLDER = 'https://pending.deployz.dev';
+
+/** The deployment's permanent default-HTTPS address (`d-<id>.deployz.dev`), checked against the API once HTTPS is ACTIVE. */
+export function defaultDeploymentUrl(deploymentId: string): string {
+  return `https://d-${deploymentId.toLowerCase()}.deployz.dev`;
 }
 
 function summarize(detail: DeploymentDetail): Record<string, unknown> {

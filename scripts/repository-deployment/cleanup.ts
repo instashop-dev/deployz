@@ -39,7 +39,11 @@ export async function cleanupAttempt(input: CleanupInput, result: StageBResult):
   const section = result.cleanup;
   const errors: string[] = [];
 
-  if (!run.deploymentId && !run.bootstrapStackName) {
+  // A built release is an ECR image in the control-plane account: a failure
+  // between the build and the deployment's creation still has something to
+  // remove, so only an attempt that created nothing at all is exempt.
+  const builtImage = Object.values(run.releases).some((release) => release.imageDigest);
+  if (!run.deploymentId && !run.bootstrapStackName && !builtImage) {
     section.status = 'NOT_REQUIRED';
     section.detail = 'no AWS resources were created';
     run.stageB.cleanupCompletedAt = new Date(now()).toISOString();

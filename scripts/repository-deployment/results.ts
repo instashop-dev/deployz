@@ -84,6 +84,27 @@ export const gateResultSchema = z
     /** Where the verdict came from: the in-process production path, the deployed control plane, or both. */
     source: z.enum(['in-process', 'control-plane', 'both']).nullable(),
     analysisVersion: z.number().int().nullable(),
+    /** The manifest facts the deployment would act on (before the Stage B configuration). */
+    manifest: z
+      .object({
+        dockerfilePath: z.string().nullable(),
+        buildContext: z.string().nullable(),
+        appRoot: z.string().nullable(),
+        port: z.number().int().nullable(),
+        healthPath: z.string().nullable(),
+        healthMode: z.string().nullable(),
+        migrationCommand: z.string().nullable(),
+        migrationMode: z.string().nullable(),
+        postgres: z.boolean(),
+        redis: z.boolean(),
+        storage: z.boolean(),
+        databaseBindings: z.array(z.string()),
+        redisBindings: z.array(z.string()),
+        storageBindings: z.array(z.string()),
+        generatedKeys: z.array(z.string()),
+      })
+      .strict()
+      .nullable(),
     detail: z.string().nullable(),
   })
   .strict();
@@ -266,6 +287,7 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
       configuredFindings: [],
       source: null,
       analysisVersion: null,
+      manifest: null,
       detail: null,
     },
     configuration: { status: 'NOT_ATTEMPTED', overrides: {}, keys: [], generatedKeys: [], detail: null },

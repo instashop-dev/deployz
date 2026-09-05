@@ -35,13 +35,39 @@ export const vendorOverridesSchema = z
   .strict();
 export type VendorOverrides = z.infer<typeof vendorOverridesSchema>;
 
-/** A non-secret configuration value the vendor would type into the Configuration screen. */
+/**
+ * A non-secret configuration value the vendor would type into the
+ * Configuration screen. `${DEPLOYZ_APP_URL}` in a value stands for the
+ * deployment's permanent default-HTTPS address: the harness writes a
+ * placeholder at the vendor scope (so the gate sees the key) and the real
+ * address at the customer scope as soon as the deployment id exists.
+ */
 export const configValueSchema = z
   .object({
     key: z.string().min(1),
     value: z.string(),
   })
   .strict();
+
+export const APP_URL_TOKEN = '${DEPLOYZ_APP_URL}';
+
+export const SECRET_FORMATS = ['base64url', 'hex32', 'hex64', 'password'] as const;
+export type SecretFormat = (typeof SECRET_FORMATS)[number];
+
+/** A secret key the harness generates at run time — a bare key, or a key with the format the app validates. */
+export const secretSpecSchema = z.union([
+  z.string().min(1),
+  z.object({ key: z.string().min(1), format: z.enum(SECRET_FORMATS) }).strict(),
+]);
+export type SecretSpec = z.infer<typeof secretSpecSchema>;
+
+export function secretKey(spec: SecretSpec): string {
+  return typeof spec === 'string' ? spec : spec.key;
+}
+
+export function secretFormat(spec: SecretSpec): SecretFormat {
+  return typeof spec === 'string' ? 'base64url' : spec.format;
+}
 
 export const DEPENDENCY_CHECKS = ['verify', 'skip'] as const;
 
@@ -77,7 +103,7 @@ export const repositoryConfigSchema = z
     overrides: vendorOverridesSchema.optional(),
     config: z.array(configValueSchema).optional(),
     /** Secret keys the harness generates at run time (never values). */
-    secrets: z.array(z.string().min(1)).optional(),
+    secrets: z.array(secretSpecSchema).optional(),
     verify: verifySchema.optional(),
     dependencies: dependenciesSchema.optional(),
     notes: z.array(z.string()).default([]),
@@ -113,8 +139,9 @@ export function parseDeployConfig(text: string): DeployConfig {
       keys.add(value.key);
     }
     for (const secret of entry.secrets ?? []) {
-      if (keys.has(secret)) throw new Error(`${entry.id} both configures and generates ${secret}`);
-      keys.add(secret);
+      const key = secretKey(secret);
+      if (keys.has(key)) throw new Error(`${entry.id} both configures and generates ${key}`);
+      keys.add(key);
     }
   }
   for (const [wave, members] of Object.entries(config.waves)) {
@@ -134,5 +161,10 @@ export function configFor(config: DeployConfig, id: string): RepositoryConfig {
 
 /** Every configuration key the harness will provide for an entry (values and generated secrets). */
 export function providedKeys(entry: RepositoryConfig): string[] {
-  return [...(entry.config ?? []).map((value) => value.key), ...(entry.secrets ?? [])].sort();
+  return [...(entry.config ?? []).map((value) => value.key), ...(entry.secrets ?? []).map(secretKey)].sort();
+}
+
+/** The configuration keys whose value must carry the deployment's own address. */
+export function appUrlKeys(entry: RepositoryConfig): string[] {
+  return (entry.config ?? []).filter((value) => value.value.includes(APP_URL_TOKEN)).map((value) => value.key);
 }

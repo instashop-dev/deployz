@@ -45,7 +45,7 @@ import { ControlPlane, sleep } from '../version-canary/control-plane.js';
 import { Evidence } from '../version-canary/evidence.js';
 import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from '../version-canary/teardown.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
-import { configFor, loadDeployConfig, type DeployConfig, type RepositoryConfig } from './config.js';
+import { configFor, loadDeployConfig, providedKeys, type DeployConfig, type RepositoryConfig } from './config.js';
 import { runRepositoryAttempt, DEFAULT_TIMEOUTS, type DeployDeps } from './deploy.js';
 import { describeDependencies, describeStoppedTasks, describeTaskDefinitionEnv, tailApplicationLogs } from './evidence.js';
 import { gateSection } from './gate.js';
@@ -241,7 +241,7 @@ export function buildPlan(entries: readonly BenchmarkEntry[], config: DeployConf
       expected: entry.expected.compatibility,
       action,
       repositoryUsed: repositoryUsedFor(entry, repoConfig).repositoryUsed,
-      configuredKeys: [...(repoConfig.config ?? []).map((v) => v.key), ...(repoConfig.secrets ?? [])],
+      configuredKeys: providedKeys(repoConfig),
       overrides: Object.keys(repoConfig.overrides ?? {}),
     };
   });

@@ -83,6 +83,7 @@ export function gateSection(
         configuredFindings: [],
         source: 'in-process',
         analysisVersion,
+        manifest: null,
         detail: raw.failure ?? 'analysis did not complete',
       },
       manifest: null,
@@ -106,9 +107,32 @@ export function gateSection(
       configuredFindings: configured.gate.findings.map((finding) => finding.id),
       source: 'in-process',
       analysisVersion,
+      manifest: raw.manifest ? manifestFacts(raw.manifest) : null,
       detail: null,
     },
     manifest: raw.manifest,
     configuredManifest: configured.manifest,
+  };
+}
+
+/** The manifest facts a deployment acts on, in the result's shape. */
+export function manifestFacts(manifest: DeploymentManifest): NonNullable<StageBResult['gate']['manifest']> {
+  const names = (bindings: { name: string }[] | undefined) => (bindings ?? []).map((binding) => binding.name).sort();
+  return {
+    dockerfilePath: manifest.application.dockerfilePath,
+    buildContext: manifest.build.context,
+    appRoot: manifest.application.root,
+    port: manifest.web.port,
+    healthPath: manifest.health.path,
+    healthMode: manifest.health.mode ?? null,
+    migrationCommand: manifest.migration.command,
+    migrationMode: manifest.migration.mode ?? null,
+    postgres: manifest.database.postgres,
+    redis: manifest.redis.required,
+    storage: manifest.storage.required,
+    databaseBindings: names(manifest.database.envBindings),
+    redisBindings: names(manifest.redis.envBindings),
+    storageBindings: names(manifest.storage.envBindings),
+    generatedKeys: manifest.environment.variables.filter((v) => v.classification === 'deployz_generated').map((v) => v.key).sort(),
   };
 }
