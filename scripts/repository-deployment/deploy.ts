@@ -29,6 +29,8 @@ export interface Timeouts {
   bootstrapMs: number;
   enrollMs: number;
   installMs: number;
+  /** After a stack failure: how long to let the relay settle the INSTALL job before cleanup. */
+  settleMs: number;
   pointerMs: number;
   httpsMs: number;
 }
@@ -38,10 +40,14 @@ export const DEFAULT_TIMEOUTS: Timeouts = {
   buildMs: 30 * MINUTE,
   bootstrapMs: 15 * MINUTE,
   enrollMs: 12 * MINUTE,
-  installMs: 45 * MINUTE,
+  installMs: 60 * MINUTE,
+  settleMs: 20 * MINUTE,
   pointerMs: 20 * MINUTE,
   httpsMs: 45 * MINUTE,
 };
+
+/** CloudFormation states in which an install stack will never become healthy. */
+export const STACK_TERMINAL_FAILURE = /^(ROLLBACK_COMPLETE|ROLLBACK_FAILED|CREATE_FAILED|DELETE_COMPLETE|DELETE_FAILED)$/;
 
 /** The vendor-side routes the funnel drives (a subset of the canary's ControlPlane). */
 export interface ControlPlaneLike {
@@ -414,20 +420,41 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
 
     const installed = await step('install', () =>
       evidence.step('INSTALL provisions the application stack', async (details) => {
-        const detail = await waitFor(
+        // The deployment settles when the product says so, or when the
+        // application stack has reached a terminal failure state: a rolled-back
+        // stack is a settled outcome even while the relay's INSTALL job is
+        // still reporting it, and a later Disconnect must not race that job.
+        const { detail, stackStatus } = await waitFor(
           'install',
-          () => deps.api.getDeployment(deploymentId),
-          (d) => (d.state === 'HEALTHY' || d.state === 'UPDATE_AVAILABLE' || d.state === 'FAILED' ? d : null),
-          { timeoutMs: deps.timeouts.installMs, intervalMs: interval, describe: describeDeployment },
+          async () => ({
+            detail: await deps.api.getDeployment(deploymentId),
+            stackStatus: (await deps.aws.describeStack(run.applicationStackName!))?.status ?? null,
+          }),
+          (o) =>
+            o.detail.state === 'HEALTHY' || o.detail.state === 'UPDATE_AVAILABLE' || o.detail.state === 'FAILED' || (o.stackStatus !== null && STACK_TERMINAL_FAILURE.test(o.stackStatus))
+              ? o
+              : null,
+          { timeoutMs: deps.timeouts.installMs, intervalMs: interval, describe: (o) => `${o.stackStatus ?? 'no stack'} ${describeDeployment(o.detail)}` },
         );
+        if (detail.state !== 'HEALTHY' && detail.state !== 'UPDATE_AVAILABLE' && detail.state !== 'FAILED') {
+          // The stack failed before the product reported it: give the relay's
+          // next polls a bounded chance to settle the job so cleanup finds an
+          // idle deployment.
+          await waitFor(
+            'install job to settle after the stack failure',
+            () => deps.api.getDeployment(deploymentId),
+            (d) => (d.state === 'FAILED' || d.jobs.every((j) => j.state !== 'RUNNING' && j.state !== 'QUEUED' && j.state !== 'REQUESTED' && j.state !== 'WAITING') ? d : null),
+            { timeoutMs: deps.timeouts.settleMs, intervalMs: interval, describe: describeDeployment },
+          ).catch(() => undefined);
+        }
         const installJob = detail.jobs.find((j) => j.type === 'INSTALL');
         result.deployment.installJobState = installJob?.state ?? null;
         result.deployment.failureCode = detail.deploymentStatus.failure?.code ?? null;
         details['deployment'] = summarize(detail);
         const appStack = await deps.aws.describeStack(run.applicationStackName!);
-        result.deployment.stackStatus = appStack?.status ?? null;
+        result.deployment.stackStatus = appStack?.status ?? stackStatus;
         details['applicationStackStatus'] = appStack?.status ?? 'absent';
-        assert(detail.state !== 'FAILED', 'install', `install FAILED: ${detail.deploymentStatus.failure?.message ?? detail.deploymentStatus.failure?.code ?? 'no reason'}`, {
+        assert(detail.state !== 'FAILED' && !(appStack?.status && STACK_TERMINAL_FAILURE.test(appStack.status)), 'install', `install ${detail.state === 'FAILED' ? 'FAILED' : `stack ${appStack?.status}`}: ${detail.deploymentStatus.failure?.message ?? detail.deploymentStatus.failure?.code ?? 'no reason'}`, {
           failureCode: detail.deploymentStatus.failure?.code ?? null,
           stackStatus: appStack?.status ?? null,
         });

@@ -25,6 +25,7 @@ import {
   repositoryUsedFor,
   requireRealAws,
   selectForRun,
+  shouldStopWave,
 } from './index.js';
 import {
   CLASSIFICATIONS,
@@ -371,7 +372,9 @@ describe('classification', () => {
   });
 
   it('tells a wrong health path from a wrong port and from an application error', () => {
-    expect(classifyFailure({ ...base, point: 'install', failureCode: 'ECS_DEPLOYMENT_FAILED', stoppedTasks: [{ exitCode: 0, reason: null, stoppedReason: 'Task failed container health checks' }], healthStatuses: [404], healthPathSource: 'manifest', manifestHealthPath: '/health', probedHealthPath: '/health' })).toMatchObject({ failureStage: 'HEALTH_PATH_ERROR', rootCause: 'ANALYSIS_BUG' });
+    expect(classifyFailure({ ...base, point: 'install', failureCode: 'ECS_DEPLOYMENT_FAILED', stoppedTasks: [{ exitCode: 0, reason: null, stoppedReason: 'Task failed ELB health checks' }], targetHealth: ['unhealthy'], healthStatuses: [404], healthPathSource: 'manifest', manifestHealthPath: '/health', probedHealthPath: '/health' })).toMatchObject({ failureStage: 'HEALTH_PATH_ERROR', rootCause: 'ANALYSIS_BUG' });
+    // A running container killed on the task definition's own health command, before any ALB target: the in-container probe (DEPLOY-006).
+    expect(classifyFailure({ ...base, point: 'install', failureCode: null, stoppedTasks: [{ exitCode: 0, reason: null, stoppedReason: 'Task failed container health checks' }], targetHealth: [] })).toMatchObject({ failureStage: 'HEALTH_PATH_ERROR', rootCause: 'DEPLOYZ_BUG' });
     expect(classifyFailure({ ...base, point: 'install', failureCode: 'ECS_DEPLOYMENT_FAILED', stoppedTasks: [{ exitCode: null, reason: null, stoppedReason: 'health checks' }], logTail: ['Listening on 0.0.0.0:8080'] }).failureStage).toBe('PORT_ERROR');
     expect(classifyFailure({ ...base, point: 'runtime', targetHealth: ['unhealthy'], healthStatuses: [503] }).failureStage).toBe('APPLICATION_ERROR');
     expect(classifyFailure({ ...base, point: 'runtime', appStatuses: [500, 500, 500] }).failureStage).toBe('APPLICATION_ERROR');
@@ -407,7 +410,7 @@ interface Script {
   httpsStatus?: string;
   probeStatus?: number | null;
   targets?: string[];
-  stoppedTasks?: { exitCode: number | null; reason: string | null }[];
+  stoppedTasks?: { exitCode: number | null; reason: string | null; stoppedReason?: string }[];
   logTail?: string[];
   application?: Record<string, unknown>;
   presence?: { rds: string | null; cache: string | null; bucket: string | null };
@@ -552,7 +555,7 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
     },
     async describeStoppedTasks() {
       calls.push('stoppedTasks');
-      return (script.stoppedTasks ?? []).map((t, i) => ({ taskArn: `t${i}`, stoppedReason: 'Essential container exited', stopCode: 'EssentialContainerExited', stoppedAt: null, containers: [{ name: 'App', exitCode: t.exitCode, reason: t.reason }] }));
+      return (script.stoppedTasks ?? []).map((t, i) => ({ taskArn: `t${i}`, stoppedReason: t.stoppedReason ?? 'Essential container exited', stopCode: 'EssentialContainerExited', stoppedAt: null, containers: [{ name: 'App', exitCode: t.exitCode, reason: t.reason }] }));
     },
     async tailApplicationLogs() {
       calls.push('logs');
@@ -659,6 +662,15 @@ describe('the funnel', () => {
     expect(calls).not.toContain('createDeployment');
   });
 
+  it('settles the install on a rolled-back stack even while the product still reports INSTALLING', async () => {
+    const { run } = attempt(deployable, { installState: 'INSTALLING', stackStatus: 'ROLLBACK_COMPLETE', targets: [], stoppedTasks: [{ exitCode: 0, reason: null, stoppedReason: 'Task failed container health checks' }] });
+    const out = await run();
+    expect(out.deployment.status).toBe('FAIL');
+    expect(out.deployment.stackStatus).toBe('ROLLBACK_COMPLETE');
+    expect(out.classification).toBe('HEALTH_PATH_ERROR');
+    expect(out.rootCause).toBe('DEPLOYZ_BUG');
+  });
+
   it('collects task and log evidence when the install fails and classifies from it', async () => {
     const { run, calls, result } = attempt(deployable, {
       installState: 'FAILED',
@@ -695,6 +707,7 @@ describe('the funnel', () => {
 
 describe('cleanup', () => {
   const deployable = BENCHMARK.repositories[0]!;
+  const idleApi = () => ({ getDeployment: async () => ({ state: 'HEALTHY', jobs: [{ id: 'j', type: 'INSTALL', state: 'SUCCEEDED' }] }) }) as never;
 
   it('always runs every stage, records what is left, and marks the ledger complete only on success', async () => {
     const { run, evidence, result } = attempt(deployable, {});
@@ -711,11 +724,30 @@ describe('cleanup', () => {
         calls.push('audit');
       },
     };
-    const section = await cleanupAttempt({ config: loadConfig({}), api: {} as never, evidence, teardown, now: Date.now }, result);
+    const section = await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence, teardown, now: Date.now }, result);
     expect(section.status).toBe('PASS');
     expect(calls).toEqual(['destroy', 'leftovers', 'audit']);
     expect(stageBRun(evidence).stageB.cleanupCompletedAt).toBeTruthy();
     expect(stageBRun(evidence).stageB.cleanupNeeded).toBe(false);
+  });
+
+  it('waits for an in-flight job before Disconnect, and records when it never settles', async () => {
+    const { run, evidence, result } = attempt(deployable, {});
+    await run();
+    let reads = 0;
+    const api = { getDeployment: async () => ({ state: 'INSTALLING', jobs: [{ id: 'j', type: 'INSTALL', state: reads++ < 2 ? 'RUNNING' : 'FAILED' }] }) } as never;
+    const calls: string[] = [];
+    const teardown = { destroyThroughProduct: async () => { calls.push('destroy'); }, removeCanaryLeftovers: async () => { calls.push('leftovers'); }, leakAudit: async () => { calls.push('audit'); } };
+    const section = await cleanupAttempt({ config: loadConfig({}), api, evidence, teardown, now: Date.now, idleTimeoutMs: 5_000, pollIntervalMs: 1 }, result);
+    expect(section.status).toBe('PASS');
+    expect(reads).toBeGreaterThanOrEqual(3);
+    const stuck = { getDeployment: async () => ({ state: 'INSTALLING', jobs: [{ id: 'j', type: 'INSTALL', state: 'RUNNING' }] }) } as never;
+    const { run: run2, evidence: evidence2, result: result2 } = attempt(deployable, {});
+    await run2();
+    const section2 = await cleanupAttempt({ config: loadConfig({}), api: stuck, evidence: evidence2, teardown, now: Date.now, idleTimeoutMs: 20, pollIntervalMs: 1 }, result2);
+    expect(section2.status).toBe('FAIL');
+    expect(section2.detail).toContain('idle wait');
+    expect(stageBRun(evidence2).stageB.cleanupNeeded).toBe(true);
   });
 
   it('keeps going after a failed destroy, reports the leak, and turns a PASS into CLEANUP_LEAK', async () => {
@@ -736,7 +768,7 @@ describe('cleanup', () => {
         throw new Error('1 resource(s) left after teardown');
       },
     };
-    const section = await cleanupAttempt({ config: loadConfig({}), api: {} as never, evidence, teardown, now: Date.now }, result);
+    const section = await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence, teardown, now: Date.now }, result);
     expect(section.status).toBe('FAIL');
     expect(section.leaks).toEqual(['rds db-1']);
     expect(calls).toEqual(['destroy', 'leftovers', 'audit']);
@@ -754,7 +786,7 @@ describe('cleanup', () => {
     const section = await cleanupAttempt(
       {
         config: loadConfig({}),
-        api: {} as never,
+        api: idleApi(),
         evidence,
         teardown: {
           destroyThroughProduct: async () => {
@@ -775,11 +807,23 @@ describe('cleanup', () => {
     expect(calls).toEqual(['destroy', 'leftovers', 'audit']);
   });
 
-  it('needs no cleanup when nothing was created', async () => {
-    const { run, evidence, result } = attempt(deployable, { releaseStatus: 'FAILED', releaseFailure: 'x' });
-    await run();
-    const section = await cleanupAttempt({ config: loadConfig({}), api: {} as never, evidence, teardown: { destroyThroughProduct: async () => {}, removeCanaryLeftovers: async () => {}, leakAudit: async () => ({}) }, now: Date.now }, result);
-    expect(section.status).toBe('NOT_REQUIRED');
+  it('cleans a release whose build the ledger never saw finish, and needs no cleanup when nothing was created', async () => {
+    const built = attempt(deployable, { releaseStatus: 'FAILED', releaseFailure: 'x' });
+    await built.run();
+    const calls: string[] = [];
+    const teardown = { destroyThroughProduct: async () => { calls.push('destroy'); }, removeCanaryLeftovers: async () => { calls.push('leftovers'); }, leakAudit: async () => { calls.push('audit'); } };
+    expect((await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence: built.evidence, teardown, now: Date.now }, built.result)).status).toBe('PASS');
+    expect(calls).toEqual(['destroy', 'leftovers', 'audit']);
+    const nothing = attempt(deployable, { preflight: { state: 'NOT_COMPATIBLE', ready: false, blockers: [{ id: 'unsupported', message: 'x' }], warnings: [] } });
+    await nothing.run();
+    expect((await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence: nothing.evidence, teardown, now: Date.now }, nothing.result)).status).toBe('NOT_REQUIRED');
+  });
+
+  it('stops the wave after a failed cleanup', () => {
+    const result = emptyResult(identityFor(deployable, SHA, 'deploy', 'r'));
+    expect(shouldStopWave(result)).toBe(false);
+    result.cleanup.status = 'FAIL';
+    expect(shouldStopWave(result)).toBe(true);
   });
 
   it('lists only the ledgers whose cleanup did not complete, so a resume finishes them first', async () => {
