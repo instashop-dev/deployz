@@ -17,6 +17,7 @@ import {
   COMPATIBILITY_STATUS_LABEL,
   JOB_PRESENTATION_BADGE,
   JOB_PRESENTATION_LABEL,
+  PILOT_FAILURE_LABELS,
   STUCK_BADGE,
   STUCK_LABEL,
   VENDOR_CONNECTION_BADGE,
@@ -26,6 +27,7 @@ import {
   auditOutcomeLabel,
   compatibilityStatusLabel,
   jobPresentationState,
+  pilotFailureLabel,
 } from '../src/lib/admin-vocabulary';
 
 const CONNECTION_STATES: ConnectionState[] = [
@@ -198,6 +200,25 @@ describe('audit outcome labels', () => {
   });
 });
 
+describe('pilot-insights failure-code labels', () => {
+  it('labels every known release-build code', () => {
+    expect(pilotFailureLabel('build_failed')).toBe('Build failed');
+    expect(pilotFailureLabel('build_cancelled')).toBe('Build cancelled');
+    expect(pilotFailureLabel('build_timeout')).toBe('Build timed out');
+    expect(Object.keys(PILOT_FAILURE_LABELS)).toEqual(['build_failed', 'build_cancelled', 'build_timeout']);
+  });
+
+  it('resolves §61 install/deploy codes through the shared failure-code copy', () => {
+    expect(pilotFailureLabel('PORT_MISMATCH')).toBe('Port conflict');
+    expect(pilotFailureLabel('STACK_CREATE_FAILED')).toBeTruthy();
+  });
+
+  it('returns null for an unrecognized code so the caller renders it muted', () => {
+    expect(pilotFailureLabel('BOOTSTRAP_TIMEOUT')).toBeNull();
+    expect(pilotFailureLabel('something_new')).toBeNull();
+  });
+});
+
 describe('§65 jargon-free parity', () => {
   it('every admin-vocabulary label is jargon-free against the copy-map JARGON_PATTERN', () => {
     for (const state of CONNECTION_STATES) {
@@ -214,6 +235,9 @@ describe('§65 jargon-free parity', () => {
     expect(STUCK_LABEL).not.toMatch(JARGON_PATTERN);
     for (const option of AUDIT_ACTION_OPTIONS) {
       expect(option.label).not.toMatch(JARGON_PATTERN);
+    }
+    for (const label of Object.values(PILOT_FAILURE_LABELS)) {
+      expect(label).not.toMatch(JARGON_PATTERN);
     }
   });
 });

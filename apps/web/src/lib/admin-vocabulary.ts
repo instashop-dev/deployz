@@ -8,6 +8,7 @@
 
 import type { ConnectionState, VendorConnection } from '@/lib/admin';
 import { HEALTH_STATUS_DOT } from '@/lib/deployment-vocabulary';
+import { FAILURE_CODES, failureCodeCopy } from '@/lib/diagnostic-vocabulary';
 
 // ── Per-deployment connection state ─────────────────────────────────────────
 
@@ -193,4 +194,33 @@ export function auditOutcomeLabel(result: string | null): string {
   if (result === 'success') return 'Succeeded';
   if (result === 'failure' || result.startsWith('failed')) return 'Failed';
   return result;
+}
+
+// ── Pilot-insights failure-code labels ──────────────────────────────────────
+
+/**
+ * Human-readable labels for the pilot-insights `failures` codes
+ * (apps/api/src/admin/queries.ts `getOverviewPilotInsights`) that are NOT
+ * already covered by the §61 copy-map mirror in diagnostic-vocabulary.ts —
+ * the release-build telemetry family emitted by the build worker
+ * (packages/cdk/src/lambda/worker.ts) as `payload.failureCode`.
+ */
+export const PILOT_FAILURE_LABELS: Record<string, string> = {
+  build_failed: 'Build failed',
+  build_cancelled: 'Build cancelled',
+  build_timeout: 'Build timed out',
+};
+
+/**
+ * §65 label for one pilot-insights failure code. Returns null for codes the
+ * admin vocabulary does not know so the caller can render the raw code in
+ * muted text rather than a generic "Unknown" label.
+ */
+export function pilotFailureLabel(code: string): string | null {
+  const buildCode = PILOT_FAILURE_LABELS[code];
+  if (buildCode) return buildCode;
+  // install/deploy failures surface the §61 taxonomy (packages/db failure_code),
+  // whose labels live in the shared diagnostic-vocabulary copy-map mirror.
+  if ((FAILURE_CODES as readonly string[]).includes(code)) return failureCodeCopy(code).label;
+  return null;
 }

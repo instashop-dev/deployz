@@ -83,6 +83,43 @@ export interface AdminJobListRow {
 
 // ── Overview ────────────────────────────────────────────────────────────────
 
+export type AdminOverviewDays = 7 | 30 | 90;
+
+/** `pilotInsights` (apps/api/src/admin/queries.ts `PilotInsights`) — the
+ *  MVP funnel read model over the trailing `days` window. Rates are 0..1;
+ *  null means the window has too little data for the metric. */
+export interface AdminPilotInsights {
+  window: { days: AdminOverviewDays; from: string; to: string };
+  funnel: {
+    applicationsCreated: number;
+    analysisCompleted: number;
+    preflightPassed: number;
+    awsLaunched: number;
+    relayConnected: number;
+    healthy: number;
+  };
+  quality: {
+    installSuccessRate: number | null;
+    retryRate: number | null;
+    medianTimeToHealthyMs: number | null;
+    p90TimeToHealthyMs: number | null;
+    sampleSize: number;
+  };
+  failures: { code: string; count: number; affectedDeployments: number }[];
+  deployLinks: {
+    created: number;
+    opened: number;
+    launched: number;
+    relayConnected: number;
+    healthy: number;
+  };
+  support: {
+    healthyWithoutSupport: number;
+    requiredSupportIntervention: number;
+    supportSessions: number;
+  };
+}
+
 export interface AdminOverview {
   counts: {
     failedDeployments: number;
@@ -94,10 +131,11 @@ export interface AdminOverview {
   recentFailures: AdminDeploymentSummary[];
   stuckJobs: AdminJobListRow[];
   disconnectedConnections: AdminDeploymentSummary[];
+  pilotInsights: AdminPilotInsights;
 }
 
-export function fetchAdminOverview(): Promise<AdminOverview> {
-  return apiRequest<AdminOverview>('/api/admin/overview');
+export function fetchAdminOverview(days: AdminOverviewDays = 30): Promise<AdminOverview> {
+  return apiRequest<AdminOverview>(`/api/admin/overview?days=${days}`);
 }
 
 // ── Vendors ─────────────────────────────────────────────────────────────────

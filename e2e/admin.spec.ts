@@ -78,6 +78,50 @@ test.describe('admin authorization', () => {
     const response = await page.request.get(`${API_URL}/api/admin/overview`);
     expect(response.ok()).toBeTruthy();
   });
+
+  // The Pilot Insights readout rides the same overview fetch with a default
+  // 30-day window. On an empty event log the API returns the all-zero/null
+  // contract and the section collapses to its one-line empty state; with any
+  // windowed activity the five metric cards replace it. The DB is shared
+  // across the suite, so the assertion follows whichever state the API
+  // actually returned rather than assuming a clean slate.
+  test('pilot insights renders and the days toggle refetches the window', async ({ page }) => {
+    await signUp(page, 'Insights Admin', uniqueAdminEmail('insights'));
+
+    await page.goto('/admin');
+    await expect(page.getByTestId('pilot-insights')).toBeVisible();
+    await expect(page.getByTestId('pilot-window')).toHaveText('Last 30 days');
+
+    const emptyState = page.getByText('No pilot activity in this window');
+    const cardTestIds = [
+      'pilot-funnel',
+      'pilot-quality',
+      'pilot-failures',
+      'pilot-deploy-links',
+      'pilot-support',
+    ];
+    if (await emptyState.isVisible()) {
+      for (const testId of cardTestIds) {
+        await expect(page.getByTestId(testId)).toHaveCount(0);
+      }
+    } else {
+      for (const testId of cardTestIds) {
+        await expect(page.getByTestId(testId)).toBeVisible();
+      }
+    }
+
+    // The toggle re-issues the overview fetch for the trailing window; the
+    // section header reports the window the API echoed back.
+    const dayToggle = page.getByTestId('pilot-days-toggle');
+    await dayToggle.getByRole('button', { name: '7d' }).click();
+    await expect(page.getByTestId('pilot-window')).toHaveText('Last 7 days', {
+      timeout: REFRESH_TIMEOUT,
+    });
+    await dayToggle.getByRole('button', { name: '90d' }).click();
+    await expect(page.getByTestId('pilot-window')).toHaveText('Last 90 days', {
+      timeout: REFRESH_TIMEOUT,
+    });
+  });
 });
 
 test.describe('admin search and vendor detail', () => {
