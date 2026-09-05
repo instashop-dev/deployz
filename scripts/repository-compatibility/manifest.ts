@@ -28,7 +28,7 @@ export const FINDING_TYPES = [
 export type FindingType = (typeof FINDING_TYPES)[number];
 
 export const COHORTS = ['realistic', 'messy', 'boundary'] as const;
-export const BENCHMARK_SETS = ['improvement', 'unseen'] as const;
+export const BENCHMARK_SETS = ['improvement', 'unseen', 'unseen2'] as const;
 export const REALISM_LEVELS = ['high', 'medium', 'low'] as const;
 
 const FINDING_ID_REGEX = /^COMP-\d{3}$/;

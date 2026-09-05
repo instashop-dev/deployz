@@ -1,0 +1,242 @@
+{
+  "id": "repo-213",
+  "repository": "langfuse/langfuse",
+  "commit": "7637df1e1aadddbbfd0a45b960ecc97451381ce5",
+  "set": "unseen2",
+  "cohort": "messy",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
+  "analysisVersion": 11,
+  "tree": {
+    "files": 201,
+    "entries": 7342,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "storage": true,
+    "migration": true,
+    "appRoot": "web",
+    "dockerfilePath": "web/Dockerfile",
+    "port": 3000,
+    "unsupported": [
+      "docker-compose-multi-service",
+      "background-worker",
+      "other-database"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": "web",
+    "dockerfilePath": "web/Dockerfile",
+    "port": 3000,
+    "startCommand": "CMD: if [ -n \"$NEXT_PUBLIC_LANGFUSE_CLOUD_REGION\" ]; then \\",
+    "healthDetected": true,
+    "healthPath": "/api/public/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": true,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "dotenv -e ../../.env npx -- prisma migrate deploy",
+    "externalServices": [
+      "sentry",
+      "smtp",
+      "stripe"
+    ],
+    "requiredEnvVars": [
+      "ADMIN_API_KEY",
+      "AUTH_AUTH0_CLIENT_SECRET",
+      "AUTH_AUTH0_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_AUTHENTIK_CLIENT_SECRET",
+      "AUTH_AUTHENTIK_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_AZURE_AD_CLIENT_SECRET",
+      "AUTH_AZURE_AD_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_CLICKHOUSE_CLOUD_CLIENT_SECRET",
+      "AUTH_CLICKHOUSE_CLOUD_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_COGNITO_CLIENT_SECRET",
+      "AUTH_COGNITO_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_CUSTOM_CLIENT_SECRET",
+      "AUTH_CUSTOM_ID_TOKEN",
+      "AUTH_CUSTOM_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_DISABLE_USERNAME_PASSWORD",
+      "AUTH_GITHUB_CLIENT_SECRET",
+      "AUTH_GITHUB_ENTERPRISE_CLIENT_SECRET",
+      "AUTH_GITLAB_CLIENT_SECRET",
+      "AUTH_GITLAB_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_GOOGLE_CLIENT_SECRET",
+      "AUTH_GOOGLE_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_JUMPCLOUD_CLIENT_SECRET",
+      "AUTH_JUMPCLOUD_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_KEYCLOAK_CLIENT_SECRET",
+      "AUTH_KEYCLOAK_ID_TOKEN",
+      "AUTH_KEYCLOAK_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_OKTA_CLIENT_SECRET",
+      "AUTH_OKTA_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_ONELOGIN_CLIENT_SECRET",
+      "AUTH_ONELOGIN_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_WORDPRESS_CLIENT_SECRET",
+      "AUTH_WORDPRESS_ID_TOKEN_SIGNED_RESPONSE_ALG",
+      "AUTH_WORKOS_CLIENT_SECRET",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "CLICKHOUSE_BILLING_AUTH0_CLIENT_SECRET",
+      "CLICKHOUSE_BILLING_METRICS_API_KEY",
+      "CLICKHOUSE_PASSWORD",
+      "CLICKHOUSE_URL",
+      "CLICKHOUSE_USER",
+      "DATABASE_URL",
+      "DIRECT_URL",
+      "ENCRYPTION_KEY",
+      "LANGFUSE_AI_API_KEY",
+      "LANGFUSE_AI_FEATURES_PUBLIC_KEY",
+      "LANGFUSE_AI_FEATURES_SECRET_KEY",
+      "LANGFUSE_CACHE_API_KEY_ENABLED",
+      "LANGFUSE_CACHE_API_KEY_TTL_SECONDS",
+      "LANGFUSE_EE_LICENSE_KEY",
+      "LANGFUSE_INIT_PROJECT_PUBLIC_KEY",
+      "LANGFUSE_INIT_PROJECT_SECRET_KEY",
+      "LANGFUSE_INIT_USER_PASSWORD",
+      "LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID",
+      "LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY",
+      "LANGFUSE_S3_EVENT_UPLOAD_BUCKET",
+      "LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID",
+      "LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY",
+      "MULESOFT_SFDC_BASIC_AUTH_PASSWORD",
+      "NEXTAUTH_SECRET",
+      "NEXT_PUBLIC_POSTHOG_KEY",
+      "PLAIN_AUTHENTICATION_SECRET",
+      "PLAIN_CARDS_API_TOKEN",
+      "PYLON_API_KEY",
+      "REDIS_PORT",
+      "SEED_SECRET_KEY",
+      "SENTRY_AUTH_TOKEN",
+      "SHADOW_DATABASE_URL",
+      "SLACK_CLIENT_SECRET",
+      "SLACK_STATE_SECRET",
+      "STRIPE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SIGNING_SECRET"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service",
+      "other-database"
+    ],
+    "readinessFindings": [
+      "unsupported-database-other",
+      "unsupported-multi-service",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": "web",
+      "actual": "web",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "web/Dockerfile",
+      "actual": "web/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "other-database"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "other-database"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "other-database"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "other-database"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}

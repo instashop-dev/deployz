@@ -348,3 +348,50 @@ ports without a confident signal (COMP-030, 9); undeclared data
 directories (COMP-025, 2); and the product gaps G1–G3 that stay outside
 the MVP. The G4/G5 product items (generated secrets, binding aliases)
 landed in phases 2 and 4.
+
+## 9. Fresh unseen-set addendum (unseen2, analysis version 11)
+
+A second unseen set (`unseen2`, repo-201..220: 10 realistic, 5 messy, 5
+boundary) was measured after the Stage B comparison, with the SAME frozen
+analyser (analysis version 11, Deployz `1e6ad17`). No analyser code
+changed for this run. Expected facts were produced by two independent
+ground-truth passes (README/research-level and full-tree snapshot) and
+reconciled by the orchestrator against corpus precedent; the provisional
+facts used during repository selection were replaced with the reconciled
+final facts before the run. Every unseen2 entry intentionally references
+no findings, so every recorded mismatch is UNEXPLAINED — the run measures
+raw verdict and fact accuracy without asserting which known finding
+applies.
+
+### 9.1 Results
+
+| Metric | unseen2 (v11) |
+| --- | --- |
+| Verdict matches | 13 / 20 (65%) |
+| Boundary accuracy | 15 / 20 (75%) |
+| False rejections | 5 of 10 deployable (50%) |
+| False acceptances | 0 of 10 rejected (0%) |
+| All facts match | 0 |
+| Failed analyses | 0 (no 200-file-cap truncation either) |
+
+| Cohort | n | Verdict | Boundary | False rejections | False acceptances |
+| --- | --- | --- | --- | --- | --- |
+| `realistic` | 10 | 6 (60%) | 7 (70%) | 3 of 7 | 0 of 3 |
+| `messy` | 5 | 4 (80%) | 4 (80%) | 1 of 1 | 0 of 4 |
+| `boundary` | 5 | 3 (60%) | 4 (80%) | 1 of 2 | 0 of 3 |
+
+Verdict mismatches: 5 false rejections (shlink, nocobase, khoj, AFFiNE,
+headlamp) and 2 configuration-detection mismatches (fider, gotify come
+out READY instead of NEEDS_CONFIGURATION). All 10 NOT_COMPATIBLE
+expectations were rejected correctly — zero false acceptances. The
+verdict rate (65%) is higher than the unseen1 set's 50% but the
+realistic cohort (60%) remains short of the audit's bar; the per-finding
+detail and mismatch classification are in
+[`findings.md`](findings.md#fresh-unseen-set-unseen2-analysis-version-11).
+
+The result confirms the two residual analyser directions the main corpus
+already showed: single-image all-in-one apps (khoj, AFFiNE, baserow) are
+read from their reference compose file as multi-service and rejected
+despite an in-process all-in-one image, and DB-admin/tool apps (fider,
+gotify, headlamp) still hide their required configuration or treat an
+optional external target (a Kubernetes cluster) as infrastructure.

@@ -1,0 +1,196 @@
+{
+  "id": "repo-216",
+  "repository": "RocketChat/Rocket.Chat",
+  "commit": "67f2bda92e3ed13abd60f5ad2a1d8dd74e4516c0",
+  "set": "unseen2",
+  "cohort": "boundary",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
+  "analysisVersion": 11,
+  "tree": {
+    "files": 203,
+    "entries": 12129,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": false,
+    "appRoot": ".",
+    "dockerfilePath": "apps/meteor/.docker/Dockerfile.debian",
+    "port": 3000,
+    "unsupported": [
+      "mongodb"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": "ee/apps",
+    "dockerfilePath": "ee/apps/Dockerfile",
+    "port": 3000,
+    "startCommand": "CMD: [\"node\", \"src/service.js\"]",
+    "healthDetected": true,
+    "healthPath": "/readyz",
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "ts-node-transpile-only --skip-project .scripts/make-migration.ts",
+    "externalServices": [
+      "smtp",
+      "twilio"
+    ],
+    "requiredEnvVars": [
+      "GITHUB_TOKEN",
+      "MAIL_URL",
+      "MOBILE_DDP_URL",
+      "MOBILE_ROOT_URL",
+      "TRACING_ENABLED"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": "ee/apps",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "apps/meteor/.docker/Dockerfile.debian",
+      "actual": "ee/apps/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "mongodb"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": ".",
+      "actual": "ee/apps",
+      "finding": null
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "apps/meteor/.docker/Dockerfile.debian",
+      "actual": "ee/apps/Dockerfile",
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "mongodb"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}

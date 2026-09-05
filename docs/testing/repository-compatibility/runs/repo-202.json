@@ -1,0 +1,170 @@
+{
+  "id": "repo-202",
+  "repository": "element-hq/synapse",
+  "commit": "a0b5a45c918a765e90a87873ac25e83b857509a1",
+  "set": "unseen2",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
+  "analysisVersion": 11,
+  "tree": {
+    "files": 199,
+    "entries": 2235,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 8008,
+    "healthPath": "/health",
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "unknown",
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 8008,
+    "startCommand": "ENTRYPOINT: [\"/start.py\"]",
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [
+      "SYNAPSE_CACHE_FACTOR",
+      "SYNAPSE_HTTP_PORT"
+    ],
+    "unsupported": [
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "local-file-storage",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/Dockerfile",
+      "actual": "docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8008,
+      "actual": 8008,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/health",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "local-filesystem"
+      ],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    }
+  ],
+  "match": false
+}

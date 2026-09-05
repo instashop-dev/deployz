@@ -293,6 +293,84 @@ now that descriptors are fetched), COMP-041 (vendor-required health gate
 for TCP-probe-only apps). The per-finding sections that follow carry the
 updated status of every Stage A finding.
 
+## Fresh unseen set (unseen2, analysis version 11)
+
+Twenty repositories nobody had inspected during Stage A or B were pinned
+for a second unseen-set measurement (`set: unseen2`, repo-201..220: 10
+`realistic`, 5 `messy`, 5 `boundary`; all at analysis version 11, Deployz
+`1e6ad17`, the SAME frozen analyser as the v11 comparison — no code
+changed for this run). Each repository's expected facts were produced by
+TWO independent ground-truth passes — a README/research-level pass and a
+full-tree snapshot pass — and the orchestrator reconciled any
+disagreement against the corpus precedent (for example, ClickHouse
+rejections are recorded under the `other-database` family the corpus
+already uses, repo-089/097). The provisional facts written during
+selection were replaced by the reconciled final facts BEFORE this run,
+so the numbers below measure the frozen analyser against final ground
+truth, not the analyser's ability to guess during selection.
+
+The one-line summary: no generalisation regression, but the boundary
+verdicts on this set stay below the realistic bar.
+
+| | unseen2 (v11) |
+| --- | --- |
+| Verdict matches | 13 / 20 (65%) |
+| False rejections | 5 of 10 deployable (50%) |
+| False acceptances | 0 of 10 rejected (0%) |
+| Boundary accuracy | 15 / 20 (75%) |
+| Repositories matching every fact | 0 |
+| Configuration-detection mismatches | 2 |
+| Mismatches without a finding | 68 (every mismatch — refs are empty by design) |
+
+By cohort: realistic 6/10 verdicts (3 false rejections of 7 deployable),
+messy 4/5 (1 false rejection), boundary 3/5 (1 false rejection, 0 of 3
+deployable rejected). By construction every mismatch is recorded as
+UNEXPLAINED: the unseen2 entries reference no findings, so nothing in
+the registry is asserted to apply to them — the run is a clean measure
+of verdict and fact accuracy, and any later finding assignment must come
+from a fresh classification, not from this frozen corpus's refs.
+
+Mismatch classification (analyser gaps, not measurement limits):
+
+- Verdict mismatches (7). False rejections (5): repo-204 shlink and
+  repo-206 nocobase reject on a Compose multi-service / database family
+  the reconciled facts do not list (their reference compose files carry
+  dev or optional services the single-image deploy does not need);
+  repo-207 khoj and repo-211 AFFiNE reject on local-filesystem /
+  multi-service families their all-in-one image flavours avoid; repo-220
+  headlamp rejects on `kubernetes` although its cluster is an optional
+  external target (no k8s service is run). Configuration-detection
+  mismatches (2): repo-203 fider and repo-218 gotify come out READY
+  although their ground truth requires configuration (fider's
+  DATABASE_URL/JWT_SECRET/BASE_URL; gotify's Postgres env selector) —
+  the same required-value invisibility as COMP-017/COMP-022 on the main
+  corpus. False acceptances: 0.
+- Fact mismatches dominate every NOT_COMPATIBLE repo that matched
+  (repo-208 baserow 8, repo-214 plane 8, repo-216 Rocket.Chat 5,
+  repo-219 appwrite 4): the analyser disagrees with the reconciled facts
+  on the concrete family — which Dockerfile is the production image
+  (heroku.Dockerfile vs backend/Dockerfile; ee/apps vs
+  apps/meteor/.docker; apps/admin vs apps/web; container/builder vs
+  container/dist), on whether a worker/storage/migration signal exists,
+  and on the exact health route. These are analyser gaps in the same
+  classes the corpus already tracks (COMP-007/COMP-027 Dockerfile
+  ranking, COMP-015 worker breadth, COMP-014 migration facts,
+  COMP-005/COMP-039 health paths) — recorded here without a finding id
+  because the set intentionally references none.
+- Measurement limits: none of the 20 runs failed or hit the 200-file
+  cap (20 analysed, 0 failed); every mismatch above is a verdict or fact
+  disagreement, not a truncated-tree artefact.
+
+The two directions the corpus should watch: (a) single-image
+all-in-one apps (khoj, AFFiNE, baserow) — the analyser reads their
+reference compose file as multi-service and rejects, while the ground
+truth says the standalone image runs in-process; (b) DB-admin/tool
+apps (fider, gotify, headlamp) — required config and optional external
+targets are the residual gap. The unseen1 comparison (repo-081..100)
+achieved 10/20 verdicts with zero unexplained mismatches; unseen2
+measures 13/20 with every mismatch unexplained, so this set is a
+cleaner verdict signal but a noisier fact signal.
+
 ## Findings
 
 ### COMP-001 — Dockerfile `EXPOSE` / `ENV PORT` and Compose `ports` are not port evidence

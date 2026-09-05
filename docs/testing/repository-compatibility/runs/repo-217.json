@@ -1,0 +1,177 @@
+{
+  "id": "repo-217",
+  "repository": "PostHog/posthog",
+  "commit": "c3c5a35a60db2bf7742935a9098880a01eede922",
+  "set": "unseen2",
+  "cohort": "boundary",
+  "customerRealism": "medium",
+  "difficulty": 3,
+  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
+  "analysisVersion": 11,
+  "tree": {
+    "files": 211,
+    "entries": 56471,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "python",
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "storage": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8000,
+    "unsupported": [
+      "docker-compose-multi-service",
+      "background-worker",
+      "other-database",
+      "kafka"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8000,
+    "startCommand": "CMD: [\"./bin/docker\"]",
+    "healthDetected": true,
+    "healthPath": "/v1/status/ready",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": true,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "drizzle-kit migrate",
+    "externalServices": [
+      "anthropic",
+      "openai",
+      "smtp",
+      "stripe"
+    ],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "other-database"
+    ],
+    "readinessFindings": [
+      "unsupported-database-other",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "unsupported"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": 8000,
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "other-database",
+        "kafka"
+      ],
+      "actual": [
+        "other-database"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "other-database",
+        "kafka"
+      ],
+      "actual": [
+        "other-database"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}
