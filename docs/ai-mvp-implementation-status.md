@@ -450,3 +450,46 @@ There was no preflight endpoint and nothing shown before the deploy button.
   ready rendering, blocked/recommended ordering.
 - `e2e/create-deployment.spec.ts`: the preflight shows UNSUPPORTED before
   submit for the unsupported fixture.
+
+PR #180.
+
+## Phase 6 — Deployment error normalisation (2026-09-05)
+
+### Audited existing (unchanged)
+
+- The 23-code taxonomy, its five mirrors and parity tests; the relay's
+  executor-boundary classification; `refineFailureCode` at result ingest;
+  `redactSecrets` / `normalizeErrorText`; the per-code copy map; the
+  `StructuredEvent` boundary with no raw-log field. No failure code, enum,
+  copy-map entry or migration was added.
+
+### Added
+
+1. **One failure representation** — `buildFailureContext`
+   (`apps/api/src/failure-context.ts`) turns the failed job and the
+   CloudFormation events persisted for it into `DeploymentFailureContext`:
+   phase (job type), attempt, the settled code, the code the relay reported
+   when refinement changed it, the resource CloudFormation blamed first,
+   the relay's error redacted and truncated to 500 characters, at most five
+   failed-resource events (cascade cancellations and the stack's own status
+   never count), and the version a deploy targeted. `toStructuredEvent`
+   derives the AI explainer's bounded event from that context only.
+2. **Diagnostics route** — serves the context as `context` and feeds the AI
+   (still only for `UNKNOWN`) from it. The web diagnostics mapping carries
+   it into the card's "Technical detail" disclosure: operation, attempt,
+   the helper's original code, version, failed resource and failed events.
+   Nothing new reaches the top level.
+3. **Three more deterministic signatures** in `refineFailureCode`, mapped
+   onto existing codes: S3 `PermanentRedirect` / "must be addressed using
+   the specified endpoint" → `REGION_NOT_SUPPORTED`; ECS "failed container
+   health checks" → `IMAGE_HEALTH_CHECK_FAILED`; "essential container in
+   task exited" / "exited with code" / out-of-memory →
+   `CONTAINER_START_FAILED`. IAM denial and quota keep precedence.
+
+### Tests
+
+- `apps/api/src/failure-context.test.ts` (4): phase/codes/resource/events,
+  redaction of tokens and secret-shaped pairs, cancellation noise dropped,
+  event cap and reason truncation, the AI event shape.
+- `apps/api/src/failure-classification.test.ts` (+3).
+- `apps/web/test/diagnostics.test.ts` (+1).

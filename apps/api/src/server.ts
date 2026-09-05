@@ -15,7 +15,6 @@ import {
   FIX_INSTRUCTIONS_TIMEOUT_MS,
   createAiGateway,
   generateFixInstructions,
-  normalizeErrorText,
   readApplicationAnalysis,
   redactSecrets,
   verdictFromReadiness,
@@ -117,6 +116,7 @@ import {
   type EcrPullGrantDeps,
 } from './ecr-pull-grants.js';
 import { refineFailureCode } from './failure-classification.js';
+import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
@@ -4604,11 +4604,36 @@ export async function buildServer({
         type: schema.deploymentJobs.type,
         failureCode: schema.deploymentJobs.failureCode,
         result: schema.deploymentJobs.result,
+        payload: schema.deploymentJobs.payload,
       })
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, id), eq(schema.deploymentJobs.state, 'FAILED')))
       .orderBy(desc(schema.deploymentJobs.finishedAt))
       .limit(1);
+    // Phase 6: the one bounded, sanitised failure representation — built
+    // from the failed job and the CloudFormation events persisted for it.
+    const failureContext = failedJob
+      ? buildFailureContext({
+          deploymentId: id,
+          job: { type: failedJob.type, failureCode: failedJob.failureCode, result: failedJob.result },
+          attempt: deployment.attemptNumber,
+          stackEvents: await db
+            .select({
+              logicalResourceId: schema.deploymentStackEvents.logicalResourceId,
+              resourceType: schema.deploymentStackEvents.resourceType,
+              resourceStatus: schema.deploymentStackEvents.resourceStatus,
+              resourceStatusReason: schema.deploymentStackEvents.resourceStatusReason,
+            })
+            .from(schema.deploymentStackEvents)
+            .where(and(eq(schema.deploymentStackEvents.deploymentId, id), eq(schema.deploymentStackEvents.jobId, failedJob.id)))
+            .orderBy(schema.deploymentStackEvents.eventAt),
+          // A deploy/rollback payload names the version it targeted.
+          applicationVersion:
+            typeof (failedJob.payload as { version?: unknown } | null)?.version === 'string'
+              ? ((failedJob.payload as { version: string }).version)
+              : null,
+        })
+      : null;
     // §29/§61: the remediation is looked up from the code the relay actually
     // reported. These three fields used to be string literals, identical for
     // every failure, and the fix line told the vendor to read an event log
@@ -4624,23 +4649,12 @@ export async function buildServer({
     // UNKNOWN, where the deterministic classifier had nothing to go on, is
     // worth spending a model call on.
     let explanation = remediation;
-    if (failedJob && failureCode === 'UNKNOWN') {
+    if (failedJob && failureContext && failureCode === 'UNKNOWN') {
       // §16: the AI explanation is built from the deterministic code plus
-      // STRUCTURED fields only. There is no raw-log field here except this
-      // one — `error.message` is the single free-text slot the boundary
-      // permits, and it carries only the normalized, redacted, truncated
-      // form of the job's error (never the raw text shown to the vendor
-      // below).
-      const errorMessage =
-        typeof jobResult?.error === 'string' && jobResult.error.length > 0
-          ? normalizeErrorText(jobResult.error, { maxLength: 500 })
-          : undefined;
-      const event: StructuredEvent = {
-        source: 'deployment',
-        ...(failedJob.type ? { action: failedJob.type } : {}),
-        ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
-        context: { deploymentState: deployment.state },
-      };
+      // the sanitised failure context only — the relay's error redacted and
+      // truncated, the first failed resources, the attempt and the version.
+      // Never raw text, never application logs.
+      const event: StructuredEvent = toStructuredEvent(failureContext, deployment.state);
 
       // Generated once per attempt and cached; `remediation` is the fallback
       // for every path where AI is unavailable, so the copy map stays the
@@ -4662,6 +4676,9 @@ export async function buildServer({
       why: explanation.why,
       fix: explanation.fix,
       technicalDetail: jobResult?.error ?? null,
+      // Phase 6: the normalised context — phase, codes, blamed resource, the
+      // failed events — for the card's technical layer.
+      context: failureContext,
       events,
     };
   });

@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import type { Diagnostic, DiagnosticEvent } from '@/lib/diagnostics';
+import type { Diagnostic, DiagnosticContext, DiagnosticEvent } from '@/lib/diagnostics';
 import {
   EXPLANATION_FALLBACK,
   FAILURE_RECOVERABILITY,
@@ -66,6 +66,7 @@ export function DiagnosticCard({ diagnostic }: { diagnostic: Diagnostic }) {
           </summary>
           <div className="flex flex-col gap-2 border-t px-3 py-2.5 text-xs text-muted-foreground">
             <DetailRow label="Failure code" value={diagnostic.failureCode} />
+            {diagnostic.context ? <ContextRows context={diagnostic.context} /> : null}
             <EventRows event={diagnostic.event} />
           </div>
         </details>
@@ -80,6 +81,37 @@ function ExplanationRow({ title, text }: { title: string; text: string }) {
       <dt className="text-sm font-medium">{title}</dt>
       <dd className="text-sm text-muted-foreground">{text}</dd>
     </div>
+  );
+}
+
+/** The normalised failure context (Phase 6): the operation, the attempt, the
+ *  code the helper reported before refinement, the resource CloudFormation
+ *  blamed and the failed events — technical by design, so it lives here. */
+function ContextRows({ context }: { context: DiagnosticContext }) {
+  return (
+    <>
+      <DetailRow label="Operation" value={context.attempt !== null ? `${context.phase} (attempt ${context.attempt})` : context.phase} />
+      {context.reportedFailureCode !== null ? (
+        <DetailRow label="Reported by the helper as" value={context.reportedFailureCode} />
+      ) : null}
+      {context.applicationVersion !== null ? <DetailRow label="Version" value={context.applicationVersion} /> : null}
+      {context.resourceType !== null ? <DetailRow label="Failed resource" value={context.resourceType} /> : null}
+      {context.relevantEvents.length > 0 ? (
+        <div className="flex flex-col gap-0.5" data-testid="diagnostic-failed-resources">
+          <span className="font-medium text-foreground">Failed resources</span>
+          <ul className="flex flex-col gap-1">
+            {context.relevantEvents.map((event) => (
+              <li key={`${event.logicalResourceId}:${event.resourceStatus}`}>
+                <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono">
+                  {event.logicalResourceId} · {event.resourceType} · {event.resourceStatus}
+                  {event.reason ? ` — ${event.reason}` : ''}
+                </code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </>
   );
 }
 
