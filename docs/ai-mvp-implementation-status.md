@@ -579,3 +579,55 @@ and install pages.
 
 - `packages/copy-map/test/copy-map.test.ts`: every branch, never the build
   service's name, never the jargon pattern.
+
+PR #183.
+
+## Phase 9 — Integration, regression and AI quality testing (2026-09-05)
+
+### Evaluation corpus
+
+`packages/analysis/test/eval-corpus.test.ts` is the permanent MVP corpus:
+nine repositories with exact, deterministic expectations — readiness state
+and the complete finding set (no invented blockers, none missing), the
+deployment-gate state, the detected runtime / framework / port / database /
+cache / health path with evidence present and bounded, the env-var
+classification, and which questions the AI fallback would be asked. It
+covers a simple Node app, Next.js + Prisma, PostgreSQL without migrations,
+a BullMQ Redis app, a declared local volume, an env-heavy SaaS (Stripe,
+SMTP, app secret, optional and sample-only flags), a deliberately broken
+configuration (no port, no start command, loopback binding), MySQL, and
+an ambiguous repository. Two expectations were corrected against the
+analyser's deliberate precision rules while writing it: `PORT` read with a
+default is a managed variable, and a bare non-secret read (`host:
+process.env.SMTP_HOST`) is optional (Stage A COMP-023) while the credential
+stays required.
+
+AI output is tested on structure and gates only (`diagnostic-explainer.
+test.ts`, `repository-ai.test.ts`, `ai-explanation.test.ts`, fix-instruction
+tests, `ai-live.test.ts` behind `DEPLOYZ_LIVE_AI=1`); CI never depends on
+model wording.
+
+### Regression campaign
+
+Run on the merged Phase 7 tree: `pnpm build` (every package), `pnpm vitest
+run` (every project — analysis, contracts, copy-map, db, cdk, relay, api,
+web, version-canary, repository-compatibility harness), `pnpm lint`, and the
+simulated E2E suites touched by the AI phases (readiness, fix-instructions,
+config, create-deployment, deployment-detail, scenario-install,
+scenario-deploy-link, scenario-sweep, diagnostics, admin,
+scenario-provisioning). CI ran the full simulated scenario suite on every
+phase PR. No P0/P1 regression remains; the four `apps/web` suites that
+failed on this machine before the workstream were a missing local `jsdom`
+install, not a defect.
+
+### Cost and latency review
+
+| Call | When | Bound |
+|---|---|---|
+| Repository analysis | once per analysed commit, only when one of seven questions is open | ≤8 files / 24k chars, 6k prompt / 2.5k output tokens, 30 s |
+| Fix instructions | once per commit + analysis version + finding set (cached; explicit regenerate) | 3k / 2.5k tokens, 25 s |
+| Failure explanation | once per failed attempt, only for `UNKNOWN` (cached, single-flight) | 700 / 800 tokens, 10 s |
+| Preflight, readiness reads, activity feed, lifecycle events, heartbeats | never call the model | — |
+
+No polling loop calls the model; the gateway retries at most once on a
+transient error or malformed output.
