@@ -1,26 +1,26 @@
 {
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "deployzCommit": "f3a51a400312412f088fe5a0193dfeb40dac3ecc",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "gate": {
     "attempted": 120,
-    "correctAccept": 47,
+    "correctAccept": 46,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 23
+    "configuredReady": 22
   },
   "build": {
-    "attempted": 0,
-    "succeeded": 0,
+    "attempted": 1,
+    "succeeded": 1,
     "failed": 0,
-    "successRateAmongDeployable": 0
+    "successRateAmongDeployable": 1.5
   },
   "infrastructure": {
-    "attempted": 0,
+    "attempted": 1,
     "succeeded": 0,
-    "failed": 0
+    "failed": 1
   },
   "runtime": {
     "ecsRunning": 0,
@@ -37,19 +37,21 @@
   "trueDeploymentSuccess": 0,
   "trueDeploymentSuccessRate": 0,
   "cleanup": {
-    "destroys": 0,
-    "destroyFailures": 0,
-    "leaks": 0,
+    "destroys": 1,
+    "destroyFailures": 1,
+    "leaks": 1,
     "successRate": 0
   },
   "byClassification": {
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 47
+    "HEALTH_PATH_ERROR": 1,
+    "PASS": 46
   },
   "byFailureStage": {
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24
+    "GATE_ERROR": 24,
+    "HEALTH_PATH_ERROR": 1
   },
   "byRootCause": {
     "CORRECTLY_UNSUPPORTED": 49
@@ -105,7 +107,7 @@
       "deployed": 0,
       "trueDeploymentSuccess": 0,
       "expectedUnsupported": 34,
-      "gateCorrect": 69
+      "gateCorrect": 68
     },
     "unseen": {
       "total": 20,
@@ -147,7 +149,7 @@
       "deployed": 0,
       "trueDeploymentSuccess": 0,
       "expectedUnsupported": 24,
-      "gateCorrect": 54
+      "gateCorrect": 53
     }
   }
 }
