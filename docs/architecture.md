@@ -28,16 +28,22 @@ The flow a deployment follows, end to end:
 1. **Repository** — the vendor connects a GitHub repository
    (`apps/api/src/github.ts`).
 2. **Analyzer** — `@deployz/analysis` runs deterministic detectors over the
-   repository: language/framework, Dockerfile, port, health path, env-var
-   model, external services, database/storage/Redis requirements, and the
-   unsupported-architecture rejections. Readiness and the manifest are the
-   output (`packages/analysis/src/manifest.ts`, `readiness-report.ts`).
+   repository: runtime, language/framework, Dockerfile, port, bind address,
+   health path, env-var model with classification, external services,
+   database/storage/Redis requirements, and the unsupported-architecture
+   rejections. An AI fallback resolves only genuinely open questions and
+   can never override a detector. The canonical `ApplicationAnalysis`,
+   the readiness report and the manifest are the output
+   (`packages/analysis/src/manifest.ts`, `readiness-report.ts`,
+   `application-analysis.ts`); see `docs/ai-analysis.md`.
 3. **Deployment Manifest** — the READY manifest is stored as the deployment's
    desired state. Phase 3 gates refuse to move a non-READY deployment toward
    provisioning.
-4. **Readiness** — the readiness verdict (READY / NEEDS_CONFIGURATION /
-   NOT_COMPATIBLE) is enforced server-side before an install link can launch
-   and before a relay can enroll.
+4. **Readiness and preflight** — one preflight (`apps/api/src/preflight.ts`:
+   the manifest gate against the customer's configuration plus the
+   readiness warnings) is enforced server-side at deployment creation,
+   before an install link or deploy link can launch, and before a relay can
+   enroll. Warnings never block; a missing customer-required value does.
 5. **Release Build** — a release is built by CodeBuild into an immutable
    ECR image digest; a deploy always targets `repository@sha256:…`.
 6. **Install Infrastructure** — the customer opens the install link and runs
@@ -118,6 +124,9 @@ removed), never raw CloudFormation enums.
 ## Where the details live
 
 - Per-phase record, tests, live verification: `docs/mvp-implementation-status.md`
+- AI analysis, env-var intelligence, preflight, failure diagnosis:
+  `docs/ai-analysis.md` (reference) and `docs/ai-mvp-implementation-status.md`
+  (per-phase record)
 - Failure/recovery invariants: `docs/deployment-resilience.md`
 - Test hierarchy and canary escalation: `docs/testing/README.md`,
   `docs/testing/ai-agent-testing-guide.md`

@@ -631,3 +631,25 @@ install, not a defect.
 
 No polling loop calls the model; the gateway retries at most once on a
 transient error or malformed output.
+
+PR #184.
+
+## Phase 11 — Documentation (2026-09-05)
+
+- `docs/ai-analysis.md` (new): the reference — operating principle, the
+  end-to-end flow, the canonical model, the finding taxonomy and severity
+  mapping, fix instructions, the env-var classification and delivery model,
+  the preflight, the failure pipeline (classification, context,
+  explanation, confidence), configuration and cost bounds, and how to test
+  AI changes without wording assertions.
+- `docs/architecture.md`: the analyzer and preflight steps of the live flow
+  now describe the AI boundary and point at the reference.
+- `docs/testing/README.md`: the reference is indexed beside the
+  compatibility audit.
+- `docs/testing/aws-full-product-canary.md` §8: the AI MVP checks to run on
+  the canary walk (analysis, fix guidance, environment, preflight,
+  post-install configuration, failure diagnosis) with the AWS CLI
+  verifications for generated secrets.
+- This record (`docs/ai-mvp-implementation-status.md`) carries the
+  per-phase decisions, tests and PRs. The Phase 10 canary result is appended
+  here when the transient AWS canary runs.

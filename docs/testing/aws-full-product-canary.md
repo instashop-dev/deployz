@@ -198,3 +198,42 @@ skeletons and no API calls run — it looks like an outage. Check
 `document.visibilityState` before filing a defect, keep the driven tab in the
 foreground, and prefer client-side navigation (clicking the app's own links)
 over reloading a hidden tab.
+
+## 8. AI MVP checks (P0/P1)
+
+Run these on the same walk, in order; they cost nothing extra in AWS.
+
+1. **Analysis** — after adding the application, the readiness page must
+   show "What Deployz detected" with runtime, framework, start/build
+   command, port, database, cache, storage, health check and migrations,
+   each with evidence behind its disclosure, and the findings the
+   repository genuinely has. For Documenso expect runtime Node.js,
+   PostgreSQL required, health check `/api/health`, a migration command,
+   and no blocker.
+2. **Fix guidance** — for any required finding, "Generate fix instructions"
+   must produce a document that names the finding's evidence and reads as
+   verify-then-implement; opening it again must reuse the cached document
+   (generated-at line, reuse note), and Regenerate must produce a fresh one.
+3. **Environment** — the configuration screen's Environment card must list
+   the managed and generated variables under "Deployz configures
+   automatically" and only genuine customer-required keys under "You need
+   to provide". `NEXTAUTH_SECRET` and the encryption keys must never be
+   asked for.
+4. **Preflight** — the create-deployment form must show the preflight before
+   submit; the install link card must show it for the new deployment; the
+   API must refuse the launch (`MANIFEST_NEEDS_CONFIGURATION`) if a
+   required customer value is deleted after creation, and allow it once
+   restored.
+5. **Post-install configuration** — after INSTALL succeeds, the activity
+   feed must show a "Configuration updated" event and the job output must
+   list any `generatedKeys` (names only). Verify with the AWS CLI that the
+   application's `AppConfigSecret` holds those keys and that the task
+   definition binds them.
+6. **Failure diagnosis** — use the version canary's `v3-bad-health`
+   release, or the `docs/testing/aws-full-product-canary.md` §6 quota
+   failure if one is available: the diagnostics card must lead with the
+   copy-map explanation for the classified code, keep the raw relay text
+   and the Phase 6 context (operation, failed resources) behind "Technical
+   detail", and never show a raw CloudFormation status at the top level.
+   Only an `UNKNOWN` code consults the model; a below-high confidence
+   must be hedged.
