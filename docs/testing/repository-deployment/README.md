@@ -98,24 +98,26 @@ a deployment.
 - **Serial by default.** The account's VPC quota is 5 (control plane + one
   pre-existing orphan + at most three installs). Concurrency 2 is allowed
   only after Wave 1 proves isolation and cleanup.
-- **Tags**: every resource Stage B creates itself carries
-  `DeployzStageB=true`, `DeployzStageBRun=<run id>`,
-  `DeployzStageBRepo=<repo id>`, `DeployzTestMode=stage-b`,
-  `DeployzEnvironment=e2e`. Resources the product creates carry the
-  product's own `deployz:installation` tag; the ledger records the
-  installation id the moment the bootstrap stack outputs it.
+- **Tags**: the bootstrap stack Stage B creates carries the version
+  canary's test tags (`DeployzCanary=true`, `DeployzTestMode=canary`,
+  `DeployzEnvironment=e2e`) with `DeployzCanaryRun=stage-b-<repo id>-<stamp>`,
+  so the canary's tag-based audit applies unchanged and the run tag names
+  the repository. Resources the product creates carry the product's own
+  `deployz:installation` tag; the ledger records the installation id the
+  moment the bootstrap stack outputs it.
 
 ## Safety and cleanup
 
 1. Real AWS needs `DEPLOYZ_E2E_ALLOW_REAL_AWS=1` **and** `--real-aws`.
    Without both, the harness runs the gate audit only or a dry run.
 2. Preflight refuses any AWS account other than the test account.
-3. Every identifier is written to the repository's ledger
-   (`runs/<id>.ledger.json`, gitignored while a run is in flight,
-   summarized into the committed result) at creation time: vendor,
+3. Every identifier is written to the attempt's ledger
+   (`runs/evidence/<run id>/run.json` plus one file per step, gitignored;
+   the committed result summarizes it) at creation time: organization,
    application, customer, deployment, install link, bootstrap stack,
    installation id, application stack, Lambda names, release versions,
-   image digests, template objects.
+   image digests, template objects. The vendor session and the published
+   Stage B templates live in `runs/evidence/series.json`.
 4. Cleanup runs in `finally`: Disconnect → Purge → leftovers → leak audit.
    An interrupted run is resumed from the ledger (`--resume`), which first
    finishes the cleanup of anything it finds still alive.
@@ -202,8 +204,8 @@ result is `HEALTH_PATH_ERROR` with an `ANALYSIS_BUG` or
 
 ```bash
 pnpm build                                     # the harness imports the built packages
-pnpm benchmark:deploy --gate                   # B1 over every repository, offline, no AWS
-pnpm benchmark:deploy --gate --repo repo-001   # one repository
+pnpm benchmark:deploy --gate                   # B1 (+ offline B2) over every repository, no AWS
+pnpm benchmark:deploy --gate --repo repo-001   # one repository (repeat --repo for several)
 pnpm benchmark:deploy --dry-run --wave wave-1  # print the plan, touch nothing
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --repo repo-001
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --wave wave-1
@@ -212,9 +214,23 @@ DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --cleanup --repo repo-001
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --audit
 ```
 
-Selection accepts `--repo` (repeatable), `--set`, `--cohort` and `--wave`
-(wave membership is in `deploy-config.yaml`). The exact flags are the
-Phase 1 deliverable; this section is updated with it.
+Selection: `--repo` (repeatable), `--set`, `--cohort`, `--wave` (membership
+and order in `deploy-config.yaml`), `--finding DEPLOY-nnn` (every result
+that references it). Modes are exclusive: `--gate`, `--dry-run`,
+`--real-aws`, `--cleanup`, `--audit`; `--resume` may precede `--real-aws`.
+Other flags: `--force` (replace a protected deployment result, the old one
+goes to `runs/history/`), `--keep` (leave the environment for
+investigation; run `--cleanup` later), `--concurrency 1|2`, `--template
+pinned|generic|production` (see `implementation-notes.md`, "Stage B
+decision on the template"; `pinned` until DEPLOY-001 is fixed), `--online`
+(let the gate audit fetch snapshots that are not cached), `--cache`,
+`--evidence-dir`, `--runs-dir`.
+
+The gate audit is offline by default and needs the Stage A snapshot cache
+(`../repository-compatibility/.cache/`, 100 repositories; copy it from a
+machine that has run `pnpm benchmark:compat`). A real-AWS run needs the
+`aws` CLI authenticated to the test account, `pnpm build`, and the vendor
+GitHub App installation able to read the forks.
 
 ## How to
 

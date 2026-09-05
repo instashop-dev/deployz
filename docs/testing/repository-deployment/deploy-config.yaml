@@ -1,0 +1,17 @@
+# Stage B per-repository vendor configuration and wave membership.
+# Schema and cross-checks: scripts/repository-deployment/config.ts.
+#
+# Every entry references a Stage A id (docs/testing/repository-compatibility/
+# benchmark.yaml) and adds only what a vendor could set through the product:
+# `overrides` (PATCH /api/applications/:id), `config` (non-secret values the
+# vendor types into the Configuration screen), `secrets` (keys the harness
+# generates at run time — values are never stored), `verify` (what Stage B
+# probes) and `dependencies` (which checks to run). `fork` names the copy
+# the vendor GitHub App installation can read; default instashop-dev/<repo>.
+#
+# Waves are filled in as the phases select them (README "Rollout").
+version: 1
+
+waves: {}
+
+repositories: []

@@ -149,7 +149,7 @@ records `repositoryForm: "fork"`.
 | Phase | Deliverable | Status |
 | --- | --- | --- |
 | 0 Audit + architecture | this note, `README.md`, `findings.md` with DEPLOY-001 | Done — this PR |
-| 1 Harness | `scripts/repository-deployment/`, `pnpm benchmark:deploy`, tests, `deploy-config.yaml` skeleton | Pending |
+| 1 Harness | `scripts/repository-deployment/`, `pnpm benchmark:deploy`, tests, `deploy-config.yaml` skeleton | Done — 37 harness tests (`pnpm vitest run --project repository-deployment`); the gate audit smoke-ran offline on repo-001/repo-013 |
 | 2 B1 gate audit, all 100 | `runs/*.json` gate sections, `summary.*`, gate findings, analyser fixes with regression tests where in scope | Pending |
 | 3a DEPLOY-001 fix | image parameter + INSTALL payload + relay pass-through + tests + republish recipe | Pending |
 | 3 Wave 1 (10) | full funnel, serial, systemic fixes | Pending |
