@@ -538,3 +538,44 @@ PR #181.
   confidence.
 - `apps/web/test/diagnostics.test.ts` (+1), `apps/web/test/diagnostic-card.test.tsx` (+2),
   `apps/web/test/copy-map-parity.test.ts`.
+
+PR #182.
+
+## Phase 8 — AWS jargon and activity feed audit (2026-09-05)
+
+### Audit
+
+Every user-visible error and status surface was read against the §65 rule
+(raw provider vocabulary only behind a disclosure). The rule was already
+enforced structurally: `packages/copy-map` translates deployment states,
+customer statuses, event types and failure codes; an ESLint rule refuses
+raw CloudFormation status literals in `apps/web/src`; the E2E suites assert
+jargon-free top-level copy on the readiness, configuration, fleet, billing
+and install pages.
+
+| Surface | Top level | Behind a disclosure | Finding |
+|---|---|---|---|
+| Deployment detail (vendor) | Hero copy from `deriveHero`; activity rows from `eventTypeLabel` + `activityFailureSummary` | "Advanced details" (stack status, failure status, infrastructure events), per-row raw relay error | Compliant |
+| Diagnostics card | Copy-map what/why/fix; AI text hedged (Phase 7) | "Technical detail": code, Phase 6 context, event fields | Compliant |
+| Install / deploy-link pages (customer) | `customerMessage`; stack status pre-translated by `customerStackStatusLabel` | "Technical details" | Compliant. "Open AWS CloudFormation" names the console the customer must use — intentional |
+| Application readiness | Finding titles in user language; detected facts in plain words | "How to fix" technical evidence, per-fact evidence | Compliant |
+| Configuration | Environment plan in plain words | — | Compliant |
+| Preflight (Phase 5) | Check labels and details in plain words | — | Compliant |
+| Fleet / customers / home | Copy-map labels and badges | — | Compliant |
+| Toasts and inline errors | Server messages (§65) or the generic fallback | — | Compliant |
+| Releases list | **Raw worker text: "CodeBuild reported FAILED — POST_BUILD: …"** | — | **Fixed** |
+| Team Admin progress card | Raw `awsStatus` rows | — | Internal operator surface; left as the technical view it is |
+
+### Added
+
+- `releaseBuildFailureSummary` (`@deployz/copy-map`): a deterministic,
+  ordered mapping of the stored build failure reason onto plain words
+  (ran out of time / could not fetch the repository / could not be stored
+  in the registry / could not start / could not be built / failed). The
+  releases list shows the summary and keeps the raw reason behind a
+  "Technical detail" disclosure. No LLM call — the mapping is a table.
+
+### Tests
+
+- `packages/copy-map/test/copy-map.test.ts`: every branch, never the build
+  service's name, never the jargon pattern.
