@@ -57,8 +57,14 @@ export interface DiagnosticContext {
   applicationVersion: string | null;
 }
 
+export type DiagnosticConfidence = 'high' | 'medium' | 'low';
+
 export interface Diagnostic {
   failureCode: FailureCode;
+  /** Where the what/why/fix text came from. */
+  explanationSource: 'deterministic' | 'ai';
+  /** How sure the model was; null for deterministic copy. */
+  confidence: DiagnosticConfidence | null;
   /** The normalised context, for the technical layer. Null on older API responses. */
   context: DiagnosticContext | null;
   /** §61 recoverability class — which affordance the card leads with. */
@@ -81,6 +87,8 @@ interface DiagnosticsApiResponse {
    */
   technicalDetail?: string | null;
   context?: DiagnosticContext | null;
+  source?: 'deterministic' | 'ai';
+  confidence?: DiagnosticConfidence | null;
   events: Array<{
     occurredAt: string;
     eventType: string;
@@ -105,6 +113,8 @@ export function toDiagnostics(body: DiagnosticsApiResponse): Diagnostic[] {
   return [
     {
       failureCode: body.failureCode as FailureCode,
+      explanationSource: body.source ?? 'deterministic',
+      confidence: body.source === 'ai' ? (body.confidence ?? 'medium') : null,
       context: body.context ?? null,
       recoverability: (body.recoverability as FailureRecoverability | undefined) ?? null,
       occurredAt: latestEvent?.occurredAt ?? new Date().toISOString(),

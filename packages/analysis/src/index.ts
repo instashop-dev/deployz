@@ -156,6 +156,7 @@ export {
 } from './ai-gateway.js';
 
 export type {
+  DiagnosticConfidence,
   DiagnosticExplainOptions,
   DiagnosticExplanation,
 } from './diagnostic-explainer.js';

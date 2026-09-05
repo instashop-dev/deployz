@@ -60,7 +60,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import type { Auth } from './auth.js';
-import { resolveExplanation } from './ai-explanation.js';
+import { resolveExplanation, type ExplanationText } from './ai-explanation.js';
 import { createFixtureAiGateway } from './ai-fixture.js';
 import {
   createAnalysisRunner,
@@ -4648,7 +4648,7 @@ export async function buildServer({
     // §65 copy map is the whole answer and AI is never consulted. Only
     // UNKNOWN, where the deterministic classifier had nothing to go on, is
     // worth spending a model call on.
-    let explanation = remediation;
+    let explanation: ExplanationText = { ...remediation, confidence: null };
     if (failedJob && failureContext && failureCode === 'UNKNOWN') {
       // §16: the AI explanation is built from the deterministic code plus
       // the sanitised failure context only — the relay's error redacted and
@@ -4663,7 +4663,7 @@ export async function buildServer({
       explanation = await resolveExplanation(
         { db, gateway: aiGateway },
         { jobId: failedJob.id, failureCode, event },
-        remediation,
+        { ...remediation, confidence: null },
       );
     }
 
@@ -4675,6 +4675,11 @@ export async function buildServer({
       what: explanation.what,
       why: explanation.why,
       fix: explanation.fix,
+      // Phase 7: deterministic copy is authoritative and carries no
+      // confidence; AI text names how sure the model was so the card can
+      // hedge a medium or low reading instead of presenting it as a verdict.
+      source: explanation.confidence === null ? 'deterministic' : 'ai',
+      confidence: explanation.confidence,
       technicalDetail: jobResult?.error ?? null,
       // Phase 6: the normalised context — phase, codes, blamed resource, the
       // failed events — for the card's technical layer.

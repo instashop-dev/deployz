@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Diagnostic, DiagnosticContext, DiagnosticEvent } from '@/lib/diagnostics';
 import {
+  AI_CONFIDENCE_COPY,
+  AI_EXPLANATION_SOURCE_NOTE,
   EXPLANATION_FALLBACK,
   FAILURE_RECOVERABILITY,
   FAILURE_SEVERITY_BADGE,
@@ -42,11 +44,24 @@ export function DiagnosticCard({ diagnostic }: { diagnostic: Diagnostic }) {
           </Badge>
         </div>
 
+        {/* Phase 7: an AI reading below high confidence is framed as a lead,
+            never a verdict — the hedge precedes the text it qualifies. */}
+        {diagnostic.explanationSource === 'ai' && diagnostic.confidence && AI_CONFIDENCE_COPY[diagnostic.confidence] ? (
+          <p className="text-sm text-muted-foreground" data-testid="diagnostic-confidence">
+            {AI_CONFIDENCE_COPY[diagnostic.confidence]}
+          </p>
+        ) : null}
+
         <dl className="flex flex-col gap-2">
           <ExplanationRow title="What happened" text={what} />
           <ExplanationRow title="Why it happened" text={why} />
           <ExplanationRow title="How to fix it" text={fix} />
         </dl>
+        {diagnostic.explanationSource === 'ai' ? (
+          <p className="text-xs text-muted-foreground" data-testid="diagnostic-source">
+            {AI_EXPLANATION_SOURCE_NOTE}
+          </p>
+        ) : null}
 
         {/* §61 recoverability — sets the retry expectation per failure class
             instead of a one-size-fits-all "try again". */}
