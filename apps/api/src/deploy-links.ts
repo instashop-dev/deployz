@@ -136,6 +136,29 @@ export async function createDeploymentRecord(
   // plane (#186): the relay mints them inside the customer's account after
   // install, and the preflight counts them as auto-provided.
   const { manifest, result } = await runApplicationPreflight(db, application, params.customerId);
+  const actor =
+    params.createdBy !== null
+      ? { actorType: 'user' as const, actorId: params.createdBy }
+      : { actorType: 'system' as const, actorId: 'deployment-creation' };
+  // The preflight gate itself is the funnel event (result: pass|blocked).
+  // A blocked evaluation writes nothing and the caller throws — for the
+  // deploy-link flow that happens inside its tx, which rolls this event back
+  // (no deployment exists to attach it to); the manual flow persists it.
+  if (!result.ready) {
+    await recordEvent(db, {
+      organizationId: params.organizationId,
+      eventType: 'application.preflight_evaluated',
+      ...actor,
+      customerId: params.customerId,
+      payload: {
+        schemaVersion: 1,
+        applicationId: params.applicationId,
+        result: 'blocked',
+        blockingCount: result.blockers.length,
+        warningCount: result.warnings.length,
+      },
+    });
+  }
   requirePreflightReady(result);
   const [row] = await db
     .insert(schema.deployments)
@@ -153,6 +176,20 @@ export async function createDeploymentRecord(
       updatedBy: params.updatedBy,
     })
     .returning();
+  await recordEvent(db, {
+    organizationId: params.organizationId,
+    eventType: 'application.preflight_evaluated',
+    ...actor,
+    deploymentId: row!.id,
+    customerId: params.customerId,
+    payload: {
+      schemaVersion: 1,
+      applicationId: params.applicationId,
+      result: 'pass',
+      blockingCount: result.blockers.length,
+      warningCount: result.warnings.length,
+    },
+  });
   return { deployment: row!, application };
 }
 

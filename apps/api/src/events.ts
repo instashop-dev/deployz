@@ -81,7 +81,16 @@ export type DeploymentEventType =
   | 'deploy_link.launched'
   | 'deploy_link.retry.requested'
   | 'deploy_link.revoked'
-  | 'deploy_link.regenerated';
+  | 'deploy_link.regenerated'
+  // application/analysis funnel — PR1 telemetry. The application id rides in
+  // `payload.applicationId` (event_logs has no application_id column).
+  | 'application.created'
+  | 'application.analysis_started'
+  | 'application.analysis_completed'
+  | 'application.analysis_failed'
+  | 'application.preflight_evaluated'
+  | 'application.configuration_saved'
+  | 'customer.created';
 
 export interface DeploymentEvent {
   readonly organizationId: string;

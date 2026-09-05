@@ -24,6 +24,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { ApiError } from './errors.js';
+import { recordEvent } from './events.js';
 import { effectiveReadinessReport } from './fix-instructions.js';
 import {
   fetchHeadSha,
@@ -157,6 +158,12 @@ export async function runApplicationAnalysis(
   applicationId: string,
   options?: { force?: boolean },
 ): Promise<void> {
+  // Wall-clock for the funnel event's durationMs: the whole run happens in
+  // this invocation, so entry→persist is a trustworthy duration with no
+  // dedicated analysis_started/ended timestamp on the row.
+  const runStartedMs = Date.now();
+  // Known only once the row loads; a load failure has no org to attribute.
+  let organizationId: string | undefined;
   try {
     const rows = await deps.db
       .select()
@@ -169,6 +176,7 @@ export async function runApplicationAnalysis(
       // background run starting — nothing left to persist to.
       return;
     }
+    organizationId = application.organizationId;
 
     // Task 6 commit-SHA analysis cache (real GitHub mode only — fixture mode
     // has no head commit to compare and always runs fully). The single
@@ -192,10 +200,28 @@ export async function runApplicationAnalysis(
     }
 
     if (!options?.force && headSha !== undefined && isCommitShaCacheHit(application.detectedMetadata, headSha)) {
-      await deps.db
-        .update(schema.applications)
-        .set({ analysisStatus: 'COMPLETE' })
-        .where(eq(schema.applications.id, applicationId));
+      const durationMs = Date.now() - runStartedMs;
+      await deps.db.transaction(async (tx) => {
+        await tx
+          .update(schema.applications)
+          .set({ analysisStatus: 'COMPLETE' })
+          .where(eq(schema.applications.id, applicationId));
+        await recordEvent(tx, {
+          organizationId: organizationId!,
+          eventType: 'application.analysis_completed',
+          actorType: 'system',
+          actorId: `analysis:${applicationId}`,
+          payload: completedEventPayload({
+            applicationId,
+            analysisVersion: ANALYSIS_VERSION,
+            durationMs,
+            runtime: application.detectedMetadata?.['runtime'],
+            readiness: storedReadinessReport(application.detectedMetadata),
+            compatibility: application.compatibilityStatus,
+            cached: true,
+          }),
+        });
+      });
       return;
     }
 
@@ -241,40 +267,64 @@ export async function runApplicationAnalysis(
     // The stored report keeps every finding; the persisted verdict reads the
     // report the way the page does — with the vendor's port and start
     // command applied — so the list badge and the readiness page agree.
-    const effectiveReadiness = effectiveReadinessReport({
+    const outcomeReadiness = effectiveReadinessReport({
       containerPort: contractFieldUpdates.containerPort ?? application.containerPort,
       detectedMetadata: { ...application.detectedMetadata, readiness },
-    });
+    }) ?? readiness;
+    const outcomeVerdict = verdictFromReadiness(outcomeReadiness.state);
+    const durationMs = Date.now() - runStartedMs;
 
-    await deps.db
-      .update(schema.applications)
-      .set({
-        analysisStatus: 'COMPLETE',
-        compatibilityStatus: verdictFromReadiness((effectiveReadiness ?? readiness).state),
-        compatibilityReason: (effectiveReadiness ?? readiness).summary,
-        detectedMetadata: {
-          ...metadata,
-          // Phase 8: the resolved worker command rides the metadata so the
-          // deployment manifest's worker gate reads CURRENT analysis output
-          // (this record is replaced wholesale each run) instead of the
-          // sticky worker_command column, which positive-only writes never
-          // clear. Null when no worker script resolves.
-          resolvedWorkerCommand,
-          readiness,
-          application: applicationAnalysis,
-          vendorOverrides,
+    await deps.db.transaction(async (tx) => {
+      await tx
+        .update(schema.applications)
+        .set({
+          analysisStatus: 'COMPLETE',
+          compatibilityStatus: outcomeVerdict,
+          compatibilityReason: outcomeReadiness.summary,
+          detectedMetadata: {
+            ...metadata,
+            // Phase 8: the resolved worker command rides the metadata so the
+            // deployment manifest's worker gate reads CURRENT analysis output
+            // (this record is replaced wholesale each run) instead of the
+            // sticky worker_command column, which positive-only writes never
+            // clear. Null when no worker script resolves.
+            resolvedWorkerCommand,
+            readiness,
+            application: applicationAnalysis,
+            vendorOverrides,
+            analysisVersion: ANALYSIS_VERSION,
+            ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
+          },
+          ...contractFieldUpdates,
+        })
+        .where(eq(schema.applications.id, applicationId));
+      await recordEvent(tx, {
+        organizationId: organizationId!,
+        eventType: 'application.analysis_completed',
+        actorType: 'system',
+        actorId: `analysis:${applicationId}`,
+        payload: completedEventPayload({
+          applicationId,
           analysisVersion: ANALYSIS_VERSION,
-          ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
-        },
-        ...contractFieldUpdates,
-      })
-      .where(eq(schema.applications.id, applicationId));
+          durationMs,
+          runtime: mergedAnalysis.metadata['runtime'],
+          readiness: outcomeReadiness,
+          compatibility: outcomeVerdict,
+        }),
+      });
+    });
   } catch (error) {
-    await markFailed(deps.db, applicationId, error);
+    await markFailed(deps.db, applicationId, organizationId, error, Date.now() - runStartedMs);
   }
 }
 
-async function markFailed(db: RuntimeDb, applicationId: string, error: unknown): Promise<void> {
+async function markFailed(
+  db: RuntimeDb,
+  applicationId: string,
+  organizationId: string | undefined,
+  error: unknown,
+  durationMs: number,
+): Promise<void> {
   const reason =
     error instanceof ApiError ? error.message : 'Repository analysis failed unexpectedly';
   // This runs detached on the worker Lambda and every error above is caught,
@@ -284,15 +334,94 @@ async function markFailed(db: RuntimeDb, applicationId: string, error: unknown):
   // persisted `reason` is deliberately vendor-facing and loses the detail.
   console.error(`[analysis] application ${applicationId} FAILED: ${reason}`, error);
   try {
-    await db
-      .update(schema.applications)
-      .set({ analysisStatus: 'FAILED', compatibilityReason: reason })
-      .where(eq(schema.applications.id, applicationId));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.applications)
+        .set({ analysisStatus: 'FAILED', compatibilityReason: reason })
+        .where(eq(schema.applications.id, applicationId));
+      if (organizationId !== undefined) {
+        await recordEvent(tx, {
+          organizationId,
+          eventType: 'application.analysis_failed',
+          actorType: 'system',
+          actorId: `analysis:${applicationId}`,
+          payload: { schemaVersion: 1, applicationId, failureCode: analysisFailureCode(error), durationMs },
+        });
+      }
+    });
   } catch {
     // The DB write itself failed (e.g. connection dropped mid-run) — there
     // is nothing more we can do here. The row is left in ANALYZING; a retry
     // (re-POSTing /analyse) is the recovery path. Never rethrow.
   }
+}
+
+/**
+ * Stable, deterministic failure classification for analysis_failed events —
+ * never exception text. The existing failure path throws ApiError codes
+ * (github.ts/analysis.ts); collapse them into the smallest enum that still
+ * separates a vendor-fixable repo problem from a Deployz/GitHub-side outage.
+ */
+function analysisFailureCode(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 'GITHUB_DISABLED':
+        return 'github_disabled';
+      case 'GITHUB_INSTALLATION_MISSING':
+        return 'github_installation_missing';
+      case 'GITHUB_RATE_LIMITED':
+        return 'github_rate_limited';
+      case 'GITHUB_REPO_FULL_NAME_INVALID':
+      case 'GITHUB_REPO_NOT_FOUND':
+      case 'GITHUB_REPO_EMPTY':
+        return 'repository_unavailable';
+      default:
+        // token/tree fetch failures and other GitHub 5xx.
+        return 'github_unavailable';
+    }
+  }
+  return 'internal_error';
+}
+
+/**
+ * The stored semantic readiness report (`detected_metadata.readiness`), when
+ * the row carries one. Older rows predate the report and read as null.
+ */
+function storedReadinessReport(metadata: Record<string, unknown> | null): ReadinessReport | null {
+  const raw = asRecord(metadata?.['readiness']);
+  return typeof raw['state'] === 'string' && Array.isArray(raw['findings']) && 'summary' in raw
+    ? (raw as unknown as ReadinessReport)
+    : null;
+}
+
+/** Shared analysis_completed payload — full run and cache hit use one shape. */
+function completedEventPayload(params: {
+  applicationId: string;
+  analysisVersion: number;
+  durationMs: number;
+  runtime: unknown;
+  readiness: ReadinessReport | null;
+  compatibility: string | null;
+  cached?: boolean;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    schemaVersion: 1,
+    applicationId: params.applicationId,
+    analysisVersion: params.analysisVersion,
+    durationMs: params.durationMs,
+  };
+  // Runtime/framework family only — never repo content or env values.
+  if (typeof params.runtime === 'string' && params.runtime.length > 0) {
+    payload['runtime'] = params.runtime;
+  }
+  if (params.readiness) {
+    payload['readiness'] = params.readiness.state;
+    payload['compatibility'] = params.compatibility ?? verdictFromReadiness(params.readiness.state);
+    payload['findingCount'] = params.readiness.findings.length;
+    payload['blockingCount'] = params.readiness.findings.filter((finding) => finding.blocking).length;
+  }
+  if (params.cached) payload['cached'] = true;
+  return payload;
 }
 
 // ── Task 6 commit-SHA analysis cache ────────────────────────────────────────
