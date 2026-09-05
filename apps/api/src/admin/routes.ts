@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { NotFoundError } from '../errors.js';
+import { ApiError, NotFoundError } from '../errors.js';
 import type { DeploymentJobRow, DeploymentRow } from '../fleet-row.js';
 import type { Actor } from '../organizations.js';
 import { recordAdminAuditEvent } from './audit.js';
@@ -16,6 +16,7 @@ import {
   getDeploymentDetail,
   getJobDetail,
   getOverview,
+  getOverviewPilotInsights,
   getVendorDetail,
   isUuid,
   listConnections,
@@ -105,6 +106,19 @@ function listQuery(request: FastifyRequest): { q?: string | undefined; filter?: 
   };
 }
 
+const PILOT_INSIGHTS_DAYS = [7, 30, 90] as const;
+
+/** ?days=7|30|90 — the pilot-insights window; defaults to 30. */
+function pilotInsightsDays(request: FastifyRequest): number {
+  const { days } = request.query as { days?: string };
+  if (days === undefined) return 30;
+  const parsed = Number(days);
+  if (!(PILOT_INSIGHTS_DAYS as readonly number[]).includes(parsed)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'days must be one of 7, 30, or 90');
+  }
+  return parsed;
+}
+
 // Team Admin API routes (docs/admin/team-admin.md): the read-only
 // overview/vendors/deployments/jobs/connections/audit-log/search routes,
 // plus the "View as Vendor" support-session lifecycle.
@@ -119,8 +133,12 @@ export function registerAdminRoutes(
     performRelayReset,
   }: AdminRouteDeps,
 ): void {
-  // GET /api/admin/overview — items needing attention across every tenant.
-  app.get('/api/admin/overview', { preHandler: requireTeamAdmin }, async () => getOverview(db));
+  // GET /api/admin/overview — items needing attention across every tenant,
+  // plus the pilot-insights funnel for the trailing ?days= window.
+  app.get('/api/admin/overview', { preHandler: requireTeamAdmin }, async (request) => {
+    const overview = await getOverview(db);
+    return { ...overview, pilotInsights: await getOverviewPilotInsights(db, pilotInsightsDays(request)) };
+  });
 
   // GET /api/admin/vendors — cross-tenant vendor list.
   app.get('/api/admin/vendors', { preHandler: requireTeamAdmin }, async (request) =>

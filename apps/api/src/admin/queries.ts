@@ -205,6 +205,292 @@ export async function getOverview(db: RuntimeDb, now: Date = new Date()) {
   };
 }
 
+// ── Pilot insights ──────────────────────────────────────────────────────────
+
+/** The event_logs vocabulary the pilot funnel reads. Kept explicit: a new
+ *  event type that should feed a metric must be added here AND in the reducer
+ *  below. event_logs has no index beyond its PK, so this is deliberately one
+ *  windowed scan over exactly these types (pilot volume is tiny). */
+const PILOT_INSIGHT_EVENT_TYPES = [
+  'application.created',
+  'application.analysis_completed',
+  'application.preflight_evaluated',
+  'install.launched',
+  'install.completed',
+  'install.failed',
+  'install.retry.requested',
+  'deploy.failed',
+  'release.build_failed',
+  'deploy_link.created',
+  'deploy_link.opened',
+  'deploy_link.launched',
+  'relay.connected',
+  // Admin recovery actions target a deployment; support sessions target an org.
+  'admin.install.retry_requested',
+  'admin.rollback.requested',
+  'admin.destroy.force_completed',
+  'admin.relay.reset_requested',
+  'admin.support_session.started',
+] as const;
+
+function payloadString(payload: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = payload?.[key];
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function markEarliest(map: Map<string, number>, key: string, at: number): void {
+  const current = map.get(key);
+  if (current === undefined || at < current) map.set(key, at);
+}
+
+function median(sorted: number[]): number {
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+}
+
+/** Aggregate one install/deploy/build failure event into the top-5 table. */
+function recordFailure(
+  failuresByCode: Map<string, { count: number; deployments: Set<string> }>,
+  payload: Record<string, unknown> | null | undefined,
+  deploymentId: string | null,
+): void {
+  const failureCode = payloadString(payload, 'failureCode');
+  if (!failureCode) return;
+  let entry = failuresByCode.get(failureCode);
+  if (entry === undefined) {
+    entry = { count: 0, deployments: new Set() };
+    failuresByCode.set(failureCode, entry);
+  }
+  entry.count += 1;
+  // release.build_failed rows carry release_id, not deployment_id: they
+  // contribute to the event count but never to affectedDeployments (an
+  // accepted MVP imprecision).
+  if (deploymentId) entry.deployments.add(deploymentId);
+}
+
+export interface PilotInsights {
+  window: { days: number; from: string; to: string };
+  funnel: {
+    applicationsCreated: number;
+    analysisCompleted: number;
+    preflightPassed: number;
+    awsLaunched: number;
+    relayConnected: number;
+    healthy: number;
+  };
+  quality: {
+    installSuccessRate: number | null;
+    retryRate: number | null;
+    medianTimeToHealthyMs: number | null;
+    p90TimeToHealthyMs: number | null;
+    sampleSize: number;
+  };
+  failures: { code: string; count: number; affectedDeployments: number }[];
+  deployLinks: {
+    created: number;
+    opened: number;
+    launched: number;
+    relayConnected: number;
+    healthy: number;
+  };
+  support: {
+    healthyWithoutSupport: number;
+    requiredSupportIntervention: number;
+    supportSessions: number;
+  };
+}
+
+/** Pilot funnel read model: distinct-entity counts over the MVP telemetry
+ *  vocabulary within the trailing `days` window. Deployment ids are the
+ *  event_logs.deployment_id column; application ids ride in the payload
+ *  (event_logs has no application_id column). Every metric is set-based and
+ *  reduced here in JS from one windowed scan — pilot volume is tiny and the
+ *  per-deployment set intersections/medians are far clearer in JS than SQL. */
+export async function getOverviewPilotInsights(db: RuntimeDb, days: number, now: Date = new Date()): Promise<PilotInsights> {
+  const from = new Date(now.getTime() - days * 86_400_000);
+  const rows = await db
+    .select({
+      occurredAt: schema.eventLogs.occurredAt,
+      organizationId: schema.eventLogs.organizationId,
+      deploymentId: schema.eventLogs.deploymentId,
+      eventType: schema.eventLogs.eventType,
+      result: schema.eventLogs.result,
+      payload: schema.eventLogs.payload,
+    })
+    .from(schema.eventLogs)
+    .where(
+      and(
+        gte(schema.eventLogs.occurredAt, from),
+        lte(schema.eventLogs.occurredAt, now),
+        inArray(schema.eventLogs.eventType, [...PILOT_INSIGHT_EVENT_TYPES]),
+      ),
+    );
+
+  const applicationsCreated = new Set<string>();
+  const analysisCompleted = new Set<string>();
+  const preflightPassed = new Set<string>();
+  const launches = new Set<string>();
+  const relayConnected = new Set<string>();
+  const healthy = new Set<string>();
+  const installAttempts = new Set<string>();
+  const retries = new Set<string>();
+  const linkCreated = new Set<string>();
+  const linkOpened = new Set<string>();
+  const linkLaunched = new Set<string>();
+  const launchAt = new Map<string, number>();
+  const healthyAt = new Map<string, number>();
+  const healthyOrg = new Map<string, string>();
+  const failuresByCode = new Map<string, { count: number; deployments: Set<string> }>();
+  const interventionTargets = new Set<string>();
+  const supportSessions = new Set<string>();
+
+  for (const row of rows) {
+    const deploymentId = row.deploymentId;
+    const at = row.occurredAt.getTime();
+    switch (row.eventType) {
+      case 'application.created': {
+        const applicationId = payloadString(row.payload, 'applicationId');
+        if (applicationId) applicationsCreated.add(applicationId);
+        break;
+      }
+      case 'application.analysis_completed': {
+        const applicationId = payloadString(row.payload, 'applicationId');
+        if (applicationId) analysisCompleted.add(applicationId);
+        break;
+      }
+      case 'application.preflight_evaluated': {
+        if (payloadString(row.payload, 'result') === 'pass') {
+          const applicationId = payloadString(row.payload, 'applicationId');
+          if (applicationId) preflightPassed.add(applicationId);
+        }
+        break;
+      }
+      case 'install.launched':
+      case 'deploy_link.launched': {
+        if (deploymentId) {
+          launches.add(deploymentId);
+          markEarliest(launchAt, deploymentId, at);
+          if (row.eventType === 'deploy_link.launched') linkLaunched.add(deploymentId);
+        }
+        break;
+      }
+      case 'deploy_link.created':
+        if (deploymentId) linkCreated.add(deploymentId);
+        break;
+      case 'deploy_link.opened':
+        if (deploymentId) linkOpened.add(deploymentId);
+        break;
+      case 'relay.connected':
+        if (deploymentId) relayConnected.add(deploymentId);
+        break;
+      case 'install.retry.requested':
+        if (deploymentId) retries.add(deploymentId);
+        break;
+      case 'install.completed':
+        if (deploymentId && (row.result === 'success' || row.result === 'failure')) installAttempts.add(deploymentId);
+        if (deploymentId && row.result === 'success') {
+          healthy.add(deploymentId);
+          healthyOrg.set(deploymentId, row.organizationId);
+          markEarliest(healthyAt, deploymentId, at);
+        }
+        break;
+      case 'install.failed':
+        if (deploymentId && (row.result === 'success' || row.result === 'failure')) installAttempts.add(deploymentId);
+        recordFailure(failuresByCode, row.payload, deploymentId);
+        break;
+      case 'deploy.failed':
+      case 'release.build_failed':
+        recordFailure(failuresByCode, row.payload, deploymentId);
+        break;
+      // Admin recovery actions target one deployment (payload.targetId);
+      // support sessions target the whole org and are handled separately.
+      case 'admin.install.retry_requested':
+      case 'admin.rollback.requested':
+      case 'admin.destroy.force_completed':
+      case 'admin.relay.reset_requested':
+        if (payloadString(row.payload, 'targetType') === 'deployment') {
+          const targetId = payloadString(row.payload, 'targetId');
+          if (targetId) interventionTargets.add(targetId);
+        }
+        break;
+      case 'admin.support_session.started':
+        supportSessions.add(row.organizationId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Duration samples: earliest launch (install or deploy link) → earliest
+  // install.completed success, per deployment, both inside the window.
+  const durations: number[] = [];
+  for (const [deploymentId, completedAt] of healthyAt) {
+    const startedAt = launchAt.get(deploymentId);
+    if (startedAt !== undefined && completedAt > startedAt) durations.push(completedAt - startedAt);
+  }
+  durations.sort((a, b) => a - b);
+
+  const healthyCount = healthy.size;
+  const launchedCount = launches.size;
+
+  let deployLinkHealthy = 0;
+  let deployLinkRelay = 0;
+  for (const deploymentId of linkCreated) {
+    if (healthy.has(deploymentId)) deployLinkHealthy += 1;
+    if (relayConnected.has(deploymentId)) deployLinkRelay += 1;
+  }
+
+  // A deployment required support when an admin recovery action targeted it,
+  // or when its org ran a support session in-window — a vendor-level session
+  // counts every deployment of that org that became healthy as supported (an
+  // accepted MVP imprecision).
+  const intervention = new Set(interventionTargets);
+  for (const [deploymentId, organizationId] of healthyOrg) {
+    if (supportSessions.has(organizationId)) intervention.add(deploymentId);
+  }
+  let healthyWithoutSupport = 0;
+  for (const deploymentId of healthy) {
+    if (!intervention.has(deploymentId)) healthyWithoutSupport += 1;
+  }
+
+  const failures = [...failuresByCode.entries()]
+    .map(([code, entry]) => ({ code, count: entry.count, affectedDeployments: entry.deployments.size }))
+    .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code))
+    .slice(0, 5);
+
+  return {
+    window: { days, from: from.toISOString(), to: now.toISOString() },
+    funnel: {
+      applicationsCreated: applicationsCreated.size,
+      analysisCompleted: analysisCompleted.size,
+      preflightPassed: preflightPassed.size,
+      awsLaunched: launchedCount,
+      relayConnected: relayConnected.size,
+      healthy: healthyCount,
+    },
+    quality: {
+      installSuccessRate: installAttempts.size === 0 ? null : Math.round((healthyCount / installAttempts.size) * 100) / 100,
+      retryRate: launchedCount === 0 ? null : Math.round((retries.size / launchedCount) * 100) / 100,
+      medianTimeToHealthyMs: durations.length === 0 ? null : median(durations),
+      p90TimeToHealthyMs: durations.length >= 10 ? durations[Math.floor((durations.length - 1) * 0.9)]! : null,
+      sampleSize: durations.length,
+    },
+    failures,
+    deployLinks: {
+      created: linkCreated.size,
+      opened: linkOpened.size,
+      launched: linkLaunched.size,
+      relayConnected: deployLinkRelay,
+      healthy: deployLinkHealthy,
+    },
+    support: {
+      healthyWithoutSupport,
+      requiredSupportIntervention: intervention.size,
+      supportSessions: supportSessions.size,
+    },
+  };
+}
+
 // ── Vendors ─────────────────────────────────────────────────────────────────
 
 export type VendorConnection = 'CONNECTED' | 'DISCONNECTED' | 'NONE' | 'UNKNOWN';
