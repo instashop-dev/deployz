@@ -18,6 +18,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-003 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 18 expected-deployable repositories the gate rejects (gate audit, analysis version 15) |
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
 | DEPLOY-005 | ENV_BINDING_ERROR | DEPLOYZ_BUG | OPEN | predicted from the gate audit for repo-003, repo-021, repo-035, repo-039 (and every app that reads its database under its own name); Wave 1 measures it |
+| DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 
 ---
 
@@ -212,3 +213,32 @@ to non-Node shapes; (b) product: let the vendor map a provisioned value to
 a variable name on the configuration screen (`DEPLOYZ_DATABASE_URL`
 placeholders resolved by the relay at install), which needs no analyser
 signal. Decision after Wave 1 evidence.
+
+## DEPLOY-006 — The generic template's container health check needs a shell and curl inside the image
+
+**Stage** HEALTH_PATH_ERROR (the container runs, its health check never
+passes) · **Root cause** DEPLOYZ_BUG · **Resolution** FIXED (pending
+deploy) · **Found** Wave 1, repo-008 gatus (2026-09-06).
+
+**Behaviour.** The generic application template's ECS container health
+check ran `CMD-SHELL curl -f http://localhost:<port><healthCheckPath> ||
+exit 1` inside the App container regardless of what the image actually
+ships. repo-008 (TwiN/gatus) is built `FROM scratch` — no shell, no
+`curl` — so every task exited 0 (the application itself ran fine) but ECS
+reported "Task failed container health checks" before an ALB target was
+ever registered; four consecutive tasks failed the same way, the
+deployment circuit breaker fired, and CloudFormation rolled the install
+back. The Documenso preset
+(`packages/cdk/src/application/documenso.ts`) already had to override the
+command with a `node -e "fetch(...)"` probe because its image has node
+but no curl — the same defect, worked around per-preset rather than fixed.
+
+**Effect.** Every image without `/bin/sh` and `curl` (distroless, scratch,
+most Go/Rust images, slim Node images) fails its first install regardless
+of the application's own health.
+
+**Fix.** The container-level health check is defined only when a preset
+supplies an explicit command; the generic template relies on the ALB
+target group's probe of the health path, which is what promotes the
+deployment anyway. Files: `packages/cdk/src/application/application-stack.ts`,
+the regenerated artifacts, `packages/cdk/test/application-stack.test.ts`.

@@ -866,30 +866,6 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
               },
             ],
             "Essential": true,
-            "HealthCheck": {
-              "Command": [
-                "CMD-SHELL",
-                {
-                  "Fn::Join": [
-                    "",
-                    [
-                      "curl -f http://localhost:",
-                      {
-                        "Ref": "paramContainerPort",
-                      },
-                      {
-                        "Ref": "paramHealthCheckPath",
-                      },
-                      " || exit 1",
-                    ],
-                  ],
-                },
-              ],
-              "Interval": 30,
-              "Retries": 3,
-              "StartPeriod": 60,
-              "Timeout": 5,
-            },
             "Image": {
               "Ref": "paramImageReference",
             },
