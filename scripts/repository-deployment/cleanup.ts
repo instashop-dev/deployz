@@ -6,7 +6,7 @@
  * for any ledger whose cleanup did not complete.
  */
 import type { CanaryConfig } from '../version-canary/config.js';
-import type { ControlPlane } from '../version-canary/control-plane.js';
+import { waitFor, type ControlPlane } from '../version-canary/control-plane.js';
 import type { Evidence } from '../version-canary/evidence.js';
 import type { Canary } from '../version-canary/steps.js';
 import { stageBRun } from './ledger.js';
@@ -24,7 +24,12 @@ export interface CleanupInput {
   evidence: Evidence;
   teardown: TeardownLike;
   now: () => number;
+  /** How long to wait for an in-flight job (an INSTALL still reporting a rolled-back stack) before Disconnect. Default 60 min. */
+  idleTimeoutMs?: number | undefined;
+  pollIntervalMs?: number | undefined;
 }
+
+const ACTIVE_JOB_STATES = new Set(['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']);
 
 /**
  * Fill the result's `cleanup` section. A failure in any stage is recorded
@@ -39,11 +44,10 @@ export async function cleanupAttempt(input: CleanupInput, result: StageBResult):
   const section = result.cleanup;
   const errors: string[] = [];
 
-  // A built release is an ECR image in the control-plane account: a failure
-  // between the build and the deployment's creation still has something to
-  // remove, so only an attempt that created nothing at all is exempt.
-  const builtImage = Object.values(run.releases).some((release) => release.imageDigest);
-  if (!run.deploymentId && !run.bootstrapStackName && !builtImage) {
+  // A created release may already be an ECR image in the control-plane
+  // account (a build the ledger never saw finish is the risky case), so only
+  // an attempt that created nothing at all is exempt.
+  if (!run.deploymentId && !run.bootstrapStackName && Object.keys(run.releases).length === 0) {
     section.status = 'NOT_REQUIRED';
     section.detail = 'no AWS resources were created';
     run.stageB.cleanupCompletedAt = new Date(now()).toISOString();
@@ -52,6 +56,20 @@ export async function cleanupAttempt(input: CleanupInput, result: StageBResult):
     return section;
   }
 
+  // Disconnect is refused while another operation runs (409 DEPLOYMENT_BUSY);
+  // an INSTALL that is still reporting a rolled-back stack is the usual case.
+  if (run.deploymentId) {
+    try {
+      await waitFor(
+        'deployment to be idle before Disconnect',
+        () => api.getDeployment(run.deploymentId!),
+        (d) => (d.jobs.some((j) => ACTIVE_JOB_STATES.has(j.state)) ? null : d),
+        { timeoutMs: input.idleTimeoutMs ?? 60 * 60_000, intervalMs: input.pollIntervalMs ?? 30_000, describe: (d) => `${d.state} ${d.jobs.at(-1)?.type ?? '-'}:${d.jobs.at(-1)?.state ?? '-'}` },
+      );
+    } catch (error) {
+      errors.push(`idle wait: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   try {
     await teardown.destroyThroughProduct(canary);
   } catch (error) {

@@ -197,6 +197,12 @@ export function classifyFailure(evidence: FailureEvidence): ClassifiedFailure {
   const healthStop = healthCheckStop(evidence);
   const tasksRunning = (evidence.stoppedTasks ?? []).every((t) => t.exitCode === null || t.exitCode === 0);
   const targetsUnhealthy = (evidence.targetHealth ?? []).length > 0 && (evidence.targetHealth ?? []).every((t) => t !== 'healthy');
+  if (healthStop && /container health check/i.test(healthStop) && tasksRunning && (evidence.targetHealth ?? []).length === 0) {
+    // ECS killed a running container on the task definition's own health
+    // command before any load-balancer target existed: the in-container probe
+    // (a shell + curl the image may not ship), not the application's path.
+    return { failureStage: 'HEALTH_PATH_ERROR', rootCause: 'DEPLOYZ_BUG', rootCauseEvidence: `the container ran (exit 0) and was stopped on the task definition's in-container health command before any ALB target registered: ${trim(healthStop)} (DEPLOY-006)` };
+  }
   if (healthStop || evidence.failureCode === 'IMAGE_HEALTH_CHECK_FAILED' || evidence.failureCode === 'PORT_MISMATCH' || (evidence.failureCode === 'ECS_DEPLOYMENT_FAILED' && tasksRunning) || targetsUnhealthy) {
     if (portLine && evidence.failureCode !== 'IMAGE_HEALTH_CHECK_FAILED') {
       return { failureStage: 'PORT_ERROR', rootCause: null, rootCauseEvidence: `the app listens somewhere else than the configured port: ${trim(portLine)} — decide ANALYSIS_BUG vs REPO_CONFIGURATION` };

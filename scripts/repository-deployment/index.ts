@@ -481,16 +481,27 @@ export async function auditAccount(config: CanaryConfig, evidenceDir: string): P
   return { runTagged, installations };
 }
 
-async function pool<T>(items: readonly T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+/** Runs items with bounded concurrency; `fn` returns false to stop handing out new items. */
+async function pool<T>(items: readonly T[], concurrency: number, fn: (item: T) => Promise<boolean>): Promise<void> {
   const queue = [...items];
+  let stopped = false;
   const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
     for (;;) {
       const item = queue.shift();
-      if (item === undefined) return;
-      await fn(item);
+      if (item === undefined || stopped) return;
+      if (!(await fn(item))) stopped = true;
     }
   });
   await Promise.all(workers);
+}
+
+/**
+ * README "Stop conditions": a wave never continues past a repository whose
+ * resources are not proven gone — the next attempt would build on an
+ * account whose state is unknown, and leaks would accumulate.
+ */
+export function shouldStopWave(result: StageBResult): boolean {
+  return result.cleanup.status === 'FAIL';
 }
 
 function writeSummaries(runsDir: string, sha: string): void {
@@ -568,6 +579,7 @@ async function main(): Promise<number> {
   const failures: string[] = [];
   await pool(todo, options.concurrency, async (line) => {
     const entry = entries.find((e) => e.id === line.id)!;
+    let keepGoing = true;
     try {
       let result: StageBResult;
       if (line.action === 'gate-only') {
@@ -578,13 +590,19 @@ async function main(): Promise<number> {
         result = await runAttempt(series, options, config, entry);
         writeResult(options.runsDir, result, { force: options.force });
         if (entry.set !== 'improvement') writeFrozenIfAbsent(options.runsDir, result);
+        if (shouldStopWave(result)) {
+          keepGoing = false;
+          failures.push(`${entry.id}: cleanup ${result.cleanup.status} — wave stopped (${result.cleanup.detail ?? 'see the result'}); run --cleanup --repo ${entry.id}, then --resume`);
+        }
       }
       console.log(`${entry.id}: ${result.classification}${result.rootCause ? ` (${result.rootCause})` : ''}`);
     } catch (error) {
+      keepGoing = false;
       failures.push(`${entry.id}: ${error instanceof Error ? error.message : String(error)}`);
       console.error(`${entry.id}: harness failure — ${error instanceof Error ? error.message : String(error)}`);
     }
     writeSummaries(options.runsDir, sha);
+    return keepGoing;
   });
   if (failures.length > 0) {
     console.error(`\n${failures.length} harness failure(s):\n${failures.join('\n')}`);
