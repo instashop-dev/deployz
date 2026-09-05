@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 201,
     "entries": 4073,
@@ -36,9 +36,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -58,12 +58,17 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [],
-    "unsupported": [],
+    "unsupported": [
+      "local-filesystem"
+    ],
     "readinessFindings": [
+      "unsupported-persistent-volume",
       "health-check",
       "database-migrations"
     ],
     "gateFindings": [
+      "unsupported",
+      "health-path-required",
       "migration-command-missing"
     ],
     "unresolvedQuestions": []
@@ -72,9 +77,8 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "READY",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -138,22 +142,13 @@
       "expected": [
         "local-filesystem"
       ],
-      "actual": [],
-      "match": false,
-      "kind": "fact"
+      "actual": [
+        "local-filesystem"
+      ],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-025",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "worker",
       "kind": "fact",
@@ -181,18 +176,6 @@
       "actual": null,
       "finding": {
         "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "local-filesystem"
-      ],
-      "actual": [],
-      "finding": {
-        "id": "COMP-025",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

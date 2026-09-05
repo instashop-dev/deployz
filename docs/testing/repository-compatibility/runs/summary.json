@@ -1,67 +1,123 @@
 {
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "total": 100,
   "analysed": 100,
   "failed": 0,
   "fullMatch": 5,
-  "verdictMatch": 51,
-  "verdictAccuracy": 51,
-  "falseAcceptances": 14,
-  "falseRejections": 12,
-  "configurationMismatches": 23,
+  "verdictMatch": 61,
+  "verdictAccuracy": 61,
+  "falseAcceptances": 6,
+  "falseRejections": 13,
+  "configurationMismatches": 20,
   "factMismatches": {
     "appRoot": 11,
-    "compatibility": 49,
+    "compatibility": 39,
     "dockerfilePath": 10,
-    "healthPath": 49,
+    "healthPath": 50,
     "migration": 55,
-    "port": 26,
+    "port": 22,
     "postgres": 12,
     "redis": 26,
     "storage": 25,
-    "unsupported": 44,
+    "unsupported": 41,
     "worker": 29
   },
   "byFindingType": {
-    "ANALYSIS_BUG": 119,
-    "ANALYSIS_MISSING_SIGNAL": 217,
+    "ANALYSIS_BUG": 118,
+    "ANALYSIS_MISSING_SIGNAL": 194,
     "MVP_CAPABILITY_GAP": 0,
     "CORRECTLY_UNSUPPORTED": 0,
     "REPO_INVALID": 0
   },
-  "unexplained": [],
+  "unexplained": [
+    {
+      "id": "repo-004",
+      "fact": "healthPath",
+      "expected": "/healthcheck",
+      "actual": "/v1/integrations/status"
+    },
+    {
+      "id": "repo-033",
+      "fact": "healthPath",
+      "expected": "/",
+      "actual": "/ws/status"
+    },
+    {
+      "id": "repo-041",
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "terraform"
+      ]
+    },
+    {
+      "id": "repo-059",
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/csv/status"
+    },
+    {
+      "id": "repo-073",
+      "fact": "unsupported",
+      "expected": [
+        "kafka"
+      ],
+      "actual": [
+        "kafka",
+        "kubernetes"
+      ]
+    },
+    {
+      "id": "repo-076",
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/oauth/status"
+    },
+    {
+      "id": "repo-084",
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/sync/status"
+    },
+    {
+      "id": "repo-090",
+      "fact": "compatibility",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION"
+    }
+  ],
   "bySet": {
     "improvement": {
       "total": 80,
       "analysed": 80,
-      "verdictMatch": 41,
-      "fullMatch": 4
+      "verdictMatch": 51,
+      "fullMatch": 5
     },
     "unseen": {
       "total": 20,
       "analysed": 20,
       "verdictMatch": 10,
-      "fullMatch": 1
+      "fullMatch": 0
     }
   },
   "byCohort": {
     "boundary": {
       "total": 19,
       "analysed": 19,
-      "verdictMatch": 13,
+      "verdictMatch": 16,
       "fullMatch": 1
     },
     "messy": {
       "total": 22,
       "analysed": 22,
-      "verdictMatch": 8,
+      "verdictMatch": 13,
       "fullMatch": 1
     },
     "realistic": {
       "total": 59,
       "analysed": 59,
-      "verdictMatch": 30,
+      "verdictMatch": 32,
       "fullMatch": 3
     }
   }

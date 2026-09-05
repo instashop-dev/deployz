@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "medium",
   "difficulty": 4,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 202,
     "entries": 2762,
@@ -36,16 +36,16 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 8484,
     "startCommand": "CMD: [\"./sandbox/run.sh\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/status",
     "postgres": false,
     "postgresDetected": true,
     "redis": true,
@@ -107,13 +107,16 @@
       "TYPEORM_LOG_SLOW_MS",
       "TYPEORM_REDIS_URL"
     ],
-    "unsupported": [],
+    "unsupported": [
+      "local-filesystem"
+    ],
     "readinessFindings": [
-      "health-check",
+      "unsupported-persistent-volume",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
+      "unsupported",
       "required-env-vars-missing"
     ],
     "unresolvedQuestions": [
@@ -125,9 +128,8 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -185,31 +187,22 @@
     {
       "fact": "healthPath",
       "expected": "/status",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/status",
+      "match": true
     },
     {
       "fact": "unsupported",
       "expected": [
         "sqlite"
       ],
-      "actual": [],
+      "actual": [
+        "local-filesystem"
+      ],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-002",
-        "type": "ANALYSIS_BUG"
-      }
-    },
     {
       "fact": "postgres",
       "kind": "fact",
@@ -261,22 +254,14 @@
       }
     },
     {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/status",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
       "fact": "unsupported",
       "kind": "fact",
       "expected": [
         "sqlite"
       ],
-      "actual": [],
+      "actual": [
+        "local-filesystem"
+      ],
       "finding": {
         "id": "COMP-002",
         "type": "ANALYSIS_BUG"

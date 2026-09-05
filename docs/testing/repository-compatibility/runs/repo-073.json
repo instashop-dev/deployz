@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
-    "files": 9,
+    "files": 10,
     "entries": 218,
     "truncated": false
   },
@@ -58,14 +58,18 @@
     "externalServices": [],
     "requiredEnvVars": [],
     "unsupported": [
-      "kafka"
+      "kafka",
+      "kubernetes"
     ],
     "readinessFindings": [
       "unsupported-message-queue",
+      "unsupported-architecture",
       "health-check"
     ],
     "gateFindings": [
-      "unsupported"
+      "unsupported",
+      "unsupported",
+      "health-path-required"
     ],
     "unresolvedQuestions": []
   },
@@ -137,9 +141,11 @@
         "kafka"
       ],
       "actual": [
-        "kafka"
+        "kafka",
+        "kubernetes"
       ],
-      "match": true
+      "match": false,
+      "kind": "fact"
     }
   ],
   "mismatches": [
@@ -152,6 +158,18 @@
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "kafka"
+      ],
+      "actual": [
+        "kafka",
+        "kubernetes"
+      ],
+      "finding": null
     }
   ],
   "match": false

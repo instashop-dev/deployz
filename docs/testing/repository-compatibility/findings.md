@@ -215,6 +215,84 @@ optional second processes in reference files (COMP-010, 5); and the
 product gaps G1–G3 (persistent disk, a second worker process,
 multi-container stacks) that stay outside the MVP.
 
+## Stage B comparison (analysis version 11)
+
+The Stage B batch (analysis version 11, Deployz `1e6ad171`) landed the
+deterministic fixes the decision report ranked: evidence/ambiguity
+(phase 1), binding aliases (phase 2), schema/helper env reads (phase 3),
+generated secrets (phase 4), health modes (phase 5), migration modes
+(phase 6), port provenance (phase 7), the remaining Stage A findings
+(phase 7b: COMP-010/021/022/025/031/033), the AI resolver and its two
+consumers (phases 8–10) and the readiness UX (phase 11). The AI resolver
+is unconfigured in this run, so every verdict below is deterministic.
+The corpus was rerun in full; the run artifacts are `runs/` at
+`1e6ad171` (version 11). The comparison baseline is the committed v10 run
+(`runs/` at `5a443f6`), i.e. after the Stage A phase-6 hardening, not the
+decision report's original analysis-version-9 baseline (49/100 verdict,
+73% boundary, 15/45 false acceptances).
+
+| | Before (v10) | After (v11) |
+| --- | --- | --- |
+| Verdict matches, whole corpus | 51 / 100 | 61 / 100 |
+| Verdict matches, improvement set | 41 / 80 | 51 / 80 |
+| Verdict matches, unseen set | 10 / 20 | 10 / 20 |
+| False rejections | 12 (21.8% of 55 deployable) | 13 (23.6%) |
+| False acceptances | 14 (31.1% of 45 rejected) | 6 (13.3%) |
+| Boundary accuracy (whole corpus) | 74 / 100 | 81 / 100 |
+| Repositories matching every fact | 5 | 5 |
+| Configuration-detection mismatches | 23 | 20 |
+| Mismatches without a finding | 0 | 8 |
+
+By cohort (verdict matches): realistic 30/59 → 32/59 (false acceptances
+5/21 → 3/21), messy 8/22 → 13/22 (false acceptances 3/5 → 0/5), boundary
+13/19 → 16/19 (false acceptances 6/19 → 3/19). By set, all of the gain is
+on the improvement set (41 → 51 of 80, 4 → 5 all-facts matches); the
+unseen set stayed at 10/20 with its last all-facts match (pgweb) gone.
+No repository failed to analyse in either run.
+
+The two headline directions:
+
+- **False acceptances almost halved (14 → 6)** — eight NOT_COMPATIBLE
+  repositories that v10 let through now reject correctly: homepage, halo
+  and thelounge on their durable local-filesystem data (COMP-025, landed
+  in phase 7b), grist-core on its local file store, postiz on its required
+  Temporal server (COMP-031), and argo-cd / microservices-demo /
+  azure-search-openai-demo on their Kubernetes/Terraform/Azure families
+  (COMP-033). The 6 remaining are the correct-reason residuals listed in
+  the per-finding sections below.
+- **False rejections rose 12 → 13, and 8 mismatches are unexplained** — the
+  phase-5 health-name vocabulary widening (added `status`, `ping`, `up`,
+  `alive`, `readyz`, `livez`) now reads feature routes that merely end in
+  a health-ish word as the health endpoint, displacing the app's real
+  `/health` or `/healthcheck` on five repositories that matched at v10
+  (COMP-039, new); coder now rejects on its own dogfood Terraform and
+  kafdrop on its own Helm chart now that deployment descriptors reach the
+  checks (COMP-033 landed in 7b — COMP-040, new); pgweb is downgraded to
+  NEEDS_CONFIGURATION because its only health check is a TCP probe, which
+  the phase-5 vendor-required gate does not accept (COMP-041, new).
+
+Per-finding movement for the ten open Stage A findings (repositories
+carrying a mismatch under that finding id; verdict flips in parentheses):
+
+| Finding | Before (v10) | After (v11) | Status |
+| --- | --- | --- | --- |
+| COMP-005 | 49 (0) | 45 (0) | open |
+| COMP-010 | 5 (5) | 5 (5) | open |
+| COMP-014 | 55 (0) | 55 (0) | open |
+| COMP-017 | 15 (0) | 11 (1) | open |
+| COMP-021 | 1 (0) | 1 (0) | accepted |
+| COMP-022 | 1 (0) | 1 (0) | open |
+| COMP-025 | 5 (4) | 2 (1) | open |
+| COMP-030 | 13 (0) | 9 (0) | open |
+| COMP-031 | 1 (1) | 1 (0) | fixed |
+| COMP-033 | 3 (3) | 0 (0) | fixed |
+
+The 8 unexplained mismatches are recorded below as three new findings:
+COMP-039 (health-path over-match), COMP-040 (cloud-descriptor over-fire
+now that descriptors are fetched), COMP-041 (vendor-required health gate
+for TCP-probe-only apps). The per-finding sections that follow carry the
+updated status of every Stage A finding.
+
 ## Findings
 
 ### COMP-001 — Dockerfile `EXPOSE` / `ENV PORT` and Compose `ports` are not port evidence
@@ -325,6 +403,7 @@ multi-container stacks) that stay outside the MVP.
   names a different path or no path.
 - Fix: Partly addressed in version 7: a router mounted at a health prefix, the URL in a Dockerfile `HEALTHCHECK` / Compose `healthcheck`, and Go/Python/Ruby route literals are read (Go sources are now fetched). Remaining: NestJS controllers under a versioned global prefix (ghostfolio), Django health-check apps that register routes outside the repository (Flagsmith), a mount chain through a member expression (kutt `app.use("/api", routes.api)`), and a HEALTHCHECK that runs a script (immich).
 - Phase 3 residual: 36 health-path mismatches remain on the corpus — routes registered in Java/Kotlin/.NET/Elixir/Rust/PHP (Spring `/actuator/health`, Rails `/up`, Phoenix), non-standard names (`/api/ping`, `/status`, `/-/ping`, `/alive`, `/api/app/about`, `/_health`) that no health-segment regex matches, and the `/health` default when only a HEALTHCHECK without a URL exists.
+- Stage B (phase 5): health modes (`explicit` / `root` / `vendor_required`) landed; Go/Python/Ruby/PHP/.NET/JVM/Elixir/Rails route literals, Spring Actuator, context paths and Phoenix scopes are now read, and `/health` is never silently defaulted. Residual on v11: 45 repositories still carry a healthPath fact mismatch (no verdict flips) — the corpus's remaining real health routes live in code shapes no literal regex reads, and the widened vocabulary introduced a NEW over-match class on `…/status`-suffixed feature routes, recorded separately as COMP-039 (5 previously-matching repositories regressed).
 - Status: open
 
 ### COMP-006 — The manifest migration command falls back to a detector label
@@ -425,6 +504,7 @@ multi-container stacks) that stay outside the MVP.
   second service that reuses the web image with a worker-style command) is
   a Phase 3 candidate only if the pattern recurs.
 - Phase 3 residual: calcom (`calcom-api`), huginn (`web` + `threaded` in the single-process Compose file, while the selected image runs both), nocodb (`worker`) and n8n (queue-mode `worker` command) are rejected for optional second processes the reference files declare — 4 of the 8 remaining false rejections.
+- Stage B (phase 7b): an optional compose service is no longer a second application service when the image is the web image and the command is worker-style (`deploy.replicas: 0`, profiles) — regression-guarded in stage-b-final-batch.test.ts. Residual on v11: 5 repositories still false-rejected (calcom, huginn, n8n, nocodb, windmill), 5 verdict flips unchanged — each reference Compose declares the optional second process in a shape the phase-7b exemption does not match.
 - Status: open
 
 ### COMP-011 — Redis is required from non-production Compose files and optional clients
@@ -508,6 +588,7 @@ multi-container stacks) that stay outside the MVP.
   (alembic.ini), `prisma migrate deploy` (a PostgreSQL Prisma schema) and read
   Procfile `release:` lines; Go binary flags stay vendor-supplied.
 - Phase 3 residual: 41 `migration` mismatches — the corpus is dominated by apps that migrate at boot (Rails initializers, Go embedded migrations, Flyway/Liquibase, Django `manage.py migrate` in an entrypoint script) or through a non-npm CLI. The gate treats the missing command as a warning, so no verdict changes; the fact stays open for the Phase 5 decision.
+- Stage B (phase 6): migration MODES landed — `pre_deploy` (a deploy-safe command), `startup` (the app migrates on boot; evidence recorded, no command invented), `none` and `unknown`. Boot-time migrators no longer get a "no migration command" warning; the gate's finding is informational. Residual on v11: 55 repositories still carry a `migration` fact mismatch (expected true, actual false) because the harness compares the boolean, not the mode; no verdict flips.
 - Status: open
 
 ### COMP-015 — Worker-code detection is Node-only
@@ -572,6 +653,7 @@ multi-container stacks) that stay outside the MVP.
   schema keys without defaults and `env('X')`-style helpers when the helper
   wraps `process.env`.
 - Phase 3 residual: 16 configuration-detection mismatches on the main corpus are this finding — Go (memos, coder, authelia, casdoor, kratos), JVM (keycloak, tolgee), .NET (OrchardCore), Python (ihatemoney) and schema-library Node apps (outline, docmost, directus, reactive-resume, logto, hoppscotch) name their required secrets in code the §11.2 model does not read, so they come out READY instead of NEEDS_CONFIGURATION.
+- Stage B (phase 3): env-schema reads landed for zod/envalid/Pydantic/Spring `@Value`/Go envconfig/.NET Options, and schema-required secrets now reach the deployment gate; binding aliases (phase 2) carry the injected values under the app's own names. Residual on v11: 11 repositories still carry the label, 10 of them configuration-detection (outline, directus, reactive-resume, ihatemoney, memos, authelia, grafana, tolgee, hoppscotch, kratos read their required secrets in still-unread shapes; resolved since v10: docmost, OrchardCore, keycloak, casdoor). The 11th, coder (repo-041), carries the run's only COMP-017 verdict flip, but its cause is the Terraform over-fire that this run's ref ordering attaches to COMP-017 — the underlying defect is recorded under COMP-040.
 - Status: open
 
 ### COMP-018 — The 200-file cap is filled by test, spec and tooling files
@@ -642,7 +724,18 @@ multi-container stacks) that stay outside the MVP.
 - Recommended action: Phase 3 candidate — flag a Dockerfile whose `COPY`/`ADD`
   source path is absent from the tree and produced by no `RUN` step in the
   same Dockerfile.
-- Status: open
+- Stage B (phase 7b): the `missing-copy-source` rejection was implemented,
+  then REMOVED as unsound — the tree is capped at 200 files, so an absent
+  `COPY` source proves nothing about the repository, and multi-stage
+  `COPY --from=` and generated-artifact directories must never reject.
+  Accepted as a documented limitation: an app that builds a prebuilt
+  binary in a release Dockerfile is trusted as READY. Regression guard:
+  `packages/analysis/test/stage-b-final-batch.test.ts` (COMP-021 regression
+  guard). Residual on v11: repo-010 (listmonk) remains a single
+  configuration-detection mismatch — the benchmark still expects
+  NEEDS_CONFIGURATION for a Dockerfile that cannot build from the snapshot,
+  while the analyser deliberately does not reject.
+- Status: accepted (documented limitation)
 
 ### COMP-022 — A database engine selected by an environment value is READY without the value
 
@@ -659,6 +752,13 @@ multi-container stacks) that stay outside the MVP.
   driver/default coexist, surface the engine selector as a required
   configuration value (the read that decides between them) rather than a
   rejection (COMP-002) or silence.
+- Stage B (phase 7b): engine selectors are now resolved through the binding/
+  env model so a defaulted non-Postgres engine does not silently win
+  (regression: stage-b-final-batch.test.ts COMP-022). Residual on v11:
+  repo-011 (healthchecks) still reports READY instead of NEEDS_CONFIGURATION
+  — its Django `DB=postgres` selector is read through an indirection the
+  model still does not follow. No verdict flip changed; the mismatch stays
+  configuration-detection.
 - Status: open
 
 ### COMP-023 — Bare reads assigned to configuration properties are counted as required
@@ -744,6 +844,16 @@ multi-container stacks) that stay outside the MVP.
   `*_CONFIG_DIR` / `STORAGE_PATH` variable with a local default and no S3
   alternative; a README "volumes" table; the documented image's `VOLUME`
   when the repository builds several variants.
+- Stage B (phase 7b + fix 1e6ad17): explicit durable-data-directory
+  detection landed — a `*_DATA_DIR`/`*_CONFIG_DIR`/`*_WORK_DIR` variable
+  with a local default and no VOLUME/Compose mount now rejects as
+  `local-filesystem` (regression: stage-b-final-batch.test.ts COMP-025,
+  COMP-024). Residual on v11: 2 repositories still carry the label —
+  repo-044 (firefly-iii) rejects on its `mysql` family instead of its
+  durable uploads directory (COMP-037/COMP-029 interplay), and repo-074
+  (vaultwarden) is the one remaining false acceptance (its `/data`
+  directory is declared in a Dockerfile variant the analyser does not
+  select). Verdict flips fell 4 → 1.
 - Status: open
 
 ### COMP-026 — Compose sidecars and profile-gated services count as application services
@@ -889,6 +999,15 @@ multi-container stacks) that stay outside the MVP.
 - Recommended action: Phase 5 decision; a per-runtime default-port table
   (Rails 3000, Django 8000, Phoenix 4000, Spring 8080, Rocket 8000) is the
   cheapest signal and is what Deployz's PORT override needs anyway.
+- Stage B (phase 7): port provenance landed — runtime literals in
+  Go/Elixir/Rust/PHP source are read, Compose container-side mappings are
+  honoured, and a framework-default port is a prefill the deployment gate
+  still asks the vendor to confirm (`portIsDefault`); regression:
+  stage-b-phase7.test.ts COMP-030. Residual on v11: 9 repositories still
+  carry a port fact mismatch and none flips a verdict; livebook
+  (repo-050) is the one NEW configuration-detection mismatch — its Phoenix
+  default (4000) prefills where the benchmark expected the documented
+  8080, and the gate keeps NEEDS_CONFIGURATION.
 - Status: open
 
 ### COMP-031 — A required third-party service in the Compose stack is not a family
@@ -907,7 +1026,13 @@ multi-container stacks) that stay outside the MVP.
 - Recommended action: Phase 5 decision — a `required-service` family driven
   by a non-sidecar image in the production Compose file that the app also
   names in a required connection variable.
-- Status: open
+- Stage B (phase 7b): `checkRequiredThirdPartyService` landed — a Compose
+  service whose image is a third-party server the app cannot run without
+  (Temporal) now rejects as a family (regression: stage-b-final-batch.test.ts
+  COMP-031). repo-057 (postiz) now returns NOT_COMPATIBLE; its remaining
+  mismatch is a family-list fact (expected `docker-compose-multi-service`,
+  actual `temporal`) with no verdict flip. The one v10 verdict flip is gone.
+- Status: fixed
 
 ### COMP-032 — A database client dependency alone rejects integration platforms
 
@@ -958,7 +1083,16 @@ multi-container stacks) that stay outside the MVP.
   signal (`k8s.io/client-go` with in-cluster configuration, no HTTP
   listener) is worth more than the false rejections a descriptor-based
   check would create.
-- Status: open
+- Stage B (phase 7b): deployment descriptors (`.tf`, `Chart.yaml`,
+  `kustomization.yaml`, `bicep`) are now fetched, and the Kubernetes,
+  Terraform and Azure checks fire on them (regression: github.test.ts
+  COMP-033; stage-b-final-batch.test.ts COMP-033). All three repositories
+  (argo-cd, microservices-demo, azure-search-openai-demo) now reject
+  correctly: 0 repositories carry the label on v11. The warning in the
+  Evidence note materialised as intended — an app that ships a chart or
+  Terraform as one optional deployment path over-fires — recorded as new
+  COMP-040.
+- Status: fixed
 
 ### COMP-034 — A script-based HEALTHCHECK hides its path
 
@@ -1051,3 +1185,99 @@ multi-container stacks) that stay outside the MVP.
   manifests fetched from non-runtime paths.
 - Fix: the real cause was two-fold — `build` was an IGNORED directory segment (build output), so `server/build/Dockerfile` was never fetched at all, and inside relevance tier 0 manifests sorted alphabetically ahead of Dockerfiles. `build/` is no longer ignored (a committed one holds build tooling), Dockerfiles, Compose files and env samples now rank above package manifests, and manifests under test/tool directories rank with those directories (`e2e-tests/`, `integration_tests/` count as non-runtime). Regression: github.test.ts COMP-038. mattermost now selects `server/build/Dockerfile` and port 8065; its verdict stays NOT_COMPATIBLE for the development Compose stack under `server/` (COMP-026 residual).
 - Status: fixed
+
+### COMP-039 — A `…/status`-suffixed feature route displaces the app's real health endpoint
+
+- Repositories: repo-004 (miniflux: expected `/healthcheck`, actual
+  `/v1/integrations/status`), repo-033 (paperless: expected `/`, actual
+  `/ws/status`), repo-059 (vikunja: expected `/health`, actual
+  `/csv/status`), repo-076 (LibreChat: expected `/health`, actual
+  `/oauth/status`), repo-084 (nango: expected `/health`, actual
+  `/sync/status`)
+- Type: ANALYSIS_BUG
+- Expected: the health route the app actually serves (`/health`,
+  `/healthcheck`, or a HEALTHCHECK-probed root)
+- Actual: a longer feature API route whose last segment is a generic word
+  the phase-5 health vocabulary accepts (`status`, `ping`, `up`, `alive`,
+  `readyz`, `livez`)
+- Evidence: phase 5 widened `HEALTH_ROUTE_REGEX` /
+  `HEALTH_ROUTE_LITERAL_REGEX` / `HEALTH_PATH_SEGMENT_REGEX` from
+  `health|healthz|healthcheck|heartbeat` to also accept `readyz|livez|up|
+  status|ping|alive|_health`. Route-literal scans across Go/Python/JS then
+  match any registration whose URL ends in one of those words, and the
+  equal-priority longest-path tie-break lets a longer feature route
+  (`/v1/integrations/status`, `/ws/status`, `/csv/status`,
+  `/oauth/status`, `/sync/status`) beat the real `/health` or
+  `/healthcheck`. All five repositories matched their health path at v10
+  and regressed at v11; none of the five flips a verdict (each stays on
+  its other blockers).
+- Customer relevance: medium — the reported health path drives the
+  deployment gate's readiness check and the value the vendor is asked to
+  confirm; a wrong path on a healthy app is friction and, for a
+  vendor-confirmed prefill, a real readiness risk.
+- Recommended action: only accept a generic `…/status`-style literal as
+  health evidence when the app registers no health-named route at all;
+  prefer an explicit `/health`, `/healthcheck`, `heartbeat` or
+  HEALTHCHECK/Compose healthcheck URL over a longer generic-word route,
+  and never let the longest-candidate tie-break outrank an exact
+  health-named route.
+- Status: open
+
+### COMP-040 — Cloud-descriptor checks fire on an app's own chart/terraform (COMP-033 side effect)
+
+- Repositories: repo-041 (coder: Terraform under `dogfood/`, expected no
+  `unsupported`, actual `[terraform]` — now a false rejection),
+  repo-073 (kafdrop: `chart/Chart.yaml` present, expected `[kafka]`,
+  actual `[kafka, kubernetes]`)
+- Type: ANALYSIS_BUG
+- Expected: only the families the deployment itself requires (`[]` for
+  coder, `[kafka]` for kafdrop)
+- Actual: an extra `terraform` or `kubernetes` family read from a
+  descriptor the repository ships as one optional deployment path or for
+  the project's own operation (a Helm chart in `chart/`, dogfood
+  Terraform), not as the customer's required infrastructure
+- Evidence: phase 7b made the tree fetch include deployment descriptors so
+  the cloud checks can fire on genuinely Kubernetes-native repositories
+  (COMP-033, fixed — argo-cd, microservices-demo, azure-search-openai-demo
+  now reject). The same change surfaces descriptors that are the app's OWN
+  option — coder's `dogfood/*.tf` (how the project runs itself) and
+  kafdrop's `chart/` — and `checkTerraform`/`checkKubernetes` read them as
+  the customer's stack. Both repositories matched their unsupported list
+  at v10 and regressed at v11.
+- Customer relevance: medium — the cost is a false rejection (coder flips
+  NEEDS_CONFIGURATION → NOT_COMPATIBLE) or a wrong reason on an app that
+  is rejected for another family anyway (kafdrop).
+- Recommended action: fire the Kubernetes/Terraform checks on descriptors
+  that represent the app's own deployment (a chart/terraform next to the
+  selected Dockerfile that the repo builds from), and treat project-owned
+  `dogfood/`, `examples/` and `chart/` packaging as the "one option"
+  COMP-033 warned about — corroborate with in-cluster client code before
+  rejecting.
+- Status: open
+
+### COMP-041 — A TCP-probe-only health check is invisible to the vendor-required health gate
+
+- Repositories: repo-090 (pgweb: no HTTP health route; the reference
+  Compose health check is a bare TCP probe, `nc -vz 127.0.0.1 8081`)
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: READY — pgweb is a stateless DB-admin tool whose container
+  health check is a TCP probe on the listening port (uptime-kuma
+  precedent in this benchmark: no HTTP route required)
+- Actual: NEEDS_CONFIGURATION — the phase-5 gate now raises
+  `health-path-required` (mode `vendor_required`) whenever no HTTP health
+  evidence is found
+- Evidence: `detectHealthEndpoint` accepts an HTTP URL from a Dockerfile
+  HEALTHCHECK or Compose healthcheck, or a health-named route literal; a
+  Compose `test: ["CMD", "nc", "-vz", "127.0.0.1", "8081"]` carries no
+  HTTP URL and no route exists, so `healthMode` becomes
+  `vendor_required` and `evaluateManifestReadiness` errors. pgweb matched
+  every fact at v10 (READY) and regressed to NEEDS_CONFIGURATION at v11.
+- Customer relevance: low — one repository, but a real product shape
+  (appliances and admin tools that expose a port and are probed at the
+  TCP level); the vendor is asked for a health path the image does not
+  need.
+- Recommended action: when a container/Compose health check exists but is
+  not an HTTP URL (a TCP probe or a script without a URL), treat it as
+  container-level health evidence with no HTTP path requirement, and keep
+  `vendor_required` for the truly probe-less case.
+- Status: open

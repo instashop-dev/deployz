@@ -45,6 +45,9 @@ findings:
   - { id: COMP-036, type: ANALYSIS_BUG, facts: [compatibility, unsupported] }
   - { id: COMP-037, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
   - { id: COMP-038, type: ANALYSIS_BUG, facts: [dockerfilePath, appRoot, port] }
+  - { id: COMP-039, type: ANALYSIS_BUG, facts: [healthPath] }
+  - { id: COMP-040, type: ANALYSIS_BUG, facts: [unsupported, compatibility] }
+  - { id: COMP-041, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
 
 repositories:
   - id: repo-001
@@ -156,7 +159,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-014]
+    findings: [COMP-014, COMP-039]
     notes:
       - "Four Dockerfiles: packaging/docker/alpine and packaging/docker/distroless build the app (EXPOSE 8080, ENV LISTEN_ADDR=0.0.0.0:8080, CMD /usr/bin/miniflux); packaging/debian and packaging/rpm build OS packages."
       - "PostgreSQL only (go.mod lib/pq). Migrations: `miniflux -migrate` or RUN_MIGRATIONS=1 (internal/cli/cli.go, internal/config/options.go)."
@@ -993,7 +996,7 @@ repositories:
         - local-filesystem
     customer_realism: high
     difficulty: 4
-    findings: [COMP-011, COMP-015, COMP-014]
+    findings: [COMP-011, COMP-015, COMP-014, COMP-039]
     notes:
       - "Default branch is 'dev' (GitHub default_branch), not 'main'; commit pinned from repos/.../commits/dev. Root Dockerfile: multi-stage (compile-frontend Angular src-ui/ -> main-app Django); VOLUME for data/media/consume/export; ENTRYPOINT [\"/init\"] (s6-overlay); EXPOSE 8000; HEALTHCHECK curl http://localhost:8000 (root path)."
       - "docker/rootfs/etc/s6-overlay/s6-rc.d/: svc-webserver (gunicorn), svc-worker (celery worker), svc-scheduler (celery beat), svc-consumer (file-consumption loop) and svc-flower all run as separate s6-supervised OS processes inside the SAME single container built from the ONE root Dockerfile -- no separate Compose worker service, Procfile, or extra Dockerfile is declared. init-migrations runs 'manage.py migrate' before svc-webserver starts (dependency chain in init-complete)."
@@ -1253,7 +1256,7 @@ repositories:
       unsupported: []
     customer_realism: medium
     difficulty: 5
-    findings: [COMP-017, COMP-012, COMP-014, COMP-005]
+    findings: [COMP-017, COMP-012, COMP-014, COMP-005, COMP-040]
     notes:
       - "scripts/Dockerfile's own header comment: 'Since it's multi-arch and cross-compiled, it cannot have ANY RUN commands... All binaries are built using the go toolchain on the host and then copied into the build context by scripts/build_docker.sh.' `ARG BASE_IMAGE` has no default and `COPY --chown=1000:1000 --chmod=755 coder /opt/coder` copies a prebuilt Go binary that only scripts/build_docker.sh (outside this Dockerfile) produces. No other Dockerfile in the repo builds the coderd server from source (scripts/Dockerfile.base only builds a tooling base image; dogfood/* and examples/* Dockerfiles are for workspace templates/dev containers, not the server) -> 'a Dockerfile that copies an artifact no build step produces' -> NEEDS_CONFIGURATION."
       - "compose.yaml (repo root, official reference deployment): CODER_HTTP_ADDRESS 0.0.0.0:7080 (ports 7080:7080), CODER_PG_CONNECTION_URL required (postgresql://...@database/...), CODER_ACCESS_URL required with no default and documented as unable to be localhost/127.0.0.1 -> a required externally-reachable URL is exactly the kind of value-with-no-default that drives NEEDS_CONFIGURATION."
@@ -1842,7 +1845,7 @@ repositories:
       unsupported: []
     customer_realism: high
     difficulty: 3
-    findings: [COMP-015, COMP-014]
+    findings: [COMP-015, COMP-014, COMP-039]
     notes:
       - "Single root Dockerfile: node:24-alpine builds the Vue frontend (frontend/, pnpm), ghcr.io/techknowlogick/xgo:go-1.27.x builds the Go API via `mage build:clean` / `mage release:xgo` (embeds the built frontend assets into the binary), final stage FROM scratch copies just the static binary. EXPOSE 3456. ENTRYPOINT [\"/app/vikunja/vikunja\"] (default subcommand is 'web'). Matches the cohort hint 'embedded frontend' exactly - one binary serves both API and UI."
       - "'extra go modules' hint confirmed: build/go.mod (mage build tooling) and veans/go.mod exist alongside the root go.mod; these are build-time/tooling submodules, not separate deployable services, so monorepo: false."
@@ -2259,7 +2262,7 @@ repositories:
         - kafka
     customer_realism: medium
     difficulty: 2
-    findings: [COMP-005]
+    findings: [COMP-005, COMP-040]
     notes:
       - Kafdrop is a Kafka cluster web UI/monitor; its entire purpose is to connect to and browse an external Apache Kafka broker, matching the MVP boundary's 'Kafka' exclusion intrinsically, independent of whether the connection string has a default.
       - "src/main/resources/application.yml: 'kafka: brokerConnect: localhost:9092' (has a default, so not a missing-required-env-var case) and 'server: port: ${SERVER_PORT:9000}'; src/main/docker/Dockerfile: 'FROM eclipse-temurin:25.0.4_7-jdk', 'EXPOSE 9000', 'ENTRYPOINT [\"/kafdrop.sh\"]' which execs 'java ... -jar /kafdrop*/kafdrop*jar ${CMD_ARGS}' (CMD_ARGS conventionally carries '--kafka.brokerConnect=...' etc., per docker-compose/kafka-kafdrop/docker-compose.yaml which sets 'KAFKA_BROKERCONNECT: kafka:29092' as an env var, Spring-relaxed-bound to kafka.brokerConnect)."
@@ -2348,7 +2351,7 @@ repositories:
         - mongodb
     customer_realism: high
     difficulty: 2
-    findings: [COMP-026, COMP-014]
+    findings: [COMP-026, COMP-014, COMP-039]
     notes:
       - "api/db/connect.js: `const MONGO_URI = process.env.MONGO_URI; if (!MONGO_URI) throw new Error(...)` and `mongoose.connect(MONGO_URI, ...)` — Mongoose/MongoDB is the only persistence layer in the codebase; no PostgreSQL/relational option anywhere -> NOT_COMPATIBLE [mongodb]."
       - 'Dockerfile (repo root): FROM node:24.16.0-alpine, builds the full monorepo (npm workspaces: api, client, packages/data-provider, packages/data-schemas, packages/api) via `npm run frontend`, EXPOSE 3080, ENV HOST=0.0.0.0, CMD ["npm","run","backend"] -> `npm run backend` = `cross-env NODE_ENV=production node api/server/index.js` (root package.json scripts). Builds from the repository alone.'
@@ -2620,7 +2623,7 @@ repositories:
         - background-worker
     customer_realism: medium
     difficulty: 4
-    findings: [COMP-015, COMP-027, COMP-028]
+    findings: [COMP-015, COMP-027, COMP-028, COMP-039]
     notes:
       - "docs/guides/platform/self-hosting.mdx states the architecture explicitly: 'Nango consists of several core services' — Server, Orchestrator, Jobs, Runner, Persist (all separate Node services), plus Postgres, Redis, Object Storage (S3) and ElasticSearch. Recommended config lists '5 Node services (Server, Persist, Runner, Jobs, Orchestrator)' and default deployment is via Helm charts. Self-hosting itself is gated behind an Enterprise plan."
       - Dockerfile (repo root) builds the FULL monorepo (all packages, backend + frontend) from source but ends at `EXPOSE 8080` with no CMD/ENTRYPOINT at all — it inherits the base node image's default `CMD ["node"]`, which does not start the app. It is a base layer other images build on, not a runnable production image by itself.
@@ -2812,6 +2815,7 @@ repositories:
       unsupported: []
     customer_realism: medium
     difficulty: 2
+    findings: [COMP-041]
     notes:
       - 'Root Dockerfile: multi-stage golang:1.25-trixie build -> debian:trixie-slim runtime with postgresql-client tools installed. EXPOSE 8081; ENTRYPOINT ["/usr/bin/pgweb", "--bind=0.0.0.0", "--listen=8081"] -> port: 8081, appRoot: . .'
       - "pgweb is a single-binary web UI/client for browsing a PostgreSQL database, not an app with its own persistent schema. pkg/command/options.go:getPrefixedEnvVar('DATABASE_URL') checks PGWEB_DATABASE_URL first, and when unset falls back to plain DATABASE_URL (with only a deprecation log line, still functional) -> Deployz's injected DATABASE_URL is picked up with zero extra configuration -> postgres: true, compatibility: READY."

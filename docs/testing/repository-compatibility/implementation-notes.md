@@ -49,23 +49,28 @@ Open findings: COMP-005, 010, 014, 017, 021, 022, 025, 030, 031, 033
 
 ## Phase-by-phase plan
 
-| Phase | Gap (existing → planned) | Module | Protected by |
-|---|---|---|---|
-| 1 Evidence/ambiguity | `collectUnresolvedQuestions` returns loose strings; no typed ambiguity, no cross-detector evidence record | `packages/analysis/src/evidence.ts` (new, small): typed `AnalysisAmbiguity` + `EvidenceItem` reuse of existing findings; no parallel canonical state | new `evidence.test.ts`; existing suites must stay green |
-| 2 Binding aliases | Provisioned values land only under standard names; alias list is a synth-time CDK prop | `InfrastructureBinding` on the manifest (`contracts`), detection of app-read variable names per resource (postgres/redis/s3), persistence with analysis, CDK injection reusing `databaseUrlEnvNames`/`envBindings` machinery, vendor override in config UI | `stage-a`-style fixtures: MEMOS_DSN, PAPERLESS_*, GF_DATABASE_*, SQLALCHEMY_DATABASE_URI, CELERY_BROKER_URL, S3_ATTACHMENTS_BUCKET; e2e config spec |
-| 3 Required config | Helper/schema reads invisible (COMP-017): zod, envalid, Pydantic BaseSettings, JVM `@Value`, Go `os.Getenv`/envconfig, .NET Options | extend `detectEnvVarModel` per language, conservative `required` | `phase7.test.ts` + new fixture trees from COMP-017 repos |
-| 4 Secret generation | No product-generated internal secrets | `generatable` classification (semantic, name+context) in env model; secure generation at deployment/relay boundary reusing install-parameter machinery; never logged/AI-prompted | new tests: generate/refuse/persist/no-log/override |
-| 5 Health path | COMP-005: JS-only route detection; silent `/health` default | extend `detectHealthEndpoint` across frameworks; explicit health mode (explicit/root/vendor_required); evidence precedence + confidence | COMP-005 fixtures; readiness-report copy tests |
-| 6 Migrations | COMP-014: package.json only; startup migrations invisible | `migration.mode = pre_deploy|startup|none|unknown`; entrypoint/start-script/Dockerfile CMD evidence; never invent commands | COMP-014 fixtures; manifest + readiness tests |
-| 7 Ports | COMP-030: no EXPOSE → null | precedence: vendor > EXPOSE > compose mapping > runtime literal > framework default (low confidence); low confidence ⇒ NEEDS_CONFIGURATION, never a guess | COMP-030 fixtures |
-| 8 AI resolver | Existing AI fills a fixed question set; needs typed ambiguity input + consolidated single request | extend `repository-ai.ts`: ambiguity-driven prompt, per-field `{value,confidence,evidencePaths,explanation}`, max 2 calls incl. repair, failure-safe | `repository-ai.test.ts`; fixture gateway |
-| 9 AI bindings | Deterministic aliases unresolved → AI selects semantic alias only | phase-8 resolver + confidence policy (≥0.9 auto, 0.7–0.89 prefill, else no guess) | synthetic ambiguous configs |
-| 10 AI architecture | Worker/compose/storage required-vs-optional ambiguity (COMP-010/031 residuals) | architecture requirement schema; deterministic policy still decides NOT_COMPATIBLE | COMP-010/025/031/033 reruns |
-| 11 UX | NEEDS_CONFIGURATION surfaces only as a 422 at deployment creation | readiness page hierarchy (understood → automatic → needs input → issues), generatable-secret + binding display | web unit tests + `e2e/scenario-sweep.spec.ts` |
-| 12 Rerun | — | `pnpm benchmark:compat` full corpus, append comparison section | harness determinism tests |
-| 13 Fresh 20 | — | new `set: unseen2` entries, pinned SHAs, two independent ground-truth passes | new run artifact |
-| 14 Hardening | — | generalizable fixes only, each with regression fixture | full analyzer suite |
-| 15 Docs | — | consolidate README/findings/final-report/mvp-status/ui-system | docs link checks |
+Status is at analysis version 11 (`1e6ad171`); the frozen v11 corpus run
+is the phase-12 rerun artifact. The AI resolver phases 8–10 are shipped
+but were unconfigured in this run, so their consumers contributed nothing
+to the measured verdicts.
+
+| Phase | Gap (existing → planned) | Module | Protected by | Status |
+|---|---|---|---|---|
+| 1 Evidence/ambiguity | `collectUnresolvedQuestions` returns loose strings; no typed ambiguity, no cross-detector evidence record | `packages/analysis/src/evidence.ts` (new, small): typed `AnalysisAmbiguity` + `EvidenceItem` reuse of existing findings; no parallel canonical state | new `evidence.test.ts`; existing suites must stay green | Done (`9e7df6d`) |
+| 2 Binding aliases | Provisioned values land only under standard names; alias list is a synth-time CDK prop | `InfrastructureBinding` on the manifest (`contracts`), detection of app-read variable names per resource (postgres/redis/s3), persistence with analysis, CDK injection reusing `databaseUrlEnvNames`/`envBindings` machinery, vendor override in config UI | `stage-a`-style fixtures: MEMOS_DSN, PAPERLESS_*, GF_DATABASE_*, SQLALCHEMY_DATABASE_URI, CELERY_BROKER_URL, S3_ATTACHMENTS_BUCKET; e2e config spec | Done (`4f38a8e`, relay `44ac74a`) |
+| 3 Required config | Helper/schema reads invisible (COMP-017): zod, envalid, Pydantic BaseSettings, JVM `@Value`, Go `os.Getenv`/envconfig, .NET Options | extend `detectEnvVarModel` per language, conservative `required` | `phase7.test.ts` + new fixture trees from COMP-017 repos | Done (`4e318b7`) |
+| 4 Secret generation | No product-generated internal secrets | `generatable` classification (semantic, name+context) in env model; secure generation at deployment/relay boundary reusing install-parameter machinery; never logged/AI-prompted | new tests: generate/refuse/persist/no-log/override | Done (`2e8078b`) |
+| 5 Health path | COMP-005: JS-only route detection; silent `/health` default | extend `detectHealthEndpoint` across frameworks; explicit health mode (explicit/root/vendor_required); evidence precedence + confidence | COMP-005 fixtures; readiness-report copy tests | Done (`f395218`) |
+| 6 Migrations | COMP-014: package.json only; startup migrations invisible | `migration.mode = pre_deploy|startup|none|unknown`; entrypoint/start-script/Dockerfile CMD evidence; never invent commands | COMP-014 fixtures; manifest + readiness tests | Done (`aaaefa4`) |
+| 7 Ports | COMP-030: no EXPOSE → null | precedence: vendor > EXPOSE > compose mapping > runtime literal > framework default (low confidence); low confidence ⇒ NEEDS_CONFIGURATION, never a guess | COMP-030 fixtures | Done (`b33ddb5`) |
+| 8 AI resolver | Existing AI fills a fixed question set; needs typed ambiguity input + consolidated single request | extend `repository-ai.ts`: ambiguity-driven prompt, per-field `{value,confidence,evidencePaths,explanation}`, max 2 calls incl. repair, failure-safe | `repository-ai.test.ts`; fixture gateway | Done (`928433a`); inactive when unconfigured |
+| 9 AI bindings | Deterministic aliases unresolved → AI selects semantic alias only | phase-8 resolver + confidence policy (≥0.9 auto, 0.7–0.89 prefill, else no guess) | synthetic ambiguous configs | Done (`8a95acd`); inactive when unconfigured |
+| 10 AI architecture | Worker/compose/storage required-vs-optional ambiguity (COMP-010/031 residuals) | architecture requirement schema; deterministic policy still decides NOT_COMPATIBLE | COMP-010/025/031/033 reruns | Done (`8a95acd`); inactive when unconfigured |
+| 11 UX | NEEDS_CONFIGURATION surfaces only as a 422 at deployment creation | readiness page hierarchy (understood → automatic → needs input → issues), generatable-secret + binding display | web unit tests + `e2e/scenario-sweep.spec.ts` | Done (`3e0514a`, specs `9cf98aa`) |
+| 12 Rerun | — | `pnpm benchmark:compat` full corpus, append comparison section | harness determinism tests | Done — v11 run at `1e6ad171`; comparison appended to findings.md and final-report.md |
+| 13 Fresh 20 | — | new `set: unseen2` entries, pinned SHAs, two independent ground-truth passes | new run artifact | Not started |
+| 14 Hardening | — | generalizable fixes only, each with regression fixture | full analyzer suite | Done — the deterministic batch (`0a640dd`) plus the final COMP-021/COMP-025 corrections (`cee068c`, `1e6ad17`); COMP-021 accepted as a documented limitation |
+| 15 Docs | — | consolidate README/findings/final-report/mvp-status/ui-system | docs link checks | Partial — findings.md, final-report.md and implementation-notes.md updated for analysis version 11; mvp-status/ui-system consolidation not in this phase |
 
 ## Deterministic finding assignment
 

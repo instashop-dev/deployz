@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5a443f687580c4f9263c741e1c2a0280674d14ea",
-  "analysisVersion": 10,
+  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
+  "analysisVersion": 11,
   "tree": {
     "files": 204,
     "entries": 8644,
@@ -34,15 +34,15 @@
   "failure": null,
   "actual": {
     "compatibility": "READY",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": ".docker/Dockerfile-build",
     "port": 4433,
     "startCommand": "CMD: [\"serve\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/status",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -57,7 +57,6 @@
     "requiredEnvVars": [],
     "unsupported": [],
     "readinessFindings": [
-      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
@@ -129,7 +128,7 @@
     {
       "fact": "healthPath",
       "expected": "/health/alive",
-      "actual": null,
+      "actual": "/status",
       "match": false,
       "kind": "fact"
     },
@@ -175,7 +174,7 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/health/alive",
-      "actual": null,
+      "actual": "/status",
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
