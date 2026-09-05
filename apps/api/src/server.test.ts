@@ -17,6 +17,11 @@ import { ApiError } from './errors.js';
 import { GITHUB_FIXTURE_FILE_TREES } from './github.js';
 import { createRequireAuth } from './require-auth.js';
 import { hashRelayToken } from './relay-store.js';
+import {
+  RELEASE_IMAGE_RECHECK_MS,
+  createFixtureReleaseImageClient,
+  type FixtureReleaseImageClient,
+} from './release-images.js';
 import { buildServer, redactClaimedPayload } from './server.js';
 
 // ── Shared test helpers (used by the describe blocks below) ────────────────
@@ -4654,5 +4659,346 @@ describe('server — diagnostics technical detail is redacted', () => {
     expect(body.technicalDetail).toBe('CreateStack failed: DATABASE_PASSWORD=[REDACTED] rejected by the database');
     expect(body.context.message).toBe('CreateStack failed: DATABASE_PASSWORD=[REDACTED] rejected by the database');
     expect(JSON.stringify(body)).not.toContain('hunter2');
+  });
+});
+
+// ── P0 hardening: secure-endpoint truth and unavailable releases ─────────────
+describe('server — P0 hardening', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let applicationId: string;
+  let customerId: string;
+  let registry: FixtureReleaseImageClient;
+  const STACK_ID = 'arn:aws:cloudformation:us-east-1:123456789012:stack/deployz-app/p0';
+  const RELAY_TOKEN = 'p0-relay-token';
+  const REPOSITORY = '111122223333.dkr.ecr.us-east-1.amazonaws.com/deployz-images';
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'p0-hardening@example.com');
+    registry = createFixtureReleaseImageClient();
+    app = await buildServer({ auth, db, releaseImages: registry });
+    const application = await insertApplication(db, org.organizationId);
+    applicationId = application.id;
+    const customer = await insertCustomer(db, org.organizationId);
+    customerId = customer.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  function digestFor(seed: string): string {
+    return `sha256:${createHmac('sha256', 'p0').update(seed).digest('hex')}`;
+  }
+
+  async function readyRelease(): Promise<{ id: string; digest: string; version: string }> {
+    const digest = digestFor(crypto.randomUUID());
+    const release = await insertRelease(db, applicationId, {
+      buildStatus: 'SUCCEEDED',
+      releaseStatus: 'READY',
+      imageDigest: `${REPOSITORY}@${digest}`,
+    });
+    return { id: release.id, digest, version: release.version };
+  }
+
+  async function listReleases(): Promise<Array<{ id: string; status: string }>> {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/releases`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    return (response.json() as { releases: Array<{ id: string; status: string }> }).releases;
+  }
+
+  describe('GET /api/deployments/:id/infrastructure — the secure endpoint is READY only when HTTPS serves', () => {
+    async function deploymentWithAlb(
+      overrides: Partial<typeof schema.deployments.$inferInsert> = {},
+    ): Promise<typeof schema.deployments.$inferSelect> {
+      const deployment = await insertDeployment(db, org.organizationId, applicationId, customerId, {
+        state: 'HEALTHY',
+        ...overrides,
+      });
+      await persistDeploymentResourceSnapshot(db, {
+        deploymentId: deployment.id,
+        stackId: STACK_ID,
+        resources: [
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Listener', type: 'AWS::ElasticLoadBalancingV2::Listener', status: 'CREATE_COMPLETE' },
+        ],
+        observedAt: new Date().toISOString(),
+      });
+      return deployment;
+    }
+
+    async function endpoint(deploymentId: string) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/deployments/${deploymentId}/infrastructure`,
+        headers: { cookie: org.cookie },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      const body = response.json() as {
+        summary: { status: string };
+        components: Array<{ kind: string; status: string; httpsState?: string }>;
+      };
+      return { summary: body.summary.status, endpoint: body.components.find((c) => c.kind === 'endpoint')! };
+    }
+
+    it('a complete load balancer with no HTTPS machine reads Setting up, never Ready', async () => {
+      const deployment = await deploymentWithAlb({ defaultHttps: null });
+      const view = await endpoint(deployment.id);
+      expect(view.endpoint.status).toBe('provisioning');
+      expect(view.endpoint.httpsState).toBe('SETTING_UP');
+      expect(view.summary).toBe('provisioning');
+    });
+
+    it('follows the default-HTTPS machine: waiting for the certificate, activating, then ready', async () => {
+      const hostname = 'd-p0.deployz.dev';
+      const deployment = await deploymentWithAlb({
+        defaultHttps: { hostname, status: 'WAITING_FOR_DNS', checkCycle: 0, lastError: null },
+      });
+      expect(await endpoint(deployment.id)).toMatchObject({
+        summary: 'provisioning',
+        endpoint: { status: 'provisioning', httpsState: 'WAITING_FOR_CERTIFICATE' },
+      });
+
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: { hostname, status: 'CONFIGURING', checkCycle: 1, lastError: null } })
+        .where(eq(schema.deployments.id, deployment.id));
+      expect((await endpoint(deployment.id)).endpoint).toMatchObject({ status: 'provisioning', httpsState: 'ACTIVATING' });
+
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: { hostname, status: 'ACTIVE', checkCycle: 1, lastError: null } })
+        .where(eq(schema.deployments.id, deployment.id));
+      expect(await endpoint(deployment.id)).toMatchObject({
+        summary: 'healthy',
+        endpoint: { status: 'ready', httpsState: 'READY' },
+      });
+
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: { hostname, status: 'ERROR', checkCycle: 2, lastError: 'boom' } })
+        .where(eq(schema.deployments.id, deployment.id));
+      expect(await endpoint(deployment.id)).toMatchObject({
+        summary: 'failed',
+        endpoint: { status: 'failed', httpsState: 'FAILED' },
+      });
+    });
+
+    it('an ACTIVE custom domain makes the endpoint ready while the default machine is still pending', async () => {
+      const deployment = await deploymentWithAlb({
+        defaultHttps: { hostname: 'd-p0-custom.deployz.dev', status: 'PENDING', checkCycle: 0, lastError: null },
+      });
+      await db.insert(schema.customDomains).values({
+        deploymentId: deployment.id,
+        organizationId: org.organizationId,
+        hostname: 'app.acme.example',
+        status: 'ACTIVE',
+      });
+      expect((await endpoint(deployment.id)).endpoint).toMatchObject({ status: 'ready', httpsState: 'READY' });
+    });
+
+    it('a load balancer still being created keeps its CloudFormation status and gets no HTTPS overlay', async () => {
+      const deployment = await insertDeployment(db, org.organizationId, applicationId, customerId, {
+        state: 'INSTALLING',
+        defaultHttps: null,
+      });
+      await persistDeploymentResourceSnapshot(db, {
+        deploymentId: deployment.id,
+        stackId: STACK_ID,
+        resources: [{ logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_IN_PROGRESS' }],
+        observedAt: new Date().toISOString(),
+      });
+      const view = await endpoint(deployment.id);
+      expect(view.endpoint.status).toBe('provisioning');
+      expect(view.endpoint.httpsState).toBeUndefined();
+    });
+
+    it('a removed deployment keeps the post-deletion view (no overlay)', async () => {
+      const deployment = await deploymentWithAlb({
+        state: 'DELETED',
+        defaultHttps: { hostname: 'd-p0-gone.deployz.dev', status: 'ACTIVE', checkCycle: 1, lastError: null },
+      });
+      const view = await endpoint(deployment.id);
+      expect(view.endpoint.status).toBe('removed');
+      expect(view.endpoint.httpsState).toBeUndefined();
+    });
+  });
+
+  describe('unavailable releases — a READY release whose image is gone is not deployable', () => {
+    it('the release list reads UNAVAILABLE once the registry no longer holds the image', async () => {
+      const release = await readyRelease();
+      expect((await listReleases()).find((r) => r.id === release.id)?.status).toBe('READY');
+
+      registry.markMissing(release.digest);
+      // Inside the recheck window the list keeps its last answer.
+      expect((await listReleases()).find((r) => r.id === release.id)?.status).toBe('READY');
+      // Once the window has passed the registry is asked again.
+      await db
+        .update(schema.releases)
+        .set({ imageCheckedAt: new Date(Date.now() - RELEASE_IMAGE_RECHECK_MS - 1) })
+        .where(eq(schema.releases.id, release.id));
+      expect((await listReleases()).find((r) => r.id === release.id)?.status).toBe('UNAVAILABLE');
+    });
+
+    it('the deploy route refuses a release listed as READY before its image was deleted, and leaves the running release alone', async () => {
+      const running = await readyRelease();
+      const stale = await readyRelease();
+      const deployment = await insertDeployment(db, org.organizationId, applicationId, customerId, {
+        state: 'HEALTHY',
+        currentReleaseId: running.id,
+      });
+      // The page loaded the list while the image still existed, then the
+      // image was deleted, then the vendor pressed Deploy.
+      expect((await listReleases()).find((r) => r.id === stale.id)?.status).toBe('READY');
+      registry.markMissing(stale.digest);
+
+      const response = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: stale.id }, { cookie: org.cookie });
+      expect(response.statusCode, response.body).toBe(409);
+      const body = response.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('RELEASE_UNAVAILABLE');
+      expect(body.error.message).toContain(stale.version);
+      expect(body.error.message).toContain('Create a new release');
+      expect(body.error.message).not.toMatch(/ECR|digest|registry/i);
+
+      const jobs = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+      expect(jobs).toHaveLength(0);
+      const [after] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+      expect(after!.state).toBe('HEALTHY');
+      expect(after!.currentReleaseId).toBe(running.id);
+      expect((await listReleases()).find((r) => r.id === stale.id)?.status).toBe('UNAVAILABLE');
+
+      // A known-unavailable release is refused deterministically on retry too.
+      const retry = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: stale.id }, { cookie: org.cookie });
+      expect(retry.statusCode).toBe(409);
+      expect((retry.json() as { error: { code: string } }).error.code).toBe('RELEASE_UNAVAILABLE');
+    });
+
+    it('rollback and bulk deploy apply the same guard', async () => {
+      const gone = await readyRelease();
+      registry.markMissing(gone.digest);
+      const deployment = await insertDeployment(db, org.organizationId, applicationId, customerId, { state: 'HEALTHY' });
+
+      const rollback = await postJson(app, `/api/deployments/${deployment.id}/rollback`, { releaseId: gone.id }, { cookie: org.cookie });
+      expect(rollback.statusCode, rollback.body).toBe(409);
+      expect((rollback.json() as { error: { code: string } }).error.code).toBe('RELEASE_UNAVAILABLE');
+
+      const bulk = await postJson(app, `/api/applications/${applicationId}/deploy-bulk`, { releaseId: gone.id }, { cookie: org.cookie });
+      expect(bulk.statusCode, bulk.body).toBe(409);
+      expect((bulk.json() as { error: { code: string } }).error.code).toBe('RELEASE_UNAVAILABLE');
+
+      const jobs = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+      expect(jobs).toHaveLength(0);
+    });
+
+    it('a healthy release still deploys (202) after the guard ran', async () => {
+      const release = await readyRelease();
+      const deployment = await insertDeployment(db, org.organizationId, applicationId, customerId, { state: 'HEALTHY' });
+      const response = await postJson(app, `/api/deployments/${deployment.id}/deploy`, { releaseId: release.id }, { cookie: org.cookie });
+      expect(response.statusCode, response.body).toBe(202);
+    });
+
+    it('INSTALL success auto-deploys the newest release whose image still exists, skipping an unavailable newer one', async () => {
+      const application = await insertApplication(db, org.organizationId);
+      const older = await insertRelease(db, application.id, {
+        buildStatus: 'SUCCEEDED',
+        releaseStatus: 'READY',
+        imageDigest: `${REPOSITORY}@${digestFor('older')}`,
+      });
+      const newerDigest = digestFor('newer');
+      const newer = await insertRelease(db, application.id, {
+        buildStatus: 'SUCCEEDED',
+        releaseStatus: 'READY',
+        imageDigest: `${REPOSITORY}@${newerDigest}`,
+        createdAt: new Date(Date.now() + 1000),
+      });
+      registry.markMissing(newerDigest);
+      const deployment = await insertDeployment(db, org.organizationId, application.id, customerId, {
+        state: 'NOT_INSTALLED',
+        installationId: null,
+      });
+      const installationId = `inst-p0-${crypto.randomUUID()}`;
+      const register = await postJson(
+        app,
+        '/api/relay/register',
+        { enrollmentCode: deployment.enrollmentCode, installationId, awsAccountId: '123456789012' },
+        { authorization: `Bearer ${RELAY_TOKEN}` },
+      );
+      expect(register.statusCode, register.body).toBe(200);
+      const claimed = await app.inject({
+        method: 'GET',
+        url: `/api/relay/commands?installationId=${installationId}`,
+        headers: { authorization: `Bearer ${RELAY_TOKEN}` },
+      });
+      const installJob = (claimed.json() as { commands: Array<{ id: string; type: string }> }).commands.find(
+        (c) => c.type === 'INSTALL',
+      )!;
+      const result = await postJson(
+        app,
+        `/api/relay/commands/${installJob.id}/result`,
+        { success: true },
+        { authorization: `Bearer ${RELAY_TOKEN}` },
+      );
+      expect(result.statusCode, result.body).toBe(200);
+
+      const deployJobs = await db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE')));
+      expect(deployJobs).toHaveLength(1);
+      expect(deployJobs[0]!.payload).toMatchObject({ releaseId: older.id });
+      const [markedNewer] = await db.select().from(schema.releases).where(eq(schema.releases.id, newer.id));
+      expect(markedNewer!.imageUnavailableAt).not.toBeNull();
+    });
+  });
+
+  describe('relay heartbeat — verification check text is redacted at ingest', () => {
+    it('stores the relay checks with secret-looking values redacted', async () => {
+      const token = 'p0-heartbeat-token';
+      const installationId = `inst-p0-hb-${crypto.randomUUID()}`;
+      const deployment = await insertDeployment(db, org.organizationId, applicationId, customerId, {
+        state: 'HEALTHY',
+        installationId,
+        enrollmentCode: crypto.randomUUID(),
+        enrollmentUsedAt: new Date(),
+        relayTokenHash: hashRelayToken(token),
+        relayStatus: 'CONNECTED',
+      });
+      const response = await postJson(
+        app,
+        '/api/relay/health',
+        {
+          installationId,
+          healthStatus: 'HEALTHY',
+          observedState: {
+            infraHealth: {
+              checks: [
+                { name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' },
+                { name: 'database', passed: false, detail: 'DATABASE_PASSWORD=hunter2 rejected by the database' },
+              ],
+            },
+          },
+        },
+        { authorization: `Bearer ${token}` },
+      );
+      expect(response.statusCode, response.body).toBe(200);
+      const [row] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+      const checks = (row!.observedState as { infraHealth: { checks: Array<{ detail: string }> } }).infraHealth.checks;
+      expect(checks[0]!.detail).toBe('Stack "deployz-app" found');
+      expect(checks[1]!.detail).not.toContain('hunter2');
+      expect(checks[1]!.detail).toContain('[REDACTED]');
+    });
   });
 });

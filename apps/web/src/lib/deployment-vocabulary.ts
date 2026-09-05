@@ -359,8 +359,10 @@ export const INSTALL_COMPONENT_LABELS: readonly (readonly [key: string, label: s
 // ── Infrastructure inventory vocabulary ─────────────────────────────────────
 
 import type {
+  InfrastructureComponent,
   InfrastructureComponentKind,
   InfrastructureComponentStatus,
+  InfrastructureHttpsState,
   InfrastructureLifecycle,
   InfrastructureSummaryStatus,
 } from './deployments';
@@ -421,6 +423,32 @@ export const INFRASTRUCTURE_STATUS_LABEL: Record<InfrastructureComponentStatus, 
   removed: 'Removed',
   unknown: 'Unknown',
 };
+
+/** Human-readable label per HTTPS provisioning state (`endpoint` component only). */
+export const INFRASTRUCTURE_HTTPS_STATE_LABEL: Record<InfrastructureHttpsState, string> = {
+  SETTING_UP: 'Setting up',
+  WAITING_FOR_CERTIFICATE: 'Waiting for certificate',
+  ACTIVATING: 'Activating HTTPS',
+  READY: 'Ready',
+  FAILED: 'Failed',
+  REMOVING: 'Removing',
+};
+
+/**
+ * The label to show on an infrastructure component's badge. The `endpoint`
+ * component's `status` enum only ever says provisioning/ready/failed/
+ * deleting — when the API has applied the truthful HTTPS state, that state
+ * is the more specific, accurate label; every other component (and older
+ * responses that omit `httpsState`) keeps the plain status label.
+ */
+export function infrastructureComponentStatusLabel(
+  component: Pick<InfrastructureComponent, 'status' | 'httpsState'>,
+): string {
+  if (component.httpsState) {
+    return INFRASTRUCTURE_HTTPS_STATE_LABEL[component.httpsState];
+  }
+  return INFRASTRUCTURE_STATUS_LABEL[component.status];
+}
 
 /** Plain-English lifecycle copy shown under each component. */
 export const INFRASTRUCTURE_LIFECYCLE_LABEL: Record<InfrastructureLifecycle, string> = {

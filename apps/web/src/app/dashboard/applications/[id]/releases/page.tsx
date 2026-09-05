@@ -16,6 +16,7 @@ import { releaseBuildFailureSummary } from '@deployz/copy-map';
 import { fetchDeploymentsForApplication } from '@/lib/deployments';
 import {
   RELEASE_STATUS_BADGE,
+  RELEASE_UNAVAILABLE_COPY,
   releaseStatusLabel,
   fetchReleases,
   createRelease,
@@ -257,6 +258,14 @@ function ReleaseTable({ releases, running }: { releases: Release[]; running: Set
                         </details>
                       ) : null}
                     </div>
+                  ) : null}
+                  {release.status === 'UNAVAILABLE' ? (
+                    <p
+                      className="mt-1 max-w-xs text-xs text-muted-foreground"
+                      data-testid={`release-unavailable-${release.id}`}
+                    >
+                      {RELEASE_UNAVAILABLE_COPY}
+                    </p>
                   ) : null}
                 </td>
                 <td className="py-2.5">

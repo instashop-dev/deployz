@@ -43,6 +43,7 @@ import {
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
   resolveBootstrapTemplate,
+  summarizeInfrastructureStatus,
   type ApplicationAnalysis,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
@@ -116,6 +117,14 @@ import {
   type EcrPullGrantDeps,
 } from './ecr-pull-grants.js';
 import { refineFailureCode } from './failure-classification.js';
+import {
+  createFixtureReleaseImageClient,
+  createRealReleaseImageClient,
+  refreshReleaseImageAvailability,
+  releaseWireStatus,
+  requireReleaseImageAvailable,
+  type ReleaseImageClient,
+} from './release-images.js';
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
@@ -172,6 +181,8 @@ import {
 } from './domains.js';
 import {
   deriveDeploymentStatus,
+  endpointHttpsState,
+  endpointStatusForHttpsState,
   mergeComponentState,
   toCustomerDeploymentStatus,
   toVendorDeploymentStatus,
@@ -271,6 +282,10 @@ export interface ServerDeps {
   // destroy-revoke lifecycle. Defaults to the real SDK client; tests inject a
   // recorder so no ECR call ever leaves the machine.
   ecrClient?: EcrClient | undefined;
+  // Injectable release-image availability seam (release-images.ts). Defaults
+  // to the real registry client in the deployed Lambda and to the scriptable
+  // fixture everywhere else; tests inject a fake.
+  releaseImages?: ReleaseImageClient | undefined;
 }
 
 // §48 billing-summary line amounts, in whole dollars. Derived from the
@@ -612,6 +627,7 @@ function fixtureImageDigest(releaseId: string): string {
 
 async function requireDeployableRelease(
   db: RuntimeDb,
+  releaseImages: ReleaseImageClient,
   releaseId: string,
   applicationId: string,
   deployment?: DeploymentRow,
@@ -644,6 +660,10 @@ async function requireDeployableRelease(
       `Version ${release.version} has no deployable image yet. Wait for the build to finish or pick another release.`,
     );
   }
+  // READY says the build once pushed an image; the registry says whether it
+  // still exists. Checked at request time so a release the page listed
+  // before its image was deleted is refused here, never queued.
+  await requireReleaseImageAvailable(db, releaseImages, release);
   const payload: DeployPayload = {
     releaseId: release.id,
     version: release.version,
@@ -1199,6 +1219,7 @@ export async function buildServer({
   analysisRunner,
   emailSender,
   ecrClient,
+  releaseImages: injectedReleaseImages,
   githubFetch: injectedGithubFetch,
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
@@ -1212,6 +1233,16 @@ export async function buildServer({
   // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
   // grant must not fail the install request that owns it (see ecr-pull-grants.ts).
   const ecrGrantDeps: EcrPullGrantDeps = createEcrPullGrantDeps(ecrClient);
+  // Release-image availability: the real registry client only in the
+  // deployed Lambda (env.releaseImageRegistryEnabled); everywhere else the
+  // scriptable fixture, whose internal route below exists only under
+  // BUILD_FIXTURE_MODE (E2E) and never in production.
+  const fixtureReleaseImages =
+    injectedReleaseImages === undefined && !env.releaseImageRegistryEnabled
+      ? createFixtureReleaseImageClient()
+      : null;
+  const releaseImages: ReleaseImageClient =
+    injectedReleaseImages ?? fixtureReleaseImages ?? createRealReleaseImageClient();
   // Phase 11 default HTTPS. Fixture mode (E2E) wins; production uses the
   // Cloudflare DNS client when the deployz.dev zone is configured, falls
   // back to the legacy Route53 writer while it still exists, and is off when
@@ -1391,6 +1422,27 @@ export async function buildServer({
       }
       fixtureDefaultDnsProvider.queueFailures(count, code as FixtureDnsFailureCode, deploymentId);
       return snapshot();
+    });
+  }
+
+  if (fixtureReleaseImages && env.buildFixtureMode) {
+    // Model an image deleted from the registry after a page listed the
+    // release, so the simulated suite can prove the deploy-time guard.
+    app.post('/internal/fixture/release-images', async (request) => {
+      const body = request.body as { releaseId?: unknown; missing?: unknown };
+      if (typeof body?.releaseId !== 'string' || typeof body?.missing !== 'boolean') {
+        throw new ApiError(400, 'INVALID_REQUEST', 'releaseId and missing are required');
+      }
+      const [release] = await db
+        .select({ imageDigest: schema.releases.imageDigest })
+        .from(schema.releases)
+        .where(eq(schema.releases.id, body.releaseId))
+        .limit(1);
+      const digest = release?.imageDigest?.slice(release.imageDigest.lastIndexOf('@') + 1);
+      if (!digest) throw new NotFoundError('Release not found');
+      if (body.missing) fixtureReleaseImages.markMissing(digest);
+      else fixtureReleaseImages.restore(digest);
+      return fixtureReleaseImages.snapshot();
     });
   }
 
@@ -3406,16 +3458,20 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
-    const rows = await db
+    const stored = await db
       .select()
       .from(schema.releases)
       .where(eq(schema.releases.applicationId, id))
       .orderBy(schema.releases.createdAt);
+    // A READY release whose image the registry no longer holds reads
+    // UNAVAILABLE. Throttled per release (release-images.ts) — a page load is
+    // one registry call at most, never a poll.
+    const rows = await refreshReleaseImageAvailability(db, releaseImages, stored);
     return {
       releases: rows.map((row) => ({
         id: row.id,
         version: row.version,
-        status: row.releaseStatus,
+        status: releaseWireStatus(row),
         failureReason: row.failureReason,
         createdAt: row.createdAt,
       })),
@@ -3482,6 +3538,9 @@ export async function buildServer({
    * DEPLOY_RELEASE result handler settles the state as usual.
    */
   async function autoDeploySelectedRelease(deployment: DeploymentRow): Promise<void> {
+    // Newest first, skipping releases already known to be unavailable; a
+    // release whose image turns out to be gone at this moment is skipped for
+    // the next one rather than queued to fail.
     const newestReady = await db
       .select({ id: schema.releases.id })
       .from(schema.releases)
@@ -3489,14 +3548,25 @@ export async function buildServer({
         and(
           eq(schema.releases.applicationId, deployment.applicationId),
           eq(schema.releases.releaseStatus, 'READY'),
+          isNull(schema.releases.imageUnavailableAt),
         ),
       )
       .orderBy(desc(schema.releases.createdAt))
-      .limit(1);
-    const release = newestReady[0];
-    if (!release) return;
+      .limit(5);
+    let release: { id: string } | undefined;
+    let payload: DeployPayload | undefined;
+    for (const candidate of newestReady) {
+      try {
+        payload = await requireDeployableRelease(db, releaseImages, candidate.id, deployment.applicationId, deployment);
+        release = candidate;
+        break;
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'RELEASE_UNAVAILABLE') continue;
+        throw error;
+      }
+    }
+    if (!release || !payload) return;
 
-    const payload = await requireDeployableRelease(db, release.id, deployment.applicationId, deployment);
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DEPLOY_RELEASE',
@@ -3523,7 +3593,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const body = deployBodySchema.parse(request.body);
-    const payload = await requireDeployableRelease(db, body.releaseId, deployment.applicationId, deployment);
+    const payload = await requireDeployableRelease(db, releaseImages, body.releaseId, deployment.applicationId, deployment);
     // The same rule deploy-bulk applies. Without it this route accepted a
     // deploy for a NOT_INSTALLED deployment — 202, a queued job, and nothing
     // in the customer's account to ever run it.
@@ -3566,7 +3636,7 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
     const body = deployBulkBodySchema.parse(request.body);
-    const payload = await requireDeployableRelease(db, body.releaseId, id);
+    const payload = await requireDeployableRelease(db, releaseImages, body.releaseId, id);
 
     const conditions = [
       eq(schema.deployments.applicationId, id),
@@ -3679,7 +3749,7 @@ export async function buildServer({
     idempotencyKeyHeader: string | undefined,
   ): Promise<{ job: DeploymentJobRow; created: boolean }> {
     await requireDeployableState(db, deployment);
-    const payload = await requireDeployableRelease(db, releaseId, deployment.applicationId);
+    const payload = await requireDeployableRelease(db, releaseImages, releaseId, deployment.applicationId);
     const idempotencyKey =
       idempotencyKeyHeader ??
       (await retryAwareIdempotencyKey(
@@ -4750,12 +4820,26 @@ export async function buildServer({
         { deploymentState: deployment.state, region: deployment.region },
       );
 
+      // The secure endpoint is READY only when HTTPS actually serves: the
+      // load balancer's CREATE_COMPLETE says nothing about the certificate,
+      // so the endpoint component is overlaid with the default-HTTPS /
+      // custom-domain machine state (the same source the deployment hero
+      // reads) whenever its CloudFormation rows are complete.
+      const domain = await findActiveDomain(db, id);
+      const defaultHttps = parseDefaultHttps(deployment.defaultHttps);
+      const components = aggregate.components.map((component) => {
+        if (component.kind !== 'endpoint' || component.status !== 'ready' || deployment.state === 'DELETED') {
+          return component;
+        }
+        const httpsState = endpointHttpsState(domain, defaultHttps);
+        return { ...component, status: endpointStatusForHttpsState(httpsState), httpsState };
+      });
+      const rollup = summarizeInfrastructureStatus(components);
+
       // The aggregate rolls up to the component vocabulary ('ready'); the
       // wire summary presents it as 'healthy'.
       const summaryStatus: InfrastructureSummaryStatus =
-        aggregate.summaryStatus === 'ready'
-          ? 'healthy'
-          : (aggregate.summaryStatus as InfrastructureSummaryStatus);
+        rollup === 'ready' ? 'healthy' : (rollup as InfrastructureSummaryStatus);
 
       const lastUpdatedAtIso = lastUpdatedAt?.toISOString() ?? null;
 
@@ -4767,10 +4851,10 @@ export async function buildServer({
         snapshotState,
         summary: {
           status: summaryStatus,
-          componentCount: aggregate.components.length,
+          componentCount: components.length,
           technicalResourceCount: resources.length,
         },
-        components: aggregate.components,
+        components,
         lastUpdatedAt: lastUpdatedAtIso,
         disconnectWarning:
           !connected && snapshotState !== 'none' && lastUpdatedAt !== null
@@ -5805,6 +5889,17 @@ export async function buildServer({
     // even when it cannot be reconciled to a release.
     if (body?.runningImageDigest !== undefined) {
       (observedState as Record<string, unknown>)['runningImageDigest'] = body.runningImageDigest;
+    }
+    // The relay's verification checks carry free text (stack names, AWS
+    // error codes) that the vendor diagnostics page shows behind its
+    // technical disclosure — redacted at ingest, as stack-event reasons are.
+    const infraChecks = (observedState as { infraHealth?: { checks?: unknown } } | null)?.infraHealth?.checks;
+    if (Array.isArray(infraChecks)) {
+      for (const check of infraChecks) {
+        if (check !== null && typeof check === 'object' && typeof (check as { detail?: unknown }).detail === 'string') {
+          (check as { detail: string }).detail = redactSecrets((check as { detail: string }).detail);
+        }
+      }
     }
 
     // §10.2 HTTP probe ingest: the relay reports what it measured this poll

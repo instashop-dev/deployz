@@ -9,8 +9,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   INFRASTRUCTURE_COMPONENT_NAME,
-  INFRASTRUCTURE_STATUS_LABEL,
   RELAY_STATUS_LABEL,
+  infrastructureComponentStatusLabel,
   showInfrastructureRows,
   type DeploymentState,
   type RelayStatus,
@@ -162,7 +162,7 @@ export function InfrastructureSummary({
               {INFRASTRUCTURE_COMPONENT_NAME[component.kind] ?? component.name}
             </span>
             <span className="ml-auto shrink-0 text-muted-foreground">
-              {INFRASTRUCTURE_STATUS_LABEL[component.status]}
+              {infrastructureComponentStatusLabel(component)}
             </span>
           </li>
         ))}

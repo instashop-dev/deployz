@@ -728,3 +728,65 @@ Documented, deliberate limitations that remain: vendor-scope secret values
 must be entered per customer after the relay is connected; `PORT_MISMATCH`
 has no live producer because the app's listening port is not observable;
 docker-compose commands are not scanned for a loopback binding.
+
+## P0 hardening — final fixes before external-user testing (2026-09-05)
+
+The three product defects the Phase 10 canary observed (above) plus the
+real-AWS validation of Deploy Links. No new capability; each fix reuses an
+existing machine and adds regression tests at the layer that owns it.
+
+### Root causes and fixes
+
+1. **Diagnostics "Last relay report" printed raw relay text.** The page
+   rendered `observedState.infraHealth.checks[].detail` verbatim ("Stack
+   status CREATE_COMPLETE", "Found a complete ECS service") as its primary
+   text. Fix: the relay-check vocabulary joins the copy-map jargon boundary
+   (`RELAY_CHECK_COPY`, `relayCheckCopy`); the page leads with a
+   plain-English problem and next action for every failing required check,
+   shows plain status words per check, and keeps the relay's own text behind
+   one "Technical detail" disclosure. The heartbeat ingest now passes each
+   check's text through `redactSecrets`, as stack-event reasons already
+   were. The deterministic diagnostic cards stay the primary diagnosis; no
+   second diagnostics path was added. Tests:
+   `packages/copy-map/test/copy-map.test.ts` (every string jargon-free),
+   `apps/web/test/health-vocabulary.test.ts` (`infraCheckPresentation`),
+   `apps/api/src/server.test.ts` (redaction at ingest).
+2. **"Secure endpoint · Ready" before HTTPS worked.** The infrastructure
+   inventory classified the `endpoint` component from CloudFormation rows
+   alone, so the load balancer's CREATE_COMPLETE read as Ready while the
+   certificate was still being issued. Fix: `GET
+   /api/deployments/:id/infrastructure` overlays the default-HTTPS /
+   custom-domain machine state (`endpointHttpsState`,
+   `deployment-status.ts`) on the endpoint component and re-derives the
+   summary: `httpsState` SETTING_UP → WAITING_FOR_CERTIFICATE → ACTIVATING →
+   READY / FAILED / REMOVING, READY only once a custom domain or the default
+   address is ACTIVE (a verified HTTPS probe). Nothing is inferred from
+   timing; the hero already read the same machine. The contract gains the
+   optional `httpsState` field; the web badge prints its label. Tests:
+   `deployment-status.test.ts`, `server.test.ts` (route overlay through
+   every state, custom-domain precedence, no overlay while the load
+   balancer is still creating or after deletion),
+   `e2e/deployment-detail.spec.ts`, `e2e/scenario-default-https.spec.ts`.
+3. **A READY release with a deleted image was still deployable.** Nothing
+   consulted the registry after CodeBuild reported the digest. Fix
+   (`apps/api/src/release-images.ts`): `releases.image_unavailable_at` /
+   `image_checked_at` (migration 0031); `requireDeployableRelease` asks the
+   control-plane registry (ECR `BatchGetImage`, `ecr:BatchGetImage` added
+   to the API role) at deploy, rollback, bulk-deploy and auto-deploy time —
+   a deleted image is refused with 409 `RELEASE_UNAVAILABLE`, deterministic
+   actionable copy, no job, the running release untouched, the mark sticky;
+   the release list re-checks READY releases at most every ten minutes and
+   serves `UNAVAILABLE`; the post-install auto-deploy skips unavailable
+   releases. An unanswered registry marks nothing (the uncertain-result
+   rule). The real client runs only in the deployed Lambda; local, unit and
+   E2E runs use a scriptable fixture (`/internal/fixture/release-images`
+   under BUILD_FIXTURE_MODE). Tests: `release-images.test.ts`,
+   `server.test.ts` (list, deploy race, rollback, bulk, auto-deploy skip),
+   `apps/web/test/releases.test.ts`, `deployments.test.ts`, and the
+   simulated scenario `release-unavailable`
+   (`e2e/scenario-release-unavailable.spec.ts`).
+
+Documentation: `docs/architecture.md` (steps 7 and 10),
+`docs/deployment-resilience.md` (release availability under failed-update
+semantics), `docs/testing/aws-full-product-canary.md` §8 (checks 6–8),
+`docs/testing/e2e-scenarios.md` (`release-unavailable`).

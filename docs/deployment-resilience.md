@@ -74,6 +74,17 @@ newest attempt under a base key is FAILED. Application rollback restores the
 image and service configuration only; it never reverses database
 migrations (documented limitation).
 
+A READY release is deployable only while its image still exists in the
+control-plane registry. `requireDeployableRelease` asks the registry at
+request time (deploy, rollback, bulk deploy, the post-install auto-deploy),
+so a release the page listed before its image was deleted is refused with
+409 `RELEASE_UNAVAILABLE` rather than queued to fail; the release is marked
+`image_unavailable_at` (sticky, served as `UNAVAILABLE`) and the running
+release is untouched. The uncertain-result rule applies here too: a registry
+that does not answer marks nothing and lets the deploy proceed, where the
+pipeline's own image-pull failure and the circuit breaker stay honest
+(`apps/api/src/release-images.ts`, `release-images.test.ts`).
+
 ## Idempotency and exclusivity
 
 - Every operation has a durable idempotency key

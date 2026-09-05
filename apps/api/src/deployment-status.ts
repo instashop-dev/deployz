@@ -12,6 +12,8 @@ import {
   type HealthStatus,
   type HealthTargets,
   type HttpProbe,
+  type InfrastructureComponentStatus,
+  type InfrastructureHttpsState,
   type JobState,
   type JobType,
   type RelayStatus,
@@ -437,6 +439,50 @@ function httpsComponentStatus(
     }
   }
   return needsDomainSetup ? 'PENDING' : null;
+}
+
+/**
+ * The secure-endpoint truth for the infrastructure inventory's `endpoint`
+ * component. CloudFormation marks the load balancer complete long before
+ * HTTPS works, so the inventory route overlays the same domain / default-
+ * HTTPS machine state `httpsComponentStatus` reads: READY only once a
+ * custom domain or the Deployz-owned address is ACTIVE (a successful HTTPS
+ * probe), never inferred from timing or from the listener existing.
+ */
+export function endpointHttpsState(
+  domain: DerivationDomain | null,
+  defaultHttps: DerivationDefaultHttps | null,
+): InfrastructureHttpsState {
+  if (domain?.status === 'ACTIVE' || defaultHttps?.status === 'ACTIVE') return 'READY';
+  const status = defaultHttps?.status ?? domain?.status ?? null;
+  switch (status) {
+    case 'PENDING':
+      return 'SETTING_UP';
+    case 'WAITING_FOR_DNS':
+      return 'WAITING_FOR_CERTIFICATE';
+    case 'CONFIGURING':
+      return 'ACTIVATING';
+    case 'ERROR':
+      return 'FAILED';
+    case 'REMOVING':
+      return 'REMOVING';
+    default:
+      return 'SETTING_UP';
+  }
+}
+
+/** The closed component-status vocabulary an HTTPS state maps onto. */
+export function endpointStatusForHttpsState(state: InfrastructureHttpsState): InfrastructureComponentStatus {
+  switch (state) {
+    case 'READY':
+      return 'ready';
+    case 'FAILED':
+      return 'failed';
+    case 'REMOVING':
+      return 'deleting';
+    default:
+      return 'provisioning';
+  }
 }
 
 function buildComponents(params: {

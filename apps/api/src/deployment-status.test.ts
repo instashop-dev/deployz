@@ -4,6 +4,8 @@ import { FAILURE_CODES } from '@deployz/copy-map';
 
 import {
   deriveDeploymentStatus,
+  endpointHttpsState,
+  endpointStatusForHttpsState,
   mergeComponentState,
   toCustomerDeploymentStatus,
   toPlanHttpsState,
@@ -1546,5 +1548,46 @@ describe('custom-domain promotion gating (Phase 8)', () => {
     });
     expect(status.stage).toBe('READY');
     expect(status.result).toEqual({ url: DEFAULT_URL });
+  });
+});
+
+// P0 — the infrastructure inventory's secure-endpoint truth. The load
+// balancer's CloudFormation status never decides this; only the domain /
+// default-HTTPS machines do, and READY requires one of them ACTIVE.
+describe('endpointHttpsState — infrastructure secure endpoint truth', () => {
+  const host = 'd-abc.deployz.dev';
+
+  it('is SETTING_UP when no HTTPS machine has started', () => {
+    expect(endpointHttpsState(null, null)).toBe('SETTING_UP');
+  });
+
+  it('follows the default-HTTPS machine through its intermediate states', () => {
+    expect(endpointHttpsState(null, { hostname: host, status: 'PENDING' })).toBe('SETTING_UP');
+    expect(endpointHttpsState(null, { hostname: host, status: 'WAITING_FOR_DNS' })).toBe('WAITING_FOR_CERTIFICATE');
+    expect(endpointHttpsState(null, { hostname: host, status: 'CONFIGURING' })).toBe('ACTIVATING');
+    expect(endpointHttpsState(null, { hostname: host, status: 'ACTIVE' })).toBe('READY');
+    expect(endpointHttpsState(null, { hostname: host, status: 'ERROR' })).toBe('FAILED');
+    expect(endpointHttpsState(null, { hostname: host, status: 'REMOVING' })).toBe('REMOVING');
+  });
+
+  it('never reads READY from a certificate that is issued but not yet verified', () => {
+    expect(endpointHttpsState(null, { hostname: host, status: 'CONFIGURING' })).not.toBe('READY');
+  });
+
+  it('an ACTIVE custom domain is READY regardless of the default machine; an in-progress one defers to it', () => {
+    expect(endpointHttpsState({ hostname: 'app.acme.com', status: 'ACTIVE' }, { hostname: host, status: 'WAITING_FOR_DNS' })).toBe('READY');
+    expect(endpointHttpsState({ hostname: 'app.acme.com', status: 'CONFIGURING' }, { hostname: host, status: 'ACTIVE' })).toBe('READY');
+    expect(endpointHttpsState({ hostname: 'app.acme.com', status: 'ERROR' }, { hostname: host, status: 'WAITING_FOR_DNS' })).toBe('WAITING_FOR_CERTIFICATE');
+    expect(endpointHttpsState({ hostname: 'app.acme.com', status: 'WAITING_FOR_DNS' }, null)).toBe('WAITING_FOR_CERTIFICATE');
+    expect(endpointHttpsState({ hostname: 'app.acme.com', status: 'ERROR' }, null)).toBe('FAILED');
+  });
+
+  it('maps onto the closed component-status vocabulary', () => {
+    expect(endpointStatusForHttpsState('READY')).toBe('ready');
+    expect(endpointStatusForHttpsState('FAILED')).toBe('failed');
+    expect(endpointStatusForHttpsState('REMOVING')).toBe('deleting');
+    for (const state of ['SETTING_UP', 'WAITING_FOR_CERTIFICATE', 'ACTIVATING'] as const) {
+      expect(endpointStatusForHttpsState(state)).toBe('provisioning');
+    }
   });
 });

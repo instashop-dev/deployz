@@ -206,6 +206,11 @@ export const env = {
   // always 409. Marks a new release built immediately with a deterministic
   // fixture digest instead of enqueuing. Mirrors githubFixtureMode.
   buildFixtureMode: process.env.BUILD_FIXTURE_MODE === 'true',
+  // The release-image registry (the control plane's own ECR repository) is
+  // consulted only from the deployed Lambda: locally a release is either
+  // fixture-built (BUILD_FIXTURE_MODE) or never READY, so the scriptable
+  // fixture client stands in and no test or E2E run ever calls ECR.
+  releaseImageRegistryEnabled: Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME),
   // Team Admin env-grant allowlist (comma-separated exact emails or
   // `*@domain` wildcards) — see apps/api/src/admin/auth.ts. Local dev/E2E
   // only; teamAdminEnvGrantsEnabled below shuts this off in production.

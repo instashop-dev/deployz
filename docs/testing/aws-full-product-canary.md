@@ -240,4 +240,23 @@ Run these on the same walk, in order; they cost nothing extra in AWS.
    and the Phase 6 context (operation, failed resources) behind "Technical
    detail", and never show a raw CloudFormation status at the top level.
    Only an `UNKNOWN` code consults the model; a below-high confidence
-   must be hedged.
+   must be hedged. The diagnostics page's "Last relay report" must lead
+   with a plain-English problem and next action for any failing check and
+   keep the relay's own check text behind its "Technical detail"
+   disclosure (copy-map `RELAY_CHECK_COPY`).
+7. **HTTPS truth** — while the certificate is being issued, the deployment
+   page's Infrastructure card must show *Secure endpoint* as "Setting up",
+   "Waiting for certificate" or "Activating HTTPS", and "Ready" only once
+   `GET /api/deployments/:id` reports `defaultHttps.status: ACTIVE` (or an
+   ACTIVE custom domain). Verify externally at each stage: `curl -sI
+   https://d-<deployment-id>.deployz.dev/<health path>` must fail before
+   Ready and return 200 after.
+8. **Unavailable release** — deploy a valid release normally. For a second
+   READY release, delete its image tag from `deployz-images`
+   (`aws ecr batch-delete-image --repository-name deployz-images --image-ids
+   imageTag=<version>`), then press *Deploy Update* on a page that was
+   loaded before the deletion: the API must answer 409
+   `RELEASE_UNAVAILABLE` with the plain-English message, queue no job, keep
+   the running release live, and the releases page must show the release
+   as "Unavailable" after the next list refresh (at most ten minutes, or
+   immediately after the refused deploy).

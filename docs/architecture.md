@@ -56,6 +56,12 @@ The flow a deployment follows, end to end:
    READY release.
 7. **Deploy Release** — DEPLOY_RELEASE runs the migration command (if any) as
    a one-off ECS task and then updates the service to the pinned digest.
+   Before a deploy, rollback or bulk deploy is queued, the API asks the
+   control-plane registry whether the release's image still exists
+   (`apps/api/src/release-images.ts`); a deleted image refuses the request
+   with `RELEASE_UNAVAILABLE`, marks the release `UNAVAILABLE` (sticky) and
+   never touches the running release. The release list re-checks READY
+   releases at most every ten minutes; there is no background polling.
 8. **Migration** — the migration stage runs before the service update,
    only for a DEPLOY_RELEASE with a migration command. Rollback never runs
    migrations.
@@ -75,7 +81,11 @@ The flow a deployment follows, end to end:
     model: `defaultUrl` is the permanent `d-*` address once the machine starts
     (any status); `resolveAppUrl` surfaces the preferred URL — the custom
     domain only once it is ACTIVE and healthy, otherwise the default URL once
-    ACTIVE/CONFIGURING, otherwise the bare ALB endpoint. See
+    ACTIVE/CONFIGURING, otherwise the bare ALB endpoint. The infrastructure
+    inventory's *Secure endpoint* row reads the same machine (`httpsState`:
+    Setting up → Waiting for certificate → Activating HTTPS → Ready /
+    Failed) and is Ready only once a custom domain or the default address is
+    ACTIVE — never from the load balancer's CloudFormation status alone. See
     `docs/mvp-default-https-status.md` for the full phase record.
 11. **Day-2 Operations** — config updates, further deploys, rollback, restart,
     and relay re-enrollment run through the same command queue, gated on relay

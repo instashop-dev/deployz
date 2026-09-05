@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DeploymentActionError,
+  actionErrorMessage,
   listedUnderStatus,
   matchesRememberedCustomer,
   readinessFindingMessages,
@@ -53,6 +55,29 @@ describe('matchesRememberedCustomer', () => {
     expect(matchesRememberedCustomer(REMEMBERED, REMEMBERED.name, 'other@example.com')).toBe(
       false,
     );
+  });
+});
+
+describe('actionErrorMessage', () => {
+  it('explains a busy deployment', () => {
+    expect(actionErrorMessage(new DeploymentActionError(409, 'DEPLOYMENT_BUSY'), 'fallback')).toBe(
+      'Another operation is already running on this deployment. Wait for it to finish, then try again.',
+    );
+  });
+
+  it('explains an unavailable release', () => {
+    expect(
+      actionErrorMessage(new DeploymentActionError(409, 'RELEASE_UNAVAILABLE'), 'fallback'),
+    ).toBe(
+      'This version can no longer be deployed because its build is no longer available. Create a new release to deploy it again.',
+    );
+  });
+
+  it('falls back for any other error', () => {
+    expect(actionErrorMessage(new DeploymentActionError(500, 'REQUEST_FAILED'), 'fallback')).toBe(
+      'fallback',
+    );
+    expect(actionErrorMessage(new Error('nope'), 'fallback')).toBe('fallback');
   });
 });
 

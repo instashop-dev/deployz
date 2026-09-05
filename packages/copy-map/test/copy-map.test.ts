@@ -18,6 +18,9 @@ import {
   READINESS_STATE_PRESENTATION,
   READINESS_STATES,
   RECOVERABILITY_COPY,
+  RELAY_CHECK_COPY,
+  RELAY_CHECK_FALLBACK_COPY,
+  RELAY_CHECK_NAMES,
   SECRET_MASK,
   customerStackStatusLabel,
   releaseBuildFailureSummary,
@@ -31,6 +34,7 @@ import {
   readinessChecksLabel,
   readinessStateFromVerdict,
   readinessStateHeading,
+  relayCheckCopy,
 } from '../src/index';
 
 // Locks the §46/§61/§19 vocabulary + §65 copy principles in the single
@@ -470,6 +474,46 @@ describe('recoverability and customer stack status label', () => {
     }
     expect(customerStackStatusLabel('ROLLBACK_COMPLETE')).toBe('Setup was rolled back');
     expect(customerStackStatusLabel('DELETE_FAILED')).toBe('Removal was blocked');
+  });
+});
+
+// ── §65 relay verification checks ───────────────────────────────────────────
+
+describe('relay check copy', () => {
+  it('maps every RELAY_CHECK_NAMES entry to non-empty, jargon-free copy', () => {
+    for (const name of RELAY_CHECK_NAMES) {
+      const copy = RELAY_CHECK_COPY[name];
+      expect(copy.label, `label for ${name}`).toBeTruthy();
+      expect(copy.passed, `passed for ${name}`).toBeTruthy();
+      expect(copy.failed.problem, `failed.problem for ${name}`).toBeTruthy();
+      expect(copy.failed.nextAction, `failed.nextAction for ${name}`).toBeTruthy();
+
+      expect(JARGON_PATTERN.test(copy.label)).toBe(false);
+      expect(JARGON_PATTERN.test(copy.passed)).toBe(false);
+      expect(JARGON_PATTERN.test(copy.failed.problem)).toBe(false);
+      expect(JARGON_PATTERN.test(copy.failed.nextAction)).toBe(false);
+      if (copy.notRequired !== undefined) {
+        expect(JARGON_PATTERN.test(copy.notRequired)).toBe(false);
+      }
+    }
+  });
+
+  it('the fallback copy is non-empty and jargon-free', () => {
+    expect(RELAY_CHECK_FALLBACK_COPY.label).toBeTruthy();
+    expect(RELAY_CHECK_FALLBACK_COPY.passed).toBeTruthy();
+    expect(RELAY_CHECK_FALLBACK_COPY.failed.problem).toBeTruthy();
+    expect(RELAY_CHECK_FALLBACK_COPY.failed.nextAction).toBeTruthy();
+    expect(JARGON_PATTERN.test(RELAY_CHECK_FALLBACK_COPY.label)).toBe(false);
+    expect(JARGON_PATTERN.test(RELAY_CHECK_FALLBACK_COPY.passed)).toBe(false);
+    expect(JARGON_PATTERN.test(RELAY_CHECK_FALLBACK_COPY.failed.problem)).toBe(false);
+    expect(JARGON_PATTERN.test(RELAY_CHECK_FALLBACK_COPY.failed.nextAction)).toBe(false);
+  });
+
+  it('relayCheckCopy looks up known names and falls back for unknown ones', () => {
+    for (const name of RELAY_CHECK_NAMES) {
+      expect(relayCheckCopy(name)).toBe(RELAY_CHECK_COPY[name]);
+    }
+    expect(relayCheckCopy('anything-else')).toBe(RELAY_CHECK_FALLBACK_COPY);
   });
 });
 

@@ -148,6 +148,16 @@ test.describe('default-https-a success', () => {
     const hostname = deployment.defaultHttps!.hostname;
     expect(hostname).toMatch(/^d-[0-9a-f-]{36}\.deployz-fixture\.test$/);
 
+    // P0: the infrastructure inventory's secure endpoint reads READY from the
+    // ACTIVE machine (a verified HTTPS probe), never from the load balancer's
+    // CloudFormation status alone.
+    const infrastructure = await request.get(`${API_URL}/api/deployments/${deploymentId}/infrastructure`);
+    expect(infrastructure.ok()).toBe(true);
+    const endpoint = ((await infrastructure.json()) as {
+      components: Array<{ kind: string; status: string; httpsState?: string }>;
+    }).components.find((component) => component.kind === 'endpoint');
+    expect(endpoint).toMatchObject({ status: 'ready', httpsState: 'READY' });
+
     // Assert the fixture-zone records — never the production zone hex (that
     // is Phase 15's static check; see the docs section).
     const snapshot = await dnsSnapshot(request);
