@@ -52,8 +52,11 @@ The flow a deployment follows, end to end:
    (VPC, ALB, ECS/Fargate service, RDS PostgreSQL, and S3 — the template always
    carries them — plus the ElastiCache Valkey cache when the application
    requires Redis) in the customer account. Cross-account ECR pull
-   is granted control-plane-side. INSTALL success auto-deploys the newest
-   READY release.
+   is granted control-plane-side. The INSTALL job carries the deployment's
+   newest READY release's image reference as the template's image parameter,
+   so a fresh install runs the application's own release (the template
+   default is the publish-time image). INSTALL success auto-deploys the
+   newest READY release.
 7. **Deploy Release** — DEPLOY_RELEASE runs the migration command (if any) as
    a one-off ECS task and then updates the service to the pinned digest.
    Before a deploy, rollback or bulk deploy is queued, the API asks the

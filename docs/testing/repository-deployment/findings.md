@@ -13,15 +13,15 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 
 | Id | Stage | Root cause | Resolution | Affected |
 | --- | --- | --- | --- | --- |
-| DEPLOY-001 | INFRA_ERROR | DEPLOYZ_BUG | OPEN | every non-Documenso application (by inspection; Wave 1 measures it) |
+| DEPLOY-001 | INFRA_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | every non-Documenso application (by inspection; Wave 1 measures it) |
 
 ---
 
 ## DEPLOY-001 — A fresh install runs the template-pinned image, not the application's release
 
 **Stage** INFRA_ERROR (the install stack cannot stabilise) · **Root cause**
-DEPLOYZ_BUG · **Resolution** OPEN · **Found** Phase 0, by inspection of the
-deployed templates (2026-09-05).
+DEPLOYZ_BUG · **Resolution** FIXED (pending deploy) · **Found** Phase 0, by
+inspection of the deployed templates (2026-09-05).
 
 **Behaviour.** The application template's container image is fixed when the
 template is published (`packages/cdk/scripts/publish-application.mjs`:
@@ -73,3 +73,11 @@ release, instead of installing a placeholder image.
 **Affected.** By construction every application other than the one the
 production template was published for. Wave 1 records which repositories
 would have hit it; after the fix the finding is measured by its absence.
+
+**Fix.** `packages/cdk/src/application/application-stack.ts` declares
+`param_ImageReference` (default: the publish-time image) and uses it
+everywhere the task definitions reference the container image;
+`packages/contracts/src/index.ts` exports its logical id as
+`IMAGE_REFERENCE_PARAMETER`; `apps/api/src/install-parameters.ts`
+(`buildInstallParameters`) sets it to the deployment's application's newest
+READY release with a known image, omitting the key when there is none.

@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 
-import { DOCUMENSO_PARAMETERS } from '@deployz/contracts';
+import { DOCUMENSO_PARAMETERS, IMAGE_REFERENCE_PARAMETER } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -32,6 +32,10 @@ export async function readRedisRequired(db: RuntimeDb, applicationId: string): P
  * Builds the CloudFormation parameter values for an INSTALL job (§31).
  * Phase 1: the runtime-v1 template is Documenso-shaped, so every install
  * receives these; unrelated images simply ignore the injected env vars.
+ * - imageReference (DEPLOY-001) is the deployment's application's newest
+ *   READY release with a known image (`imageUnavailableAt` null); when no
+ *   such release exists the key is omitted and the template falls back to
+ *   its publish-time default image.
  * - publicUrl follows the preferred-URL model (Phase 7): an ACTIVE custom
  *   domain, else the ACTIVE default-HTTPS hostname, else a pre-created custom
  *   domain's hostname (legacy install-time behavior). When no URL applies the
@@ -49,6 +53,7 @@ export async function buildInstallParameters(
 ): Promise<Record<string, string>> {
   const rows = await db
     .select({
+      applicationId: schema.deployments.applicationId,
       healthPath: schema.applications.healthPath,
       defaultHttps: schema.deployments.defaultHttps,
     })
@@ -68,6 +73,30 @@ export async function buildInstallParameters(
     // target group and container health checks probe via the template's
     // param_HealthCheckPath parameter (CDK strips the underscore).
     parameters['paramHealthCheckPath'] = rows[0].healthPath;
+  }
+  if (rows[0]?.applicationId) {
+    // DEPLOY-001 — a fresh install must run the application's own release,
+    // not the image the template happened to be published with. Same
+    // selection as autoDeploySelectedRelease (READY, image not known
+    // unavailable), newest first; no such release leaves the key absent so
+    // the template's publish-time default applies.
+    const releaseRows = await db
+      .select({ imageDigest: schema.releases.imageDigest })
+      .from(schema.releases)
+      .where(
+        and(
+          eq(schema.releases.applicationId, rows[0].applicationId),
+          eq(schema.releases.releaseStatus, 'READY'),
+          isNull(schema.releases.imageUnavailableAt),
+          isNotNull(schema.releases.imageDigest),
+        ),
+      )
+      .orderBy(desc(schema.releases.createdAt))
+      .limit(1);
+    const imageDigest = releaseRows[0]?.imageDigest;
+    if (imageDigest) {
+      parameters[IMAGE_REFERENCE_PARAMETER] = imageDigest;
+    }
   }
   // Phase 7 — publicUrl follows the plan's preferred-URL model so a (re)install
   // configures the app with the address that will actually serve it: an ACTIVE

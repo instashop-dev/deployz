@@ -435,6 +435,19 @@ export class ApplicationStack extends Stack {
     const imageDigest = props.imageDigest ?? DEFAULT_IMAGE_DIGEST;
     const desiredCount = props.desiredCount ?? 1;
     const imageReference = `${imageRepository}@${imageDigest}`;
+    // Per-install container image. The relay's INSTALL passes the deployment's
+    // newest READY release image reference (`repository@sha256:…`) as this
+    // parameter; the default keeps the publish-time image, so a template
+    // installed without the parameter (or an older template that lacks the
+    // release wiring) still runs the image it was published with.
+    const imageReferenceParam = new CfnParameter(this, 'param_ImageReference', {
+      type: 'String',
+      noEcho: false,
+      default: imageReference,
+      description:
+        "Container image reference (repository@sha256:...) the application's task definitions run. The relay's INSTALL passes the release image per install; the default is the publish-time image.",
+    });
+    const imageReferenceString = imageReferenceParam.valueAsString;
     const databaseRequired = props.databaseRequired ?? true;
     // Per-install container port. A parameter (defaulting to the synth-time
     // prop) rather than a baked constant: the published template is shared by
@@ -1003,7 +1016,7 @@ export class ApplicationStack extends Stack {
             .subnetIds,
         },
         primaryContainer: {
-          image: imageReference,
+          image: imageReferenceString,
           containerPort,
           environment: [
             { name: 'NODE_ENV', value: 'production' },
@@ -1093,7 +1106,7 @@ const dbEnv =
               }
             : {};
         taskDefinition.addContainer('App', {
-          image: ContainerImage.fromRegistry(imageReference),
+          image: ContainerImage.fromRegistry(imageReferenceString),
           portMappings: [{ containerPort, protocol: Protocol.TCP }],
           logging: LogDriver.awsLogs({ streamPrefix: 'deployz-app', logGroup }),
           environment: {
@@ -1263,7 +1276,7 @@ const dbEnv =
         );
 
         workerTaskDefinition.addContainer('Worker', {
-          image: ContainerImage.fromRegistry(imageReference),
+          image: ContainerImage.fromRegistry(imageReferenceString),
           command: props.workerCommand.split(' '),
           logging: LogDriver.awsLogs({
             streamPrefix: 'deployz-worker',

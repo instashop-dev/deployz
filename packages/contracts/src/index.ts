@@ -1097,6 +1097,14 @@ export function redisApplicationTemplateUrl(baseTemplateUrl: string): string | u
   );
 }
 
+/**
+ * CFN logical id of the application template's image parameter (CDK strips
+ * the underscore from `param_ImageReference`). The relay's INSTALL passes the
+ * deployment's newest READY release image reference (`repository@sha256:…`)
+ * as this parameter; the template default keeps the publish-time image.
+ */
+export const IMAGE_REFERENCE_PARAMETER = 'paramImageReference';
+
 /** The bootstrap stack's non-secret control-plane parameter. */
 export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 
