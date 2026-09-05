@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 1,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 195,
     "entries": 7819,
@@ -38,7 +38,7 @@
     "compatibility": "NOT_COMPATIBLE",
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
-    "runtime": "unknown",
+    "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": "docker/Dockerfile",
     "port": 8000,
@@ -80,6 +80,7 @@
     ],
     "readinessFindings": [
       "unsupported-gpu",
+      "port-unresolved",
       "health-check"
     ],
     "gateFindings": [

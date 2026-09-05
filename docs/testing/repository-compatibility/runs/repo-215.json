@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 102,
     "entries": 3116,
@@ -39,7 +39,7 @@
     "compatibility": "NOT_COMPATIBLE",
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
-    "runtime": "node",
+    "runtime": "php",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 8080,
@@ -66,6 +66,7 @@
     ],
     "readinessFindings": [
       "unsupported-multi-service",
+      "start-command-missing",
       "background-worker-unsupported"
     ],
     "gateFindings": [

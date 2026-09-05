@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 200,
     "entries": 790,
@@ -36,7 +36,7 @@
     "compatibility": "READY",
     "analysisVerdict": "READY",
     "readinessState": "READY",
-    "runtime": "unknown",
+    "runtime": "go",
     "appRoot": ".",
     "dockerfilePath": "packaging/docker/alpine/Dockerfile",
     "port": 8080,
@@ -163,7 +163,10 @@
       "kind": "fact",
       "expected": "/healthcheck",
       "actual": "/v1/integrations/status",
-      "finding": null
+      "finding": {
+        "id": "COMP-039",
+        "type": "ANALYSIS_BUG"
+      }
     }
   ],
   "match": false

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 201,
     "entries": 3419,
@@ -33,7 +33,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "READY",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "node",
@@ -52,22 +52,18 @@
     "worker": true,
     "workerCommand": null,
     "migration": true,
-    "migrationCommand": "prisma migrate deploy",
+    "migrationCommand": "npx prisma migrate deploy --schema ../../packages/prisma/schema.prisma",
     "externalServices": [
       "resend",
       "smtp",
       "stripe"
     ],
-    "requiredEnvVars": [
-      "NEXT_PRIVATE_DATABASE_REPLICA_URLS"
-    ],
+    "requiredEnvVars": [],
     "unsupported": [],
     "readinessFindings": [
       "worker-command"
     ],
-    "gateFindings": [
-      "required-env-vars-missing"
-    ],
+    "gateFindings": [],
     "unresolvedQuestions": [
       "multiple-dockerfiles"
     ]
@@ -76,8 +72,9 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -144,6 +141,13 @@
     }
   ],
   "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
+      "finding": null
+    },
     {
       "fact": "redis",
       "kind": "fact",

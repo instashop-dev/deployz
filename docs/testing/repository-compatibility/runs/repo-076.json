@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 203,
     "entries": 5472,
@@ -201,7 +201,10 @@
       "kind": "fact",
       "expected": "/health",
       "actual": "/oauth/status",
-      "finding": null
+      "finding": {
+        "id": "COMP-039",
+        "type": "ANALYSIS_BUG"
+      }
     },
     {
       "fact": "unsupported",

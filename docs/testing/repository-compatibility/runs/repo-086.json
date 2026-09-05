@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 193,
     "entries": 1542,
@@ -59,6 +59,7 @@
     ],
     "unsupported": [],
     "readinessFindings": [
+      "start-command-missing",
       "health-check",
       "database-migrations",
       "worker-command"

@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 201,
     "entries": 4774,
@@ -41,7 +41,7 @@
     "compatibility": "NOT_COMPATIBLE",
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
-    "runtime": "node",
+    "runtime": "go",
     "appRoot": "apps/checker",
     "dockerfilePath": "apps/checker/Dockerfile",
     "port": 8080,
@@ -57,7 +57,7 @@
     "worker": false,
     "workerCommand": null,
     "migration": true,
-    "migrationCommand": "drizzle-kit push",
+    "migrationCommand": "npx drizzle-kit push",
     "externalServices": [
       "resend",
       "sentry",

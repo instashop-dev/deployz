@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "655c42f676fb089e35b636fe0c3aa7e4221c0d19",
-  "analysisVersion": 11,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
   "tree": {
     "files": 201,
     "entries": 1216,
@@ -33,9 +33,9 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
-    "runtime": "node",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "go",
     "appRoot": ".",
     "dockerfilePath": "container/builder.dockerfile",
     "port": 5000,
@@ -59,7 +59,10 @@
       "SEARXNG_DEBUG"
     ],
     "unsupported": [],
-    "readinessFindings": [],
+    "readinessFindings": [
+      "port-unresolved",
+      "start-command-missing"
+    ],
     "gateFindings": [
       "start-command-missing",
       "required-env-vars-missing"

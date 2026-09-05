@@ -208,9 +208,12 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
   // showing the same column default, which is what this used to assert.
   // (showInfrastructureRows gates the whole section on the deployment being
   // past the pre-install states — see apps/web/src/lib/deployment-vocabulary.ts.)
-  await expect(page.getByText('This deployment has not been installed yet.')).toBeVisible();
-  await expect(page.getByText('Deployz Relay', { exact: true })).toBeVisible();
-  await expect(page.getByText('Database', { exact: true })).toHaveCount(0);
+  // Scoped to the infrastructure section: the preflight card above it
+  // legitimately lists "Database" as a passed check.
+  const infrastructure = page.locator('section[aria-labelledby="infrastructure"]');
+  await expect(infrastructure.getByText('This deployment has not been installed yet.')).toBeVisible();
+  await expect(infrastructure.getByText('Deployz Relay', { exact: true })).toBeVisible();
+  await expect(infrastructure.getByText('Database', { exact: true })).toHaveCount(0);
 });
 
 test('infrastructure rows appear only for the components the relay reports', async ({ page }) => {

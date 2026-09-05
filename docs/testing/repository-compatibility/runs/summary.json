@@ -1,124 +1,559 @@
 {
-  "deployzSha": "1e6ad171c91d8a72e973ebbbde599cb49e3848c0",
-  "analysisVersion": 11,
-  "total": 100,
-  "analysed": 100,
+  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
+  "analysisVersion": 15,
+  "total": 120,
+  "analysed": 120,
   "failed": 0,
-  "fullMatch": 5,
-  "verdictMatch": 61,
-  "verdictAccuracy": 61,
+  "fullMatch": 4,
+  "verdictMatch": 72,
+  "verdictAccuracy": 60,
   "falseAcceptances": 6,
-  "falseRejections": 13,
-  "configurationMismatches": 20,
+  "falseRejections": 18,
+  "configurationMismatches": 24,
   "factMismatches": {
-    "appRoot": 11,
-    "compatibility": 39,
-    "dockerfilePath": 10,
-    "healthPath": 50,
-    "migration": 55,
-    "port": 22,
-    "postgres": 12,
-    "redis": 26,
-    "storage": 25,
-    "unsupported": 41,
-    "worker": 29
+    "appRoot": 14,
+    "compatibility": 48,
+    "dockerfilePath": 16,
+    "healthPath": 55,
+    "migration": 67,
+    "port": 24,
+    "postgres": 16,
+    "redis": 32,
+    "storage": 30,
+    "unsupported": 54,
+    "worker": 34
   },
   "byFindingType": {
-    "ANALYSIS_BUG": 118,
-    "ANALYSIS_MISSING_SIGNAL": 194,
+    "ANALYSIS_BUG": 125,
+    "ANALYSIS_MISSING_SIGNAL": 195,
     "MVP_CAPABILITY_GAP": 0,
     "CORRECTLY_UNSUPPORTED": 0,
     "REPO_INVALID": 0
   },
   "unexplained": [
     {
-      "id": "repo-004",
-      "fact": "healthPath",
-      "expected": "/healthcheck",
-      "actual": "/v1/integrations/status"
+      "id": "repo-006",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY"
     },
     {
-      "id": "repo-033",
-      "fact": "healthPath",
-      "expected": "/",
-      "actual": "/ws/status"
+      "id": "repo-007",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY"
     },
     {
-      "id": "repo-041",
+      "id": "repo-201",
+      "fact": "redis",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-202",
+      "fact": "redis",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-202",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-203",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY"
+    },
+    {
+      "id": "repo-203",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-204",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE"
+    },
+    {
+      "id": "repo-204",
+      "fact": "redis",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-204",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-204",
+      "fact": "healthPath",
+      "expected": "/rest/health",
+      "actual": null
+    },
+    {
+      "id": "repo-204",
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "terraform"
+        "docker-compose-multi-service",
+        "local-filesystem",
+        "rabbitmq"
       ]
     },
     {
-      "id": "repo-059",
-      "fact": "healthPath",
-      "expected": "/health",
-      "actual": "/csv/status"
+      "id": "repo-205",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
     },
     {
-      "id": "repo-073",
+      "id": "repo-205",
+      "fact": "dockerfilePath",
+      "expected": "src/main/dist/Dockerfile",
+      "actual": null
+    },
+    {
+      "id": "repo-206",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE"
+    },
+    {
+      "id": "repo-206",
+      "fact": "storage",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-206",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-206",
+      "fact": "healthPath",
+      "expected": "/api/__health_check",
+      "actual": null
+    },
+    {
+      "id": "repo-206",
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "docker-compose-multi-service"
+      ]
+    },
+    {
+      "id": "repo-207",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE"
+    },
+    {
+      "id": "repo-207",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-207",
+      "fact": "healthPath",
+      "expected": "/api/health",
+      "actual": "/health"
+    },
+    {
+      "id": "repo-207",
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "docker-compose-multi-service",
+        "local-filesystem"
+      ]
+    },
+    {
+      "id": "repo-208",
+      "fact": "postgres",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-208",
+      "fact": "redis",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-208",
+      "fact": "worker",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-208",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-208",
+      "fact": "dockerfilePath",
+      "expected": "backend/Dockerfile",
+      "actual": "heroku.Dockerfile"
+    },
+    {
+      "id": "repo-208",
+      "fact": "port",
+      "expected": 8000,
+      "actual": 80
+    },
+    {
+      "id": "repo-208",
+      "fact": "healthPath",
+      "expected": "/api/_health/",
+      "actual": "/_health"
+    },
+    {
+      "id": "repo-208",
       "fact": "unsupported",
       "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "background-worker",
+        "docker-compose-multi-service",
+        "local-filesystem"
+      ]
+    },
+    {
+      "id": "repo-209",
+      "fact": "redis",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-209",
+      "fact": "dockerfilePath",
+      "expected": "container/dist.dockerfile",
+      "actual": "container/builder.dockerfile"
+    },
+    {
+      "id": "repo-209",
+      "fact": "port",
+      "expected": 8080,
+      "actual": 5000
+    },
+    {
+      "id": "repo-210",
+      "fact": "postgres",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-211",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE"
+    },
+    {
+      "id": "repo-211",
+      "fact": "worker",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-211",
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".render"
+    },
+    {
+      "id": "repo-211",
+      "fact": "dockerfilePath",
+      "expected": ".github/deployment/node/Dockerfile",
+      "actual": ".render/Dockerfile"
+    },
+    {
+      "id": "repo-211",
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "local-filesystem"
+      ]
+    },
+    {
+      "id": "repo-212",
+      "fact": "redis",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-212",
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "local-filesystem",
+        "mongodb"
+      ]
+    },
+    {
+      "id": "repo-213",
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "other-database"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "other-database"
+      ]
+    },
+    {
+      "id": "repo-214",
+      "fact": "postgres",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-214",
+      "fact": "worker",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-214",
+      "fact": "storage",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-214",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-214",
+      "fact": "appRoot",
+      "expected": "apps/web",
+      "actual": "apps/admin"
+    },
+    {
+      "id": "repo-214",
+      "fact": "dockerfilePath",
+      "expected": "apps/web/Dockerfile.web",
+      "actual": "apps/admin/Dockerfile.admin"
+    },
+    {
+      "id": "repo-214",
+      "fact": "healthPath",
+      "expected": "/",
+      "actual": "/health"
+    },
+    {
+      "id": "repo-214",
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "rabbitmq"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "rabbitmq"
+      ]
+    },
+    {
+      "id": "repo-215",
+      "fact": "storage",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-215",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-215",
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "mysql"
+      ],
+      "actual": [
+        "background-worker",
+        "docker-compose-multi-service"
+      ]
+    },
+    {
+      "id": "repo-216",
+      "fact": "storage",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-216",
+      "fact": "migration",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-216",
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": "ee/apps"
+    },
+    {
+      "id": "repo-216",
+      "fact": "dockerfilePath",
+      "expected": "apps/meteor/.docker/Dockerfile.debian",
+      "actual": "ee/apps/Dockerfile"
+    },
+    {
+      "id": "repo-216",
+      "fact": "unsupported",
+      "expected": [
+        "mongodb"
+      ],
+      "actual": [
+        "docker-compose-multi-service"
+      ]
+    },
+    {
+      "id": "repo-217",
+      "fact": "storage",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-217",
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "other-database",
         "kafka"
       ],
       "actual": [
-        "kafka",
-        "kubernetes"
+        "other-database"
       ]
     },
     {
-      "id": "repo-076",
-      "fact": "healthPath",
-      "expected": "/health",
-      "actual": "/oauth/status"
-    },
-    {
-      "id": "repo-084",
-      "fact": "healthPath",
-      "expected": "/health",
-      "actual": "/sync/status"
-    },
-    {
-      "id": "repo-090",
+      "id": "repo-218",
       "fact": "compatibility",
-      "expected": "READY",
-      "actual": "NEEDS_CONFIGURATION"
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY"
+    },
+    {
+      "id": "repo-218",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-219",
+      "fact": "postgres",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-219",
+      "fact": "worker",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-219",
+      "fact": "migration",
+      "expected": true,
+      "actual": false
+    },
+    {
+      "id": "repo-219",
+      "fact": "unsupported",
+      "expected": [
+        "docker-compose-multi-service",
+        "background-worker",
+        "mongodb",
+        "other-database"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "local-filesystem"
+      ]
+    },
+    {
+      "id": "repo-220",
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE"
+    },
+    {
+      "id": "repo-220",
+      "fact": "worker",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "repo-220",
+      "fact": "unsupported",
+      "expected": [],
+      "actual": [
+        "kubernetes"
+      ]
     }
   ],
   "bySet": {
     "improvement": {
       "total": 80,
       "analysed": 80,
-      "verdictMatch": 51,
-      "fullMatch": 5
+      "verdictMatch": 49,
+      "fullMatch": 4
     },
     "unseen": {
       "total": 20,
       "analysed": 20,
       "verdictMatch": 10,
       "fullMatch": 0
+    },
+    "unseen2": {
+      "total": 20,
+      "analysed": 20,
+      "verdictMatch": 13,
+      "fullMatch": 0
     }
   },
   "byCohort": {
     "boundary": {
-      "total": 19,
-      "analysed": 19,
-      "verdictMatch": 16,
+      "total": 24,
+      "analysed": 24,
+      "verdictMatch": 19,
       "fullMatch": 1
     },
     "messy": {
-      "total": 22,
-      "analysed": 22,
-      "verdictMatch": 13,
+      "total": 27,
+      "analysed": 27,
+      "verdictMatch": 17,
       "fullMatch": 1
     },
     "realistic": {
-      "total": 59,
-      "analysed": 59,
-      "verdictMatch": 32,
-      "fullMatch": 3
+      "total": 69,
+      "analysed": 69,
+      "verdictMatch": 36,
+      "fullMatch": 2
     }
   }
 }

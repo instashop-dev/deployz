@@ -75,6 +75,28 @@ HEALTHY through the shared pipeline and appears in the fleet with
 - `e2e/scenario-deploy-link.spec.ts` — simulated E2E journey and failure
   journeys (no real AWS).
 
+## Validated on real AWS (2026-09-05)
+
+The full path was driven against the deployed control plane and the test
+AWS account with Documenso (P0 hardening, `docs/ai-mvp-implementation-status.md`):
+generate → raw token shown once → customer review (application, region,
+resources) → Deploy to AWS → bootstrap Quick Create → relay registration →
+HEALTHY → default HTTPS hostname ACTIVE → release update → Disconnect →
+Purge, all through the shared pipeline, with the fleet row carrying
+`source: deploy_link`. Fail-closed probes on the public route: missing,
+wrong or query-string token and an unknown id → 404; revoked → 410;
+regenerate rotates the secret (old token → 404). Observed behaviours worth
+knowing:
+
+- Revoking a link does not delete its NOT_INSTALLED deployment row; the
+  customer page keeps showing it as "Not installed" and the fleet lists it
+  with `source: deploy_link`. It holds no AWS resources.
+- The vendor card offers *Regenerate* only for an active link whose
+  deployment is still NOT_INSTALLED; a revoked link is replaced by
+  generating a new one (which creates a new deployment).
+- The raw token never reaches the API logs (header-only transport); only
+  `token_hash` is stored.
+
 ## MVP exclusions
 
 Anonymous links, unknown-customer creation, marketplace, iframe/SDK embeds,
