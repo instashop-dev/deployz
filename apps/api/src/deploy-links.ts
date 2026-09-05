@@ -2,16 +2,14 @@ import crypto from 'node:crypto';
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import { evaluateManifestReadiness, normalizeDeploymentManifest } from '@deployz/analysis';
 import type { Region } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { listProvidedConfigKeys } from './config.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
-import { applicationToManifestOverrides } from './manifest.js';
+import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
 import { hashRelayToken, mintEnrollmentCode, verifyRelayToken } from './relay-store.js';
 
 // Deploy Links — a vendor-generated, tokenized entry point. Each link pre-
@@ -132,28 +130,11 @@ export async function createDeploymentRecord(
 ): Promise<CreatedDeployment> {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
   await loadOwnedCustomer(db, params.customerId, params.organizationId);
-  const manifest = normalizeDeploymentManifest(
-    { metadata: application.detectedMetadata ?? {} },
-    applicationToManifestOverrides(application),
-  );
-  const providedEnvKeys = await listProvidedConfigKeys(db, application.id, params.customerId);
-  const readiness = evaluateManifestReadiness(manifest, { providedEnvKeys });
-  if (readiness.state === 'NOT_COMPATIBLE') {
-    throw new ApiError(
-      422,
-      'MANIFEST_NOT_COMPATIBLE',
-      'This application cannot be deployed with Deployz as configured.',
-      { findings: readiness.findings },
-    );
-  }
-  if (readiness.state === 'NEEDS_CONFIGURATION') {
-    throw new ApiError(
-      422,
-      'MANIFEST_NEEDS_CONFIGURATION',
-      'This application is missing configuration required for deployment. Run analysis or correct it in the application settings first.',
-      { findings: readiness.findings },
-    );
-  }
+  // Phase 5: the one preflight every path into provisioning runs — the
+  // manifest gate against THIS customer's configuration plus the readiness
+  // report's remaining findings. Warnings never block.
+  const { manifest, result } = await runApplicationPreflight(db, application, params.customerId);
+  requirePreflightReady(result);
   const [row] = await db
     .insert(schema.deployments)
     .values({

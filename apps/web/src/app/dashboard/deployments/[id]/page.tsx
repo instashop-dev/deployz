@@ -7,6 +7,7 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
+import { PreflightSummary } from '@/components/preflight-summary';
 import { ActivityFeed } from '@/components/activity-feed';
 import { DeploymentHero } from '@/components/deployment-hero';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
@@ -64,6 +65,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { fetchDeploymentPreflight, type PreflightResult } from '@/lib/preflight';
 import { errorMessage } from '@/lib/api-client';
 import { deriveHero, operationInFlight, type HeroModel } from '@/lib/deployment-hero';
 import {
@@ -1562,6 +1564,22 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
   const [copied, setCopied] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phase 5: the gate this deployment must pass before provisioning, against
+  // this customer's configuration as it is now.
+  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchDeploymentPreflight(detail.id)
+      .then((result) => {
+        if (!cancelled) setPreflight(result);
+      })
+      .catch(() => {
+        // Guidance only — the install link stays usable; the API enforces the gate.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail.id]);
   const url =
     typeof window === 'undefined'
       ? ''
@@ -1598,6 +1616,7 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
       <h2 id="install-link" className="text-base font-semibold">
         Install link
       </h2>
+      {preflight ? <PreflightSummary result={preflight} /> : null}
       <Card>
         <CardContent className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">
