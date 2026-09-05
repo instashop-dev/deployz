@@ -754,14 +754,11 @@ describe('ApplicationStack', () => {
         HealthCheckPath: { Ref: 'paramHealthCheckPath' },
         Port: { Ref: 'paramContainerPort' },
       });
-      // The curl command interpolates the parameters, so CDK renders it as a
-      // Join over the two Refs rather than a plain string.
+      // No preset command was supplied, so the App container itself defines
+      // no health check — only the ALB target group above probes the path.
       const taskDefs = template.findResources('AWS::ECS::TaskDefinition');
       const serialized = JSON.stringify(taskDefs);
-      expect(serialized).toContain('"Ref":"paramHealthCheckPath"');
-      expect(serialized).toContain('"Ref":"paramContainerPort"');
-      expect(serialized).toContain('http://localhost:');
-      expect(serialized).not.toContain('http://localhost:4000');
+      expect(serialized).not.toContain('HealthCheck');
     });
 
     it('applies containerPort/healthCheckPath to the target group in the HTTPS branch too', () => {
@@ -879,7 +876,21 @@ describe('ApplicationStack', () => {
       expect(Object.keys(conditions)).not.toContain('paramPublicUrlProvided');
     });
 
-    it('replaces the default curl health check with healthCheckShellCommand', () => {
+    it('defines no App container health check when healthCheckShellCommand is not set (DEPLOY-006: ALB target health is the signal)', () => {
+      const { template } = synth(false);
+
+      const taskDefs = template.findResources('AWS::ECS::TaskDefinition');
+      const appContainers = Object.values(taskDefs).flatMap(
+        (def) =>
+          (def['Properties']?.['ContainerDefinitions'] as Array<Record<string, unknown>>)?.filter(
+            (container) => container['Name'] === 'App',
+          ) ?? [],
+      );
+      expect(appContainers).toHaveLength(1);
+      expect(appContainers[0]).not.toHaveProperty('HealthCheck');
+    });
+
+    it('defines an App container health check with healthCheckShellCommand', () => {
       const { template } = synth(false, { healthCheckShellCommand: 'node -e "x"' });
 
       template.hasResourceProperties('AWS::ECS::TaskDefinition', {
@@ -903,8 +914,11 @@ describe('ApplicationStack', () => {
       });
     });
 
-    it('applies startupGracePeriodSeconds to the container StartPeriod and service grace period', () => {
-      const { template } = synth(false, { startupGracePeriodSeconds: 300 });
+    it('applies startupGracePeriodSeconds to the container StartPeriod (with a preset health check) and the service grace period', () => {
+      const { template } = synth(false, {
+        healthCheckShellCommand: 'node -e "x"',
+        startupGracePeriodSeconds: 300,
+      });
 
       template.hasResourceProperties('AWS::ECS::TaskDefinition', {
         ContainerDefinitions: Match.arrayWith([

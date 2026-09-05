@@ -341,9 +341,14 @@ export interface ApplicationStackProps extends StackProps {
    */
   readonly storageBucketEnvNames?: readonly string[];
   /**
-   * Shell command run by the plain-Fargate App container's health check, in
-   * place of the default
-   * `curl -f http://localhost:<containerPort><healthCheckPath> || exit 1`.
+   * Shell command run by the plain-Fargate App container's own health check.
+   *
+   * Opt-in: the container defines a `HealthCheck` only when this is set, for
+   * a preset whose image ships a command it can actually run (e.g. Documenso,
+   * which has node but no curl). The generic template (no preset) defines no
+   * container-level health check — it relies on the `AppTargets` ALB target
+   * group's probe of `healthCheckPath`, which is what ECS uses to promote the
+   * deployment behind a load balancer either way.
    *
    * Applies to the plain-Fargate web container only — the Express branch has
    * no container health check.
@@ -1132,18 +1137,25 @@ const dbEnv =
             ...extraSecrets,
             ...databaseUrlSecrets,
           },
-        healthCheck: {
-          command: [
-            'CMD-SHELL',
-            props.healthCheckShellCommand ??
-              `curl -f http://localhost:${containerPortString}${healthCheckPath} || exit 1`,
-          ],
-          interval: Duration.seconds(30),
-          timeout: Duration.seconds(5),
-          retries: 3,
-          startPeriod: Duration.seconds(props.startupGracePeriodSeconds ?? 60),
-        },
-      });
+          // Container-level health check is opt-in: only a preset with a
+          // command its image can actually run (e.g. Documenso, which has
+          // node but no curl) sets `healthCheckShellCommand`. The generic
+          // template defines none here — the ALB target group's health
+          // check on `healthCheckPath` is the health signal ECS uses to
+          // promote the deployment, and it needs no shell or curl inside
+          // the image.
+          ...(props.healthCheckShellCommand !== undefined
+            ? {
+                healthCheck: {
+                  command: ['CMD-SHELL', props.healthCheckShellCommand],
+                  interval: Duration.seconds(30),
+                  timeout: Duration.seconds(5),
+                  retries: 3,
+                  startPeriod: Duration.seconds(props.startupGracePeriodSeconds ?? 60),
+                },
+              }
+            : {}),
+        });
 
       const fargateService = new FargateService(this, 'Service', {
         cluster: this.cluster as unknown as ICluster,
