@@ -54,8 +54,9 @@ import {
   checkGpu,
 } from './rejection.js';
 
+import { classifyEnvVariables } from './env-classification.js';
 import type { RedisRequirement } from './redis.js';
-import { assessRedis } from './redis.js';
+import { assessRedis, resolveRedisEnvBindings } from './redis.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -283,9 +284,19 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // §11.3 / §11.2 — structured service requirements and the env-var model.
   const serviceRequirements = detectExternalServiceRequirements(tree);
   metadata['externalServiceRequirements'] = serviceRequirements;
-  metadata['envVarModel'] = detectEnvVarModel(
-    tree,
-    serviceRequirements.map((r) => r.service),
+  // Phase 4 — who supplies each value, decided from the requirements above.
+  metadata['envVarModel'] = classifyEnvVariables(
+    detectEnvVarModel(
+      tree,
+      serviceRequirements.map((r) => r.service),
+    ),
+    {
+      postgresRequired: postgres.required,
+      redisRequired: redis.required,
+      redisBindingNames: resolveRedisEnvBindings(redis.connectionEnvVars).map((binding) => binding.name),
+      storageRequired: findings.find((f) => f.detector === 's3')?.detected === true,
+      externalServices: serviceRequirements.map((r) => r.service),
+    },
   );
 
   metadata['databaseState'] = deriveDatabaseState(findings, rejections);

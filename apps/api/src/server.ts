@@ -117,6 +117,7 @@ import {
   type EcrPullGrantDeps,
 } from './ecr-pull-grants.js';
 import { refineFailureCode } from './failure-classification.js';
+import { buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
 import { readStoredManifest, requireReadyManifest } from './manifest.js';
@@ -5545,6 +5546,13 @@ export async function buildServer({
       } catch (error) {
         request.log.warn({ err: error }, 'auto-deploy after install failed');
       }
+      // Phase 4: the first configuration pass — vendor/customer values saved
+      // before the install, and the app-internal secrets Deployz generates.
+      try {
+        await queuePostInstallConfig(db, deployment, job.id, configStore);
+      } catch (error) {
+        request.log.warn({ err: error }, 'post-install configuration queue failed');
+      }
     }
     // Phase 11: a successful INSTALL means the ALB exists — start (or nudge)
     // the default-HTTPS machine so the deployment earns its own HTTPS URL
@@ -6000,19 +6008,9 @@ export async function buildServer({
       oldRelayToken(request),
     );
 
-    const view = await getConfig(
-      deployment.applicationId,
-      deployment.customerId,
-      configStore,
-    );
-    return {
-      entries: view.effective.map((entry) => ({
-        key: entry.key,
-        isSecret: entry.isSecret,
-        ...(entry.isSecret ? {} : { value: entry.value }),
-        source: entry.source,
-      })),
-    };
+    // Phase 4: generated keys ride along as `generated: true` entries (no
+    // value — the relay mints them inside the customer's account).
+    return { entries: await buildRelayConfigEntries(db, deployment, configStore) };
   });
 
   return app;

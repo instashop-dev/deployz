@@ -103,7 +103,15 @@ export type {
 export { buildReadinessReport, reconcileReadiness, verdictFromReadiness } from './readiness-report.js';
 
 export type { ManifestSource, ManifestReadinessContext } from './manifest.js';
-export { normalizeDeploymentManifest, evaluateManifestReadiness } from './manifest.js';
+export { normalizeDeploymentManifest, evaluateManifestReadiness, generatedEnvKeys } from './manifest.js';
+
+export type { EnvClassificationContext } from './env-classification.js';
+export {
+  MANAGED_DATABASE_ENV_VARS,
+  MANAGED_STORAGE_ENV_VARS,
+  classifyEnvVariables,
+  isGeneratableSecretName,
+} from './env-classification.js';
 
 export type {
   FixInstructionsFacts,

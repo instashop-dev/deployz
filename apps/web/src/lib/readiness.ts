@@ -139,7 +139,14 @@ export interface DetectedApplication {
     tools: string[];
     evidence: AnalysisEvidence[];
   };
-  environmentVariables: { key: string; required: boolean; secret: boolean; source: string[] }[];
+  environmentVariables: {
+    key: string;
+    required: boolean;
+    secret: boolean;
+    source: string[];
+    /** Who supplies the value (mirrors `EnvVariableClassification` in @deployz/contracts); absent on older analyses. */
+    classification?: 'deployz_managed' | 'deployz_generated' | 'customer_required' | 'optional' | 'unknown';
+  }[];
 }
 
 /** One row of the "What Deployz detected" list. */
