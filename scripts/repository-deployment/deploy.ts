@@ -33,6 +33,8 @@ export interface Timeouts {
   settleMs: number;
   pointerMs: number;
   httpsMs: number;
+  /** After default HTTPS is ACTIVE: how long the health path may take to answer below 500 through the edge. */
+  httpsReadyMs: number;
 }
 
 export const DEFAULT_TIMEOUTS: Timeouts = {
@@ -44,6 +46,7 @@ export const DEFAULT_TIMEOUTS: Timeouts = {
   settleMs: 20 * MINUTE,
   pointerMs: 20 * MINUTE,
   httpsMs: 45 * MINUTE,
+  httpsReadyMs: 5 * MINUTE,
 };
 
 /** CloudFormation states in which an install stack will never become healthy. */
@@ -571,9 +574,21 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         assert(appUrlKeys(config).length === 0 || url === defaultDeploymentUrl(deploymentId), 'harness', `the configured app URL ${defaultDeploymentUrl(deploymentId)} differs from the issued hostname ${url}`);
         result.runtime.appUrl = url;
         details['appUrl'] = url;
-        const probe = await deps.probe(`${url}${health.path}`);
+        // ACTIVE is the product's word; the edge in front of the ALB can lag
+        // it by a sample (docuseal: a 521, then 200s). Wait a bounded time for
+        // the health path to answer below 500 and record the lag as evidence,
+        // so the observation window measures stability, not propagation.
+        const activeAt = deps.now();
+        const healthUrl = `${url}${health.path}`;
+        const probe = await waitFor(
+          'HTTPS health path',
+          () => deps.probe(healthUrl),
+          (p) => (p.status !== null && p.status < 500 ? p : null),
+          { timeoutMs: deps.timeouts.httpsReadyMs, intervalMs: interval, describe: (p) => String(p.status ?? p.error ?? 'no response') },
+        ).catch(() => deps.probe(healthUrl));
         details['httpsHealth'] = probe;
-        assert(probe.status !== null, 'https', `HTTPS probe failed: ${probe.error ?? 'no response'}`, { httpsStatus: https.status });
+        details['httpsReadyAfterMs'] = deps.now() - activeAt;
+        assert(probe.status !== null && probe.status < 500, 'https', `HTTPS health path answered ${probe.status ?? probe.error ?? 'no response'} after ACTIVE`, { httpsStatus: https.status, healthStatuses: [probe.status] });
         return url;
       }),
     );
