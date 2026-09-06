@@ -859,8 +859,14 @@ describe('cleanup', () => {
     pending.save();
     const untouched = openLedger(dir, config, { repoId: 'repo-003', repository: 'a/d', commit: SHA, deployzCommit: SHA, cleanupNeeded: false }, 'stage-b-repo-003-untouched');
     untouched.finish('FAIL');
-    expect(listUnfinishedLedgers(dir).map((l) => l.runId)).toEqual(['stage-b-repo-002-pending', 'stage-b-repo-003-untouched']);
-    expect(readdirSync(dir).length).toBe(3);
+    // Interrupted before any result, but a release had been created: still ours to clean.
+    const interrupted = openLedger(dir, config, { repoId: 'repo-004', repository: 'a/e', commit: SHA, deployzCommit: SHA, cleanupNeeded: false }, 'stage-b-repo-004-interrupted');
+    interrupted.run.releases['release'] = { id: 'r', version: 'repo-004-x', gitSha: SHA };
+    interrupted.save();
+    const nothing = openLedger(dir, config, { repoId: 'repo-005', repository: 'a/f', commit: SHA, deployzCommit: SHA, cleanupNeeded: false }, 'stage-b-repo-005-nothing');
+    nothing.save();
+    expect(listUnfinishedLedgers(dir).map((l) => l.runId)).toEqual(['stage-b-repo-002-pending', 'stage-b-repo-003-untouched', 'stage-b-repo-004-interrupted']);
+    expect(readdirSync(dir).length).toBe(5);
   });
 
   it('keeps the vendor session and the published templates per series', () => {
