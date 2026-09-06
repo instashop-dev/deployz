@@ -22,8 +22,8 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-007 | CONTAINER_START_ERROR | — | WITHDRAWN as a mechanism (kutt connected over TLS with node-postgres verification on); umami's crash stays open, rerun pending | repo-001 (umami) only |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
 | DEPLOY-009 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #207 merged, deployed, templates republished 2026-09-06) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
-| DEPLOY-010 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #208) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 2 (the first configured first start) |
-| DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | OPEN (fix designed) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
+| DEPLOY-010 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #208 merged; bootstrap republish pending) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 2 (the first configured first start) |
+| DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #209 merged; bootstrap republish pending) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
 
 ---
 
@@ -474,7 +474,7 @@ configuration.
 ## DEPLOY-010 — CONFIG_UPDATE never finds the application stack's config secret
 
 **Stage** ENV_BINDING_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
-FIX IN REVIEW (PR #208) · **Found** Phase 3, Wave 1, kutt rerun 2
+FIXED (PR #208 merged, main `f4ecd39`) · **Found** Phase 3, Wave 1, kutt rerun 2
 (2026-09-06), the first configured first start after DEPLOY-009's fix.
 
 **Behaviour.** The relay's CONFIG_UPDATE executor writes secret values into
@@ -513,7 +513,7 @@ kutt, ghostfolio, directus, outline in Wave 1.
 ## DEPLOY-011 — A rollout whose tasks start and then exit is never settled
 
 **Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
-OPEN — fix designed · **Found** Phase 3, Wave 1, kutt rerun 2 (2026-09-06).
+FIXED (PR #209 merged, main `a8453c9`; the design below) · **Found** Phase 3, Wave 1, kutt rerun 2 (2026-09-06).
 
 **Behaviour.** The deploy executor settles a rollout on three signals:
 the circuit breaker's `rolloutState: FAILED`, or `runningCount >=
