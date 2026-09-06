@@ -169,8 +169,11 @@ export function computeSecretChanges(
  * not contain it (an old template), which the caller fails on honestly.
  */
 export function findAppConfigSecretArn(resources: readonly StackResource[]): string | null {
+  // CDK appends a hash to an L2 construct's logical id (`AppConfigSecret251CAC1E`),
+  // so the match is on the construct-id prefix, never on equality — an exact
+  // match found nothing in every real stack (DEPLOY-010).
   const secret = resources.find(
-    (resource) => resource.type === 'AWS::SecretsManager::Secret' && resource.logicalId === 'AppConfigSecret',
+    (resource) => resource.type === 'AWS::SecretsManager::Secret' && resource.logicalId.startsWith('AppConfigSecret'),
   );
   return secret?.physicalId ?? null;
 }
