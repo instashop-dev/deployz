@@ -19,8 +19,9 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
 | DEPLOY-005 | ENV_BINDING_ERROR | DEPLOYZ_BUG | OPEN | predicted from the gate audit for repo-003, repo-021, repo-039 (and every app that reads its database under its own name); Wave 1 measures it — repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
-| DEPLOY-007 | CONTAINER_START_ERROR / DATABASE_ERROR | DEPLOYZ_BUG | OPEN (fix proposed) | repo-001 (umami); predicted repo-003 (kutt); every node-postgres client without a `rejectUnauthorized` knob |
-| DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
+| DEPLOY-007 | CONTAINER_START_ERROR | — | WITHDRAWN as a mechanism (kutt connected over TLS with node-postgres verification on); umami's crash stays open, rerun pending | repo-001 (umami) only |
+| DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
+| DEPLOY-009 | CONTAINER_START_ERROR (ENV_BINDING_ERROR by mechanism) | DEPLOYZ_BUG / MVP_CAPABILITY_GAP (product decision) | OPEN (fix designed; wave stopped) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
 
 ---
 
@@ -253,11 +254,21 @@ the regenerated artifacts, `packages/cdk/test/application-stack.test.ts`.
 
 ## DEPLOY-007 — The issued `DATABASE_URL` makes node-postgres verify the RDS certificate against a trust store that does not hold it
 
-**Stage** CONTAINER_START_ERROR (the container exits before the ALB probe
-sees it; DATABASE_ERROR once the log line is captured) · **Root cause**
-DEPLOYZ_BUG · **Resolution** OPEN (fix proposed, product decision needed) ·
-**Found** Phase 3, Wave 1, umami attempt 3 (2026-09-06); mechanism
-confirmed from product code.
+**Stage** CONTAINER_START_ERROR · **Root cause** unknown (the TLS
+mechanism below is WITHDRAWN) · **Resolution** OPEN — umami rerun on the
+PR #204 harness to capture the log line · **Found** Phase 3, Wave 1, umami
+attempt 3 (2026-09-06).
+
+**Withdrawn (2026-09-06, kutt attempt 1).** kutt's first task ran `knex
+migrate:latest` through node-postgres with `ssl: true` (which `pg`
+passes to `tls.connect` with certificate verification on,
+`packages/pg/lib/connection.js`) against the same RDS setup
+(`rds-ca-rsa2048-g1`, `rds.force_ssl=1`) and applied 10 migrations, so a
+verifying node-postgres client does connect. `sslmode=require` in the
+issued URL parses to the same verifying configuration, so it cannot be
+what stopped umami. The paragraphs below are kept as the record of the
+hypothesis and why it was plausible; no product fix follows from them, and
+the A/B decision they asked for is moot.
 
 **Behaviour.** The application template issues the customer application's
 `DATABASE_URL` as
@@ -366,3 +377,90 @@ Product-side only; no template change, so no republish.
 **Affected.** repo-004 (miniflux); predicted repo-039 (memos, the same
 override shape); every override-dependent repository in later waves.
 Rerun miniflux after `deploy-api.yml`.
+
+---
+
+## DEPLOY-009 — Vendor configuration and generated secrets reach the task only after a successful INSTALL, so an application that needs them to boot never installs
+
+**Stage** CONTAINER_START_ERROR (the first task exits at boot; the
+mechanism is ENV_BINDING_ERROR) · **Root cause** DEPLOYZ_BUG, or
+MVP_CAPABILITY_GAP if the product decides configuration-at-boot is out of
+scope · **Resolution** OPEN — fix designed below, product decision needed;
+the wave was stopped under the systemic-bug rule · **Found** Phase 3,
+Wave 1, kutt attempt 1 (2026-09-06).
+
+**Behaviour.** A fresh install runs the template's task definition, which
+carries the managed bindings (database, cache, storage, port) and nothing
+the vendor configured (`apps/api/src/install-config.ts`: "A fresh install
+runs the template's task definition: it carries the managed bindings … and
+nothing the vendor configured"). The Configuration screen's values and the
+Deployz-generated secrets are applied by one post-install `CONFIG_UPDATE`
+job, queued only when the INSTALL job has succeeded
+(`queuePostInstallConfig`); the relay then writes the secrets into
+`AppConfigSecret`, registers a new task-definition revision and updates the
+service (`packages/relay/src/config-update.ts`). INSTALL succeeds only when
+CloudFormation sees the ECS service stable, and the service is created with
+`desiredCount: 1` and a circuit breaker that rolls back
+(`packages/cdk/src/application/application-stack.ts`). An application that
+refuses to start without a vendor value or a generated secret therefore
+exits on every task of the first deployment, the circuit breaker rolls the
+stack back, INSTALL fails, and the configuration that would have fixed it
+is never applied.
+
+**Effect.** Every application whose boot validates its configuration —
+`JWT_SECRET` (kutt), `ACCESS_TOKEN_SALT` / `JWT_SECRET_KEY` (ghostfolio,
+NestJS), `KEY` / `SECRET` / `DB_CLIENT` (directus), `SECRET_KEY` /
+`UTILS_SECRET` / `URL` (outline) — cannot be installed through the product
+at all, whatever the vendor types beforehand. Applications that tolerate a
+missing value boot with defaults (memos: SQLite instead of the provisioned
+PostgreSQL until the post-install pass; ihatemoney: a generated Flask
+secret) and are only configured after the first task, which is what the
+watch list ("generated secrets reaching the task before the first
+request") anticipated.
+
+**Evidence.** kutt (run `stage-b-repo-003-20260906-145904-4452`): the
+harness stored `JWT_SECRET` as a vendor secret before the install
+(ledger step 2, `keys: [ADMIN_EMAILS, DB_CLIENT, DB_SSL, JWT_SECRET]`);
+the INSTALL payload carries `manifest`, `parameters`
+(`paramImageReference`, `paramHealthCheckPath`, preset parameters) and
+`redisRequired` — no configuration; the first task's log (kept by the
+PR #204 snapshot): `knex migrate:latest` → `Batch 1 run: 10 migrations`
+(database reachable, TLS fine), then `node server/server.js --production`
+→ `Missing environment variables: JWT_SECRET: undefined` → `Exiting with
+error code 1`, five times; ECS circuit breaker → ROLLBACK_FAILED (the
+retained RDS ENI, as in DEPLOY-007's record); product code
+`CONTAINER_START_FAILED`. Nothing in the deployment's events between
+`install.requested` and `install.failed` mentions configuration.
+
+**Generic fix (designed; needs a product decision).** Make the first
+start a configured start:
+1. The application template takes a `param_DesiredCount` (default `1`,
+   so published templates and Documenso installs are unchanged).
+2. The control plane's INSTALL payload says whether anything must be
+   applied before the first task (`buildRelayConfigEntries` non-empty:
+   any vendor/customer value or generated key); when it must, the relay
+   creates the stack with `param_DesiredCount=0`, so CREATE_COMPLETE does
+   not depend on an unconfigured task.
+3. The existing post-install `CONFIG_UPDATE` (secrets into
+   `AppConfigSecret`, new task-definition revision) then sets the service's
+   desired count to the template's count and waits for the deployment to
+   stabilise — the same ECS wait DEPLOY_RELEASE already performs — and the
+   deployment becomes HEALTHY on that job, not on INSTALL.
+4. The failed-first-install semantics in `docs/deployment-resilience.md`
+   move with it: a first start that never stabilises marks the deployment
+   FAILED as a failed install does today (today a failed CONFIG_UPDATE
+   "never touches deployment state", which is right for a running app and
+   wrong for the first start).
+Regression tests: template snapshot (parameter, default unchanged), relay
+install (passes 0 when told), config executor (scales up and waits), API
+state machine (HEALTHY after the first configured start; FAILED when it
+never stabilises), and the simulated E2E scenario for a boot-time secret.
+Templates republished after the CDK/relay change. Alternative the product
+may choose instead: declare configuration-at-boot outside the MVP and
+record kutt, ghostfolio, directus and outline as MVP_CAPABILITY_GAP.
+
+**Affected.** repo-003 (kutt) measured; predicted repo-007, repo-021,
+repo-016 (crash at boot) and repo-039 (boots against SQLite until the
+post-install pass — a false PASS unless the dependency check catches it);
+every later-wave application with required vendor or generated
+configuration.

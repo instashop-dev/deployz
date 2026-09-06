@@ -104,8 +104,7 @@
   "rootCause": null,
   "rootCauseEvidence": "container exited 1 (Essential container in task exited) — read the log tail; decide ANALYSIS_BUG (start command) vs REPO_CONFIGURATION vs UPSTREAM_REPO_FAILURE",
   "findingIds": [
-    "DEPLOY-002",
-    "DEPLOY-007"
+    "DEPLOY-002"
   ],
   "timing": {
     "startedAt": "2026-09-06T08:52:24.593Z",
