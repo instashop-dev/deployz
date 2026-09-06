@@ -67,7 +67,12 @@ export interface EcsDeployClient {
     forceNewDeployment?: boolean;
     desiredCount?: number;
   }): Promise<void>;
-  listTasks(input: { cluster: string; serviceName: string }): Promise<{ taskArns: string[] }>;
+  listTasks(input: {
+    cluster: string;
+    serviceName: string;
+    /** Defaults to RUNNING; STOPPED lists the tasks ECS still remembers (about an hour). */
+    desiredStatus?: 'RUNNING' | 'STOPPED';
+  }): Promise<{ taskArns: string[] }>;
   describeTasks(input: {
     cluster: string;
     tasks: string[];
@@ -76,6 +81,7 @@ export interface EcsDeployClient {
       lastStatus?: string | undefined;
       stopCode?: string | undefined;
       stoppedReason?: string | undefined;
+      taskDefinitionArn?: string | undefined;
       containers?: { imageDigest?: string | undefined; exitCode?: number | undefined }[] | undefined;
     }[];
   }>;
@@ -286,6 +292,30 @@ export async function settleEcsDeploy(
   let alreadyRegistered = taskDefinition.containerDefinitions.some(
     (container) => container.image === nextImage,
   );
+
+  // DEPLOY-011: ECS's circuit breaker counts a task as failed only when it
+  // never reaches RUNNING or fails a health check. A task that starts, runs
+  // for a while and then exits is a restart to ECS, so a crash-looping
+  // rollout never reaches COMPLETED and never FAILS — it would sit
+  // in-progress until the control plane's 24-hour grace. Once the service
+  // runs this request's revision, its own stopped tasks are the verdict.
+  if (alreadyRegistered) {
+    const crashed = await crashedTasksOfRevision(deps, cluster, serviceArn, service.taskDefinition);
+    if (crashed.count >= CRASH_LOOP_THRESHOLD) {
+      if (context.startedFromZero) {
+        try {
+          await deps.ecs.updateService({ cluster, service: serviceArn, desiredCount: 0 });
+        } catch {
+          // Best effort: the failure below is the outcome either way.
+        }
+      }
+      return {
+        state: 'failed',
+        reason: `${crashed.count} tasks of the new revision exited with code ${crashed.exitCode} (${crashed.stoppedReason})`,
+        failureCode: 'CONTAINER_START_FAILED',
+      };
+    }
+  }
 
   // Migration stage — before any service update, so the previous release
   // keeps running and the release pointers never move on a MIGRATION_FAILED.
@@ -623,6 +653,37 @@ async function observeRunningDigest(
     if (digest) return digest;
   }
   return null;
+}
+
+/**
+ * Stopped tasks of one task-definition revision whose essential container
+ * exited non-zero — the crash loop ECS's circuit breaker does not count.
+ * Tasks the scheduler stopped (an old revision draining, a scale-down) have
+ * another stop code and are never counted.
+ */
+const CRASH_LOOP_THRESHOLD = 3;
+
+async function crashedTasksOfRevision(
+  deps: EcsDeployDeps,
+  cluster: string,
+  serviceArn: string,
+  taskDefinitionArn: string,
+): Promise<{ count: number; exitCode: number | null; stoppedReason: string }> {
+  const { taskArns } = await deps.ecs.listTasks({ cluster, serviceName: serviceArn, desiredStatus: 'STOPPED' });
+  if (taskArns.length === 0) return { count: 0, exitCode: null, stoppedReason: '' };
+  const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: taskArns.slice(0, 20) });
+  let count = 0;
+  let exitCode: number | null = null;
+  let stoppedReason = '';
+  for (const task of tasks) {
+    if (task.taskDefinitionArn !== taskDefinitionArn || task.stopCode !== 'EssentialContainerExited') continue;
+    const failed = task.containers?.find((c) => c.exitCode !== undefined && c.exitCode !== 0);
+    if (!failed) continue;
+    count += 1;
+    exitCode = failed.exitCode ?? null;
+    stoppedReason = task.stoppedReason ?? stoppedReason;
+  }
+  return { count, exitCode, stoppedReason };
 }
 
 async function findServiceArn(deps: EcsDeployDeps): Promise<string | null> {
