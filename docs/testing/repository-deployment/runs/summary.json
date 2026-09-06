@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "f3a51a400312412f088fe5a0193dfeb40dac3ecc",
+  "deployzCommit": "7f56a8591c42582b1e45d704b3439dbee7666da5",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -19,39 +19,37 @@
   },
   "infrastructure": {
     "attempted": 1,
-    "succeeded": 0,
-    "failed": 1
+    "succeeded": 1,
+    "failed": 0
   },
   "runtime": {
-    "ecsRunning": 0,
-    "albHealthy": 0,
-    "httpsReachable": 0,
-    "applicationResponseValid": 0
+    "ecsRunning": 1,
+    "albHealthy": 1,
+    "httpsReachable": 1,
+    "applicationResponseValid": 1
   },
   "dependencies": {
-    "postgres": 0,
+    "postgres": 1,
     "redis": 0,
     "storage": 0,
     "migration": 0
   },
-  "trueDeploymentSuccess": 0,
-  "trueDeploymentSuccessRate": 0,
+  "trueDeploymentSuccess": 1,
+  "trueDeploymentSuccessRate": 1.5,
   "cleanup": {
-    "destroys": 1,
-    "destroyFailures": 1,
-    "leaks": 1,
-    "successRate": 0
+    "destroys": 2,
+    "destroyFailures": 0,
+    "leaks": 0,
+    "successRate": 100
   },
   "byClassification": {
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "HEALTH_PATH_ERROR": 1,
-    "PASS": 46
+    "PASS": 47
   },
   "byFailureStage": {
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24,
-    "HEALTH_PATH_ERROR": 1
+    "GATE_ERROR": 24
   },
   "byRootCause": {
     "CORRECTLY_UNSUPPORTED": 49
@@ -104,8 +102,8 @@
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 0,
-      "trueDeploymentSuccess": 0,
+      "deployed": 1,
+      "trueDeploymentSuccess": 1,
       "expectedUnsupported": 34,
       "gateCorrect": 68
     },
@@ -146,8 +144,8 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 0,
-      "trueDeploymentSuccess": 0,
+      "deployed": 1,
+      "trueDeploymentSuccess": 1,
       "expectedUnsupported": 24,
       "gateCorrect": 53
     }

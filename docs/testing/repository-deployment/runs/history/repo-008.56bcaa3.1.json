@@ -113,19 +113,21 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
+    "status": "FAIL",
     "destroyJobState": "SUCCEEDED",
     "purgeJobState": null,
-    "cleanupState": "INCOMPLETE_PURGE_JOB",
+    "cleanupState": null,
     "bootstrapStackFinal": "DELETE_COMPLETE",
-    "leaks": [],
+    "leaks": [
+      "arn:aws:ec2:us-east-1:151955775369:vpc/vpc-07388b5976248a89f"
+    ],
     "durationMs": 4772966,
-    "detail": "Purge ran through the product (RDS, bucket, secrets removed) but the harness gave up at 30 min and deleted the connector while the relay was still sweeping the network; the VPC and its NAT gateway were removed by id afterwards and the account audit for this installation is clean. The control plane keeps the PURGE job RUNNING (its relay is gone). Harness fixed: purge wait 120 min, connector never deleted while a purge runs."
+    "detail": "destroy/purge: Timed out after 1800s waiting for purge; last: state=DELETED stage=VERIFYING health=UNKNOWN relay=CONNECTED current=repo-008-20260906-044230-b8e2 lastJob=PURGE:RUNNING | leak audit: 1 resource(s) left"
   },
-  "classification": "PASS",
-  "failureStage": null,
+  "classification": "CLEANUP_LEAK",
+  "failureStage": "CLEANUP_LEAK",
   "rootCause": null,
-  "rootCauseEvidence": null,
+  "rootCauseEvidence": "destroy/purge: Timed out after 1800s waiting for purge; last: state=DELETED stage=VERIFYING health=UNKNOWN relay=CONNECTED current=repo-008-20260906-044230-b8e2 lastJob=PURGE:RUNNING | leak audit: 1 resource(s) left — decide DEPLOYZ_BUG vs AWS_TRANSIENT_FAILURE",
   "findingIds": [
     "DEPLOY-002"
   ],
@@ -134,7 +136,5 @@
     "finishedAt": "2026-09-06T05:17:14.118Z",
     "totalMs": 2083473
   },
-  "evidence": {
-    "cleanupNote": "Purge ran through the product (RDS, bucket, secrets removed) but the harness gave up at 30 min and deleted the connector while the relay was still sweeping the network; the VPC and its NAT gateway were removed by id afterwards and the account audit for this installation is clean. The control plane keeps the PURGE job RUNNING (its relay is gone). Harness fixed: purge wait 120 min, connector never deleted while a purge runs."
-  }
+  "evidence": {}
 }

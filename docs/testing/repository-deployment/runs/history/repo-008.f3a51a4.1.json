@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-008",
+  "repository": "TwiN/gatus",
+  "commit": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/gatus",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 1,
+  "deployzCommit": "f3a51a400312412f088fe5a0193dfeb40dac3ecc",
+  "runId": "stage-b-repo-008-20260905-201506-1d1c",
+  "stageAExpected": "READY",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "BASE_URL"
+    ],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "1b46c36c-9f68-4c17-82f2-8c78653348d9",
+    "version": "repo-008-20260905-201506-1d1c",
+    "gitSha": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:b6d60daf0236a783c70bca815b1c228ac6f3966a3beddd99097c5b373ceea7a0",
+    "buildId": null,
+    "durationMs": 104981,
+    "detail": null
+  },
+  "deployment": {
+    "status": "FAIL",
+    "deploymentId": "23886548-004e-4788-9d9e-0ce6e39ade98",
+    "installationId": "269beb67-c391-4134-a4c6-16dc4820205b",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-008-23886548",
+    "applicationStack": "deployz-app-269beb67",
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-008-20260905-201506-1d1c/application-template-v1.json",
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": "Timed out after 2700s waiting for install; last: state=INSTALLING stage=PROVISIONING health=UNKNOWN relay=CONNECTED current=- lastJob=INSTALL:RUNNING"
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "FAIL",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [
+      "stack deployz-bootstrap-stage-b-repo-008-23886548 CREATE_COMPLETE",
+      "stack deployz-app-269beb67 ROLLBACK_IN_PROGRESS",
+      "rds deployz-app-269beb67-databaseb269d8bb-ds3yfnjseiha",
+      "bucket deployz-app-269beb67-appstorage995579da-xfrhyljb7ssn",
+      "secret RelayCredential6AA8BC18-RLJRVooAQwO9",
+      "secret DatabaseSecret86DBB7B3-0VZd9DXD6MZi",
+      "secret DatabaseUrlSecretFA7DE062-rAfOgs0V9tPw",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-InstallIdFunctionE00E99D-IvxzeTYafS8L",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-InstallIdProviderframewo-E3pxSurWq2Ew",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-LogRetentionaae0aa3c5b4d-q9G8bMpFqsld",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-re-RelayFunctionD137DF95-59p4GIOAfjXa",
+      "log-group deployz-app-269beb67-AppLogGroup7D8CD952-OEcc3Wtttdqi",
+      "ssm /deployz/269beb67-c391-4134-a4c6-16dc4820205b/pending-command",
+      "ecr repo-008-20260905-201506-1d1c",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-0d98d56da60cf8f05",
+      "arn:aws:lambda:us-east-1:151955775369:function:deployz-bootstrap-stage-b-re-RelayFunctionD137DF95-59p4GIOAfjXa",
+      "arn:aws:logs:us-east-1:151955775369:log-group:deployz-app-269beb67-AppLogGroup7D8CD952-OEcc3Wtttdqi",
+      "arn:aws:rds:us-east-1:151955775369:db:deployz-app-269beb67-databaseb269d8bb-ds3yfnjseiha",
+      "arn:aws:s3:::deployz-app-269beb67-appstorage995579da-xfrhyljb7ssn",
+      "arn:aws:ec2:us-east-1:151955775369:route-table/rtb-0ba3b1e512b3c1241",
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:loadbalancer/app/deploy-LoadB-yZxLB7QfBFmq/3459e334682df50a",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-0b4273b0b8db3f283",
+      "arn:aws:ec2:us-east-1:151955775369:security-group/sg-0b0d8aea0736211d3",
+      "arn:aws:ec2:us-east-1:151955775369:vpc/vpc-0fc3e5c05c25f6405",
+      "arn:aws:ec2:us-east-1:151955775369:security-group/sg-0c30448f0fad7bfcc",
+      "arn:aws:events:us-east-1:151955775369:rule/deployz-bootstrap-stage-b-rep-RelaySchedule27C29C24-NrVq5j6QDk17",
+      "arn:aws:rds:us-east-1:151955775369:subgrp:deployz-app-269beb67-databasesubnetgroup7d60f180-c0eowrujfooh",
+      "arn:aws:ec2:us-east-1:151955775369:internet-gateway/igw-035b49f1ee9ec9ac7",
+      "arn:aws:rds:us-east-1:151955775369:snapshot:rds:deployz-app-269beb67-databaseb269d8bb-ds3yfnjseiha-2026-09-05-20-31",
+      "arn:aws:ec2:us-east-1:151955775369:natgateway/nat-061c3293e2ea1202b",
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/deploy-LoadB-A3LHYSOV2RCW/38366889b7e85266",
+      "arn:aws:cloudformation:us-east-1:151955775369:stack/deployz-app-269beb67/fd1f5250-a967-11f1-8052-12fb09e08ac7",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:AppConfigSecret251CAC1E-5y23fv5IPUWX-QUuNwZ",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:DatabaseSecret86DBB7B3-0VZd9DXD6MZi-4Bw1GO",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-0d4e426a53f950289",
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:listener/app/deploy-LoadB-yZxLB7QfBFmq/3459e334682df50a/67e72cda61bb0687",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-0ee779222e814da64",
+      "arn:aws:ec2:us-east-1:151955775369:route-table/rtb-0834d4dc02ad779dc",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:DatabaseUrlSecretFA7DE062-rAfOgs0V9tPw-fi4wdO",
+      "arn:aws:ec2:us-east-1:151955775369:security-group/sg-0ef06382f25284f92",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:RelayCredential6AA8BC18-RLJRVooAQwO9-OKbAsc"
+    ],
+    "durationMs": 56544,
+    "detail": "destroy/purge: POST /api/deployments/23886548-004e-4788-9d9e-0ce6e39ade98/destroy -> 409: Another deployment operation is already in progress. | leftovers: application stack deployz-app-269beb67 is still ROLLBACK_IN_PROGRESS; not deleting the bootstrap stack | leak audit: 41 resource(s) left"
+  },
+  "classification": "HEALTH_PATH_ERROR",
+  "failureStage": "HEALTH_PATH_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "Task failed container health checks — the container runs but its health check never passed; decide HEALTH_PATH (ANALYSIS_*) vs PORT vs container health command (DEPLOYZ_BUG: curl/shell missing in the image)",
+  "findingIds": [
+    "DEPLOY-002"
+  ],
+  "timing": {
+    "startedAt": "2026-09-05T20:15:07.008Z",
+    "finishedAt": "2026-09-05T21:12:04.167Z",
+    "totalMs": 3417159
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "Timed out after 2700s waiting for install; last: state=INSTALLING stage=PROVISIONING health=UNKNOWN relay=CONNECTED current=- lastJob=INSTALL:RUNNING",
+      "stoppedTasks": [
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-269beb67-ClusterEB0386A7-LCcjv14X44Mm/9c969a4e21754c63b0add00b66a93e25",
+          "stoppedReason": "Task failed container health checks",
+          "stopCode": "ServiceSchedulerInitiated",
+          "stoppedAt": "2026-09-06T02:35:59.959000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-269beb67-ClusterEB0386A7-LCcjv14X44Mm/c0a4836284544c24b5b24db252624bb4",
+          "stoppedReason": "Task failed container health checks",
+          "stopCode": "ServiceSchedulerInitiated",
+          "stoppedAt": "2026-09-06T02:16:11.707000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-269beb67-ClusterEB0386A7-LCcjv14X44Mm/c2fdcb097dfb4d7c857dd48834e55809",
+          "stoppedReason": "Task failed container health checks",
+          "stopCode": "ServiceSchedulerInitiated",
+          "stoppedAt": "2026-09-06T02:25:45.981000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-269beb67-ClusterEB0386A7-LCcjv14X44Mm/f8e3ab19ddea471a8fdd6d3c8246e0f0",
+          "stoppedReason": "Task failed container health checks",
+          "stopCode": "ServiceSchedulerInitiated",
+          "stoppedAt": "2026-09-06T02:41:31.280000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        }
+      ],
+      "logTail": [],
+      "stackFailures": [],
+      "targetHealth": [],
+      "diagnostics": {
+        "failureCode": null,
+        "recoverability": null,
+        "what": null,
+        "why": null,
+        "fix": null,
+        "events": []
+      }
+    }
+  }
+}
