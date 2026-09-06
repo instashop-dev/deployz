@@ -8,7 +8,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
-import { buildInstallParameters } from './install-parameters.js';
+import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
 import { buildServer } from './server.js';
 
 // Task 4 — the CloudFormation parameter values an INSTALL job carries (§31),
@@ -352,6 +352,31 @@ describe('buildInstallParameters', () => {
     const parameters = await buildInstallParameters(db, deployment.id);
 
     expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBeUndefined();
+  });
+
+  // ── DEPLOY-009: configuration reaches the task before its first start ───
+
+  it('creates the service with zero tasks when configuration must precede the first start and there is a release to run', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    await insertRelease(db, application.id, {});
+
+    const deferred = await buildInstallParameters(db, deployment.id, { startAfterConfig: true });
+    expect(deferred[DESIRED_COUNT_PARAMETER]).toBe('0');
+
+    const plain = await buildInstallParameters(db, deployment.id);
+    expect(plain[DESIRED_COUNT_PARAMETER]).toBeUndefined();
+  });
+
+  it('never defers the first start when the application has no usable release', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    const parameters = await buildInstallParameters(db, deployment.id, { startAfterConfig: true });
+
+    expect(parameters[DESIRED_COUNT_PARAMETER]).toBeUndefined();
   });
 });
 

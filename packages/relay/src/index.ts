@@ -395,6 +395,7 @@ function getEcsDeployClient(): EcsDeployClient {
             ...(input.forceNewDeployment !== undefined
               ? { forceNewDeployment: input.forceNewDeployment }
               : {}),
+            ...(input.desiredCount !== undefined ? { desiredCount: input.desiredCount } : {}),
           }),
         );
       },

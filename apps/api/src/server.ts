@@ -126,9 +126,8 @@ import {
   type ReleaseImageClient,
 } from './release-images.js';
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
-import { buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
+import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
-import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
 import { readStoredManifest } from './manifest.js';
 import { enqueue } from './queue.js';
@@ -1005,6 +1004,30 @@ async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise
       ),
     );
   return installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
+}
+
+/**
+ * Whether anything has ever run in this deployment: a SUCCEEDED install that
+ * started its task, or a SUCCEEDED deploy/rollback. A zero-task install
+ * (`payload.startAfterConfig`, DEPLOY-009) succeeded without starting
+ * anything — its first deploy is the first start, and a failed first start
+ * is a failed environment, not a failed update.
+ */
+async function hasStartedInstall(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  const jobs = await db
+    .select({ type: schema.deploymentJobs.type, state: schema.deploymentJobs.state, payload: schema.deploymentJobs.payload })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        inArray(schema.deploymentJobs.type, ['INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK']),
+      ),
+    );
+  return jobs.some((j) => {
+    if (j.state !== 'SUCCEEDED' && j.state !== 'SUCCESS') return false;
+    if (j.type !== 'INSTALL') return true;
+    return (j.payload as Record<string, unknown> | null)?.['startAfterConfig'] !== true;
+  });
 }
 
 // resolveAppUrl now lives in ./fleet-row.js, alongside toFleetRow.
@@ -4601,11 +4624,7 @@ export async function buildServer({
       idempotencyKey,
       payload: {
         recovery: { neverInstalled: true },
-        parameters: await buildInstallParameters(db, deployment.id),
-        redisRequired: await readRedisRequired(db, deployment.applicationId),
-        // The canonical manifest this deployment was created with — the relay
-        // derives port/health/binding parameters from it (Phase 2).
-        manifest: readStoredManifest(deployment.desiredState),
+        ...(await buildInstallPayload(db, deployment, configStore)),
       },
       requestedBy: actorId,
     });
@@ -5466,13 +5485,7 @@ export async function buildServer({
               deploymentId: deployment.id,
               type: 'INSTALL',
               idempotencyKey: `${deployment.id}:INSTALL`,
-              payload: {
-                parameters: await buildInstallParameters(db, deployment.id),
-                redisRequired: await readRedisRequired(db, deployment.applicationId),
-                // The canonical manifest this deployment was created with — the
-                // relay derives port/health/binding parameters from it (Phase 2).
-                manifest: readStoredManifest(deployment.desiredState),
-              },
+              payload: await buildInstallPayload(db, deployment, configStore),
               requestedBy: null,
             })
           ).job
@@ -5726,7 +5739,9 @@ export async function buildServer({
     // the failure for the status derivation to surface. currentReleaseId
     // alone under-counts this: a first install runs the template-pinned
     // image with no release row ever deployed (CANARY-008), so a SUCCEEDED
-    // install also counts as a running workload.
+    // install also counts as a running workload — unless it was a zero-task
+    // install waiting for configuration (DEPLOY-009), whose first deploy is
+    // the first start.
     const nextState = isDomainJobType(job.type)
       ? undefined
       : state === 'FAILED'
@@ -5734,7 +5749,7 @@ export async function buildServer({
             jobType: job.type,
             hasCurrentRelease:
               deployment.currentReleaseId !== null ||
-              (await hasSucceededInstall(db, deployment.id)),
+              (await hasStartedInstall(db, deployment.id)),
             newerReadyReleaseExists: await newerReadyReleaseExists(
               db,
               deployment.applicationId,
@@ -5891,17 +5906,21 @@ export async function buildServer({
     // A replay of an already-reported result re-runs both: the deploy enqueue
     // reuses its idempotency key and the revoke is a no-op policy read.
     if (job.type === 'INSTALL' && state === 'SUCCEEDED') {
-      try {
-        await autoDeploySelectedRelease(deployment);
-      } catch (error) {
-        request.log.warn({ err: error }, 'auto-deploy after install failed');
-      }
       // Phase 4: the first configuration pass — vendor/customer values saved
       // before the install, and the app-internal secrets Deployz generates.
+      // Queued BEFORE the auto-deploy: the relay claims commands in creation
+      // order, and a zero-task install (DEPLOY-009) must have its configured
+      // task-definition revision in place before the deploy that first
+      // starts it.
       try {
         await queuePostInstallConfig(db, deployment, job.id, configStore);
       } catch (error) {
         request.log.warn({ err: error }, 'post-install configuration queue failed');
+      }
+      try {
+        await autoDeploySelectedRelease(deployment);
+      } catch (error) {
+        request.log.warn({ err: error }, 'auto-deploy after install failed');
       }
     }
     // Phase 11: a successful INSTALL means the ALB exists — start (or nudge)

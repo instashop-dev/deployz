@@ -6,7 +6,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createConfigStore } from './config.js';
-import { buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
+import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 
 // AI MVP Phase 4 — the first configuration pass after a successful INSTALL:
 // the relay's effective-config view carries every saved entry (plain values
@@ -104,6 +104,64 @@ describe('post-install configuration', () => {
       { key: 'SESSION_SECRET', isSecret: true, source: 'generated', generated: true },
     ]);
     expect(JSON.stringify(entries)).not.toContain('***');
+  });
+
+  it('marks the INSTALL payload startAfterConfig with a zero task count when configuration waits and a release exists (DEPLOY-009)', async () => {
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    await db.insert(schema.releases).values({
+      applicationId,
+      version: '1.0.0',
+      gitSha: 'abc1234',
+      imageDigest: '111122223333.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' + 'a'.repeat(64),
+      buildStatus: 'SUCCEEDED',
+      releaseStatus: 'READY',
+    });
+
+    const payload = await buildInstallPayload(db, deployment!, createConfigStore(db));
+
+    expect(payload['startAfterConfig']).toBe(true);
+    expect((payload['parameters'] as Record<string, string>)['paramDesiredCount']).toBe('0');
+    expect(payload['redisRequired']).toBe(false);
+    expect(payload['manifest']).toMatchObject({ web: { port: 3000 } });
+  });
+
+  it('starts the install normally when nothing waits to be configured', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Bare',
+        repoFullName: 'acme/bare-install',
+        repoUrl: 'https://github.com/acme/bare-install',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+      })
+      .returning();
+    await db.insert(schema.releases).values({
+      applicationId: application!.id,
+      version: '1.0.0',
+      gitSha: 'abc1234',
+      imageDigest: '111122223333.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' + 'b'.repeat(64),
+      buildStatus: 'SUCCEEDED',
+      releaseStatus: 'READY',
+    });
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId,
+        region: 'us-east-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: manifest([MANIFEST_ENV[0]!, MANIFEST_ENV[4]!]) },
+        enrollmentCode: 'enrol-bare-install',
+      })
+      .returning();
+
+    const payload = await buildInstallPayload(db, deployment!, createConfigStore(db));
+
+    expect(payload['startAfterConfig']).toBeUndefined();
+    expect((payload['parameters'] as Record<string, string>)['paramDesiredCount']).toBeUndefined();
   });
 
   it('queues one CONFIG_UPDATE job per install, with key names only, and reuses it on a replay', async () => {

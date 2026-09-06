@@ -290,6 +290,61 @@ describe('failure semantics, duplicate results and operation exclusivity', () =>
     expect(row.currentReleaseId).toBeNull();
   });
 
+  it('marks a zero-task install FAILED when its first deploy fails — nothing was ever running (DEPLOY-009)', async () => {
+    const appId = await seedApplication();
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId: appId,
+        version: '1.0.0',
+        gitSha: 'abc123',
+        imageDigest: `${REPO}@${DIGEST}`,
+        buildStatus: 'SUCCEEDED',
+        releaseStatus: 'READY',
+      })
+      .returning();
+    const deployment = await seedDeployment({
+      state: 'INSTALLING',
+      applicationId: appId,
+      currentReleaseId: null,
+    });
+    await seedJob(deployment.id, 'INSTALL', 'SUCCEEDED', { startAfterConfig: true });
+    const jobId = await seedJob(deployment.id, 'DEPLOY_RELEASE', 'RUNNING', { releaseId: release!.id });
+
+    const response = await postResult(jobId, deployment.token, {
+      success: false,
+      error: 'The ECS deployment circuit breaker reported a failed rollout',
+      failureCode: 'ECS_DEPLOYMENT_FAILED',
+    });
+    expect(response.statusCode, response.body).toBe(200);
+
+    const row = await getDeploymentRow(deployment.id);
+    expect(row.state).toBe('FAILED');
+    expect(row.currentReleaseId).toBeNull();
+  });
+
+  it('keeps a zero-task install live once a deploy has started it, even before the heartbeat names the release', async () => {
+    const appId = await seedApplication();
+    const deployment = await seedDeployment({
+      state: 'HEALTHY',
+      applicationId: appId,
+      currentReleaseId: null,
+    });
+    await seedJob(deployment.id, 'INSTALL', 'SUCCEEDED', { startAfterConfig: true });
+    await seedJob(deployment.id, 'DEPLOY_RELEASE', 'SUCCEEDED');
+    const jobId = await seedJob(deployment.id, 'DEPLOY_RELEASE', 'RUNNING', {});
+
+    const response = await postResult(jobId, deployment.token, {
+      success: false,
+      error: 'migration failed',
+      failureCode: 'MIGRATION_FAILED',
+    });
+    expect(response.statusCode, response.body).toBe(200);
+
+    const row = await getDeploymentRow(deployment.id);
+    expect(row.state).toBe('HEALTHY');
+  });
+
   it('leaves the deployment state alone when a CONFIG_UPDATE fails', async () => {
     const v1 = await seedRelease('4.0.0', new Date());
     const deployment = await seedDeployment({ state: 'HEALTHY', currentReleaseId: v1 });

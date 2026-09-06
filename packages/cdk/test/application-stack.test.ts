@@ -122,8 +122,8 @@ describe('ApplicationStack', () => {
       expect(name.toLowerCase(), `parameter ${name} looks like a DB credential`).not.toMatch(
         /password|database|dbuser|db_pass/,
       );
-      // The image reference is not a secret (DEPLOY-001).
-      if (name === 'paramImageReference') continue;
+      // The image reference (DEPLOY-001) and the task count (DEPLOY-009) are not secrets.
+      if (name === 'paramImageReference' || name === 'paramDesiredCount') continue;
       expect(param['NoEcho']).toBe(true);
     }
   });
@@ -263,36 +263,53 @@ describe('ApplicationStack', () => {
 
     // The only application parameters are the two app-env secrets, the
     // container-port override, the health path override, and the (non-secret)
-    // image reference override.
+    // image reference and task count overrides.
     expect(names.sort()).toEqual(
       [
         'paramAppApiKey',
         'paramAppSigningSecret',
         'paramContainerPort',
+        'paramDesiredCount',
         'paramHealthCheckPath',
         'paramImageReference',
       ].sort(),
     );
 
+    // Not secrets: the image reference (DEPLOY-001) and the task count
+    // (DEPLOY-009) are operational values the console may show.
+    const plain = new Set(['paramImageReference', 'paramDesiredCount']);
     for (const [name, param] of Object.entries(params)) {
       // `param_` naming prefix — CDK/CloudFormation strip the underscore from
       // the logical ID, leaving a `param`-prefixed name.
       expect(name, `parameter ${name} must use the param_ prefix`).toMatch(/^param[A-Z]/);
       // NoEcho — the value is never echoed back to the console or API, except
-      // the image reference, which is not a secret (DEPLOY-001).
-      if (name === 'paramImageReference') continue;
+      // the plain operational parameters above.
+      if (plain.has(name)) continue;
       expect(param['NoEcho'], `parameter ${name} must be NoEcho`).toBe(true);
     }
 
-    // Strongest form: every non-synthetic, non-image-reference parameter is
-    // NoEcho — there is no echoable secret parameter anywhere in the template.
+    // Strongest form: every non-synthetic, non-plain parameter is NoEcho —
+    // there is no echoable secret parameter anywhere in the template.
     const nonSynthetic = (template.toJSON() as {
       Parameters: Record<string, Record<string, unknown>>;
     })['Parameters'];
     for (const [name, param] of Object.entries(nonSynthetic)) {
-      if (name === 'BootstrapVersion' || name === 'paramImageReference') continue;
+      if (name === 'BootstrapVersion' || plain.has(name)) continue;
       expect(param['NoEcho'], `parameter ${name} must be NoEcho`).toBe(true);
     }
+  });
+
+  it('declares param_DesiredCount defaulting to the synth-time count, and the service starts that many tasks (DEPLOY-009)', () => {
+    const { template } = synth();
+    expect(appParameters(template)['paramDesiredCount']).toMatchObject({
+      Type: 'Number',
+      NoEcho: false,
+      Default: '1',
+      MinValue: 0,
+    });
+    template.hasResourceProperties('AWS::ECS::Service', {
+      DesiredCount: { Ref: 'paramDesiredCount' },
+    });
   });
 
   it('publishes plain stack outputs with no Export blocks', () => {
@@ -1085,6 +1102,7 @@ describe('ApplicationStack', () => {
           'paramAppApiKey',
           'paramAppSigningSecret',
           'paramContainerPort',
+          'paramDesiredCount',
           'paramHealthCheckPath',
           'paramImageReference',
           ...Object.values(DOCUMENSO_PARAMETERS),
@@ -1092,8 +1110,8 @@ describe('ApplicationStack', () => {
       );
 
       for (const [name, param] of Object.entries(params)) {
-        // The image reference is not a secret (DEPLOY-001).
-        if (name === 'paramImageReference') continue;
+        // The image reference (DEPLOY-001) and the task count (DEPLOY-009) are not secrets.
+        if (name === 'paramImageReference' || name === 'paramDesiredCount') continue;
         expect(param['NoEcho'], `parameter ${name} must be NoEcho`).toBe(true);
       }
     });

@@ -13,6 +13,9 @@ function generateSecret(): string {
   return randomBytes(32).toString('base64url');
 }
 
+/** CFN logical id of the template's task-count parameter (CDK strips the underscore from `param_DesiredCount`). */
+export const DESIRED_COUNT_PARAMETER = 'paramDesiredCount';
+
 /**
  * Whether the deployment's application needs a Redis cache provisioned. The
  * INSTALL executor reads this as a top-level payload field (not one of the
@@ -50,6 +53,15 @@ export async function readRedisRequired(db: RuntimeDb, applicationId: string): P
 export async function buildInstallParameters(
   db: RuntimeDb,
   deploymentId: string,
+  options: {
+    /**
+     * DEPLOY-009: configuration must reach the task before it first starts.
+     * With a release to run, the service is created with zero tasks and the
+     * first deploy after the post-install configuration pass starts it;
+     * without one, nothing could start anyway and the key is omitted.
+     */
+    startAfterConfig?: boolean;
+  } = {},
 ): Promise<Record<string, string>> {
   const rows = await db
     .select({
@@ -96,6 +108,9 @@ export async function buildInstallParameters(
     const imageDigest = releaseRows[0]?.imageDigest;
     if (imageDigest) {
       parameters[IMAGE_REFERENCE_PARAMETER] = imageDigest;
+      if (options.startAfterConfig === true) {
+        parameters[DESIRED_COUNT_PARAMETER] = '0';
+      }
     }
   }
   // Phase 7 — publicUrl follows the plan's preferred-URL model so a (re)install
