@@ -27,6 +27,8 @@ export interface CleanupInput {
   /** How long to wait for an in-flight job (an INSTALL still reporting a rolled-back stack) before Disconnect. Default 60 min. */
   idleTimeoutMs?: number | undefined;
   pollIntervalMs?: number | undefined;
+  /** Confirms a resource the leak audit lists still exists (the tagging API lags deletions). Default: assume it does. */
+  resourceStillExists?: ((arn: string) => Promise<boolean>) | undefined;
 }
 
 const ACTIVE_JOB_STATES = new Set(['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']);
@@ -94,8 +96,15 @@ export async function cleanupAttempt(input: CleanupInput, result: StageBResult):
     section.leaks = [];
   } catch (error) {
     const auditStep = [...evidence.run.steps].reverse().find((s) => s.name === 'AWS leak audit');
-    section.leaks = (auditStep?.details['disposableLeft'] as string[] | undefined) ?? [error instanceof Error ? error.message : String(error)];
-    errors.push(`leak audit: ${section.leaks.length} resource(s) left`);
+    const listed = (auditStep?.details['disposableLeft'] as string[] | undefined) ?? [error instanceof Error ? error.message : String(error)];
+    const confirmed: string[] = [];
+    for (const arn of listed) {
+      if (input.resourceStillExists && arn.startsWith('arn:') && !(await input.resourceStillExists(arn))) continue;
+      confirmed.push(arn);
+    }
+    section.leaks = confirmed;
+    if (auditStep) auditStep.details['confirmedLeft'] = confirmed;
+    if (confirmed.length > 0) errors.push(`leak audit: ${confirmed.length} resource(s) left`);
   }
 
   section.durationMs = now() - started;
