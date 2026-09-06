@@ -71,7 +71,7 @@ repositories:
       - "Go; reads DATABASE_URL. The Dockerfile under packaging/docker/alpine copies the repository root, so the build context is the root, not the Dockerfile's directory."
 
   - id: repo-035
-    findings: [DEPLOY-005]
+    findings: []
     secrets: [SECRET_KEY]
     verify: { healthPath: /healthcheck, appPath: / }
     notes:

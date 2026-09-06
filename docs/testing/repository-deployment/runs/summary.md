@@ -7,16 +7,16 @@ Deployz commit: `2509d85ff66152365431a427cc207d8badc6c581`
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 43 / 49 |
+| Gate: correct accept / correct reject | 42 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 19 |
-| Build attempted / succeeded / failed | 4 / 3 / 1 |
-| Build success among expected deployable | 4.6% |
-| Infrastructure attempted / succeeded / failed | 3 / 2 / 1 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 2 / 2 / 2 / 1 |
-| Dependencies: PostgreSQL / Redis / storage / migration verified | 1 / 0 / 0 / 0 |
-| **True deployment success / expected deployable** | **1 / 65 (1.5%)** |
-| Cleanup: destroys / failures / leaks / success rate | 4 / 0 / 0 / 100% |
+| Gate: READY with the Stage B configuration | 18 |
+| Build attempted / succeeded / failed | 5 / 4 / 1 |
+| Build success among expected deployable | 6.2% |
+| Infrastructure attempted / succeeded / failed | 4 / 3 / 1 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 3 / 3 / 3 / 2 |
+| Dependencies: PostgreSQL / Redis / storage / migration verified | 2 / 0 / 0 / 0 |
+| **True deployment success / expected deployable** | **2 / 65 (3.1%)** |
+| Cleanup: destroys / failures / leaks / success rate | 5 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -44,12 +44,13 @@ Deployz commit: `2509d85ff66152365431a427cc207d8badc6c581`
 | DEPLOY-004 | 6: repo-072, repo-074, repo-084, repo-088, repo-089, repo-097 |
 | DEPLOY-005 | 4: repo-003, repo-021, repo-035, repo-039 |
 | DEPLOY-007 | 1: repo-001 |
+| DEPLOY-008 | 1: repo-004 |
 
 ## By set
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 65 | 2 | 1 |
+| improvement | 80 | 46 | 34 | 64 | 3 | 2 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -59,7 +60,7 @@ Deployz commit: `2509d85ff66152365431a427cc207d8badc6c581`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 50 | 2 | 1 |
+| realistic | 69 | 45 | 24 | 49 | 3 | 2 |
 
 ## Repositories
 
@@ -68,7 +69,7 @@ Deployz commit: `2509d85ff66152365431a427cc207d8badc6c581`
 | repo-001 | umami-software/umami@ca661c7 | realistic | READY | — (—) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR | DEPLOY-002, DEPLOY-007 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-005 |
-| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR |  |
+| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
@@ -99,7 +100,7 @@ Deployz commit: `2509d85ff66152365431a427cc207d8badc6c581`
 | repo-032 | mealie-recipes/mealie@8faccff | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-033 | paperless-ngx/paperless-ngx@a28a6fe | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-034 | CTFd/CTFd@91ced62 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-035 | spiral-project/ihatemoney@e66a767 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-005 |
+| repo-035 | spiral-project/ihatemoney@e66a767 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-005 |
 | repo-036 | django-helpdesk/django-helpdesk@1cc6776 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-037 | apache/superset@765a4ec | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-038 | apache/answer@3b9f137 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |

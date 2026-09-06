@@ -17,7 +17,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-002 | CONFIG_ERROR | ANALYSIS_BUG | OPEN | repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 (gate audit, analysis version 15) |
 | DEPLOY-003 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 18 expected-deployable repositories the gate rejects (gate audit, analysis version 15) |
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
-| DEPLOY-005 | ENV_BINDING_ERROR | DEPLOYZ_BUG | OPEN | predicted from the gate audit for repo-003, repo-021, repo-035, repo-039 (and every app that reads its database under its own name); Wave 1 measures it |
+| DEPLOY-005 | ENV_BINDING_ERROR | DEPLOYZ_BUG | OPEN | predicted from the gate audit for repo-003, repo-021, repo-039 (and every app that reads its database under its own name); Wave 1 measures it — repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 | DEPLOY-007 | CONTAINER_START_ERROR / DATABASE_ERROR | DEPLOYZ_BUG | OPEN (fix proposed) | repo-001 (umami); predicted repo-003 (kutt); every node-postgres client without a `rejectUnauthorized` knob |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
@@ -199,7 +199,11 @@ only the standard names: repo-003 kutt (`DB_HOST`, `DB_PORT`, `DB_NAME`,
 `DB_USER`, `DB_PASSWORD`), repo-021 directus (`DB_HOST`, …,
 `DB_DATABASE`), repo-035 ihatemoney (`SQLALCHEMY_DATABASE_URI`), repo-039
 memos (`MEMOS_DSN`); only ghostfolio's `POSTGRES_*` and outline's
-`AWS_S3_UPLOAD_BUCKET_NAME` were picked up. There is no vendor surface to
+`AWS_S3_UPLOAD_BUCKET_NAME` were picked up. Wave 1 evidence: ihatemoney
+PASSED with its database bound (run
+`stage-b-repo-035-20260906-125614-c00c`, dependencies `postgres: PASS`),
+so the deployed v15 analysis does deliver `SQLALCHEMY_DATABASE_URI`; the
+prediction stands only for the names still unbound in the gate audit. There is no vendor surface to
 add a binding (the configuration screen stores literal values, and the
 bucket name and database address exist only after the install), so the
 application boots without a database.
