@@ -47,7 +47,7 @@ import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from '../vers
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { configFor, loadDeployConfig, providedKeys, type DeployConfig, type RepositoryConfig } from './config.js';
 import { runRepositoryAttempt, DEFAULT_TIMEOUTS, type DeployDeps } from './deploy.js';
-import { describeDependencies, describeStoppedTasks, describeTaskDefinitionEnv, tailApplicationLogs } from './evidence.js';
+import { describeDependencies, describeStoppedTasks, describeTaskDefinitionEnv, resourceStillExists, tailApplicationLogs } from './evidence.js';
 import { gateSection } from './gate.js';
 import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries, type StageBRunRecord } from './ledger.js';
 import {
@@ -417,7 +417,7 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
       stageBRun(evidence).stageB.cleanupNeeded = true;
       evidence.save();
     } else {
-      await cleanupAttempt({ config: series.config, api: series.api, evidence, teardown: { destroyThroughProduct, removeCanaryLeftovers, leakAudit }, now: Date.now }, result);
+      await cleanupAttempt({ config: series.config, api: series.api, evidence, teardown: { destroyThroughProduct, removeCanaryLeftovers, leakAudit }, now: Date.now, resourceStillExists: (arn) => resourceStillExists(series.config.region, arn) }, result);
       applyCleanupToClassification(result);
     }
     evidence.finish(result.classification === 'PASS' || result.classification === 'EXPECTED_UNSUPPORTED' ? 'PASS' : 'FAIL');
@@ -443,7 +443,7 @@ async function cleanupLedger(series: Series, options: RunOptions, runId: string)
     mode: 'deploy',
   });
   if (run.stageB.organizationId) await series.api.request('POST', `/api/organizations/${run.stageB.organizationId}/activate`, {});
-  await cleanupAttempt({ config: series.config, api: series.api, evidence, teardown: { destroyThroughProduct, removeCanaryLeftovers, leakAudit }, now: Date.now }, result);
+  await cleanupAttempt({ config: series.config, api: series.api, evidence, teardown: { destroyThroughProduct, removeCanaryLeftovers, leakAudit }, now: Date.now, resourceStillExists: (arn) => resourceStillExists(series.config.region, arn) }, result);
   applyCleanupToClassification(result);
   if (readResult(options.runsDir, run.stageB.repoId)) writeResult(options.runsDir, result, { force: true });
   evidence.save();

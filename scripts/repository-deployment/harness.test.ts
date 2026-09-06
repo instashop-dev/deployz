@@ -750,6 +750,29 @@ describe('cleanup', () => {
     expect(stageBRun(evidence2).stageB.cleanupNeeded).toBe(true);
   });
 
+  it('drops a listed resource that no longer exists (the tagging API lags deletions)', async () => {
+    const { run, evidence, result } = attempt(deployable, {});
+    await run();
+    const teardown = {
+      destroyThroughProduct: async () => {},
+      removeCanaryLeftovers: async () => {},
+      leakAudit: async () => {
+        evidence.run.steps.push({ index: 98, name: 'AWS leak audit', scenario: 'x', startedAt: 't', status: 'FAIL', details: { disposableLeft: ['arn:aws:ec2:us-east-1:1:natgateway/nat-1', 'arn:aws:rds:us-east-1:1:db:x'] } });
+        throw new Error('2 resource(s) left after teardown');
+      },
+    };
+    const section = await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence, teardown, now: Date.now, resourceStillExists: async (arn) => !arn.includes('natgateway') }, result);
+    expect(section.leaks).toEqual(['arn:aws:rds:us-east-1:1:db:x']);
+    expect(section.status).toBe('FAIL');
+    const { run: run2, evidence: evidence2, result: result2 } = attempt(deployable, {});
+    await run2();
+    const gone = { ...teardown, leakAudit: async () => { evidence2.run.steps.push({ index: 98, name: 'AWS leak audit', scenario: 'x', startedAt: 't', status: 'FAIL', details: { disposableLeft: ['arn:aws:ec2:us-east-1:1:natgateway/nat-1'] } }); throw new Error('1 resource(s) left'); } };
+    const section2 = await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence: evidence2, teardown: gone, now: Date.now, resourceStillExists: async () => false }, result2);
+    expect(section2.status).toBe('PASS');
+    expect(section2.leaks).toEqual([]);
+    expect(stageBRun(evidence2).stageB.cleanupNeeded).toBe(false);
+  });
+
   it('keeps going after a failed destroy, reports the leak, and turns a PASS into CLEANUP_LEAK', async () => {
     const { run, evidence, result } = attempt(deployable, {});
     await run();
@@ -836,8 +859,14 @@ describe('cleanup', () => {
     pending.save();
     const untouched = openLedger(dir, config, { repoId: 'repo-003', repository: 'a/d', commit: SHA, deployzCommit: SHA, cleanupNeeded: false }, 'stage-b-repo-003-untouched');
     untouched.finish('FAIL');
-    expect(listUnfinishedLedgers(dir).map((l) => l.runId)).toEqual(['stage-b-repo-002-pending', 'stage-b-repo-003-untouched']);
-    expect(readdirSync(dir).length).toBe(3);
+    // Interrupted before any result, but a release had been created: still ours to clean.
+    const interrupted = openLedger(dir, config, { repoId: 'repo-004', repository: 'a/e', commit: SHA, deployzCommit: SHA, cleanupNeeded: false }, 'stage-b-repo-004-interrupted');
+    interrupted.run.releases['release'] = { id: 'r', version: 'repo-004-x', gitSha: SHA };
+    interrupted.save();
+    const nothing = openLedger(dir, config, { repoId: 'repo-005', repository: 'a/f', commit: SHA, deployzCommit: SHA, cleanupNeeded: false }, 'stage-b-repo-005-nothing');
+    nothing.save();
+    expect(listUnfinishedLedgers(dir).map((l) => l.runId)).toEqual(['stage-b-repo-002-pending', 'stage-b-repo-003-untouched', 'stage-b-repo-004-interrupted']);
+    expect(readdirSync(dir).length).toBe(5);
   });
 
   it('keeps the vendor session and the published templates per series', () => {

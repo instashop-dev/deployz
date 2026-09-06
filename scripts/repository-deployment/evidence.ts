@@ -134,6 +134,27 @@ export async function describeTaskDefinitionEnv(region: string, stackName: strin
   };
 }
 
+/**
+ * Whether a resource the tagging API still lists actually exists. The tagging
+ * API keeps a deleted NAT gateway (and ECS clusters/services/task definitions)
+ * listed for a while after deletion; the canary audit already ignores the ECS
+ * kinds, and a NAT gateway is checked here. Unknown kinds are assumed to exist.
+ */
+export async function resourceStillExists(region: string, arn: string): Promise<boolean> {
+  const nat = /:natgateway\/(nat-[0-9a-f]+)$/.exec(arn);
+  if (nat) {
+    try {
+      const response = (await aws(['ec2', 'describe-nat-gateways', '--nat-gateway-ids', nat[1]!], region)) as { NatGateways?: { State?: string }[] };
+      const state = response.NatGateways?.[0]?.State;
+      return state !== undefined && state !== 'deleted';
+    } catch (error) {
+      if (/NatGatewayNotFound/.test(String(error))) return false;
+      throw error;
+    }
+  }
+  return true;
+}
+
 /** Every resource carrying the given tag value — the Stage B account scan. */
 export async function scanTag(region: string, key: string, value: string): Promise<string[]> {
   const response = (await aws(

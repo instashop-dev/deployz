@@ -64,7 +64,10 @@ export function listUnfinishedLedgers(evidenceDir: string): { runId: string; rep
     if (!existsSync(path)) continue;
     const run = JSON.parse(readFileSync(path, 'utf8')) as Partial<StageBRunRecord>;
     if (!run.stageB || run.stageB.cleanupCompletedAt) continue;
-    if (!run.stageB.cleanupNeeded && run.result === undefined) continue;
+    // An attempt that was interrupted (no result) still owns whatever it had
+    // created by then — a release is an ECR image, a deployment is a stack.
+    const created = run.stageB.cleanupNeeded || run.result !== undefined || Boolean(run.deploymentId) || Boolean(run.bootstrapStackName) || Object.keys(run.releases ?? {}).length > 0;
+    if (!created) continue;
     out.push({ runId: run.runId ?? name, repoId: run.stageB.repoId, path });
   }
   return out;
