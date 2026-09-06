@@ -104,11 +104,11 @@
   },
   "classification": "ENV_BINDING_ERROR",
   "failureStage": "ENV_BINDING_ERROR",
-  "rootCause": null,
-  "rootCauseEvidence": "container reports a missing/invalid variable: 2026-09-06T15:24:38.370Z \u001b[33mMissing\u001b[0m environment variables: — decide DEPLOYZ_BUG (binding not injected) vs ANALYSIS_MISSING_SIGNAL (required key not detected) vs REPO_CONFIGURATION",
+  "rootCause": "DEPLOYZ_BUG",
+  "rootCauseEvidence": "first task exited 1 on `Missing environment variables: JWT_SECRET` after its migrations ran; the vendor secret stored before the install is applied only by the post-install CONFIG_UPDATE, which never runs because INSTALL fails (DEPLOY-009)",
   "findingIds": [
     "DEPLOY-005",
-    "DEPLOY-007"
+    "DEPLOY-009"
   ],
   "timing": {
     "startedAt": "2026-09-06T14:59:07.562Z",
