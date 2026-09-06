@@ -231,6 +231,10 @@ export async function runApplicationAnalysis(
     // write replaces wholesale — carry it across or every re-analysis would
     // forget which fields the vendor edited.
     const vendorOverrides = readVendorOverrides(application.detectedMetadata);
+    // The manifest-only overrides (app root, Dockerfile path, build context and
+    // command, start command) have no column either; the build and the
+    // deployment gate read them from this record.
+    const manifestOverrides = application.detectedMetadata?.['manifestOverrides'];
 
     // §15 AI fallback: only runs when the deterministic scanner left a real
     // question unresolved, and can never fail the analysis — any AI error
@@ -292,6 +296,7 @@ export async function runApplicationAnalysis(
             readiness,
             application: applicationAnalysis,
             vendorOverrides,
+            ...(manifestOverrides !== undefined ? { manifestOverrides } : {}),
             analysisVersion: ANALYSIS_VERSION,
             ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
           },

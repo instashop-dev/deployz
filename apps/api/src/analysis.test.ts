@@ -399,6 +399,19 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     expect(metadata.vendorOverrides).toEqual(['containerPort']);
   });
 
+  it('carries the manifest-only overrides across the analysis write', async () => {
+    const application = await insertApplication(db, orgId, {
+      repoFullName: 'deployz-demo/express-api',
+      detectedMetadata: { manifestOverrides: { dockerfilePath: 'packaging/docker/alpine/Dockerfile', buildContext: '.' } },
+    });
+
+    await runApplicationAnalysis(deps, application.id);
+
+    const row = await loadApplication(db, application.id);
+    const metadata = row.detectedMetadata as { manifestOverrides?: Record<string, string> };
+    expect(metadata.manifestOverrides).toEqual({ dockerfilePath: 'packaging/docker/alpine/Dockerfile', buildContext: '.' });
+  });
+
   it('is a no-op (never throws) when the application row no longer exists', async () => {
     await expect(
       runApplicationAnalysis(deps, '00000000-0000-0000-0000-000000000000'),
