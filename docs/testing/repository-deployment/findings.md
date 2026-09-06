@@ -19,6 +19,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
 | DEPLOY-005 | ENV_BINDING_ERROR | DEPLOYZ_BUG | OPEN | predicted from the gate audit for repo-003, repo-021, repo-035, repo-039 (and every app that reads its database under its own name); Wave 1 measures it |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
+| DEPLOY-007 | CONTAINER_START_ERROR / DATABASE_ERROR | DEPLOYZ_BUG | OPEN (fix proposed) | repo-001 (umami); predicted repo-003 (kutt); every node-postgres client without a `rejectUnauthorized` knob |
 
 ---
 
@@ -242,3 +243,78 @@ supplies an explicit command; the generic template relies on the ALB
 target group's probe of the health path, which is what promotes the
 deployment anyway. Files: `packages/cdk/src/application/application-stack.ts`,
 the regenerated artifacts, `packages/cdk/test/application-stack.test.ts`.
+
+---
+
+## DEPLOY-007 — The issued `DATABASE_URL` makes node-postgres verify the RDS certificate against a trust store that does not hold it
+
+**Stage** CONTAINER_START_ERROR (the container exits before the ALB probe
+sees it; DATABASE_ERROR once the log line is captured) · **Root cause**
+DEPLOYZ_BUG · **Resolution** OPEN (fix proposed, product decision needed) ·
+**Found** Phase 3, Wave 1, umami attempt 3 (2026-09-06); mechanism
+confirmed from product code.
+
+**Behaviour.** The application template issues the customer application's
+`DATABASE_URL` as
+`postgresql://…@<rds endpoint>:5432/deployz?sslmode=require`
+(`packages/cdk/src/application/application-stack.ts`, `DatabaseUrlSecret`)
+against an RDS instance on the default parameter group (`rds.force_ssl=1`,
+PostgreSQL 16). libpq clients (Rails `pg`, psycopg, Go `lib/pq`/`pgx`) and
+Prisma's own engine treat `sslmode=require` as "encrypt, do not verify the
+chain", so they connect. node-postgres (`pg`, used directly or through
+knex, Sequelize, drizzle, Prisma's `@prisma/adapter-pg`) treats
+`prefer`/`require`/`verify-ca` as aliases of `verify-full` unless
+`uselibpqcompat=true` is also present (`pg-connection-string`,
+`deprecatedSslModeWarning`), and the RDS CA chain is not in Node's default
+trust store, so the TLS handshake is rejected and the client never
+connects. The control plane's own Lambda already works around exactly this
+(`packages/cdk/src/lambda/db-connection.ts`: "uses sslmode=require with
+uselibpqcompat=true because RDS has rds.force_ssl=1 and pg v9 treats
+sslmode=require as verify-full"); the URL handed to customer applications
+does not, and `uselibpqcompat` is a node-postgres-only parameter that libpq
+rejects, so it cannot simply be appended for everyone.
+
+**Effect.** Every Node application whose Postgres client is node-postgres
+and that exposes no `rejectUnauthorized`/CA knob fails its first task at
+boot, the ECS deployment circuit breaker rolls the install back, and the
+product reports CONTAINER_START_FAILED with no application log (DEPLOY-006's
+rollback also deletes the log group). Applications with a knob need the
+vendor to know about the RDS CA (directus: `DB_SSL__REJECT_UNAUTHORIZED=false`;
+outline hard-codes `rejectUnauthorized: false`); umami (`check-db.js`,
+`new PrismaPg({ connectionString })`) and kutt (`knexfile.js`,
+`ssl: env.DB_SSL`) have none.
+
+**Evidence.** umami attempt 3 (run `stage-b-repo-001-20260906-085224-5c2f`):
+build READY, template published, Quick Create + enrolment PASS; the ECS
+service never stabilised ("ECS Deployment Circuit Breaker was triggered"
+on `ServiceD69D759B`), three consecutive tasks ran about five minutes and
+exited with code 1 (`EssentialContainerExited`, observed by an external
+watcher — the harness's post-failure fetch ran after the rollback had
+deleted the cluster and the log group, fixed in PR #204). The retained
+RDS instance carries `rds.force_ssl=1` (parameter group
+`default.postgres16`) and the retained `DatabaseUrlSecret` ends in
+`?sslmode=require`. Documenso passes on the same URL because Prisma's
+engine does not verify the chain for `require`. The umami log line and the
+kutt attempt will close the evidence.
+
+**Generic fix (proposed; needs a product decision).**
+(A) Keep TLS everywhere and make the chain verifiable: the task definition
+gets an init container that writes the RDS trust bundle
+(`https://truststore.pki.rds.amazonaws.com/<region>/<region>-bundle.pem`)
+to a shared ephemeral volume and completes before the application starts;
+the application container receives `NODE_EXTRA_CA_CERTS`, `PGSSLROOTCERT`
+and `SSL_CERT_FILE` pointing at it. Every client then verifies
+successfully; no knob needed. Cost: one more container definition, a
+volume, an egress fetch at task start (the NAT gateway already exists).
+(B) Stop forcing TLS inside the VPC: a custom parameter group with
+`rds.force_ssl=0` and a `DATABASE_URL` without `sslmode` — libpq clients
+default to `prefer` (TLS, unverified), node-postgres to plaintext on the
+private subnet. Zero per-app configuration, but a change of the product's
+encryption-in-transit posture. Either way a regression test in
+`packages/cdk/test/application-stack.test.ts` pins the URL and the task
+definition, the templates are republished, and umami and kutt are rerun.
+
+**Affected.** repo-001 (umami); predicted repo-003 (kutt) from its
+`knexfile.js`; every Wave 2+ Node application on node-postgres without a
+verification knob. Not affected: gatus (no database), docuseal, miniflux,
+ihatemoney, memos (libpq / Go clients), ghostfolio (Prisma engine).

@@ -7,12 +7,12 @@ Deployz commit: `31eb65031e34b315747303b0e64ab1a1f3f8e010`
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 46 / 49 |
+| Gate: correct accept / correct reject | 45 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 22 |
-| Build attempted / succeeded / failed | 1 / 1 / 0 |
-| Build success among expected deployable | 1.5% |
-| Infrastructure attempted / succeeded / failed | 1 / 1 / 0 |
+| Gate: READY with the Stage B configuration | 21 |
+| Build attempted / succeeded / failed | 2 / 2 / 0 |
+| Build success among expected deployable | 3.1% |
+| Infrastructure attempted / succeeded / failed | 2 / 1 / 1 |
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 1 / 1 / 1 / 1 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 1 / 0 / 0 / 0 |
 | **True deployment success / expected deployable** | **1 / 65 (1.5%)** |
@@ -22,9 +22,10 @@ Deployz commit: `31eb65031e34b315747303b0e64ab1a1f3f8e010`
 
 | Classification | Repositories |
 | --- | --- |
+| CONTAINER_START_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| PASS | 47 |
+| PASS | 46 |
 
 ## By root cause
 
@@ -45,7 +46,7 @@ Deployz commit: `31eb65031e34b315747303b0e64ab1a1f3f8e010`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 68 | 1 | 1 |
+| improvement | 80 | 46 | 34 | 67 | 1 | 1 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -55,13 +56,13 @@ Deployz commit: `31eb65031e34b315747303b0e64ab1a1f3f8e010`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 53 | 1 | 1 |
+| realistic | 69 | 45 | 24 | 52 | 1 | 1 |
 
 ## Repositories
 
 | Id | Repository | Cohort | Expected | Gate | Build | Deploy | Runtime | Cleanup | Result | Findings |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| repo-001 | umami-software/umami@ca661c7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | PASS | PASS | DEPLOY-002 |
+| repo-001 | umami-software/umami@ca661c7 | realistic | READY | — (—) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR | DEPLOY-002 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-005 |
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

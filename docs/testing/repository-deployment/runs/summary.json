@@ -5,22 +5,22 @@
   "expectedUnsupported": 55,
   "gate": {
     "attempted": 120,
-    "correctAccept": 46,
+    "correctAccept": 45,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 22
+    "configuredReady": 21
   },
   "build": {
-    "attempted": 1,
-    "succeeded": 1,
+    "attempted": 2,
+    "succeeded": 2,
     "failed": 0,
-    "successRateAmongDeployable": 1.5
+    "successRateAmongDeployable": 3.1
   },
   "infrastructure": {
-    "attempted": 1,
+    "attempted": 2,
     "succeeded": 1,
-    "failed": 0
+    "failed": 1
   },
   "runtime": {
     "ecsRunning": 1,
@@ -43,11 +43,13 @@
     "successRate": 100
   },
   "byClassification": {
+    "CONTAINER_START_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 47
+    "PASS": 46
   },
   "byFailureStage": {
+    "CONTAINER_START_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24
   },
@@ -105,7 +107,7 @@
       "deployed": 1,
       "trueDeploymentSuccess": 1,
       "expectedUnsupported": 34,
-      "gateCorrect": 68
+      "gateCorrect": 67
     },
     "unseen": {
       "total": 20,
@@ -147,7 +149,7 @@
       "deployed": 1,
       "trueDeploymentSuccess": 1,
       "expectedUnsupported": 24,
-      "gateCorrect": 53
+      "gateCorrect": 52
     }
   }
 }
