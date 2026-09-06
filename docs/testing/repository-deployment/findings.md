@@ -20,6 +20,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-005 | ENV_BINDING_ERROR | DEPLOYZ_BUG | OPEN | predicted from the gate audit for repo-003, repo-021, repo-035, repo-039 (and every app that reads its database under its own name); Wave 1 measures it |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 | DEPLOY-007 | CONTAINER_START_ERROR / DATABASE_ERROR | DEPLOYZ_BUG | OPEN (fix proposed) | repo-001 (umami); predicted repo-003 (kutt); every node-postgres client without a `rejectUnauthorized` knob |
+| DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
 
 ---
 
@@ -318,3 +319,46 @@ definition, the templates are republished, and umami and kutt are rerun.
 `knexfile.js`; every Wave 2+ Node application on node-postgres without a
 verification knob. Not affected: gatus (no database), docuseal, miniflux,
 ihatemoney, memos (libpq / Go clients), ghostfolio (Prisma engine).
+
+---
+
+## DEPLOY-008 — An analysis run forgets the vendor's manifest overrides
+
+**Stage** BUILD_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution** FIXED
+(pending deploy; PR #206) · **Found** Phase 3, Wave 1, miniflux attempt 1
+(2026-09-06).
+
+**Behaviour.** `PATCH /api/applications/:id` stores the manifest-only
+overrides (`appRoot`, `dockerfilePath`, `buildContext`, `buildCommand`,
+`startCommand`) on `detected_metadata.manifestOverrides` because they have
+no column (`apps/api/src/server.ts`, `MANIFEST_OVERRIDE_FIELDS`). The
+analysis write replaces `detected_metadata` wholesale and carried only
+`vendorOverrides` forward (`apps/api/src/analysis.ts`, "this record is
+replaced wholesale each run"), so the next analysis run — the first one
+after creation, a re-analysis, a push-triggered run — dropped every
+manifest override. The build worker then fell back to its defaults
+(`packages/cdk/src/lambda/worker.ts`, `resolveBuildContext`: the
+Dockerfile's directory unless it is `docker/`).
+
+**Effect.** A repository whose Dockerfile lives outside the root and copies
+the repository root (miniflux, memos, every `packaging/`- or
+`deploy/`-style layout) builds from the wrong context and fails; a vendor
+who corrected the Dockerfile path, start command or app root loses the
+correction silently.
+
+**Evidence.** miniflux (run `stage-b-repo-004-20260906-125413-d80a`): the
+ledger's step 1 records the PATCH (`dockerfilePath:
+packaging/docker/alpine/Dockerfile`, `buildContext: "."`), analysis
+COMPLETE / READY; the release recorded `buildContext: null`; CodeBuild
+`2c59b4c0…` logged `Building … from packaging/docker/alpine/Dockerfile
+(context: packaging/docker/alpine)` and `make: *** No rule to make target
+'miniflux'` (no Makefile in that directory; `ADD . /go/src/app` copied the
+Dockerfile's directory).
+
+**Fix.** `manifestOverrides` rides the analysis write the way
+`vendorOverrides` does; regression test in `apps/api/src/analysis.test.ts`.
+Product-side only; no template change, so no republish.
+
+**Affected.** repo-004 (miniflux); predicted repo-039 (memos, the same
+override shape); every override-dependent repository in later waves.
+Rerun miniflux after `deploy-api.yml`.

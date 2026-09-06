@@ -1,32 +1,33 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `ccb46330646edd8fd08388e2dcf092584390bb21`
+Deployz commit: `2509d85ff66152365431a427cc207d8badc6c581`
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 44 / 49 |
+| Gate: correct accept / correct reject | 43 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 20 |
-| Build attempted / succeeded / failed | 3 / 3 / 0 |
+| Gate: READY with the Stage B configuration | 19 |
+| Build attempted / succeeded / failed | 4 / 3 / 1 |
 | Build success among expected deployable | 4.6% |
 | Infrastructure attempted / succeeded / failed | 3 / 2 / 1 |
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 2 / 2 / 2 / 1 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 1 / 0 / 0 / 0 |
 | **True deployment success / expected deployable** | **1 / 65 (1.5%)** |
-| Cleanup: destroys / failures / leaks / success rate | 3 / 0 / 0 / 100% |
+| Cleanup: destroys / failures / leaks / success rate | 4 / 0 / 0 / 100% |
 
 ## By classification
 
 | Classification | Repositories |
 | --- | --- |
 | APPLICATION_ERROR | 1 |
+| BUILD_ERROR | 1 |
 | CONTAINER_START_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| PASS | 45 |
+| PASS | 44 |
 
 ## By root cause
 
@@ -48,7 +49,7 @@ Deployz commit: `ccb46330646edd8fd08388e2dcf092584390bb21`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 66 | 2 | 1 |
+| improvement | 80 | 46 | 34 | 65 | 2 | 1 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -58,7 +59,7 @@ Deployz commit: `ccb46330646edd8fd08388e2dcf092584390bb21`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 51 | 2 | 1 |
+| realistic | 69 | 45 | 24 | 50 | 2 | 1 |
 
 ## Repositories
 
@@ -67,7 +68,7 @@ Deployz commit: `ccb46330646edd8fd08388e2dcf092584390bb21`
 | repo-001 | umami-software/umami@ca661c7 | realistic | READY | — (—) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR | DEPLOY-002, DEPLOY-007 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-005 |
-| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
+| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR |  |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

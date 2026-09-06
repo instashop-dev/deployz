@@ -52,6 +52,7 @@ repositories:
       - "Rails; reads DATABASE_HOST/PORT/USER/PASSWORD/NAME (Deployz's own names). Migrations at boot (config/initializers/migrate.rb). Storage stays on local disk (S3 is optional via S3_ATTACHMENTS_BUCKET)."
 
   - id: repo-004
+    findings: [DEPLOY-008]
     fork: instashop-dev/v2
     overrides:
       dockerfilePath: packaging/docker/alpine/Dockerfile
@@ -114,7 +115,7 @@ repositories:
       - "Node; PostgreSQL via DB_CLIENT=pg with DB_HOST/DB_PORT/DB_DATABASE/DB_USER/DB_PASSWORD (or DB_CONNECTION_STRING). Migrations run at boot. Port 8055."
 
   - id: repo-039
-    findings: [DEPLOY-005]
+    findings: [DEPLOY-005, DEPLOY-008]
     overrides:
       dockerfilePath: scripts/Dockerfile
       buildContext: .
