@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "05848da4c41a97f797127df4891ee8a73eb829bb",
+  "deployzCommit": "e50fa10a98ad4d1869a51fb8948321dacfadadb1",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -38,9 +38,9 @@
   "trueDeploymentSuccessRate": 3.1,
   "cleanup": {
     "destroys": 6,
-    "destroyFailures": 0,
-    "leaks": 0,
-    "successRate": 100
+    "destroyFailures": 1,
+    "leaks": 1,
+    "successRate": 83.3
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
@@ -60,8 +60,7 @@
     "GATE_ERROR": 24
   },
   "byRootCause": {
-    "CORRECTLY_UNSUPPORTED": 49,
-    "DEPLOYZ_BUG": 1
+    "CORRECTLY_UNSUPPORTED": 49
   },
   "byFinding": {
     "DEPLOY-002": [

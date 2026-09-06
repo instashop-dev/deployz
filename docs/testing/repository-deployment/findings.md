@@ -21,7 +21,9 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 | DEPLOY-007 | CONTAINER_START_ERROR | — | WITHDRAWN as a mechanism (kutt connected over TLS with node-postgres verification on); umami's crash stays open, rerun pending | repo-001 (umami) only |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
-| DEPLOY-009 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #207: configured first start) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
+| DEPLOY-009 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #207 merged, deployed, templates republished 2026-09-06) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
+| DEPLOY-010 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #208) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 2 (the first configured first start) |
+| DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | OPEN (fix designed) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
 
 ---
 
@@ -466,3 +468,87 @@ repo-016 (crash at boot) and repo-039 (boots against SQLite until the
 post-install pass — a false PASS unless the dependency check catches it);
 every later-wave application with required vendor or generated
 configuration.
+
+---
+
+## DEPLOY-010 — CONFIG_UPDATE never finds the application stack's config secret
+
+**Stage** ENV_BINDING_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
+FIX IN REVIEW (PR #208) · **Found** Phase 3, Wave 1, kutt rerun 2
+(2026-09-06), the first configured first start after DEPLOY-009's fix.
+
+**Behaviour.** The relay's CONFIG_UPDATE executor writes secret values into
+the application stack's `AppConfigSecret`, located by logical id with an
+exact match (`packages/relay/src/config-update.ts`, `findAppConfigSecretArn`:
+`resource.logicalId === 'AppConfigSecret'`). CloudFormation reports a CDK
+L2 construct's logical id with a hash suffix — every application stack has
+`AppConfigSecret251CAC1E` — so the lookup never matched, and every config
+pass that had a secret to write failed with "Stack … has no
+AppConfigSecret to write config secrets into". The test fixture used the
+bare id, so the unit tests passed. Documenso has no vendor or generated
+key and never queues a config job, which is why production never saw it.
+
+**Effect.** No vendor secret has ever reached a task through
+CONFIG_UPDATE; with DEPLOY-009's configured first start the failure moved
+from "task never configured" to "config pass fails, deploy starts the task
+unconfigured".
+
+**Evidence.** kutt (run `stage-b-repo-003-20260906-184251-c686`,
+deployment `ed8eda54-…`): INSTALL SUCCEEDED with `paramDesiredCount=0`
+(stack `deployz-app-49b7198e`, parameter confirmed via
+`describe-stacks`); CONFIG_UPDATE FAILED at 19:00:31Z with exactly that
+message; DEPLOY_RELEASE requested 19:00:31Z; the umami/kutt stack
+inventories list `AppConfigSecret251CAC1E`.
+
+**Fix.** Match the construct-id prefix (`logicalId.startsWith('AppConfigSecret')`;
+the other secrets are `DatabaseSecret…` / `DatabaseUrlSecret…`); the test
+fixture carries the real hashed id and a direct test covers the prefix and
+the negative case. Relay only: republish the bootstrap template.
+
+**Affected.** Every application with a vendor or generated secret;
+kutt, ghostfolio, directus, outline in Wave 1.
+
+---
+
+## DEPLOY-011 — A rollout whose tasks start and then exit is never settled
+
+**Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
+OPEN — fix designed · **Found** Phase 3, Wave 1, kutt rerun 2 (2026-09-06).
+
+**Behaviour.** The deploy executor settles a rollout on three signals:
+the circuit breaker's `rolloutState: FAILED`, or `runningCount >=
+desiredCount` + `rolloutState: COMPLETED` + healthy targets + the new
+digest running (`packages/relay/src/deploy.ts`, `settleEcsDeploy`).
+ECS's circuit breaker counts a task as failed only when it never reaches
+RUNNING or fails a health check; a task that reaches RUNNING, runs for a
+minute (kutt: `npm run migrate`) and then exits is a restart, not a
+failure. Such a service never reaches COMPLETED and never FAILS, so the
+deploy stays `in-progress` on every resume; the watchdog re-offers it at
+the runtime bound (`operation.requeued`, twice in 80 minutes) and would
+fail it only at the 24-hour grace.
+
+**Effect.** An application that boots and then dies (a wrong
+configuration value, a migration that fails after connecting, a missing
+secret the app checks late) leaves the deployment INSTALLING/UPDATING
+with a crash-looping service for a day, no failure code, no diagnostics,
+and the harness's install wait times out; Disconnect is refused while the
+job is active.
+
+**Evidence.** kutt rerun 2: DEPLOY_RELEASE `RUNNING` from 19:00:31Z, still
+running at 20:32Z after two re-offers; heartbeat health alternating
+`application: HEALTHY / UNHEALTHY` (the task alive for its migration
+minute, then gone); the harness's Disconnect got `409 Another deployment
+operation is already in progress`.
+
+**Generic fix (designed).** In `settleEcsDeploy`, count the service's
+stopped tasks since the command started whose container exited non-zero
+(ECS `describe-tasks` on `list-tasks --desired-status STOPPED`); at a
+bounded number (3, the same threshold the Stage B harness uses) settle
+the deploy as FAILED with `CONTAINER_START_FAILED` and, for a configured
+first start, scale the service back to zero. The control plane's
+classifier then refines from the stopped reason and the app log tail the
+relay reports. Regression tests in `deploy.test.ts`; relay only, so a
+bootstrap republish.
+
+**Affected.** Every deploy of an application that exits after starting;
+kutt rerun 2 measured.
