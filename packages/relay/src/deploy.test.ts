@@ -47,6 +47,8 @@ interface FakeEcs {
     stoppedReason?: string;
     exitCode?: number;
   } | null;
+  /** Stopped tasks ECS still remembers (ListTasks desiredStatus STOPPED). */
+  stoppedTasks?: { taskDefinitionArn: string; exitCode: number; stopCode?: string; stoppedReason?: string }[];
   failAt?: 'describeServices' | 'register';
 }
 
@@ -87,10 +89,24 @@ function fakeEcs(state: FakeEcs): EcsDeployClient {
         state.service.taskDefinition = input.taskDefinition;
       }
     },
-    async listTasks() {
+    async listTasks(input) {
+      if (input.desiredStatus === 'STOPPED') {
+        return { taskArns: (state.stoppedTasks ?? []).map((_, i) => `stopped-${i}`) };
+      }
       return { taskArns: state.runningDigest ? ['task-1'] : [] };
     },
     async describeTasks(input) {
+      if (input.tasks[0]?.startsWith('stopped-')) {
+        return {
+          tasks: (state.stoppedTasks ?? []).map((t) => ({
+            lastStatus: 'STOPPED',
+            stopCode: t.stopCode ?? 'EssentialContainerExited',
+            stoppedReason: t.stoppedReason ?? 'Essential container in task exited',
+            taskDefinitionArn: t.taskDefinitionArn,
+            containers: [{ exitCode: t.exitCode }],
+          })),
+        };
+      }
       if (input.tasks[0] === MIGRATION_TASK_ARN) {
         // A configured migration task is reported verbatim, so a stopped
         // reason like CannotPullContainerError (with NO container exit code —
@@ -566,6 +582,61 @@ describe('createEcsDeployExecutor', () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
     expect(state.updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, desiredCount: 0 }]);
+  });
+
+  it('settles a crash-looping rollout the circuit breaker never trips as CONTAINER_START_FAILED (DEPLOY-011)', async () => {
+    const state = baseState();
+    // The service already runs this request's revision (registered by an
+    // earlier pass); its tasks start, run their migration, and exit 1.
+    state.taskDefinition.containerDefinitions[0] = { name: 'app', image: `${REPO}@${DIGEST_V3}` };
+    state.runningDigest = null;
+    state.stoppedTasks = [
+      { taskDefinitionArn: BASE_DEF_ARN, exitCode: 1, stoppedReason: 'Essential container in task exited' },
+      { taskDefinitionArn: BASE_DEF_ARN, exitCode: 1 },
+      { taskDefinitionArn: BASE_DEF_ARN, exitCode: 1 },
+    ];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3, startedFromZero: true },
+    });
+
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.failureCode).toBe('CONTAINER_START_FAILED');
+    expect(results[0]!.error).toContain('3 tasks of the new revision exited with code 1');
+    // A configured first start goes back to zero tasks.
+    expect(state.updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, desiredCount: 0 }]);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('does not count another revision\'s exits or the scheduler\'s own stops as a crash loop', async () => {
+    const state = baseState();
+    state.taskDefinition.containerDefinitions[0] = { name: 'app', image: `${REPO}@${DIGEST_V3}` };
+    state.runningDigest = null;
+    state.stoppedTasks = [
+      { taskDefinitionArn: 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:6', exitCode: 1 },
+      { taskDefinitionArn: BASE_DEF_ARN, exitCode: 137, stopCode: 'ServiceSchedulerInitiated' },
+      { taskDefinitionArn: BASE_DEF_ARN, exitCode: 1 },
+      { taskDefinitionArn: BASE_DEF_ARN, exitCode: 0 },
+    ];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(0);
+    expect(await d.pending.read()).not.toBeNull();
   });
 
   it('leaves the task count alone when a rolled-back rollout was not a first start', async () => {

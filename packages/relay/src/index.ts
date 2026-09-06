@@ -401,7 +401,11 @@ function getEcsDeployClient(): EcsDeployClient {
       },
       async listTasks(input) {
         const response = await client.send(
-          new ListTasksCommand({ cluster: input.cluster, serviceName: input.serviceName }),
+          new ListTasksCommand({
+            cluster: input.cluster,
+            serviceName: input.serviceName,
+            ...(input.desiredStatus !== undefined ? { desiredStatus: input.desiredStatus } : {}),
+          }),
         );
         return { taskArns: response.taskArns ?? [] };
       },
@@ -414,6 +418,7 @@ function getEcsDeployClient(): EcsDeployClient {
             lastStatus: task.lastStatus ?? undefined,
             stopCode: task.stopCode ?? undefined,
             stoppedReason: task.stoppedReason ?? undefined,
+            taskDefinitionArn: task.taskDefinitionArn ?? undefined,
             containers: (task.containers ?? []).map((container) => ({
               imageDigest: container.imageDigest ?? undefined,
               exitCode: container.exitCode ?? undefined,
