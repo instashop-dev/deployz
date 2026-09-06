@@ -424,12 +424,25 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         // application stack has reached a terminal failure state: a rolled-back
         // stack is a settled outcome even while the relay's INSTALL job is
         // still reporting it, and a later Disconnect must not race that job.
+        // The rollback of a failed install deletes the cluster and the log
+        // group with it, so the only record of why a container died is what a
+        // poll sees while the stack is still in progress. Keep the last
+        // non-empty snapshot for the classification.
+        const seen: { snapshot: { stoppedTasks: StoppedTask[]; logTail: string[] } | null } = { snapshot: null };
         const { detail, stackStatus } = await waitFor(
           'install',
-          async () => ({
-            detail: await deps.api.getDeployment(deploymentId),
-            stackStatus: (await deps.aws.describeStack(run.applicationStackName!))?.status ?? null,
-          }),
+          async () => {
+            const current = await deps.api.getDeployment(deploymentId);
+            const status = (await deps.aws.describeStack(run.applicationStackName!))?.status ?? null;
+            if (status?.endsWith('IN_PROGRESS')) {
+              const stopped = await deps.aws.describeStoppedTasks(run.applicationStackName!).catch(() => []);
+              if (stopped.length > 0) {
+                const logTail = await deps.aws.tailApplicationLogs(run.applicationStackName!).catch(() => []);
+                seen.snapshot = { stoppedTasks: stopped, logTail: logTail.length > 0 ? logTail : (seen.snapshot?.logTail ?? []) };
+              }
+            }
+            return { detail: current, stackStatus: status };
+          },
           (o) =>
             o.detail.state === 'HEALTHY' || o.detail.state === 'UPDATE_AVAILABLE' || o.detail.state === 'FAILED' || (o.stackStatus !== null && STACK_TERMINAL_FAILURE.test(o.stackStatus))
               ? o
@@ -454,9 +467,21 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         const appStack = await deps.aws.describeStack(run.applicationStackName!);
         result.deployment.stackStatus = appStack?.status ?? stackStatus;
         details['applicationStackStatus'] = appStack?.status ?? 'absent';
+        const observed = seen.snapshot;
+        details['stoppedTasksDuringInstall'] = observed?.stoppedTasks.length ?? 0;
+        if (observed) {
+          details['observedStoppedTasks'] = observed.stoppedTasks;
+          details['observedLogTail'] = observed.logTail;
+        }
         assert(detail.state !== 'FAILED' && !(appStack?.status && STACK_TERMINAL_FAILURE.test(appStack.status)), 'install', `install ${detail.state === 'FAILED' ? 'FAILED' : `stack ${appStack?.status}`}: ${detail.deploymentStatus.failure?.message ?? detail.deploymentStatus.failure?.code ?? 'no reason'}`, {
           failureCode: detail.deploymentStatus.failure?.code ?? null,
           stackStatus: appStack?.status ?? null,
+          ...(observed
+            ? {
+                stoppedTasks: observed.stoppedTasks.map((t) => ({ exitCode: t.containers[0]?.exitCode ?? null, reason: t.containers[0]?.reason ?? null, stoppedReason: t.stoppedReason })),
+                logTail: observed.logTail,
+              }
+            : {}),
         });
         assert(appStack?.status === 'CREATE_COMPLETE' || appStack?.status === 'UPDATE_COMPLETE', 'install', `application stack ${appStack?.status ?? 'absent'}`, { stackStatus: appStack?.status ?? null });
         const resources = await deps.aws.listStackResources(run.applicationStackName!);
@@ -699,13 +724,15 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
       const resources = await deps.aws.listStackResources(run.applicationStackName).catch(() => []);
       const stackReasons = resources.filter((r) => /FAILED/.test(r.status)).map((r) => `${r.type} ${r.status}`);
       const targets = await deps.aws.targetHealth(run.applicationStackName).catch(() => []);
-      collected['stoppedTasks'] = stopped;
-      collected['logTail'] = logs;
+      // What is still there wins; when the rollback already removed the
+      // cluster and the log group, the snapshot the install wait took stands.
+      collected['stoppedTasks'] = stopped.length > 0 ? stopped : (stop.extra.stoppedTasks ?? []);
+      collected['logTail'] = logs.length > 0 ? logs : (stop.extra.logTail ?? []);
       collected['stackFailures'] = stackReasons;
       collected['targetHealth'] = targets;
       extra = {
-        stoppedTasks: stopped.map((t) => ({ exitCode: t.containers[0]?.exitCode ?? null, reason: t.containers[0]?.reason ?? null, stoppedReason: t.stoppedReason })),
-        logTail: logs,
+        ...(stopped.length > 0 ? { stoppedTasks: stopped.map((t) => ({ exitCode: t.containers[0]?.exitCode ?? null, reason: t.containers[0]?.reason ?? null, stoppedReason: t.stoppedReason })) } : {}),
+        ...(logs.length > 0 ? { logTail: logs } : {}),
         stackReasons,
         targetHealth: targets,
       };
@@ -720,7 +747,7 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
       }
     }
   }
-  const classified = classifyFailure({ ...evidenceIn, ...extra, ...stop.extra });
+  const classified = classifyFailure({ ...evidenceIn, ...stop.extra, ...extra });
   result.classification = classified.failureStage;
   result.failureStage = classified.failureStage;
   result.rootCause = classified.rootCause;
