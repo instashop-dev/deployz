@@ -118,8 +118,19 @@ export async function cleanupAttempt(input: CleanupInput, result: StageBResult):
   return section;
 }
 
-/** Apply a cleanup outcome to a result's classification: cleanup is part of PASS. */
+/**
+ * Apply a cleanup outcome to a result's classification: cleanup is part of
+ * PASS. A later cleanup rerun that completes restores the funnel's own
+ * verdict when the only failure had been the cleanup.
+ */
 export function applyCleanupToClassification(result: StageBResult): void {
+  if (result.cleanup.status === 'PASS' && (result.classification === 'CLEANUP_LEAK' || result.classification === 'DESTROY_ERROR')) {
+    result.classification = 'PASS';
+    result.failureStage = null;
+    result.rootCause = null;
+    result.rootCauseEvidence = null;
+    return;
+  }
   if (result.cleanup.status !== 'FAIL') return;
   if (result.classification !== 'PASS' && result.classification !== 'EXPECTED_UNSUPPORTED') return;
   const leak = result.cleanup.leaks.length > 0;
