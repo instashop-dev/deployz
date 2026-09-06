@@ -3,99 +3,75 @@
   "id": "repo-003",
   "repository": "thedevs-network/kutt",
   "commit": "279b491b53bbd01fbae70f603222526962772061",
-  "repositoryForm": null,
-  "repositoryUsed": null,
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/kutt",
   "set": "improvement",
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
-  "runId": null,
+  "deployzCommit": "2509d85ff66152365431a427cc207d8badc6c581",
+  "runId": "stage-b-repo-003-20260906-145904-4452",
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
-  "mode": "gate",
+  "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "READY",
-    "outcome": "correct-accept",
-    "gateFindings": [
-      "required-env-vars-missing"
-    ],
-    "requiredKeys": [
-      "ADMIN_EMAILS"
-    ],
-    "missingKeys": [
-      "ADMIN_EMAILS"
-    ],
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": "READY",
+    "configuredVerdict": null,
     "configuredFindings": [],
-    "source": "in-process",
-    "analysisVersion": 15,
-    "manifest": {
-      "dockerfilePath": "Dockerfile",
-      "buildContext": ".",
-      "appRoot": ".",
-      "port": 3000,
-      "healthPath": "/health",
-      "healthMode": "explicit",
-      "migrationCommand": "npx knex migrate:latest",
-      "migrationMode": "pre_deploy",
-      "postgres": true,
-      "redis": true,
-      "storage": false,
-      "databaseBindings": [
-        "DATABASE_HOST",
-        "DATABASE_NAME",
-        "DATABASE_PASSWORD",
-        "DATABASE_PORT",
-        "DATABASE_URL",
-        "DATABASE_USER"
-      ],
-      "redisBindings": [
-        "REDIS_HOST",
-        "REDIS_PORT",
-        "REDIS_URL"
-      ],
-      "storageBindings": [],
-      "generatedKeys": []
-    },
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
     "detail": null
   },
   "configuration": {
-    "status": "NOT_ATTEMPTED",
-    "overrides": {},
-    "keys": [],
-    "generatedKeys": [],
+    "status": "PASS",
+    "overrides": {
+      "healthPath": "/api/health"
+    },
+    "keys": [
+      "ADMIN_EMAILS",
+      "DB_CLIENT",
+      "DB_SSL",
+      "JWT_SECRET"
+    ],
+    "generatedKeys": [
+      "JWT_SECRET"
+    ],
     "detail": null
   },
   "build": {
-    "status": "NOT_ATTEMPTED",
-    "releaseId": null,
-    "version": null,
-    "gitSha": null,
-    "dockerfilePath": null,
+    "status": "PASS",
+    "releaseId": "ed8825cd-3f33-4e3e-8218-366a4443f382",
+    "version": "repo-003-20260906-145904-4452",
+    "gitSha": "279b491b53bbd01fbae70f603222526962772061",
+    "dockerfilePath": "Dockerfile",
     "buildContext": null,
-    "imageDigest": null,
+    "imageDigest": "sha256:b15807eba968b867fc6b1cf69ad948a87851a3510a93d4dd3f990309cabba200",
     "buildId": null,
-    "durationMs": null,
+    "durationMs": 62936,
     "detail": null
   },
   "deployment": {
-    "status": "NOT_ATTEMPTED",
-    "deploymentId": null,
-    "installationId": null,
-    "bootstrapStack": null,
-    "applicationStack": null,
-    "stackStatus": null,
-    "templateSource": null,
-    "templateUrl": null,
-    "installJobState": null,
-    "failureCode": null,
+    "status": "FAIL",
+    "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+    "installationId": "8618dfc5-b775-4885-ba61-3b23f4e359cd",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-003-5e5e626e",
+    "applicationStack": "deployz-app-8618dfc5",
+    "stackStatus": "ROLLBACK_FAILED",
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-003-20260906-145904-4452/application-template-v1.json",
+    "installJobState": "FAILED",
+    "failureCode": "CONTAINER_START_FAILED",
     "resourceCount": null,
     "durationMs": null,
-    "detail": null
+    "detail": "install FAILED: The application started and then stopped."
   },
   "runtime": {
     "ecs": "NOT_ATTEMPTED",
@@ -117,26 +93,394 @@
     "detail": null
   },
   "cleanup": {
-    "status": "NOT_ATTEMPTED",
-    "destroyJobState": null,
-    "purgeJobState": null,
-    "cleanupState": null,
-    "bootstrapStackFinal": null,
+    "status": "PASS",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": "DELETE_COMPLETE",
     "leaks": [],
-    "durationMs": null,
+    "durationMs": 2956662,
     "detail": null
   },
-  "classification": "PASS",
-  "failureStage": null,
+  "classification": "ENV_BINDING_ERROR",
+  "failureStage": "ENV_BINDING_ERROR",
   "rootCause": null,
-  "rootCauseEvidence": null,
+  "rootCauseEvidence": "container reports a missing/invalid variable: 2026-09-06T15:24:38.370Z \u001b[33mMissing\u001b[0m environment variables: — decide DEPLOYZ_BUG (binding not injected) vs ANALYSIS_MISSING_SIGNAL (required key not detected) vs REPO_CONFIGURATION",
   "findingIds": [
-    "DEPLOY-005"
+    "DEPLOY-005",
+    "DEPLOY-007"
   ],
   "timing": {
-    "startedAt": null,
-    "finishedAt": null,
-    "totalMs": null
+    "startedAt": "2026-09-06T14:59:07.562Z",
+    "finishedAt": "2026-09-06T15:57:51.849Z",
+    "totalMs": 3524287
   },
-  "evidence": {}
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "install FAILED: The application started and then stopped.",
+      "stoppedTasks": [
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-8618dfc5-ClusterEB0386A7-DJHb4kVrk6eW/32e87627dcbd49f9b01181eae6fef0b5",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-06T21:06:22.150000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-8618dfc5-ClusterEB0386A7-DJHb4kVrk6eW/3b118487a7074133bc0f345a5b77496c",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-06T21:05:40.187000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-8618dfc5-ClusterEB0386A7-DJHb4kVrk6eW/6ded1b0b0bbe4762b63b3f6e5d5b827e",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-06T20:59:18.427000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-8618dfc5-ClusterEB0386A7-DJHb4kVrk6eW/8d2fcf595a48473e8a0780b2b2b0290e",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-06T20:54:05.237000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-8618dfc5-ClusterEB0386A7-DJHb4kVrk6eW/9e7a68906d28490bbb063dfaabab9326",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-06T20:59:59.285000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        }
+      ],
+      "logTail": [
+        "2026-09-06T15:24:35.055Z > kutt@3.2.6 migrate",
+        "2026-09-06T15:24:35.055Z > knex migrate:latest",
+        "2026-09-06T15:24:37.161Z Batch 1 run: 10 migrations",
+        "2026-09-06T15:24:37.173Z npm notice",
+        "2026-09-06T15:24:37.173Z npm notice New major version of npm available! 10.9.8 -> 12.0.2",
+        "2026-09-06T15:24:37.173Z npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2",
+        "2026-09-06T15:24:37.173Z npm notice To update run: npm install -g npm@12.0.2",
+        "2026-09-06T15:24:37.173Z npm notice",
+        "2026-09-06T15:24:38.085Z > kutt@3.2.6 start",
+        "2026-09-06T15:24:38.085Z > node server/server.js --production",
+        "2026-09-06T15:24:38.370Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T15:24:38.370Z  \u001b[33mMissing\u001b[0m environment variables:",
+        "2026-09-06T15:24:38.370Z     \u001b[34mJWT_SECRET\u001b[0m: undefined",
+        "2026-09-06T15:24:38.370Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T15:24:38.448Z \u001b[33m",
+        "2026-09-06T15:24:38.448Z  Exiting with error code 1\u001b[0m",
+        "2026-09-06T15:29:44.368Z > kutt@3.2.6 migrate",
+        "2026-09-06T15:29:44.368Z > knex migrate:latest",
+        "2026-09-06T15:29:46.191Z Batch 1 run: 10 migrations",
+        "2026-09-06T15:29:46.269Z npm notice",
+        "2026-09-06T15:29:46.269Z npm notice New major version of npm available! 10.9.8 -> 12.0.2",
+        "2026-09-06T15:29:46.269Z npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2",
+        "2026-09-06T15:29:46.269Z npm notice To update run: npm install -g npm@12.0.2",
+        "2026-09-06T15:29:46.269Z npm notice",
+        "2026-09-06T15:29:47.092Z > kutt@3.2.6 start",
+        "2026-09-06T15:29:47.092Z > node server/server.js --production",
+        "2026-09-06T15:29:47.369Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T15:29:47.369Z  \u001b[33mMissing\u001b[0m environment variables:",
+        "2026-09-06T15:29:47.369Z     \u001b[34mJWT_SECRET\u001b[0m: undefined",
+        "2026-09-06T15:29:47.369Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T15:29:47.370Z \u001b[33m",
+        "2026-09-06T15:29:47.370Z  Exiting with error code 1\u001b[0m",
+        "2026-09-06T15:30:24.554Z > kutt@3.2.6 migrate",
+        "2026-09-06T15:30:24.554Z > knex migrate:latest",
+        "2026-09-06T15:30:26.461Z Batch 1 run: 10 migrations",
+        "2026-09-06T15:30:26.543Z npm notice",
+        "2026-09-06T15:30:26.543Z npm notice New major version of npm available! 10.9.8 -> 12.0.2",
+        "2026-09-06T15:30:26.543Z npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2",
+        "2026-09-06T15:30:26.543Z npm notice To update run: npm install -g npm@12.0.2",
+        "2026-09-06T15:30:26.543Z npm notice",
+        "2026-09-06T15:30:27.351Z > kutt@3.2.6 start",
+        "2026-09-06T15:30:27.351Z > node server/server.js --production",
+        "2026-09-06T15:30:27.650Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T15:30:27.650Z  \u001b[33mMissing\u001b[0m environment variables:",
+        "2026-09-06T15:30:27.650Z     \u001b[34mJWT_SECRET\u001b[0m: undefined",
+        "2026-09-06T15:30:27.650Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T15:30:27.650Z \u001b[33m",
+        "2026-09-06T15:30:27.650Z  Exiting with error code 1\u001b[0m"
+      ],
+      "stackFailures": [
+        "AWS::EC2::SecurityGroup DELETE_FAILED",
+        "AWS::EC2::Subnet DELETE_FAILED"
+      ],
+      "targetHealth": [],
+      "diagnostics": {
+        "failureCode": "CONTAINER_START_FAILED",
+        "recoverability": "USER_ACTION",
+        "what": "The application started and then stopped.",
+        "why": "It exited during startup — usually a missing setting or an error before it began serving.",
+        "fix": "Check the required values on the Configuration screen are all set, then deploy again.",
+        "source": "deterministic",
+        "confidence": null,
+        "technicalDetail": "Stack \"deployz-app-8618dfc5\" finished in ROLLBACK_FAILED — The following resource(s) failed to delete: [DbSecurityGroupE9D701AD, VpcPrivateSubnet2Subnet3788AAA1].  — ServiceD69D759B (AWS::ECS::Service): Resource handler returned message: \"Error occurred during operation 'ECS Deployment Circuit Breaker was triggered'.\" (RequestToken: bf33d85e-35ac-2649-c58b-ca98e8782eb1, HandlerErrorCode: GeneralServiceException)",
+        "context": {
+          "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+          "phase": "INSTALL",
+          "attempt": 0,
+          "failureCode": "CONTAINER_START_FAILED",
+          "reportedFailureCode": "STACK_CREATE_FAILED",
+          "resourceType": "AWS::ECS::Service",
+          "message": "Stack \"deployz-app-8618dfc5\" finished in ROLLBACK_FAILED — The following resource(s) failed to delete: [DbSecurityGroupE9D701AD, VpcPrivateSubnet2Subnet3788AAA1].  — ServiceD69D759B (AWS::ECS::Service): Resource handler returned message: \"Error occurred during operation 'ECS Deployment Circuit Breaker was triggered'.\" (RequestToken: bf33d85e-35ac-2649-c58b-ca98e8782eb1, HandlerErrorCode: GeneralServiceException)",
+          "relevantEvents": [
+            {
+              "logicalResourceId": "ServiceD69D759B",
+              "resourceType": "AWS::ECS::Service",
+              "resourceStatus": "CREATE_FAILED",
+              "reason": "Resource handler returned message: \"Error occurred during operation 'ECS Deployment Circuit Breaker was triggered'.\" (RequestToken: bf33d85e-35ac-2649-c58b-ca98e8782eb1, HandlerErrorCode: GeneralServiceException)"
+            },
+            {
+              "logicalResourceId": "DbSecurityGroupE9D701AD",
+              "resourceType": "AWS::EC2::SecurityGroup",
+              "resourceStatus": "DELETE_FAILED",
+              "reason": "resource sg-024e95ce533c842ac has a dependent object (Service: Ec2, Status Code: 400, Request ID: 66a9714a-02eb-42c3-be09-eb60bb70b01d) (SDK Attempt Count: 1)"
+            },
+            {
+              "logicalResourceId": "VpcPrivateSubnet2Subnet3788AAA1",
+              "resourceType": "AWS::EC2::Subnet",
+              "resourceStatus": "DELETE_FAILED",
+              "reason": "Resource handler returned message: \"The subnet 'subnet-006f76548b061e485' has dependencies and cannot be deleted. (Service: Ec2, Status Code: 400, Request ID: e39d35ed-22cd-45ed-bfe8-15d41bc6bd50) (SDK Attempt Count: 1)\" (RequestToken: 62be4cca-5405-0138-902e-ffd84e13e4aa, HandlerErrorCode: InvalidR…[truncated]"
+            }
+          ],
+          "applicationVersion": null
+        },
+        "events": [
+          {
+            "id": 613,
+            "occurredAt": "2026-09-06T15:01:46.897Z",
+            "actorType": "user",
+            "actorId": "qg3smdKPYiX8xB2ThOLqmh5RyVfK5OTE",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "application.preflight_evaluated",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "result": "pass",
+              "warningCount": 1,
+              "applicationId": "21f22ced-e1c3-40cf-a379-16b97f7e47da",
+              "blockingCount": 0,
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 614,
+            "occurredAt": "2026-09-06T15:01:46.900Z",
+            "actorType": "user",
+            "actorId": "qg3smdKPYiX8xB2ThOLqmh5RyVfK5OTE",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "deployment.created",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "source": "manual",
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 615,
+            "occurredAt": "2026-09-06T15:01:47.400Z",
+            "actorType": "system",
+            "actorId": "install-link:29c90f4a-b67f-4982-8aa8-f2ca2fd0c57c",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "install.launched",
+            "previousState": "NOT_INSTALLED",
+            "requestedState": "WAITING_FOR_RELAY",
+            "result": "success",
+            "payload": {}
+          },
+          {
+            "id": 616,
+            "occurredAt": "2026-09-06T15:01:47.400Z",
+            "actorType": "system",
+            "actorId": "install-link:29c90f4a-b67f-4982-8aa8-f2ca2fd0c57c",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "application.preflight_evaluated",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "result": "pass",
+              "warningCount": 0,
+              "applicationId": "21f22ced-e1c3-40cf-a379-16b97f7e47da",
+              "blockingCount": 0,
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 617,
+            "occurredAt": "2026-09-06T15:09:03.628Z",
+            "actorType": "relay",
+            "actorId": "8618dfc5-b775-4885-ba61-3b23f4e359cd",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": "3ee838ff-abac-4552-9d9d-932dd2088694",
+            "releaseId": null,
+            "eventType": "install.requested",
+            "previousState": "WAITING_FOR_RELAY",
+            "requestedState": "INSTALLING",
+            "result": "pending",
+            "payload": {}
+          },
+          {
+            "id": 618,
+            "occurredAt": "2026-09-06T15:09:03.628Z",
+            "actorType": "relay",
+            "actorId": "8618dfc5-b775-4885-ba61-3b23f4e359cd",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "relay.connected",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 619,
+            "occurredAt": "2026-09-06T15:09:03.628Z",
+            "actorType": "relay",
+            "actorId": "8618dfc5-b775-4885-ba61-3b23f4e359cd",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "application.preflight_evaluated",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "result": "pass",
+              "warningCount": 0,
+              "applicationId": "21f22ced-e1c3-40cf-a379-16b97f7e47da",
+              "blockingCount": 0,
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 620,
+            "occurredAt": "2026-09-06T15:09:20.770Z",
+            "actorType": "relay",
+            "actorId": "8618dfc5-b775-4885-ba61-3b23f4e359cd",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "deployment.step_completed",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "step": "PREPARING",
+              "startedAt": "2026-09-06T15:09:04.128Z",
+              "completedAt": "2026-09-06T15:09:15.236Z",
+              "durationSeconds": 11
+            }
+          },
+          {
+            "id": 621,
+            "occurredAt": "2026-09-06T15:11:17.643Z",
+            "actorType": "relay",
+            "actorId": "8618dfc5-b775-4885-ba61-3b23f4e359cd",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "deployment.step_completed",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "step": "NETWORK",
+              "startedAt": "2026-09-06T15:09:15.236Z",
+              "completedAt": "2026-09-06T15:11:16.830Z",
+              "durationSeconds": 122
+            }
+          },
+          {
+            "id": 622,
+            "occurredAt": "2026-09-06T15:16:54.906Z",
+            "actorType": "relay",
+            "actorId": "8618dfc5-b775-4885-ba61-3b23f4e359cd",
+            "organizationId": "fe900f66-f2d8-4bd7-8ea8-8c4500b41f2d",
+            "customerId": "39887db8-a3d6-4486-816a-07d106e97606",
+            "deploymentId": "5e5e626e-cd1f-4f77-b1a4-27ace98df4fc",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "deployment.step_completed",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "step": "DATABASE_STORAGE",
+              "startedAt": "2026-09-06T15:09:15.250Z",
+              "completedAt": "2026-09-06T15:16:54.533Z",
+              "durationSeconds": 459
+            }
+          }
+        ]
+      }
+    }
+  }
 }
