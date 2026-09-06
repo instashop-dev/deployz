@@ -151,8 +151,8 @@ records `repositoryForm: "fork"`.
 | 0 Audit + architecture | this note, `README.md`, `findings.md` with DEPLOY-001 | Done — this PR |
 | 1 Harness | `scripts/repository-deployment/`, `pnpm benchmark:deploy`, tests, `deploy-config.yaml` skeleton | Done — 37 harness tests (`pnpm vitest run --project repository-deployment`); the gate audit smoke-ran offline on repo-001/repo-013 |
 | 2 B1 gate audit, all 100 | `runs/*.json` gate sections, `summary.*`, gate findings, analyser fixes with regression tests where in scope | Done — 120 of 120 analysed offline at analysis version 15; gate 47 correct accepts / 49 correct rejects / 6 false acceptances / 18 false rejections (identical to the Stage A v15 run); deterministic on rerun; DEPLOY-002/003/004 recorded, DEPLOY-005 predicted; no analyser change (all mistakes are open Stage A findings, deferred with reason) |
-| 3a DEPLOY-001 fix | image parameter + INSTALL payload + relay pass-through + tests + republish recipe | Pending |
-| 3 Wave 1 (10) | full funnel, serial, systemic fixes | Pending |
+| 3a DEPLOY-001 fix | image parameter + INSTALL payload + relay pass-through + tests + republish recipe | Done — PR #197 (main `1f85974`); API deployed; templates republished 2026-09-05 |
+| 3 Wave 1 (10) | full funnel, serial, systemic fixes | In progress — see section 7; 1 of 10 complete (gatus PASS); DEPLOY-006 found and fixed (PR #200); harness fixes #199/#201/#202 |
 | 4 Wave 2 (15) | full funnel, wave-wide cleanup audit | Pending |
 | 5 Remaining improvement set | every improvement repository has an outcome; findings resolved | Pending |
 | 6 Freeze | green `main`, freeze SHA recorded here | Pending |
@@ -204,3 +204,38 @@ What the audit decided:
   false acceptances until the 120-repository cache from the v15 run was
   used), and the harness imports the built `dist`, so `pnpm build` must
   precede a run (analysis version 14 was reported until rebuilt).
+
+## 7. Phase 3 record — Wave 1 (in progress, paused 2026-09-06)
+
+Order: gatus, umami, docuseal, miniflux, ihatemoney, kutt, ghostfolio,
+directus, memos, outline (`deploy-config.yaml`, `wave-1`). Serial, pinned
+template mode, one throwaway organization per attempt, the Stage B vendor
+in `runs/evidence/series.json` (gitignored).
+
+| Repository | Attempt | Outcome | Notes |
+| --- | --- | --- | --- |
+| repo-008 gatus | 1 (2026-09-05) | HEALTH_PATH_ERROR / DEPLOYZ_BUG | Every task exit 0, "Task failed container health checks", no ALB target, circuit breaker, ROLLBACK → **DEPLOY-006** (in-container `curl` probe on a scratch image); fixed in PR #200 |
+| repo-008 gatus | 2 (2026-09-06) | **PASS** (true deployment success) | Install 8 min, release serving, ECS/ALB healthy, HTTPS ACTIVE, 3-minute window clean. Purge cut short by the harness at 30 min (fixed, #202); VPC + NAT swept by id; installation re-audited clean; recorded on the result |
+| repo-001 umami | 1 | interrupted (build) | The wave was stopped after gatus's first failure; ledger cleaned (release tag) |
+| repo-001 umami | 2 | interrupted (install) | Paused by the operator during INSTALL; product cleanup (Disconnect → Purge) launched detached; rerun next |
+| repo-051 … repo-016 | — | not attempted | — |
+
+Harness defects found by real AWS and fixed (all merged): the install wait
+gave up during a stack rollback (#199); Disconnect was called against a
+running INSTALL and the wave continued past a failed cleanup (#199); a
+deleted NAT gateway the tagging API still listed counted as a leak (#201);
+an interrupted attempt with a created release was not an unfinished ledger
+(#201); the purge wait was 30 minutes for a ~95-minute purge and the
+connector was deleted mid-sweep (#202).
+
+Traps for the next operator: launch multi-hour runs detached (PowerShell
+`Start-Process`; the Bash tool caps background commands at ten minutes);
+Git Bash mangles `/aws/lambda/...` log-group names (use PowerShell for
+those); a PowerShell process filter on the harness's path matches the
+PowerShell process itself (filter on `Name -eq 'node.exe'` too); the
+product's PURGE job of an interrupted attempt stays RUNNING once its relay
+is gone — the cleanup's idle wait then runs its full 60 minutes.
+
+Resume: `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --resume --wave wave-1`
+(the resume finishes any unfinished ledger first, skips gatus, and continues
+from umami).
