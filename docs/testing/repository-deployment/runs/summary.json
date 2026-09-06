@@ -1,31 +1,31 @@
 {
-  "deployzCommit": "31eb65031e34b315747303b0e64ab1a1f3f8e010",
+  "deployzCommit": "ccb46330646edd8fd08388e2dcf092584390bb21",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "gate": {
     "attempted": 120,
-    "correctAccept": 45,
+    "correctAccept": 44,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 21
+    "configuredReady": 20
   },
   "build": {
-    "attempted": 2,
-    "succeeded": 2,
+    "attempted": 3,
+    "succeeded": 3,
     "failed": 0,
-    "successRateAmongDeployable": 3.1
+    "successRateAmongDeployable": 4.6
   },
   "infrastructure": {
-    "attempted": 2,
-    "succeeded": 1,
+    "attempted": 3,
+    "succeeded": 2,
     "failed": 1
   },
   "runtime": {
-    "ecsRunning": 1,
-    "albHealthy": 1,
-    "httpsReachable": 1,
+    "ecsRunning": 2,
+    "albHealthy": 2,
+    "httpsReachable": 2,
     "applicationResponseValid": 1
   },
   "dependencies": {
@@ -37,18 +37,20 @@
   "trueDeploymentSuccess": 1,
   "trueDeploymentSuccessRate": 1.5,
   "cleanup": {
-    "destroys": 2,
+    "destroys": 3,
     "destroyFailures": 0,
     "leaks": 0,
     "successRate": 100
   },
   "byClassification": {
+    "APPLICATION_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 46
+    "PASS": 45
   },
   "byFailureStage": {
+    "APPLICATION_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24
@@ -98,16 +100,19 @@
       "repo-021",
       "repo-035",
       "repo-039"
+    ],
+    "DEPLOY-007": [
+      "repo-001"
     ]
   },
   "bySet": {
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 1,
+      "deployed": 2,
       "trueDeploymentSuccess": 1,
       "expectedUnsupported": 34,
-      "gateCorrect": 67
+      "gateCorrect": 66
     },
     "unseen": {
       "total": 20,
@@ -146,10 +151,10 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 1,
+      "deployed": 2,
       "trueDeploymentSuccess": 1,
       "expectedUnsupported": 24,
-      "gateCorrect": 52
+      "gateCorrect": 51
     }
   }
 }
