@@ -406,6 +406,10 @@ interface Script {
   installState?: string;
   failureCode?: string | null;
   stackStatus?: string;
+  /** Application stack statuses in poll order (the last one repeats). */
+  stackStatuses?: string[];
+  /** Stopped tasks and logs disappear once the stack has rolled back. */
+  evidenceGoneAfterRollback?: boolean;
   pointerAdvances?: boolean;
   httpsStatus?: string;
   probeStatus?: number | null;
@@ -526,6 +530,9 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
       return { code: script.failureCode ?? null };
     },
   };
+  let stackReads = 0;
+  let lastStackStatus = script.stackStatus ?? 'CREATE_COMPLETE';
+  const evidenceGone = () => script.evidenceGoneAfterRollback === true && /^ROLLBACK_(COMPLETE|FAILED)$/.test(lastStackStatus);
   const aws: AwsLike = {
     async createBootstrapStack(input) {
       calls.push(`createStack ${input.stackName} ${Object.keys(input.parameters).sort().join(',')}`);
@@ -533,7 +540,8 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
     },
     async describeStack(name) {
       if (name.startsWith('deployz-bootstrap')) return { status: script.bootstrapStatus ?? 'CREATE_COMPLETE', statusReason: null, outputs: { InstallationId: 'inst-1' } };
-      return { status: script.stackStatus ?? 'CREATE_COMPLETE', statusReason: null, outputs: {} };
+      if (script.stackStatuses) lastStackStatus = script.stackStatuses[Math.min(stackReads++, script.stackStatuses.length - 1)]!;
+      return { status: lastStackStatus, statusReason: null, outputs: {} };
     },
     async lambdaFunctionNames() {
       return ['relay-fn'];
@@ -555,10 +563,12 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
     },
     async describeStoppedTasks() {
       calls.push('stoppedTasks');
+      if (evidenceGone()) return [];
       return (script.stoppedTasks ?? []).map((t, i) => ({ taskArn: `t${i}`, stoppedReason: t.stoppedReason ?? 'Essential container exited', stopCode: 'EssentialContainerExited', stoppedAt: null, containers: [{ name: 'App', exitCode: t.exitCode, reason: t.reason }] }));
     },
     async tailApplicationLogs() {
       calls.push('logs');
+      if (evidenceGone()) return [];
       return script.logTail ?? [];
     },
     async describeDependencies() {
@@ -686,6 +696,27 @@ describe('the funnel', () => {
     expect(calls).toContain('stoppedTasks');
     expect(calls).toContain('logs');
     expect((result.evidence['failure'] as { logTail: string[] }).logTail[0]).toContain('password authentication failed');
+  });
+
+  it('keeps the task and log evidence a poll saw before the rollback removed the cluster and the log group', async () => {
+    const { run, result, evidence } = attempt(deployable, {
+      installState: 'INSTALLING',
+      stackStatuses: ['CREATE_IN_PROGRESS', 'CREATE_IN_PROGRESS', 'ROLLBACK_IN_PROGRESS', 'ROLLBACK_COMPLETE'],
+      evidenceGoneAfterRollback: true,
+      targets: [],
+      stoppedTasks: [{ exitCode: 1, reason: null }],
+      logTail: ['Error: connect ECONNREFUSED 10.0.1.5:5432'],
+    });
+    const out = await run();
+    expect(out.deployment.status).toBe('FAIL');
+    expect(out.deployment.stackStatus).toBe('ROLLBACK_COMPLETE');
+    expect(out.classification).toBe('DATABASE_ERROR');
+    const failure = result.evidence['failure'] as { stoppedTasks: { exitCode: number | null }[]; logTail: string[] };
+    expect(failure.stoppedTasks[0]?.exitCode).toBe(1);
+    expect(failure.logTail[0]).toContain('ECONNREFUSED');
+    const install = evidence.run.steps.find((s) => s.name.startsWith('INSTALL'));
+    expect(install?.details['stoppedTasksDuringInstall']).toBe(1);
+    expect((install?.details['observedLogTail'] as string[])[0]).toContain('ECONNREFUSED');
   });
 
   it('fails the runtime stage on a persistent 5xx and the HTTPS stage on a certificate error', async () => {
