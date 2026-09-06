@@ -413,6 +413,8 @@ interface Script {
   pointerAdvances?: boolean;
   httpsStatus?: string;
   probeStatus?: number | null;
+  /** Statuses the default-HTTPS hostname answers in probe order (then `probeStatus`). */
+  httpsProbeStatuses?: (number | null)[];
   targets?: string[];
   stoppedTasks?: { exitCode: number | null; reason: string | null; stoppedReason?: string }[];
   logTail?: string[];
@@ -581,7 +583,10 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
   const deps: DeployDeps = {
     api,
     aws,
-    probe: async () => ({ status: script.probeStatus === undefined ? 200 : script.probeStatus }),
+    probe: async (url) => {
+      if (script.httpsProbeStatuses?.length && url.startsWith('https://d-dep-1')) return { status: script.httpsProbeStatuses.shift() ?? null };
+      return { status: script.probeStatus === undefined ? 200 : script.probeStatus };
+    },
     sleep: async () => {},
     now: Date.now,
     region: 'us-east-1',
@@ -717,6 +722,16 @@ describe('the funnel', () => {
     const install = evidence.run.steps.find((s) => s.name.startsWith('INSTALL'));
     expect(install?.details['stoppedTasksDuringInstall']).toBe(1);
     expect((install?.details['observedLogTail'] as string[])[0]).toContain('ECONNREFUSED');
+  });
+
+  it('waits for the HTTPS health path to answer after ACTIVE instead of failing the window on the edge lag', async () => {
+    const { run, evidence } = attempt(deployable, { httpsProbeStatuses: [521, 521, 200] });
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(out.runtime.observation?.httpsHealthStatuses.every((s) => s === 200)).toBe(true);
+    const https = evidence.run.steps.find((s) => s.name.startsWith('Default HTTPS'));
+    expect((https?.details['httpsHealth'] as { status: number }).status).toBe(200);
+    expect(typeof https?.details['httpsReadyAfterMs']).toBe('number');
   });
 
   it('fails the runtime stage on a persistent 5xx and the HTTPS stage on a certificate error', async () => {
