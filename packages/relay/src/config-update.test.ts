@@ -4,6 +4,7 @@ import {
   computeEnvChanges,
   computeSecretChanges,
   createConfigUpdateExecutor,
+  findAppConfigSecretArn,
   generateSecretValue,
   type ConfigSecretsWriter,
   type EffectiveConfigEntry,
@@ -24,8 +25,10 @@ function cfnWithService(options: { withConfigSecret?: boolean } = {}): CloudForm
     },
   ];
   if (options.withConfigSecret) {
+    // The logical id CloudFormation reports for a CDK L2 construct carries a
+    // hash suffix — the shape every real application stack has (DEPLOY-010).
     resources.push({
-      logicalId: 'AppConfigSecret',
+      logicalId: 'AppConfigSecret251CAC1E',
       type: 'AWS::SecretsManager::Secret',
       status: 'CREATE_COMPLETE',
       physicalId: CONFIG_SECRET_ARN,
@@ -412,6 +415,16 @@ describe('createConfigUpdateExecutor', () => {
     );
     expect(result.success).toBe(true);
     expect(secrets.puts()).toBe(putsBefore);
+  });
+
+  it('finds the config secret by its construct-id prefix, never by exact logical id, and skips the other secrets (DEPLOY-010)', () => {
+    const resources = [
+      { logicalId: 'DatabaseSecret86DBB7B3', type: 'AWS::SecretsManager::Secret', status: 'CREATE_COMPLETE', physicalId: 'arn:db' },
+      { logicalId: 'DatabaseUrlSecretFA7DE062', type: 'AWS::SecretsManager::Secret', status: 'CREATE_COMPLETE', physicalId: 'arn:url' },
+      { logicalId: 'AppConfigSecret251CAC1E', type: 'AWS::SecretsManager::Secret', status: 'CREATE_COMPLETE', physicalId: CONFIG_SECRET_ARN },
+    ];
+    expect(findAppConfigSecretArn(resources)).toBe(CONFIG_SECRET_ARN);
+    expect(findAppConfigSecretArn(resources.slice(0, 2))).toBeNull();
   });
 
   it('fails honestly when the stack has no AppConfigSecret resource', async () => {
