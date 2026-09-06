@@ -1,5 +1,12 @@
 {
   "Parameters": {
+    "paramDesiredCount": {
+      "Type": "Number",
+      "Default": "1",
+      "Description": "Number of application tasks the service starts with. 0 defers the first start to the configured deploy that follows the install.",
+      "MinValue": 0,
+      "NoEcho": false
+    },
     "paramImageReference": {
       "Type": "String",
       "Default": "public.ecr.aws/deployz/fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -1341,7 +1348,9 @@
         "DeploymentController": {
           "Type": "ECS"
         },
-        "DesiredCount": 1,
+        "DesiredCount": {
+          "Ref": "paramDesiredCount"
+        },
         "EnableECSManagedTags": false,
         "HealthCheckGracePeriodSeconds": 60,
         "LaunchType": "FARGATE",

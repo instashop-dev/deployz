@@ -62,6 +62,23 @@ watchdog):
   vendor UI adds "The previous version is still running."
 - A failed **first install** or **destroy** marks the deployment `FAILED` —
   there, the operation's failure IS the environment's.
+- A **configured first start** (DEPLOY-009): when a vendor value or a
+  Deployz-generated secret must reach the task before it can boot
+  (`configPrecedesFirstStart`, `apps/api/src/install-config.ts`) and a READY
+  release exists, the INSTALL creates the stack with `param_DesiredCount=0`
+  and carries `startAfterConfig` in its payload. The stack completes without
+  ever running an unconfigured task; the post-install `CONFIG_UPDATE`
+  (queued first) registers the configured task-definition revision, and the
+  auto-deploy of the newest READY release scales the service up and waits
+  for the rollout (`packages/relay/src/deploy.ts`, `FIRST_START_DESIRED_COUNT`).
+  Such an install counts as a running workload only once a deploy has
+  started it (`hasStartedInstall`), so a failed first deploy marks the
+  deployment `FAILED` like a failed install would; the relay scales the
+  rolled-back service back to zero so the template's unconfigured
+  definition never churns. Recovery is deploying again after the
+  configuration is fixed (`requireDeployableState` allows a FAILED
+  deployment whose install succeeded); retry-install stays for installs that
+  never created a stack.
 - A failed **CONFIG_UPDATE** or **PURGE** never touches deployment state
   (a failed purge used to resurrect a DELETED deployment); a purge failure
   lands on `cleanupState: PURGE_FAILED` instead, which keeps it retryable.

@@ -2,6 +2,7 @@ import { generatedEnvKeys } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
+import { DESIRED_COUNT_PARAMETER, buildInstallParameters, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
 import { readStoredManifest } from './manifest.js';
 
@@ -50,6 +51,46 @@ export async function buildRelayConfigEntries(
     entries.push({ key, isSecret: true, source: 'generated', generated: true });
   }
   return entries;
+}
+
+/**
+ * Whether anything must reach the task before it first starts (DEPLOY-009):
+ * a vendor/customer value or a generated secret. An application that
+ * validates such a value at boot exits on an unconfigured task, so the
+ * install then creates the service with zero tasks and the first deploy
+ * after the configuration pass is the first start.
+ */
+export async function configPrecedesFirstStart(
+  db: RuntimeDb,
+  deployment: { applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  store: ConfigStore,
+): Promise<boolean> {
+  return (await buildRelayConfigEntries(db, deployment, store)).length > 0;
+}
+
+/**
+ * The INSTALL job's payload: the template parameters, the Redis flag, the
+ * canonical manifest and — when configuration must precede the first start
+ * and there is a release to run — `startAfterConfig`, the marker that this
+ * install starts no task by itself (the service is created with
+ * `param_DesiredCount=0`; the post-install CONFIG_UPDATE and the auto-deploy
+ * that follow are the first start).
+ */
+export async function buildInstallPayload(
+  db: RuntimeDb,
+  deployment: { id: string; applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  store: ConfigStore,
+): Promise<Record<string, unknown>> {
+  const startAfterConfig = await configPrecedesFirstStart(db, deployment, store);
+  const parameters = await buildInstallParameters(db, deployment.id, { startAfterConfig });
+  return {
+    parameters,
+    redisRequired: await readRedisRequired(db, deployment.applicationId),
+    // The canonical manifest this deployment was created with — the relay
+    // derives port/health/binding parameters from it (Phase 2).
+    manifest: readStoredManifest(deployment.desiredState),
+    ...(parameters[DESIRED_COUNT_PARAMETER] === '0' ? { startAfterConfig: true } : {}),
+  };
 }
 
 /**

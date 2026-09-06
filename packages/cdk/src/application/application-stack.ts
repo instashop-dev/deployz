@@ -439,6 +439,22 @@ export class ApplicationStack extends Stack {
     const imageRepository = props.imageRepository ?? DEFAULT_IMAGE_REPOSITORY;
     const imageDigest = props.imageDigest ?? DEFAULT_IMAGE_DIGEST;
     const desiredCount = props.desiredCount ?? 1;
+    // Per-install task count. The relay's INSTALL passes 0 when vendor
+    // configuration or a Deployz-generated secret must reach the task before
+    // it first starts (DEPLOY-009): the stack then completes without ever
+    // running an unconfigured task, the post-install CONFIG_UPDATE registers
+    // the configured revision, and the first DEPLOY_RELEASE scales the
+    // service up. The default keeps the synth-time count for every other
+    // install and for templates installed without the parameter.
+    const desiredCountParam = new CfnParameter(this, 'param_DesiredCount', {
+      type: 'Number',
+      noEcho: false,
+      default: String(desiredCount),
+      minValue: 0,
+      description:
+        'Number of application tasks the service starts with. 0 defers the first start to the configured deploy that follows the install.',
+    });
+    const desiredTaskCount = desiredCountParam.valueAsNumber;
     const imageReference = `${imageRepository}@${imageDigest}`;
     // Per-install container image. The relay's INSTALL passes the deployment's
     // newest READY release image reference (`repository@sha256:…`) as this
@@ -1066,7 +1082,7 @@ export class ApplicationStack extends Stack {
           },
         },
         scalingTarget: {
-          minTaskCount: desiredCount,
+          minTaskCount: desiredTaskCount,
           maxTaskCount: 4,
         },
       });
@@ -1160,7 +1176,7 @@ const dbEnv =
       const fargateService = new FargateService(this, 'Service', {
         cluster: this.cluster as unknown as ICluster,
         taskDefinition,
-        desiredCount,
+        desiredCount: desiredTaskCount,
         assignPublicIp: false,
         vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
         minHealthyPercent: 100,

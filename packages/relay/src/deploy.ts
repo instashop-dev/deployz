@@ -65,6 +65,7 @@ export interface EcsDeployClient {
     service: string;
     taskDefinition?: string;
     forceNewDeployment?: boolean;
+    desiredCount?: number;
   }): Promise<void>;
   listTasks(input: { cluster: string; serviceName: string }): Promise<{ taskArns: string[] }>;
   describeTasks(input: {
@@ -182,7 +183,15 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
 type EcsDeployOutcome =
   | { readonly state: 'succeeded'; readonly alreadyRunning: boolean }
   | { readonly state: 'failed'; readonly reason: string; readonly failureCode?: string }
-  | { readonly state: 'in-progress'; readonly migration?: PendingMigration };
+  | { readonly state: 'in-progress'; readonly migration?: PendingMigration; readonly startedFromZero?: boolean };
+
+/**
+ * Tasks a service is scaled to when a deploy finds it at zero (DEPLOY-009):
+ * an install that had to wait for configuration creates the service with
+ * `param_DesiredCount=0`, and the first deploy is the first start. The MVP
+ * runs one task, which is also the template's default count.
+ */
+const FIRST_START_DESIRED_COUNT = 1;
 
 /** Per-call deploy context: which command family is running and any migration state already started. */
 export interface DeploySettleContext {
@@ -193,6 +202,12 @@ export interface DeploySettleContext {
   readonly allowMigration: boolean;
   /** The pending marker's migration state, when this command was already started. */
   readonly migration?: PendingMigration | null;
+  /**
+   * This command scaled the service up from zero tasks (a configured first
+   * start). A rollout the circuit breaker rolls back then goes back to zero,
+   * so the template's unconfigured task definition never churns.
+   */
+  readonly startedFromZero?: boolean;
 }
 
 /**
@@ -231,12 +246,29 @@ export async function settleEcsDeploy(
   }
 
   if (rolloutFailed(service.deployments)) {
+    if (context.startedFromZero) {
+      // The circuit breaker restored the previous deployment, which for a
+      // first start is the template's unconfigured task definition — at the
+      // count this command set, it would keep crashing. Back to zero; the
+      // deployment is FAILED and the next deploy starts it again.
+      try {
+        await deps.ecs.updateService({ cluster, service: serviceArn, desiredCount: 0 });
+      } catch {
+        // Best effort: the failure below is the outcome either way.
+      }
+    }
     return {
       state: 'failed',
       reason: 'The ECS deployment circuit breaker reported a failed rollout',
       failureCode: 'ECS_DEPLOYMENT_FAILED',
     };
   }
+
+  // A service at zero tasks is an install that waited for configuration
+  // (DEPLOY-009): this deploy is its first start.
+  const startFromZero = (service.desiredCount ?? 0) === 0;
+  const firstStart = startFromZero ? { desiredCount: FIRST_START_DESIRED_COUNT } : {};
+  const startedFromZero = startFromZero || context.startedFromZero === true;
 
   const runningDigest = await observeRunningDigest(deps, cluster, serviceArn);
   const stable =
@@ -303,6 +335,7 @@ export async function settleEcsDeploy(
       cluster,
       service: serviceArn,
       taskDefinition: registeredApplicationArn,
+      ...firstStart,
     });
   } else if (runningDigest !== request.imageDigest) {
     // The application copy already exists — the migration stage registered it
@@ -312,12 +345,17 @@ export async function settleEcsDeploy(
       cluster,
       service: serviceArn,
       taskDefinition: registeredApplicationArn ?? service.taskDefinition,
+      ...firstStart,
     });
   }
 
   // The rollout just started or is still in flight — only its own progress
   // can settle it, on a later poll.
-  return migration === undefined ? { state: 'in-progress' } : { state: 'in-progress', migration };
+  return {
+    state: 'in-progress',
+    ...(migration === undefined ? {} : { migration }),
+    ...(startedFromZero ? { startedFromZero: true } : {}),
+  };
 }
 
 /** The outcome of one migration-stage pass. */
@@ -719,7 +757,9 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       type: command.type,
       stackName: deps.stackName,
       startedAt: (deps.now ?? (() => new Date().toISOString()))(),
-      payload: command.payload,
+      // A first start from zero rides the marker so the resumer can scale a
+      // rolled-back rollout back down (DEPLOY-009).
+      payload: outcome.startedFromZero ? { ...command.payload, startedFromZero: true } : command.payload,
       ...(outcome.migration ? { migration: outcome.migration } : {}),
     });
     if (!recorded) {
@@ -764,6 +804,7 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
     const outcome = await settleEcsDeploy(deps, request, {
       allowMigration: pending.type === 'DEPLOY_RELEASE',
       migration: pending.migration ?? null,
+      startedFromZero: pending.payload['startedFromZero'] === true,
     });
     if (outcome.state === 'in-progress') {
       // The moment a migration task is first observed STOPPED + exit 0, pin

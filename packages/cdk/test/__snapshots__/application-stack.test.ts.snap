@@ -59,6 +59,13 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       "NoEcho": true,
       "Type": "Number",
     },
+    "paramDesiredCount": {
+      "Default": "1",
+      "Description": "Number of application tasks the service starts with. 0 defers the first start to the configured deploy that follows the install.",
+      "MinValue": 0,
+      "NoEcho": false,
+      "Type": "Number",
+    },
     "paramHealthCheckPath": {
       "Default": "/health",
       "Description": "Path the ALB target group and container health checks probe. NoEcho - never echoed.",
@@ -685,7 +692,9 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
         "DeploymentController": {
           "Type": "ECS",
         },
-        "DesiredCount": 1,
+        "DesiredCount": {
+          "Ref": "paramDesiredCount",
+        },
         "EnableECSManagedTags": false,
         "HealthCheckGracePeriodSeconds": 60,
         "LaunchType": "FARGATE",

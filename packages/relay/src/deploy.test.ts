@@ -531,6 +531,61 @@ describe('createEcsDeployExecutor', () => {
     expect(result.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
   });
 
+  it('starts a zero-task service (an install that waited for configuration) by scaling it up with the deploy (DEPLOY-009)', async () => {
+    const state = baseState();
+    state.service!.desiredCount = 0;
+    state.service!.runningCount = 0;
+    state.runningDigest = null;
+    const d = deps(state);
+    const result = await run(
+      createEcsDeployExecutor(d),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3 }),
+    );
+    expect(result.deferred).toBe(true);
+    expect(state.updates).toHaveLength(1);
+    expect(state.updates[0]).toMatchObject({ desiredCount: 1 });
+    // The marker remembers the first start, so a rolled-back rollout can be
+    // scaled back down by the resumer.
+    expect((await d.pending.read())?.payload['startedFromZero']).toBe(true);
+  });
+
+  it('scales a first start the circuit breaker rolled back to zero tasks, then fails ECS_DEPLOYMENT_FAILED (DEPLOY-009)', async () => {
+    const state = baseState();
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'FAILED' }];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3, startedFromZero: true },
+    });
+
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
+    expect(state.updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, desiredCount: 0 }]);
+  });
+
+  it('leaves the task count alone when a rolled-back rollout was not a first start', async () => {
+    const state = baseState();
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'FAILED' }];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    const results = await createEcsDeployResumer(d)();
+    expect(results[0]!.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
+    expect(state.updates).toHaveLength(0);
+  });
+
   it('fails on a malformed payload without touching AWS', async () => {
     const state = baseState();
     const result = await run(
