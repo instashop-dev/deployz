@@ -799,6 +799,11 @@ describe('cleanup', () => {
     applyCleanupToClassification(result);
     expect(result.classification).toBe('CLEANUP_LEAK');
     expect(result.failureStage).toBe('CLEANUP_LEAK');
+    // A later cleanup that completes restores the funnel's own verdict.
+    result.cleanup = { ...result.cleanup, status: 'PASS', leaks: [], detail: null };
+    applyCleanupToClassification(result);
+    expect(result.classification).toBe('PASS');
+    expect(result.failureStage).toBeNull();
   });
 
   it('still removes a built image when the funnel stopped before the deployment existed', async () => {

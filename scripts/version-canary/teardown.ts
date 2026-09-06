@@ -74,7 +74,10 @@ export async function destroyThroughProduct(canary: Canary): Promise<void> {
         const job = body?.jobId ? findJob(d, body.jobId) : [...d.jobs].reverse().find((j) => j.type === 'PURGE');
         return job && (job.state === 'SUCCEEDED' || job.state === 'FAILED') ? d : null;
       },
-      { timeoutMs: 30 * MINUTE, describe: describeDeployment },
+      // A default-HTTPS install's purge sweeps one orphan kind per 5-minute
+      // relay poll after the retained database is gone — observed at ~95
+      // minutes end to end. Giving up earlier leaves the relay mid-sweep.
+      { timeoutMs: 120 * MINUTE, describe: describeDeployment },
     );
     const purgeJob = [...settled.jobs].reverse().find((j) => j.type === 'PURGE');
     details['purgeJob'] = purgeJob ? { id: purgeJob.id, state: purgeJob.state, failureCode: purgeJob.failureCode, result: purgeJob.result } : null;
@@ -105,6 +108,18 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
     }
     const stack = await describeStack(config.region, run.bootstrapStackName);
     if (stack && stack.status !== 'DELETE_COMPLETE') {
+      if (run.deploymentId && run.vendor) {
+        // The purge runs inside the connector's relay: deleting the connector
+        // while a PURGE job is still RUNNING strands the sweep half-way and
+        // leaks whatever it had not reached yet (observed: a VPC and its NAT
+        // gateway). Refuse until the product reports the purge settled.
+        const current = await canary.api.getDeployment(run.deploymentId);
+        const purge = [...current.jobs].reverse().find((j) => j.type === 'PURGE');
+        details['purgeState'] = purge?.state ?? null;
+        if (purge && !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(purge.state)) {
+          throw new Error(`purge job ${purge.id} is still ${purge.state}; not deleting the connector stack (rerun cleanup once it settles)`);
+        }
+      }
       details['rulesDisabled'] = await disableRulesForStack(config.region, run.bootstrapStackName);
       await deleteStack(config.region, run.bootstrapStackName);
       const gone = await waitFor(
