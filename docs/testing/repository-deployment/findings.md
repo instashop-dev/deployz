@@ -21,7 +21,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 | DEPLOY-007 | CONTAINER_START_ERROR | — | WITHDRAWN as a mechanism (kutt connected over TLS with node-postgres verification on); umami's crash stays open, rerun pending | repo-001 (umami) only |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
-| DEPLOY-009 | CONTAINER_START_ERROR (ENV_BINDING_ERROR by mechanism) | DEPLOYZ_BUG / MVP_CAPABILITY_GAP (product decision) | OPEN (fix designed; wave stopped) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
+| DEPLOY-009 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #207: configured first start) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
 
 ---
 
@@ -382,12 +382,14 @@ Rerun miniflux after `deploy-api.yml`.
 
 ## DEPLOY-009 — Vendor configuration and generated secrets reach the task only after a successful INSTALL, so an application that needs them to boot never installs
 
-**Stage** CONTAINER_START_ERROR (the first task exits at boot; the
-mechanism is ENV_BINDING_ERROR) · **Root cause** DEPLOYZ_BUG, or
-MVP_CAPABILITY_GAP if the product decides configuration-at-boot is out of
-scope · **Resolution** OPEN — fix designed below, product decision needed;
-the wave was stopped under the systemic-bug rule · **Found** Phase 3,
-Wave 1, kutt attempt 1 (2026-09-06).
+**Stage** ENV_BINDING_ERROR (the first task exits at boot on a missing
+vendor value) · **Root cause** DEPLOYZ_BUG · **Resolution** FIX IN REVIEW
+— the product owner chose the generic fix; PR #207 implements the
+configured first start designed below (template `param_DesiredCount`,
+API `startAfterConfig` + `hasStartedInstall` + config-before-deploy
+ordering, relay scale-up/scale-back); the wave was stopped under the
+systemic-bug rule and resumes after merge, deploy and template republish ·
+**Found** Phase 3, Wave 1, kutt attempt 1 (2026-09-06).
 
 **Behaviour.** A fresh install runs the template's task definition, which
 carries the managed bindings (database, cache, storage, port) and nothing
