@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `d0938b8163453649fc8441b486b43c494fed75e2`
+Deployz commit: `740de49ffd02332cf7c7b2d3fab0f6fdd29f7173`
 
 | Metric | Value |
 | --- | --- |
@@ -35,6 +35,7 @@ Deployz commit: `d0938b8163453649fc8441b486b43c494fed75e2`
 | Root cause | Repositories |
 | --- | --- |
 | CORRECTLY_UNSUPPORTED | 49 |
+| DEPLOYZ_BUG | 1 |
 
 ## By finding
 
@@ -43,9 +44,9 @@ Deployz commit: `d0938b8163453649fc8441b486b43c494fed75e2`
 | DEPLOY-002 | 6: repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 |
 | DEPLOY-003 | 18: repo-005, repo-022, repo-023, repo-024, repo-041, repo-043, repo-053, repo-055, repo-060, repo-082, repo-083, repo-087, repo-094, repo-204, repo-206, repo-207, repo-211, repo-220 |
 | DEPLOY-004 | 6: repo-072, repo-074, repo-084, repo-088, repo-089, repo-097 |
-| DEPLOY-005 | 3: repo-003, repo-021, repo-039 |
+| DEPLOY-005 | 2: repo-021, repo-039 |
+| DEPLOY-007 | 1: repo-003 |
 | DEPLOY-008 | 1: repo-004 |
-| DEPLOY-009 | 1: repo-003 |
 
 ## By set
 
@@ -69,7 +70,7 @@ Deployz commit: `d0938b8163453649fc8441b486b43c494fed75e2`
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | repo-001 | umami-software/umami@ca661c7 | realistic | READY | — (—) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR | DEPLOY-002 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
-| repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | PASS | DATABASE_ERROR | DEPLOY-005, DEPLOY-009 |
+| repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | PASS | DATABASE_ERROR / DEPLOYZ_BUG | DEPLOY-007 |
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

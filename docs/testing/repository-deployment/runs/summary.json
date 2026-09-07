@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "d0938b8163453649fc8441b486b43c494fed75e2",
+  "deployzCommit": "740de49ffd02332cf7c7b2d3fab0f6fdd29f7173",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -60,7 +60,8 @@
     "GATE_ERROR": 24
   },
   "byRootCause": {
-    "CORRECTLY_UNSUPPORTED": 49
+    "CORRECTLY_UNSUPPORTED": 49,
+    "DEPLOYZ_BUG": 1
   },
   "byFinding": {
     "DEPLOY-002": [
@@ -100,15 +101,14 @@
       "repo-097"
     ],
     "DEPLOY-005": [
-      "repo-003",
       "repo-021",
       "repo-039"
     ],
+    "DEPLOY-007": [
+      "repo-003"
+    ],
     "DEPLOY-008": [
       "repo-004"
-    ],
-    "DEPLOY-009": [
-      "repo-003"
     ]
   },
   "bySet": {
