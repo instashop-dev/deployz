@@ -197,10 +197,24 @@ function getEcsTaskReader(): EcsTaskReader {
         return {
           tasks: (response.tasks ?? []).map((task) => ({
             lastStatus: task.lastStatus,
+            taskDefinitionArn: task.taskDefinitionArn,
             containers: (task.containers ?? []).map((container) => ({
+              name: container.name,
               imageDigest: container.imageDigest,
             })),
           })),
+        };
+      },
+      async describeTaskDefinition(input) {
+        const response = await client.send(
+          new DescribeTaskDefinitionCommand({ taskDefinition: input.taskDefinition }),
+        );
+        return {
+          taskDefinition: {
+            containerDefinitions: (response.taskDefinition?.containerDefinitions ?? []).map(
+              (container) => ({ name: container.name, essential: container.essential }),
+            ),
+          },
         };
       },
     };
@@ -420,6 +434,7 @@ function getEcsDeployClient(): EcsDeployClient {
             stoppedReason: task.stoppedReason ?? undefined,
             taskDefinitionArn: task.taskDefinitionArn ?? undefined,
             containers: (task.containers ?? []).map((container) => ({
+              name: container.name ?? undefined,
               imageDigest: container.imageDigest ?? undefined,
               exitCode: container.exitCode ?? undefined,
             })),

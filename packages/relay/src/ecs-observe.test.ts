@@ -18,7 +18,12 @@ function cfnWith(resources: StackResource[]): CloudFormationReader {
 
 function ecsWith(options: {
   taskArns?: string[];
-  tasks?: { lastStatus?: string; containers?: { imageDigest?: string }[] }[];
+  tasks?: {
+    lastStatus?: string;
+    taskDefinitionArn?: string;
+    containers?: { name?: string; imageDigest?: string }[];
+  }[];
+  containerDefinitions?: { name: string; essential?: boolean }[];
   failAt?: 'list' | 'describe';
 }): EcsTaskReader {
   return {
@@ -29,6 +34,9 @@ function ecsWith(options: {
     async describeTasks() {
       if (options.failAt === 'describe') throw new Error('AccessDenied');
       return { tasks: options.tasks ?? [{ containers: [{ imageDigest: DIGEST }] }] };
+    },
+    async describeTaskDefinition() {
+      return { taskDefinition: { containerDefinitions: options.containerDefinitions ?? [] } };
     },
   };
 }
@@ -45,6 +53,34 @@ describe('observeRunningImageDigest', () => {
   it('reads the digest from the running task', async () => {
     const digest = await observeRunningImageDigest(
       { cfn: cfnWith(serviceStack()), ecs: ecsWith({}), installationId: 'inst-1' },
+      'deployz-app',
+    );
+    expect(digest).toBe(DIGEST);
+  });
+
+  it('reads the digest from the essential container when an init container ran first (DEPLOY-014)', async () => {
+    const initDigest = 'sha256:' + 'b'.repeat(64);
+    const digest = await observeRunningImageDigest(
+      {
+        cfn: cfnWith(serviceStack()),
+        ecs: ecsWith({
+          tasks: [
+            {
+              lastStatus: 'RUNNING',
+              taskDefinitionArn: 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:66',
+              containers: [
+                { name: 'RdsCaBundle', imageDigest: initDigest },
+                { name: 'App', imageDigest: DIGEST },
+              ],
+            },
+          ],
+          containerDefinitions: [
+            { name: 'App' },
+            { name: 'RdsCaBundle', essential: false },
+          ],
+        }),
+        installationId: 'inst-1',
+      },
       'deployz-app',
     );
     expect(digest).toBe(DIGEST);
