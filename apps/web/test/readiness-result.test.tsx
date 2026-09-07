@@ -189,7 +189,7 @@ describe('Lifecycle stepper — redesigned', () => {
     const deployment = {
       id: 'dep-1',
       state: 'HEALTHY',
-      isTestDeployment: true,
+      deploymentType: 'TEST',
       createdAt: '2026-09-01T10:00:00Z',
     } as unknown as import('../src/lib/deployments').FleetDeployment;
     const steps = deriveLifecycleSteps({

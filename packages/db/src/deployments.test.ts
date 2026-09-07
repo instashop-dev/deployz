@@ -6,7 +6,7 @@ import type { Db } from './client.js';
 import { deployments } from './schema/index.js';
 import { createTestDb, seedBase, type BaseIds } from './test-utils.js';
 
-// §59/§60 desired-state model + §62 audit fields + §7 test-deployment flag.
+// §59/§60 desired-state model + §62 audit fields + §7 deployment type.
 describe('deployments desired-state and audit fields', () => {
   let client: PGlite | undefined;
   let db: Db | undefined;
@@ -21,7 +21,7 @@ describe('deployments desired-state and audit fields', () => {
     await client?.close();
   });
 
-  it('defaults state to NOT_INSTALLED, infra_version to runtime-v1, is_test_deployment to false', async () => {
+  it('defaults state to NOT_INSTALLED, infra_version to runtime-v1, deployment_type to PRODUCTION', async () => {
     const id = crypto.randomUUID();
     await db!.insert(deployments).values({
       id,
@@ -35,7 +35,8 @@ describe('deployments desired-state and audit fields', () => {
     const [row] = await db!.select().from(deployments).where(eq(deployments.id, id));
     expect(row?.state).toBe('NOT_INSTALLED');
     expect(row?.infraVersion).toBe('runtime-v1');
-    expect(row?.isTestDeployment).toBe(false);
+    expect(row?.deploymentType).toBe('PRODUCTION');
+    expect(row?.billingState).toBe('NOT_STARTED');
     expect(row?.observedState).toBeNull();
     expect(row?.desiredState).toEqual({});
     expect(row?.lastHealthAt).toBeNull();

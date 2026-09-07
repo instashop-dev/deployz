@@ -26,10 +26,10 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 
 | Phase | Status | PR / commit | Notes |
 |---|---|---|---|
-| 0 Audit | done | this PR | `docs/billing/paddle-migration-audit.md` |
-| 1 Remove Stripe | next | | |
-| 2 Billing domain | pending | | |
-| 3 Billing schema | pending | | |
+| 0 Audit | done | PR #216 | `docs/billing/paddle-migration-audit.md` |
+| 1 Remove Stripe | done | PR #218 | migration `0032_remove_stripe_billing`; summary route kept provider-neutral |
+| 2 Billing domain | done | this PR | `apps/api/src/billing-domain.ts`, `billing-lifecycle.ts`; migration `0033_deployment_billing_state` (`deployment_type`, `billing_state`, timestamps) |
+| 3 Billing schema | next | | brief drafted: `billing_subscriptions`, `billing_provider_events`, `billing_reconciliation_events`; drop `organization.plan` |
 | 4 Paddle catalog (MCP) | pending | | sandbox catalog is empty at baseline |
 | 5 SDK + config | pending | | |
 | 6 Webhooks | pending | | |

@@ -47,7 +47,7 @@ describe('migrations', () => {
     ]);
   });
 
-  it('creates the 20 enum types', async () => {
+  it('creates the 22 enum types', async () => {
     const { rows } = await client!.query<{ typname: string }>(
       `SELECT typname FROM pg_type
        WHERE typtype = 'e' AND typnamespace = 'public'::regnamespace
@@ -60,8 +60,10 @@ describe('migrations', () => {
       'cleanup_state',
       'compatibility_status',
       'custom_domain_status',
+      'deployment_billing_state',
       'deployment_source',
       'deployment_state',
+      'deployment_type',
       'failure_code',
       'health_status',
       'infrastructure_component_kind',

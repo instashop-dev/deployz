@@ -10,6 +10,7 @@ import type { JobState, JobType, VendorDeploymentStatus } from '@deployz/contrac
 import { apiRequest } from '@/lib/api-client';
 import type { DeploymentState } from '@/lib/deployment-vocabulary';
 import type {
+  DeploymentType,
   HealthStatus,
   InfrastructureResponse,
   RelayCapabilities,
@@ -334,7 +335,7 @@ export interface AdminDeploymentDetail {
   installLinkId: string;
   infraVersion: string;
   installationId: string | null;
-  isTestDeployment: boolean;
+  deploymentType: DeploymentType;
   lastHealthAt: string | null;
   deletedAt: string | null;
   cleanupState: 'SKIPPED_RELAY_OFFLINE' | 'PURGE_FAILED' | 'COMPLETE' | null;

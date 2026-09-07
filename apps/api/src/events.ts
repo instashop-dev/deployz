@@ -59,6 +59,10 @@ export type DeploymentEventType =
   // relay-authenticated write paths only. Not a lifecycle transition; the
   // append-only record IS the duration dataset for a future P50/P90.
   | 'deployment.step_completed'
+  // Paddle migration Phase 2 billing state machine
+  // (apps/api/src/billing-domain.ts / billing-lifecycle.ts).
+  | 'deployment.billing_started'
+  | 'deployment.billing_stopped'
   | 'config.updated'
   | 'config.failed'
   | 'health.reported'

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import type { Region } from '@deployz/contracts';
+import type { DeploymentType, Region } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -106,7 +106,7 @@ export interface CreateDeploymentParams {
   applicationId: string;
   customerId: string;
   region: Region;
-  isTestDeployment: boolean;
+  deploymentType: DeploymentType;
   createdBy: string | null;
   updatedBy: string | null;
   source: DeploymentSource;
@@ -171,7 +171,7 @@ export async function createDeploymentRecord(
       source: params.source,
       desiredState: { manifest },
       enrollmentCode: mintEnrollmentCode(),
-      isTestDeployment: params.isTestDeployment,
+      deploymentType: params.deploymentType,
       createdBy: params.createdBy,
       updatedBy: params.updatedBy,
     })
@@ -237,7 +237,7 @@ export async function createDeployLink(
       customerId: params.customerId,
       applicationId: params.applicationId,
       region: params.region,
-      isTestDeployment: false,
+      deploymentType: 'PRODUCTION',
       createdBy: params.userId,
       updatedBy: params.userId,
       source: 'deploy_link',

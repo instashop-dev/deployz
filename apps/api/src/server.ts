@@ -34,6 +34,7 @@ import {
   bootstrapStackName,
   buildBootstrapQuickCreateUrl,
   deploymentStateAfterFailedJob,
+  deploymentTypeSchema,
   failureCodeSchema,
   healthComponentsSchema,
   healthStatusSchema,
@@ -78,10 +79,11 @@ import {
   readCachedFixInstructions,
 } from './fix-instructions.js';
 import {
-  shouldBillForDeployment,
+  isBillableDeployment,
   PLATFORM_PRICE_DOLLARS,
   DEPLOYMENT_PRICE_DOLLARS,
-} from './billing-correctness.js';
+} from './billing-domain.js';
+import { markDeploymentLive, markDeploymentRemoved } from './billing-lifecycle.js';
 import {
   createConfigStore,
   createRelaySecretWriter,
@@ -1097,6 +1099,19 @@ async function advanceStepTimingsAfterWrite(
   const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
 
   const derived = deriveDeploymentStatus({ deployment: freshDeployment, application, jobs, domain, defaultHttps, appUrl });
+
+  // Paddle migration Phase 2 (R0-2): the first observed READY stage is the
+  // billing-activation signal. Independent of the step-timings write below —
+  // it must run even when `changed` is false — and never allowed to fail
+  // this best-effort follow-up, same contract as every other side effect here.
+  if (derived.stage === 'READY') {
+    try {
+      await markDeploymentLive(db, freshDeployment, new Date());
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'billing:mark-live-failed', deploymentId: freshDeployment.id, error: String(error) }));
+    }
+  }
+
   const { next, changed, completedSteps } = advanceStepTimings(freshDeployment.stepTimings, derived, new Date());
   if (!changed) return;
 
@@ -2437,7 +2452,7 @@ export async function buildServer({
     // The canonical supported set from @deployz/contracts — never a
     // hand-maintained duplicate.
     region: regionSchema,
-    isTestDeployment: z.boolean().nullish(),
+    deploymentType: deploymentTypeSchema.default('PRODUCTION'),
   });
 
   // Deploy Link generation targets the SESSION org's customer (path) and
@@ -3334,7 +3349,7 @@ export async function buildServer({
       applicationId: body.applicationId,
       customerId: body.customerId,
       region: body.region,
-      isTestDeployment: body.isTestDeployment ?? false,
+      deploymentType: body.deploymentType,
       createdBy: request.user?.id ?? null,
       updatedBy: request.user?.id ?? null,
       source: 'manual',
@@ -3999,6 +4014,7 @@ export async function buildServer({
     // the deployment sitting at "Not installed" forever while the vendor
     // watched a confirmation dialog close and nothing happen.
     if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') {
+      const removalActor = { actorType: 'user' as const, actorId: request.user?.id ?? 'system' };
       await db.transaction(async (tx) => {
         await tx
           .update(schema.deployments)
@@ -4015,6 +4031,9 @@ export async function buildServer({
           requestedState: 'DELETED',
           payload: { reason: 'never installed — removed without a relay job' },
         });
+        // Accepted removal intent (R0-1): this IS the destroy, there being no
+        // relay job to accept it later.
+        await markDeploymentRemoved(tx, deployment, new Date(), removalActor);
       });
       return reply.code(200).send({ jobId: null, state: 'DELETED' });
     }
@@ -4051,6 +4070,13 @@ export async function buildServer({
         actorId: request.user?.id ?? null,
       });
     }
+    // Accepted removal intent (R0-1): a DESTROY has been queued for a
+    // deployment that was actually installed. Idempotent — a replay of an
+    // already-accepted destroy is a no-op.
+    await markDeploymentRemoved(db, deployment, new Date(), {
+      actorType: 'user',
+      actorId: request.user?.id ?? 'system',
+    });
 
     // The stack is coming down — start tearing down any custom domain
     // alongside it rather than leaving it dangling once the deployment is
@@ -4213,6 +4239,13 @@ export async function buildServer({
         .update(schema.deployments)
         .set({ defaultHttps: null })
         .where(eq(schema.deployments.id, deployment.id));
+      // Idempotent backstop (R0-1): the destroy route already stopped
+      // billing when the removal was accepted; this only catches a
+      // deployment that somehow reached force-complete while still ACTIVE.
+      await markDeploymentRemoved(tx, deployment, new Date(), {
+        actorType: 'user',
+        actorId: actorId ?? 'system',
+      });
       await recordEvent(tx, {
         organizationId: deployment.organizationId,
         eventType: 'destroy.force_completed',
@@ -5021,21 +5054,20 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     // Line items are named by CUSTOMER ("Acme Corp  $19"), not by
     // application — join customers for the label. Billability comes from
-    // shouldBillForDeployment (the single billing rule, which also counts
-    // UPDATE_AVAILABLE); re-deriving it inline here is what previously
-    // dropped UPDATE_AVAILABLE deployments off the bill.
+    // isBillableDeployment (the single billing rule, driven by the
+    // deployment's own billing_state, not its live health).
     const deployments = await db
       .select({
         customerName: schema.customers.name,
         applicationName: schema.applications.name,
-        state: schema.deployments.state,
-        isTestDeployment: schema.deployments.isTestDeployment,
+        deploymentType: schema.deployments.deploymentType,
+        billingState: schema.deployments.billingState,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
       .where(eq(schema.deployments.organizationId, organizationId));
-    const deploymentItems = deployments.filter(shouldBillForDeployment).map((d) => ({
+    const deploymentItems = deployments.filter(isBillableDeployment).map((d) => ({
       name: d.customerName,
       applicationName: d.applicationName,
       amount: DEPLOYMENT_PRICE_DOLLARS,
@@ -5791,6 +5823,13 @@ export async function buildServer({
           .update(schema.deployments)
           .set({ defaultHttps: null })
           .where(eq(schema.deployments.id, deployment.id));
+        // Idempotent backstop (R0-1): the destroy route already stopped
+        // billing when the removal was accepted; this only catches a
+        // deployment that somehow reached DESTROY success while still ACTIVE.
+        await markDeploymentRemoved(tx, deployment, new Date(), {
+          actorType: 'relay',
+          actorId: deployment.installationId ?? deployment.id,
+        });
       }
 
       // A successful PURGE is what clears the retained-resources warning:

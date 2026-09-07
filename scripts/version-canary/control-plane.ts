@@ -290,7 +290,7 @@ export class ControlPlane {
   }): Promise<{ id: string; installLinkId: string }> {
     const { body } = await this.request<{ id: string; installLinkId: string }>('POST', '/api/deployments', {
       ...input,
-      isTestDeployment: true,
+      deploymentType: 'TEST',
     });
     return body;
   }

@@ -49,6 +49,20 @@ export const regionEnum = pgEnum('region', [
 // deployments.source — origin attribution of a deployment row.
 export const deploymentSourceEnum = pgEnum('deployment_source', ['manual', 'deploy_link']);
 
+// deployments.deployment_type — provider-independent classification (Paddle
+// migration Phase 2). Replaces the is_test_deployment boolean: a TEST
+// deployment never becomes billable (apps/api/src/billing-domain.ts).
+export const deploymentTypeEnum = pgEnum('deployment_type', ['TEST', 'PRODUCTION']);
+
+// deployments.billing_state — Paddle migration Phase 2 billing state machine.
+// NOT_STARTED -> ACTIVE on the deployment's first READY stage, ACTIVE ->
+// STOPPED once removal is accepted. STOPPED is terminal.
+export const deploymentBillingStateEnum = pgEnum('deployment_billing_state', [
+  'NOT_STARTED',
+  'ACTIVE',
+  'STOPPED',
+]);
+
 // §46 deployment states — product vocabulary. Customers never see raw
 // CFN/ECS internals; these ten states are the whole user-facing model.
 export const deploymentStateEnum = pgEnum('deployment_state', [

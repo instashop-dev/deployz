@@ -16,6 +16,8 @@ import { apiUrl } from '@/lib/api-url';
 
 export type RelayStatus = 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
 export type HealthStatus = 'UNKNOWN' | 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
+export type DeploymentType = 'TEST' | 'PRODUCTION';
+export type DeploymentBillingState = 'NOT_STARTED' | 'ACTIVE' | 'STOPPED';
 /** A required component the verifier found no AWS resource for. */
 export type ComponentState = HealthStatus | 'NOT_PROVISIONED';
 
@@ -67,7 +69,10 @@ export interface FleetDeployment {
   observedState: Record<string, unknown> | null;
   infraVersion: string;
   installationId: string;
-  isTestDeployment: boolean;
+  deploymentType: DeploymentType;
+  billingState: DeploymentBillingState;
+  billingStartedAt: string | null;
+  billingStoppedAt: string | null;
   lastHealthAt: string | null;
   deletedAt: string | null;
   /** What the control plane knows about AWS leftovers at disconnect. */
@@ -527,7 +532,7 @@ export interface CreateDeploymentInput {
   applicationId: string;
   customerId: string;
   region: string;
-  isTestDeployment?: boolean;
+  deploymentType?: DeploymentType;
 }
 
 /** The raw `deployments` insert result — no joined display fields (unlike FleetDeployment). */
@@ -540,7 +545,7 @@ export interface DeploymentRecord {
   state: DeploymentState;
   /** The public install link id. The relay's own id is minted in the customer's account. */
   installLinkId: string;
-  isTestDeployment: boolean;
+  deploymentType: DeploymentType;
   createdAt: string;
 }
 
@@ -556,7 +561,7 @@ export function createDeploymentRecord(input: CreateDeploymentInput): Promise<De
       applicationId: input.applicationId,
       customerId: input.customerId,
       region: input.region,
-      isTestDeployment: input.isTestDeployment ?? false,
+      deploymentType: input.deploymentType ?? 'PRODUCTION',
     },
   });
 }
