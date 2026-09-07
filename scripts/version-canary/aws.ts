@@ -193,12 +193,22 @@ export async function describeRunningService(region: string, stackName: string):
     const described = (await aws(
       ['ecs', 'describe-tasks', '--cluster', cluster, '--tasks', ...tasks.taskArns],
       region,
-    )) as { tasks: { lastStatus: string; taskDefinitionArn: string; containers: { imageDigest?: string }[] }[] };
+    )) as {
+      tasks: {
+        lastStatus: string;
+        taskDefinitionArn: string;
+        containers: { imageDigest?: string; lastStatus?: string }[];
+      }[];
+    };
     for (const task of described.tasks) {
       if (task.lastStatus !== 'RUNNING') continue;
       runningTaskDefinitions.push(task.taskDefinitionArn);
       for (const container of task.containers) {
-        if (container.imageDigest) runningDigests.push(container.imageDigest);
+        // A finished init container (the RDS CA bundle, DEPLOY-007) stays in
+        // the task as STOPPED; only the containers still running serve.
+        if (container.imageDigest && (container.lastStatus ?? 'RUNNING') === 'RUNNING') {
+          runningDigests.push(container.imageDigest);
+        }
       }
     }
   }

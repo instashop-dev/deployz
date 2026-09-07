@@ -49,7 +49,24 @@ interface FakeEcs {
   } | null;
   /** Stopped tasks ECS still remembers (ListTasks desiredStatus STOPPED). */
   stoppedTasks?: { taskDefinitionArn: string; exitCode: number; stopCode?: string; stoppedReason?: string }[];
+  /**
+   * Every task lists a finished, non-essential init container BEFORE the
+   * application container (the RDS CA bundle of DEPLOY-007), with its own
+   * digest and exit code 0.
+   */
+  initContainerFirst?: boolean;
   failAt?: 'describeServices' | 'register';
+}
+
+const INIT_DIGEST = 'sha256:' + '9'.repeat(64);
+
+function withInitContainer(
+  state: FakeEcs,
+  containers: { imageDigest?: string; exitCode?: number }[],
+): { name?: string; imageDigest?: string; exitCode?: number }[] {
+  if (!state.initContainerFirst) return containers;
+  const init = { name: 'RdsCaBundle', imageDigest: INIT_DIGEST, exitCode: 0 };
+  return [init, ...containers.map((container) => ({ name: 'app', ...container }))];
 }
 
 function fakeEcs(state: FakeEcs): EcsDeployClient {
@@ -133,15 +150,17 @@ function fakeEcs(state: FakeEcs): EcsDeployClient {
               ...(state.migrationTask?.stoppedReason !== undefined
                 ? { stoppedReason: state.migrationTask.stoppedReason }
                 : {}),
-              containers:
+              containers: withInitContainer(
+                state,
                 state.migrationTask?.exitCode !== undefined ? [{ exitCode: state.migrationTask.exitCode }] : [],
+              ),
             },
           ],
         };
       }
       return {
         tasks: state.runningDigest
-          ? [{ containers: [{ imageDigest: state.runningDigest }] }]
+          ? [{ containers: withInitContainer(state, [{ imageDigest: state.runningDigest }]) }]
           : [],
       };
     },
@@ -211,6 +230,9 @@ function baseState(overrides: Partial<FakeEcs> = {}): FakeEcs {
     containerDefinitions: [
       { name: 'app', image: `${REPO}@${DIGEST_V2}` },
       { name: 'sidecar', image: 'public.ecr.aws/sidecar:1' },
+      ...(overrides.initContainerFirst
+        ? [{ name: 'RdsCaBundle', image: 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal', essential: false }]
+        : []),
     ],
   };
   return {
@@ -440,6 +462,36 @@ describe('createEcsDeployExecutor', () => {
     expect(runInput.overrides.containerOverrides).toEqual([
       { name: 'app', command: ['sh', '-c', 'cd packages/db && npm run migrate'] },
     ]);
+  });
+
+  it('reads the running digest from the essential container, not the init container that ran first (DEPLOY-014)', async () => {
+    const state = baseState({ initContainerFirst: true });
+    state.runningDigest = DIGEST_V3;
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3 }),
+    );
+    expect(result.success).toBe(true);
+    expect((result.output as { alreadyRunning: boolean }).alreadyRunning).toBe(true);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('reads the migration exit code from the essential container, not the init container that exited 0 (DEPLOY-014)', async () => {
+    const state = baseState({ initContainerFirst: true });
+    state.migrationTask = {
+      lastStatus: 'STOPPED',
+      stopCode: 'EssentialContainerExited',
+      stoppedReason: 'migration crashed: bad SQL',
+      exitCode: 1,
+    };
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: 'node migrate.js up' }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('MIGRATION_FAILED');
+    expect(String(result.error)).toContain('exit code 1');
+    expect(state.updates).toHaveLength(0);
   });
 
   it('fails with MIGRATION_FAILED (exit code + stoppedReason) and never touches the service', async () => {

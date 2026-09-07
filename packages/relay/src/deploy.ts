@@ -34,6 +34,7 @@
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
+import { applicationContainers, essentialContainerNames } from './ecs-observe.js';
 import type { TargetHealthReader } from './ecs-health.js';
 
 /** The ECS write surface this module needs (injectable seam for testing). */
@@ -82,7 +83,9 @@ export interface EcsDeployClient {
       stopCode?: string | undefined;
       stoppedReason?: string | undefined;
       taskDefinitionArn?: string | undefined;
-      containers?: { imageDigest?: string | undefined; exitCode?: number | undefined }[] | undefined;
+      containers?:
+        | { name?: string | undefined; imageDigest?: string | undefined; exitCode?: number | undefined }[]
+        | undefined;
     }[];
   }>;
   /** Starts a one-off migration task — no load balancer, command overridden. */
@@ -276,7 +279,15 @@ export async function settleEcsDeploy(
   const firstStart = startFromZero ? { desiredCount: FIRST_START_DESIRED_COUNT } : {};
   const startedFromZero = startFromZero || context.startedFromZero === true;
 
-  const runningDigest = await observeRunningDigest(deps, cluster, serviceArn);
+  // The definition names the application container (DEPLOY-014): the running
+  // digest and the migration exit code are read from it, never from the RDS
+  // CA init container or another sidecar.
+  const { taskDefinition } = await deps.ecs.describeTaskDefinition({
+    taskDefinition: service.taskDefinition,
+  });
+  const essential = essentialContainerNames(taskDefinition.containerDefinitions);
+
+  const runningDigest = await observeRunningDigest(deps, cluster, serviceArn, essential);
   const stable =
     (service.desiredCount ?? 0) > 0 && (service.runningCount ?? 0) >= (service.desiredCount ?? 0);
   const rolloutCompleted = primaryRolloutCompleted(service.deployments);
@@ -285,9 +296,6 @@ export async function settleEcsDeploy(
     return { state: 'succeeded', alreadyRunning: true };
   }
 
-  const { taskDefinition } = await deps.ecs.describeTaskDefinition({
-    taskDefinition: service.taskDefinition,
-  });
   const nextImage = `${request.imageRepository}@${request.imageDigest}`;
   let alreadyRegistered = taskDefinition.containerDefinitions.some(
     (container) => container.image === nextImage,
@@ -533,7 +541,10 @@ async function settleMigration(
       };
     }
     if (task.lastStatus !== 'STOPPED') continue;
-    const exitCode = task.containers?.find((container) => container.exitCode !== undefined)?.exitCode;
+    const exitCode = applicationContainers(
+      task.containers,
+      essentialContainerNames(taskDefinition.containerDefinitions),
+    ).find((container) => container.exitCode !== undefined)?.exitCode;
     if (exitCode !== 0) {
       return {
         state: 'failed',
@@ -644,12 +655,15 @@ async function observeRunningDigest(
   deps: EcsDeployDeps,
   cluster: string,
   serviceArn: string,
+  essential: ReadonlySet<string>,
 ): Promise<string | null> {
   const { taskArns } = await deps.ecs.listTasks({ cluster, serviceName: serviceArn });
   if (taskArns.length === 0) return null;
   const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: taskArns });
   for (const task of tasks) {
-    const digest = task.containers?.find((c) => c.imageDigest?.startsWith('sha256:'))?.imageDigest;
+    const digest = applicationContainers(task.containers, essential).find((c) =>
+      c.imageDigest?.startsWith('sha256:'),
+    )?.imageDigest;
     if (digest) return digest;
   }
   return null;
