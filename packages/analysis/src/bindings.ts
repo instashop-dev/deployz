@@ -146,7 +146,15 @@ function evidenceForVar(model: Map<string, ManifestEnvVariable>, tree: FileTree,
 
 const URL_SUFFIX_REGEX =
   /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_SQLALCHEMY_DATABASE_URI)$/i;
-const EXACT_URL_NAMES = new Set(['DATABASE_URL', 'DATABASE_URI', 'DB_URL', 'DB_URI', 'POSTGRES_URL', 'POSTGRESQL_URL']);
+const EXACT_URL_NAMES = new Set([
+  'DATABASE_URL',
+  'DATABASE_URI',
+  'DB_URL',
+  'DB_URI',
+  'DB_CONNECTION_STRING',
+  'POSTGRES_URL',
+  'POSTGRESQL_URL',
+]);
 
 const HOST_SUFFIX_REGEX = /(?:_DBHOST|_DATABASE_HOST|_PGHOST)$/i;
 const PORT_SUFFIX_REGEX = /(?:_DBPORT|_DATABASE_PORT|_PGPORT)$/i;
@@ -154,11 +162,23 @@ const DATABASE_SUFFIX_REGEX = /(?:_DBNAME|_DATABASE_NAME)$/i;
 const USER_SUFFIX_REGEX = /(?:_DBUSER|_DATABASE_USER)$/i;
 const PASSWORD_SUFFIX_REGEX = /(?:_DBPASS|_DBPASSWORD|_DATABASE_PASSWORD)$/i;
 
-const EXACT_HOST_NAMES = new Set(['PGHOST', 'DATABASE_HOST', 'POSTGRES_HOST', 'DBHOST']);
-const EXACT_PORT_NAMES = new Set(['PGPORT', 'DATABASE_PORT', 'POSTGRES_PORT', 'DBPORT']);
-const EXACT_DATABASE_NAMES = new Set(['PGDATABASE', 'DATABASE_NAME', 'POSTGRES_DB', 'DBNAME']);
-const EXACT_USER_NAMES = new Set(['PGUSER', 'DATABASE_USER', 'POSTGRES_USER', 'DBUSER']);
-const EXACT_PASSWORD_NAMES = new Set(['PGPASSWORD', 'DATABASE_PASSWORD', 'POSTGRES_PASSWORD', 'DBPASSWORD', 'DBPASS']);
+// The `DB_*` family (kutt, directus, and the Laravel/Knex/TypeORM defaults
+// that follow them) is the most common set of discrete connection parts
+// after the standard names — DEPLOY-005: a Wave 1 install with none of them
+// bound connected to localhost.
+const EXACT_HOST_NAMES = new Set(['PGHOST', 'DATABASE_HOST', 'POSTGRES_HOST', 'DBHOST', 'DB_HOST']);
+const EXACT_PORT_NAMES = new Set(['PGPORT', 'DATABASE_PORT', 'POSTGRES_PORT', 'DBPORT', 'DB_PORT']);
+const EXACT_DATABASE_NAMES = new Set(['PGDATABASE', 'DATABASE_NAME', 'POSTGRES_DB', 'DBNAME', 'DB_NAME', 'DB_DATABASE']);
+const EXACT_USER_NAMES = new Set(['PGUSER', 'DATABASE_USER', 'POSTGRES_USER', 'DBUSER', 'DB_USER', 'DB_USERNAME']);
+const EXACT_PASSWORD_NAMES = new Set([
+  'PGPASSWORD',
+  'DATABASE_PASSWORD',
+  'POSTGRES_PASSWORD',
+  'DBPASSWORD',
+  'DBPASS',
+  'DB_PASSWORD',
+  'DB_PASS',
+]);
 
 /** The postgres semantic a variable name carries, when the name is a known convention. */
 function postgresSemantic(name: string): BindingSemantic | null {

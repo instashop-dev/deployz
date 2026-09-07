@@ -122,7 +122,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // (`metadata.ambiguities`) is persisted — stored metadata and manifests from
 // Versions 11..14 (no binding names, no health/migration modes, no
 // ambiguities) must re-run before deployment creation.
-export const ANALYSIS_VERSION = 15;
+// Version 16 is the Stage B Wave 1 binding batch (DEPLOY-005, DEPLOY-013): the
+// `DB_*` family (DB_HOST/PORT/NAME/DATABASE/USER/USERNAME/PASSWORD/PASS,
+// DB_CONNECTION_STRING) becomes postgres binding aliases, and mail relay
+// credentials (MAIL_/SMTP_*) and provisioned-resource credentials
+// (DB_PASSWORD, REDIS_PASSWORD) are no longer app-internal secrets the relay
+// may mint — stored manifests and env-var models from Version 15 must re-run.
+export const ANALYSIS_VERSION = 16;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
