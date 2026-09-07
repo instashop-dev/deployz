@@ -659,7 +659,11 @@
               "Resource": "*"
             },
             {
-              "Action": "secretsmanager:DeleteSecret",
+              "Action": [
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue"
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:ResourceTag/deployz:installation": {
@@ -1041,7 +1045,11 @@
               "Sid": "RelayPurgeSecretsList"
             },
             {
-              "Action": "secretsmanager:DeleteSecret",
+              "Action": [
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue"
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:ResourceTag/deployz:installation": {
@@ -1054,7 +1062,7 @@
               },
               "Effect": "Allow",
               "Resource": "*",
-              "Sid": "RelayPurgeSecretsDelete"
+              "Sid": "RelayInstallationSecrets"
             },
             {
               "Action": [
@@ -1610,7 +1618,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "8a93b127b8c19465559eb2916fc0d240875cc9e1882d9797ae0dd427c12c1b2a.zip"
+          "S3Key": "00e0b1a25b081a0915b8ea13303e9e4f711ba24a5387428c120778846a971f21.zip"
         },
         "Environment": {
           "Variables": {
