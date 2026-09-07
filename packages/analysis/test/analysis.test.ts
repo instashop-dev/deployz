@@ -683,6 +683,26 @@ describe('§18 detectors', () => {
       expect(vars).toContain('SECRET_KEY');
     });
 
+    it('detects env vars read through a local env object, but not import.meta.env (DEPLOY-005)', () => {
+      const tree: FileTree = {
+        'api/src/database/index.ts': [
+          "import { useEnv } from '@directus/env';",
+          'const env = useEnv();',
+          "if (!env['DB_CONNECT_STRING']) required.push('DB_HOST');",
+          'const schema = env.DB_DATABASE;',
+          '',
+        ].join('\n'),
+        'app/src/main.ts': 'const api = import.meta.env.VITE_API_URL;\nconst mode = env.MODE;\n',
+      };
+      const result = detectEnvVars(tree);
+      const vars = result.value as string[];
+      expect(vars).toContain('DB_CONNECT_STRING');
+      expect(vars).toContain('DB_DATABASE');
+      // A module without a local env object contributes nothing from `env.X`.
+      expect(vars).not.toContain('VITE_API_URL');
+      expect(vars).not.toContain('MODE');
+    });
+
     it('detects env vars from docker-compose.yml', () => {
       const result = detectEnvVars(dockerComposeFixture);
       expect(result.detected).toBe(true);

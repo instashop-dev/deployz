@@ -128,7 +128,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // credentials (MAIL_/SMTP_*) and provisioned-resource credentials
 // (DB_PASSWORD, REDIS_PASSWORD) are no longer app-internal secrets the relay
 // may mint — stored manifests and env-var models from Version 15 must re-run.
-export const ANALYSIS_VERSION = 16;
+// Version 17 (DEPLOY-005, directus): a JS/TS module that reads its
+// configuration through a local `env` object (`const env = useEnv()`,
+// `env['DB_HOST']`) now contributes those keys to the env-var model and the
+// binding aliases — stored models from Version 16 saw no such reads.
+export const ANALYSIS_VERSION = 17;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
