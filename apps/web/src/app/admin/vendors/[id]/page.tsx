@@ -29,7 +29,7 @@ import {
 import { eventTypeLabel, RELAY_STATUS_LABEL } from '@/lib/deployment-vocabulary';
 import { RELEASE_STATUS_BADGE, RELEASE_STATUS_LABEL } from '@/lib/releases';
 import { formatReleaseVersion } from '@/lib/release-version';
-import { PLAN_LABELS } from '@/lib/organization-vocabulary';
+import { subscriptionStatusLabel } from '@/lib/organization-vocabulary';
 import { relativeTime } from '@/lib/diagnostics';
 
 type DetailState =
@@ -145,7 +145,7 @@ function VendorDetailBody({ detail }: { detail: AdminVendorDetail }) {
           <CardContent className="flex flex-col gap-3 py-4">
             <MetaRow label="Organization ID" value={detail.organization.id} />
             <MetaRow label="Owner" value={owner ? `${owner.name} (${owner.email})` : 'No owner found'} />
-            <MetaRow label="Plan" value={PLAN_LABELS[detail.organization.plan]} />
+            <MetaRow label="Billing" value={subscriptionStatusLabel(detail.organization.subscriptionStatus)} />
             <MetaRow
               label="Created"
               value={new Date(detail.organization.createdAt).toLocaleDateString('en-US', {

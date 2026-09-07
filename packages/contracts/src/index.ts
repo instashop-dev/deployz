@@ -337,8 +337,33 @@ export const runtimeHealthLayersSchema = z
   .strict();
 export type RuntimeHealthLayers = z.infer<typeof runtimeHealthLayersSchema>;
 
-export const orgPlanSchema = z.enum(['FREE', 'STARTER', 'PRO']);
-export type OrgPlan = z.infer<typeof orgPlanSchema>;
+// Paddle migration Phase 3 — minimal billing schema. `provider` exists so a
+// row says what it is, nothing more; this is not a multi-provider system.
+export const billingProviderSchema = z.enum(['PADDLE']);
+export type BillingProvider = z.infer<typeof billingProviderSchema>;
+
+// billing_subscriptions.status — mirrors the Paddle subscription lifecycle
+// this control plane cares about.
+export const billingSubscriptionStatusSchema = z.enum([
+  'ACTIVE',
+  'PAST_DUE',
+  'PAUSED',
+  'CANCELED',
+]);
+export type BillingSubscriptionStatus = z.infer<typeof billingSubscriptionStatusSchema>;
+
+// billing_provider_events.processing_status — webhook event lifecycle.
+export const billingEventProcessingStatusSchema = z.enum([
+  'RECEIVED',
+  'PROCESSED',
+  'IGNORED',
+  'FAILED',
+]);
+export type BillingEventProcessingStatus = z.infer<typeof billingEventProcessingStatusSchema>;
+
+// billing_reconciliation_events.status — outcome of one reconciliation pass.
+export const billingReconciliationStatusSchema = z.enum(['SUCCEEDED', 'FAILED', 'SKIPPED']);
+export type BillingReconciliationStatus = z.infer<typeof billingReconciliationStatusSchema>;
 
 export const buildStatusSchema = z.enum(['PENDING', 'BUILDING', 'SUCCEEDED', 'FAILED']);
 export type BuildStatus = z.infer<typeof buildStatusSchema>;
@@ -746,11 +771,28 @@ export const organizationSchema = z.object({
   slug: z.string(),
   logo: z.string().nullable(),
   metadata: z.string().nullable(),
-  plan: orgPlanSchema,
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime().nullable(),
 });
 export type Organization = z.infer<typeof organizationSchema>;
+
+// Paddle migration Phase 3 — one row per organization; no row means
+// evaluation mode (no subscription yet).
+export const billingSubscriptionSchema = z.object({
+  id: z.uuid(),
+  organizationId: z.string(),
+  provider: billingProviderSchema,
+  providerCustomerId: z.string(),
+  providerSubscriptionId: z.string(),
+  status: billingSubscriptionStatusSchema,
+  currentPeriodStart: z.iso.datetime().nullable(),
+  currentPeriodEnd: z.iso.datetime().nullable(),
+  lastProviderEventAt: z.iso.datetime().nullable(),
+  lastReconciledAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type BillingSubscription = z.infer<typeof billingSubscriptionSchema>;
 
 // Better Auth core user shape.
 export const userSchema = z.object({

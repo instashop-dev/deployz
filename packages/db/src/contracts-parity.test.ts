@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   analysisStatusSchema,
+  billingEventProcessingStatusSchema,
+  billingProviderSchema,
+  billingReconciliationStatusSchema,
+  billingSubscriptionStatusSchema,
   cleanupStateSchema,
   compatibilityStatusSchema,
   deploymentBillingStateSchema,
@@ -21,6 +25,10 @@ import {
 
 import {
   analysisStatusEnum,
+  billingEventProcessingStatusEnum,
+  billingProviderEnum,
+  billingReconciliationStatusEnum,
+  billingSubscriptionStatusEnum,
   cleanupStateEnum,
   compatibilityStatusEnum,
   deploymentBillingStateEnum,
@@ -45,6 +53,10 @@ import {
 describe('enum parity with @deployz/contracts zod schemas', () => {
   const pairs = [
     ['analysisStatus', analysisStatusEnum, analysisStatusSchema.options],
+    ['billingProvider', billingProviderEnum, billingProviderSchema.options],
+    ['billingSubscriptionStatus', billingSubscriptionStatusEnum, billingSubscriptionStatusSchema.options],
+    ['billingReconciliationStatus', billingReconciliationStatusEnum, billingReconciliationStatusSchema.options],
+    ['billingEventProcessingStatus', billingEventProcessingStatusEnum, billingEventProcessingStatusSchema.options],
     ['compatibilityStatus', compatibilityStatusEnum, compatibilityStatusSchema.options],
     ['releaseStatus', releaseStatusEnum, releaseStatusSchema.options],
     ['region', regionEnum, regionSchema.options],

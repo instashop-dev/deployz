@@ -11,6 +11,10 @@ import {
   SUPPORTED_AWS_REGIONS,
   applicationSchema,
   applicationStackNameForInstallation,
+  billingProviderSchema,
+  billingReconciliationStatusSchema,
+  billingSubscriptionSchema,
+  billingSubscriptionStatusSchema,
   bootstrapStackName,
   bootstrapTemplateBucketName,
   componentProgressStatusSchema,
@@ -78,6 +82,25 @@ describe('failureCodeSchema (§61 stable taxonomy)', () => {
   });
 });
 
+describe('billing enums (Paddle migration Phase 3)', () => {
+  it('billingProviderSchema accepts PADDLE only', () => {
+    expect(billingProviderSchema.options).toEqual(['PADDLE']);
+  });
+
+  it('billingSubscriptionStatusSchema accepts the four subscription states', () => {
+    expect(billingSubscriptionStatusSchema.options).toEqual([
+      'ACTIVE',
+      'PAST_DUE',
+      'PAUSED',
+      'CANCELED',
+    ]);
+  });
+
+  it('billingReconciliationStatusSchema accepts the three reconciliation outcomes', () => {
+    expect(billingReconciliationStatusSchema.options).toEqual(['SUCCEEDED', 'FAILED', 'SKIPPED']);
+  });
+});
+
 // Round-trip law: a db row (Date objects) crosses the wire as JSON, so the
 // contract must parse the JSON form back to EXACTLY the wire object — wire
 // types are ISO strings, not Dates.
@@ -94,11 +117,28 @@ describe('core-object round-trip (db row -> JSON -> schema.parse -> wire)', () =
         slug: 'ada-12345678',
         logo: null,
         metadata: null,
-        plan: 'FREE',
         createdAt: created,
         updatedAt: updated,
       },
       organizationSchema,
+    ],
+    [
+      'BillingSubscription',
+      {
+        id: crypto.randomUUID(),
+        organizationId: 'org_01JABC',
+        provider: 'PADDLE',
+        providerCustomerId: 'ctm_01JABC',
+        providerSubscriptionId: 'sub_01JABC',
+        status: 'ACTIVE',
+        currentPeriodStart: created,
+        currentPeriodEnd: updated,
+        lastProviderEventAt: updated,
+        lastReconciledAt: null,
+        createdAt: created,
+        updatedAt: updated,
+      },
+      billingSubscriptionSchema,
     ],
     [
       'User',

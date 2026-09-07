@@ -1,4 +1,5 @@
 export * from './auth.js';
+export * from './billing.js';
 export * from './core.js';
 export * from './custom-domains.js';
 export * from './deploy-links.js';

@@ -555,6 +555,15 @@ export async function listVendors(db: RuntimeDb, params: { q?: string | undefine
     .groupBy(schema.eventLogs.organizationId);
   const activityByOrg = new Map(activityRows.map((row) => [row.organizationId, row.lastActivityAt]));
 
+  const subscriptionRows = await db
+    .select({
+      organizationId: schema.billingSubscriptions.organizationId,
+      status: schema.billingSubscriptions.status,
+    })
+    .from(schema.billingSubscriptions)
+    .where(inArray(schema.billingSubscriptions.organizationId, orgIds));
+  const subscriptionStatusByOrg = new Map(subscriptionRows.map((row) => [row.organizationId, row.status]));
+
   let rows = orgs.map((org) => {
     const owner = ownerByOrg.get(org.id);
     const relaySet = relayByOrg.get(org.id);
@@ -566,7 +575,7 @@ export async function listVendors(db: RuntimeDb, params: { q?: string | undefine
       organizationId: org.id,
       name: org.name,
       slug: org.slug,
-      plan: org.plan,
+      subscriptionStatus: subscriptionStatusByOrg.get(org.id) ?? null,
       createdAt: org.createdAt,
       ownerEmail: owner?.email ?? null,
       ownerName: owner?.name ?? null,
@@ -601,6 +610,12 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
     .where(eq(schema.organization.id, organizationId))
     .limit(1);
   if (!organization) return null;
+
+  const [subscription] = await db
+    .select({ status: schema.billingSubscriptions.status })
+    .from(schema.billingSubscriptions)
+    .where(eq(schema.billingSubscriptions.organizationId, organizationId))
+    .limit(1);
 
   const members = await db
     .select({ userId: schema.user.id, name: schema.user.name, email: schema.user.email, role: schema.member.role })
@@ -712,7 +727,7 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
       id: organization.id,
       name: organization.name,
       slug: organization.slug,
-      plan: organization.plan,
+      subscriptionStatus: subscription?.status ?? null,
       createdAt: organization.createdAt,
     },
     members,

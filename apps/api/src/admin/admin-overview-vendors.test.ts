@@ -305,6 +305,7 @@ describe('Team Admin: overview + vendors read models', () => {
           hasFailedDeployment: boolean;
           ownerEmail: string | null;
           lastActivityAt: string | null;
+          subscriptionStatus: string | null;
         }[];
       };
 
@@ -316,6 +317,8 @@ describe('Team Admin: overview + vendors read models', () => {
       expect(rowA!.hasFailedDeployment).toBe(true);
       expect(rowA!.ownerEmail).toBe(orgA.email);
       expect(rowA!.lastActivityAt).toBeTruthy();
+      // Evaluation mode: no billing_subscriptions row yet.
+      expect(rowA!.subscriptionStatus).toBeNull();
 
       const rowB = body.vendors.find((v) => v.organizationId === orgB.organizationId);
       expect(rowB).toBeTruthy();
@@ -361,7 +364,7 @@ describe('Team Admin: overview + vendors read models', () => {
       const response = await getReq(app, `/api/admin/vendors/${orgA.organizationId}`, admin.cookie);
       expect(response.statusCode).toBe(200);
       const body = response.json() as {
-        organization: { id: string; name: string };
+        organization: { id: string; name: string; subscriptionStatus: string | null };
         members: { userId: string; email: string; role: string }[];
         applications: { id: string; deploymentCount: number }[];
         deployments: { id: string }[];
@@ -370,6 +373,8 @@ describe('Team Admin: overview + vendors read models', () => {
       };
 
       expect(body.organization.id).toBe(orgA.organizationId);
+      // Evaluation mode: no billing_subscriptions row yet.
+      expect(body.organization.subscriptionStatus).toBeNull();
       const owner = body.members.find((m) => m.role === 'owner');
       expect(owner?.email).toBe(orgA.email);
 

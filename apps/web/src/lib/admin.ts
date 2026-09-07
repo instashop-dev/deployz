@@ -16,7 +16,7 @@ import type {
   RelayCapabilities,
   RelayStatus,
 } from '@/lib/deployments';
-import type { OrgPlan, OrgRole } from '@/lib/organization-vocabulary';
+import type { OrgRole, SubscriptionStatus } from '@/lib/organization-vocabulary';
 import type { ReleaseStatus } from '@/lib/releases';
 
 // ── Shared wire shapes ───────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ export interface AdminVendorListRow {
   organizationId: string;
   name: string;
   slug: string;
-  plan: OrgPlan;
+  subscriptionStatus: SubscriptionStatus | null;
   createdAt: string;
   ownerEmail: string | null;
   ownerName: string | null;
@@ -209,7 +209,7 @@ export interface AdminVendorConnectionRow {
 }
 
 export interface AdminVendorDetail {
-  organization: { id: string; name: string; slug: string; plan: OrgPlan; createdAt: string };
+  organization: { id: string; name: string; slug: string; subscriptionStatus: SubscriptionStatus | null; createdAt: string };
   members: { userId: string; name: string; email: string; role: OrgRole }[];
   applications: AdminVendorApplication[];
   deployments: AdminVendorDeploymentRow[];
