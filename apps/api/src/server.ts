@@ -78,14 +78,10 @@ import {
   readCachedFixInstructions,
 } from './fix-instructions.js';
 import {
-  createCheckoutSession,
-  createStripe,
-  handleWebhookEvent,
-  constructWebhookEvent,
-  isBillable,
-  BASE_PRICE_CENTS,
-  METERED_PRICE_CENTS,
-} from './billing.js';
+  shouldBillForDeployment,
+  PLATFORM_PRICE_DOLLARS,
+  DEPLOYMENT_PRICE_DOLLARS,
+} from './billing-correctness.js';
 import {
   createConfigStore,
   createRelaySecretWriter,
@@ -286,12 +282,6 @@ export interface ServerDeps {
   // fixture everywhere else; tests inject a fake.
   releaseImages?: ReleaseImageClient | undefined;
 }
-
-// §48 billing-summary line amounts, in whole dollars. Derived from the
-// canonical cent constants so the summary can never drift from what Stripe
-// is actually charging.
-const BASE_PRICE_DOLLARS = BASE_PRICE_CENTS / 100;
-const METERED_PRICE_DOLLARS = METERED_PRICE_CENTS / 100;
 
 // application/deployment/release ids are uuid-keyed columns. A non-uuid id
 // would raise a Postgres "invalid input syntax for type uuid" error and
@@ -1139,7 +1129,7 @@ async function advanceStepTimingsAfterWrite(
  * command result is what actually moves a deployment through its lifecycle —
  * without this the fleet is stuck in INSTALLING forever, which silently
  * disables §25 bulk deploy (needs HEALTHY/UPDATE_AVAILABLE), §29 diagnostics
- * (needs FAILED) and §48 metered billing (bills only HEALTHY deployments).
+ * (needs FAILED) and billing (bills only HEALTHY/UPDATE_AVAILABLE deployments).
  *
  * Mirrors the transitions the packages/cdk job workflows already model. A job
  * type absent from this map leaves the state alone — CONFIG_UPDATE is
@@ -1474,17 +1464,14 @@ export async function buildServer({
     });
   }
 
-  // Webhook signature verification (Stripe + GitHub) needs the RAW body, so
-  // register a raw-json parser for those routes before the JSON parser
-  // consumes it. A bad signature -> 400 structured envelope.
-  const stripe = createStripe();
+  // GitHub webhook signature verification needs the RAW body, so register a
+  // raw-json parser for that route before the JSON parser consumes it. A bad
+  // signature -> 400 structured envelope.
   app.addContentTypeParser(
     'application/json',
     { parseAs: 'string', bodyLimit: 1048576 },
     (request, body, done) => {
-      const rawWebhook =
-        request.raw.url?.startsWith('/api/billing/webhook') ||
-        request.raw.url?.startsWith('/api/github/webhook');
+      const rawWebhook = request.raw.url?.startsWith('/api/github/webhook');
       if (rawWebhook) {
         done(null, body);
         return;
@@ -1496,16 +1483,6 @@ export async function buildServer({
       }
     },
   );
-  app.post('/api/billing/webhook', async (request, reply) => {
-    const signature = request.headers['stripe-signature'];
-    const event = constructWebhookEvent(
-      stripe,
-      request.body as string,
-      Array.isArray(signature) ? signature[0] : signature,
-    );
-    const handled = await handleWebhookEvent({ db, stripe }, event);
-    return reply.code(200).send({ received: true, handled });
-  });
 
   // GitHub App webhook: signature-verified via X-Hub-Signature-256 over the
   // raw body. The account->org resolver (#13) matches the GitHub login to
@@ -2493,10 +2470,6 @@ export async function buildServer({
 
   const destroyBodySchema = z.object({
     finalSnapshot: z.boolean().nullish(),
-  });
-
-  const checkoutBodySchema = z.object({
-    organizationId: z.string().min(1).optional(),
   });
 
   const addDomainBodySchema = z.object({ hostname: z.string() });
@@ -5041,27 +5014,16 @@ export async function buildServer({
     },
   );
 
-  // ── Billing (§48) ───────────────────────────────────────────────────────
-
-  // POST /api/billing/checkout — Create Stripe checkout session
-  app.post('/api/billing/checkout', { preHandler: requireAuth }, async (request) => {
-    const body = checkoutBodySchema.parse(request.body);
-    const organizationId = resolveWriteOrganizationId(request, body.organizationId);
-    const { url } = await createCheckoutSession(
-      { db, stripe },
-      { organizationId, customerEmail: request.user?.email },
-    );
-    return { url };
-  });
+  // ── Billing ──────────────────────────────────────────────────────────────
 
   // GET /api/billing/summary — Billing summary
   app.get('/api/billing/summary', { preHandler: requireAuth }, async (request) => {
     const organizationId = requireSessionOrganizationId(request);
-    // §48 line items are named by CUSTOMER ("Acme Corp  $19"), not by
+    // Line items are named by CUSTOMER ("Acme Corp  $19"), not by
     // application — join customers for the label. Billability comes from
-    // isBillable (the single §48 rule, which also counts UPDATE_AVAILABLE);
-    // re-deriving it inline here is what previously dropped UPDATE_AVAILABLE
-    // deployments off the bill.
+    // shouldBillForDeployment (the single billing rule, which also counts
+    // UPDATE_AVAILABLE); re-deriving it inline here is what previously
+    // dropped UPDATE_AVAILABLE deployments off the bill.
     const deployments = await db
       .select({
         customerName: schema.customers.name,
@@ -5073,30 +5035,17 @@ export async function buildServer({
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
       .where(eq(schema.deployments.organizationId, organizationId));
-    const deploymentItems = deployments.filter(isBillable).map((d) => ({
+    const deploymentItems = deployments.filter(shouldBillForDeployment).map((d) => ({
       name: d.customerName,
       applicationName: d.applicationName,
-      amount: METERED_PRICE_DOLLARS,
+      amount: DEPLOYMENT_PRICE_DOLLARS,
     }));
-    const total = BASE_PRICE_DOLLARS + deploymentItems.length * METERED_PRICE_DOLLARS;
-
-    // The billing screen has to tell "never subscribed" from "subscribed" from
-    // "payment failed" — without it the page showed charges for a subscription
-    // that may not exist, and offered no way to start one.
-    const [subscription] = await db
-      .select({
-        status: schema.subscriptions.status,
-        currentPeriodEnd: schema.subscriptions.currentPeriodEnd,
-      })
-      .from(schema.subscriptions)
-      .where(eq(schema.subscriptions.organizationId, organizationId))
-      .limit(1);
+    const total = PLATFORM_PRICE_DOLLARS + deploymentItems.length * DEPLOYMENT_PRICE_DOLLARS;
 
     return {
-      base: BASE_PRICE_DOLLARS,
+      base: PLATFORM_PRICE_DOLLARS,
       deployments: deploymentItems,
       total,
-      subscription: subscription ?? null,
     };
   });
 

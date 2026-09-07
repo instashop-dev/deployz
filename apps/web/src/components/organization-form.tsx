@@ -11,7 +11,7 @@ import { apiUrl } from '@/lib/api-url';
 
 // §41 screen 18 — organization settings form. Submits PATCH /api/organization
 // for real (previously had no handler at all). §65: plain confirmation text,
-// no raw API/Stripe vocabulary.
+// no raw API vocabulary.
 export function OrganizationForm({ organization }: { organization: OrganizationInfo }) {
   const [name, setName] = useState(organization.name);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');

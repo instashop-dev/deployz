@@ -48,7 +48,7 @@ describe('toInjectOptions', () => {
   });
 
   // Webhook signature verification reads the raw bytes, so a base64 body has
-  // to be decoded or Stripe and GitHub signatures fail with an opaque 400.
+  // to be decoded or the webhook signature fails with an opaque 400.
   it('decodes a base64-encoded body to the original bytes', () => {
     const raw = '{"id":"evt_123"}';
     const options = toInjectOptions(

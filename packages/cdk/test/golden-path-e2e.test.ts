@@ -15,7 +15,7 @@
  *   Phase 1 — Core Platform (steps 1-5):
  *     1. Vendor signs up (Better Auth email/password)
  *     2. Organization row created
- *     3. Stripe test subscription exists ($49 base + $19 metered)
+ *     3. billing subscription exists ($49 base + $19 per deployment)
  *     4. Session cookie authorizes Fastify API call
  *     5. GET /api/applications → 200
  *
@@ -203,10 +203,10 @@ describe('§67 Golden Path E2E', () => {
       expect(true).toBe(true);
     });
 
-    it('step 3: Stripe test subscription exists ($49 base + $19 metered)', () => {
-      // PENDING-AWS: requires a real Stripe test-mode key (sk_test_).
-      // When available: `stripe subscriptions list` in test mode asserts
-      // the $49 base item + $19 metered item are attached.
+    it('step 3: billing subscription exists ($49 base + $19 per deployment)', () => {
+      // PENDING-AWS: requires a real billing-provider test-mode key.
+      // When available: the provider's test-mode API asserts the $49 base
+      // item + $19 per-deployment item are attached.
       expect(true).toBe(true);
     });
 
@@ -592,7 +592,7 @@ describe('§68 — 3× green consecutively', () => {
     //   - AWS SDK v3 installed + credentials configured
     //   - 3 fresh test accounts (or 3 regions on one account)
     //   - Real CloudFormation/ECS/ELB/STS/Organizations endpoints
-    //   - Real Stripe test-mode key
+    //   - Real billing-provider test-mode key
     //   - Real GitHub App installation
     //   - Real Playwright-driven browser automation
     expect(true).toBe(true);
@@ -618,7 +618,7 @@ describe('PENDING-AWS status', () => {
   it('documents which steps are blocked', () => {
     // The following steps require real AWS credentials and are PENDING-AWS:
     //
-    //   Phase 1 (Core Platform):    steps 1-5  — Playwright + Stripe + DB
+    //   Phase 1 (Core Platform):    steps 1-5  — Playwright + billing + DB
     //   Phase 2 (App Management):   steps 6-7  — API endpoints + GitHub App
     //   Phase 3 (Repo Analysis):    steps 8-10 — API endpoints + analyser
     //   Phase 4 (AWS Installation): steps 11-16 — CloudFormation/ECS/ELB/Relay

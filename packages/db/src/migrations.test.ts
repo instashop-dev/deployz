@@ -18,7 +18,7 @@ describe('migrations', () => {
     await client?.close();
   });
 
-  it('creates all 21 core tables', async () => {
+  it('creates all 19 core tables', async () => {
     const { rows } = await client!.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -42,14 +42,12 @@ describe('migrations', () => {
       'organization',
       'releases',
       'session',
-      'subscriptions',
-      'usage_records',
       'user',
       'verification',
     ]);
   });
 
-  it('creates the 21 enum types', async () => {
+  it('creates the 20 enum types', async () => {
     const { rows } = await client!.query<{ typname: string }>(
       `SELECT typname FROM pg_type
        WHERE typtype = 'e' AND typnamespace = 'public'::regnamespace
@@ -76,7 +74,6 @@ describe('migrations', () => {
       'region',
       'relay_status',
       'release_status',
-      'subscription_status',
     ]);
   });
 

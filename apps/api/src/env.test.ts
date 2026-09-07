@@ -239,7 +239,7 @@ describe('Phase 15 — production Cloudflare deploy configuration', () => {
 
   it('the deploy completeness-gate loop lists all four Cloudflare keys (a missing binding fails the deploy)', () => {
     // The gate is a `for key in …; do` loop; find the occurrence that carries
-    // the Cloudflare keys (there is also a later Stripe-price loop).
+    // the Cloudflare keys.
     const loops = [...workflow.matchAll(/for key in ([\s\S]*?); do/g)];
     const completeness = loops.find((match) => match[1]!.includes('CLOUDFLARE_ZONE_EDIT_API_TOKEN'));
     expect(completeness, 'could not locate the completeness-gate key loop').toBeDefined();

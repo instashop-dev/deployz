@@ -87,7 +87,7 @@ describe('Better Auth table shape', () => {
     ]);
   });
 
-  it('organization has the plugin columns + Deployz stripe_customer_id + plan', async () => {
+  it('organization has the plugin columns + Deployz plan', async () => {
     expect(await columnsOf('organization')).toEqual([
       'created_at',
       'id',
@@ -96,7 +96,6 @@ describe('Better Auth table shape', () => {
       'name',
       'plan',
       'slug',
-      'stripe_customer_id',
       'updated_at',
     ]);
   });

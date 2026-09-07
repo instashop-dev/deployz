@@ -208,8 +208,9 @@ No unexplained BROKEN or MISSING P0 capability remains.
 
 - **Unit / integration (Vitest):** the most complete full run measured 128
   files / 2454 tests (2449 passed, 3 skipped). Environmental skips only:
-  `ai-live` (needs `DEPLOYZ_LIVE_AI=1`) and `billing` (needs a real Stripe
-  test-mode key). Windows EBUSY/onTaskUpdate suite-collection flakes are
+  `ai-live` (needs `DEPLOYZ_LIVE_AI=1`) and `billing` (the Stripe-gated
+  test, since removed with the Stripe implementation). Windows
+  EBUSY/onTaskUpdate suite-collection flakes are
   documented and re-run per the Phase-0 discipline; CI (Ubuntu) is
   authoritative.
 - **Simulated E2E:** full simulated lifecycle proven end to end. Phase 14's

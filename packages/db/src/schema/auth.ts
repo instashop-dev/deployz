@@ -116,8 +116,6 @@ export const organization = pgTable('organization', {
   slug: text('slug').notNull().unique(),
   logo: text('logo'),
   metadata: text('metadata'),
-  // Deployz field: Stripe linkage (§48). Nullable until first checkout.
-  stripeCustomerId: text('stripe_customer_id').unique(),
   plan: orgPlanEnum('plan').notNull().default('FREE'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).$onUpdate(() => new Date()),
