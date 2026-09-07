@@ -31,8 +31,8 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 2 Billing domain | done | PR #219 | `apps/api/src/billing-domain.ts`, `billing-lifecycle.ts`; migration `0033_deployment_billing_state` (`deployment_type`, `billing_state`, timestamps) |
 | 3 Billing schema | done | PR #220 | `billing_subscriptions`, `billing_provider_events`, `billing_reconciliation_events` (migration `0034`); `organization.plan` removed; organization responses carry `subscriptionStatus` |
 | 4 Paddle catalog (MCP) | deferred | | Blocked on the Paddle sandbox MCP in this session (DNS failure, then tools not loadable in-process). Must complete before Phase 8 checkout verification. Sandbox catalog was empty at baseline. See "Phase 4 resume steps" |
-| 5 SDK + config | done | this PR | `@paddle/paddle-node-sdk`, `apps/api/src/paddle.ts`, `PADDLE_*` env validation, CDK allowlist, deploy workflow, `GET /api/billing/config` |
-| 6 Webhooks | pending | | |
+| 5 SDK + config | done | PR #222 | `@paddle/paddle-node-sdk`, `apps/api/src/paddle.ts`, `PADDLE_*` env validation, CDK allowlist, deploy workflow, `GET /api/billing/config` |
+| 6 Webhooks | done | this PR | `apps/api/src/billing-webhooks.ts`, `POST /api/billing/webhook` (raw body, `Paddle-Signature`), event ledger dedupe, `occurredAt` regression guard, migration `0035` (scheduled change) |
 | 7 Evaluation entitlements | pending | | |
 | 8 First production activation | pending | | |
 | 9 Reconciliation | pending | | |
@@ -67,6 +67,15 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   so no install link and no AWS provisioning can start early.
 - R0-8: Paddle checkout uses Paddle.js (client token) with a server-created
   transaction.
+- R5-1: the deploy workflow verifies the Paddle configuration only when
+  `PADDLE_API_KEY` is set, so production deploys are not blocked before the
+  catalog exists. Flip to unconditional once Phase 4 is done and the secrets
+  are populated. Cost if wrong: a half-configured provider is caught only
+  when the key is present — which is exactly when it matters.
+- R6-1: the webhook route answers 401 for a missing or invalid signature and
+  500 for a processing failure; both make Paddle retry. Duplicate, stale
+  (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
+  retrying them; they are recorded in `billing_provider_events`.
 
 ## Phase 4 resume steps
 
@@ -105,3 +114,7 @@ Env names (already used by Phase 5): `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,
   `--maxWorkers=2`; CI is authoritative.
 - `.mcp.json` in the worktree is untracked and not ignored. Stage files
   explicitly; never commit it.
+- Phase 10 follow-up: a `billing_provider_events` row left in `RECEIVED`
+  by a crash between insert and processing reads as a duplicate on redelivery.
+  The safety job should reset rows older than 10 minutes that are still
+  `RECEIVED` to `FAILED` so the next redelivery processes them.

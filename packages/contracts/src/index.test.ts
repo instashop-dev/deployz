@@ -133,6 +133,8 @@ describe('core-object round-trip (db row -> JSON -> schema.parse -> wire)', () =
         status: 'ACTIVE',
         currentPeriodStart: created,
         currentPeriodEnd: updated,
+        scheduledChangeAction: null,
+        scheduledChangeAt: null,
         lastProviderEventAt: updated,
         lastReconciledAt: null,
         createdAt: created,

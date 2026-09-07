@@ -787,6 +787,11 @@ export const billingSubscriptionSchema = z.object({
   status: billingSubscriptionStatusSchema,
   currentPeriodStart: z.iso.datetime().nullable(),
   currentPeriodEnd: z.iso.datetime().nullable(),
+  // Paddle's `scheduled_change` — a pending cancel/pause/resume already
+  // accepted for this subscription, with its effective date. Null when
+  // nothing is scheduled.
+  scheduledChangeAction: z.string().nullable(),
+  scheduledChangeAt: z.iso.datetime().nullable(),
   lastProviderEventAt: z.iso.datetime().nullable(),
   lastReconciledAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
