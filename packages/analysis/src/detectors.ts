@@ -348,6 +348,21 @@ const RB_SOURCE = /\.rb$/;
 const GO_SOURCE = /\.go$/;
 const JS_SOURCE = /\.(ts|js|mjs|cjs|jsx|tsx)$/;
 
+// Stage B Wave 1 (DEPLOY-005, directus): a JS/TS module that reads its
+// configuration through a local `env` object — `const env = useEnv()`,
+// `import env from './env'`, `const env = process.env` — instead of
+// `process.env` at every site. `env.KEY` / `env['KEY']` count as reads only
+// inside such a module, so a front end's `import.meta.env.VITE_X` does not.
+const CONFIG_ENV_BINDING_REGEX =
+  /\b(?:const|let|var)\s+env\s*=|\bimport\s+(?:\{[^}]*\benv\b[^}]*\}|env)\s+from\b|=\s*useEnv\s*\(/;
+const CONFIG_ENV_READ_SOURCE =
+  String.raw`(?<![\w.$])env\s*(?:\.\s*([A-Z][A-Z0-9_]*)\b|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])`;
+
+/** Whether a JS/TS module reads configuration through a local `env` object. */
+function readsThroughEnvObject(content: string): boolean {
+  return CONFIG_ENV_BINDING_REGEX.test(content);
+}
+
 /** Every file that can declare a dependency, for language-breadth scans. */
 function isDependencyManifest(path: string): boolean {
   return (
@@ -1193,7 +1208,8 @@ export function detectEnvVars(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 3. Source code: process.env.X references
+  // 3. Source code: process.env.X references, and `env.X` / `env['X']` in a
+  //    module that reads through a local env object (DEPLOY-005).
   for (const [path, content] of Object.entries(tree)) {
     if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
       let match: RegExpExecArray | null;
@@ -1201,6 +1217,13 @@ export function detectEnvVars(tree: FileTree): DetectorFinding {
       const regex = new RegExp(PROCESS_ENV_REGEX.source, 'g');
       while ((match = regex.exec(content)) !== null) {
         if (match[1]) vars.add(match[1]);
+      }
+      if (readsThroughEnvObject(content)) {
+        const objectRegex = new RegExp(CONFIG_ENV_READ_SOURCE, 'g');
+        while ((match = objectRegex.exec(content)) !== null) {
+          const key = match[1] ?? match[2];
+          if (key) vars.add(key);
+        }
       }
     }
   }
@@ -1432,6 +1455,7 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
     const envFileRegex = new RegExp(`^${name}\\s*[=:]`, 'm');
     const composeRegex = new RegExp(`\\b${name}\\s*[=:]`);
     const processEnvRegex = new RegExp(`process\\.env\\.${name}\\b`);
+    const envObjectRegex = new RegExp(`(?<![\\w.$])env\\s*(?:\\.\\s*${name}\\b|\\[\\s*["']${name}["']\\s*\\])`);
     const literalRegex = new RegExp(`["']${name}["']`);
 
     for (const [path, content] of Object.entries(tree)) {
@@ -1445,6 +1469,13 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
       } else if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) && processEnvRegex.test(content)) {
         hasIndependentEvidence = true;
         evidence.push(`process.env.${name} referenced in ${path}`);
+      } else if (
+        /\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) &&
+        readsThroughEnvObject(content) &&
+        envObjectRegex.test(content)
+      ) {
+        hasIndependentEvidence = true;
+        evidence.push(`env.${name} referenced in ${path}`);
       } else if (LANGUAGE_SOURCE_REGEX.test(path) && isRuntimeSourcePath(path) && literalRegex.test(content)) {
         hasIndependentEvidence = true;
         evidence.push(`${name} referenced in ${path}`);
@@ -2504,11 +2535,16 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !isRuntimeSourcePath(path)) continue;
     if (JS_SOURCE.test(path)) {
-      const readRegex =
-        /process\.env\s*\.\s*([A-Z_][A-Z0-9_]*)|process\.env\[["']([A-Z_][A-Z0-9_]*)["']\]/g;
+      // `process.env.X` / `process.env['X']` everywhere; `env.X` / `env['X']`
+      // too when the module reads through a local env object (DEPLOY-005).
+      const readRegex = new RegExp(
+        String.raw`process\.env\s*\.\s*([A-Z_][A-Z0-9_]*)|process\.env\[["']([A-Z_][A-Z0-9_]*)["']\]` +
+          (readsThroughEnvObject(content) ? `|${CONFIG_ENV_READ_SOURCE}` : ''),
+        'g',
+      );
       let match: RegExpExecArray | null;
       while ((match = readRegex.exec(content)) !== null) {
-        const key = match[1] ?? match[2];
+        const key = match[1] ?? match[2] ?? match[3] ?? match[4];
         if (!key) continue;
         // Statement-bound tail: a `??`/`||` on a LATER statement must not look
         // like a fallback for this read.
@@ -2567,6 +2603,8 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
           const guardTargets = [
             `process\\.env\\.${key}\\b`,
             `process\\.env\\[["']${key}["']\\]`,
+            `(?<![\\w.$])env\\.${key}\\b`,
+            `(?<![\\w.$])env\\[["']${key}["']\\]`,
             assignedName ? `${assignedName}\\b` : null,
           ]
             .filter(Boolean)

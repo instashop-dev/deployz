@@ -42,6 +42,29 @@ describe('detectEnvVarModel (§11.2)', () => {
     expect(byKey.get('NODE_ENV')).toMatchObject({ required: false });
   });
 
+  it('records reads through a local env object as code reads (Directus useEnv shape, DEPLOY-005)', () => {
+    const model = detectEnvVarModel({
+      'api/src/database/index.ts': [
+        "import { useEnv } from '@directus/env';",
+        'const env = useEnv();',
+        "const client = env['DB_CLIENT'];",
+        "if (!env['DB_CONNECT_STRING']) {",
+        "  connection.host = env['DB_HOST'];",
+        '}',
+        'const secret = env.SECRET;',
+        '',
+      ].join('\n'),
+      'app/src/main.ts': 'const api = import.meta.env.VITE_API_URL;\n',
+    });
+    const byKey = new Map(model.map((entry) => [entry.key, entry]));
+    expect(byKey.get('DB_HOST')!.source.join(' ')).toContain('api/src/database/index.ts');
+    expect(byKey.get('DB_CLIENT')).toBeDefined();
+    // A presence guard tolerates absence; a bare secret read is required.
+    expect(byKey.get('DB_CONNECT_STRING')).toMatchObject({ required: false });
+    expect(byKey.get('SECRET')).toMatchObject({ required: true, secret: true });
+    expect(byKey.has('VITE_API_URL')).toBe(false);
+  });
+
   it('requires a code-only bare read of a secret-named variable with no default anywhere', () => {
     const tree: FileTree = {
       'src/index.js': "const token = process.env.INTERNAL_API_TOKEN;\n",
