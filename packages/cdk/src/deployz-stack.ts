@@ -371,6 +371,12 @@ function collectEnvVars(): Record<string, string> {
     'CLOUDFLARE_ZONE_NAME',
     'DEPLOYZ_DEFAULT_HOSTNAME_PREFIX',
     'CLOUDFLARE_ZONE_EDIT_API_TOKEN',
+    'PADDLE_API_KEY',
+    'PADDLE_WEBHOOK_SECRET',
+    'PADDLE_CLIENT_TOKEN',
+    'PADDLE_PRICE_PLATFORM',
+    'PADDLE_PRICE_DEPLOYMENT',
+    'PADDLE_ENVIRONMENT',
   ];
   const env: Record<string, string> = {};
   for (const key of keys) {

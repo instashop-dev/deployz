@@ -84,6 +84,7 @@ import {
   DEPLOYMENT_PRICE_DOLLARS,
 } from './billing-domain.js';
 import { markDeploymentLive, markDeploymentRemoved } from './billing-lifecycle.js';
+import { createPaddle, type PaddleBilling } from './paddle.js';
 import {
   createConfigStore,
   createRelaySecretWriter,
@@ -284,6 +285,11 @@ export interface ServerDeps {
   // to the real registry client in the deployed Lambda and to the scriptable
   // fixture everywhere else; tests inject a fake.
   releaseImages?: ReleaseImageClient | undefined;
+  // Injectable Phase 5 Paddle billing seam (paddle.ts). Defaults to
+  // env-configured createPaddle(), which is null when PADDLE_API_KEY is
+  // unset; tests inject a fake PaddleBilling so no real Paddle call ever
+  // leaves the machine.
+  paddle?: PaddleBilling | null | undefined;
 }
 
 // application/deployment/release ids are uuid-keyed columns. A non-uuid id
@@ -1263,6 +1269,7 @@ export async function buildServer({
   teamAdminEmails = env.teamAdminEmails,
   teamAdminEnvGrantsEnabled = env.teamAdminEnvGrantsEnabled,
   loggerInstance,
+  paddle = createPaddle(),
 }: ServerDeps): Promise<FastifyInstance> {
   // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
   // grant must not fail the install request that owns it (see ecr-pull-grants.ts).
@@ -5098,6 +5105,22 @@ export async function buildServer({
             currentPeriodEnd: subscriptionRow.currentPeriodEnd,
           }
         : null,
+    };
+  });
+
+  // GET /api/billing/config — what apps/web needs to open Paddle.js checkout
+  // (Phase 8): the client token, environment and price ids. Never the api key
+  // or webhook secret — those never leave the server.
+  app.get('/api/billing/config', { preHandler: requireAuth }, async () => {
+    if (!paddle) {
+      return { enabled: false };
+    }
+    return {
+      enabled: true,
+      environment: paddle.config.environment,
+      clientToken: paddle.config.clientToken,
+      pricePlatform: paddle.config.pricePlatform,
+      priceDeployment: paddle.config.priceDeployment,
     };
   });
 
