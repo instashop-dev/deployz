@@ -49,6 +49,7 @@
  *                     password is never a parameter (it is generated).
  */
 import {
+  Aws,
   CfnCondition,
   CfnOutput,
   CfnParameter,
@@ -78,6 +79,7 @@ import {
 import {
   CfnExpressGatewayService,
   Cluster,
+  ContainerDependencyCondition,
   ContainerImage,
   CpuArchitecture,
   FargateService,
@@ -86,6 +88,7 @@ import {
   OperatingSystemFamily,
   Protocol,
   Secret as EcsSecret,
+  type ContainerDefinition,
   type ICluster,
 } from 'aws-cdk-lib/aws-ecs';
 import { CfnReplicationGroup, CfnSubnetGroup } from 'aws-cdk-lib/aws-elasticache';
@@ -103,7 +106,7 @@ import {
   Role,
   ServicePrincipal,
 } from 'aws-cdk-lib/aws-iam';
-import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { LogGroup, RetentionDays, type ILogGroup } from 'aws-cdk-lib/aws-logs';
 import {
   Credentials,
   DatabaseInstance,
@@ -401,6 +404,48 @@ const REDIS_PORT = 6379;
 // upload abandoned for 7 days is aborted. Cost control on a RETAINed bucket.
 const NONCURRENT_VERSION_EXPIRATION_DAYS = 30;
 const ABORT_INCOMPLETE_MULTIPART_AFTER_DAYS = 7;
+
+/**
+ * DEPLOY-007 — node-postgres verifies the RDS certificate chain against Node's
+ * trust store, which does not hold the RDS CA, so a Node application that
+ * connects with TLS on (the issued DATABASE_URL says `sslmode=require`, and
+ * RDS enforces it) fails "self-signed certificate in certificate chain".
+ * Before the application container starts, a non-essential init container
+ * fetches the regional RDS trust bundle into a task-scoped volume; the app
+ * reads it through NODE_EXTRA_CA_CERTS (additive — the public roots stay)
+ * and PGSSLROOTCERT (libpq). Best effort: a failed fetch leaves the app
+ * exactly as it was, so the init step can never be what stops a task.
+ */
+const RDS_CA_VOLUME = 'deployz-rds-ca';
+const RDS_CA_DIR = '/deployz/certs';
+const RDS_CA_BUNDLE_PATH = `${RDS_CA_DIR}/rds-ca-bundle.pem`;
+const RDS_CA_INIT_IMAGE = 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal';
+const RDS_CA_INIT_CONTAINER = 'RdsCaBundle';
+
+function attachRdsCaBundle(
+  taskDefinition: FargateTaskDefinition,
+  application: ContainerDefinition,
+  logGroup: ILogGroup,
+  streamPrefix: string,
+): void {
+  taskDefinition.addVolume({ name: RDS_CA_VOLUME });
+  const bundleUrl = `https://truststore.pki.rds.amazonaws.com/${Aws.REGION}/${Aws.REGION}-bundle.pem`;
+  const init = taskDefinition.addContainer(RDS_CA_INIT_CONTAINER, {
+    image: ContainerImage.fromRegistry(RDS_CA_INIT_IMAGE),
+    essential: false,
+    command: [
+      'sh',
+      '-c',
+      `curl -fsSL "${bundleUrl}" -o ${RDS_CA_BUNDLE_PATH} || echo "RDS CA bundle fetch failed; the application starts without it"`,
+    ],
+    logging: LogDriver.awsLogs({ streamPrefix, logGroup }),
+  });
+  init.addMountPoints({ sourceVolume: RDS_CA_VOLUME, containerPath: RDS_CA_DIR, readOnly: false });
+  application.addMountPoints({ sourceVolume: RDS_CA_VOLUME, containerPath: RDS_CA_DIR, readOnly: true });
+  application.addContainerDependencies({ container: init, condition: ContainerDependencyCondition.SUCCESS });
+  application.addEnvironment('NODE_EXTRA_CA_CERTS', RDS_CA_BUNDLE_PATH);
+  application.addEnvironment('PGSSLROOTCERT', RDS_CA_BUNDLE_PATH);
+}
 
 export class ApplicationStack extends Stack {
   public readonly vpc: Vpc;
@@ -1126,7 +1171,7 @@ const dbEnv =
                 ),
               }
             : {};
-        taskDefinition.addContainer('App', {
+        const appContainer = taskDefinition.addContainer('App', {
           image: ContainerImage.fromRegistry(imageReferenceString),
           portMappings: [{ containerPort, protocol: Protocol.TCP }],
           logging: LogDriver.awsLogs({ streamPrefix: 'deployz-app', logGroup }),
@@ -1172,6 +1217,10 @@ const dbEnv =
               }
             : {}),
         });
+
+      if (databaseRequired) {
+        attachRdsCaBundle(taskDefinition, appContainer, logGroup, 'deployz-rds-ca');
+      }
 
       const fargateService = new FargateService(this, 'Service', {
         cluster: this.cluster as unknown as ICluster,
@@ -1303,7 +1352,7 @@ const dbEnv =
           },
         );
 
-        workerTaskDefinition.addContainer('Worker', {
+        const workerContainer = workerTaskDefinition.addContainer('Worker', {
           image: ContainerImage.fromRegistry(imageReferenceString),
           command: props.workerCommand.split(' '),
           logging: LogDriver.awsLogs({
@@ -1333,6 +1382,10 @@ const dbEnv =
             ...databaseUrlSecrets,
           },
         });
+
+        if (databaseRequired) {
+          attachRdsCaBundle(workerTaskDefinition, workerContainer, workerLogGroup, 'deployz-rds-ca');
+        }
 
         const workerService = new FargateService(this, 'WorkerService', {
           cluster: this.cluster as unknown as ICluster,

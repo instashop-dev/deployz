@@ -1465,3 +1465,87 @@ describe('Stage B phase 2 — database binding aliases', () => {
     expect(envByName['S3_ATTACHMENTS_BUCKET']).toEqual(bucketName);
   });
 });
+
+describe('DEPLOY-007 — RDS CA bundle delivered into the task', () => {
+  type ContainerDef = {
+    Name: string;
+    Essential?: boolean;
+    Image?: string;
+    Command?: string[];
+    Environment?: Array<{ Name: string; Value: unknown }>;
+    MountPoints?: Array<{ SourceVolume: string; ContainerPath: string; ReadOnly: boolean }>;
+    DependsOn?: Array<{ ContainerName: string; Condition: string }>;
+  };
+  type TaskDef = { Properties: { ContainerDefinitions: ContainerDef[]; Volumes?: Array<{ Name: string }> } };
+
+  function taskDefinitions(template: Template): TaskDef[] {
+    return Object.values(template.findResources('AWS::ECS::TaskDefinition')) as TaskDef[];
+  }
+
+  function envValue(container: ContainerDef, name: string): unknown {
+    return container.Environment?.find((entry) => entry.Name === name)?.Value;
+  }
+
+  it('adds a non-essential init container that fetches the regional bundle into a task volume', () => {
+    const { template } = synth();
+    const [taskDef] = taskDefinitions(template);
+    const [app, init, ...rest] = taskDef.Properties.ContainerDefinitions;
+    expect(rest).toHaveLength(0);
+    expect(app.Name).toBe('App');
+    expect(init.Name).toBe('RdsCaBundle');
+    expect(init.Essential).toBe(false);
+    expect(init.Image).toBe('public.ecr.aws/amazonlinux/amazonlinux:2023-minimal');
+    // The init container carries no environment — the relay identifies the
+    // application container as the first one with environment entries.
+    expect(init.Environment).toBeUndefined();
+    const script = JSON.stringify(init.Command);
+    expect(script).toContain('truststore.pki.rds.amazonaws.com');
+    expect(script).toContain('AWS::Region');
+    expect(script).toContain('-o /deployz/certs/rds-ca-bundle.pem');
+    // Best effort: a failed fetch never stops the task.
+    expect(script).toContain('|| echo');
+    expect(taskDef.Properties.Volumes).toEqual([{ Name: 'deployz-rds-ca' }]);
+    expect(init.MountPoints).toEqual([
+      { SourceVolume: 'deployz-rds-ca', ContainerPath: '/deployz/certs', ReadOnly: false },
+    ]);
+  });
+
+  it('starts the App container after the bundle is in place and points Node and libpq at it', () => {
+    const { template } = synth();
+    const [taskDef] = taskDefinitions(template);
+    const [app] = taskDef.Properties.ContainerDefinitions;
+    expect(app.DependsOn).toEqual([{ ContainerName: 'RdsCaBundle', Condition: 'SUCCESS' }]);
+    expect(app.MountPoints).toEqual([
+      { SourceVolume: 'deployz-rds-ca', ContainerPath: '/deployz/certs', ReadOnly: true },
+    ]);
+    expect(envValue(app, 'NODE_EXTRA_CA_CERTS')).toBe('/deployz/certs/rds-ca-bundle.pem');
+    expect(envValue(app, 'PGSSLROOTCERT')).toBe('/deployz/certs/rds-ca-bundle.pem');
+    // SSL_CERT_FILE would replace the system roots; it must stay unset.
+    expect(envValue(app, 'SSL_CERT_FILE')).toBeUndefined();
+  });
+
+  it('gives the worker task the same bundle', () => {
+    const { template } = synth(false, { workerCommand: 'node worker.js' });
+    const workerTaskDef = taskDefinitions(template).find((taskDef) =>
+      taskDef.Properties.ContainerDefinitions.some((container) => container.Name === 'Worker'),
+    );
+    expect(workerTaskDef).toBeDefined();
+    const [worker, init] = workerTaskDef!.Properties.ContainerDefinitions;
+    expect(worker.Name).toBe('Worker');
+    expect(init.Name).toBe('RdsCaBundle');
+    expect(worker.DependsOn).toEqual([{ ContainerName: 'RdsCaBundle', Condition: 'SUCCESS' }]);
+    expect(envValue(worker, 'NODE_EXTRA_CA_CERTS')).toBe('/deployz/certs/rds-ca-bundle.pem');
+  });
+
+  it('adds nothing when the application has no database', () => {
+    const { template } = synth(false, { databaseRequired: false });
+    const [taskDef] = taskDefinitions(template);
+    expect(taskDef.Properties.ContainerDefinitions.map((container) => container.Name)).toEqual([
+      'App',
+    ]);
+    expect(taskDef.Properties.Volumes).toBeUndefined();
+    const json = JSON.stringify(template.toJSON());
+    expect(json).not.toContain('NODE_EXTRA_CA_CERTS');
+    expect(json).not.toContain('truststore.pki.rds.amazonaws.com');
+  });
+});
