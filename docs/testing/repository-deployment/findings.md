@@ -26,7 +26,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #209 merged, bootstrap republished 2026-09-07; kutt rerun 3 settled in 12 min with the exit code) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
 | DEPLOY-012 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #210 merged, bootstrap republished 2026-09-07; kutt rerun 4's config pass SUCCEEDED) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 3, the first config pass that found its secret (DEPLOY-010) |
 | DEPLOY-013 | ENV_BINDING_ERROR | DEPLOYZ_BUG + ANALYSIS_BUG | FIXED in two parts: PR #211 merged and deployed (mint app-internal secrets; kutt rerun 5 minted `JWT_SECRET`); PR #212 in review (the analyser called `DB_PASSWORD`, `REDIS_PASSWORD`, `MAIL_PASSWORD` internal secrets, so rerun 5 minted those too) | every vendor-scope secret typed before an install — found on kutt reruns 4 and 5 |
-| DEPLOY-014 | TIMEOUT | DEPLOYZ_BUG | FIXED (PR #217 merged, bootstrap template republished 2026-09-07 ~14:30Z: the relay reads digest and exit code from the task's essential container; regression the #213 init container exposed; ghostfolio rerun verifies) | repo-007 (ghostfolio, measured: healthy and serving, DEPLOY_RELEASE never settled); every database-backed application deployed on the #213 template until the relay republish |
+| DEPLOY-014 | TIMEOUT | DEPLOYZ_BUG | FIXED (PR #217 merged, bootstrap template republished 2026-09-07 ~14:30Z: the relay reads digest and exit code from the task's essential container; regression the #213 init container exposed; verified on ghostfolio attempt 2: the release pointer settled in 12 minutes) | repo-007 (ghostfolio, measured: healthy and serving, DEPLOY_RELEASE never settled); every database-backed application deployed on the #213 template until the relay republish |
 
 ---
 
@@ -684,7 +684,8 @@ app-internal secret.
 serving while its `DEPLOY_RELEASE` job stays RUNNING) · **Root cause**
 DEPLOYZ_BUG — a regression the DEPLOY-007 fix exposed · **Resolution** FIXED
 (PR #217 merged, main `a05c37e`; bootstrap template republished 2026-09-07,
-URL unchanged so no API deploy; ghostfolio rerun verifies) · **Found** Phase 3, Wave 1, ghostfolio attempt 1
+URL unchanged so no API deploy; verified on ghostfolio attempt 2, where the
+release pointer settled 12 minutes after INSTALL) · **Found** Phase 3, Wave 1, ghostfolio attempt 1
 (2026-09-07), the first deploy on the PR #213 template.
 
 **Behaviour.** The relay identifies the application container by position
