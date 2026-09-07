@@ -460,7 +460,7 @@ export type LifecycleStepState =
 
 function latestTestDeployment(deployments: FleetDeployment[]): FleetDeployment | null {
   const testDeployments = deployments
-    .filter((d) => d.isTestDeployment && !d.deletedAt)
+    .filter((d) => d.deploymentType === 'TEST' && !d.deletedAt)
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   return testDeployments[0] ?? null;
 }

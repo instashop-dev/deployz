@@ -30,7 +30,10 @@ interface DeploymentFixture {
   observedState: Record<string, unknown> | null;
   infraVersion: string;
   installationId: string;
-  isTestDeployment: boolean;
+  deploymentType: string;
+  billingState: string;
+  billingStartedAt: string | null;
+  billingStoppedAt: string | null;
   lastHealthAt: string | null;
   deletedAt: string | null;
   createdAt: string;
@@ -62,7 +65,10 @@ function deployment(overrides: Partial<DeploymentFixture>): DeploymentFixture {
     observedState: null,
     infraVersion: 'v1',
     installationId: 'vis-installation',
-    isTestDeployment: false,
+    deploymentType: 'PRODUCTION',
+    billingState: 'NOT_STARTED',
+    billingStartedAt: null,
+    billingStoppedAt: null,
     lastHealthAt: '2025-09-12T11:29:30Z',
     deletedAt: null,
     createdAt: CREATED_AT,

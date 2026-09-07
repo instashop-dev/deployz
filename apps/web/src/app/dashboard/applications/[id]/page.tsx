@@ -237,7 +237,7 @@ function ReadinessBody({
   });
 
   const testDeployment = deployments
-    .filter((d) => d.isTestDeployment && d.deletedAt === null)
+    .filter((d) => d.deploymentType === 'TEST' && d.deletedAt === null)
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 
   const requiredFindings = readiness.findings.filter((f) => f.severity === 'required');

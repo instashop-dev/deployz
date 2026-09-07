@@ -91,6 +91,18 @@ export function isSupportedRegion(value: string): value is Region {
 export const deploymentSourceSchema = z.enum(['manual', 'deploy_link']);
 export type DeploymentSource = z.infer<typeof deploymentSourceSchema>;
 
+// deployments.deployment_type — provider-independent classification (Paddle
+// migration Phase 2). Replaces is_test_deployment: a TEST deployment never
+// becomes billable (apps/api/src/billing-domain.ts).
+export const deploymentTypeSchema = z.enum(['TEST', 'PRODUCTION']);
+export type DeploymentType = z.infer<typeof deploymentTypeSchema>;
+
+// deployments.billing_state — Paddle migration Phase 2 billing state machine.
+// NOT_STARTED -> ACTIVE on the deployment's first READY stage, ACTIVE ->
+// STOPPED once removal is accepted. STOPPED is terminal.
+export const deploymentBillingStateSchema = z.enum(['NOT_STARTED', 'ACTIVE', 'STOPPED']);
+export type DeploymentBillingState = z.infer<typeof deploymentBillingStateSchema>;
+
 // §46 deployment states — product vocabulary. Customers never see raw
 // CFN/ECS internals; these ten states are the whole user-facing model.
 export const deploymentStateSchema = z.enum([
@@ -856,7 +868,10 @@ export const deploymentSchema = z.object({
   stepTimings: jsonRecord.nullable(),
   infraVersion: z.string(),
   installationId: z.string(),
-  isTestDeployment: z.boolean(),
+  deploymentType: deploymentTypeSchema,
+  billingState: deploymentBillingStateSchema,
+  billingStartedAt: z.iso.datetime().nullable(),
+  billingStoppedAt: z.iso.datetime().nullable(),
   lastHealthAt: z.iso.datetime().nullable(),
   deletedAt: z.iso.datetime().nullable(),
   cleanupState: cleanupStateSchema.nullable(),

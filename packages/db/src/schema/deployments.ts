@@ -1,9 +1,11 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 import {
   cleanupStateEnum,
+  deploymentBillingStateEnum,
   deploymentSourceEnum,
   deploymentStateEnum,
+  deploymentTypeEnum,
   healthStatusEnum,
   regionEnum,
   relayStatusEnum,
@@ -89,7 +91,15 @@ export const deployments = pgTable('deployments', {
   relayVersion: text('relay_version'),
   bootstrapVersion: text('bootstrap_version'),
   relayCapabilities: jsonb('relay_capabilities').$type<Record<string, boolean>>(),
-  isTestDeployment: boolean('is_test_deployment').notNull().default(false),
+  // Provider-independent classification (Paddle migration Phase 2). Replaces
+  // the is_test_deployment boolean — a TEST deployment never becomes
+  // billable (apps/api/src/billing-domain.ts).
+  deploymentType: deploymentTypeEnum('deployment_type').notNull().default('PRODUCTION'),
+  // Billing state machine, driven by apps/api/src/billing-lifecycle.ts.
+  // Write-once timestamps: once set, a transition never overwrites them.
+  billingState: deploymentBillingStateEnum('billing_state').notNull().default('NOT_STARTED'),
+  billingStartedAt: timestamp('billing_started_at', { withTimezone: true }),
+  billingStoppedAt: timestamp('billing_stopped_at', { withTimezone: true }),
   lastHealthAt: timestamp('last_health_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   // Null on a normal disconnect (relay removed the resources). Set only when

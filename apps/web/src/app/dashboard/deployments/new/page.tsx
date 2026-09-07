@@ -182,7 +182,7 @@ function NewDeploymentScreen() {
         applicationId,
         customerId,
         region,
-        isTestDeployment,
+        deploymentType: isTestDeployment ? 'TEST' : 'PRODUCTION',
       });
       setCreatedCustomerId(customerId);
       setCreatedApplicationId(applicationId);
