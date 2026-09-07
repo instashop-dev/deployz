@@ -17,7 +17,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-002 | CONFIG_ERROR | ANALYSIS_BUG | OPEN | repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 (gate audit, analysis version 15) |
 | DEPLOY-003 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 18 expected-deployable repositories the gate rejects (gate audit, analysis version 15) |
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
-| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIXED (PR #212 merged and deployed 2026-09-07: the `DB_*` family becomes binding aliases, analysis version 16; kutt rerun 6 reached RDS through `DB_HOST`) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
+| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIXED for `process.env` reads (PR #212, analysis v16; kutt rerun 6 reached RDS through `DB_HOST`); SECOND SHAPE measured on directus (attempt 1, 2026-09-07): reads through a local env object (`const env = useEnv(); env['DB_HOST']`) were invisible to the env detectors, so no alias was bound — FIX IN REVIEW (analysis v17: `env.X` / `env['X']` count as reads in a module that binds `env`) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 | DEPLOY-007 | DATABASE_ERROR | DEPLOYZ_BUG | FIXED (PR #213 merged, application templates republished 2026-09-07 ~11:35Z: option A — an init container delivers the regional RDS CA bundle into the task, `NODE_EXTRA_CA_CERTS` + `PGSSLROOTCERT`); kutt and umami reruns pending | repo-003 (kutt, `ssl: true`); repo-001 (umami, `sslmode=require` via adapter-pg) likely; every node-postgres client that verifies |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
@@ -192,9 +192,10 @@ no deployment-path change involved. Ranked in the final report.
 ## DEPLOY-005 — Applications that read the database or storage under their own variable names get no binding
 
 **Stage** ENV_BINDING_ERROR (predicted; Wave 1 measures it) · **Root
-cause** DEPLOYZ_BUG · **Resolution** FIXED (PR #212 merged and deployed
-2026-09-07; kutt rerun 6 connected to RDS through `DB_HOST`) · **Found**
-Phase 2 gate audit,
+cause** DEPLOYZ_BUG · **Resolution** FIXED for `process.env` reads (PR #212
+merged and deployed 2026-09-07; kutt rerun 6 connected to RDS through
+`DB_HOST`); a second shape measured on directus is FIX IN REVIEW (analysis
+version 17, see "Directus" below) · **Found** Phase 2 gate audit,
 from the manifest facts the deployment would act on.
 
 **Behaviour.** The deployment injects the managed database under
@@ -227,6 +228,33 @@ to non-Node shapes; (b) product: let the vendor map a provisioned value to
 a variable name on the configuration screen (`DEPLOYZ_DATABASE_URL`
 placeholders resolved by the relay at install), which needs no analyser
 signal. Decision after Wave 1 evidence.
+
+**Directus (repo-021, attempt 1, 2026-09-07).** The whole product chain
+held (zero-task INSTALL, CONFIG_UPDATE, the release scaled up) and the
+configured task exited 1 three times on `"DB_HOST" Environment Variable is
+missing` — CONTAINER_START_FAILED through DEPLOY-011's crash-loop rule.
+The manifest bound only the standard `DATABASE_*` names: the analyser's
+env-var model held two variables for the whole repository (`GITHUB_OUTPUT`,
+`NODE_ENV`), although it had fetched `api/src/database/index.ts`, which
+reads `env['DB_HOST']`, `env['DB_CLIENT']`, `env['DB_DATABASE']` … through
+`const env = useEnv()` (`@directus/env`). Every JS/TS read recogniser keyed
+on `process.env`; a module that reads its configuration through a local
+`env` object contributed nothing — so no `DB_*` alias, and the app's
+internal secrets `KEY`/`SECRET` were neither modelled nor minted
+(`unboundSecretKeys: [ADMIN_PASSWORD, KEY, SECRET]`; directus booted with a
+random `SECRET`, which would rotate tokens on every restart). Generic fix
+(analysis version 17): in a JS/TS module that binds `env` (`const env =
+…`, `import env from`, `= useEnv(`), `env.X` and `env['X']` count as reads
+for the env-var detector, the env-var model (with the same fallback/guard
+rules as `process.env` reads) and the Postgres connection evidence;
+`import.meta.env.VITE_X` in a module without such a binding still does not.
+Regression tests in `analysis.test.ts`, `phase7.test.ts` and
+`stage-b-phase2.test.ts` (the directus shape yields the five `DB_*`
+aliases). Also observed on the same run: a task of the template revision
+booted next to the configured revision for about five minutes (on SQLite,
+directus's default driver) before the rollout replaced it — the
+unconfigured start DEPLOY-009 exists to prevent, recorded as an
+observation for the relay's scale-up ordering.
 
 ## DEPLOY-006 — The generic template's container health check needs a shell and curl inside the image
 
