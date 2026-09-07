@@ -98,6 +98,55 @@ if (cookieDomain && !apiUrl.startsWith('https://')) {
   );
 }
 
+// Phase 5 Paddle billing. Optional at boot: an absent PADDLE_API_KEY only
+// warns — every billing surface then reports BILLING_DISABLED (503) rather
+// than crashing local dev or a fixture-mode test run. Once PADDLE_API_KEY IS
+// set, the remaining four keys (plus PADDLE_ENVIRONMENT and the price id
+// format) are validated strictly: missing configuration fails clearly at
+// startup instead of silently no-oping against the wrong Paddle account.
+const paddleApiKey = process.env.PADDLE_API_KEY;
+const paddleWebhookSecret = process.env.PADDLE_WEBHOOK_SECRET;
+const paddleClientToken = process.env.PADDLE_CLIENT_TOKEN;
+const paddlePricePlatform = process.env.PADDLE_PRICE_PLATFORM;
+const paddlePriceDeployment = process.env.PADDLE_PRICE_DEPLOYMENT;
+const paddleEnvironment = process.env.PADDLE_ENVIRONMENT ?? 'sandbox';
+
+if (!paddleApiKey) {
+  console.warn(
+    '[billing] PADDLE_API_KEY not set — billing is disabled; every billing surface reports BILLING_DISABLED. Set it in .env.',
+  );
+} else {
+  if (!paddleWebhookSecret) {
+    throw new Error(
+      'PADDLE_API_KEY is set but PADDLE_WEBHOOK_SECRET is missing — set it in .env (Paddle billing requires both).',
+    );
+  }
+  if (!paddleClientToken) {
+    throw new Error(
+      'PADDLE_API_KEY is set but PADDLE_CLIENT_TOKEN is missing — set it in .env (Paddle billing requires both).',
+    );
+  }
+  if (!paddlePricePlatform) {
+    throw new Error(
+      'PADDLE_API_KEY is set but PADDLE_PRICE_PLATFORM is missing — set it in .env (Paddle billing requires both).',
+    );
+  }
+  if (!paddlePriceDeployment) {
+    throw new Error(
+      'PADDLE_API_KEY is set but PADDLE_PRICE_DEPLOYMENT is missing — set it in .env (Paddle billing requires both).',
+    );
+  }
+  if (!paddlePricePlatform.startsWith('pri_')) {
+    throw new Error(`PADDLE_PRICE_PLATFORM must be a Paddle price id starting with "pri_"; got "${paddlePricePlatform}".`);
+  }
+  if (!paddlePriceDeployment.startsWith('pri_')) {
+    throw new Error(`PADDLE_PRICE_DEPLOYMENT must be a Paddle price id starting with "pri_"; got "${paddlePriceDeployment}".`);
+  }
+  if (paddleEnvironment !== 'sandbox' && paddleEnvironment !== 'production') {
+    throw new Error(`PADDLE_ENVIRONMENT must be "sandbox" or "production"; got "${paddleEnvironment}".`);
+  }
+}
+
 // §16/§29 AI explanations. The resolution rules (all credentials required, the
 // two secrets must differ) live in ai-config.ts so they are testable without
 // mutating process.env.
@@ -211,4 +260,13 @@ export const env = {
   // can. Resolved once here (not read at call time) so it stays
   // test-injectable.
   teamAdminEnvGrantsEnabled: !process.env.AWS_LAMBDA_FUNCTION_NAME,
+  // Phase 5 Paddle billing (see the validation block above). All undefined
+  // when PADDLE_API_KEY is unset; otherwise the four companion keys are
+  // guaranteed present and price ids are guaranteed to start with "pri_".
+  paddleApiKey,
+  paddleWebhookSecret,
+  paddleClientToken,
+  paddlePricePlatform,
+  paddlePriceDeployment,
+  paddleEnvironment: paddleEnvironment as 'sandbox' | 'production',
 } as const;

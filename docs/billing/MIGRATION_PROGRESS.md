@@ -29,9 +29,9 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 0 Audit | done | PR #216 | `docs/billing/paddle-migration-audit.md` |
 | 1 Remove Stripe | done | PR #218 | migration `0032_remove_stripe_billing`; summary route kept provider-neutral |
 | 2 Billing domain | done | PR #219 | `apps/api/src/billing-domain.ts`, `billing-lifecycle.ts`; migration `0033_deployment_billing_state` (`deployment_type`, `billing_state`, timestamps) |
-| 3 Billing schema | done | this PR | `billing_subscriptions`, `billing_provider_events`, `billing_reconciliation_events` (migration `0034`); `organization.plan` removed; organization responses carry `subscriptionStatus` |
-| 4 Paddle catalog (MCP) | pending | | sandbox catalog is empty at baseline |
-| 5 SDK + config | pending | | |
+| 3 Billing schema | done | PR #220 | `billing_subscriptions`, `billing_provider_events`, `billing_reconciliation_events` (migration `0034`); `organization.plan` removed; organization responses carry `subscriptionStatus` |
+| 4 Paddle catalog (MCP) | deferred | | Blocked on the Paddle sandbox MCP in this session (DNS failure, then tools not loadable in-process). Must complete before Phase 8 checkout verification. Sandbox catalog was empty at baseline. See "Phase 4 resume steps" |
+| 5 SDK + config | done | this PR | `@paddle/paddle-node-sdk`, `apps/api/src/paddle.ts`, `PADDLE_*` env validation, CDK allowlist, deploy workflow, `GET /api/billing/config` |
 | 6 Webhooks | pending | | |
 | 7 Evaluation entitlements | pending | | |
 | 8 First production activation | pending | | |
@@ -68,6 +68,40 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 - R0-8: Paddle checkout uses Paddle.js (client token) with a server-created
   transaction.
 
+## Phase 4 resume steps
+
+Phase 4 needs the authenticated Paddle **sandbox** MCP (never the live MCP,
+never the REST API — invariant 15). In a session where the MCP loads:
+
+1. Load the tools (`mcp__plugin_paddle_paddle-sandbox__search` /
+   `execute`) and the `paddle:catalog-setup` skill.
+2. List the sandbox catalog (`client.products.list`, `client.prices.list`).
+   The sandbox is shared: on 2026-09-08 it held one unrelated product
+   (`Revealyst Team`). Never modify or delete products that are not the two
+   Deployz products; create the Deployz products only if they do not exist.
+3. Create product `Deployz Platform` (description "Monthly Deployz platform
+   subscription for vendors using Deployz in production.") with one
+   recurring price: USD 4900, billing cycle 1 month, quantity 1..1 —
+   and product `Customer Deployment` (description "Monthly charge for each
+   active production customer deployment managed through Deployz.") with one
+   recurring price: USD 1900, billing cycle 1 month, quantity 1..1000.
+   Tax category `standard`. No trials, discounts, annual prices, tiers.
+4. Verify both prices are `active`, USD, monthly, 4900 / 1900.
+5. Record the ids in `docs/billing/paddle-catalog.md` (create it: environment,
+   product names, product ids, price ids, pricing model, date, sandbox
+   confirmation, how to create production equivalents). Put the price ids in
+   `.env.example` only as the documented values for `PADDLE_PRICE_PLATFORM`
+   and `PADDLE_PRICE_DEPLOYMENT`; never in source.
+6. Commit, PR, merge. Then run the Phase 8 Paddle-facing verification.
+
+Env names (already used by Phase 5): `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,
+`PADDLE_CLIENT_TOKEN`, `PADDLE_PRICE_PLATFORM`, `PADDLE_PRICE_DEPLOYMENT`,
+`PADDLE_ENVIRONMENT`.
+
 ## Known issues
 
-- None yet.
+- Local full-suite vitest on this Windows machine can crash a worker
+  (`Channel closed` / V8 out of memory). Run per-project with
+  `--maxWorkers=2`; CI is authoritative.
+- `.mcp.json` in the worktree is untracked and not ignored. Stage files
+  explicitly; never commit it.

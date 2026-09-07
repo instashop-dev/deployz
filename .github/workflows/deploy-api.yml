@@ -101,6 +101,20 @@ jobs:
       # deployz-templates-<region> bucket has a verified bootstrap template.
       DEPLOYABLE_AWS_REGIONS: ${{ vars.DEPLOYABLE_AWS_REGIONS }}
 
+      # Paddle billing (Phase 5). Optional in production too, mirroring
+      # env.ts: the Paddle catalog (Phase 4) does not exist yet, so these
+      # cannot be in the unconditional completeness gate below without
+      # blocking every deploy. A dedicated conditional step further down only
+      # enforces the other four once PADDLE_API_KEY is actually set.
+      # PADDLE_ENVIRONMENT is a repository *variable* (not a secret) and
+      # defaults to sandbox until ops switches production on.
+      PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
+      PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
+      PADDLE_CLIENT_TOKEN: ${{ secrets.PADDLE_CLIENT_TOKEN }}
+      PADDLE_PRICE_PLATFORM: ${{ secrets.PADDLE_PRICE_PLATFORM }}
+      PADDLE_PRICE_DEPLOYMENT: ${{ secrets.PADDLE_PRICE_DEPLOYMENT }}
+      PADDLE_ENVIRONMENT: ${{ vars.PADDLE_ENVIRONMENT || 'sandbox' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -141,6 +155,39 @@ jobs:
             exit 1
           fi
           echo "Every required value is present."
+
+      # Paddle is optional (the sandbox/production catalog from Phase 4 does
+      # not exist yet), so it is not in the unconditional gate above — an
+      # unconfigured PADDLE_API_KEY must not block every other deploy. Once
+      # ops sets PADDLE_API_KEY, though, a half-configured provider must still
+      # fail the deploy rather than silently run with a broken billing setup.
+      - name: Verify the Paddle configuration is complete
+        run: |
+          set -euo pipefail
+          if [ -z "${PADDLE_API_KEY:-}" ]; then
+            echo "Paddle billing is not configured — billing surfaces stay disabled."
+            exit 0
+          fi
+          missing=()
+          for key in PADDLE_WEBHOOK_SECRET PADDLE_CLIENT_TOKEN \
+                     PADDLE_PRICE_PLATFORM PADDLE_PRICE_DEPLOYMENT; do
+            if [ -z "${!key:-}" ]; then missing+=("$key"); fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "PADDLE_API_KEY is set but missing: ${missing[*]}" >&2
+            echo "Deploying without them would remove these values from the running API." >&2
+            exit 1
+          fi
+          for key in PADDLE_PRICE_PLATFORM PADDLE_PRICE_DEPLOYMENT; do
+            case "${!key}" in
+              pri_*) ;;
+              *)
+                echo "$key must be a Paddle price id starting with \"pri_\"; got \"${!key}\"." >&2
+                exit 1
+                ;;
+            esac
+          done
+          echo "Paddle configuration is complete."
 
       - name: Build workspace packages
         run: pnpm build

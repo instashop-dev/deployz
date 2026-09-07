@@ -17,6 +17,16 @@ const CLOUDFLARE_VARS = [
   'CLOUDFLARE_ZONE_EDIT_API_TOKEN',
 ];
 
+// Phase 5 Paddle billing config. Same isolation strategy as above.
+const PADDLE_VARS = [
+  'PADDLE_API_KEY',
+  'PADDLE_WEBHOOK_SECRET',
+  'PADDLE_CLIENT_TOKEN',
+  'PADDLE_PRICE_PLATFORM',
+  'PADDLE_PRICE_DEPLOYMENT',
+  'PADDLE_ENVIRONMENT',
+];
+
 describe('Cloudflare runtime config', () => {
   let tempDir: string;
 
@@ -78,6 +88,203 @@ describe('Cloudflare runtime config', () => {
     };
     walk(webRoot);
     expect(offenders).toEqual([]);
+  });
+});
+
+// Phase 5 Paddle billing config. Billing is optional at boot: an absent
+// PADDLE_API_KEY only warns (every billing surface then reports
+// BILLING_DISABLED). Once PADDLE_API_KEY is set, the remaining four keys and
+// PADDLE_ENVIRONMENT are validated strictly — a half-configured provider must
+// fail at startup, not silently no-op against the wrong Paddle account.
+describe('Paddle billing config', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'deployz-env-paddle-'));
+    vi.spyOn(process, 'cwd').mockReturnValue(tempDir);
+    for (const key of PADDLE_VARS) delete process.env[key];
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const key of PADDLE_VARS) delete process.env[key];
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('does not throw when PADDLE_API_KEY is unset, and every field reads undefined', async () => {
+    const { env } = await import('./env.js');
+    expect(env.paddleApiKey).toBeUndefined();
+    expect(env.paddleWebhookSecret).toBeUndefined();
+    expect(env.paddleClientToken).toBeUndefined();
+    expect(env.paddlePricePlatform).toBeUndefined();
+    expect(env.paddlePriceDeployment).toBeUndefined();
+    expect(env.paddleEnvironment).toBe('sandbox');
+  });
+
+  it('exposes every field and defaults the environment to sandbox when set', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_WEBHOOK_SECRET = 'test_replace_me';
+    process.env.PADDLE_CLIENT_TOKEN = 'pdl_sdbx_replace_me';
+    process.env.PADDLE_PRICE_PLATFORM = 'pri_platform_replace_me';
+    process.env.PADDLE_PRICE_DEPLOYMENT = 'pri_deployment_replace_me';
+
+    const { env } = await import('./env.js');
+    expect(env.paddleApiKey).toBe('test_replace_me');
+    expect(env.paddleWebhookSecret).toBe('test_replace_me');
+    expect(env.paddleClientToken).toBe('pdl_sdbx_replace_me');
+    expect(env.paddlePricePlatform).toBe('pri_platform_replace_me');
+    expect(env.paddlePriceDeployment).toBe('pri_deployment_replace_me');
+    expect(env.paddleEnvironment).toBe('sandbox');
+  });
+
+  it('honours an explicit PADDLE_ENVIRONMENT=production', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_WEBHOOK_SECRET = 'test_replace_me';
+    process.env.PADDLE_CLIENT_TOKEN = 'pdl_sdbx_replace_me';
+    process.env.PADDLE_PRICE_PLATFORM = 'pri_platform_replace_me';
+    process.env.PADDLE_PRICE_DEPLOYMENT = 'pri_deployment_replace_me';
+    process.env.PADDLE_ENVIRONMENT = 'production';
+
+    const { env } = await import('./env.js');
+    expect(env.paddleEnvironment).toBe('production');
+  });
+
+  it('throws naming the missing key when PADDLE_API_KEY is set without PADDLE_WEBHOOK_SECRET', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_CLIENT_TOKEN = 'pdl_sdbx_replace_me';
+    process.env.PADDLE_PRICE_PLATFORM = 'pri_platform_replace_me';
+    process.env.PADDLE_PRICE_DEPLOYMENT = 'pri_deployment_replace_me';
+
+    await expect(import('./env.js')).rejects.toThrow('PADDLE_WEBHOOK_SECRET');
+  });
+
+  it('throws naming the missing key when PADDLE_API_KEY is set without PADDLE_CLIENT_TOKEN', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_WEBHOOK_SECRET = 'test_replace_me';
+    process.env.PADDLE_PRICE_PLATFORM = 'pri_platform_replace_me';
+    process.env.PADDLE_PRICE_DEPLOYMENT = 'pri_deployment_replace_me';
+
+    await expect(import('./env.js')).rejects.toThrow('PADDLE_CLIENT_TOKEN');
+  });
+
+  it('throws naming the missing key when PADDLE_API_KEY is set without PADDLE_PRICE_PLATFORM', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_WEBHOOK_SECRET = 'test_replace_me';
+    process.env.PADDLE_CLIENT_TOKEN = 'pdl_sdbx_replace_me';
+    process.env.PADDLE_PRICE_DEPLOYMENT = 'pri_deployment_replace_me';
+
+    await expect(import('./env.js')).rejects.toThrow('PADDLE_PRICE_PLATFORM');
+  });
+
+  it('throws naming the missing key when PADDLE_API_KEY is set without PADDLE_PRICE_DEPLOYMENT', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_WEBHOOK_SECRET = 'test_replace_me';
+    process.env.PADDLE_CLIENT_TOKEN = 'pdl_sdbx_replace_me';
+    process.env.PADDLE_PRICE_PLATFORM = 'pri_platform_replace_me';
+
+    await expect(import('./env.js')).rejects.toThrow('PADDLE_PRICE_DEPLOYMENT');
+  });
+
+  it('throws when PADDLE_PRICE_PLATFORM does not start with pri_', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_WEBHOOK_SECRET = 'test_replace_me';
+    process.env.PADDLE_CLIENT_TOKEN = 'pdl_sdbx_replace_me';
+    process.env.PADDLE_PRICE_PLATFORM = 'not_a_price_id';
+    process.env.PADDLE_PRICE_DEPLOYMENT = 'pri_deployment_replace_me';
+
+    await expect(import('./env.js')).rejects.toThrow('PADDLE_PRICE_PLATFORM');
+  });
+
+  it('throws when PADDLE_PRICE_DEPLOYMENT does not start with pri_', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_WEBHOOK_SECRET = 'test_replace_me';
+    process.env.PADDLE_CLIENT_TOKEN = 'pdl_sdbx_replace_me';
+    process.env.PADDLE_PRICE_PLATFORM = 'pri_platform_replace_me';
+    process.env.PADDLE_PRICE_DEPLOYMENT = 'not_a_price_id';
+
+    await expect(import('./env.js')).rejects.toThrow('PADDLE_PRICE_DEPLOYMENT');
+  });
+
+  it('throws when PADDLE_ENVIRONMENT is neither sandbox nor production', async () => {
+    process.env.PADDLE_API_KEY = 'test_replace_me';
+    process.env.PADDLE_WEBHOOK_SECRET = 'test_replace_me';
+    process.env.PADDLE_CLIENT_TOKEN = 'pdl_sdbx_replace_me';
+    process.env.PADDLE_PRICE_PLATFORM = 'pri_platform_replace_me';
+    process.env.PADDLE_PRICE_DEPLOYMENT = 'pri_deployment_replace_me';
+    process.env.PADDLE_ENVIRONMENT = 'staging';
+
+    await expect(import('./env.js')).rejects.toThrow('PADDLE_ENVIRONMENT');
+  });
+});
+
+// Phase 15 — production Paddle deploy configuration. Pure text scans of
+// .github/workflows/deploy-api.yml: no network, no provider call, and no
+// secret value is ever read or printed (the token is asserted only as the
+// `${{ secrets.… }}` expression the workflow itself carries).
+describe('Phase 15 — production Paddle deploy configuration', () => {
+  const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+  const workflowPath = join(repoRoot, '.github', 'workflows', 'deploy-api.yml');
+  const workflow = readFileSync(workflowPath, 'utf8').replace(/\r\n/g, '\n');
+  const PADDLE_SECRET_KEYS = [
+    'PADDLE_API_KEY',
+    'PADDLE_WEBHOOK_SECRET',
+    'PADDLE_CLIENT_TOKEN',
+    'PADDLE_PRICE_PLATFORM',
+    'PADDLE_PRICE_DEPLOYMENT',
+  ];
+
+  it('the Lambda env block binds all six Paddle keys, secrets from secrets.* and the environment from vars.* defaulting to sandbox', async () => {
+    const envStart = workflow.indexOf('\n    env:\n');
+    const envEnd = workflow.indexOf('\n    steps:\n', envStart);
+    expect(envStart, 'could not locate the job-level env: block').toBeGreaterThan(-1);
+    expect(envEnd, 'could not locate the steps: block after env:').toBeGreaterThan(envStart);
+    const envBlock = workflow.slice(envStart, envEnd);
+
+    for (const key of PADDLE_SECRET_KEYS) {
+      expect(envBlock).toContain(`${key}: \${{ secrets.${key} }}`);
+    }
+    expect(envBlock).toContain("PADDLE_ENVIRONMENT: ${{ vars.PADDLE_ENVIRONMENT || 'sandbox' }}");
+  });
+
+  // Ruling: the Paddle catalog (Phase 4) does not exist yet, so the five
+  // Paddle secrets must NOT be in the unconditional completeness-gate loop —
+  // that would block every production deploy until Phase 4 ships. They are
+  // enforced only by the separate conditional step below.
+  it('the unconditional completeness-gate loop does NOT list any Paddle key', async () => {
+    const loops = [...workflow.matchAll(/for key in ([\s\S]*?); do/g)];
+    const unconditional = loops.find((match) => match[1]!.includes('CDK_DEFAULT_ACCOUNT'));
+    expect(unconditional, 'could not locate the unconditional completeness-gate loop').toBeDefined();
+    const loopBody = unconditional![1]!;
+    for (const key of PADDLE_SECRET_KEYS) {
+      expect(loopBody, `unconditional gate must NOT list ${key}`).not.toContain(key);
+    }
+  });
+
+  it('a dedicated "Verify the Paddle configuration is complete" step exits 0 when PADDLE_API_KEY is unset, otherwise requires the other four and the pri_ price format', async () => {
+    const stepStart = workflow.indexOf('- name: Verify the Paddle configuration is complete');
+    expect(stepStart, 'could not locate the Paddle verification step').toBeGreaterThan(-1);
+    const nextStepStart = workflow.indexOf('\n      - name:', stepStart + 1);
+    const step = workflow.slice(stepStart, nextStepStart === -1 ? undefined : nextStepStart);
+
+    // Unconfigured Paddle must not fail the deploy.
+    expect(step).toContain('if [ -z "${PADDLE_API_KEY:-}" ]');
+    expect(step).toContain('exit 0');
+
+    // Once PADDLE_API_KEY is set, the other four are named and required.
+    const loops = [...step.matchAll(/for key in ([\s\S]*?); do/g)];
+    const requiredLoop = loops.find((match) => match[1]!.includes('PADDLE_WEBHOOK_SECRET'));
+    expect(requiredLoop, 'could not locate the conditional required-key loop').toBeDefined();
+    for (const key of ['PADDLE_WEBHOOK_SECRET', 'PADDLE_CLIENT_TOKEN', 'PADDLE_PRICE_PLATFORM', 'PADDLE_PRICE_DEPLOYMENT']) {
+      expect(requiredLoop![1]!, `conditional step must require ${key}`).toContain(key);
+    }
+    // PADDLE_API_KEY itself is checked separately above, not re-listed here.
+    expect(requiredLoop![1]!).not.toContain('PADDLE_API_KEY');
+
+    // The pri_ price-id format check covers both price ids.
+    expect(step).toContain('pri_*');
+    expect(step).toContain('PADDLE_PRICE_PLATFORM');
+    expect(step).toContain('PADDLE_PRICE_DEPLOYMENT');
   });
 });
 
