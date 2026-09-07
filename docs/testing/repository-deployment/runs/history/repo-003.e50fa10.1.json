@@ -93,14 +93,16 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
-    "destroyJobState": "SKIPPED",
-    "purgeJobState": "SKIPPED",
+    "status": "FAIL",
+    "destroyJobState": null,
+    "purgeJobState": null,
     "cleanupState": null,
-    "bootstrapStackFinal": "already gone",
-    "leaks": [],
-    "durationMs": 60156,
-    "detail": null
+    "bootstrapStackFinal": null,
+    "leaks": [
+      "aws resourcegroupstaggingapi get-resources --tag-filters failed: aws: [ERROR]: An error occurred (ExpiredTokenException) when calling the GetResources operation: The security token included in the request is expired"
+    ],
+    "durationMs": 3613001,
+    "detail": "idle wait: Timed out after 3600s waiting for deployment to be idle before Disconnect; last: INSTALLING CONFIGURE_DOMAIN:SUCCEEDED | destroy/purge: POST /api/deployments/ed8eda54-4744-4289-94a4-4763323d92d0/destroy -> 409: Another deployment operation is already in progress. | leftovers: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: An error occurred (ExpiredToken) when calling the DescribeStacks operation: The security token included in the request is expired | leak audit: 1 resource(s) left"
   },
   "classification": "ENV_BINDING_ERROR",
   "failureStage": "ENV_BINDING_ERROR",

@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `e50fa10a98ad4d1869a51fb8948321dacfadadb1`
+Deployz commit: `5ffcb03b7c3d573a0abd5c8817205b4edbf8bb3d`
 
 | Metric | Value |
 | --- | --- |
@@ -16,7 +16,7 @@ Deployz commit: `e50fa10a98ad4d1869a51fb8948321dacfadadb1`
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 3 / 3 / 3 / 2 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 2 / 0 / 0 / 0 |
 | **True deployment success / expected deployable** | **2 / 65 (3.1%)** |
-| Cleanup: destroys / failures / leaks / success rate | 6 / 1 / 1 / 83.3% |
+| Cleanup: destroys / failures / leaks / success rate | 6 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -69,7 +69,7 @@ Deployz commit: `e50fa10a98ad4d1869a51fb8948321dacfadadb1`
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | repo-001 | umami-software/umami@ca661c7 | realistic | READY | — (—) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR | DEPLOY-002 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
-| repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | FAIL | ENV_BINDING_ERROR | DEPLOY-005, DEPLOY-009 |
+| repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | PASS | ENV_BINDING_ERROR | DEPLOY-005, DEPLOY-009 |
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

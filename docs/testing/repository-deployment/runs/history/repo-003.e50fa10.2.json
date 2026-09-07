@@ -93,14 +93,16 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
-    "destroyJobState": "SKIPPED",
-    "purgeJobState": "SKIPPED",
-    "cleanupState": null,
-    "bootstrapStackFinal": "already gone",
-    "leaks": [],
-    "durationMs": 60156,
-    "detail": null
+    "status": "FAIL",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/deploy-LoadB-5GVTRM0AIXJO/743812124a2ea927"
+    ],
+    "durationMs": 5532489,
+    "detail": "leak audit: 1 resource(s) left"
   },
   "classification": "ENV_BINDING_ERROR",
   "failureStage": "ENV_BINDING_ERROR",
