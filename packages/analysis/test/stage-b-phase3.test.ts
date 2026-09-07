@@ -233,6 +233,20 @@ describe('env-var purpose classification (Stage B phase 3)', () => {
     });
   });
 
+  it('never calls a provisioned-resource or mail credential an internal secret (DEPLOY-013)', () => {
+    // Discrete connection parts under the DB_* family are bindings (DEPLOY-005).
+    expect(classifyEnvVarPurpose('DB_HOST')).toEqual({ purpose: 'infrastructure_binding', confidence: 'high' });
+    expect(classifyEnvVarPurpose('DB_PASSWORD')).toEqual({ purpose: 'infrastructure_binding', confidence: 'high' });
+    // A credential of a provisioned resource the binding phase does not name is still a binding.
+    expect(classifyEnvVarPurpose('REDIS_PASSWORD')).toEqual({ purpose: 'infrastructure_binding', confidence: 'medium' });
+    expect(classifyEnvVarPurpose('POSTGRES_PASSWORD')).toEqual({ purpose: 'infrastructure_binding', confidence: 'medium' });
+    // A mail relay's credential is the vendor's provider secret.
+    expect(classifyEnvVarPurpose('MAIL_PASSWORD')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('SMTP_PASS')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    // An application-internal secret stays mintable.
+    expect(classifyEnvVarPurpose('JWT_SECRET')).toEqual({ purpose: 'internal_secret', confidence: 'medium' });
+  });
+
   it('populates purpose/confidence on the env-var model entries', () => {
     const tree: FileTree = {
       '.env.example': [

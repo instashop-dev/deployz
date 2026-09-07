@@ -2319,6 +2319,18 @@ const INFRA_BINDING_NAMES = new Set<string>([
   'DATABASE_NAME',
   'DATABASE_USER',
   'DATABASE_PASSWORD',
+  // The `DB_*` family the binding phase now injects (DEPLOY-005).
+  'DB_URL',
+  'DB_URI',
+  'DB_CONNECTION_STRING',
+  'DB_HOST',
+  'DB_PORT',
+  'DB_NAME',
+  'DB_DATABASE',
+  'DB_USER',
+  'DB_USERNAME',
+  'DB_PASSWORD',
+  'DB_PASS',
   'POSTGRES_URL',
   'POSTGRESQL_URL',
   'REDIS_URL',
@@ -2367,9 +2379,28 @@ export type EnvVarPurpose =
 const GENERIC_VENDOR_CREDENTIAL_SHAPE =
   /_(?:API_KEY|API_SECRET|CLIENT_SECRET|CLIENT_ID|ACCESS_KEY|ACCESS_TOKEN|SECRET_KEY|PRIVATE_KEY|PUBLIC_KEY)$/i;
 
+/**
+ * A mail relay's credential (MAIL_PASSWORD, SMTP_PASS, MAILER_USER…) belongs
+ * to a provider the vendor chose — a credential Deployz can never generate.
+ * Without this, a `*_PASSWORD` name read as an internal secret and the
+ * relay minted a random SMTP password (DEPLOY-013, kutt).
+ */
+const MAIL_CREDENTIAL_SHAPE = /^(?:MAIL|SMTP|EMAIL|MAILER)_(?:PASSWORD|PASS|USER(?:NAME)?|API_KEY|TOKEN|SECRET)$/i;
+
+/**
+ * A credential of a resource Deployz provisions (DB_PASSWORD, REDIS_PASSWORD,
+ * POSTGRES_USER…) is a binding, never an application-internal secret: the
+ * binding phase supplies it, and minting a random one would sever the
+ * connection it belongs to (DEPLOY-013, kutt's DB_PASSWORD).
+ */
+const PROVISIONED_CREDENTIAL_SHAPE =
+  /^(?:DB|DATABASE|POSTGRES|POSTGRESQL|PG|REDIS|CACHE|VALKEY)_?(?:PASSWORD|PASS|USER(?:NAME)?|SECRET|AUTH)$/i;
+
 /** External-credential double-guard: catalog keys or a generic vendor-credential name shape. */
 export function isExternalCredentialShape(key: string): boolean {
-  return externalServiceCatalogKeys().has(key) || GENERIC_VENDOR_CREDENTIAL_SHAPE.test(key);
+  return (
+    externalServiceCatalogKeys().has(key) || GENERIC_VENDOR_CREDENTIAL_SHAPE.test(key) || MAIL_CREDENTIAL_SHAPE.test(key)
+  );
 }
 
 /** Deterministic purpose for one env var key. */
@@ -2380,7 +2411,7 @@ export function classifyEnvVarPurpose(key: string): { purpose: EnvVarPurpose; co
   if (INFRA_BINDING_NAMES.has(key)) {
     return { purpose: 'infrastructure_binding', confidence: 'high' };
   }
-  if (INFRA_BINDING_ALIAS_REGEX.test(key)) {
+  if (INFRA_BINDING_ALIAS_REGEX.test(key) || PROVISIONED_CREDENTIAL_SHAPE.test(key)) {
     return { purpose: 'infrastructure_binding', confidence: 'medium' };
   }
   if (isSecretName(key)) {

@@ -161,6 +161,35 @@ describe('deriveInfrastructureBindings — postgres', () => {
     }
   });
 
+  it('detects the DB_HOST/PORT/NAME/USER/PASSWORD family as part bindings (DEPLOY-005)', () => {
+    const kuttTree: FileTree = shell({
+      'server/env.js': [
+        'module.exports = {',
+        '  DB_HOST: process.env.DB_HOST,',
+        '  DB_PORT: process.env.DB_PORT,',
+        '  DB_NAME: process.env.DB_NAME,',
+        '  DB_USER: process.env.DB_USER,',
+        '  DB_PASSWORD: process.env.DB_PASSWORD,',
+        '};',
+        '',
+      ].join('\n'),
+    });
+    const bindings = deriveInfrastructureBindings(kuttTree, analyse(kuttTree));
+    for (const [name, semantic] of [
+      ['DB_HOST', 'host'],
+      ['DB_PORT', 'port'],
+      ['DB_NAME', 'database'],
+      ['DB_USER', 'username'],
+      ['DB_PASSWORD', 'password'],
+    ] as const) {
+      expect(bindings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ resource: 'postgres', semantic, applicationVariable: name, source: 'explicit' }),
+        ]),
+      );
+    }
+  });
+
   it('detects GF_DATABASE_* URL/part conventions', () => {
     const analysis = analyse(grafanaTree);
     const bindings = deriveInfrastructureBindings(grafanaTree, analysis);
