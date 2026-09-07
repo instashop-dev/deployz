@@ -84,6 +84,7 @@ import {
   DEPLOYMENT_PRICE_DOLLARS,
 } from './billing-domain.js';
 import { markDeploymentLive, markDeploymentRemoved } from './billing-lifecycle.js';
+import { handlePaddleWebhook } from './billing-webhooks.js';
 import { createPaddle, type PaddleBilling } from './paddle.js';
 import {
   createConfigStore,
@@ -1487,14 +1488,16 @@ export async function buildServer({
     });
   }
 
-  // GitHub webhook signature verification needs the RAW body, so register a
-  // raw-json parser for that route before the JSON parser consumes it. A bad
-  // signature -> 400 structured envelope.
+  // GitHub and Paddle webhooks verify signatures over the raw body, so
+  // register a raw-json parser for those routes before the JSON parser
+  // consumes them. A bad signature -> 400/401 structured envelope.
   app.addContentTypeParser(
     'application/json',
     { parseAs: 'string', bodyLimit: 1048576 },
     (request, body, done) => {
-      const rawWebhook = request.raw.url?.startsWith('/api/github/webhook');
+      const rawWebhook =
+        request.raw.url?.startsWith('/api/github/webhook') ||
+        request.raw.url?.startsWith('/api/billing/webhook');
       if (rawWebhook) {
         done(null, body);
         return;
@@ -5122,6 +5125,19 @@ export async function buildServer({
       pricePlatform: paddle.config.pricePlatform,
       priceDeployment: paddle.config.priceDeployment,
     };
+  });
+
+  // POST /api/billing/webhook — Paddle subscription/transaction events.
+  // Signature-verified over the raw body (see the addContentTypeParser
+  // carve-out above); ApiErrors (missing/invalid signature, billing
+  // disabled) render through the existing error handler as 401/503. A
+  // processing failure throws a plain Error so this answers 500 and Paddle
+  // retries the same event id.
+  app.post('/api/billing/webhook', async (request, reply) => {
+    const signatureHeader = request.headers['paddle-signature'];
+    const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
+    const result = await handlePaddleWebhook({ db, paddle }, request.body as string, signature);
+    return reply.send({ received: true, outcome: result.outcome });
   });
 
   // ── Onboarding (§42) ────────────────────────────────────────────────────

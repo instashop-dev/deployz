@@ -26,6 +26,11 @@ export const billingSubscriptions = pgTable('billing_subscriptions', {
   status: billingSubscriptionStatusEnum('status').notNull(),
   currentPeriodStart: timestamp('current_period_start', { withTimezone: true }),
   currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+  // Paddle's `scheduled_change` — a pending cancel/pause/resume already
+  // accepted for this subscription, with its effective date. Null when
+  // nothing is scheduled. Written by the Phase 6 webhook handler.
+  scheduledChangeAction: text('scheduled_change_action'),
+  scheduledChangeAt: timestamp('scheduled_change_at', { withTimezone: true }),
   lastProviderEventAt: timestamp('last_provider_event_at', { withTimezone: true }),
   lastReconciledAt: timestamp('last_reconciled_at', { withTimezone: true }),
   createdAt: createdAt(),
