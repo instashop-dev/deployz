@@ -807,7 +807,11 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Resource": "*",
             },
             {
-              "Action": "secretsmanager:DeleteSecret",
+              "Action": [
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:ResourceTag/deployz:installation": {
@@ -1498,7 +1502,11 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Sid": "RelayPurgeSecretsList",
             },
             {
-              "Action": "secretsmanager:DeleteSecret",
+              "Action": [
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+              ],
               "Condition": {
                 "StringEquals": {
                   "aws:ResourceTag/deployz:installation": {
@@ -1511,7 +1519,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               },
               "Effect": "Allow",
               "Resource": "*",
-              "Sid": "RelayPurgeSecretsDelete",
+              "Sid": "RelayInstallationSecrets",
             },
             {
               "Action": [

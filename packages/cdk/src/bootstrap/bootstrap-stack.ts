@@ -283,6 +283,19 @@ const PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS = [
 const PHASE_2_PURGE_SECRET_DELETE_ACTIONS = ['secretsmanager:DeleteSecret'] as const;
 
 /**
+ * CONFIG_UPDATE — the relay merges vendor/customer secret values (and the
+ * secrets it mints) into the application stack's `AppConfigSecret`, then
+ * binds them on the task definition. Resource-tag-scoped: the secret
+ * carries this installation's `deployz:installation` tag (DEPLOY-012 — the
+ * grant lived only on the CloudFormation execution role, so every config
+ * pass was denied `GetSecretValue`).
+ */
+const PHASE_2_CONFIG_SECRET_ACTIONS = [
+  'secretsmanager:GetSecretValue',
+  'secretsmanager:PutSecretValue',
+] as const;
+
+/**
  * CANARY-015 — PURGE's orphaned-network sweep. A data-preserving Disconnect
  * that retains the RDS instance also retains the private subnet its ENI
  * pins alive, the DB security group, and (once those two block DeleteVpc)
@@ -974,10 +987,15 @@ export class BootstrapStack extends Stack {
       actions: [...PHASE_2_PURGE_SECRET_DISCOVER_ACTIONS],
       resources: ['*'],
     });
-    const phase2PurgeSecretsDelete = new PolicyStatement({
-      sid: 'RelayPurgeSecretsDelete',
+    // One tag-scoped statement for every secret operation on this
+    // installation's own secrets: PURGE's delete of the retained credentials,
+    // and CONFIG_UPDATE's read-merge-write of the application's
+    // `AppConfigSecret` (DEPLOY-012). One statement, not two: the provisioner
+    // policy sits a few dozen characters under IAM's managed-policy size cap.
+    const phase2InstallationSecrets = new PolicyStatement({
+      sid: 'RelayInstallationSecrets',
       effect: Effect.ALLOW,
-      actions: [...PHASE_2_PURGE_SECRET_DELETE_ACTIONS],
+      actions: [...PHASE_2_PURGE_SECRET_DELETE_ACTIONS, ...PHASE_2_CONFIG_SECRET_ACTIONS],
       resources: ['*'],
       conditions: {
         StringEquals: {
@@ -1113,7 +1131,7 @@ export class BootstrapStack extends Stack {
       phase2PurgeStorage,
       phase2PurgeRdsDiscover,
       phase2PurgeSecretsList,
-      phase2PurgeSecretsDelete,
+      phase2InstallationSecrets,
       phase2PurgeAcmDiscover,
       phase2PurgeNetworkDiscover,
       phase2PurgeNetworkDelete,

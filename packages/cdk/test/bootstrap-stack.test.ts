@@ -519,6 +519,25 @@ describe('BootstrapStack', () => {
     expect(boundary).toContain('ecs:RunTask');
   });
 
+  it('grants the relay tag-scoped read/write of the application config secret for CONFIG_UPDATE (DEPLOY-012)', () => {
+    const { stack } = synth();
+    const statements = stack.provisionerPolicy.document.toJSON()['Statement'] as Array<Record<string, unknown>>;
+    const grant = statements.find((s) => s['Sid'] === 'RelayInstallationSecrets');
+    expect(collectActions([grant]).sort()).toEqual([
+      'secretsmanager:DeleteSecret',
+      'secretsmanager:GetSecretValue',
+      'secretsmanager:PutSecretValue',
+    ]);
+    expect(
+      (grant?.['Condition'] as Record<string, Record<string, unknown>>)?.['StringEquals']?.['aws:ResourceTag/deployz:installation'],
+    ).toBeDefined();
+    // The boundary caps the role: the same grant must be there too (without its Sid).
+    const boundary = stack.permissionsBoundary.document.toJSON()['Statement'] as Array<Record<string, unknown>>;
+    expect(
+      boundary.some((s) => collectActions([s]).includes('secretsmanager:PutSecretValue') && s['Condition'] !== undefined),
+    ).toBe(true);
+  });
+
   it('grants the relay the Phase 9 purge discovery reads and tag-scoped retained-credential deletion', () => {
     const { stack } = synth();
     const statements = stack.provisionerPolicy.document.toJSON()[
@@ -549,8 +568,8 @@ describe('BootstrapStack', () => {
     ]);
     expect(secretsList?.['Condition']).toBeUndefined();
 
-    const secretsDelete = findBySid('RelayPurgeSecretsDelete');
-    expect(actionsOf('RelayPurgeSecretsDelete')).toEqual(['secretsmanager:DeleteSecret']);
+    const secretsDelete = findBySid('RelayInstallationSecrets');
+    expect(actionsOf('RelayInstallationSecrets')).toContain('secretsmanager:DeleteSecret');
     expect(
       (secretsDelete?.['Condition'] as Record<string, Record<string, unknown>>)?.[
         'StringEquals'
