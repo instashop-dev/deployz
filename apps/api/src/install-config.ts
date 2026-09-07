@@ -1,4 +1,5 @@
 import { generatedEnvKeys } from '@deployz/analysis';
+import type { DeploymentManifest } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
@@ -38,19 +39,41 @@ export async function buildRelayConfigEntries(
   store: ConfigStore,
 ): Promise<RelayConfigEntry[]> {
   const view = await getConfig(deployment.applicationId, deployment.customerId, store);
+  const manifest = readStoredManifest(deployment.desiredState);
+  const mintable = new Set<string>(manifest ? mintableKeys(manifest) : []);
+  // A secret the vendor typed is write-only (§31): its value reached only
+  // the deployments whose relay was connected at the time, and a deployment
+  // installed later has nothing to bind. For an app-internal secret the
+  // relay may mint one — it keeps any value already in the customer's
+  // store, so a delivered vendor value always wins (DEPLOY-013).
   const entries: RelayConfigEntry[] = view.effective.map((entry) => ({
     key: entry.key,
     isSecret: entry.isSecret,
     ...(entry.isSecret ? {} : { value: entry.value ?? '' }),
     source: entry.source,
+    ...(entry.isSecret && mintable.has(entry.key) ? { generated: true as const } : {}),
   }));
   const configured = new Set(entries.map((entry) => entry.key));
-  const manifest = readStoredManifest(deployment.desiredState);
-  for (const key of manifest ? generatedEnvKeys(manifest) : []) {
+  for (const key of mintable) {
     if (configured.has(key)) continue;
     entries.push({ key, isSecret: true, source: 'generated', generated: true });
   }
   return entries;
+}
+
+/**
+ * Keys the relay may mint inside the customer's account when no value has
+ * reached it: the analyser's `deployz_generated` classification, plus every
+ * secret whose purpose is an app-internal secret (a JWT/session/encryption
+ * key the application only needs to be random) whatever its classification.
+ * External credentials and customer-required values are never minted.
+ */
+function mintableKeys(manifest: DeploymentManifest): string[] {
+  const generated = new Set(generatedEnvKeys(manifest));
+  for (const variable of manifest.environment.variables) {
+    if (variable.secret === true && variable.purpose === 'internal_secret') generated.add(variable.key);
+  }
+  return [...generated];
 }
 
 /**
