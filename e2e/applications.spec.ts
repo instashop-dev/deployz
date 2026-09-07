@@ -142,14 +142,19 @@ test('editing application details persists the change', async ({ page }) => {
   await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
-  // Edit the containerPort field.
-  await page.getByTestId('app-details-field-containerPort').fill('8080');
-  await page.getByTestId('app-details-save').click();
-  await expect(page.getByText('Saved.')).toBeVisible();
+  // Edit the containerPort field from the readiness table.
+  await page.getByTestId('readiness-setting-edit-port').click();
+  const dialog = page.getByTestId('edit-dialog-containerPort');
+  await expect(dialog).toBeVisible();
+  await dialog.locator('input').fill('8080');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+
+  // The table now shows the overridden value.
+  await expect(page.getByTestId('readiness-setting-port')).toContainText('8080');
 
   // Reload and verify the value persisted.
   await page.reload();
-  await expect(page.getByTestId('app-details-field-containerPort')).toHaveValue('8080');
+  await expect(page.getByTestId('readiness-setting-port')).toContainText('8080');
 });
 
 test('deleting an application removes it from the list', async ({ page }) => {
@@ -162,7 +167,8 @@ test('deleting an application removes it from the list', async ({ page }) => {
   // on the detail page.
   const repoFullName = 'deployz-demo/express-api';
 
-  // Type the repo name into the delete confirmation field and click delete.
+  // Open the danger-zone dialog, type the repo name, and confirm deletion.
+  await page.getByTestId('delete-app-trigger').click();
   await page.getByTestId('delete-app-confirm').fill(repoFullName);
   await page.getByTestId('delete-app-button').click();
 
@@ -197,6 +203,7 @@ test('delete is blocked when the application has a deployment', async ({ page })
 
   // Now try to delete — the 409 should block it.
   const repoFullName = 'deployz-demo/express-api';
+  await page.getByTestId('delete-app-trigger').click();
   await page.getByTestId('delete-app-confirm').fill(repoFullName);
   await page.getByTestId('delete-app-button').click();
 

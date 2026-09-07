@@ -50,8 +50,8 @@ test('choosing a repository creates a real application and opens its readiness p
   // fixture-repo-* id.
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
-  await expect(page.getByTestId('onboarding-steps')).toBeVisible();
-  await expect(page.getByTestId('readiness-verdict')).toBeVisible();
+  await expect(page.getByTestId('lifecycle-steps')).toBeVisible();
+  await expect(page.getByTestId('readiness-table')).toBeVisible();
 });
 
 test('a freshly-analysed application shows the real §19 COMPLETE verdict', async ({ page }) => {
@@ -62,23 +62,18 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
 
   // The fixture repo (deployz-demo/express-api) analyses as fully READY —
   // analysis completes near-instantly in fixture mode, so the page renders
-  // the real verdict, not the pending state. Phase 11 shows the verdict as a
-  // status card heading and again inside the readiness summary, so target the
-  // unique heading.
-  await expect(page.getByRole('heading', { name: 'Ready to deploy' })).toBeVisible();
-  await expect(page.getByTestId('readiness-summary')).toHaveText(
-    'Your application passed all required deployment checks.',
-  );
+  // the real verdict, not the pending state. The redesigned page shows the
+  // verdict in the page header and the readiness table.
+  await expect(page.getByRole('heading', { name: 'Ready for test deployment' })).toBeVisible();
   await expect(page.getByText('Checking deployment readiness…')).toHaveCount(0);
 
-  // What Deployz detected — the facts the deployment is built from, in plain
-  // words, with the evidence behind a disclosure.
-  const detected = page.getByTestId('readiness-detected');
-  await expect(detected).toBeVisible();
-  await expect(detected.getByTestId('readiness-detected-runtime')).toContainText('Node.js');
-  await expect(detected.getByTestId('readiness-detected-port')).toContainText('3000');
-  await expect(detected.getByTestId('readiness-detected-health')).toContainText('/health');
-  await expect(detected.getByTestId('readiness-detected-database')).toContainText('PostgreSQL');
+  const table = page.getByTestId('readiness-table');
+  await expect(table).toBeVisible();
+  // The detected facts now live as rows in the readiness table.
+  await expect(page.getByTestId('readiness-setting-runtime')).toContainText('Node.js');
+  await expect(page.getByTestId('readiness-setting-port')).toContainText('3000');
+  await expect(page.getByTestId('readiness-setting-health')).toContainText('/health');
+  await expect(page.getByTestId('readiness-setting-database')).toContainText('PostgreSQL');
 });
 
 test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => {
@@ -87,7 +82,7 @@ test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => 
   await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
-  await expect(page.getByTestId('readiness-verdict')).toBeVisible();
+  await expect(page.getByTestId('readiness-table')).toBeVisible();
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(JARGON);
 });
@@ -98,8 +93,8 @@ test('re-analysing settles the button back to Re-analyse and refreshes the appli
   await signUp(page);
   await page.goto('/dashboard/applications');
   await page.getByRole('button', { name: 'Select' }).first().click();
-  await page.waitForURL(/\/dashboard\/applications\/([0-9a-f-]{36})$/);
-  await expect(page.getByTestId('readiness-verdict')).toBeVisible();
+  await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('readiness-table')).toBeVisible();
 
   const applicationId = page.url().split('/').pop()!;
   // Stand in for the change a real re-analysis persists: the row moves

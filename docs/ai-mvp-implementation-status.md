@@ -223,16 +223,17 @@ lint on analysis/contracts/api, `tsc --noEmit` on the API. PR #176.
    agent), by the analysis runner when it persists the verdict, and by the
    application PATCH handler, which re-derives `compatibilityStatus` /
    `compatibilityReason` when the port or a manifest-only override changes.
-4. **UI** — "What Deployz detected" on the readiness card
-   (`apps/web/src/components/readiness-result.tsx`, rows from
-   `detectedFactRows` in `apps/web/src/lib/readiness.ts`): runtime,
-   framework, start and build commands, port, database, cache/queue, file
-   storage, health check, migrations. Each row shows the value in plain
-   words, a one-line source/confidence hint ("From the container setup",
-   "Inferred by AI analysis — verify before relying on it"), and the
-   evidence behind a disclosure. Missing values render quietly; the checks
-   above already say what needs action. Rows analysed before Version 13
-   simply omit the section.
+  4. **UI** — "What Deployz detected" is now part of the deployment-readiness
+     table on the application readiness page
+     (`apps/web/src/app/dashboard/applications/[id]/page.tsx`, rows derived
+     from `detectedFactRows` in `apps/web/src/lib/readiness.ts`): runtime,
+     framework, start and build commands, port, database, cache/queue, file
+     storage, health check, migrations, and background worker. Each row shows
+     the value in plain words, a one-line source/confidence hint ("From the
+     container setup", "Inferred by AI analysis — verify before relying on
+     it"), and the evidence behind a disclosure. Missing values render quietly;
+     the checks already say what needs action. Rows analysed before Version 13
+     simply omit the section.
 
 ### Tests
 
@@ -246,8 +247,9 @@ lint on analysis/contracts/api, `tsc --noEmit` on the API. PR #176.
   clears the verdict with the port; unrelated PATCH leaves it alone.
 - `apps/web/test/readiness.test.ts`: `detectedFactRows` order, plain-words
   values, quiet missing values, AI/likely hints, jargon-free.
-- `apps/web/test/readiness-result.test.tsx`: the section renders after the
-  checks with evidence behind a disclosure; omitted for legacy rows.
+- `apps/web/test/readiness-result.test.tsx`: the redesigned header, lifecycle
+  stepper, and readiness table derivations are tested; evidence stays behind a
+  disclosure; rows are omitted when no analysis is available.
 - `e2e/readiness.spec.ts`: the detected section for the fixture repository.
 - Every GitHub fixture repository keeps its readiness state (checked by
   running the report over `GITHUB_FIXTURE_FILE_TREES`).

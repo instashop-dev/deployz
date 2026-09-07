@@ -143,26 +143,16 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   // in the collapsed Passed checks group — never a fabricated verdict, this
   // is the real §18/§19 analyser run against the fixture file tree.
   await page.goto(`/dashboard/applications/${applicationId}`);
-  await expect(page.getByTestId('readiness-verdict')).toBeVisible();
-  // Phase 11 shows the verdict as a card heading and again inside the summary —
-  // target the unique heading.
-  await expect(page.getByRole('heading', { name: 'Ready to deploy' })).toBeVisible();
-  // bullmq usage with no resolved worker start script is a recommended
-  // finding ("Background job runner") — recommended findings never block
-  // READY (packages/analysis/src/readiness-report.ts), so the state reads as
-  // all required checks passed and the finding renders as a recommendation.
-  await expect(page.getByTestId('readiness-summary')).toHaveText(
-    'Your application passed all required deployment checks.',
-  );
+  await expect(page.getByTestId('readiness-table')).toBeVisible();
+  // The redesigned page shows the verdict in the page header and the readiness
+  // table. Recommended findings never block READY, so the heading is ready.
+  await expect(page.getByRole('heading', { name: 'Ready for test deployment' })).toBeVisible();
+  await expect(page.getByText('required checks passed')).toBeVisible();
   await expect(
     page
-      .getByTestId('readiness-recommended-list')
+      .getByTestId('readiness-table')
       .getByText('Background job runner', { exact: true }),
   ).toBeVisible();
-  // Phase 11 replaced the verbose passed-checks list with a progress summary
-  // (all required checks pass; only the recommended worker finding remains),
-  // so the deployable state is asserted through the summary bar instead.
-  await expect(page.getByRole('progressbar', { name: /checks passed/ })).toBeVisible();
 
   // ── 3. Create a customer + deployment for this application, then open the
   // install link page: the "Deployz will create" list includes a Redis cache
@@ -234,15 +224,16 @@ test('legacy-redis: analyses as unsupported — "Your app uses Redis features De
   );
 
   await page.goto(`/dashboard/applications/${applicationId}`);
-  await expect(page.getByTestId('readiness-verdict')).toBeVisible();
+  await expect(page.getByTestId('readiness-table')).toBeVisible();
   // The unsupported Redis setup is a blocking rejection, so the state is
   // NEEDS_CHANGES (packages/analysis/src/readiness-report.ts's REDIS_COPY)
   // and the heading reads out the blocking change count.
   await expect(
-    page.getByRole('heading', { name: /needed before deployment/ }),
+    page.getByRole('heading', { name: 'Action required before deployment' }),
   ).toBeVisible();
-  const requiredList = page.getByTestId('readiness-required-list');
   await expect(
-    requiredList.getByText("Your app uses Redis features Deployz can't provide", { exact: true }),
+    page
+      .getByTestId('readiness-table')
+      .getByText("Your app uses Redis features Deployz can't provide", { exact: true }),
   ).toBeVisible();
 });
