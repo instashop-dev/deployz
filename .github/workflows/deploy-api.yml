@@ -98,6 +98,13 @@ jobs:
       # to production: it used to be set by redeploying by hand.
       BOOTSTRAP_TEMPLATE_URL: ${{ vars.BOOTSTRAP_TEMPLATE_URL }}
 
+      # Regions the "Create Test Deployment" form is allowed to offer.
+      # Comma-separated, checked against SUPPORTED_AWS_REGIONS
+      # (packages/contracts). Printed by the same publish:bootstrap run as
+      # BOOTSTRAP_TEMPLATE_URL above — a region only belongs here once its
+      # deployz-templates-<region> bucket has a verified bootstrap template.
+      DEPLOYABLE_AWS_REGIONS: ${{ vars.DEPLOYABLE_AWS_REGIONS }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
