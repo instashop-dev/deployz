@@ -985,6 +985,48 @@ describe('server — PATCH/DELETE /api/applications/:id (§36,§37)', () => {
     expect((response.json() as { updatedBy: string | null }).updatedBy).toBe(org.userId);
   });
 
+  it('PATCH with null removes the field from vendorOverrides', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      containerPort: 3000,
+      healthPath: '/health',
+      detectedMetadata: { vendorOverrides: ['containerPort', 'healthPath'] },
+    });
+    // Set containerPort to null — the field is released from vendor ownership.
+    let response = await sendJson(
+      app, 'PATCH', `/api/applications/${application.id}`,
+      { containerPort: null }, { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(200);
+    let metadata = (response.json() as { detectedMetadata: { vendorOverrides?: string[] } }).detectedMetadata;
+    expect(metadata.vendorOverrides).toEqual(['healthPath']);
+    // Set healthPath to null — released too.
+    response = await sendJson(
+      app, 'PATCH', `/api/applications/${application.id}`,
+      { healthPath: null }, { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(200);
+    metadata = (response.json() as { detectedMetadata: { vendorOverrides?: string[] } }).detectedMetadata;
+    expect(metadata.vendorOverrides).toEqual([]);
+    // An absent field does not touch vendorOverrides.
+    response = await sendJson(
+      app, 'PATCH', `/api/applications/${application.id}`,
+      { name: 'Still Auto' }, { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(200);
+    metadata = (response.json() as { detectedMetadata: { vendorOverrides?: string[] } }).detectedMetadata;
+    expect(metadata.vendorOverrides).toEqual([]);
+    // A non-null value claims the field normally.
+    response = await sendJson(
+      app, 'PATCH', `/api/applications/${application.id}`,
+      { containerPort: 8080 }, { cookie: org.cookie },
+    );
+    expect(response.statusCode).toBe(200);
+    metadata = (response.json() as { detectedMetadata: { vendorOverrides?: string[] } }).detectedMetadata;
+    expect(metadata.vendorOverrides).toEqual(['containerPort']);
+    // Column value is null after release.
+    expect((response.json() as { containerPort: number | null }).containerPort).toBe(8080);
+  });
+
   it('DELETE removes the application and logs an event', async () => {
     const application = await insertApplication(db, org.organizationId, { name: 'To Delete' });
     const response = await app.inject({ method: 'DELETE', url: `/api/applications/${application.id}`, headers: { cookie: org.cookie } });

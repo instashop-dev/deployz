@@ -2642,9 +2642,17 @@ export async function buildServer({
     const claimed = CONTRACT_FIELDS.filter(
       (field) => set[field] !== undefined && set[field] !== existing[field],
     );
-    if (claimed.length > 0 || manifestOnlyChanged) {
-      if (claimed.length > 0) {
+    // A field explicitly set to null relinquishes vendor ownership so the next
+    // analysis re-detects it (see analysis.ts deriveContractFieldUpdates).
+    const released = CONTRACT_FIELDS.filter(
+      (field) => body[field] === null,
+    );
+    if (claimed.length > 0 || released.length > 0 || manifestOnlyChanged) {
+      if (claimed.length > 0 || released.length > 0) {
         const overrides = new Set([...readVendorOverrides(existing.detectedMetadata), ...claimed]);
+        for (const field of released) {
+          overrides.delete(field);
+        }
         nextMetadata = { ...nextMetadata, vendorOverrides: [...overrides] };
       }
       set.detectedMetadata = nextMetadata;
