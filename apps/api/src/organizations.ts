@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import type { BillingSubscriptionStatus } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -178,7 +179,9 @@ export interface OrganizationSummary {
   id: string;
   name: string;
   slug: string;
-  plan: (typeof schema.organization.$inferSelect)['plan'];
+  // Null when the organization has no billing_subscriptions row — evaluation
+  // mode, not any particular subscription state.
+  subscriptionStatus: BillingSubscriptionStatus | null;
   role: OrganizationRole;
   memberCount: number;
   createdAt: Date;
@@ -193,12 +196,16 @@ export async function listOrganizations(
       id: schema.organization.id,
       name: schema.organization.name,
       slug: schema.organization.slug,
-      plan: schema.organization.plan,
+      subscriptionStatus: schema.billingSubscriptions.status,
       role: schema.member.role,
       createdAt: schema.organization.createdAt,
     })
     .from(schema.member)
     .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
+    .leftJoin(
+      schema.billingSubscriptions,
+      eq(schema.billingSubscriptions.organizationId, schema.organization.id),
+    )
     .where(eq(schema.member.userId, userId))
     .orderBy(asc(schema.organization.name));
 
@@ -330,6 +337,20 @@ export async function listInvitationsForEmail(
   return rows.filter((row) => row.expiresAt.getTime() > Date.now());
 }
 
+/** The organization's current subscription status, or null in evaluation
+ *  mode (no billing_subscriptions row). */
+export async function getSubscriptionStatus(
+  db: RuntimeDb,
+  organizationId: string,
+): Promise<BillingSubscriptionStatus | null> {
+  const [row] = await db
+    .select({ status: schema.billingSubscriptions.status })
+    .from(schema.billingSubscriptions)
+    .where(eq(schema.billingSubscriptions.organizationId, organizationId))
+    .limit(1);
+  return row?.status ?? null;
+}
+
 // ── Organization lifecycle ──────────────────────────────────────────────────
 
 export async function createOrganization(
@@ -358,7 +379,8 @@ export async function createOrganization(
     id,
     name: organization!.name,
     slug: organization!.slug,
-    plan: organization!.plan,
+    // A brand-new organization has no billing_subscriptions row yet.
+    subscriptionStatus: null,
     role: 'owner',
     memberCount: 1,
     createdAt: organization!.createdAt,
@@ -494,6 +516,16 @@ export async function deleteOrganization(
     .delete(schema.applications)
     .where(eq(schema.applications.organizationId, organizationId));
   await db.delete(schema.customers).where(eq(schema.customers.organizationId, organizationId));
+  // Billing rows FK to organization — leaf-first before the org itself goes.
+  await db
+    .delete(schema.billingReconciliationEvents)
+    .where(eq(schema.billingReconciliationEvents.organizationId, organizationId));
+  await db
+    .delete(schema.billingProviderEvents)
+    .where(eq(schema.billingProviderEvents.organizationId, organizationId));
+  await db
+    .delete(schema.billingSubscriptions)
+    .where(eq(schema.billingSubscriptions.organizationId, organizationId));
   await db.delete(schema.invitation).where(eq(schema.invitation.organizationId, organizationId));
   await db.delete(schema.member).where(eq(schema.member.organizationId, organizationId));
   // Sessions still pointing here must lose the pointer, or their next request

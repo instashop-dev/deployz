@@ -6,6 +6,7 @@
 import { cookies } from 'next/headers';
 
 import { serverApiUrl } from '@/lib/api-url';
+import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 
@@ -25,6 +26,12 @@ export interface BillingSummary {
   deployments: BillingDeploymentLine[];
   /** base + sum(deployments.amount), in whole dollars. */
   total: number;
+  /** `null` means the organization has no subscription yet (evaluation). */
+  subscription: {
+    status: SubscriptionStatus;
+    currentPeriodStart: string | null;
+    currentPeriodEnd: string | null;
+  } | null;
 }
 
 // ── Fetch ───────────────────────────────────────────────────────────────────

@@ -7,7 +7,8 @@
  * shapes. `readInventory` is read-only. `purgeCustomerData` deletes every row
  * of the CUSTOMER tables, in FK-safe order, and NEVER touches control-plane
  * data: user, session, account, verification, organization, member,
- * invitation, customers, github_installations, or the append-only
+ * invitation, customers, github_installations, billing_subscriptions,
+ * billing_provider_events, billing_reconciliation_events, or the append-only
  * event_logs (its immutability trigger would reject deletes anyway — see
  * packages/db/src/schema/events.ts).
  */

@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { OrganizationDangerZone } from '@/components/organization-danger-zone';
 import { OrganizationForm } from '@/components/organization-form';
 import { fetchOrganization } from '@/lib/organization';
-import { PLAN_LABELS, ROLE_LABELS } from '@/lib/organization-vocabulary';
+import { ROLE_LABELS, subscriptionStatusLabel } from '@/lib/organization-vocabulary';
 
 // §41 screen 18 organization settings. Rename (PATCH /api/organization) is
 // owner/admin only; a plain member sees the name as read-only (§65 — no dead
@@ -38,9 +38,9 @@ export default async function SettingsPage() {
         <CardContent className="flex flex-col gap-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <MetaRow
-              label="Plan"
-              value={PLAN_LABELS[org.plan]}
-              badge={<Badge variant="secondary">{PLAN_LABELS[org.plan]}</Badge>}
+              label="Billing"
+              value={subscriptionStatusLabel(org.subscriptionStatus)}
+              badge={<Badge variant="secondary">{subscriptionStatusLabel(org.subscriptionStatus)}</Badge>}
             />
             <MetaRow
               label="Created"

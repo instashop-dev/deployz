@@ -141,6 +141,7 @@ import {
   deleteOrganizationBodySchema,
   inviteMemberBodySchema,
   getPublicInvitation,
+  getSubscriptionStatus,
   leaveOrganization,
   listInvitations,
   listInvitationsForEmail,
@@ -1614,11 +1615,12 @@ export async function buildServer({
   app.get('/api/organization', { preHandler: requireAuth }, async (request) => {
     const organization = requireSessionOrganization(request);
     const members = await listMembers(db, organization.id);
+    const subscriptionStatus = await getSubscriptionStatus(db, organization.id);
     return {
       id: organization.id,
       name: organization.name,
       slug: organization.slug,
-      plan: organization.plan,
+      subscriptionStatus,
       createdAt: organization.createdAt,
       role: requireRole(request),
       memberCount: members.length,
@@ -1635,7 +1637,8 @@ export async function buildServer({
       requireRole(request),
       body,
     );
-    return { id: row.id, name: row.name, slug: row.slug, plan: row.plan, createdAt: row.createdAt };
+    const subscriptionStatus = await getSubscriptionStatus(db, organizationId);
+    return { id: row.id, name: row.name, slug: row.slug, subscriptionStatus, createdAt: row.createdAt };
   });
 
   app.delete('/api/organization', { preHandler: requireAuth }, async (request, reply) => {
@@ -5074,10 +5077,27 @@ export async function buildServer({
     }));
     const total = PLATFORM_PRICE_DOLLARS + deploymentItems.length * DEPLOYMENT_PRICE_DOLLARS;
 
+    const [subscriptionRow] = await db
+      .select({
+        status: schema.billingSubscriptions.status,
+        currentPeriodStart: schema.billingSubscriptions.currentPeriodStart,
+        currentPeriodEnd: schema.billingSubscriptions.currentPeriodEnd,
+      })
+      .from(schema.billingSubscriptions)
+      .where(eq(schema.billingSubscriptions.organizationId, organizationId))
+      .limit(1);
+
     return {
       base: PLATFORM_PRICE_DOLLARS,
       deployments: deploymentItems,
       total,
+      subscription: subscriptionRow
+        ? {
+            status: subscriptionRow.status,
+            currentPeriodStart: subscriptionRow.currentPeriodStart,
+            currentPeriodEnd: subscriptionRow.currentPeriodEnd,
+          }
+        : null,
     };
   });
 

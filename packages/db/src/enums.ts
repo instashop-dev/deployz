@@ -162,10 +162,32 @@ export const healthStatusEnum = pgEnum('health_status', [
   'UNHEALTHY',
 ]);
 
-export const orgPlanEnum = pgEnum('org_plan', [
-  'FREE',
-  'STARTER',
-  'PRO',
+// Paddle migration Phase 3 — minimal billing schema. `billing_provider`
+// exists so a row says what it is; this is not a multi-provider system.
+export const billingProviderEnum = pgEnum('billing_provider', ['PADDLE']);
+
+// billing_subscriptions.status — mirrors the Paddle subscription lifecycle
+// this control plane cares about.
+export const billingSubscriptionStatusEnum = pgEnum('billing_subscription_status', [
+  'ACTIVE',
+  'PAST_DUE',
+  'PAUSED',
+  'CANCELED',
+]);
+
+// billing_provider_events.processing_status — webhook event lifecycle.
+export const billingEventProcessingStatusEnum = pgEnum('billing_event_processing_status', [
+  'RECEIVED',
+  'PROCESSED',
+  'IGNORED',
+  'FAILED',
+]);
+
+// billing_reconciliation_events.status — outcome of one reconciliation pass.
+export const billingReconciliationStatusEnum = pgEnum('billing_reconciliation_status', [
+  'SUCCEEDED',
+  'FAILED',
+  'SKIPPED',
 ]);
 
 export const buildStatusEnum = pgEnum('build_status', [

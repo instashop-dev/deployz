@@ -2919,10 +2919,30 @@ describe('server — organization settings, public install page, and bulk deploy
   it('GET /api/organization returns the session org', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/organization', headers: { cookie: org.cookie } });
     expect(response.statusCode).toBe(200);
-    const body = response.json() as { id: string; name: string; plan: string; createdAt: string };
+    const body = response.json() as { id: string; name: string; subscriptionStatus: string | null; createdAt: string };
     expect(body.id).toBe(org.organizationId);
-    expect(body.plan).toBe('FREE');
+    // Evaluation mode: no billing_subscriptions row yet.
+    expect(body.subscriptionStatus).toBeNull();
     expect(typeof body.createdAt).toBe('string');
+  });
+
+  it('GET /api/organization reflects the organization\'s billing_subscriptions row', async () => {
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: org.organizationId,
+      providerCustomerId: 'ctm_settings',
+      providerSubscriptionId: 'sub_settings',
+      status: 'PAST_DUE',
+    });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/organization', headers: { cookie: org.cookie } });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { subscriptionStatus: string | null };
+      expect(body.subscriptionStatus).toBe('PAST_DUE');
+    } finally {
+      await db
+        .delete(schema.billingSubscriptions)
+        .where(eq(schema.billingSubscriptions.organizationId, org.organizationId));
+    }
   });
 
   it('PATCH /api/organization updates the name', async () => {
@@ -2937,6 +2957,42 @@ describe('server — organization settings, public install page, and bulk deploy
   it('PATCH /api/organization rejects an empty name', async () => {
     const response = await sendJson(app, 'PATCH', '/api/organization', { name: '' }, { cookie: org.cookie });
     expect(response.statusCode).toBe(400);
+  });
+
+  it('GET /api/billing/summary returns subscription: null with no billing_subscriptions row', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/billing/summary', headers: { cookie: org.cookie } });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { subscription: unknown };
+    expect(body.subscription).toBeNull();
+  });
+
+  it('GET /api/billing/summary returns the organization\'s billing_subscriptions row', async () => {
+    const periodStart = new Date('2026-08-01T00:00:00.000Z');
+    const periodEnd = new Date('2026-09-01T00:00:00.000Z');
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: org.organizationId,
+      providerCustomerId: 'ctm_summary',
+      providerSubscriptionId: 'sub_summary',
+      status: 'ACTIVE',
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+    });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/billing/summary', headers: { cookie: org.cookie } });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as {
+        subscription: { status: string; currentPeriodStart: string; currentPeriodEnd: string } | null;
+      };
+      expect(body.subscription).toStrictEqual({
+        status: 'ACTIVE',
+        currentPeriodStart: periodStart.toISOString(),
+        currentPeriodEnd: periodEnd.toISOString(),
+      });
+    } finally {
+      await db
+        .delete(schema.billingSubscriptions)
+        .where(eq(schema.billingSubscriptions.organizationId, org.organizationId));
+    }
   });
 
   it('GET /api/install/:installationId is public, unauthenticated, and returns only display fields (§12/§44)', async () => {

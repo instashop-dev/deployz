@@ -1,8 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { boolean, index, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
-import { orgPlanEnum } from '../enums.js';
-
 // Better Auth core + organization-plugin schema. Todo 3 wires Better Auth
 // against these tables, so table names, column names, and column types MUST
 // match the Better Auth Drizzle adapter contract exactly:
@@ -116,7 +114,6 @@ export const organization = pgTable('organization', {
   slug: text('slug').notNull().unique(),
   logo: text('logo'),
   metadata: text('metadata'),
-  plan: orgPlanEnum('plan').notNull().default('FREE'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).$onUpdate(() => new Date()),
 });

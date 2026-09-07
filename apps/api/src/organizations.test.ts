@@ -187,13 +187,34 @@ describe('GET /api/me and organization create/list/activate (isolation)', () => 
     expect(response.statusCode).toBe(200);
     const body = response.json() as {
       role: string;
-      organizations: Array<{ id: string; role: string; memberCount: number }>;
+      organizations: Array<{ id: string; role: string; memberCount: number; subscriptionStatus: string | null }>;
     };
     expect(body.role).toBe('owner');
     expect(body.organizations).toHaveLength(1);
     expect(body.organizations[0]!.id).toBe(orgA.organizationId);
     expect(body.organizations[0]!.role).toBe('owner');
     expect(body.organizations[0]!.memberCount).toBe(1);
+    // Evaluation mode: no billing_subscriptions row yet.
+    expect(body.organizations[0]!.subscriptionStatus).toBeNull();
+  });
+
+  it('GET /api/me reflects a billing_subscriptions row in the organizations list', async () => {
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: orgA.organizationId,
+      providerCustomerId: 'ctm_me',
+      providerSubscriptionId: 'sub_me',
+      status: 'PAST_DUE',
+    });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/me', headers: { cookie: orgA.cookie } });
+      const body = response.json() as { organizations: Array<{ id: string; subscriptionStatus: string | null }> };
+      const row = body.organizations.find((o) => o.id === orgA.organizationId);
+      expect(row?.subscriptionStatus).toBe('PAST_DUE');
+    } finally {
+      await db
+        .delete(schema.billingSubscriptions)
+        .where(eq(schema.billingSubscriptions.organizationId, orgA.organizationId));
+    }
   });
 
   it('POST /api/organizations creates a new org, makes the caller owner, and switches the active tenant', async () => {
@@ -1212,6 +1233,26 @@ describe('DELETE /api/organization', () => {
       resourceType: 'AWS::CloudFormation::Stack',
       resourceStatus: 'CREATE_IN_PROGRESS',
     });
+    // Billing rows FK to organization (no cascade) — deletion must clear
+    // these too, or the organization delete itself would fail.
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: orgId,
+      providerCustomerId: 'ctm_delorg',
+      providerSubscriptionId: 'sub_delorg',
+      status: 'ACTIVE',
+    });
+    await db.insert(schema.billingProviderEvents).values({
+      organizationId: orgId,
+      providerEventId: `evt-delorg-${crypto.randomUUID()}`,
+      eventType: 'subscription.activated',
+      occurredAt: new Date(),
+    });
+    await db.insert(schema.billingReconciliationEvents).values({
+      organizationId: orgId,
+      expectedDeploymentQuantity: 0,
+      action: 'none',
+      status: 'SUCCEEDED',
+    });
 
     sentEmails.length = 0;
     const response = await sendJson(app, 'DELETE', '/api/organization', { confirmName: 'Deletable Org' }, { cookie: owner.cookie });
@@ -1228,6 +1269,21 @@ describe('DELETE /api/organization', () => {
       .from(schema.deploymentStackEvents)
       .where(eq(schema.deploymentStackEvents.deploymentId, deployment.id));
     expect(stackEventRows).toHaveLength(0);
+    const subscriptionRows = await db
+      .select()
+      .from(schema.billingSubscriptions)
+      .where(eq(schema.billingSubscriptions.organizationId, orgId));
+    expect(subscriptionRows).toHaveLength(0);
+    const providerEventRows = await db
+      .select()
+      .from(schema.billingProviderEvents)
+      .where(eq(schema.billingProviderEvents.organizationId, orgId));
+    expect(providerEventRows).toHaveLength(0);
+    const reconciliationEventRows = await db
+      .select()
+      .from(schema.billingReconciliationEvents)
+      .where(eq(schema.billingReconciliationEvents.organizationId, orgId));
+    expect(reconciliationEventRows).toHaveLength(0);
 
     // event_logs outlives the organization it describes.
     const eventRows = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.organizationId, orgId));

@@ -4,7 +4,7 @@
 // without dragging server-only code into the browser bundle. Same split as
 // deployment-vocabulary.ts vs deployments.ts.
 
-export type OrgPlan = 'FREE' | 'STARTER' | 'PRO';
+export type SubscriptionStatus = 'ACTIVE' | 'PAST_DUE' | 'PAUSED' | 'CANCELED';
 
 /** Membership roles. Exactly one owner per organization. */
 export type OrgRole = 'owner' | 'admin' | 'member';
@@ -13,7 +13,7 @@ export interface OrganizationInfo {
   id: string;
   name: string;
   slug: string;
-  plan: OrgPlan;
+  subscriptionStatus: SubscriptionStatus | null;
   createdAt: string;
   role: OrgRole;
   memberCount: number;
@@ -23,7 +23,7 @@ export interface OrganizationSummary {
   id: string;
   name: string;
   slug: string;
-  plan: OrgPlan;
+  subscriptionStatus: SubscriptionStatus | null;
   role: OrgRole;
   memberCount: number;
   createdAt: string;
@@ -49,11 +49,18 @@ export interface InvitationInfo {
   invitedByName: string;
 }
 
-export const PLAN_LABELS: Record<OrgPlan, string> = {
-  FREE: 'Free',
-  STARTER: 'Starter',
-  PRO: 'Pro',
+export const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus | 'EVALUATION', string> = {
+  EVALUATION: 'Evaluating',
+  ACTIVE: 'Active',
+  PAST_DUE: 'Past due',
+  PAUSED: 'Paused',
+  CANCELED: 'Canceled',
 };
+
+/** `null` means the organization has no subscription yet (evaluation). */
+export function subscriptionStatusLabel(status: SubscriptionStatus | null): string {
+  return SUBSCRIPTION_STATUS_LABELS[status ?? 'EVALUATION'];
+}
 
 export const ROLE_LABELS: Record<OrgRole, string> = {
   owner: 'Owner',

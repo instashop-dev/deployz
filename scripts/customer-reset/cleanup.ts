@@ -3,7 +3,8 @@
  *
  * Wipes every CUSTOMER deployment (AWS resources + DB rows) while preserving
  * control-plane data (auth, organizations, customers, github installations,
- * event_logs). Requires the literal `--confirm
+ * billing_subscriptions, billing_provider_events,
+ * billing_reconciliation_events, event_logs). Requires the literal `--confirm
  * FULL-CUSTOMER-RESET` token — there is no bypass flag.
  *
  * Per deployment, in order:

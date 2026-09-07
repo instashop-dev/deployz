@@ -28,7 +28,7 @@ import {
 import { errorMessage } from '@/lib/api-client';
 import { fetchAdminVendors, type AdminVendorListRow, type VendorListFilter } from '@/lib/admin';
 import { VENDOR_CONNECTION_BADGE, VENDOR_CONNECTION_LABEL } from '@/lib/admin-vocabulary';
-import { PLAN_LABELS } from '@/lib/organization-vocabulary';
+import { subscriptionStatusLabel } from '@/lib/organization-vocabulary';
 import { relativeTime } from '@/lib/diagnostics';
 
 type LoadState =
@@ -144,7 +144,7 @@ function VendorsTable({ vendors }: { vendors: AdminVendorListRow[] }) {
               <TableHead>Applications</TableHead>
               <TableHead>Deployments</TableHead>
               <TableHead>Connection</TableHead>
-              <TableHead>Plan</TableHead>
+              <TableHead>Billing</TableHead>
               <TableHead>Last activity</TableHead>
             </TableRow>
           </TableHeader>
@@ -176,7 +176,7 @@ function VendorsTable({ vendors }: { vendors: AdminVendorListRow[] }) {
                     {VENDOR_CONNECTION_LABEL[vendor.connection]}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{PLAN_LABELS[vendor.plan]}</TableCell>
+                <TableCell className="text-muted-foreground">{subscriptionStatusLabel(vendor.subscriptionStatus)}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {relativeTime(vendor.lastActivityAt) ?? '—'}
                 </TableCell>

@@ -87,14 +87,13 @@ describe('Better Auth table shape', () => {
     ]);
   });
 
-  it('organization has the plugin columns + Deployz plan', async () => {
+  it('organization has the plugin columns', async () => {
     expect(await columnsOf('organization')).toEqual([
       'created_at',
       'id',
       'logo',
       'metadata',
       'name',
-      'plan',
       'slug',
       'updated_at',
     ]);
