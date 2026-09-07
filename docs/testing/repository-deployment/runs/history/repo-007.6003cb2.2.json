@@ -90,14 +90,16 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
-    "destroyJobState": "SKIPPED",
-    "purgeJobState": "SKIPPED",
-    "cleanupState": null,
-    "bootstrapStackFinal": "already gone",
-    "leaks": [],
-    "durationMs": 64099,
-    "detail": null
+    "status": "FAIL",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/deploy-LoadB-OGTEGNC9QJSY/560f945b6098f7d5"
+    ],
+    "durationMs": 4204417,
+    "detail": "leak audit: 1 resource(s) left"
   },
   "classification": "TIMEOUT",
   "failureStage": "TIMEOUT",

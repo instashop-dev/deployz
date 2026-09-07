@@ -745,7 +745,13 @@ republish after merge (relay change).
 the old code, so the job never fails on its own: the service was scaled to
 0 and the application stack deleted by hand; the relay's next poll finds
 no ECS service, fails the job, and `--cleanup --repo repo-007` closes the
-ledger through the product (Purge, connector removal, leak audit).
+ledger through the product (Purge, connector removal, leak audit). The
+hand-deleted stack ends DELETE_FAILED on the target group the product's
+default-HTTPS listener still held (the product's own Disconnect removes
+the listener first, so this shape needs the out-of-band delete): the
+product's Disconnect and Purge then leave that one target group behind,
+deleted by ARN before the cleanup rerun — the same leftover as kutt
+attempt 2's recovery.
 
 **Affected.** repo-007 (ghostfolio, measured); every database-backed
 application deployed on the PR #213 template until the relay republish —

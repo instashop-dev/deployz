@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `6003cb2577b9f63d865f20bf846bed555aa29689`
+Deployz commit: `fb3baae60734aeceeeaecd28add5280c9bf5f95f`
 
 | Metric | Value |
 | --- | --- |
@@ -16,7 +16,7 @@ Deployz commit: `6003cb2577b9f63d865f20bf846bed555aa29689`
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 3 / 3 / 3 / 2 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 2 / 0 / 0 / 0 |
 | **True deployment success / expected deployable** | **2 / 65 (3.1%)** |
-| Cleanup: destroys / failures / leaks / success rate | 7 / 1 / 1 / 85.7% |
+| Cleanup: destroys / failures / leaks / success rate | 7 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -76,7 +76,7 @@ Deployz commit: `6003cb2577b9f63d865f20bf846bed555aa29689`
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
-| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | UNKNOWN/UNKNOWN/https NOT_ATTEMPTED | FAIL | TIMEOUT / DEPLOYZ_BUG | DEPLOY-014 |
+| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | UNKNOWN/UNKNOWN/https NOT_ATTEMPTED | PASS | TIMEOUT / DEPLOYZ_BUG | DEPLOY-014 |
 | repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-002 |
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
