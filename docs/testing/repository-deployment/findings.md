@@ -17,9 +17,9 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-002 | CONFIG_ERROR | ANALYSIS_BUG | OPEN | repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 (gate audit, analysis version 15) |
 | DEPLOY-003 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 18 expected-deployable repositories the gate rejects (gate audit, analysis version 15) |
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
-| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIX IN REVIEW (PR #212: the `DB_*` family becomes binding aliases, analysis version 16) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
+| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIXED (PR #212 merged and deployed 2026-09-07: the `DB_*` family becomes binding aliases, analysis version 16; kutt rerun 6 reached RDS through `DB_HOST`) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
-| DEPLOY-007 | DATABASE_ERROR | DEPLOYZ_BUG | REINSTATED and CONFIRMED (kutt rerun 6: `self-signed certificate in certificate chain` from node-postgres against RDS); fix decision (A: CA bundle to the task, B: `rds.force_ssl` off) pending | repo-003 (kutt, `ssl: true`); repo-001 (umami, `sslmode=require` via adapter-pg) likely; every node-postgres client that verifies |
+| DEPLOY-007 | DATABASE_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #213: option A — an init container delivers the regional RDS CA bundle into the task, `NODE_EXTRA_CA_CERTS` + `PGSSLROOTCERT`); confirmed on kutt rerun 6 (`self-signed certificate in certificate chain`) | repo-003 (kutt, `ssl: true`); repo-001 (umami, `sslmode=require` via adapter-pg) likely; every node-postgres client that verifies |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
 | DEPLOY-009 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #207 merged, deployed, templates republished 2026-09-06) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
 | DEPLOY-010 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #208 merged; bootstrap republish pending) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 2 (the first configured first start) |
@@ -191,7 +191,9 @@ no deployment-path change involved. Ranked in the final report.
 ## DEPLOY-005 — Applications that read the database or storage under their own variable names get no binding
 
 **Stage** ENV_BINDING_ERROR (predicted; Wave 1 measures it) · **Root
-cause** DEPLOYZ_BUG · **Resolution** OPEN · **Found** Phase 2 gate audit,
+cause** DEPLOYZ_BUG · **Resolution** FIXED (PR #212 merged and deployed
+2026-09-07; kutt rerun 6 connected to RDS through `DB_HOST`) · **Found**
+Phase 2 gate audit,
 from the manifest facts the deployment would act on.
 
 **Behaviour.** The deployment injects the managed database under
@@ -258,10 +260,11 @@ the regenerated artifacts, `packages/cdk/test/application-stack.test.ts`.
 
 ## DEPLOY-007 — The issued `DATABASE_URL` makes node-postgres verify the RDS certificate against a trust store that does not hold it
 
-**Stage** CONTAINER_START_ERROR · **Root cause** unknown (the TLS
-mechanism below is WITHDRAWN) · **Resolution** OPEN — umami rerun on the
-PR #204 harness to capture the log line · **Found** Phase 3, Wave 1, umami
-attempt 3 (2026-09-06).
+**Stage** DATABASE_ERROR (the migration one-off or the first task cannot
+open its TLS connection to RDS) · **Root cause** DEPLOYZ_BUG ·
+**Resolution** FIX IN REVIEW — the product owner chose option A on
+2026-09-07; PR #213 implements it · **Found** Phase 3, Wave 1, umami
+attempt 3 (2026-09-06); confirmed on kutt attempt 6 (2026-09-07).
 
 **Withdrawn on 2026-09-06 after kutt attempt 1, reinstated on 2026-09-07
 after kutt attempt 6.** Attempt 1's "10 migrations" ran while no vendor
@@ -275,9 +278,9 @@ ran the migration one-off against RDS with `DB_SSL=true` and exited on
 `TLSSocket.onConnectSecure` (run `stage-b-repo-003-20260907-092338-e5d9`,
 task log captured by the watcher). That is exactly the mechanism below:
 node-postgres verifies the RDS chain against Node's trust store, which
-does not hold the RDS CA. The A/B decision stands; the wave continues
-with the repositories that do not verify (ghostfolio, directus, memos,
-outline) while it is taken.
+does not hold the RDS CA. The product owner chose option A; the wave
+continues with the repositories that do not verify (ghostfolio, directus,
+memos, outline) while PR #213 goes through review.
 
 **Behaviour.** The application template issues the customer application's
 `DATABASE_URL` as
@@ -322,25 +325,34 @@ RDS instance carries `rds.force_ssl=1` (parameter group
 engine does not verify the chain for `require`. The umami log line and the
 kutt attempt will close the evidence.
 
-**Generic fix (proposed; needs a product decision).**
+**Generic fix (option A chosen; PR #213).**
 (A) Keep TLS everywhere and make the chain verifiable: the task definition
-gets an init container that writes the RDS trust bundle
+gets a non-essential init container (`RdsCaBundle`, Amazon Linux 2023
+minimal) that fetches the regional RDS trust bundle
 (`https://truststore.pki.rds.amazonaws.com/<region>/<region>-bundle.pem`)
-to a shared ephemeral volume and completes before the application starts;
-the application container receives `NODE_EXTRA_CA_CERTS`, `PGSSLROOTCERT`
-and `SSL_CERT_FILE` pointing at it. Every client then verifies
-successfully; no knob needed. Cost: one more container definition, a
-volume, an egress fetch at task start (the NAT gateway already exists).
+into a task-scoped volume and completes before the application starts;
+the App (and Worker) container depends on it, mounts the volume read-only
+and receives `NODE_EXTRA_CA_CERTS` and `PGSSLROOTCERT` pointing at the
+bundle. `SSL_CERT_FILE` is deliberately not set: it replaces the system
+roots instead of adding to them. The fetch is best effort — a failure logs
+one line and the application starts exactly as before — and the init
+container carries no environment, so the relay's application-container
+heuristics keep resolving the App container. Nothing is added when the
+application has no database. Every client then verifies successfully; no
+knob needed. Cost: one more container definition, a volume, an egress
+fetch at task start (the NAT gateway already exists). Regression tests:
+four cases in `packages/cdk/test/application-stack.test.ts`.
 (B) Stop forcing TLS inside the VPC: a custom parameter group with
 `rds.force_ssl=0` and a `DATABASE_URL` without `sslmode` — libpq clients
 default to `prefer` (TLS, unverified), node-postgres to plaintext on the
 private subnet. Zero per-app configuration, but a change of the product's
-encryption-in-transit posture. Either way a regression test in
-`packages/cdk/test/application-stack.test.ts` pins the URL and the task
-definition, the templates are republished, and umami and kutt are rerun.
+encryption-in-transit posture. Rejected: it changes the
+product's encryption-in-transit posture. After PR #213 merges the
+templates are republished and umami and kutt are rerun.
 
-**Affected.** repo-001 (umami); predicted repo-003 (kutt) from its
-`knexfile.js`; every Wave 2+ Node application on node-postgres without a
+**Affected.** repo-003 (kutt, measured on attempt 6); repo-001 (umami,
+the same shape — five silent exits — still to be confirmed by its log
+line); every Wave 2+ Node application on node-postgres without a
 verification knob. Not affected: gatus (no database), docuseal, miniflux,
 ihatemoney, memos (libpq / Go clients), ghostfolio (Prisma engine).
 
@@ -392,8 +404,9 @@ Rerun miniflux after `deploy-api.yml`.
 ## DEPLOY-009 — Vendor configuration and generated secrets reach the task only after a successful INSTALL, so an application that needs them to boot never installs
 
 **Stage** ENV_BINDING_ERROR (the first task exits at boot on a missing
-vendor value) · **Root cause** DEPLOYZ_BUG · **Resolution** FIX IN REVIEW
-— the product owner chose the generic fix; PR #207 implements the
+vendor value) · **Root cause** DEPLOYZ_BUG · **Resolution** FIXED (PR #207
+merged, deployed and templates republished 2026-09-06; verified on kutt
+attempts 2–6) — the product owner chose the generic fix; PR #207 implements the
 configured first start designed below (template `param_DesiredCount`,
 API `startAfterConfig` + `hasStartedInstall` + config-before-deploy
 ordering, relay scale-up/scale-back); the wave was stopped under the
