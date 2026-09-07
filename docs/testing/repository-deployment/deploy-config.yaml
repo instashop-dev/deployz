@@ -31,7 +31,7 @@ repositories:
       - "BASE_URL is demanded by the gate (COMP-016 residual); the app does not need it. Provided so the funnel measures the deployment path."
 
   - id: repo-001
-    findings: [DEPLOY-002]
+    findings: [DEPLOY-002, DEPLOY-007]
     config:
       - { key: CLOUD_MODE, value: "" }
       - { key: CLICKHOUSE_URL, value: "" }
@@ -78,7 +78,7 @@ repositories:
       - "Flask; reads SQLALCHEMY_DATABASE_URI (a full postgresql:// URI) — the injected DATABASE_URL must reach it under that name. Migrations run at boot."
 
   - id: repo-003
-    findings: [DEPLOY-005, DEPLOY-009]
+    findings: [DEPLOY-005, DEPLOY-007, DEPLOY-009]
     fork: instashop-dev/kutt
     overrides:
       healthPath: /api/health

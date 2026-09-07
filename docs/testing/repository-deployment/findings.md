@@ -19,7 +19,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
 | DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIX IN REVIEW (PR #212: the `DB_*` family becomes binding aliases, analysis version 16) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
-| DEPLOY-007 | CONTAINER_START_ERROR | — | WITHDRAWN as a mechanism (kutt connected over TLS with node-postgres verification on); umami's crash stays open, rerun pending | repo-001 (umami) only |
+| DEPLOY-007 | DATABASE_ERROR | DEPLOYZ_BUG | REINSTATED and CONFIRMED (kutt rerun 6: `self-signed certificate in certificate chain` from node-postgres against RDS); fix decision (A: CA bundle to the task, B: `rds.force_ssl` off) pending | repo-003 (kutt, `ssl: true`); repo-001 (umami, `sslmode=require` via adapter-pg) likely; every node-postgres client that verifies |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
 | DEPLOY-009 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #207 merged, deployed, templates republished 2026-09-06) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
 | DEPLOY-010 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #208 merged; bootstrap republish pending) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 2 (the first configured first start) |
@@ -263,16 +263,21 @@ mechanism below is WITHDRAWN) · **Resolution** OPEN — umami rerun on the
 PR #204 harness to capture the log line · **Found** Phase 3, Wave 1, umami
 attempt 3 (2026-09-06).
 
-**Withdrawn (2026-09-06, kutt attempt 1).** kutt's first task ran `knex
-migrate:latest` through node-postgres with `ssl: true` (which `pg`
-passes to `tls.connect` with certificate verification on,
-`packages/pg/lib/connection.js`) against the same RDS setup
-(`rds-ca-rsa2048-g1`, `rds.force_ssl=1`) and applied 10 migrations, so a
-verifying node-postgres client does connect. `sslmode=require` in the
-issued URL parses to the same verifying configuration, so it cannot be
-what stopped umami. The paragraphs below are kept as the record of the
-hypothesis and why it was plausible; no product fix follows from them, and
-the A/B decision they asked for is moot.
+**Withdrawn on 2026-09-06 after kutt attempt 1, reinstated on 2026-09-07
+after kutt attempt 6.** Attempt 1's "10 migrations" ran while no vendor
+configuration reached the task (DEPLOY-009): kutt's `DB_CLIENT` default is
+its bundled SQLite driver, so the migrations succeeded against a local
+SQLite file, not RDS, and the withdrawal inferred a TLS success that never
+happened. Attempt 6 — the first with the configuration delivered
+(DEPLOY-009/010/012/013) and the `DB_*` bindings injected (DEPLOY-005) —
+ran the migration one-off against RDS with `DB_SSL=true` and exited on
+`Error: self-signed certificate in certificate chain` at
+`TLSSocket.onConnectSecure` (run `stage-b-repo-003-20260907-092338-e5d9`,
+task log captured by the watcher). That is exactly the mechanism below:
+node-postgres verifies the RDS chain against Node's trust store, which
+does not hold the RDS CA. The A/B decision stands; the wave continues
+with the repositories that do not verify (ghostfolio, directus, memos,
+outline) while it is taken.
 
 **Behaviour.** The application template issues the customer application's
 `DATABASE_URL` as
