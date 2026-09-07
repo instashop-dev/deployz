@@ -20,6 +20,11 @@ const MANIFEST_ENV = [
   { key: 'ENCRYPTION_KEY', required: true, secret: true, source: [], classification: 'deployz_generated' },
   { key: 'LICENSE_KEY', required: true, secret: true, source: [], classification: 'customer_required' },
   { key: 'LOG_LEVEL', required: false, secret: false, source: [], classification: 'optional' },
+  // An app-internal secret the analyser did not classify as generated (kutt's
+  // JWT_SECRET: `str({ devDefault })`, so "optional" to the detector).
+  { key: 'JWT_SECRET', required: false, secret: true, source: [], purpose: 'internal_secret', classification: 'optional' },
+  // An external credential: never minted, whatever its value state.
+  { key: 'OIDC_CLIENT_SECRET', required: false, secret: true, source: [], purpose: 'external_credential', classification: 'optional' },
 ];
 
 function manifest(variables: unknown[] = MANIFEST_ENV) {
@@ -86,6 +91,10 @@ describe('post-install configuration', () => {
       { applicationId, customerId: null, key: 'LOG_LEVEL', value: 'debug', isSecret: false },
       { applicationId, customerId, key: 'LICENSE_KEY', value: '***', isSecret: true },
       { applicationId, customerId, key: 'ENCRYPTION_KEY', value: '***', isSecret: true },
+      // Vendor-typed before any install: write-only, so no value can reach a
+      // later install — the relay mints one unless the store already has it.
+      { applicationId, customerId: null, key: 'JWT_SECRET', value: '***', isSecret: true },
+      { applicationId, customerId: null, key: 'OIDC_CLIENT_SECRET', value: '***', isSecret: true },
     ]);
   }, 60_000);
 
@@ -96,11 +105,16 @@ describe('post-install configuration', () => {
   it('lists the effective config plus a generated entry for each unconfigured generated key, never a secret value', async () => {
     const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
     const entries = await buildRelayConfigEntries(db, deployment!, createConfigStore(db));
-    expect(entries).toEqual([
-      { key: 'LOG_LEVEL', isSecret: false, value: 'debug', source: 'vendor' },
-      // The vendor chose a value for ENCRYPTION_KEY — it is theirs, not minted.
-      { key: 'ENCRYPTION_KEY', isSecret: true, source: 'customer' },
+    const byKey = [...entries].sort((a, b) => a.key.localeCompare(b.key));
+    expect(byKey).toEqual([
+      // Vendor-typed secrets are write-only: the relay keeps the value if it
+      // ever reached the customer's store, and mints an app-internal one
+      // otherwise (DEPLOY-013). An external credential is never minted.
+      { key: 'ENCRYPTION_KEY', isSecret: true, source: 'customer', generated: true },
+      { key: 'JWT_SECRET', isSecret: true, source: 'vendor', generated: true },
       { key: 'LICENSE_KEY', isSecret: true, source: 'customer' },
+      { key: 'LOG_LEVEL', isSecret: false, value: 'debug', source: 'vendor' },
+      { key: 'OIDC_CLIENT_SECRET', isSecret: true, source: 'vendor' },
       { key: 'SESSION_SECRET', isSecret: true, source: 'generated', generated: true },
     ]);
     expect(JSON.stringify(entries)).not.toContain('***');
@@ -178,8 +192,11 @@ describe('post-install configuration', () => {
     expect(jobs[0]).toMatchObject({
       state: 'REQUESTED',
       idempotencyKey: `${deploymentId}:CONFIG_UPDATE:install:install-job-1`,
-      payload: { reason: 'install', changedKeys: ['LOG_LEVEL', 'ENCRYPTION_KEY', 'LICENSE_KEY', 'SESSION_SECRET'] },
+      payload: { reason: 'install' },
     });
+    expect([...((jobs[0]!.payload as { changedKeys: string[] }).changedKeys)].sort()).toEqual(
+      ['ENCRYPTION_KEY', 'JWT_SECRET', 'LICENSE_KEY', 'LOG_LEVEL', 'OIDC_CLIENT_SECRET', 'SESSION_SECRET'],
+    );
     expect(JSON.stringify(jobs[0]!.payload)).not.toContain('debug');
   });
 
