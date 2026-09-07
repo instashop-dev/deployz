@@ -817,6 +817,12 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
       "Properties": {
         "ContainerDefinitions": [
           {
+            "DependsOn": [
+              {
+                "Condition": "SUCCESS",
+                "ContainerName": "RdsCaBundle",
+              },
+            ],
             "Environment": [
               {
                 "Name": "NODE_ENV",
@@ -873,6 +879,14 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
                   "Ref": "AWS::Region",
                 },
               },
+              {
+                "Name": "NODE_EXTRA_CA_CERTS",
+                "Value": "/deployz/certs/rds-ca-bundle.pem",
+              },
+              {
+                "Name": "PGSSLROOTCERT",
+                "Value": "/deployz/certs/rds-ca-bundle.pem",
+              },
             ],
             "Essential": true,
             "Image": {
@@ -890,6 +904,13 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
                 "awslogs-stream-prefix": "deployz-app",
               },
             },
+            "MountPoints": [
+              {
+                "ContainerPath": "/deployz/certs",
+                "ReadOnly": true,
+                "SourceVolume": "deployz-rds-ca",
+              },
+            ],
             "Name": "App",
             "PortMappings": [
               {
@@ -950,6 +971,50 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
               },
             ],
           },
+          {
+            "Command": [
+              "sh",
+              "-c",
+              {
+                "Fn::Join": [
+                  "",
+                  [
+                    "curl -fsSL "https://truststore.pki.rds.amazonaws.com/",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    "/",
+                    {
+                      "Ref": "AWS::Region",
+                    },
+                    "-bundle.pem" -o /deployz/certs/rds-ca-bundle.pem || echo "RDS CA bundle fetch failed; the application starts without it"",
+                  ],
+                ],
+              },
+            ],
+            "Essential": false,
+            "Image": "public.ecr.aws/amazonlinux/amazonlinux:2023-minimal",
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "AppLogGroup7D8CD952",
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region",
+                },
+                "awslogs-stream-prefix": "deployz-rds-ca",
+              },
+            },
+            "MountPoints": [
+              {
+                "ContainerPath": "/deployz/certs",
+                "ReadOnly": false,
+                "SourceVolume": "deployz-rds-ca",
+              },
+            ],
+            "Name": "RdsCaBundle",
+          },
         ],
         "Cpu": "256",
         "ExecutionRoleArn": {
@@ -988,6 +1053,11 @@ exports[`ApplicationStack > matches the committed snapshot (plain Fargate) 1`] =
             "Arn",
           ],
         },
+        "Volumes": [
+          {
+            "Name": "deployz-rds-ca",
+          },
+        ],
       },
       "Type": "AWS::ECS::TaskDefinition",
     },
