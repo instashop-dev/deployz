@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `1449a442af2c3e7d77bd73383b528f2d23b25702`
+Deployz commit: `9f043628c2b9c153e3bbe80d9a826499c47fdae0`
 
 | Metric | Value |
 | --- | --- |
@@ -13,22 +13,22 @@ Deployz commit: `1449a442af2c3e7d77bd73383b528f2d23b25702`
 | Build attempted / succeeded / failed | 7 / 6 / 1 |
 | Build success among expected deployable | 9.2% |
 | Infrastructure attempted / succeeded / failed | 6 / 4 / 2 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 4 / 4 / 4 / 2 |
-| Dependencies: PostgreSQL / Redis / storage / migration verified | 2 / 0 / 0 / 1 |
-| **True deployment success / expected deployable** | **2 / 65 (3.1%)** |
-| Cleanup: destroys / failures / leaks / success rate | 7 / 1 / 1 / 85.7% |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 4 / 4 / 4 / 3 |
+| Dependencies: PostgreSQL / Redis / storage / migration verified | 3 / 1 / 0 / 1 |
+| **True deployment success / expected deployable** | **3 / 65 (4.6%)** |
+| Cleanup: destroys / failures / leaks / success rate | 7 / 0 / 0 / 100% |
 
 ## By classification
 
 | Classification | Repositories |
 | --- | --- |
-| APPLICATION_ERROR | 2 |
+| APPLICATION_ERROR | 1 |
 | BUILD_ERROR | 1 |
 | CONTAINER_START_ERROR | 1 |
 | DATABASE_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| PASS | 42 |
+| PASS | 43 |
 
 ## By root cause
 
@@ -36,7 +36,6 @@ Deployz commit: `1449a442af2c3e7d77bd73383b528f2d23b25702`
 | --- | --- |
 | CORRECTLY_UNSUPPORTED | 49 |
 | DEPLOYZ_BUG | 1 |
-| TEST_HARNESS_FAILURE | 1 |
 
 ## By finding
 
@@ -48,12 +47,13 @@ Deployz commit: `1449a442af2c3e7d77bd73383b528f2d23b25702`
 | DEPLOY-005 | 2: repo-021, repo-039 |
 | DEPLOY-007 | 1: repo-003 |
 | DEPLOY-008 | 1: repo-004 |
+| DEPLOY-014 | 1: repo-007 |
 
 ## By set
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 62 | 4 | 2 |
+| improvement | 80 | 46 | 34 | 62 | 4 | 3 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -63,7 +63,7 @@ Deployz commit: `1449a442af2c3e7d77bd73383b528f2d23b25702`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 47 | 4 | 2 |
+| realistic | 69 | 45 | 24 | 47 | 4 | 3 |
 
 ## Repositories
 
@@ -75,7 +75,7 @@ Deployz commit: `1449a442af2c3e7d77bd73383b528f2d23b25702`
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
-| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | FAIL | APPLICATION_ERROR / TEST_HARNESS_FAILURE |  |
+| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |
 | repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-002 |
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

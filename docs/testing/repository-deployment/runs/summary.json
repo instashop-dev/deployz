@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "1449a442af2c3e7d77bd73383b528f2d23b25702",
+  "deployzCommit": "9f043628c2b9c153e3bbe80d9a826499c47fdae0",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -26,33 +26,33 @@
     "ecsRunning": 4,
     "albHealthy": 4,
     "httpsReachable": 4,
-    "applicationResponseValid": 2
+    "applicationResponseValid": 3
   },
   "dependencies": {
-    "postgres": 2,
-    "redis": 0,
+    "postgres": 3,
+    "redis": 1,
     "storage": 0,
     "migration": 1
   },
-  "trueDeploymentSuccess": 2,
-  "trueDeploymentSuccessRate": 3.1,
+  "trueDeploymentSuccess": 3,
+  "trueDeploymentSuccessRate": 4.6,
   "cleanup": {
     "destroys": 7,
-    "destroyFailures": 1,
-    "leaks": 1,
-    "successRate": 85.7
+    "destroyFailures": 0,
+    "leaks": 0,
+    "successRate": 100
   },
   "byClassification": {
-    "APPLICATION_ERROR": 2,
+    "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 42
+    "PASS": 43
   },
   "byFailureStage": {
-    "APPLICATION_ERROR": 2,
+    "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
@@ -61,8 +61,7 @@
   },
   "byRootCause": {
     "CORRECTLY_UNSUPPORTED": 49,
-    "DEPLOYZ_BUG": 1,
-    "TEST_HARNESS_FAILURE": 1
+    "DEPLOYZ_BUG": 1
   },
   "byFinding": {
     "DEPLOY-002": [
@@ -110,6 +109,9 @@
     ],
     "DEPLOY-008": [
       "repo-004"
+    ],
+    "DEPLOY-014": [
+      "repo-007"
     ]
   },
   "bySet": {
@@ -117,7 +119,7 @@
       "total": 80,
       "expectedDeployable": 46,
       "deployed": 4,
-      "trueDeploymentSuccess": 2,
+      "trueDeploymentSuccess": 3,
       "expectedUnsupported": 34,
       "gateCorrect": 62
     },
@@ -159,7 +161,7 @@
       "total": 69,
       "expectedDeployable": 45,
       "deployed": 4,
-      "trueDeploymentSuccess": 2,
+      "trueDeploymentSuccess": 3,
       "expectedUnsupported": 24,
       "gateCorrect": 47
     }
