@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "fb3baae60734aeceeeaecd28add5280c9bf5f95f",
+  "deployzCommit": "1449a442af2c3e7d77bd73383b528f2d23b25702",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -23,47 +23,46 @@
     "failed": 2
   },
   "runtime": {
-    "ecsRunning": 3,
-    "albHealthy": 3,
-    "httpsReachable": 3,
+    "ecsRunning": 4,
+    "albHealthy": 4,
+    "httpsReachable": 4,
     "applicationResponseValid": 2
   },
   "dependencies": {
     "postgres": 2,
     "redis": 0,
     "storage": 0,
-    "migration": 0
+    "migration": 1
   },
   "trueDeploymentSuccess": 2,
   "trueDeploymentSuccessRate": 3.1,
   "cleanup": {
     "destroys": 7,
-    "destroyFailures": 0,
-    "leaks": 0,
-    "successRate": 100
+    "destroyFailures": 1,
+    "leaks": 1,
+    "successRate": 85.7
   },
   "byClassification": {
-    "APPLICATION_ERROR": 1,
+    "APPLICATION_ERROR": 2,
     "BUILD_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 42,
-    "TIMEOUT": 1
+    "PASS": 42
   },
   "byFailureStage": {
-    "APPLICATION_ERROR": 1,
+    "APPLICATION_ERROR": 2,
     "BUILD_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24,
-    "TIMEOUT": 1
+    "GATE_ERROR": 24
   },
   "byRootCause": {
     "CORRECTLY_UNSUPPORTED": 49,
-    "DEPLOYZ_BUG": 2
+    "DEPLOYZ_BUG": 1,
+    "TEST_HARNESS_FAILURE": 1
   },
   "byFinding": {
     "DEPLOY-002": [
@@ -111,9 +110,6 @@
     ],
     "DEPLOY-008": [
       "repo-004"
-    ],
-    "DEPLOY-014": [
-      "repo-007"
     ]
   },
   "bySet": {

@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-007",
+  "repository": "ghostfolio/ghostfolio",
+  "commit": "73e4f0368de398d7b67c50fb2926351414e2044e",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/ghostfolio",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "6003cb2577b9f63d865f20bf846bed555aa29689",
+  "runId": "stage-b-repo-007-20260907-111857-c854",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "ACCESS_TOKEN_SALT",
+      "JWT_SECRET_KEY"
+    ],
+    "generatedKeys": [
+      "ACCESS_TOKEN_SALT",
+      "JWT_SECRET_KEY"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "9d2c5f38-8b13-4d6e-aadf-645daa94caef",
+    "version": "repo-007-20260907-111857-c854",
+    "gitSha": "73e4f0368de398d7b67c50fb2926351414e2044e",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:f4f450ecf3893ead38dbe49fbda1414d29c84a5bbd7de0e196bc866800ba1e52",
+    "buildId": null,
+    "durationMs": 352946,
+    "detail": null
+  },
+  "deployment": {
+    "status": "PASS",
+    "deploymentId": "5692fdda-87c3-4b61-9fa3-7d0f41a9fc25",
+    "installationId": "05eb54e9-157b-4fee-aa3a-4adfd699ad38",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-007-5692fdda",
+    "applicationStack": "deployz-app-05eb54e9",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-007-20260907-111857-c854/application-template-v1.json",
+    "installJobState": "SUCCEEDED",
+    "failureCode": null,
+    "resourceCount": 50,
+    "durationMs": 1366845,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "UNKNOWN",
+    "alb": "UNKNOWN",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": "Timed out after 1200s waiting for release pointer; last: state=HEALTHY stage=READY health=HEALTHY relay=CONNECTED current=- lastJob=CONFIGURE_DOMAIN:SUCCEEDED"
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "PASS",
+    "destroyJobState": "SKIPPED",
+    "purgeJobState": "SKIPPED",
+    "cleanupState": null,
+    "bootstrapStackFinal": "already gone",
+    "leaks": [],
+    "durationMs": 64099,
+    "detail": null
+  },
+  "classification": "TIMEOUT",
+  "failureStage": "TIMEOUT",
+  "rootCause": "DEPLOYZ_BUG",
+  "rootCauseEvidence": "the deploy never settled: the relay read the running digest from the first container of the task — the RdsCaBundle init container (sha256:279612ae…, amazonlinux) — never the App container's release digest (sha256:f4f450ec…), so DEPLOY_RELEASE stayed RUNNING while the application was HEALTHY/READY and answered /api/v1/health with 200 over default HTTPS; currentReleaseId null, Disconnect 409, connector left, 55 resources at the audit (DEPLOY-014, fix PR #217). Everything before it passed: zero-task INSTALL, CONFIG_UPDATE minted ACCESS_TOKEN_SALT + JWT_SECRET_KEY, 125 Prisma migrations over TLS behind the RDS CA bundle (DEPLOY-007 verified).",
+  "findingIds": [
+    "DEPLOY-014"
+  ],
+  "timing": {
+    "startedAt": "2026-09-07T11:18:58.114Z",
+    "finishedAt": "2026-09-07T12:09:43.477Z",
+    "totalMs": 3045363
+  },
+  "evidence": {
+    "failure": {
+      "point": "auto-deploy",
+      "message": "Timed out after 1200s waiting for release pointer; last: state=HEALTHY stage=READY health=HEALTHY relay=CONNECTED current=- lastJob=CONFIGURE_DOMAIN:SUCCEEDED",
+      "stoppedTasks": [
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-05eb54e9-ClusterEB0386A7-BVAIDm6x7uMI/7d50d3bdf68c48a894cfeaed3daa1fb9",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-07T17:12:47.961000+05:30",
+          "containers": [
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            },
+            {
+              "name": "App",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        }
+      ],
+      "logTail": [],
+      "stackFailures": [],
+      "targetHealth": [
+        "healthy"
+      ],
+      "diagnostics": {
+        "failureCode": null,
+        "recoverability": null,
+        "what": null,
+        "why": null,
+        "fix": null,
+        "events": []
+      }
+    }
+  }
+}
