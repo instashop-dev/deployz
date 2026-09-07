@@ -44,7 +44,6 @@ export interface Manifest {
   readonly deploymentResourceCount: number;
   readonly releaseCount: number;
   readonly jobCount: number;
-  readonly usageRecordCount: number;
   readonly applicationConfigCount: number;
   readonly regions: readonly string[];
   readonly stacksByRegion: Readonly<Record<string, readonly ManifestStack[]>>;
@@ -80,7 +79,6 @@ export async function buildManifest(): Promise<Manifest> {
       deploymentResourceCount: inventory.deploymentResources.length,
       releaseCount: inventory.releaseCount,
       jobCount: inventory.jobCount,
-      usageRecordCount: inventory.usageRecordCount,
       applicationConfigCount: inventory.applicationConfigCount,
       regions,
       stacksByRegion,
@@ -119,7 +117,6 @@ export async function runInventory(): Promise<void> {
   console.log(`deployment_resources: ${manifest.deploymentResourceCount}`);
   console.log(`releases:             ${manifest.releaseCount}`);
   console.log(`deployment_jobs:      ${manifest.jobCount}`);
-  console.log(`usage_records:        ${manifest.usageRecordCount}`);
   console.log(`application_configs:  ${manifest.applicationConfigCount}`);
   console.log(`regions scanned:      ${manifest.regions.join(', ') || '(none)'}`);
   console.log(`AWS stacks matched:   ${allStacks.length}`);

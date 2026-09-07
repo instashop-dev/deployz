@@ -2,8 +2,8 @@
  * `pnpm admin:customer-cleanup execute --confirm FULL-CUSTOMER-RESET`
  *
  * Wipes every CUSTOMER deployment (AWS resources + DB rows) while preserving
- * control-plane data (auth, organizations, customers, subscriptions, github
- * installations, event_logs). Requires the literal `--confirm
+ * control-plane data (auth, organizations, customers, github installations,
+ * event_logs). Requires the literal `--confirm
  * FULL-CUSTOMER-RESET` token — there is no bypass flag.
  *
  * Per deployment, in order:

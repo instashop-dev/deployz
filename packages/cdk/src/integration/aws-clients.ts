@@ -13,8 +13,7 @@
  *   - a MOCK seam — tests implement the interface with `vi.fn()` and drive the
  *     full harness with no network.
  *
- * Same graceful-degradation pattern as todo 6's `createStripe()` (returns null
- * when the key is unset) and todo 10's `S3Client` seam.
+ * Same graceful-degradation pattern as todo 10's `S3Client` seam.
  */
 
 import {

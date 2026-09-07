@@ -37,7 +37,6 @@ const PURGED_TABLES = [
   { name: 'deployment_jobs', table: schema.deploymentJobs },
   { name: 'deployment_resources', table: schema.deploymentResources },
   { name: 'custom_domains', table: schema.customDomains },
-  { name: 'usage_records', table: schema.usageRecords },
   { name: 'application_configs', table: schema.applicationConfigs },
 ] as const;
 

@@ -7,9 +7,9 @@
  * shapes. `readInventory` is read-only. `purgeCustomerData` deletes every row
  * of the CUSTOMER tables, in FK-safe order, and NEVER touches control-plane
  * data: user, session, account, verification, organization, member,
- * invitation, customers, subscriptions, github_installations, or the
- * append-only event_logs (its immutability trigger would reject deletes
- * anyway — see packages/db/src/schema/events.ts).
+ * invitation, customers, github_installations, or the append-only
+ * event_logs (its immutability trigger would reject deletes anyway — see
+ * packages/db/src/schema/events.ts).
  */
 
 import { Pool } from 'pg';
@@ -74,7 +74,6 @@ export interface DbInventory {
   readonly deploymentResources: readonly DeploymentResourceInventoryRow[];
   readonly releaseCount: number;
   readonly jobCount: number;
-  readonly usageRecordCount: number;
   readonly applicationConfigCount: number;
 }
 
@@ -87,7 +86,6 @@ export async function readInventory(db: Db): Promise<DbInventory> {
     deploymentResources,
     releases,
     jobs,
-    usageRecords,
     applicationConfigs,
   ] = await Promise.all([
     db.select({ id: schema.applications.id }).from(schema.applications),
@@ -117,7 +115,6 @@ export async function readInventory(db: Db): Promise<DbInventory> {
       .from(schema.deploymentResources),
     db.select({ id: schema.releases.id }).from(schema.releases),
     db.select({ id: schema.deploymentJobs.id }).from(schema.deploymentJobs),
-    db.select({ id: schema.usageRecords.id }).from(schema.usageRecords),
     db.select({ id: schema.applicationConfigs.id }).from(schema.applicationConfigs),
   ]);
 
@@ -128,7 +125,6 @@ export async function readInventory(db: Db): Promise<DbInventory> {
     deploymentResources,
     releaseCount: releases.length,
     jobCount: jobs.length,
-    usageRecordCount: usageRecords.length,
     applicationConfigCount: applicationConfigs.length,
   };
 }
@@ -140,7 +136,6 @@ export async function readInventory(db: Db): Promise<DbInventory> {
  */
 export async function purgeCustomerData(db: Db): Promise<void> {
   await db.delete(schema.deploymentResources);
-  await db.delete(schema.usageRecords);
   await db.delete(schema.customDomains);
   await db.delete(schema.deploymentJobs);
   await db.delete(schema.deployments);

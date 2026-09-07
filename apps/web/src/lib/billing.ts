@@ -25,8 +25,6 @@ export interface BillingSummary {
   deployments: BillingDeploymentLine[];
   /** base + sum(deployments.amount), in whole dollars. */
   total: number;
-  /** The org's subscription, or null when it has never subscribed. */
-  subscription: { status: string; currentPeriodEnd: string | null } | null;
 }
 
 // ── Fetch ───────────────────────────────────────────────────────────────────

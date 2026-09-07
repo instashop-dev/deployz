@@ -331,16 +331,6 @@ export type OrgPlan = z.infer<typeof orgPlanSchema>;
 export const buildStatusSchema = z.enum(['PENDING', 'BUILDING', 'SUCCEEDED', 'FAILED']);
 export type BuildStatus = z.infer<typeof buildStatusSchema>;
 
-// subscriptions.status — Stripe subscription lifecycle subset we persist.
-export const subscriptionStatusSchema = z.enum([
-  'ACTIVE',
-  'TRIALING',
-  'PAST_DUE',
-  'CANCELED',
-  'INCOMPLETE',
-]);
-export type SubscriptionStatus = z.infer<typeof subscriptionStatusSchema>;
-
 export const customDomainStatusSchema = z.enum([
   'PENDING',
   'WAITING_FOR_DNS',
@@ -737,14 +727,13 @@ const auditColumns = {
 // Core objects (§33–§40) — shapes mirror packages/db/src/schema/*.ts
 // ---------------------------------------------------------------------------
 
-// Better Auth organization plugin shape + Deployz Stripe linkage (§48).
+// Better Auth organization plugin shape.
 export const organizationSchema = z.object({
   id: z.string(),
   name: z.string(),
   slug: z.string(),
   logo: z.string().nullable(),
   metadata: z.string().nullable(),
-  stripeCustomerId: z.string().nullable(),
   plan: orgPlanSchema,
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime().nullable(),
@@ -915,34 +904,6 @@ export const eventLogSchema = z.object({
   payload: jsonRecord,
 });
 export type EventLog = z.infer<typeof eventLogSchema>;
-
-// §48 billing: one subscription per organization.
-export const subscriptionSchema = z.object({
-  id: z.uuid(),
-  organizationId: z.string(),
-  stripeSubscriptionId: z.string(),
-  stripeBasePriceId: z.string(),
-  stripeMeteredPriceId: z.string(),
-  status: subscriptionStatusSchema,
-  currentPeriodStart: z.iso.datetime().nullable(),
-  currentPeriodEnd: z.iso.datetime().nullable(),
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-});
-export type Subscription = z.infer<typeof subscriptionSchema>;
-
-// §48/U8 day-proration shape: ONE record per deployment per day.
-export const usageRecordSchema = z.object({
-  id: z.uuid(),
-  deploymentId: z.uuid(),
-  usageDate: z.iso.date(),
-  quantity: z.number().int(),
-  stripeUsageRecordId: z.string().nullable(),
-  reportedAt: z.iso.datetime().nullable(),
-  createdAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-});
-export type UsageRecord = z.infer<typeof usageRecordSchema>;
 
 // ---------------------------------------------------------------------------
 // Structured error envelope — the single error wire shape for the API.

@@ -33,8 +33,8 @@ Full-suite result after build:
 - Skipped tests are environmental by design:
   - `packages/analysis/test/ai-live.test.ts` — 2 tests, skipped unless
     `DEPLOYZ_LIVE_AI=1` (live AI gateway).
-  - `apps/api/src/billing.test.ts` — 1 test, skipped unless a real Stripe
-    test-mode key and `RUN_STRIPE_CLOCK` are set.
+  - The former `apps/api/src/billing.test.ts` skip was removed with the
+    Stripe implementation (see `docs/billing/paddle-migration-audit.md`).
 - Live-AWS suites (`packages/cdk/test/*-live-aws.test.ts`,
   `*-live.test.ts`) are not part of the default run; they require AWS
   credentials and are covered by the separate canary/fresh E2E policy in

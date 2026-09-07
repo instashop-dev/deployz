@@ -70,10 +70,6 @@ jobs:
       GITHUB_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
       GITHUB_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
       GITHUB_APP_INSTALL_URL: ${{ secrets.GH_APP_INSTALL_URL }}
-      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-      STRIPE_PRICE_BASE: ${{ secrets.STRIPE_PRICE_BASE }}
-      STRIPE_PRICE_METERED: ${{ secrets.STRIPE_PRICE_METERED }}
       AWS_SES_ACCESS_KEY_ID: ${{ secrets.AWS_SES_ACCESS_KEY_ID }}
       AWS_SES_SECRET_ACCESS_KEY: ${{ secrets.AWS_SES_SECRET_ACCESS_KEY }}
       # AI explanations. Required: AI_GATEWAY_BASE_URL + AI_PROVIDER_API_KEY.
@@ -133,9 +129,7 @@ jobs:
           for key in CDK_DEFAULT_ACCOUNT API_CERTIFICATE_ARN BETTER_AUTH_SECRET \
                      GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GITHUB_APP_ID \
                      GITHUB_APP_PRIVATE_KEY GITHUB_WEBHOOK_SECRET \
-                     GITHUB_APP_INSTALL_URL STRIPE_SECRET_KEY \
-                     STRIPE_WEBHOOK_SECRET STRIPE_PRICE_BASE \
-                     STRIPE_PRICE_METERED AWS_SES_ACCESS_KEY_ID \
+                     GITHUB_APP_INSTALL_URL AWS_SES_ACCESS_KEY_ID \
                      AWS_SES_SECRET_ACCESS_KEY CLOUDFLARE_ZONE_ID \
                      CLOUDFLARE_ZONE_NAME DEPLOYZ_DEFAULT_HOSTNAME_PREFIX \
                      CLOUDFLARE_ZONE_EDIT_API_TOKEN; do
@@ -147,19 +141,6 @@ jobs:
             exit 1
           fi
           echo "Every required value is present."
-
-      # The Stripe price ids must be price ids. STRIPE_PRICE_BASE was once set
-      # to the literal "49", which Stripe rejects at checkout — every vendor
-      # hit it, and nothing caught it until someone tried to subscribe.
-      - name: Verify the Stripe price ids look like price ids
-        run: |
-          set -euo pipefail
-          for key in STRIPE_PRICE_BASE STRIPE_PRICE_METERED; do
-            case "${!key}" in
-              price_*) ;;
-              *) echo "$key is '${!key}', expected a Stripe price id (price_…)" >&2; exit 1 ;;
-            esac
-          done
 
       - name: Build workspace packages
         run: pnpm build

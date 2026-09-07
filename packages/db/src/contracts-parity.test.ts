@@ -15,7 +15,6 @@ import {
   jobTypeSchema,
   regionSchema,
   releaseStatusSchema,
-  subscriptionStatusSchema,
 } from '@deployz/contracts';
 
 import {
@@ -33,7 +32,6 @@ import {
   jobTypeEnum,
   regionEnum,
   releaseStatusEnum,
-  subscriptionStatusEnum,
 } from './enums.js';
 
 // Parity law: every contracts enum is EXACTLY the live db pgEnum vocabulary.
@@ -52,7 +50,6 @@ describe('enum parity with @deployz/contracts zod schemas', () => {
     ['jobState', jobStateEnum, jobStateSchema.options],
     ['failureCode', failureCodeEnum, failureCodeSchema.options],
     ['cleanupState', cleanupStateEnum, cleanupStateSchema.options],
-    ['subscriptionStatus', subscriptionStatusEnum, subscriptionStatusSchema.options],
     ['infrastructureComponentKind', infrastructureComponentKindEnum, infrastructureComponentKindSchema.options],
     ['infrastructureComponentStatus', infrastructureComponentStatusEnum, infrastructureComponentStatusSchema.options],
     ['infrastructureLifecycle', infrastructureLifecycleEnum, infrastructureLifecycleSchema.options],

@@ -475,9 +475,6 @@ export async function deleteOrganization(
   // deliberately untouched: the audit stream outlives what it describes.
   if (deploymentIds.length > 0) {
     await db
-      .delete(schema.usageRecords)
-      .where(inArray(schema.usageRecords.deploymentId, deploymentIds));
-    await db
       .delete(schema.deploymentStackEvents)
       .where(inArray(schema.deploymentStackEvents.deploymentId, deploymentIds));
     await db
@@ -497,9 +494,6 @@ export async function deleteOrganization(
     .delete(schema.applications)
     .where(eq(schema.applications.organizationId, organizationId));
   await db.delete(schema.customers).where(eq(schema.customers.organizationId, organizationId));
-  await db
-    .delete(schema.subscriptions)
-    .where(eq(schema.subscriptions.organizationId, organizationId));
   await db.delete(schema.invitation).where(eq(schema.invitation.organizationId, organizationId));
   await db.delete(schema.member).where(eq(schema.member.organizationId, organizationId));
   // Sessions still pointing here must lose the pointer, or their next request

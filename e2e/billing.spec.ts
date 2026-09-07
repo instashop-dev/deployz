@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 // deployment lines, Monthly total $49. §65: all top-level copy is
 // jargon-free (no "Stripe", "meter event", "proration").
 
-const JARGON = /\b(Stripe|meter event|proration|usage record|metered)\b/i;
+const JARGON = /\b(Stripe|Paddle|meter event|proration|usage record|metered)\b/i;
 
 async function signUp(page: Page): Promise<void> {
   const email = `e2e-${crypto.randomUUID().slice(0, 8)}@example.com`;

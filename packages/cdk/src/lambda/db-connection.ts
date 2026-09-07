@@ -58,6 +58,7 @@ import migration0028 from '../../../db/drizzle/0028_red_whale.sql';
 import migration0029 from '../../../db/drizzle/0029_normal_patch.sql';
 import migration0030 from '../../../db/drizzle/0030_material_texas_twister.sql';
 import migration0031 from '../../../db/drizzle/0031_release_image_availability.sql';
+import migration0032 from '../../../db/drizzle/0032_remove_stripe_billing.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -103,6 +104,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0029_normal_patch': migration0029,
   '0030_material_texas_twister': migration0030,
   '0031_release_image_availability': migration0031,
+  '0032_remove_stripe_billing': migration0032,
 };
 
 interface RdsSecret {

@@ -50,9 +50,9 @@ export function toInjectOptions(event: APIGatewayProxyEventV2): InjectOptions {
     headers.cookie = event.cookies.join('; ');
   }
 
-  // The Stripe and GitHub webhook routes verify signatures over the raw body,
-  // so the exact bytes have to survive. API Gateway base64-encodes bodies it
-  // judges binary; decoding to a Buffer keeps those signature checks honest.
+  // The webhook routes verify signatures over the raw body, so the exact
+  // bytes have to survive. API Gateway base64-encodes bodies it judges
+  // binary; decoding to a Buffer keeps those signature checks honest.
   const body =
     event.body === undefined
       ? undefined

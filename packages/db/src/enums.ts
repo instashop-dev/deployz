@@ -135,15 +135,6 @@ export const failureCodeEnum = pgEnum('failure_code', [
   'RELAY_STATE_WRITE_FAILED',
 ]);
 
-// subscriptions.status — Stripe subscription lifecycle subset we persist.
-export const subscriptionStatusEnum = pgEnum('subscription_status', [
-  'ACTIVE',
-  'TRIALING',
-  'PAST_DUE',
-  'CANCELED',
-  'INCOMPLETE',
-]);
-
 export const relayStatusEnum = pgEnum('relay_status', [
   'CONNECTED',
   'DISCONNECTED',

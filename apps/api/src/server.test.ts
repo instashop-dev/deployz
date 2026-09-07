@@ -578,12 +578,6 @@ describe('server — organization identity comes from the session, not the clien
     expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
   });
 
-  it('POST /api/billing/checkout 403s on a cross-org body.organizationId', async () => {
-    const response = await postJson(app, '/api/billing/checkout', { organizationId: orgB.organizationId }, { cookie: orgA.cookie });
-    expect(response.statusCode).toBe(403);
-    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('ORGANIZATION_MISMATCH');
-  });
-
   it('POST /api/deployments 422s MANIFEST_NOT_COMPATIBLE for an app with §11.4 unsupported architecture (§10 rejection → blocked before provisioning)', async () => {
     const application = await insertApplication(db, orgA.organizationId, {
       detectedMetadata: {
