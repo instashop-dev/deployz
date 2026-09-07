@@ -102,6 +102,26 @@ export interface TaskDefinitionEnv {
   readonly image: string | null;
 }
 
+/**
+ * The application container of a task definition: the essential one (ECS
+ * defaults `essential` to true; the RDS CA init container of DEPLOY-007
+ * declares false and ECS lists it first). Position is not a rule.
+ */
+export function applicationContainerDefinition<T extends { essential?: boolean }>(containerDefinitions: readonly T[]): T | null {
+  return containerDefinitions.find((container) => container.essential !== false) ?? containerDefinitions[0] ?? null;
+}
+
+/**
+ * The exit that stopped a task: the application container's, read as the
+ * first non-zero exit code (a finished init container exits 0 and may be
+ * listed first), else the first exit code any container reports.
+ */
+export function stoppedExit(containers: readonly { exitCode: number | null; reason: string | null }[]): { exitCode: number | null; reason: string | null } {
+  const container =
+    containers.find((c) => c.exitCode !== null && c.exitCode !== 0) ?? containers.find((c) => c.exitCode !== null) ?? containers[0];
+  return { exitCode: container?.exitCode ?? null, reason: container?.reason ?? null };
+}
+
 /** The env/secret NAMES (never values) bound on the service's current task definition. */
 export async function describeTaskDefinitionEnv(region: string, stackName: string): Promise<TaskDefinitionEnv | null> {
   const resources = await listStackResources(region, stackName).catch(() => []);
@@ -119,12 +139,13 @@ export async function describeTaskDefinitionEnv(region: string, stackName: strin
       containerDefinitions: {
         image?: string;
         command?: string[];
+        essential?: boolean;
         environment?: { name: string }[];
         secrets?: { name: string }[];
       }[];
     };
   };
-  const container = described.taskDefinition.containerDefinitions[0];
+  const container = applicationContainerDefinition(described.taskDefinition.containerDefinitions);
   if (!container) return null;
   return {
     environment: (container.environment ?? []).map((e) => e.name).sort(),

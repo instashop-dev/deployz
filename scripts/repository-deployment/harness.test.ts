@@ -11,7 +11,7 @@ import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
 import { appUrlKeys, configFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
 import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps } from './deploy.js';
-import { sanitize } from './evidence.js';
+import { applicationContainerDefinition, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
 import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
 import {
@@ -341,6 +341,25 @@ describe('gate', () => {
     expect(resolveHealthPath({ id: 'repo-001', findings: [], notes: [] }, '/health', 'explicit', '/status')).toEqual({ path: '/health', source: 'manifest' });
     expect(resolveHealthPath({ id: 'repo-001', findings: [], notes: [] }, '/health', 'vendor_required', '/status')).toEqual({ path: '/status', source: 'repository-evidence' });
     expect(resolveHealthPath({ id: 'repo-001', findings: [], notes: [] }, null, null, undefined)).toEqual({ path: '/', source: 'fallback' });
+  });
+});
+
+describe('task containers (DEPLOY-014 shape)', () => {
+  it('reads the task definition env from the essential container, not the init container ECS lists first', () => {
+    type Def = { name: string; essential?: boolean; environment: { name: string }[] };
+    const init: Def = { name: 'RdsCaBundle', essential: false, environment: [] };
+    const app: Def = { name: 'App', essential: true, environment: [{ name: 'DATABASE_URL' }] };
+    expect(applicationContainerDefinition([init, app])).toBe(app);
+    const unmarked: Def = { name: 'App', environment: [] };
+    expect(applicationContainerDefinition([unmarked, init])).toBe(unmarked);
+    expect(applicationContainerDefinition([])).toBeNull();
+  });
+
+  it("reads a stopped task's exit from the container that failed, not the init container that exited 0", () => {
+    expect(stoppedExit([{ exitCode: 0, reason: null }, { exitCode: 1, reason: 'boom' }])).toEqual({ exitCode: 1, reason: 'boom' });
+    expect(stoppedExit([{ exitCode: 0, reason: null }, { exitCode: 0, reason: null }])).toEqual({ exitCode: 0, reason: null });
+    expect(stoppedExit([{ exitCode: null, reason: 'CannotPullContainerError' }])).toEqual({ exitCode: null, reason: 'CannotPullContainerError' });
+    expect(stoppedExit([])).toEqual({ exitCode: null, reason: null });
   });
 });
 

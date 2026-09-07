@@ -17,7 +17,8 @@ import { ControlPlaneError, describeDeployment, waitFor, type DeploymentDetail }
 import { parseQuickCreateUrl } from '../version-canary/steps.js';
 import { classifyFailure, type FailureEvidence, type FunnelPoint } from './classify.js';
 import { APP_URL_TOKEN, appUrlKeys, providedKeys, secretFormat, secretKey, type RepositoryConfig, type SecretFormat } from './config.js';
-import type { StoppedTask, TaskDefinitionEnv, DependencyPresence } from './evidence.js';
+import type { DependencyPresence, StoppedTask, TaskDefinitionEnv } from './evidence.js';
+import { stoppedExit } from './evidence.js';
 import { stageBRun } from './ledger.js';
 import type { StageBResult } from './results.js';
 
@@ -481,7 +482,7 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
           stackStatus: appStack?.status ?? null,
           ...(observed
             ? {
-                stoppedTasks: observed.stoppedTasks.map((t) => ({ exitCode: t.containers[0]?.exitCode ?? null, reason: t.containers[0]?.reason ?? null, stoppedReason: t.stoppedReason })),
+                stoppedTasks: observed.stoppedTasks.map((t) => ({ ...stoppedExit(t.containers), stoppedReason: t.stoppedReason })),
                 logTail: observed.logTail,
               }
             : {}),
@@ -627,7 +628,7 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         assert(detail.state === 'HEALTHY' || detail.state === 'UPDATE_AVAILABLE', 'runtime', `deployment state ${detail.state} after the window`, { failureCode: detail.deploymentStatus.failure?.code ?? null });
         assert(targets.length > 0 && targets.every((t) => t === 'healthy'), 'runtime', `ALB targets after the window: ${targets.join(', ')}`, { targetHealth: targets });
         const crashLoop = stopped.filter((t) => t.containers.some((c) => c.exitCode !== null && c.exitCode !== 0)).length;
-        assert(crashLoop < 3, 'runtime', `${crashLoop} tasks exited non-zero during the run`, { stoppedTasks: stopped.map((t) => ({ exitCode: t.containers[0]?.exitCode ?? null, reason: t.containers[0]?.reason ?? null, stoppedReason: t.stoppedReason })) });
+        assert(crashLoop < 3, 'runtime', `${crashLoop} tasks exited non-zero during the run`, { stoppedTasks: stopped.map((t) => ({ ...stoppedExit(t.containers), stoppedReason: t.stoppedReason })) });
       }),
     );
 
@@ -746,7 +747,7 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
       collected['stackFailures'] = stackReasons;
       collected['targetHealth'] = targets;
       extra = {
-        ...(stopped.length > 0 ? { stoppedTasks: stopped.map((t) => ({ exitCode: t.containers[0]?.exitCode ?? null, reason: t.containers[0]?.reason ?? null, stoppedReason: t.stoppedReason })) } : {}),
+        ...(stopped.length > 0 ? { stoppedTasks: stopped.map((t) => ({ ...stoppedExit(t.containers), stoppedReason: t.stoppedReason })) } : {}),
         ...(logs.length > 0 ? { logTail: logs } : {}),
         stackReasons,
         targetHealth: targets,
