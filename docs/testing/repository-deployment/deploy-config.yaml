@@ -97,6 +97,7 @@ repositories:
     verify: { healthPath: /api/v1/health, appPath: / }
     notes:
       - "NestJS + Prisma; reads DATABASE_URL and REDIS_HOST/REDIS_PORT (Redis required: Bull + the health check). Migrations run by docker/entrypoint.sh at boot. Port 3333."
+    findings: [DEPLOY-014]
 
   - id: repo-021
     findings: [DEPLOY-005]

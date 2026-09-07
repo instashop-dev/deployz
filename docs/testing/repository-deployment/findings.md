@@ -26,6 +26,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #209 merged, bootstrap republished 2026-09-07; kutt rerun 3 settled in 12 min with the exit code) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
 | DEPLOY-012 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #210 merged, bootstrap republished 2026-09-07; kutt rerun 4's config pass SUCCEEDED) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 3, the first config pass that found its secret (DEPLOY-010) |
 | DEPLOY-013 | ENV_BINDING_ERROR | DEPLOYZ_BUG + ANALYSIS_BUG | FIXED in two parts: PR #211 merged and deployed (mint app-internal secrets; kutt rerun 5 minted `JWT_SECRET`); PR #212 in review (the analyser called `DB_PASSWORD`, `REDIS_PASSWORD`, `MAIL_PASSWORD` internal secrets, so rerun 5 minted those too) | every vendor-scope secret typed before an install — found on kutt reruns 4 and 5 |
+| DEPLOY-014 | TIMEOUT | DEPLOYZ_BUG | FIX IN REVIEW (PR #217: the relay reads digest and exit code from the task's essential container; regression the #213 init container exposed) | repo-007 (ghostfolio, measured: healthy and serving, DEPLOY_RELEASE never settled); every database-backed application deployed on the #213 template until the relay republish |
 
 ---
 
@@ -280,8 +281,10 @@ ran the migration one-off against RDS with `DB_SSL=true` and exited on
 task log captured by the watcher). That is exactly the mechanism below:
 node-postgres verifies the RDS chain against Node's trust store, which
 does not hold the RDS CA. The product owner chose option A; PR #213
-merged while ghostfolio was building, so directus, memos and outline run
-on the fixed template and ghostfolio on the previous one.
+merged while ghostfolio was building, and ghostfolio's pinned template
+already carried the init container (the harness publishes from the
+worktree's built `dist`, which held the fix), so ghostfolio was the first
+deploy on it — and met DEPLOY-014.
 
 **Behaviour.** The application template issues the customer application's
 `DATABASE_URL` as
@@ -672,3 +675,78 @@ value survives to later installs — goes to the final report.
 
 **Affected.** kutt measured; every application with a vendor-typed
 app-internal secret.
+
+---
+
+## DEPLOY-014 — The relay reads the running image and the migration exit code from the first container of a task
+
+**Stage** TIMEOUT (the deploy never settles; the deployment is HEALTHY and
+serving while its `DEPLOY_RELEASE` job stays RUNNING) · **Root cause**
+DEPLOYZ_BUG — a regression the DEPLOY-007 fix exposed · **Resolution** FIX
+IN REVIEW (PR #217) · **Found** Phase 3, Wave 1, ghostfolio attempt 1
+(2026-09-07), the first deploy on the PR #213 template.
+
+**Behaviour.** The relay identifies the application container by position
+in three places: the running-digest observation that settles a deploy
+(`packages/relay/src/deploy.ts`, `observeRunningDigest`: the first
+container with an image digest), the heartbeat's `runningImageDigest`
+(`packages/relay/src/ecs-observe.ts`, the same rule) and the migration
+one-off's verdict (`settleMigration`: the first container with an exit
+code). Since PR #213 every database-backed task lists the `RdsCaBundle`
+init container before the application, so the observed digest is the
+Amazon Linux image's. The settle gate `runningDigest === request.imageDigest`
+never passes; the relay re-issues the service update against the same
+revision and defers again on every poll ("command-still-pending" every
+five minutes, the control plane re-dispatching the command about every 45
+minutes). A failed migration would have been read as exit 0 from the init
+container.
+
+**Effect.** The application installs, scales up and serves — ghostfolio
+answered its health path with 200 and the control plane showed HEALTHY /
+READY — but `currentReleaseId` stays null, the `DEPLOY_RELEASE` job stays
+RUNNING, Disconnect is refused with `409 Another deployment operation is
+already in progress`, and the Stage B harness times out on the release
+pointer, cannot Disconnect, cannot remove the connector and reports a
+failed cleanup (55 resources left). Every database-backed application on
+the #213 template would meet it on its first deploy.
+
+**Evidence.** run `stage-b-repo-007-20260907-111857-c854`: INSTALL
+SUCCEEDED 11:41Z, CONFIG_UPDATE SUCCEEDED (minted `ACCESS_TOKEN_SALT`,
+`JWT_SECRET_KEY`), the migration one-off (`npx prisma migrate deploy`, 125
+migrations) exited 0 at 11:42Z with `RdsCaBundle` exit 0 listed first,
+the service reached steady state at 11:44Z; relay log
+`relay:command-deferred` → `relay:command-still-pending` ×16 →
+`relay:command-executed` again at 12:18Z and 13:03Z; the control plane's
+`runningImageDigest` was `sha256:279612ae…` — the digest of
+`public.ecr.aws/amazonlinux/amazonlinux:2023-minimal` — while the release
+is `sha256:f4f450ec…`; `describe-tasks` listed `RdsCaBundle` (STOPPED,
+that digest) before `App` (RUNNING, the release digest).
+
+**Generic fix (PR #217).** The application is the task's essential
+container. `ecs-observe.ts` gains `essentialContainerNames` (from a task
+definition; ECS defaults `essential` to true, init containers and sidecars
+declare false) and `applicationContainers` (a task's containers that are
+essential; an unnamed container still counts, a definition that names
+none keeps the old behaviour). The deploy settle describes the service's
+task definition first and reads the running digest from the essential
+containers; the migration poll reads the exit code the same way; the
+heartbeat observation describes each running task's definition (cached
+per ARN) before reading. The real ECS clients pass container names, the
+task-definition ARN and a `describeTaskDefinition` for the task reader
+(the relay role already holds the permission). The Stage B harness's
+`describeRunningService` counts only the containers still RUNNING in a
+running task. Regression tests: `ecs-observe.test.ts` (digest past an
+init container listed first), `deploy.test.ts` (running digest and
+migration exit code past a non-essential init container). Bootstrap
+republish after merge (relay change).
+
+**Operator recovery for the stuck environment.** The installed relay is
+the old code, so the job never fails on its own: the service was scaled to
+0 and the application stack deleted by hand; the relay's next poll finds
+no ECS service, fails the job, and `--cleanup --repo repo-007` closes the
+ledger through the product (Purge, connector removal, leak audit).
+
+**Affected.** repo-007 (ghostfolio, measured); every database-backed
+application deployed on the PR #213 template until the relay republish —
+kutt, umami, directus, memos, outline and every Wave 2+ repository with a
+database.

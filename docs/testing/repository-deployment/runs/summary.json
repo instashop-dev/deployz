@@ -1,25 +1,25 @@
 {
-  "deployzCommit": "740de49ffd02332cf7c7b2d3fab0f6fdd29f7173",
+  "deployzCommit": "6003cb2577b9f63d865f20bf846bed555aa29689",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "gate": {
     "attempted": 120,
-    "correctAccept": 41,
+    "correctAccept": 40,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 17
+    "configuredReady": 16
   },
   "build": {
-    "attempted": 6,
-    "succeeded": 5,
+    "attempted": 7,
+    "succeeded": 6,
     "failed": 1,
-    "successRateAmongDeployable": 7.7
+    "successRateAmongDeployable": 9.2
   },
   "infrastructure": {
-    "attempted": 5,
-    "succeeded": 3,
+    "attempted": 6,
+    "succeeded": 4,
     "failed": 2
   },
   "runtime": {
@@ -37,10 +37,10 @@
   "trueDeploymentSuccess": 2,
   "trueDeploymentSuccessRate": 3.1,
   "cleanup": {
-    "destroys": 6,
-    "destroyFailures": 0,
-    "leaks": 0,
-    "successRate": 100
+    "destroys": 7,
+    "destroyFailures": 1,
+    "leaks": 1,
+    "successRate": 85.7
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
@@ -49,7 +49,8 @@
     "DATABASE_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 43
+    "PASS": 42,
+    "TIMEOUT": 1
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
@@ -57,11 +58,12 @@
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24
+    "GATE_ERROR": 24,
+    "TIMEOUT": 1
   },
   "byRootCause": {
     "CORRECTLY_UNSUPPORTED": 49,
-    "DEPLOYZ_BUG": 1
+    "DEPLOYZ_BUG": 2
   },
   "byFinding": {
     "DEPLOY-002": [
@@ -109,16 +111,19 @@
     ],
     "DEPLOY-008": [
       "repo-004"
+    ],
+    "DEPLOY-014": [
+      "repo-007"
     ]
   },
   "bySet": {
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 3,
+      "deployed": 4,
       "trueDeploymentSuccess": 2,
       "expectedUnsupported": 34,
-      "gateCorrect": 63
+      "gateCorrect": 62
     },
     "unseen": {
       "total": 20,
@@ -157,10 +162,10 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 3,
+      "deployed": 4,
       "trueDeploymentSuccess": 2,
       "expectedUnsupported": 24,
-      "gateCorrect": 48
+      "gateCorrect": 47
     }
   }
 }
