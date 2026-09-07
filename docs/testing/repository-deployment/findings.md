@@ -24,7 +24,8 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-009 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #207 merged, deployed, templates republished 2026-09-06) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
 | DEPLOY-010 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #208 merged; bootstrap republish pending) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 2 (the first configured first start) |
 | DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #209 merged, bootstrap republished 2026-09-07; kutt rerun 3 settled in 12 min with the exit code) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
-| DEPLOY-012 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #210) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 3, the first config pass that found its secret (DEPLOY-010) |
+| DEPLOY-012 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #210 merged, bootstrap republished 2026-09-07; kutt rerun 4's config pass SUCCEEDED) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 3, the first config pass that found its secret (DEPLOY-010) |
+| DEPLOY-013 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #211) | every vendor-scope secret typed before an install (write-only values never reach a later install; an app-internal secret was not minted either) — found on kutt rerun 4 |
 
 ---
 
@@ -599,3 +600,56 @@ snapshot regenerated; bootstrap republish after merge.
 
 **Affected.** Every application with a vendor or generated secret; kutt,
 ghostfolio, directus, outline in Wave 1.
+
+---
+
+## DEPLOY-013 — A vendor-scope secret typed before an install never reaches it, and is not minted either
+
+**Stage** ENV_BINDING_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
+FIX IN REVIEW (PR #211) · **Found** Phase 3, Wave 1, kutt rerun 4
+(2026-09-07), the first config pass that both found its secret and was
+allowed to read it.
+
+**Behaviour.** Secret values are write-only (§31, `apps/api/src/config.ts`):
+the control plane keeps a mask, and the value travels once, in the
+CONFIG_UPDATE fan-out to the deployments whose relay is connected when it
+is saved. A vendor-scope secret typed on the Configuration screen before
+any install therefore never reaches a deployment installed later: the
+post-install config pass carries no values, the relay finds nothing in
+the customer's store and reports the key as `unboundSecretKeys` (by
+design, "binding a missing key would stop every task from starting").
+And because the key counts as configured, `buildRelayConfigEntries` did
+not flag it for minting, so the relay's ability to generate app-internal
+secrets never applied. The analyser side compounds it: kutt's `JWT_SECRET`
+(`str({ devDefault: "securekey" })`, required in production) is classified
+`optional` with `purpose: internal_secret`, not `deployz_generated`.
+
+**Effect.** The configured first start (DEPLOY-009, -010, -012 fixed)
+still starts the task without its secret: kutt's migration one-off and
+its first task exit on `Missing environment variables: JWT_SECRET`. Every
+Wave 1 application whose deploy-config lists a vendor secret (kutt,
+docuseal, ghostfolio, directus, outline, ihatemoney — ihatemoney passed
+because Flask generates a session key) is affected; in production every
+vendor who types a secret before a customer installs is.
+
+**Evidence.** kutt rerun 4 (run `stage-b-repo-003-20260907-052126-9fc3`,
+stack `deployz-app-ed02a75b`): INSTALL SUCCEEDED (zero tasks),
+CONFIG_UPDATE SUCCEEDED at 05:41:31Z with `generatedKeys: []`,
+`unboundSecretKeys: ["JWT_SECRET"]`, DEPLOY_RELEASE FAILED
+`MIGRATION_FAILED` ("exit code 1, EssentialContainerExited" — the
+migration script requires `server/env.js`, which validates `JWT_SECRET`);
+the deployment's manifest lists `JWT_SECRET` as `secret: true, purpose:
+internal_secret, classification: optional`.
+
+**Fix.** `buildRelayConfigEntries` marks an entry `generated: true` when
+the manifest classifies the key `deployz_generated` or the variable is a
+secret with `purpose: internal_secret`, whether or not the vendor typed
+one; the relay keeps any value already in the customer's store, so a
+delivered vendor value always wins and an absent one is minted. External
+credentials and customer-required keys are never minted. API only;
+`deploy-api.yml` deploys it. The remaining product question — whether
+vendor-scope secret values should be stored (encrypted) so a vendor's own
+value survives to later installs — goes to the final report.
+
+**Affected.** kutt measured; every application with a vendor-typed
+app-internal secret.
