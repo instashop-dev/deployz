@@ -471,3 +471,292 @@ describe('fixInstructionsGeneratedLabel', () => {
     expect(FIX_INSTRUCTIONS_REUSED_NOTE).not.toMatch(JARGON);
   });
 });
+
+// ── Redesigned readiness page helpers ─────────────────────────────────────
+
+import type { Application } from '../src/lib/applications';
+import {
+  deriveLifecycleSteps,
+  readinessHeaderPresentation,
+  deriveReadinessRows,
+  isFieldOverridden,
+  effectiveFieldValue,
+  detectedFieldValue,
+} from '../src/lib/readiness';
+
+function applicationFixture(overrides: Partial<Application> = {}): Application {
+  return {
+    id: 'app-1',
+    organizationId: 'org-1',
+    name: 'Demo App',
+    githubInstallationId: null,
+    repoFullName: 'acme/demo',
+    repoUrl: 'https://github.com/acme/demo',
+    defaultBranch: 'main',
+    containerPort: null,
+    healthPath: null,
+    migrationCommand: null,
+    workerCommand: null,
+    databaseRequired: false,
+    storageRequired: false,
+    redisRequired: false,
+    analysisStatus: 'COMPLETE',
+    compatibilityStatus: 'READY',
+    compatibilityReason: null,
+    detectedMetadata: null,
+    createdAt: '2026-09-01T10:00:00Z',
+    updatedAt: '2026-09-01T10:00:00Z',
+    ...overrides,
+  } as Application;
+}
+
+function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): ApplicationReadiness {
+  return {
+    analysisStatus: 'COMPLETE',
+    state: 'READY',
+    requiredCount: 4,
+    recommendedCount: 0,
+    summary: null,
+    failureReason: null,
+    findings: [],
+    passed: [{ id: 'docker', label: 'Docker container detected' }],
+    analyzedCommitSha: 'abc1234',
+    detected: detectedFixture(),
+    ...overrides,
+  };
+}
+
+describe('deriveLifecycleSteps', () => {
+  it('marks analysis done when complete', () => {
+    const steps = deriveLifecycleSteps({
+      analysisStatus: 'COMPLETE',
+      readiness: readinessFixture(),
+      deployments: [],
+    });
+    expect(steps.Analyze.state).toBe('done');
+  });
+
+  it('marks analysis current when running', () => {
+    const steps = deriveLifecycleSteps({
+      analysisStatus: 'ANALYZING',
+      readiness: readinessFixture({ analysisStatus: 'ANALYZING', state: 'ANALYSIS_INCOMPLETE' }),
+      deployments: [],
+    });
+    expect(steps.Analyze.state).toBe('current');
+  });
+
+  it('marks analysis failed when the API reports a failure', () => {
+    const steps = deriveLifecycleSteps({
+      analysisStatus: 'FAILED',
+      readiness: readinessFixture({ analysisStatus: 'FAILED', state: 'ANALYSIS_INCOMPLETE' }),
+      deployments: [],
+    });
+    expect(steps.Analyze.state).toBe('failed');
+  });
+
+  it('prepare is current when required findings exist', () => {
+    const steps = deriveLifecycleSteps({
+      analysisStatus: 'COMPLETE',
+      readiness: readinessFixture({
+        state: 'NEEDS_CHANGES',
+        findings: [
+          {
+            id: 'health-check',
+            category: 'health',
+            title: 'Health endpoint missing',
+            severity: 'required',
+            blocking: true,
+            plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
+            whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
+            technicalEvidence: 'No route responded on /health.',
+            suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
+            confidence: 'confirmed',
+          },
+        ],
+      }),
+      deployments: [],
+    });
+    expect(steps.Prepare.state).toBe('current');
+    expect(steps.Prepare.label).toBe('Action required');
+  });
+
+  it('test step is done when the latest test deployment is healthy', () => {
+    const deployment = {
+      id: 'dep-1',
+      state: 'HEALTHY',
+      isTestDeployment: true,
+      createdAt: '2026-09-01T10:00:00Z',
+    } as unknown as import('../src/lib/deployments').FleetDeployment;
+    const steps = deriveLifecycleSteps({
+      analysisStatus: 'COMPLETE',
+      readiness: readinessFixture(),
+      deployments: [deployment],
+    });
+    expect(steps.Test.state).toBe('done');
+    expect(steps.Test.label).toBe('Verified');
+  });
+
+  it('customer ready is done only when analysis, readiness and test deployment are all healthy', () => {
+    const deployment = {
+      id: 'dep-1',
+      state: 'HEALTHY',
+      isTestDeployment: true,
+      createdAt: '2026-09-01T10:00:00Z',
+    } as unknown as import('../src/lib/deployments').FleetDeployment;
+    const steps = deriveLifecycleSteps({
+      analysisStatus: 'COMPLETE',
+      readiness: readinessFixture(),
+      deployments: [deployment],
+    });
+    expect(steps['Customer ready'].state).toBe('done');
+  });
+});
+
+describe('readinessHeaderPresentation', () => {
+  it('shows the ready heading when all required checks pass', () => {
+    const header = readinessHeaderPresentation(readinessFixture({ state: 'READY' }));
+    expect(header.heading).toBe('Ready for test deployment');
+    expect(header.supportingLine).toBe('4 required checks passed');
+  });
+
+  it('appends recommendation count only when recommendations exist', () => {
+    const header = readinessHeaderPresentation(
+      readinessFixture({
+        state: 'ALMOST_READY',
+        recommendedCount: 1,
+        findings: [
+          {
+            id: 'logging',
+            category: 'observability',
+            title: 'Structured logging recommended',
+            severity: 'recommended',
+            blocking: false,
+            plainEnglishExplanation: 'Logs are not structured as JSON.',
+            whyItMatters: 'Structured logs are easier to search.',
+            technicalEvidence: 'Log lines are plain text.',
+            suggestedOutcome: 'Emit logs as JSON.',
+            confidence: 'likely',
+          },
+        ],
+      }),
+    );
+    expect(header.heading).toBe('Recommendation');
+    expect(header.supportingLine).toBe('4 required checks passed · 1 recommendation');
+  });
+
+  it('shows blocker summary when required findings exist', () => {
+    const header = readinessHeaderPresentation(
+      readinessFixture({
+        state: 'NEEDS_CHANGES',
+        requiredCount: 3,
+        findings: [
+          {
+            id: 'health-check',
+            category: 'health',
+            title: 'Health endpoint missing',
+            severity: 'required',
+            blocking: true,
+            plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
+            whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
+            technicalEvidence: 'No route responded on /health.',
+            suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
+            confidence: 'confirmed',
+          },
+        ],
+      }),
+    );
+    expect(header.heading).toBe('Action required before deployment');
+    expect(header.supportingLine).toBe('2 of 3 required checks passed · 1 blocking issue');
+  });
+
+  it('shows the failed heading with the API reason', () => {
+    const header = readinessHeaderPresentation(
+      readinessFixture({
+        analysisStatus: 'FAILED',
+        state: 'ANALYSIS_INCOMPLETE',
+        failureReason: 'Failed to read the repository.',
+      }),
+    );
+    expect(header.heading).toBe("We couldn't check deployment readiness");
+    expect(header.supportingLine).toBe('Failed to read the repository.');
+  });
+});
+
+describe('deriveReadinessRows', () => {
+  it('creates a setting row for every detected fact', () => {
+    const rows = deriveReadinessRows(applicationFixture(), readinessFixture());
+    const ids = rows.filter((r) => r.kind === 'setting').map((r) => r.id);
+    expect(ids).toEqual(['runtime', 'framework', 'start', 'build', 'port', 'database', 'redis', 'storage', 'health', 'migrations']);
+  });
+
+  it('marks editable fields with their field key', () => {
+    const rows = deriveReadinessRows(applicationFixture(), readinessFixture());
+    const port = rows.find((r) => r.kind === 'setting' && r.id === 'port');
+    expect(port).toMatchObject({ editable: true, field: 'containerPort' });
+  });
+
+  it('includes passed checks and findings', () => {
+    const rows = deriveReadinessRows(
+      applicationFixture(),
+      readinessFixture({
+        findings: [
+          {
+            id: 'health-check',
+            category: 'health',
+            title: 'Health endpoint missing',
+            severity: 'required',
+            blocking: true,
+            plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
+            whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
+            technicalEvidence: 'No route responded on /health.',
+            suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
+            confidence: 'confirmed',
+          },
+        ],
+      }),
+    );
+    expect(rows.some((r) => r.kind === 'passed' && r.id === 'docker')).toBe(true);
+    expect(rows.some((r) => r.kind === 'finding' && r.id === 'health-check')).toBe(true);
+  });
+
+  it('shows rich detected fact text for boolean settings', () => {
+    // Match the application booleans to the detected ones so the row is not
+    // considered overridden; the primary value should then be the rich text.
+    const app = applicationFixture({
+      databaseRequired: true,
+      storageRequired: false,
+      redisRequired: false,
+    });
+    const rows = deriveReadinessRows(app, readinessFixture());
+    const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
+    expect(database?.value).toContain('PostgreSQL');
+    expect(database?.detectedValue).toBe('Required');
+  });
+});
+
+describe('effective value / override resolution', () => {
+  it('uses the application value when it is set', () => {
+    const app = applicationFixture({ containerPort: 8080 });
+    expect(effectiveFieldValue('containerPort', app, detectedFixture())).toBe('8080');
+  });
+
+  it('falls back to the detected value when the application value is not set', () => {
+    const app = applicationFixture({ containerPort: null });
+    expect(effectiveFieldValue('containerPort', app, detectedFixture())).toBe('3000');
+  });
+
+  it('reports a field as overridden when it differs from detected', () => {
+    const app = applicationFixture({ containerPort: 8080 });
+    expect(isFieldOverridden('containerPort', app, detectedFixture())).toBe(true);
+  });
+
+  it('does not report a field as overridden when it matches detected', () => {
+    const app = applicationFixture({ containerPort: 3000 });
+    expect(isFieldOverridden('containerPort', app, detectedFixture())).toBe(false);
+  });
+
+  it('reports the detected value as a string', () => {
+    expect(detectedFieldValue('containerPort', detectedFixture())).toBe('3000');
+    expect(detectedFieldValue('healthPath', detectedFixture())).toBe('/health');
+  });
+});

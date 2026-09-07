@@ -109,6 +109,7 @@ export interface UpdateApplicationInput {
   migrationCommand?: string | null;
   databaseRequired?: boolean;
   storageRequired?: boolean;
+  redisRequired?: boolean;
 }
 
 export async function updateApplication(id: string, input: UpdateApplicationInput): Promise<Application> {

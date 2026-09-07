@@ -6,6 +6,8 @@
 // §65: all copy here is jargon-free. Never a percentage.
 
 import { apiUrl } from '@/lib/api-url';
+import type { Application } from '@/lib/applications';
+import type { FleetDeployment } from '@/lib/deployments';
 
 // ── §42 onboarding steps (VERBATIM) ─────────────────────────────────────────
 
@@ -443,6 +445,391 @@ export async function fetchReadiness(applicationId: string): Promise<Application
     throw new Error(`Readiness request failed (${response.status})`);
   }
   return (await response.json()) as ApplicationReadiness;
+}
+
+// ── Application readiness page redesign helpers ───────────────────────────
+
+/** The four lifecycle steps shown at the top of the redesigned readiness page. */
+export type LifecycleStep = 'Analyze' | 'Prepare' | 'Test' | 'Customer ready';
+
+export type LifecycleStepState =
+  | { state: 'pending'; label: string }
+  | { state: 'current'; label: string }
+  | { state: 'done'; label: string }
+  | { state: 'failed'; label: string };
+
+function latestTestDeployment(deployments: FleetDeployment[]): FleetDeployment | null {
+  const testDeployments = deployments
+    .filter((d) => d.isTestDeployment && !d.deletedAt)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return testDeployments[0] ?? null;
+}
+
+function testDeploymentStepLabel(deployment: FleetDeployment | null): LifecycleStepState {
+  if (!deployment) return { state: 'pending', label: 'Not started' };
+  if (deployment.state === 'HEALTHY') return { state: 'done', label: 'Verified' };
+  if (deployment.state === 'FAILED') return { state: 'failed', label: 'Failed' };
+  if (
+    deployment.state === 'NOT_INSTALLED' ||
+    deployment.state === 'WAITING_FOR_RELAY' ||
+    deployment.state === 'INSTALLING' ||
+    deployment.state === 'UPDATING'
+  ) {
+    return { state: 'current', label: 'Deploying' };
+  }
+  return { state: 'pending', label: 'Not started' };
+}
+
+/**
+ * Derive the four-step lifecycle for the redesigned readiness page.
+ * The first three steps can be pending/current/done/failed; the last step is
+ * only done when every prerequisite is met.
+ */
+export function deriveLifecycleSteps(input: {
+  analysisStatus: AnalysisStatus;
+  readiness: ApplicationReadiness;
+  deployments: FleetDeployment[];
+}): Record<LifecycleStep, LifecycleStepState> {
+  const { analysisStatus, readiness, deployments } = input;
+
+  let analyze: LifecycleStepState;
+  if (analysisStatus === 'FAILED') {
+    analyze = { state: 'failed', label: 'Failed' };
+  } else if (analysisStatus === 'COMPLETE') {
+    analyze = { state: 'done', label: 'Done' };
+  } else if (analysisStatus === 'ANALYZING') {
+    analyze = { state: 'current', label: 'Analyzing' };
+  } else {
+    analyze = { state: 'pending', label: 'Analyze' };
+  }
+
+  const requiredFindings = readiness.findings.filter((f) => f.severity === 'required');
+  let prepare: LifecycleStepState;
+  if (analysisStatus !== 'COMPLETE') {
+    prepare = { state: 'pending', label: 'Prepare' };
+  } else if (requiredFindings.length > 0) {
+    prepare = { state: 'current', label: 'Action required' };
+  } else {
+    prepare = { state: 'done', label: 'Ready' };
+  }
+
+  const testDeployment = latestTestDeployment(deployments);
+  const testStep = testDeploymentStepLabel(testDeployment);
+
+  let customerReady: LifecycleStepState;
+  if (
+    analysisStatus === 'COMPLETE' &&
+    requiredFindings.length === 0 &&
+    testDeployment?.state === 'HEALTHY'
+  ) {
+    customerReady = { state: 'done', label: 'Ready' };
+  } else {
+    customerReady = { state: 'pending', label: 'Customer ready' };
+  }
+
+  return {
+    Analyze: analyze,
+    Prepare: prepare,
+    Test: testStep,
+    'Customer ready': customerReady,
+  };
+}
+
+/** Header copy for the redesigned readiness page. */
+export interface ReadinessHeaderPresentation {
+  heading: string;
+  supportingLine: string;
+}
+
+/** What the redesigned readiness page header should say for a given state. */
+export function readinessHeaderPresentation(
+  readiness: ApplicationReadiness,
+): ReadinessHeaderPresentation {
+  if (readiness.analysisStatus === 'FAILED') {
+    return {
+      heading: "We couldn't check deployment readiness",
+      supportingLine:
+        readiness.failureReason ?? 'Something went wrong while reading your repository.',
+    };
+  }
+
+  if (readiness.analysisStatus !== 'COMPLETE') {
+    return {
+      heading: 'Analyzing application',
+      supportingLine: READINESS_SUPPORT_RUNNING,
+    };
+  }
+
+  const requiredFindings = readiness.findings.filter((f) => f.severity === 'required');
+  const requiredPassed = Math.max(0, readiness.requiredCount - requiredFindings.length);
+  const recommendedFindings = readiness.findings.filter((f) => f.severity === 'recommended');
+
+  if (requiredFindings.length > 0) {
+    const issueWord = requiredFindings.length === 1 ? 'issue' : 'issues';
+    return {
+      heading: 'Action required before deployment',
+      supportingLine: `${requiredPassed} of ${readiness.requiredCount} required checks passed · ${requiredFindings.length} blocking ${issueWord}`,
+    };
+  }
+
+  let supportingLine = `${readiness.requiredCount} required checks passed`;
+  if (recommendedFindings.length > 0) {
+    const recWord = recommendedFindings.length === 1 ? 'recommendation' : 'recommendations';
+    supportingLine += ` · ${recommendedFindings.length} ${recWord}`;
+  }
+
+  if (readiness.state === 'READY') {
+    return {
+      heading: 'Ready for test deployment',
+      supportingLine,
+    };
+  }
+
+  return {
+    heading: 'Recommendation',
+    supportingLine,
+  };
+}
+
+/** Editable fields the readiness table lets a vendor override. */
+export type EditableReadinessField =
+  | 'containerPort'
+  | 'healthPath'
+  | 'migrationCommand'
+  | 'databaseRequired'
+  | 'storageRequired'
+  | 'redisRequired';
+
+type ApplicationReadinessFields = Pick<
+  Application,
+  'containerPort' | 'healthPath' | 'migrationCommand' | 'databaseRequired' | 'storageRequired' | 'redisRequired'
+>;
+
+/** Whether a given editable field is currently overridden (differs from detected). */
+export function isFieldOverridden(
+  field: EditableReadinessField,
+  application: ApplicationReadinessFields,
+  detected: DetectedApplication | null,
+): boolean {
+  if (!detected) return false;
+  switch (field) {
+    case 'containerPort':
+      return (
+        application.containerPort !== null &&
+        application.containerPort !== (detected.network.port.value ?? null)
+      );
+    case 'healthPath':
+      return (
+        application.healthPath !== null &&
+        application.healthPath !== (detected.healthCheck.path ?? null)
+      );
+    case 'migrationCommand':
+      return (
+        application.migrationCommand !== null &&
+        application.migrationCommand !== (detected.migrations.command ?? null)
+      );
+    case 'databaseRequired':
+      return application.databaseRequired !== detected.database.required;
+    case 'storageRequired': {
+      const detectedStorage =
+        detected.storage.persistentLocalRequired || detected.storage.objectStorageDetected;
+      return application.storageRequired !== detectedStorage;
+    }
+    case 'redisRequired':
+      return application.redisRequired !== detected.redis.required;
+    default:
+      return false;
+  }
+}
+
+/** The value Deployz will use for an editable field: application value if set, else detected. */
+export function effectiveFieldValue(
+  field: EditableReadinessField,
+  application: ApplicationReadinessFields,
+  detected: DetectedApplication | null,
+): string {
+  if (!detected) {
+    if (field === 'containerPort') return application.containerPort?.toString() ?? '';
+    if (field === 'healthPath') return application.healthPath ?? '';
+    if (field === 'migrationCommand') return application.migrationCommand ?? '';
+    if (field === 'databaseRequired') return application.databaseRequired ? 'Required' : 'Not required';
+    if (field === 'storageRequired') return application.storageRequired ? 'Required' : 'Not required';
+    if (field === 'redisRequired') return application.redisRequired ? 'Required' : 'Not required';
+    return '';
+  }
+  switch (field) {
+    case 'containerPort':
+      return (
+        application.containerPort?.toString() ??
+        detected.network.port.value?.toString() ??
+        ''
+      );
+    case 'healthPath':
+      return application.healthPath ?? detected.healthCheck.path ?? '';
+    case 'migrationCommand':
+      return application.migrationCommand ?? detected.migrations.command ?? '';
+    case 'databaseRequired':
+      return application.databaseRequired || detected.database.required ? 'Required' : 'Not required';
+    case 'storageRequired':
+      return application.storageRequired ||
+        detected.storage.persistentLocalRequired ||
+        detected.storage.objectStorageDetected
+        ? 'Required'
+        : 'Not required';
+    case 'redisRequired':
+      return application.redisRequired || detected.redis.required ? 'Required' : 'Not required';
+    default:
+      return '';
+  }
+}
+
+/** The raw detected value for an editable field, as a display string. */
+export function detectedFieldValue(
+  field: EditableReadinessField,
+  detected: DetectedApplication | null,
+): string {
+  if (!detected) return '';
+  switch (field) {
+    case 'containerPort':
+      return detected.network.port.value?.toString() ?? '';
+    case 'healthPath':
+      return detected.healthCheck.path ?? '';
+    case 'migrationCommand':
+      return detected.migrations.command ?? '';
+    case 'databaseRequired':
+      return detected.database.required ? 'Required' : 'Not required';
+    case 'storageRequired': {
+      const required =
+        detected.storage.persistentLocalRequired || detected.storage.objectStorageDetected;
+      return required ? 'Required' : 'Not required';
+    }
+    case 'redisRequired':
+      return detected.redis.required ? 'Required' : 'Not required';
+    default:
+      return '';
+  }
+}
+
+// ── Readiness table rows ────────────────────────────────────────────────────
+
+/** One setting row in the redesigned deployment-readiness table. */
+export interface ReadinessTableSetting {
+  kind: 'setting';
+  id: string;
+  label: string;
+  value: string;
+  detectedValue: string;
+  overridden: boolean;
+  editable: boolean;
+  field: EditableReadinessField | null;
+  evidence: AnalysisEvidence[];
+}
+
+/** One passed-check row in the redesigned deployment-readiness table. */
+export interface ReadinessTablePassed {
+  kind: 'passed';
+  id: string;
+  check: PassedCheck;
+}
+
+/** One finding row in the redesigned deployment-readiness table. */
+export interface ReadinessTableFinding {
+  kind: 'finding';
+  id: string;
+  finding: ReadinessFinding;
+}
+
+export type ReadinessRow = ReadinessTableSetting | ReadinessTablePassed | ReadinessTableFinding;
+
+const EDITABLE_FIELD_FOR_SETTING: Record<string, EditableReadinessField | null> = {
+  runtime: null,
+  framework: null,
+  start: null,
+  build: null,
+  port: 'containerPort',
+  database: 'databaseRequired',
+  redis: 'redisRequired',
+  storage: 'storageRequired',
+  health: 'healthPath',
+  migrations: 'migrationCommand',
+};
+
+/**
+ * Build the rows for the redesigned deployment-readiness table: settings
+ * derived from detected facts, any passed checks, and any unresolved findings.
+ */
+export function deriveReadinessRows(
+  application: Application,
+  readiness: ApplicationReadiness,
+): ReadinessRow[] {
+  const rows: ReadinessRow[] = [];
+
+  // Settings from detected facts.
+  if (readiness.detected) {
+    const detectedRows = detectedFactRows(readiness.detected);
+    for (const fact of detectedRows) {
+      const field = EDITABLE_FIELD_FOR_SETTING[fact.id] ?? null;
+      let value = fact.value;
+      let detectedValue = fact.value;
+      let overridden = false;
+      if (field) {
+        // Boolean settings (database, cache/queue, storage) show the rich
+        // detected fact as the primary value, with the effective required/not
+        // required state as secondary text. When overridden, the value becomes
+        // the effective state and the secondary line shows the detected fact.
+        const booleanSettings = ['database', 'redis', 'storage'];
+        if (booleanSettings.includes(fact.id)) {
+          const effectiveState = effectiveFieldValue(field, application, readiness.detected);
+          const detectedState = detectedFieldValue(field, readiness.detected);
+          overridden = isFieldOverridden(field, application, readiness.detected);
+          value = overridden ? effectiveState : fact.value;
+          detectedValue = overridden ? fact.value : detectedState;
+        } else {
+          value = effectiveFieldValue(field, application, readiness.detected);
+          detectedValue = detectedFieldValue(field, readiness.detected);
+          overridden = isFieldOverridden(field, application, readiness.detected);
+        }
+      }
+      rows.push({
+        kind: 'setting',
+        id: fact.id,
+        label: fact.label,
+        value,
+        detectedValue,
+        overridden,
+        editable: field !== null,
+        field,
+        evidence: fact.evidence,
+      });
+    }
+  }
+
+  // Background worker is not part of the detected facts; surface it only when
+  // the vendor has configured one on the application row.
+  if (application.workerCommand) {
+    rows.push({
+      kind: 'setting',
+      id: 'worker',
+      label: 'Background worker',
+      value: application.workerCommand,
+      detectedValue: '',
+      overridden: false,
+      editable: false,
+      field: null,
+      evidence: [],
+    });
+  }
+
+  // Passed checks and findings render after settings so issues stay near the
+  // bottom where the CTA points.
+  for (const check of readiness.passed) {
+    rows.push({ kind: 'passed', id: check.id, check });
+  }
+  for (const finding of readiness.findings) {
+    rows.push({ kind: 'finding', id: finding.id, finding });
+  }
+
+  return rows;
 }
 
 // ── Fix instructions ────────────────────────────────────────────────────────

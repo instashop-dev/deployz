@@ -35,14 +35,11 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // ── The readiness verdict: ALMOST_READY, one required change. ──────────────
-  await expect(page.getByTestId('readiness-verdict')).toBeVisible();
-  await expect(page.getByText('1 change needed before deployment')).toBeVisible();
-  await expect(page.getByTestId('readiness-summary')).toContainText(
-    'Fix the item below before deploying.',
-  );
+  await expect(page.getByTestId('readiness-table')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Action required before deployment' })).toBeVisible();
+  await expect(page.getByText('1 blocking issue')).toBeVisible();
 
-  // The finding is visible with its plain-English line; the technical detail
-  // stays hidden until "How to fix" is opened.
+  // The finding is visible with its plain-English line in the readiness table.
   const finding = page.getByTestId('readiness-finding-health-check');
   await expect(finding).toBeVisible();
   await expect(
@@ -52,12 +49,11 @@ test('generating fix instructions never resolves findings — re-analysis recomp
     'No health endpoint or container health check was found',
     { exact: false },
   );
-  await expect(technicalDetail).toBeHidden();
-  await finding.getByText('How to fix').click();
-  await expect(technicalDetail).toBeVisible();
+  // The technical detail now lives behind the fix-instructions dialog.
+  await expect(technicalDetail).toHaveCount(0);
 
   // ── Generate fix instructions. ──────────────────────────────────────────────
-  await page.getByTestId('generate-fix-instructions').click();
+  await page.getByTestId('readiness-finding-fix-health-check').click();
   const dialog = page.getByTestId('fix-instructions-dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('coding agent', { exact: false }).first()).toBeVisible();
@@ -83,8 +79,6 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await page.getByTestId('fix-instructions-reanalyse').click();
   await expect(dialog).toBeHidden();
 
-  await expect(page.getByText('1 change needed before deployment')).toBeVisible();
-  await expect(page.getByTestId('readiness-summary')).toContainText(
-    'Fix the item below before deploying.',
-  );
+  await expect(page.getByRole('heading', { name: 'Action required before deployment' })).toBeVisible();
+  await expect(page.getByText('1 blocking issue')).toBeVisible();
 });
