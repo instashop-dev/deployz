@@ -17,7 +17,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-002 | CONFIG_ERROR | ANALYSIS_BUG | OPEN | repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 (gate audit, analysis version 15) |
 | DEPLOY-003 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 18 expected-deployable repositories the gate rejects (gate audit, analysis version 15) |
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
-| DEPLOY-005 | ENV_BINDING_ERROR | DEPLOYZ_BUG | OPEN | predicted from the gate audit for repo-003, repo-021, repo-039 (and every app that reads its database under its own name); Wave 1 measures it — repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
+| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIX IN REVIEW (PR #212: the `DB_*` family becomes binding aliases, analysis version 16) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 | DEPLOY-007 | CONTAINER_START_ERROR | — | WITHDRAWN as a mechanism (kutt connected over TLS with node-postgres verification on); umami's crash stays open, rerun pending | repo-001 (umami) only |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
@@ -25,7 +25,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-010 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #208 merged; bootstrap republish pending) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 2 (the first configured first start) |
 | DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #209 merged, bootstrap republished 2026-09-07; kutt rerun 3 settled in 12 min with the exit code) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
 | DEPLOY-012 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #210 merged, bootstrap republished 2026-09-07; kutt rerun 4's config pass SUCCEEDED) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 3, the first config pass that found its secret (DEPLOY-010) |
-| DEPLOY-013 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #211) | every vendor-scope secret typed before an install (write-only values never reach a later install; an app-internal secret was not minted either) — found on kutt rerun 4 |
+| DEPLOY-013 | ENV_BINDING_ERROR | DEPLOYZ_BUG + ANALYSIS_BUG | FIXED in two parts: PR #211 merged and deployed (mint app-internal secrets; kutt rerun 5 minted `JWT_SECRET`); PR #212 in review (the analyser called `DB_PASSWORD`, `REDIS_PASSWORD`, `MAIL_PASSWORD` internal secrets, so rerun 5 minted those too) | every vendor-scope secret typed before an install — found on kutt reruns 4 and 5 |
 
 ---
 
