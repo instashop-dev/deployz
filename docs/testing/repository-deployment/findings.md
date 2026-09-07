@@ -23,7 +23,8 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
 | DEPLOY-009 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #207 merged, deployed, templates republished 2026-09-06) | repo-003 (kutt); predicted repo-007 (ghostfolio), repo-021 (directus), repo-016 (outline), repo-039 (memos); every application that needs a vendor value or a Deployz-generated secret to boot |
 | DEPLOY-010 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #208 merged; bootstrap republish pending) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 2 (the first configured first start) |
-| DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #209 merged; bootstrap republish pending) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
+| DEPLOY-011 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #209 merged, bootstrap republished 2026-09-07; kutt rerun 3 settled in 12 min with the exit code) | every deploy whose tasks reach RUNNING and then exit — found on kutt rerun 2 (DEPLOY_RELEASE RUNNING for 80+ min, re-offered twice) |
+| DEPLOY-012 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIX IN REVIEW (PR #210) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 3, the first config pass that found its secret (DEPLOY-010) |
 
 ---
 
@@ -551,4 +552,50 @@ relay reports. Regression tests in `deploy.test.ts`; relay only, so a
 bootstrap republish.
 
 **Affected.** Every deploy of an application that exits after starting;
-kutt rerun 2 measured.
+kutt rerun 2 measured. Verified on kutt rerun 3 (2026-09-07): the deploy
+settled `CONTAINER_START_FAILED` after 12 minutes with "4 tasks of the new
+revision exited with code 1", the deployment went FAILED and Disconnect
+was accepted at once.
+
+---
+
+## DEPLOY-012 — The relay role cannot read or write the application's config secret
+
+**Stage** ENV_BINDING_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
+FIX IN REVIEW (PR #210) · **Found** Phase 3, Wave 1, kutt rerun 3
+(2026-09-07), the first config pass that found its secret.
+
+**Behaviour.** CONFIG_UPDATE reads the application stack's `AppConfigSecret`,
+merges the vendor/customer values and the secrets it mints, writes it back
+and binds the keys on the task definition. The only
+`secretsmanager:GetSecretValue`/`PutSecretValue` grant on
+installation-tagged secrets was `ProvisionApplicationManage`
+(`packages/cdk/src/bootstrap/bootstrap-stack.ts`), attached to the
+CloudFormation **execution** role; the relay Lambda's own role had
+Get/Put only on its credential secret (phase 1) and tag-scoped
+`DeleteSecret` (purge). DEPLOY-010 masked this: the lookup never found the
+secret, so the call was never made.
+
+**Effect.** The same as DEPLOY-010: no vendor secret reaches a task through
+CONFIG_UPDATE, and the configured first start (DEPLOY-009) starts the task
+unconfigured.
+
+**Evidence.** kutt rerun 3 (run `stage-b-repo-003-20260907-031305-7de2`):
+INSTALL SUCCEEDED (zero tasks); CONFIG_UPDATE FAILED at 03:31:09Z with
+`AccessDeniedException: … RelayRole… is not authorized to perform:
+secretsmanager:GetSecretValue on resource: …:secret:AppConfigSecret251CAC1E-…
+because no identity-based policy allows the action`; the secret carries
+`deployz:installation=af544f9d-…`; DEPLOY_RELEASE then failed
+CONTAINER_START_FAILED (DEPLOY-011 working) with the task's log showing
+`Missing environment variables: JWT_SECRET`.
+
+**Fix.** The relay's tag-scoped installation-secret statement
+(`RelayInstallationSecrets`, formerly `RelayPurgeSecretsDelete`) carries
+`GetSecretValue` and `PutSecretValue` beside `DeleteSecret`, under the
+same `aws:ResourceTag/deployz:installation` condition; one statement,
+because a separate one pushed the provisioner policy over IAM's
+6,144-character cap (the size test caught it). Bootstrap artifact and
+snapshot regenerated; bootstrap republish after merge.
+
+**Affected.** Every application with a vendor or generated secret; kutt,
+ghostfolio, directus, outline in Wave 1.
