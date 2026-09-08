@@ -66,13 +66,19 @@ async function applyBillingWrite(
 /**
  * The deployment reached its first verified READY stage — called from
  * `advanceStepTimingsAfterWrite`, itself only ever invoked from the relay-
- * authenticated write paths (heartbeat, job-result). `actorType: 'relay'`
- * matches every other event this call site records (e.g. `deployment.reconciled`).
+ * authenticated write paths (heartbeat, job-result). `actor` defaults to
+ * `relay`, which matches every other event those call sites record (e.g.
+ * `deployment.reconciled`); the Phase 10 safety job overrides it, because a
+ * promotion it makes was not the relay's doing.
  */
 export function markDeploymentLive(
   db: BillingWriter,
   deployment: BillableDeployment,
   now: Date,
+  actor: { actorType: 'user' | 'relay' | 'system'; actorId: string } = {
+    actorType: 'relay',
+    actorId: deployment.installationId ?? deployment.id,
+  },
 ): Promise<boolean> {
   return applyBillingWrite(
     db,
@@ -80,8 +86,8 @@ export function markDeploymentLive(
     'LIVE',
     now,
     'deployment.billing_started',
-    'relay',
-    deployment.installationId ?? deployment.id,
+    actor.actorType,
+    actor.actorId,
   );
 }
 

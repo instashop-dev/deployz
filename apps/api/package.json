@@ -48,6 +48,18 @@
       "types": "./dist/events.d.ts",
       "import": "./dist/events.js"
     },
+    "./billing": {
+      "types": "./dist/billing-reconcile.d.ts",
+      "import": "./dist/billing-reconcile.js"
+    },
+    "./billing-lifecycle": {
+      "types": "./dist/billing-lifecycle.d.ts",
+      "import": "./dist/billing-lifecycle.js"
+    },
+    "./paddle": {
+      "types": "./dist/paddle.d.ts",
+      "import": "./dist/paddle.js"
+    },
     "./queue": {
       "types": "./dist/queue.d.ts",
       "import": "./dist/queue.js"
