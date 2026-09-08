@@ -23,7 +23,7 @@ interface UpdateCall {
 /** A Paddle double: `subscriptions.get` returns the item list under test,
  *  `subscriptions.update` records what reconciliation asked for. */
 function fakePaddle(options: {
-  items?: { priceId: string; quantity: number }[];
+  items?: { priceId: string; quantity: number; status?: 'active' | 'inactive' | 'trialing' }[];
   getError?: Error;
   updateError?: Error;
   updates?: UpdateCall[];
@@ -42,7 +42,13 @@ function fakePaddle(options: {
       subscriptions: {
         get: async () => {
           if (options.getError) throw options.getError;
-          return { items: items.map((i) => ({ price: { id: i.priceId }, quantity: i.quantity })) };
+          return {
+            items: items.map((i) => ({
+              price: { id: i.priceId },
+              quantity: i.quantity,
+              status: i.status ?? 'active',
+            })),
+          };
         },
         update: async (subscriptionId: string, body: UpdateCall['body']) => {
           if (options.updateError) throw options.updateError;
@@ -344,6 +350,36 @@ describe('reconcileBilling (Paddle migration Phase 9)', () => {
       expect(await reconciliationRows()).toHaveLength(1);
     },
   );
+
+  it('never resurrects an item Paddle has already deactivated', async () => {
+    await addSubscription('ACTIVE');
+    await addDeployment('PRODUCTION', 'ACTIVE');
+    const updates: UpdateCall[] = [];
+
+    const result = await reconcileBilling(
+      {
+        db,
+        paddle: fakePaddle({
+          items: [
+            { priceId: PRICE_PLATFORM, quantity: 1 },
+            // Removed from the subscription earlier; Paddle keeps the record.
+            { priceId: 'pri_retired_test', quantity: 3, status: 'inactive' },
+            { priceId: PRICE_DEPLOYMENT, quantity: 9, status: 'inactive' },
+          ],
+          updates,
+        }),
+      },
+      ORG,
+    );
+
+    // The inactive per-deployment item does not count as the current quantity.
+    expect(result).toMatchObject({ expected: 1, provider: 0, action: 'ITEM_ADDED' });
+    // And neither inactive item is sent back.
+    expect(updates[0]!.body.items).toEqual([
+      { priceId: PRICE_PLATFORM, quantity: 1 },
+      { priceId: PRICE_DEPLOYMENT, quantity: 1 },
+    ]);
+  });
 
   it('reconciles a PAST_DUE subscription — Paddle is still billing it', async () => {
     await addSubscription('PAST_DUE');

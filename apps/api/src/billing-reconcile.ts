@@ -129,9 +129,14 @@ export async function reconcileBilling(
 
   try {
     const live = await paddle.client.subscriptions.get(subscription.providerSubscriptionId);
+    // Paddle keeps an item on the record as `inactive` once it has been
+    // removed from the subscription. Those must be filtered out of BOTH the
+    // count and the rebuilt list below: sending one back would resurrect an
+    // item Paddle had already stopped billing.
+    const liveItems = live.items.filter((item) => item.status !== 'inactive');
     // Paddle returns the full price object per item; the per-deployment item
     // is the one priced at PADDLE_PRICE_DEPLOYMENT. Its absence means zero.
-    const deploymentItem = live.items.find((item) => item.price?.id === paddle.config.priceDeployment);
+    const deploymentItem = liveItems.find((item) => item.price?.id === paddle.config.priceDeployment);
     const provider = deploymentItem?.quantity ?? 0;
 
     if (provider === expected) {
@@ -146,7 +151,7 @@ export async function reconcileBilling(
     // so every other item has to be sent back unchanged. The per-deployment
     // item is dropped rather than set to zero — the price's own minimum
     // quantity is 1, so zero is not a value it can hold.
-    const items = live.items
+    const items = liveItems
       .filter((item) => item.price?.id !== paddle.config.priceDeployment)
       .map((item) => ({ priceId: item.price!.id, quantity: item.quantity }));
     if (expected > 0) {
