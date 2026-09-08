@@ -35,7 +35,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 6 Webhooks | done | PR #223 | `apps/api/src/billing-webhooks.ts`, `POST /api/billing/webhook` (raw body, `Paddle-Signature`), event ledger dedupe, `occurredAt` regression guard, migration `0035` (scheduled change) |
 | 7 Evaluation entitlements | done | PR #228 | `apps/api/src/billing-entitlements.ts`: PRODUCTION needs an ACTIVE subscription (402 `SUBSCRIPTION_REQUIRED`), one active TEST deployment per application (409 `TEST_DEPLOYMENT_EXISTS`, partial unique index, migration `0036`) |
 | 8 First production activation | done | this PR | `billing_checkout_intents` (migration `0037`), `apps/api/src/billing-checkout.ts`, `POST /api/billing/checkout` (platform price only), webhook completion on ACTIVE; web checkout hand-off (`apps/web/src/lib/billing-checkout.ts`, Paddle.js). Not verified against Paddle — Phase 4 catalog still missing |
-| 9 Reconciliation | pending | | |
+| 9 Reconciliation | done | this PR | `apps/api/src/billing-reconcile.ts`: absolute per-deployment quantity pushed onto the subscription, `billing_reconciliation_events` ledger, wired to every billing transition (map rows 7, 12-15, 19) outside the caller's transaction |
 | 10 Scheduled safety job | pending | | |
 | 11 App-wide UX | pending | | |
 | 12 Customer portal | pending | | |
@@ -115,6 +115,38 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   `GET /api/billing/config` at runtime instead of a baked `NEXT_PUBLIC_*`
   value, so `deploy-web.yml` needs no Paddle configuration (audit §9 assumed
   the baked route). Cost if wrong: one extra request before checkout opens.
+- R9-1: reconciliation writes an ABSOLUTE quantity, never a delta. Running it
+  twice produces the same subscription as running it once, so a missed or
+  duplicated call cannot drift the number. The quantity is
+  `countBillableDeployments` — PRODUCTION rows whose `billing_state` is
+  ACTIVE — and nothing else.
+- R9-2: reconcile fires only when a billing state ACTUALLY changed
+  (`markDeploymentLive`/`markDeploymentRemoved` returned true), plus the
+  webhook's ACTIVE path and the Phase 10 job. Transition-map row 8
+  ("reconcile is harmless") is deliberately NOT wired: a heartbeat or day-2
+  job on an already-billing deployment must not pay for a Paddle round trip,
+  and Phase 10 sweeps up any drift. Cost if wrong: drift persists until the
+  next scheduled pass.
+- R9-3: reconcile never runs inside the caller's transaction — a Paddle round
+  trip must not hold a database connection open — and never throws. A
+  provider failure is recorded as a FAILED `billing_reconciliation_events`
+  row and logged; the deployment request still succeeds (audit §4: billing is
+  decoupled from deployment safety).
+- R9-4: a no-op pass (the provider already agreed) writes NO reconciliation
+  row, only `lastReconciledAt`. Reconcile runs on every billing transition
+  and on the Phase 10 schedule, so a ledger of "nothing happened" would bury
+  the entries that matter. SKIPPED rows are written only when Deployz
+  believes something should be billed but cannot be (no subscription, or a
+  PAUSED/CANCELED one) — an anomaly worth the row.
+- R9-5: the per-deployment item is REMOVED, not set to zero, when the last
+  live deployment goes away — the price's own minimum quantity is 1. Paddle
+  replaces the item list wholesale, so every other item is sent back
+  unchanged. Updates use `prorated_immediately` (Paddle owns the money math)
+  and `on_payment_failure: apply_change` (the deployment is already running;
+  refusing the change would only under-bill it and leave the subscription
+  lying about what is live).
+- R9-6: PAST_DUE subscriptions are reconciled — Paddle is still billing them.
+  PAUSED and CANCELED are not: Paddle does not accept item updates on them.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
