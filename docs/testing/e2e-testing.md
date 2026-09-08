@@ -146,8 +146,12 @@ real-AWS opt-in to *see* the refusal).
 authorization (a normal vendor is redirected away and the admin API rejects
 them; a `*@admin-e2e.deployz.test` account reaches `/admin`), global search
 into the vendor 360° page, View as Vendor (banner, read-only enforcement,
-exit, and both audit events), and diagnosing + retrying a failed install
-seeded through the `cloudformation-rollback` simulated scenario. It follows
+exit, and both audit events), diagnosing + retrying a failed install
+seeded through the `cloudformation-rollback` simulated scenario, and the
+included production deployment allowance (set 0 → 2 with a reason from the
+vendor 360° page, the preview dialog, the refreshed detail, and the audit-log
+entry; reconciliation is SKIPPED in simulated mode because there is no Paddle
+client). It follows
 the same house conventions as every other browser spec (`uniqueEmail`,
 `fillControlled`, data-testid assertions) — see `e2e/organization.spec.ts`.
 

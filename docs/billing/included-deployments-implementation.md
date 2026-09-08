@@ -188,3 +188,44 @@ records it and the existing Reconcile button and safety job retry.
 - Phases are grouped into four pull requests (schema+formula; admin read,
   mutation, audit, reconcile, admin UI; vendor UI; tests, sweep, e2e, docs),
   each phase its own commit.
+
+## Status (2026-09-08)
+
+Shipped in four stacked pull requests, one commit per phase:
+
+| PR | Phases | Content |
+|---|---|---|
+| #243 | 0–3 | this note; `organization.included_production_deployments` + migration 0038 + Lambda bundle entry; `billableDeploymentQuantity` in reconcile and the billing summary; admin read model |
+| #244 | 4–7 | admin mutation route (locked update, validation, audit, immediate reconcile); vendor-detail editor with preview and confirmation; audit-log labels; Team Admin docs |
+| #245 | 8–10 | vendor Billing page pool line; allowance-aware create page and checkout card; deployment detail and disconnect copy |
+| #246 | 11–14 | safety-job test; edge-case tests; these docs |
+
+### Verification
+
+- Unit/integration (vitest, PGlite, fake Paddle): domain formula; reconcile
+  under allowances (subtract, cover all, never negative, TEST rows, order of
+  changes, no subscription, Paddle failure); the admin route (26 cases:
+  authorization, validation, pre-subscription, increase/decrease/cover-all,
+  same value, Paddle failure + retry, concurrent updates, PAUSED / CANCELED /
+  PAST_DUE, audit log); the write path (row lock, CHECK backstop, cancellation
+  and reactivation, ownership and membership changes, pooled across apps);
+  the safety sweep (5 live, 2 included, Paddle had 4 → repaired to 3, repeat
+  pass no-op); web copy helpers and the admin preview helper.
+- Simulated E2E: the admin allowance flow in `e2e/admin.spec.ts` (CI's Team
+  Admin step) and the billing page in `e2e/billing.spec.ts`.
+- Not verified live: no Paddle sandbox round trip was run for this feature.
+  The reconciliation call is byte-for-byte the Phase 16 one (`items` replaced
+  wholesale, absolute quantity, item removed at 0), so the sandbox evidence in
+  `paddle-billing.md` covers the mechanism; only the arithmetic changed.
+
+### Scenario mapping (prompt Phase 13)
+
+| Scenario | Covered by |
+|---|---|
+| A — paid vendor, 3 live, allowance 0 → 2, qty 3 → 1 | `admin-included-deployments.test.ts` "an increase reduces the Paddle quantity"; vendor page counts in `deployment-billing.test.ts` / billing page |
+| B — reduce 2 → 0, qty 1 → 3, warning, audit | "a decrease raises the Paddle quantity"; dialog copy + destructive confirm; audit row asserted |
+| C — allowance before subscription, no Paddle call; first deployment still checks out | "stores the allowance … makes no provider call"; `billing-reconcile.test.ts` "with no subscription"; checkout gate unchanged (`billing-checkout.test.ts`) |
+| D — cross the threshold 1 → 0, 2 → 0, 3 → 1 | `billing-domain.test.ts` threshold case; reconcile "converges … whichever order" |
+| E — delete back 3 → 2, qty 1 → 0, platform stays | reconcile "removes the deployment item when every live deployment is included" (platform item only) |
+| F — TEST deployment never counts | reconcile and admin-route TEST cases |
+| G — Paddle failure: saved, diagnosable, retry repairs | "a Paddle failure keeps the new allowance … a retry repairs it"; sweep test |
