@@ -91,6 +91,7 @@ describe('Better Auth table shape', () => {
     expect(await columnsOf('organization')).toEqual([
       'created_at',
       'id',
+      'included_production_deployments',
       'logo',
       'metadata',
       'name',

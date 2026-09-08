@@ -103,6 +103,18 @@ export type DeploymentType = z.infer<typeof deploymentTypeSchema>;
 export const deploymentBillingStateSchema = z.enum(['NOT_STARTED', 'ACTIVE', 'STOPPED']);
 export type DeploymentBillingState = z.infer<typeof deploymentBillingStateSchema>;
 
+// organization.included_production_deployments — the admin-set number of live
+// PRODUCTION deployments an organization may run before the per-deployment
+// charge applies. Pooled and concurrent, never consumed. The billable Paddle
+// quantity is max(active - included, 0) (apps/api/src/billing-domain.ts).
+// The upper bound is a sanity cap, mirrored by the database CHECK constraint.
+export const INCLUDED_PRODUCTION_DEPLOYMENTS_MAX = 10000;
+export const includedProductionDeploymentsSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(INCLUDED_PRODUCTION_DEPLOYMENTS_MAX);
+
 // §46 deployment states — product vocabulary. Customers never see raw
 // CFN/ECS internals; these ten states are the whole user-facing model.
 export const deploymentStateSchema = z.enum([
