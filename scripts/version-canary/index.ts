@@ -22,7 +22,7 @@ import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from './teard
 
 function usage(): void {
   console.error(
-    'Usage: e2e:canary:versions <preflight|core [--keep]|resilience [--keep]|cleanup --run-id <id>|audit --run-id <id>>',
+    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|cleanup --run-id <id>|audit --run-id <id>>',
   );
 }
 
@@ -48,12 +48,16 @@ async function main(): Promise<void> {
     options: {
       'run-id': { type: 'string' },
       keep: { type: 'boolean', default: false },
+      'existing-image': { type: 'string' },
+      'reuse-stack': { type: 'boolean', default: false },
     },
   });
   const [command] = positionals;
   const config = loadConfig(process.env, {
     ...(values['run-id'] ? { runId: values['run-id'] } : {}),
     keep: values.keep,
+    ...(values['existing-image'] ? { existingImageDigest: values['existing-image'] } : {}),
+    reuseStack: values['reuse-stack'],
   });
 
   switch (command) {

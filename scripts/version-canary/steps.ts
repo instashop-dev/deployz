@@ -191,6 +191,11 @@ export async function buildRelease(canary: Canary, fixtureTag: string): Promise<
   const tagInfo = evidence.run.fixtureTags?.[fixtureTag];
   assert(tagInfo, `fixture tag ${fixtureTag} unresolved`);
 
+  // ── Existing-image mode: skip CodeBuild, use the supplied digest ──────
+  if (config.existingImageDigest) {
+    return buildReleaseWithExistingImage(canary, fixtureTag, release, applicationId, tagInfo);
+  }
+
   return evidence.step(`Build release ${fixtureTag}`, async (details) => {
     const version = releaseVersionFor(config.runId, fixtureTag);
     const created = await api.createRelease(applicationId, {
@@ -218,6 +223,49 @@ export async function buildRelease(canary: Canary, fixtureTag: string): Promise<
     details['ecrDigest'] = digest;
     evidence.run.releases[fixtureTag]!.imageDigest = digest;
     evidence.save();
+    return { id: created.id, digest };
+  });
+}
+
+/**
+ * Existing-image mode: creates the release record through the API but skips
+ * the CodeBuild wait and records the digest from `config.existingImageDigest`.
+ * The publish-template step pins the template to this digest; deploy/rollback
+ * use the release ID as normal.
+ *
+ * In this mode, all versions (v1, v2, …) share the same digest.
+ * // ponytail: single digest for all versions, version verification relies on
+ * release/deployment records rather than differing images. If per-version
+ * images are needed later, require a separate --existing-image per version.
+ */
+async function buildReleaseWithExistingImage(
+  canary: Canary,
+  fixtureTag: string,
+  release: FixtureRelease,
+  applicationId: string,
+  tagInfo: { sha: string; contentSha: string },
+): Promise<{ id: string; digest: string }> {
+  const { config, evidence, api } = canary;
+  const digest = config.existingImageDigest!;
+
+  return evidence.step(`Existing-image release ${fixtureTag} (no CodeBuild)`, async (details) => {
+    const version = releaseVersionFor(config.runId, fixtureTag);
+    const created = await api.createRelease(applicationId, {
+      version,
+      gitSha: tagInfo.sha,
+      ...(release.migrationCommand ? { migrationCommand: release.migrationCommand } : {}),
+    });
+    evidence.run.releases[fixtureTag] = { id: created.id, version, gitSha: tagInfo.sha, imageDigest: digest };
+    evidence.save();
+    details['releaseId'] = created.id;
+    details['version'] = version;
+    details['gitSha'] = tagInfo.sha;
+    details['imageDigest'] = digest;
+    details['mode'] = 'existing-image';
+    // ponytail: release stays in BUILDING state on the API side (no CodeBuild
+    // triggered). The deploy/rollback path uses the release ID; if the API
+    // rejects a non-READY release, the deploy call will fail with a clear
+    // error from the control plane.
     return { id: created.id, digest };
   });
 }
@@ -616,6 +664,45 @@ export async function assertMarkers(canary: Canary, details: Record<string, unkn
     found[key] = record;
   }
   details['markers'] = found;
+}
+
+// ── Reuse-stack helpers ─────────────────────────────────────────────────────
+
+const PERSISTENT_TAG_KEY = 'DeployzPersistent';
+const PERSISTENT_TAG_VALUE = 'true';
+const TEST_MODE_TAG_KEY = 'DeployzTestMode';
+const TEST_MODE_TAG_VALUE = 'canary';
+
+/**
+ * Verify that a stack exists and carries the persistent-canary tags.
+ * Throws a clear message on failure; returns the stack summary on success.
+ */
+export async function verifyReuseStackTags(
+  region: string,
+  stackName: string,
+): Promise<{ stackName: string; status: string }> {
+  const stack = await describeStack(region, stackName);
+  if (!stack) {
+    throw new Error(
+      `No stack "${stackName}" found. --reuse-stack requires a standing stack. ` +
+        `Provision one intentionally (e.g. run without --reuse-stack first) or omit --reuse-stack.`,
+    );
+  }
+  if (stack.tags[PERSISTENT_TAG_KEY] !== PERSISTENT_TAG_VALUE) {
+    throw new Error(
+      `Stack "${stackName}" is missing tag ${PERSISTENT_TAG_KEY}=${PERSISTENT_TAG_VALUE} ` +
+        `(found: ${stack.tags[PERSISTENT_TAG_KEY] ?? 'unset'}). ` +
+        `--reuse-stack will not adopt an unknown stack.`,
+    );
+  }
+  if (stack.tags[TEST_MODE_TAG_KEY] !== TEST_MODE_TAG_VALUE) {
+    throw new Error(
+      `Stack "${stackName}" is missing tag ${TEST_MODE_TAG_KEY}=${TEST_MODE_TAG_VALUE} ` +
+        `(found: ${stack.tags[TEST_MODE_TAG_KEY] ?? 'unset'}). ` +
+        `--reuse-stack will not adopt an unknown stack.`,
+    );
+  }
+  return { stackName: stack.name, status: stack.status };
 }
 
 // ── Infrastructure ─────────────────────────────────────────────────────────

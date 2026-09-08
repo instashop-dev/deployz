@@ -31,6 +31,19 @@ export interface CanaryConfig {
   readonly resultsDir: string;
   /** Skip the destroy/purge/teardown at the end (debugging only). */
   readonly keep: boolean;
+  /**
+   * When set, skip CodeBuild/GitHub-source rebuilds and use this digest
+   * for every release version.  Format: `sha256:[0-9a-f]{64}`.
+   * Set via `--existing-image` or env `DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST`.
+   */
+  readonly existingImageDigest: string | null;
+  /**
+   * When true, reuse a standing stack tagged DeployzPersistent=true +
+   * DeployzTestMode=canary instead of creating one. Skips bootstrap/stack
+   * creation and final infrastructure teardown.
+   * Set via `--reuse-stack`.
+   */
+  readonly reuseStack: boolean;
 }
 
 export function mintRunId(now: Date = new Date()): string {
@@ -50,9 +63,22 @@ export function requireRealAwsOptIn(env: NodeJS.ProcessEnv): void {
   }
 }
 
+const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+
+/** Validates a digest string, returning it or throwing on bad format. */
+export function validateDigest(digest: string | null | undefined): string | null {
+  if (digest == null || digest === '') return null;
+  if (!DIGEST_RE.test(digest)) {
+    throw new Error(
+      `Invalid image digest: "${digest}". Expected format: sha256: followed by exactly 64 hex characters.`,
+    );
+  }
+  return digest;
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv,
-  overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep'>> = {},
+  overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack'>> = {},
 ): CanaryConfig {
   return {
     runId: overrides.runId ?? env['DEPLOYZ_CANARY_RUN_ID'] ?? mintRunId(),
@@ -64,6 +90,8 @@ export function loadConfig(
     fixtureRepo: env['DEPLOYZ_CANARY_FIXTURE_REPO'] ?? 'instashop-dev/deployz-canary-app',
     resultsDir: resolve(env['DEPLOYZ_CANARY_RESULTS_DIR'] ?? 'canary-results'),
     keep: overrides.keep ?? false,
+    existingImageDigest: validateDigest(overrides.existingImageDigest ?? env['DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST'] ?? null),
+    reuseStack: overrides.reuseStack ?? false,
   };
 }
 

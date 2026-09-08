@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn } from './config.js';
+import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { isTerminalJobState, waitFor } from './control-plane.js';
 import { renderSummary, type RunRecord } from './evidence.js';
 import { assertSameInfrastructure, parseQuickCreateUrl, type InfraSnapshot } from './steps.js';
@@ -113,6 +113,64 @@ describe('waiting', () => {
     expect(isTerminalJobState('CANCELLED')).toBe(true);
     expect(isTerminalJobState('RUNNING')).toBe(false);
     expect(isTerminalJobState('WAITING')).toBe(false);
+  });
+});
+
+describe('digest validation', () => {
+  it('accepts a valid sha256 digest', () => {
+    const digest = `sha256:${'a'.repeat(64)}`;
+    expect(validateDigest(digest)).toBe(digest);
+  });
+
+  it('accepts null and undefined as "not set"', () => {
+    expect(validateDigest(null)).toBeNull();
+    expect(validateDigest(undefined)).toBeNull();
+    expect(validateDigest('')).toBeNull();
+  });
+
+  it('rejects a digest that is too short', () => {
+    expect(() => validateDigest('sha256:abc')).toThrow('Invalid image digest');
+  });
+
+  it('rejects a digest without the sha256: prefix', () => {
+    expect(() => validateDigest(`${'a'.repeat(64)}`)).toThrow('Invalid image digest');
+  });
+
+  it('rejects a digest with uppercase hex', () => {
+    expect(() => validateDigest(`sha256:${'A'.repeat(64)}`)).toThrow('Invalid image digest');
+  });
+});
+
+describe('existing-image config', () => {
+  it('is unset by default', () => {
+    expect(loadConfig({}).existingImageDigest).toBeNull();
+  });
+
+  it('reads from the env var', () => {
+    const digest = `sha256:${'b'.repeat(64)}`;
+    const config = loadConfig({ DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST: digest });
+    expect(config.existingImageDigest).toBe(digest);
+  });
+
+  it('prefers the override to the env var', () => {
+    const envDigest = `sha256:${'c'.repeat(64)}`;
+    const overrideDigest = `sha256:${'d'.repeat(64)}`;
+    const config = loadConfig({ DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST: envDigest }, { existingImageDigest: overrideDigest });
+    expect(config.existingImageDigest).toBe(overrideDigest);
+  });
+
+  it('rejects an invalid digest from the env var', () => {
+    expect(() => loadConfig({ DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST: 'sha256:nothex' })).toThrow('Invalid image digest');
+  });
+});
+
+describe('reuse-stack config', () => {
+  it('is false by default', () => {
+    expect(loadConfig({}).reuseStack).toBe(false);
+  });
+
+  it('accepts the override', () => {
+    expect(loadConfig({}, { reuseStack: true }).reuseStack).toBe(true);
   });
 });
 
