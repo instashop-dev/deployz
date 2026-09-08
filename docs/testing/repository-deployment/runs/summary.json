@@ -1,31 +1,31 @@
 {
-  "deployzCommit": "9f043628c2b9c153e3bbe80d9a826499c47fdae0",
+  "deployzCommit": "655cc24b81212b9b6d9913d8a3facad052dddd4a",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "gate": {
     "attempted": 120,
-    "correctAccept": 40,
+    "correctAccept": 38,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 16
+    "configuredReady": 14
   },
   "build": {
-    "attempted": 7,
-    "succeeded": 6,
+    "attempted": 9,
+    "succeeded": 8,
     "failed": 1,
-    "successRateAmongDeployable": 9.2
+    "successRateAmongDeployable": 12.3
   },
   "infrastructure": {
-    "attempted": 6,
-    "succeeded": 4,
-    "failed": 2
+    "attempted": 8,
+    "succeeded": 5,
+    "failed": 3
   },
   "runtime": {
-    "ecsRunning": 4,
-    "albHealthy": 4,
-    "httpsReachable": 4,
+    "ecsRunning": 5,
+    "albHealthy": 5,
+    "httpsReachable": 5,
     "applicationResponseValid": 3
   },
   "dependencies": {
@@ -37,29 +37,34 @@
   "trueDeploymentSuccess": 3,
   "trueDeploymentSuccessRate": 4.6,
   "cleanup": {
-    "destroys": 7,
-    "destroyFailures": 0,
-    "leaks": 0,
-    "successRate": 100
+    "destroys": 9,
+    "destroyFailures": 1,
+    "leaks": 1,
+    "successRate": 88.9
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
+    "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 43
+    "MIGRATION_ERROR": 1,
+    "PASS": 41
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
+    "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24
+    "GATE_ERROR": 24,
+    "MIGRATION_ERROR": 1
   },
   "byRootCause": {
+    "ANALYSIS_MISSING_SIGNAL": 1,
     "CORRECTLY_UNSUPPORTED": 49,
     "DEPLOYZ_BUG": 1
   },
@@ -108,7 +113,8 @@
       "repo-003"
     ],
     "DEPLOY-008": [
-      "repo-004"
+      "repo-004",
+      "repo-039"
     ],
     "DEPLOY-014": [
       "repo-007"
@@ -118,10 +124,10 @@
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 4,
+      "deployed": 5,
       "trueDeploymentSuccess": 3,
       "expectedUnsupported": 34,
-      "gateCorrect": 62
+      "gateCorrect": 60
     },
     "unseen": {
       "total": 20,
@@ -160,10 +166,10 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 4,
+      "deployed": 5,
       "trueDeploymentSuccess": 3,
       "expectedUnsupported": 24,
-      "gateCorrect": 47
+      "gateCorrect": 45
     }
   }
 }
