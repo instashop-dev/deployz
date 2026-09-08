@@ -9,34 +9,28 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
+  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
   "runId": null,
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
   "mode": "gate",
   "gate": {
     "status": "PASS",
-    "verdict": "NEEDS_CONFIGURATION",
+    "verdict": "READY",
     "analysisVerdict": "READY",
     "outcome": "correct-accept",
     "gateFindings": [
-      "required-env-vars-missing",
       "migration-command-missing"
     ],
-    "requiredKeys": [
-      "INFRA"
-    ],
-    "missingKeys": [
-      "INFRA"
-    ],
+    "requiredKeys": [],
+    "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": "NEEDS_CONFIGURATION",
+    "configuredVerdict": "READY",
     "configuredFindings": [
-      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 18,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "prod.Dockerfile",
       "buildContext": ".",

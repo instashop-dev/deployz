@@ -28,7 +28,7 @@
     "configuredVerdict": "READY",
     "configuredFindings": [],
     "source": "in-process",
-    "analysisVersion": 18,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "Dockerfile",
       "buildContext": ".",

@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-039",
+  "repository": "usememos/memos",
+  "commit": "dfa0fda76602d49dfbb68a6683ef20b068c8d45b",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/memos",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzCommit": "7300d556e5284520d971844fe3b47fd2053b654b",
+  "runId": "stage-b-repo-039-20260908-051152-4847",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": "READY",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "migration-command-missing"
+    ],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": "READY",
+    "configuredFindings": [
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "scripts/Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 5230,
+      "healthPath": "/healthz",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": false,
+      "storage": true,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER",
+        "MEMOS_DSN"
+      ],
+      "redisBindings": [],
+      "storageBindings": [
+        "AWS_S3_BUCKET"
+      ],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "containerPort": 5230,
+      "healthPath": "/healthz",
+      "dockerfilePath": "scripts/Dockerfile",
+      "buildContext": "."
+    },
+    "keys": [
+      "MEMOS_DRIVER"
+    ],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "2de0df91-fab8-4ff5-a627-654f104360ec",
+    "version": "repo-039-20260908-051152-4847",
+    "gitSha": "dfa0fda76602d49dfbb68a6683ef20b068c8d45b",
+    "dockerfilePath": "scripts/Dockerfile",
+    "buildContext": ".",
+    "imageDigest": "sha256:cf5089d930847dd4f04cb65a10ea4b24fa6d3f30da5481f8ecbd28fb84b81aac",
+    "buildId": null,
+    "durationMs": 125096,
+    "detail": null
+  },
+  "deployment": {
+    "status": "PASS",
+    "deploymentId": "d1ce0b00-ccf9-40df-a9fa-3e4934e6b2e0",
+    "installationId": "921fe783-d0a8-4b5a-a123-1f3eb985db88",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-039-d1ce0b00",
+    "applicationStack": "deployz-app-921fe783",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-039-20260908-051152-4847/application-template-v1.json",
+    "installJobState": "SUCCEEDED",
+    "failureCode": null,
+    "resourceCount": 47,
+    "durationMs": 1377861,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "HEALTHY",
+    "alb": "HEALTHY",
+    "https": "PASS",
+    "healthPath": "/healthz",
+    "healthPathSource": "stage-b",
+    "appUrl": "https://d-d1ce0b00-ccf9-40df-a9fa-3e4934e6b2e0.deployz.dev",
+    "runningImageDigest": "sha256:cf5089d930847dd4f04cb65a10ea4b24fa6d3f30da5481f8ecbd28fb84b81aac",
+    "releaseServing": true,
+    "observation": {
+      "seconds": 180,
+      "samples": 6,
+      "healthStatuses": [
+        301,
+        301,
+        301,
+        301,
+        301,
+        301
+      ],
+      "appStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "httpsHealthStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "PASS",
+    "redis": "NOT_REQUIRED",
+    "storage": "PASS",
+    "migration": "NOT_REQUIRED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "PASS",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [],
+    "durationMs": 5671475,
+    "detail": null
+  },
+  "classification": "PASS",
+  "failureStage": null,
+  "rootCause": null,
+  "rootCauseEvidence": null,
+  "findingIds": [
+    "DEPLOY-005",
+    "DEPLOY-008",
+    "DEPLOY-015",
+    "DEPLOY-016"
+  ],
+  "timing": {
+    "startedAt": "2026-09-08T05:11:53.197Z",
+    "finishedAt": "2026-09-08T05:56:24.509Z",
+    "totalMs": 2671312
+  },
+  "evidence": {}
+}

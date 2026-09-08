@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-008",
+  "repository": "TwiN/gatus",
+  "commit": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/gatus",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 1,
+  "deployzCommit": "56bcaa3cf4be7c266e34908c02c167a793a543ca",
+  "runId": "stage-b-repo-008-20260906-044230-b8e2",
+  "stageAExpected": "READY",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "requiredKeys": [
+      "BASE_URL"
+    ],
+    "missingKeys": [
+      "BASE_URL"
+    ],
+    "unsupported": [],
+    "configuredVerdict": "READY",
+    "configuredFindings": [
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 8080,
+      "healthPath": "/health",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "BASE_URL"
+    ],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "6161a76e-0aee-4e98-a630-c30816857405",
+    "version": "repo-008-20260906-044230-b8e2",
+    "gitSha": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:c299088028fc0732a17745b801127124b0edf691558ecc5f0f0ae65b3a640838",
+    "buildId": null,
+    "durationMs": 104368,
+    "detail": null
+  },
+  "deployment": {
+    "status": "PASS",
+    "deploymentId": "c85f819e-05e3-4543-9557-b0def7a9dc74",
+    "installationId": "1fdc6a45-6fd8-436c-90f7-ebbda239c164",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-008-c85f819e",
+    "applicationStack": "deployz-app-1fdc6a45",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-008-20260906-044230-b8e2/application-template-v1.json",
+    "installJobState": "SUCCEEDED",
+    "failureCode": null,
+    "resourceCount": 47,
+    "durationMs": 1049676,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "HEALTHY",
+    "alb": "HEALTHY",
+    "https": "PASS",
+    "healthPath": "/health",
+    "healthPathSource": "stage-b",
+    "appUrl": "https://d-c85f819e-05e3-4543-9557-b0def7a9dc74.deployz.dev",
+    "runningImageDigest": "sha256:c299088028fc0732a17745b801127124b0edf691558ecc5f0f0ae65b3a640838",
+    "releaseServing": true,
+    "observation": {
+      "seconds": 180,
+      "samples": 6,
+      "healthStatuses": [
+        301,
+        301,
+        301,
+        301,
+        301,
+        301
+      ],
+      "appStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "httpsHealthStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "PASS",
+    "redis": "NOT_REQUIRED",
+    "storage": "NOT_REQUIRED",
+    "migration": "NOT_REQUIRED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "PASS",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": null,
+    "cleanupState": "INCOMPLETE_PURGE_JOB",
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [],
+    "durationMs": 4772966,
+    "detail": "Purge ran through the product (RDS, bucket, secrets removed) but the harness gave up at 30 min and deleted the connector while the relay was still sweeping the network; the VPC and its NAT gateway were removed by id afterwards and the account audit for this installation is clean. The control plane keeps the PURGE job RUNNING (its relay is gone). Harness fixed: purge wait 120 min, connector never deleted while a purge runs."
+  },
+  "classification": "PASS",
+  "failureStage": null,
+  "rootCause": null,
+  "rootCauseEvidence": null,
+  "findingIds": [
+    "DEPLOY-002",
+    "DEPLOY-006"
+  ],
+  "timing": {
+    "startedAt": "2026-09-06T04:42:30.645Z",
+    "finishedAt": "2026-09-06T05:17:14.118Z",
+    "totalMs": 2083473
+  },
+  "evidence": {
+    "cleanupNote": "Purge ran through the product (RDS, bucket, secrets removed) but the harness gave up at 30 min and deleted the connector while the relay was still sweeping the network; the VPC and its NAT gateway were removed by id afterwards and the account audit for this installation is clean. The control plane keeps the PURGE job RUNNING (its relay is gone). Harness fixed: purge wait 120 min, connector never deleted while a purge runs."
+  }
+}

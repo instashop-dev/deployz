@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
+  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -9,7 +9,7 @@
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 18
+    "configuredReady": 23
   },
   "build": {
     "attempted": 9,
@@ -67,7 +67,8 @@
     "ANALYSIS_BUG": 1,
     "ANALYSIS_MISSING_SIGNAL": 1,
     "CORRECTLY_UNSUPPORTED": 49,
-    "DEPLOYZ_BUG": 1
+    "DEPLOYZ_BUG": 3,
+    "TEST_HARNESS_FAILURE": 1
   },
   "byFinding": {
     "DEPLOY-002": [

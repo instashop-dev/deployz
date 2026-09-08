@@ -9,32 +9,24 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
+  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
   "runId": null,
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
   "mode": "gate",
   "gate": {
     "status": "PASS",
-    "verdict": "NEEDS_CONFIGURATION",
+    "verdict": "READY",
     "analysisVerdict": "READY",
     "outcome": "correct-accept",
-    "gateFindings": [
-      "required-env-vars-missing"
-    ],
-    "requiredKeys": [
-      "LOCAL_STORAGE_PATH"
-    ],
-    "missingKeys": [
-      "LOCAL_STORAGE_PATH"
-    ],
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": "NEEDS_CONFIGURATION",
-    "configuredFindings": [
-      "required-env-vars-missing"
-    ],
+    "configuredVerdict": "READY",
+    "configuredFindings": [],
     "source": "in-process",
-    "analysisVersion": 18,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "Dockerfile",
       "buildContext": ".",

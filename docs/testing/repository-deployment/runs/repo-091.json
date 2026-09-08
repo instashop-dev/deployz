@@ -9,7 +9,7 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
+  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
   "runId": null,
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
@@ -34,7 +34,7 @@
       "health-path-required"
     ],
     "source": "in-process",
-    "analysisVersion": 18,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": ".devcontainer/Dockerfile",
       "buildContext": ".",

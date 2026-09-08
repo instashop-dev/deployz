@@ -205,6 +205,21 @@ What the audit decided:
   used), and the harness imports the built `dist`, so `pnpm build` must
   precede a run (analysis version 14 was reported until rebuilt).
 
+### Addendum — the gate re-audited at analysis version 19 (2026-09-08)
+
+Same command, same offline cache, same 120 entries, after the Wave 1
+analyser changes (v16 `DB_*` aliases and credential purposes, v17 reads
+through a local env object, v18 viper env prefixes, v19 no requirement
+from an env-object read). Result: identical to the v15 baseline on every
+entry — 47 correct accepts, 49 correct rejects, 6 false acceptances, 18
+false rejections; the same 23 entries READY once `deploy-config.yaml` is
+applied. A first rerun of this audit came out at v18 by mistake (the
+worktree had been rebased before #227 merged) and showed the v17/v18
+over-requirement on two more entries (reactive-resume, hoppscotch:
+`LOCAL_STORAGE_PATH`, `INFRA` demanded); v19 clears both, and outline and
+directus are READY once configured. The summaries and `runs/*.json` gate
+sections carry the v19 run; the Wave 1 deploy sections were preserved.
+
 ## 7. Phase 3 record — Wave 1 (stopped after Wave 1 on 2026-09-08)
 
 Order: gatus, umami, docuseal, miniflux, ihatemoney, kutt, ghostfolio,

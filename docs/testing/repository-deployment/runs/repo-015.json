@@ -9,7 +9,7 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
+  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
   "runId": null,
   "stageAExpected": "NOT_COMPATIBLE",
   "expectedDeployable": false,
@@ -46,7 +46,7 @@
       "required-env-vars-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 18,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "machine-learning/Dockerfile",
       "buildContext": ".",

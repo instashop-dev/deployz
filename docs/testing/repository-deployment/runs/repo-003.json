@@ -23,50 +23,16 @@
       "required-env-vars-missing"
     ],
     "requiredKeys": [
-      "ADMIN_EMAILS",
-      "CONTACT_EMAIL",
-      "DB_PASSWORD",
-      "DEFAULT_DOMAIN",
-      "DISALLOW_LOGIN_FORM",
-      "DISALLOW_REGISTRATION",
-      "JWT_SECRET",
-      "LINK_CUSTOM_ALPHABET",
-      "LINK_LENGTH",
-      "MAIL_ENABLED",
-      "MAIL_PASSWORD",
-      "OIDC_CLIENT_SECRET",
-      "OIDC_EMAIL_CLAIM",
-      "OIDC_ENABLED",
-      "OIDC_ISSUER",
-      "REDIS_PASSWORD",
-      "REPORT_EMAIL",
-      "SITE_NAME"
+      "ADMIN_EMAILS"
     ],
     "missingKeys": [
-      "ADMIN_EMAILS",
-      "CONTACT_EMAIL",
-      "DEFAULT_DOMAIN",
-      "DISALLOW_LOGIN_FORM",
-      "DISALLOW_REGISTRATION",
-      "LINK_CUSTOM_ALPHABET",
-      "LINK_LENGTH",
-      "MAIL_ENABLED",
-      "MAIL_PASSWORD",
-      "OIDC_CLIENT_SECRET",
-      "OIDC_EMAIL_CLAIM",
-      "OIDC_ENABLED",
-      "OIDC_ISSUER",
-      "REDIS_PASSWORD",
-      "REPORT_EMAIL",
-      "SITE_NAME"
+      "ADMIN_EMAILS"
     ],
     "unsupported": [],
-    "configuredVerdict": "NEEDS_CONFIGURATION",
-    "configuredFindings": [
-      "required-env-vars-missing"
-    ],
+    "configuredVerdict": "READY",
+    "configuredFindings": [],
     "source": "in-process",
-    "analysisVersion": 18,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "Dockerfile",
       "buildContext": ".",
@@ -98,9 +64,7 @@
         "REDIS_URL"
       ],
       "storageBindings": [],
-      "generatedKeys": [
-        "JWT_SECRET"
-      ]
+      "generatedKeys": []
     },
     "detail": null
   },

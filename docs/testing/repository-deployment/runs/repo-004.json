@@ -30,7 +30,7 @@
       "migration-command-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 18,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "packaging/docker/alpine/Dockerfile",
       "buildContext": ".",

@@ -16,41 +16,17 @@
   "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": "NEEDS_CONFIGURATION",
+    "verdict": "READY",
     "analysisVerdict": "READY",
     "outcome": "correct-accept",
-    "gateFindings": [
-      "required-env-vars-missing"
-    ],
-    "requiredKeys": [
-      "APP_NAME",
-      "AWS_S3_ACCELERATE_URL",
-      "CDN_URL",
-      "DD_SERVICE",
-      "REDIS_COLLABORATION_URL",
-      "REQUEST_TIMEOUT",
-      "SERVICES",
-      "SMTP_PASSWORD",
-      "SMTP_TLS_CIPHERS"
-    ],
-    "missingKeys": [
-      "APP_NAME",
-      "AWS_S3_ACCELERATE_URL",
-      "CDN_URL",
-      "DD_SERVICE",
-      "REDIS_COLLABORATION_URL",
-      "REQUEST_TIMEOUT",
-      "SERVICES",
-      "SMTP_PASSWORD",
-      "SMTP_TLS_CIPHERS"
-    ],
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": "NEEDS_CONFIGURATION",
-    "configuredFindings": [
-      "required-env-vars-missing"
-    ],
+    "configuredVerdict": "READY",
+    "configuredFindings": [],
     "source": "in-process",
-    "analysisVersion": 18,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "Dockerfile",
       "buildContext": ".",

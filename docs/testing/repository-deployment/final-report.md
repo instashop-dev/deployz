@@ -117,7 +117,22 @@ analysis version 15 (47 correct accepts, 49 correct rejects, 6 false
 acceptances, 18 false rejections — identical to Stage A's v15 run). After
 the Wave 1 analyser changes (v16–v19) it was rerun the same way:
 
-GATE_V19_PLACEHOLDER
+| Gate at | Correct accept | Correct reject | False acceptance | False rejection | READY with the Stage B configuration |
+| --- | --- | --- | --- | --- | --- |
+| v15 (Phase 2, 2026-09-05) | 47 | 49 | 6 | 18 | 23 |
+| v19 (2026-09-08, same cache, same corpus) | 47 | 49 | 6 | 18 | 23 |
+
+No verdict moved on any of the 120 repositories. That is the intended
+result: the four analyser changes widened what the env-var model sees
+(`DB_*` aliases, reads through a local env object, viper env prefixes)
+and then removed the requirement the v17 rule had wrongly inferred from
+those reads, so the gate's accept/reject line is untouched while the
+bindings behind it are richer. Directus and outline, which the v17 and
+v18 gates over-required (outline attempt 1 stopped at CONFIG_ERROR on
+nine keys it defaults), are READY once configured at v19. The 24 gate
+mistakes of Phase 2 (DEPLOY-003, DEPLOY-004) are therefore exactly the
+Stage A backlog they were attributed to; none was introduced or removed
+by Stage B.
 
 ## 4. Observations recorded but not turned into findings
 
