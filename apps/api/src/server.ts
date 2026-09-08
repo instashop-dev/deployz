@@ -1077,25 +1077,6 @@ function resolveProbeUrl(
 }
 
 /**
- * Step-timings follow-up shared by both relay-authenticated write paths
- * (POST /api/relay/health and the job-result handler below): re-derive the
- * deployment's status from the values THEY just wrote (not the stale
- * pre-transaction row — deriveDeploymentStatus is read-time, so a stale row
- * would compute yesterday's step), advance the persisted `step_timings`
- * against it, and record one `deployment.step_completed` event per step that
- * newly finished.
- *
- * Best-effort by design, same idiom as reconcileRunningDigest's call site
- * below: a relay heartbeat or job result must never fail because this
- * observational side channel had a bad day. Callers wrap this in try/catch
- * and log rather than propagate.
- *
- * `knownDomain` lets a caller that already looked up the active domain this
- * request (the health handler does, further down, for its own DNS
- * auto-check) hand it over instead of paying for a second identical query;
- * omit it and this fetches its own.
- */
-/**
  * Paddle migration Phase 9 — pushes the absolute live-deployment count onto
  * the subscription after a billing state actually changed. Always called
  * OUTSIDE the caller's transaction: a Paddle round trip must never hold a
@@ -1115,6 +1096,25 @@ async function reconcileAfterBillingChange(
   }
 }
 
+/**
+ * Step-timings follow-up shared by both relay-authenticated write paths
+ * (POST /api/relay/health and the job-result handler below): re-derive the
+ * deployment's status from the values THEY just wrote (not the stale
+ * pre-transaction row — deriveDeploymentStatus is read-time, so a stale row
+ * would compute yesterday's step), advance the persisted `step_timings`
+ * against it, and record one `deployment.step_completed` event per step that
+ * newly finished.
+ *
+ * Best-effort by design, same idiom as reconcileRunningDigest's call site
+ * below: a relay heartbeat or job result must never fail because this
+ * observational side channel had a bad day. Callers wrap this in try/catch
+ * and log rather than propagate.
+ *
+ * `knownDomain` lets a caller that already looked up the active domain this
+ * request (the health handler does, further down, for its own DNS
+ * auto-check) hand it over instead of paying for a second identical query;
+ * omit it and this fetches its own.
+ */
 async function advanceStepTimingsAfterWrite(
   db: RuntimeDb,
   paddle: PaddleBilling | null,
