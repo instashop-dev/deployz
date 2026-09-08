@@ -565,6 +565,73 @@ describe('checkout intents resume on activation (Paddle migration Phase 8)', () 
     expect(row!.deploymentId).toBeNull();
   });
 
+  it.each(['PAST_DUE', 'PAUSED'] as const)(
+    'refuses a checkout while the subscription is %s — that is fixed on the portal, not by buying again',
+    async (status) => {
+      await db
+        .update(schema.billingSubscriptions)
+        .set({ status })
+        .where(eq(schema.billingSubscriptions.organizationId, org.organizationId));
+      let paddleCalled = false;
+      const app = await buildServer({
+        auth,
+        db,
+        paddle: buildPaddle(async () => {
+          paddleCalled = true;
+          return { id: 'txn_should_not_exist' };
+        }),
+      });
+      try {
+        const application = await insertApplication(db, org.organizationId);
+        const customer = await insertCustomer(db, org.organizationId);
+        const response = await postJson(
+          app,
+          '/api/billing/checkout',
+          { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+          { cookie: org.cookie },
+        );
+        expect(response.statusCode).toBe(409);
+        expect(response.json()).toMatchObject({
+          error: { code: 'SUBSCRIPTION_NEEDS_ATTENTION', details: { subscriptionStatus: status } },
+        });
+        // No second subscription is ever sold.
+        expect(paddleCalled).toBe(false);
+      } finally {
+        await db
+          .update(schema.billingSubscriptions)
+          .set({ status: 'ACTIVE' })
+          .where(eq(schema.billingSubscriptions.organizationId, org.organizationId));
+        await app.close();
+      }
+    },
+  );
+
+  it('allows a checkout after a cancel — a new subscription replaces the ended one', async () => {
+    await db
+      .update(schema.billingSubscriptions)
+      .set({ status: 'CANCELED' })
+      .where(eq(schema.billingSubscriptions.organizationId, org.organizationId));
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      await clearIntents(db, org.organizationId);
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode, response.body).toBe(200);
+    } finally {
+      await db
+        .update(schema.billingSubscriptions)
+        .set({ status: 'ACTIVE' })
+        .where(eq(schema.billingSubscriptions.organizationId, org.organizationId));
+      await app.close();
+    }
+  });
+
   it('409s a checkout once the subscription is ACTIVE', async () => {
     const app = await buildServer({ auth, db, paddle: buildPaddle() });
     try {

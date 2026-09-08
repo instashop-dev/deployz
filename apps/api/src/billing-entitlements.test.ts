@@ -363,6 +363,44 @@ describe('billing entitlements — free evaluation (Paddle migration Phase 7)', 
     const restart = await postJson(app, `/api/deployments/${running.id}/restart`, {}, { cookie: pastDueOrg.cookie });
     expect(restart.statusCode, restart.body).toBe(202);
   });
+
+  // Phase 13: the strongest form of the rule. CANCELED means the vendor pays
+  // nothing at all — and their customers' deployments must STILL be
+  // operable, because payment state never touches running customer
+  // infrastructure. Only NEW customer deployments are withheld.
+  it('9. restart/destroy on an existing production deployment with CANCELED -> not blocked; a NEW one -> 402', async () => {
+    const canceledOrg = await signUpAndGetOrg(auth, db, 'canceled-actions@example.com');
+    await setSubscription(db, canceledOrg.organizationId, 'ACTIVE');
+    const application = await insertApplication(db, canceledOrg.organizationId);
+    const customer = await insertCustomer(db, canceledOrg.organizationId);
+    const running = await insertDeployment(db, canceledOrg.organizationId, application.id, customer.id, {
+      deploymentType: 'PRODUCTION',
+      state: 'HEALTHY',
+    });
+    const neverInstalled = await insertDeployment(db, canceledOrg.organizationId, application.id, customer.id, {
+      deploymentType: 'PRODUCTION',
+      state: 'NOT_INSTALLED',
+    });
+    await db
+      .update(schema.billingSubscriptions)
+      .set({ status: 'CANCELED' })
+      .where(eq(schema.billingSubscriptions.organizationId, canceledOrg.organizationId));
+
+    const restart = await postJson(app, `/api/deployments/${running.id}/restart`, {}, { cookie: canceledOrg.cookie });
+    expect(restart.statusCode, restart.body).toBe(202);
+    const destroy = await postJson(app, `/api/deployments/${neverInstalled.id}/destroy`, {}, { cookie: canceledOrg.cookie });
+    expect(destroy.statusCode, destroy.body).toBe(200);
+
+    const another = await insertCustomer(db, canceledOrg.organizationId);
+    const blocked = await postJson(
+      app,
+      '/api/deployments',
+      { applicationId: application.id, customerId: another.id, region: 'us-east-1', deploymentType: 'PRODUCTION' },
+      { cookie: canceledOrg.cookie },
+    );
+    expect(blocked.statusCode).toBe(402);
+    expect((blocked.json() as { error: { details?: { subscriptionStatus: unknown } } }).error.details?.subscriptionStatus).toBe('CANCELED');
+  });
 });
 
 // Fix round 1 (ruling R7-1) — billingFixtureMode: CI's simulated E2E suite

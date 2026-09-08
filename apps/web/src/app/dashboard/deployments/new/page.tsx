@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 
 import { copyInstallLink } from '@/components/copy-install-link';
+import { ManageBillingButton } from '@/components/manage-billing-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,7 @@ import {
 } from '@/lib/billing-checkout';
 import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 import {
+  blockedSubscriptionStatus,
   createCustomerRecord,
   createDeploymentErrorMessage,
   createDeploymentRecord,
@@ -107,6 +109,8 @@ function NewDeploymentScreen() {
   // deployment for want of a subscription. It carries exactly the parameters
   // the checkout intent needs, so the vendor never retypes them.
   const [checkoutRequest, setCheckoutRequest] = useState<CheckoutRequest | null>(null);
+  // Phase 13: a refusal whose fix is on Paddle's portal, not a checkout.
+  const [portalRequired, setPortalRequired] = useState<'PAST_DUE' | 'PAUSED' | null>(null);
   // Paddle migration Phase 11 — what this deployment will cost, said before
   // the vendor commits. `undefined` while unknown: showing the wrong price
   // for a moment is worse than showing none.
@@ -203,6 +207,7 @@ function NewDeploymentScreen() {
     setReadinessFindings([]);
     setConflictingTestDeploymentId(null);
     setCheckoutRequest(null);
+    setPortalRequired(null);
     setPending(true);
     const form = new FormData(event.currentTarget);
     const customerName = String(form.get('customerName') ?? '').trim();
@@ -248,7 +253,15 @@ function NewDeploymentScreen() {
       // The subscription gate is not a dead end: the customer row already
       // exists, so the same request can go straight to checkout.
       if (caught instanceof ApiRequestError && caught.code === 'SUBSCRIPTION_REQUIRED' && customerId) {
-        setCheckoutRequest({ applicationId, customerId, region, customerName });
+        // Phase 13: only evaluation and CANCELED go to checkout — those are
+        // the states with no subscription to fix. PAST_DUE and PAUSED have
+        // one, and the fix lives on the billing portal.
+        const status = blockedSubscriptionStatus(caught);
+        if (status === 'PAST_DUE' || status === 'PAUSED') {
+          setPortalRequired(status);
+        } else {
+          setCheckoutRequest({ applicationId, customerId, region, customerName });
+        }
       }
     } finally {
       setPending(false);
@@ -283,6 +296,29 @@ function NewDeploymentScreen() {
           </p>
         ) : null}
       </div>
+
+      {portalRequired ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {portalRequired === 'PAST_DUE' ? 'Update your payment details' : 'Resume your subscription'}
+            </CardTitle>
+            <CardDescription>
+              {portalRequired === 'PAST_DUE'
+                ? 'Your last payment did not go through. Once it is sorted, come back and create this deployment — your customers’ existing deployments keep running meanwhile.'
+                : 'Your subscription is paused. Resume it on the billing portal, then come back and create this deployment.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ManageBillingButton
+              target={portalRequired === 'PAST_DUE' ? 'updatePaymentMethod' : 'overview'}
+              variant="default"
+            >
+              {portalRequired === 'PAST_DUE' ? 'Update payment details' : 'Open billing portal'}
+            </ManageBillingButton>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {checkoutRequest ? (
         <SubscriptionCheckoutCard

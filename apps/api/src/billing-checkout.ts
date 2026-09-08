@@ -88,15 +88,30 @@ export async function createCheckoutIntent(
     throw new ApiError(503, 'BILLING_DISABLED', 'Paddle billing is not configured');
   }
 
-  // An organization that already pays creates deployments directly — the
-  // Phase 7 gate lets them through, so a second subscription must not be
-  // sold here.
+  // Phase 13: a checkout is the way IN to a subscription, so it is only
+  // offered where there is none to fix. ACTIVE creates deployments directly
+  // (the Phase 7 gate lets it through, so a second subscription must not be
+  // sold). PAST_DUE and PAUSED already have a subscription — selling another
+  // would double-bill; the fix is the card form or resume on Paddle's portal.
+  // Only evaluation (no row) and CANCELED (the old subscription is over,
+  // and the webhook's mismatch guard accepts a new id after a cancel) may
+  // start a checkout.
   const subscriptionStatus = await getSubscriptionStatus(db, params.organizationId);
   if (subscriptionStatus === 'ACTIVE') {
     throw new ApiError(
       409,
       'SUBSCRIPTION_ALREADY_ACTIVE',
       'This organization already has an active subscription. Create the deployment directly.',
+    );
+  }
+  if (subscriptionStatus === 'PAST_DUE' || subscriptionStatus === 'PAUSED') {
+    throw new ApiError(
+      409,
+      'SUBSCRIPTION_NEEDS_ATTENTION',
+      subscriptionStatus === 'PAST_DUE'
+        ? 'Your last payment did not go through. Update your payment details to continue.'
+        : 'Your subscription is paused. Resume it to continue.',
+      { subscriptionStatus },
     );
   }
 

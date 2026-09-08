@@ -39,7 +39,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 10 Scheduled safety job | done | this PR | `sweepBilling` in `packages/cdk/src/lambda/worker.ts`, on the existing 15-minute `WatchdogSchedule`: promotes missed READY activations, releases webhook events abandoned in `RECEIVED`, and reconciles subscriptions stale for an hour. New `@deployz/api` entry points `./billing`, `./billing-lifecycle`, `./paddle` |
 | 11 App-wide UX | done | this PR | Past-due/canceled banners, evaluation vs subscribed billing page, evaluation notice (home + readiness), Test·Free badges, deployment Billing row, subscription-aware creation copy, honest disconnect copy, `subscriptionStatus` on `/api/me` |
 | 12 Customer portal | done | this PR | `apps/api/src/billing-portal.ts`, `POST /api/billing/portal` (short-lived Paddle portal links for the org's own customer), `ManageBillingButton`: billing page (overview + payment details), PAST_DUE banner deep-links to the card form |
-| 13 Entitlements by status | pending | | |
+| 13 Entitlements by status | done | this PR | Per-status rules made explicit and tested: creation needs ACTIVE; day-2 on existing deployments never gated (CANCELED guard added); checkout only from evaluation or CANCELED (409 `SUBSCRIPTION_NEEDS_ATTENTION` for PAST_DUE/PAUSED); the creation screen routes each refusal to its real fix |
 | 14 Admin | pending | | |
 | 15 Test matrix | pending | | |
 | 16 Sandbox E2E | pending | | |
@@ -200,6 +200,23 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 - R12-3: the PAST_DUE banner deep-links straight to the card form — the one
   action that actually fixes a failed payment — instead of sending the vendor
   to a page that asks them to click again.
+- R13-1: the entitlement matrix. NEW customer deployment (manual or deploy
+  link): ACTIVE only. Everything on an EXISTING deployment — deploy, rollback,
+  restart, config, destroy — is never gated by any status, CANCELED included:
+  payment state never touches running customer infrastructure, and a
+  customer's security update must not wait on the vendor's card. TEST
+  deployments and all evaluation surfaces are never gated. Cost if wrong: a
+  canceled vendor can keep operating deployments they no longer pay for;
+  accepted, because the alternative punishes their customers.
+- R13-2: a checkout is the way IN to a subscription and is offered only where
+  there is none to fix — evaluation and CANCELED. PAST_DUE and PAUSED refuse
+  with 409 `SUBSCRIPTION_NEEDS_ATTENTION` and never reach Paddle: selling a
+  second subscription to an organization that already has one would
+  double-bill, and the real fix (card form, resume) lives on the portal.
+- R13-3: the 402 already carries `subscriptionStatus` (Phase 7), so the web
+  routes each refusal to its actual next step with no new API surface:
+  evaluation/CANCELED -> checkout card, PAST_DUE -> card form, PAUSED ->
+  portal. The message names the reason, never just "subscription required".
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
