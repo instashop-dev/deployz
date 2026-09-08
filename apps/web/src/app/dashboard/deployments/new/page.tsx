@@ -16,8 +16,10 @@ import { fetchApplications, type Application } from '@/lib/applications';
 import {
   createCheckoutIntent,
   fetchBillingConfig,
+  fetchSubscriptionStatus,
   openSubscriptionCheckout,
 } from '@/lib/billing-checkout';
+import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 import {
   createCustomerRecord,
   createDeploymentErrorMessage,
@@ -105,6 +107,12 @@ function NewDeploymentScreen() {
   // deployment for want of a subscription. It carries exactly the parameters
   // the checkout intent needs, so the vendor never retypes them.
   const [checkoutRequest, setCheckoutRequest] = useState<CheckoutRequest | null>(null);
+  // Paddle migration Phase 11 — what this deployment will cost, said before
+  // the vendor commits. `undefined` while unknown: showing the wrong price
+  // for a moment is worse than showing none.
+  const [subscriptionStatus, setSubscriptionStatus] = useState<
+    SubscriptionStatus | null | undefined
+  >(undefined);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(preselectedApplicationId);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
 
@@ -126,6 +134,22 @@ function NewDeploymentScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (isTestDeployment) return;
+    let cancelled = false;
+    fetchSubscriptionStatus()
+      .then((status) => {
+        if (!cancelled) setSubscriptionStatus(status);
+      })
+      .catch(() => {
+        // No price line rather than a wrong one — the API is the authority
+        // on whether this deployment is allowed at all.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isTestDeployment]);
 
   // The applications list decides the default selection; the preflight
   // follows whichever application is selected.
@@ -251,6 +275,13 @@ function NewDeploymentScreen() {
             ? 'Deploy your own app as a free test deployment. It does not affect billing.'
             : 'Add a customer and generate their install link. The customer opens the link and signs in to their own cloud account — their credentials never touch Deployz.'}
         </p>
+        {!isTestDeployment && subscriptionStatus !== undefined ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            {subscriptionStatus === 'ACTIVE'
+              ? 'This adds $19/month once the deployment is live.'
+              : 'This is your first customer deployment, so it starts your subscription: $49/month for the platform, plus $19/month for each customer deployment once it is live.'}
+          </p>
+        ) : null}
       </div>
 
       {checkoutRequest ? (

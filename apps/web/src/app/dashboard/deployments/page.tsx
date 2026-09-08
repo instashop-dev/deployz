@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -33,6 +34,7 @@ import {
 } from '@/components/ui/table';
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
+import { isTestDeployment } from '@/lib/deployment-billing';
 import { fetchDeployments, listedUnderStatus, type FleetDeployment } from '@/lib/deployments';
 import { DEPLOYMENT_STATES, deploymentStateLabel } from '@/lib/deployment-vocabulary';
 import { STAGE_LABEL, STEP_LABEL, removedProgress } from '@/lib/deployment-progress';
@@ -382,6 +384,11 @@ function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
                   >
                     {deployment.customerName}
                   </Link>
+                  {isTestDeployment(deployment) ? (
+                    <Badge variant="secondary" className="ml-2">
+                      Test · Free
+                    </Badge>
+                  ) : null}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   {deployment.applicationName}

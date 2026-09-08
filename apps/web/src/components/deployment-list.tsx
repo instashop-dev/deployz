@@ -1,8 +1,10 @@
 import Link from 'next/link';
 
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { isTestDeployment } from '@/lib/deployment-billing';
 import type { FleetDeployment } from '@/lib/deployments';
 
 // The homepage's compact customer-deployment table — the same shared Table
@@ -37,6 +39,13 @@ export function DeploymentList({
                   <Link href={`/dashboard/deployments/${deployment.id}`} className="hover:underline">
                     {deployment.customerName}
                   </Link>
+                  {/* Phase 11: a test deployment is free — say so where the
+                      vendor scans the fleet, not only on the detail page. */}
+                  {isTestDeployment(deployment) ? (
+                    <Badge variant="secondary" className="ml-2">
+                      Test · Free
+                    </Badge>
+                  ) : null}
                 </TableCell>
                 {showApplication ? (
                   <TableCell className="text-muted-foreground">

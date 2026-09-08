@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator';
 
 export const metadata: Metadata = {
   title: 'Pricing',
-  description: '$49/month plus $19 for each healthy customer deployment. No infrastructure resale.',
+  description: '$49/month plus $19 for each live customer deployment. No infrastructure resale.',
 };
 
 const USAGE_ROWS = [
@@ -63,9 +63,9 @@ export default function PricingPage() {
           </h1>
           <p className="max-w-xl text-sm text-muted-foreground">
             A flat base subscription covers your dashboard, GitHub integration, and readiness
-            checks. Each healthy customer deployment adds $19/month. Your own test deployment
-            is not charged — the per-deployment fee only applies once a customer installs your
-            app.
+            checks. Each customer deployment adds $19/month once it is live. Your own test
+            deployment is not charged — the per-deployment fee applies only once a customer's
+            deployment is actually running, and stops when it is removed.
           </p>
         </section>
 
@@ -77,7 +77,7 @@ export default function PricingPage() {
             <CardHeader>
               <CardTitle>What you pay</CardTitle>
               <CardDescription>
-                Base subscription is $49/month. Each healthy deployment adds $19/month.
+                Base subscription is $49/month. Each live deployment adds $19/month.
               </CardDescription>
             </CardHeader>
             <CardContent>

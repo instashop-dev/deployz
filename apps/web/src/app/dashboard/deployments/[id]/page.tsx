@@ -89,6 +89,7 @@ import {
   type InfrastructureResponse,
   type RelayCapabilities,
 } from '@/lib/deployments';
+import { deploymentBillingLabel } from '@/lib/deployment-billing';
 import {
   HEALTH_STATUS_BADGE,
   HEALTH_STATUS_LABEL,
@@ -418,6 +419,10 @@ function DeploymentMetadata({ detail }: { detail: FleetDeploymentDetail }) {
             </time>
           }
         />
+        {/* Paddle migration Phase 11 — the vendor's one-line answer to "what
+            does this cost me?". Reads the deployment's billing state, never
+            its health: a temporarily unhealthy deployment is still billed. */}
+        <MetaRow label="Billing" value={deploymentBillingLabel(detail)} />
         {detail.appUrl ? <AppUrlRow url={detail.appUrl} /> : null}
         <div className="flex min-w-0 flex-col gap-0.5 sm:col-span-2">
           <dt className="text-muted-foreground">Custom domain</dt>
@@ -773,6 +778,7 @@ function DeploymentActions({
         deploymentId={detail.id}
         customerName={detail.customerName}
         infrastructure={infrastructure}
+        billed={detail.deploymentType === 'PRODUCTION' && detail.billingState === 'ACTIVE'}
         onDone={() => {
           setOpen(null);
           onChanged();
@@ -1375,6 +1381,7 @@ function DisconnectDialog({
   deploymentId,
   customerName,
   infrastructure,
+  billed,
   onDone,
   onCancel,
 }: {
@@ -1382,6 +1389,8 @@ function DisconnectDialog({
   deploymentId: string;
   customerName: string;
   infrastructure: InfrastructureResponse | null;
+  /** Whether removing this deployment actually stops a Deployz charge. */
+  billed: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -1456,7 +1465,11 @@ function DisconnectDialog({
             </p>
           )}
           <p>The Deployz connector remains installed.</p>
-          <p>This stops the $19/month charge for this deployment.</p>
+          {/* Only true when this deployment is actually being billed: a test
+              deployment is free, and one that never went live was never
+              charged. Retained AWS resources are the customer's own AWS
+              bill and keep costing whatever they cost. */}
+          {billed ? <p>This stops the $19/month Deployz charge for this deployment.</p> : null}
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="disconnect-confirm">

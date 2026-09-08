@@ -18,6 +18,9 @@ async function signUp(page: Page): Promise<void> {
   await page.waitForURL('/dashboard');
 }
 
+// The simulated E2E runner sets BILLING_FIXTURE_MODE, which gives every new
+// organization an ACTIVE subscription — so a fresh org here lands on the
+// subscribed branch of the page, not the evaluation one.
 test('billing page renders the §48 base-only breakdown for a fresh org', async ({ page }) => {
   await signUp(page);
   await page.goto('/dashboard/settings/billing');
@@ -26,7 +29,7 @@ test('billing page renders the §48 base-only breakdown for a fresh org', async 
   await expect(page.getByText('Platform', { exact: true })).toBeVisible();
   await expect(page.getByText('$49', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Monthly total')).toBeVisible();
-  await expect(page.getByText('No billable deployments yet.')).toBeVisible();
+  await expect(page.getByText('No customer deployments are live yet.')).toBeVisible();
 });
 
 test('billing is reachable from the dashboard nav (§41 screen 17)', async ({ page }) => {

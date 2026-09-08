@@ -37,7 +37,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 8 First production activation | done | this PR | `billing_checkout_intents` (migration `0037`), `apps/api/src/billing-checkout.ts`, `POST /api/billing/checkout` (platform price only), webhook completion on ACTIVE; web checkout hand-off (`apps/web/src/lib/billing-checkout.ts`, Paddle.js). Not verified against Paddle — Phase 4 catalog still missing |
 | 9 Reconciliation | done | this PR | `apps/api/src/billing-reconcile.ts`: absolute per-deployment quantity pushed onto the subscription, `billing_reconciliation_events` ledger, wired to every billing transition (map rows 7, 12-15, 19) outside the caller's transaction |
 | 10 Scheduled safety job | done | this PR | `sweepBilling` in `packages/cdk/src/lambda/worker.ts`, on the existing 15-minute `WatchdogSchedule`: promotes missed READY activations, releases webhook events abandoned in `RECEIVED`, and reconciles subscriptions stale for an hour. New `@deployz/api` entry points `./billing`, `./billing-lifecycle`, `./paddle` |
-| 11 App-wide UX | pending | | |
+| 11 App-wide UX | done | this PR | Past-due/canceled banners, evaluation vs subscribed billing page, evaluation notice (home + readiness), Test·Free badges, deployment Billing row, subscription-aware creation copy, honest disconnect copy, `subscriptionStatus` on `/api/me` |
 | 12 Customer portal | pending | | |
 | 13 Entitlements by status | pending | | |
 | 14 Admin | pending | | |
@@ -164,6 +164,30 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   `last_reconciled_at` is null or older than an hour. This is what makes R9-2
   safe: the request path can skip reconciling on harmless transitions because
   drift is bounded here, not by hoping no call was ever missed.
+- R11-1: exactly two app-wide banners — PAST_DUE and CANCELED. Evaluation
+  (no subscription) gets none: it is free and never expires, so there is
+  nothing to act on, and dressing it as an alert would invent urgency the
+  product does not have. Neither banner ever suggests a customer's deployment
+  is at risk, because payment state never touches running infrastructure.
+- R11-2: the billing page branches on whether a subscription exists. The old
+  page showed every vendor a "$49 Platform / Monthly total" breakdown whether
+  or not they had bought anything, which was simply untrue for an
+  organization in evaluation.
+- R11-3: `subscriptionStatus` is served on `/api/me` rather than looked up
+  from `organizations` in the client. In a support session `organization` is
+  the VENDOR's while `organizations` is the admin's own memberships, so the
+  client-side lookup would silently find nothing and the banner would vanish
+  exactly where an admin is investigating a billing problem.
+- R11-4: cost copy reads the deployment's `billing_state`, never its health.
+  A temporarily unhealthy deployment is still billed and one that never came
+  up never was — that separation is why `billing_state` exists apart from §46
+  `state`. The disconnect dialog therefore claims "this stops the $19/month
+  charge" only when the deployment is actually ACTIVE; it was previously
+  saying that for free test deployments too.
+- R11-5: public pricing copy says a deployment is billed once it is LIVE, not
+  once it is "healthy". HEALTHY is a visible §46 state, and the audit
+  explicitly does not preserve the bill-on-bare-HEALTHY gate — the gate is
+  the verified READY stage.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
