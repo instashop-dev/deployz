@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `655cc24b81212b9b6d9913d8a3facad052dddd4a`
+Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 
 | Metric | Value |
 | --- | --- |
@@ -16,7 +16,7 @@ Deployz commit: `655cc24b81212b9b6d9913d8a3facad052dddd4a`
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 3 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 3 / 1 / 0 / 1 |
 | **True deployment success / expected deployable** | **3 / 65 (4.6%)** |
-| Cleanup: destroys / failures / leaks / success rate | 9 / 1 / 1 / 88.9% |
+| Cleanup: destroys / failures / leaks / success rate | 9 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -26,17 +26,16 @@ Deployz commit: `655cc24b81212b9b6d9913d8a3facad052dddd4a`
 | BUILD_ERROR | 1 |
 | CONTAINER_START_ERROR | 1 |
 | DATABASE_ERROR | 1 |
-| ENV_BINDING_ERROR | 1 |
+| ENV_BINDING_ERROR | 2 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| MIGRATION_ERROR | 1 |
 | PASS | 41 |
 
 ## By root cause
 
 | Root cause | Repositories |
 | --- | --- |
-| ANALYSIS_MISSING_SIGNAL | 1 |
+| ANALYSIS_MISSING_SIGNAL | 2 |
 | CORRECTLY_UNSUPPORTED | 49 |
 | DEPLOYZ_BUG | 1 |
 
@@ -49,8 +48,9 @@ Deployz commit: `655cc24b81212b9b6d9913d8a3facad052dddd4a`
 | DEPLOY-004 | 6: repo-072, repo-074, repo-084, repo-088, repo-089, repo-097 |
 | DEPLOY-005 | 2: repo-021, repo-039 |
 | DEPLOY-007 | 1: repo-003 |
-| DEPLOY-008 | 2: repo-004, repo-039 |
+| DEPLOY-008 | 1: repo-004 |
 | DEPLOY-014 | 1: repo-007 |
+| DEPLOY-015 | 1: repo-039 |
 
 ## By set
 
@@ -110,7 +110,7 @@ Deployz commit: `655cc24b81212b9b6d9913d8a3facad052dddd4a`
 | repo-036 | django-helpdesk/django-helpdesk@1cc6776 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-037 | apache/superset@765a4ec | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-038 | apache/answer@3b9f137 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | FAIL | MIGRATION_ERROR | DEPLOY-005, DEPLOY-008 |
+| repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | ENV_BINDING_ERROR / ANALYSIS_MISSING_SIGNAL | DEPLOY-005, DEPLOY-015 |
 | repo-040 | authelia/authelia@fd4b742 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-041 | coder/coder@07f9018 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-042 | grafana/grafana@0ecd582 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

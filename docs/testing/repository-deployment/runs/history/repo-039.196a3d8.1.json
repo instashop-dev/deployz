@@ -118,22 +118,24 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
-    "destroyJobState": "SKIPPED",
-    "purgeJobState": "SKIPPED",
-    "cleanupState": null,
-    "bootstrapStackFinal": "DELETE_COMPLETE",
-    "leaks": [],
-    "durationMs": 159831,
-    "detail": null
+    "status": "FAIL",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": null,
+    "leaks": [
+      "aws resourcegroupstaggingapi get-resources --tag-filters failed: aws: [ERROR]: An error occurred (ExpiredTokenException) when calling the GetResources operation: The security token included in the request is expired"
+    ],
+    "durationMs": 5499595,
+    "detail": "leftovers: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: An error occurred (ExpiredToken) when calling the DescribeStacks operation: The security token included in the request is expired | leak audit: 1 resource(s) left"
   },
-  "classification": "ENV_BINDING_ERROR",
-  "failureStage": "ENV_BINDING_ERROR",
-  "rootCause": "ANALYSIS_MISSING_SIGNAL",
-  "rootCauseEvidence": "two findings on one run. (1) DEPLOY-005 third shape: memos reads MEMOS_DSN through viper's env prefix (viper.SetEnvPrefix('memos') + GetString('dsn')), a name that appears nowhere as a literal, so the env-var model held one variable and no url alias was bound; with the vendor's MEMOS_DRIVER=postgres the configured revision dialled its default 127.0.0.1:5432 and exited four times (fix PR #226, analysis v18). (2) DEPLOY-015: ECS's circuit breaker rolled the service back to the unconfigured template revision, which runs the same pinned image and booted on SQLite; the relay's success gate held on it and DEPLOY_RELEASE was reported SUCCEEDED (alreadyRunning) with the deployment HEALTHY over default HTTPS — a false success the harness caught only through the observation window's crash count (fix PR #225, relay). Cleanup: Disconnect and Purge through the product; connector removal and leak audit first failed on the expired aws login, then passed on the cleanup rerun.",
+  "classification": "MIGRATION_ERROR",
+  "failureStage": "MIGRATION_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "container failed around migrations: 2026-09-08T00:16:14.557Z time=2026-09-08T00:16:14.557Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to check if database is initialized: failed to check if database is initialized: dial tcp",
   "findingIds": [
     "DEPLOY-005",
-    "DEPLOY-015"
+    "DEPLOY-008"
   ],
   "timing": {
     "startedAt": "2026-09-07T23:49:24.251Z",
