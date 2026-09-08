@@ -61,6 +61,8 @@ const DB_CONNECTION_PATTERNS = [
   /password authentication failed/i,
   /no pg_hba\.conf entry/i,
   /SSL (?:connection )?(?:is )?required|sslmode|no encryption/i,
+  // TLS verification against the RDS chain (DEPLOY-007): node-postgres, libpq, OpenSSL wordings.
+  /self[- ]signed certificate|certificate (?:chain|verify failed)|unable to (?:get|verify) (?:local )?issuer certificate|SSL error|SSL SYSCALL error|ssl handshake/i,
   /database ".*" does not exist/i,
   /could not connect to (?:server|database)|connection to (?:server|database).*(?:refused|failed)/i,
   /getaddrinfo ENOTFOUND.*(?:postgres|db|database)/i,

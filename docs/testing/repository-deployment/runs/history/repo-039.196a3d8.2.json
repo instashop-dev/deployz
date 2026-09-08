@@ -1,0 +1,243 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-039",
+  "repository": "usememos/memos",
+  "commit": "dfa0fda76602d49dfbb68a6683ef20b068c8d45b",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/memos",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzCommit": "196a3d88cdad9f4b36f7c049a93e7fc78627400a",
+  "runId": "stage-b-repo-039-20260907-234923-bbde",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "containerPort": 5230,
+      "healthPath": "/healthz",
+      "dockerfilePath": "scripts/Dockerfile",
+      "buildContext": "."
+    },
+    "keys": [
+      "MEMOS_DRIVER"
+    ],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "08255518-f8d4-4b27-83b3-c385a4ac1c8f",
+    "version": "repo-039-20260907-234923-bbde",
+    "gitSha": "dfa0fda76602d49dfbb68a6683ef20b068c8d45b",
+    "dockerfilePath": "scripts/Dockerfile",
+    "buildContext": ".",
+    "imageDigest": "sha256:69a07f580c13356d0ea110b4939ab615c8704179908f8945f65676077d506b56",
+    "buildId": null,
+    "durationMs": 125263,
+    "detail": null
+  },
+  "deployment": {
+    "status": "PASS",
+    "deploymentId": "a34f5981-a81a-434e-9465-4a4f9ef86025",
+    "installationId": "273ff2a7-6483-4000-b7d5-4d0ced665af6",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-039-a34f5981",
+    "applicationStack": "deployz-app-273ff2a7",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-039-20260907-234923-bbde/application-template-v1.json",
+    "installJobState": "SUCCEEDED",
+    "failureCode": null,
+    "resourceCount": 47,
+    "durationMs": 2288077,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "HEALTHY",
+    "alb": "HEALTHY",
+    "https": "PASS",
+    "healthPath": "/healthz",
+    "healthPathSource": "stage-b",
+    "appUrl": "https://d-a34f5981-a81a-434e-9465-4a4f9ef86025.deployz.dev",
+    "runningImageDigest": "sha256:69a07f580c13356d0ea110b4939ab615c8704179908f8945f65676077d506b56",
+    "releaseServing": true,
+    "observation": {
+      "seconds": 180,
+      "samples": 6,
+      "healthStatuses": [
+        301,
+        301,
+        301,
+        301,
+        301,
+        301
+      ],
+      "appStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "httpsHealthStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    "detail": "4 tasks exited non-zero during the run"
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "PASS",
+    "destroyJobState": "SKIPPED",
+    "purgeJobState": "SKIPPED",
+    "cleanupState": null,
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [],
+    "durationMs": 159831,
+    "detail": null
+  },
+  "classification": "ENV_BINDING_ERROR",
+  "failureStage": "ENV_BINDING_ERROR",
+  "rootCause": "ANALYSIS_MISSING_SIGNAL",
+  "rootCauseEvidence": "two findings on one run. (1) DEPLOY-005 third shape: memos reads MEMOS_DSN through viper's env prefix (viper.SetEnvPrefix('memos') + GetString('dsn')), a name that appears nowhere as a literal, so the env-var model held one variable and no url alias was bound; with the vendor's MEMOS_DRIVER=postgres the configured revision dialled its default 127.0.0.1:5432 and exited four times (fix PR #226, analysis v18). (2) DEPLOY-015: ECS's circuit breaker rolled the service back to the unconfigured template revision, which runs the same pinned image and booted on SQLite; the relay's success gate held on it and DEPLOY_RELEASE was reported SUCCEEDED (alreadyRunning) with the deployment HEALTHY over default HTTPS — a false success the harness caught only through the observation window's crash count (fix PR #225, relay). Cleanup: Disconnect and Purge through the product; connector removal and leak audit first failed on the expired aws login, then passed on the cleanup rerun.",
+  "findingIds": [
+    "DEPLOY-005",
+    "DEPLOY-015"
+  ],
+  "timing": {
+    "startedAt": "2026-09-07T23:49:24.251Z",
+    "finishedAt": "2026-09-08T00:48:52.960Z",
+    "totalMs": 3568709
+  },
+  "evidence": {
+    "failure": {
+      "point": "runtime",
+      "message": "4 tasks exited non-zero during the run",
+      "stoppedTasks": [
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-273ff2a7-ClusterEB0386A7-YecGnEQ3cAoi/1f9abc61491647bca4b4709fd8df8bb9",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-08T05:45:55.203000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            },
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-273ff2a7-ClusterEB0386A7-YecGnEQ3cAoi/387569ca877b4bee8ff39ea63a28905f",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-08T05:53:11.533000+05:30",
+          "containers": [
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            },
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-273ff2a7-ClusterEB0386A7-YecGnEQ3cAoi/66d8bd3dc5e84984a7051acefb0bef17",
+          "stoppedReason": "Scaling activity initiated by (deployment ecs-svc/7087261423846010639)",
+          "stopCode": "ServiceSchedulerInitiated",
+          "stoppedAt": "2026-09-08T05:59:40.089000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            },
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-273ff2a7-ClusterEB0386A7-YecGnEQ3cAoi/92f15fab040046c49307883544ac8176",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-08T05:51:36.978000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            },
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        }
+      ],
+      "logTail": [
+        "2026-09-08T00:16:14.473Z memos: starting as UID:GID 10001:10001",
+        "2026-09-08T00:16:14.557Z time=2026-09-08T00:16:14.557Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to check if database is initialized: failed to check if database is initialized: dial tcp 127.0.0.1:5432: connect: connection refused\"",
+        "2026-09-08T00:22:07.709Z memos: starting as UID:GID 10001:10001",
+        "2026-09-08T00:22:07.876Z time=2026-09-08T00:22:07.876Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to check if database is initialized: failed to check if database is initialized: dial tcp 127.0.0.1:5432: connect: connection refused\"",
+        "2026-09-08T00:23:28.103Z memos: starting as UID:GID 10001:10001",
+        "2026-09-08T00:23:28.236Z time=2026-09-08T00:23:28.236Z level=ERROR msg=\"memos failed\" error=\"failed to migrate database: failed to pre-migrate: failed to check if database is initialized: failed to check if database is initialized: dial tcp 127.0.0.1:5432: connect: connection refused\""
+      ],
+      "stackFailures": [],
+      "targetHealth": [
+        "healthy"
+      ],
+      "diagnostics": {
+        "failureCode": null,
+        "recoverability": null,
+        "what": null,
+        "why": null,
+        "fix": null,
+        "events": []
+      }
+    }
+  }
+}

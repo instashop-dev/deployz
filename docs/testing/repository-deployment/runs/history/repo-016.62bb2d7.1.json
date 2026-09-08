@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-016",
+  "repository": "outline/outline",
+  "commit": "012188635b0a0fabbd446d4a9aad12eba588c630",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/outline",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzCommit": "62bb2d7522b2182729758504fcd294df784379d3",
+  "runId": "stage-b-repo-016-20260908-031257-4844",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "NOT_ATTEMPTED",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "FAIL",
+    "overrides": {},
+    "keys": [
+      "FILE_STORAGE",
+      "FORCE_HTTPS",
+      "SECRET_KEY",
+      "URL",
+      "UTILS_SECRET"
+    ],
+    "generatedKeys": [
+      "SECRET_KEY",
+      "UTILS_SECRET"
+    ],
+    "detail": "the control plane's gate still needs configuration: required-env-vars-missing: This app requires environment variables that have no value yet: APP_NAME, AWS_S3_ACCELERATE_URL, CDN_URL, DD_SERVICE, REDIS_COLLABORATION_URL, REQUEST_TIMEOUT, SERVICES, SMTP_PASSWORD, SMTP_TLS_CIPHERS. Set them in the application's Configuration screen before deploying."
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_REQUIRED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": "no AWS resources were created"
+  },
+  "classification": "CONFIG_ERROR",
+  "failureStage": "CONFIG_ERROR",
+  "rootCause": "ANALYSIS_BUG",
+  "rootCauseEvidence": "the control plane's gate (analysis v18) demanded APP_NAME, AWS_S3_ACCELERATE_URL, CDN_URL, DD_SERVICE, REDIS_COLLABORATION_URL, REQUEST_TIMEOUT, SERVICES, SMTP_PASSWORD and SMTP_TLS_CIPHERS on top of the Stage B configuration — keys outline defaults inside server/env.ts. A regression of analysis v17 (PR #224): reads through a module's env object (`import env from '@server/env'; createTransport({ pass: env.SMTP_PASSWORD })`) fell into the process.env rules that treat a call-argument read or a bare secret read as a requirement. Fix: analysis v19 records such reads without a requirement. Attempt 2 after the deploy.",
+  "findingIds": [
+    "DEPLOY-005"
+  ],
+  "timing": {
+    "startedAt": "2026-09-08T03:12:57.995Z",
+    "finishedAt": "2026-09-08T03:13:47.606Z",
+    "totalMs": 49611
+  },
+  "evidence": {
+    "failure": {
+      "point": "configuration",
+      "message": "the control plane's gate still needs configuration: required-env-vars-missing: This app requires environment variables that have no value yet: APP_NAME, AWS_S3_ACCELERATE_URL, CDN_URL, DD_SERVICE, REDIS_COLLABORATION_URL, REQUEST_TIMEOUT, SERVICES, SMTP_PASSWORD, SMTP_TLS_CIPHERS. Set them in the application's Configuration screen before deploying."
+    }
+  }
+}

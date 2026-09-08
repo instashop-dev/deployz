@@ -9,7 +9,7 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
   "runId": null,
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
@@ -34,7 +34,7 @@
       "migration-command-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 15,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": null,
       "buildContext": ".",

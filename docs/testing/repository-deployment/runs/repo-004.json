@@ -3,17 +3,17 @@
   "id": "repo-004",
   "repository": "miniflux/v2",
   "commit": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
-  "repositoryForm": null,
-  "repositoryUsed": null,
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/v2",
   "set": "improvement",
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
-  "runId": null,
+  "deployzCommit": "2509d85ff66152365431a427cc207d8badc6c581",
+  "runId": "stage-b-repo-004-20260906-125413-d80a",
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
-  "mode": "gate",
+  "mode": "deploy",
   "gate": {
     "status": "PASS",
     "verdict": "READY",
@@ -30,7 +30,7 @@
       "migration-command-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 15,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "packaging/docker/alpine/Dockerfile",
       "buildContext": ".",
@@ -58,23 +58,36 @@
     "detail": null
   },
   "configuration": {
-    "status": "NOT_ATTEMPTED",
-    "overrides": {},
-    "keys": [],
-    "generatedKeys": [],
+    "status": "PASS",
+    "overrides": {
+      "containerPort": 8080,
+      "healthPath": "/healthcheck",
+      "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+      "buildContext": "."
+    },
+    "keys": [
+      "ADMIN_PASSWORD",
+      "ADMIN_USERNAME",
+      "BASE_URL",
+      "CREATE_ADMIN",
+      "RUN_MIGRATIONS"
+    ],
+    "generatedKeys": [
+      "ADMIN_PASSWORD"
+    ],
     "detail": null
   },
   "build": {
-    "status": "NOT_ATTEMPTED",
-    "releaseId": null,
-    "version": null,
-    "gitSha": null,
-    "dockerfilePath": null,
+    "status": "FAIL",
+    "releaseId": "7fb43927-956e-429d-aef1-b84bf0e40f04",
+    "version": "repo-004-20260906-125413-d80a",
+    "gitSha": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+    "dockerfilePath": "packaging/docker/alpine/Dockerfile",
     "buildContext": null,
     "imageDigest": null,
     "buildId": null,
-    "durationMs": null,
-    "detail": null
+    "durationMs": 42113,
+    "detail": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1"
   },
   "deployment": {
     "status": "NOT_ATTEMPTED",
@@ -83,7 +96,7 @@
     "bootstrapStack": null,
     "applicationStack": null,
     "stackStatus": null,
-    "templateSource": null,
+    "templateSource": "stage-b-pinned",
     "templateUrl": null,
     "installJobState": null,
     "failureCode": null,
@@ -111,24 +124,31 @@
     "detail": null
   },
   "cleanup": {
-    "status": "NOT_ATTEMPTED",
+    "status": "PASS",
     "destroyJobState": null,
     "purgeJobState": null,
     "cleanupState": null,
     "bootstrapStackFinal": null,
     "leaks": [],
-    "durationMs": null,
+    "durationMs": 28404,
     "detail": null
   },
-  "classification": "PASS",
-  "failureStage": null,
-  "rootCause": null,
-  "rootCauseEvidence": null,
-  "findingIds": [],
+  "classification": "BUILD_ERROR",
+  "failureStage": "BUILD_ERROR",
+  "rootCause": "DEPLOYZ_BUG",
+  "rootCauseEvidence": "release build failed because the analysis write dropped the vendor's manifest overrides (buildContext '.', Dockerfile path), so CodeBuild built from the wrong context (DEPLOY-008, fixed in PR #206 and deployed 2026-09-06). Not rerun: the audit was stopped after Wave 1.",
+  "findingIds": [
+    "DEPLOY-008"
+  ],
   "timing": {
-    "startedAt": null,
-    "finishedAt": null,
-    "totalMs": null
+    "startedAt": "2026-09-06T12:54:14.154Z",
+    "finishedAt": "2026-09-06T12:55:45.356Z",
+    "totalMs": 91202
   },
-  "evidence": {}
+  "evidence": {
+    "failure": {
+      "point": "build",
+      "message": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1"
+    }
+  }
 }

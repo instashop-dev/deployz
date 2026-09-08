@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-004",
+  "repository": "miniflux/v2",
+  "commit": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/v2",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "2509d85ff66152365431a427cc207d8badc6c581",
+  "runId": "stage-b-repo-004-20260906-125413-d80a",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "containerPort": 8080,
+      "healthPath": "/healthcheck",
+      "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+      "buildContext": "."
+    },
+    "keys": [
+      "ADMIN_PASSWORD",
+      "ADMIN_USERNAME",
+      "BASE_URL",
+      "CREATE_ADMIN",
+      "RUN_MIGRATIONS"
+    ],
+    "generatedKeys": [
+      "ADMIN_PASSWORD"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "FAIL",
+    "releaseId": "7fb43927-956e-429d-aef1-b84bf0e40f04",
+    "version": "repo-004-20260906-125413-d80a",
+    "gitSha": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+    "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": 42113,
+    "detail": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1"
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "PASS",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": 28404,
+    "detail": null
+  },
+  "classification": "BUILD_ERROR",
+  "failureStage": "BUILD_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1 — decide ANALYSIS_BUG (Dockerfile/context selection) vs REPO_CONFIGURATION vs UPSTREAM_REPO_FAILURE",
+  "findingIds": [
+    "DEPLOY-008"
+  ],
+  "timing": {
+    "startedAt": "2026-09-06T12:54:14.154Z",
+    "finishedAt": "2026-09-06T12:55:45.356Z",
+    "totalMs": 91202
+  },
+  "evidence": {
+    "failure": {
+      "point": "build",
+      "message": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1"
+    }
+  }
+}

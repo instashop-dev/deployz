@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-039",
+  "repository": "usememos/memos",
+  "commit": "dfa0fda76602d49dfbb68a6683ef20b068c8d45b",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/memos",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzCommit": "3dc80cea64c2b185124e4198812414b5a532b44c",
+  "runId": "stage-b-repo-039-20260908-031904-e80c",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "containerPort": 5230,
+      "healthPath": "/healthz",
+      "dockerfilePath": "scripts/Dockerfile",
+      "buildContext": "."
+    },
+    "keys": [
+      "MEMOS_DRIVER"
+    ],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "76628f81-eb04-41e7-957f-f72ce0aec3d0",
+    "version": "repo-039-20260908-031904-e80c",
+    "gitSha": "dfa0fda76602d49dfbb68a6683ef20b068c8d45b",
+    "dockerfilePath": "scripts/Dockerfile",
+    "buildContext": ".",
+    "imageDigest": "sha256:cb382ccbcf46c45d3ea425abc099f28535b2d99fa84589babd60a9e1c633122c",
+    "buildId": null,
+    "durationMs": 126055,
+    "detail": null
+  },
+  "deployment": {
+    "status": "FAIL",
+    "deploymentId": "cd9f91a6-95e1-4267-9d6f-48239bf26ad0",
+    "installationId": "82ebdc36-ce38-462e-a019-dd1c1f6cb8b1",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-039-cd9f91a6",
+    "applicationStack": "deployz-app-82ebdc36",
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-039-20260908-031904-e80c/application-template-v1.json",
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": "GET /api/deployments/cd9f91a6-95e1-4267-9d6f-48239bf26ad0 -> 500: {\"message\":\"Internal Server Error\"}"
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "FAIL",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [
+      "aws resourcegroupstaggingapi get-resources --tag-filters failed: aws: [ERROR]: Could not connect to the endpoint URL: \"https://tagging.us-east-1.amazonaws.com/\""
+    ],
+    "durationMs": 2563515,
+    "detail": "idle wait: getaddrinfo ENOTFOUND api.deployz.dev | destroy/purge: getaddrinfo ENOTFOUND api.deployz.dev | leftovers: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: Could not connect to the endpoint URL: \"https://cloudformation.us-east-1.amazonaws.com/\" | leak audit: 1 resource(s) left"
+  },
+  "classification": "INFRA_ERROR",
+  "failureStage": "INFRA_ERROR",
+  "rootCause": "DEPLOYZ_BUG",
+  "rootCauseEvidence": "the control plane went down mid-INSTALL: the deploy of main 5e511dd (PR #228, billing Phase 7) ran migration 0036 (partial unique index, one active TEST deployment per application), which failed on three FAILED test deployments of one application from 2026-09-04; the API Lambda cached the failed init and answered 500 to every request from ~03:35Z to 03:45Z (DEPLOY-016). The relay carried the install on; the harness lost its wait, its Disconnect and its connector removal. Recovery: two dead rows retired, the Lambda recycled, the ledger closed through the product afterwards. Nothing in this run's own funnel failed.",
+  "findingIds": [
+    "DEPLOY-016"
+  ],
+  "timing": {
+    "startedAt": "2026-09-08T03:19:04.721Z",
+    "finishedAt": "2026-09-08T03:34:41.661Z",
+    "totalMs": 936940
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "GET /api/deployments/cd9f91a6-95e1-4267-9d6f-48239bf26ad0 -> 500: {\"message\":\"Internal Server Error\"}",
+      "stoppedTasks": [],
+      "logTail": [],
+      "stackFailures": [],
+      "targetHealth": []
+    }
+  }
+}

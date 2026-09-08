@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `3be8bb885612ec3d3f8587fc64394d1110b19fc5`
+Deployz commit: `32f2620a519b9bf64279192571770fc56f21e316`
 
 | Metric | Value |
 | --- | --- |
@@ -10,27 +10,37 @@ Deployz commit: `3be8bb885612ec3d3f8587fc64394d1110b19fc5`
 | Gate: correct accept / correct reject | 47 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
 | Gate: READY with the Stage B configuration | 23 |
-| Build attempted / succeeded / failed | 0 / 0 / 0 |
-| Build success among expected deployable | 0% |
-| Infrastructure attempted / succeeded / failed | 0 / 0 / 0 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 0 / 0 / 0 / 0 |
-| Dependencies: PostgreSQL / Redis / storage / migration verified | 0 / 0 / 0 / 0 |
-| **True deployment success / expected deployable** | **0 / 65 (0%)** |
-| Cleanup: destroys / failures / leaks / success rate | 0 / 0 / 0 / 0% |
+| Build attempted / succeeded / failed | 9 / 8 / 1 |
+| Build success among expected deployable | 12.3% |
+| Infrastructure attempted / succeeded / failed | 8 / 5 / 3 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
+| Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
+| **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
+| Cleanup: destroys / failures / leaks / success rate | 9 / 0 / 0 / 100% |
 
 ## By classification
 
 | Classification | Repositories |
 | --- | --- |
+| APPLICATION_ERROR | 1 |
+| BUILD_ERROR | 1 |
+| CONFIG_ERROR | 1 |
+| CONTAINER_START_ERROR | 1 |
+| DATABASE_ERROR | 1 |
+| ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| PASS | 47 |
+| PASS | 41 |
 
 ## By root cause
 
 | Root cause | Repositories |
 | --- | --- |
+| ANALYSIS_BUG | 1 |
+| ANALYSIS_MISSING_SIGNAL | 1 |
 | CORRECTLY_UNSUPPORTED | 49 |
+| DEPLOYZ_BUG | 3 |
+| TEST_HARNESS_FAILURE | 1 |
 
 ## By finding
 
@@ -39,13 +49,24 @@ Deployz commit: `3be8bb885612ec3d3f8587fc64394d1110b19fc5`
 | DEPLOY-002 | 6: repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 |
 | DEPLOY-003 | 18: repo-005, repo-022, repo-023, repo-024, repo-041, repo-043, repo-053, repo-055, repo-060, repo-082, repo-083, repo-087, repo-094, repo-204, repo-206, repo-207, repo-211, repo-220 |
 | DEPLOY-004 | 6: repo-072, repo-074, repo-084, repo-088, repo-089, repo-097 |
-| DEPLOY-005 | 4: repo-003, repo-021, repo-035, repo-039 |
+| DEPLOY-005 | 4: repo-003, repo-016, repo-021, repo-039 |
+| DEPLOY-006 | 1: repo-008 |
+| DEPLOY-007 | 2: repo-001, repo-003 |
+| DEPLOY-008 | 2: repo-004, repo-039 |
+| DEPLOY-009 | 1: repo-003 |
+| DEPLOY-010 | 1: repo-003 |
+| DEPLOY-011 | 1: repo-003 |
+| DEPLOY-012 | 1: repo-003 |
+| DEPLOY-013 | 1: repo-003 |
+| DEPLOY-014 | 1: repo-007 |
+| DEPLOY-015 | 1: repo-039 |
+| DEPLOY-016 | 1: repo-039 |
 
 ## By set
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 69 | 0 | 0 |
+| improvement | 80 | 46 | 34 | 69 | 5 | 4 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -55,20 +76,20 @@ Deployz commit: `3be8bb885612ec3d3f8587fc64394d1110b19fc5`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 54 | 0 | 0 |
+| realistic | 69 | 45 | 24 | 54 | 5 | 4 |
 
 ## Repositories
 
 | Id | Repository | Cohort | Expected | Gate | Build | Deploy | Runtime | Cleanup | Result | Findings |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| repo-001 | umami-software/umami@ca661c7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
+| repo-001 | umami-software/umami@ca661c7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR / DEPLOYZ_BUG | DEPLOY-002, DEPLOY-007 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
-| repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-005 |
-| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
+| repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | DATABASE_ERROR / DEPLOYZ_BUG | DEPLOY-005, DEPLOY-007, DEPLOY-009, DEPLOY-010, DEPLOY-011, DEPLOY-012, DEPLOY-013 |
+| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR / DEPLOYZ_BUG | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
-| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
-| repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
+| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |
+| repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-002, DEPLOY-006 |
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-011 | healthchecks/healthchecks@69dbd2a | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
@@ -76,12 +97,12 @@ Deployz commit: `3be8bb885612ec3d3f8587fc64394d1110b19fc5`
 | repo-013 | louislam/uptime-kuma@5df2a3c | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-014 | automatisch/automatisch@41f3c56 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-015 | immich-app/immich@6d85f20 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
+| repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_REQUIRED | CONFIG_ERROR / ANALYSIS_BUG | DEPLOY-005 |
 | repo-017 | lukevella/rallly@d374ed4 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-018 | docmost/docmost@5b85464 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-019 | linkwarden/linkwarden@789aa2b | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-020 | papermark/papermark@ed19717 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
-| repo-021 | directus/directus@ea25ba6 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-005 |
+| repo-021 | directus/directus@ea25ba6 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | PASS | FAIL | — | PASS | ENV_BINDING_ERROR / ANALYSIS_MISSING_SIGNAL | DEPLOY-005 |
 | repo-022 | ToolJet/ToolJet@e216f7c | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-023 | requarks/wiki@8a97969 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-024 | calcom/cal.diy@e70486c | realistic | READY | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
@@ -95,11 +116,11 @@ Deployz commit: `3be8bb885612ec3d3f8587fc64394d1110b19fc5`
 | repo-032 | mealie-recipes/mealie@8faccff | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-033 | paperless-ngx/paperless-ngx@a28a6fe | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-034 | CTFd/CTFd@91ced62 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-035 | spiral-project/ihatemoney@e66a767 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-005 |
+| repo-035 | spiral-project/ihatemoney@e66a767 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS |  |
 | repo-036 | django-helpdesk/django-helpdesk@1cc6776 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-037 | apache/superset@765a4ec | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-038 | apache/answer@3b9f137 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-005 |
+| repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-005, DEPLOY-008, DEPLOY-015, DEPLOY-016 |
 | repo-040 | authelia/authelia@fd4b742 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-041 | coder/coder@07f9018 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-042 | grafana/grafana@0ecd582 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
@@ -111,7 +132,7 @@ Deployz commit: `3be8bb885612ec3d3f8587fc64394d1110b19fc5`
 | repo-048 | tolgee/tolgee-platform@241ce68 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-049 | OrchardCMS/OrchardCore@2ae5053 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-050 | livebook-dev/livebook@f18f203 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
-| repo-051 | docusealco/docuseal@c216e43 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
+| repo-051 | docusealco/docuseal@c216e43 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | APPLICATION_ERROR / TEST_HARNESS_FAILURE | DEPLOY-002 |
 | repo-052 | laurent22/joplin@21a7dd4 | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-053 | n8n-io/n8n@0e8fbb0 | messy | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-054 | hoppscotch/hoppscotch@ac145e7 | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

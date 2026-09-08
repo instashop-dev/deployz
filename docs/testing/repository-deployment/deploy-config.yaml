@@ -22,7 +22,7 @@ waves:
 
 repositories:
   - id: repo-008
-    findings: [DEPLOY-002]
+    findings: [DEPLOY-002, DEPLOY-006]
     config:
       - { key: BASE_URL, value: "${DEPLOYZ_APP_URL}" }
     verify: { healthPath: /health, appPath: / }
@@ -31,7 +31,7 @@ repositories:
       - "BASE_URL is demanded by the gate (COMP-016 residual); the app does not need it. Provided so the funnel measures the deployment path."
 
   - id: repo-001
-    findings: [DEPLOY-002]
+    findings: [DEPLOY-002, DEPLOY-007]
     config:
       - { key: CLOUD_MODE, value: "" }
       - { key: CLICKHOUSE_URL, value: "" }
@@ -52,6 +52,7 @@ repositories:
       - "Rails; reads DATABASE_HOST/PORT/USER/PASSWORD/NAME (Deployz's own names). Migrations at boot (config/initializers/migrate.rb). Storage stays on local disk (S3 is optional via S3_ATTACHMENTS_BUCKET)."
 
   - id: repo-004
+    findings: [DEPLOY-008]
     fork: instashop-dev/v2
     overrides:
       dockerfilePath: packaging/docker/alpine/Dockerfile
@@ -70,14 +71,14 @@ repositories:
       - "Go; reads DATABASE_URL. The Dockerfile under packaging/docker/alpine copies the repository root, so the build context is the root, not the Dockerfile's directory."
 
   - id: repo-035
-    findings: [DEPLOY-005]
+    findings: []
     secrets: [SECRET_KEY]
     verify: { healthPath: /healthcheck, appPath: / }
     notes:
       - "Flask; reads SQLALCHEMY_DATABASE_URI (a full postgresql:// URI) — the injected DATABASE_URL must reach it under that name. Migrations run at boot."
 
   - id: repo-003
-    findings: [DEPLOY-005]
+    findings: [DEPLOY-005, DEPLOY-007, DEPLOY-009, DEPLOY-010, DEPLOY-011, DEPLOY-012, DEPLOY-013]
     fork: instashop-dev/kutt
     overrides:
       healthPath: /api/health
@@ -96,6 +97,7 @@ repositories:
     verify: { healthPath: /api/v1/health, appPath: / }
     notes:
       - "NestJS + Prisma; reads DATABASE_URL and REDIS_HOST/REDIS_PORT (Redis required: Bull + the health check). Migrations run by docker/entrypoint.sh at boot. Port 3333."
+    findings: [DEPLOY-014]
 
   - id: repo-021
     findings: [DEPLOY-005]
@@ -114,7 +116,7 @@ repositories:
       - "Node; PostgreSQL via DB_CLIENT=pg with DB_HOST/DB_PORT/DB_DATABASE/DB_USER/DB_PASSWORD (or DB_CONNECTION_STRING). Migrations run at boot. Port 8055."
 
   - id: repo-039
-    findings: [DEPLOY-005]
+    findings: [DEPLOY-005, DEPLOY-008, DEPLOY-015, DEPLOY-016]
     overrides:
       dockerfilePath: scripts/Dockerfile
       buildContext: .
@@ -127,6 +129,7 @@ repositories:
       - "Go; PostgreSQL is selected with MEMOS_DRIVER=postgres and read from MEMOS_DSN (a connection string). Migrations run at boot. The Dockerfile ships the backend with a stub frontend page (Stage A note); health and API still answer."
 
   - id: repo-016
+    findings: [DEPLOY-005]
     config:
       - { key: URL, value: "${DEPLOYZ_APP_URL}" }
       - { key: FORCE_HTTPS, value: "false" }

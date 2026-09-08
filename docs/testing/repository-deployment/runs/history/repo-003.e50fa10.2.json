@@ -1,0 +1,256 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-003",
+  "repository": "thedevs-network/kutt",
+  "commit": "279b491b53bbd01fbae70f603222526962772061",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/kutt",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "e50fa10a98ad4d1869a51fb8948321dacfadadb1",
+  "runId": "stage-b-repo-003-20260906-184251-c686",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "healthPath": "/api/health"
+    },
+    "keys": [
+      "ADMIN_EMAILS",
+      "DB_CLIENT",
+      "DB_SSL",
+      "JWT_SECRET"
+    ],
+    "generatedKeys": [
+      "JWT_SECRET"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "eda62e13-d70f-4328-b291-8e6f560bebf6",
+    "version": "repo-003-20260906-184251-c686",
+    "gitSha": "279b491b53bbd01fbae70f603222526962772061",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:8004b3179665b1571c37273feac9a2b08dee64afebe4c1e3963c99ff277ae5b9",
+    "buildId": null,
+    "durationMs": 63032,
+    "detail": null
+  },
+  "deployment": {
+    "status": "FAIL",
+    "deploymentId": "ed8eda54-4744-4289-94a4-4763323d92d0",
+    "installationId": "49b7198e-5732-41d1-bf30-c8235a950144",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-003-ed8eda54",
+    "applicationStack": "deployz-app-49b7198e",
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-003-20260906-184251-c686/application-template-v1.json",
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": "Timed out after 3600s waiting for install; last: CREATE_COMPLETE state=INSTALLING stage=VERIFYING health=UNHEALTHY relay=CONNECTED current=- lastJob=CONFIGURE_DOMAIN:SUCCEEDED"
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "FAIL",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/deploy-LoadB-5GVTRM0AIXJO/743812124a2ea927"
+    ],
+    "durationMs": 5532489,
+    "detail": "leak audit: 1 resource(s) left"
+  },
+  "classification": "ENV_BINDING_ERROR",
+  "failureStage": "ENV_BINDING_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "container reports a missing/invalid variable: 2026-09-06T19:45:37.402Z \u001b[33mMissing\u001b[0m environment variables: — decide DEPLOYZ_BUG (binding not injected) vs ANALYSIS_MISSING_SIGNAL (required key not detected) vs REPO_CONFIGURATION",
+  "findingIds": [
+    "DEPLOY-005",
+    "DEPLOY-009"
+  ],
+  "timing": {
+    "startedAt": "2026-09-06T18:42:52.221Z",
+    "finishedAt": "2026-09-06T19:53:32.295Z",
+    "totalMs": 4240074
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "Timed out after 3600s waiting for install; last: CREATE_COMPLETE state=INSTALLING stage=VERIFYING health=UNHEALTHY relay=CONNECTED current=- lastJob=CONFIGURE_DOMAIN:SUCCEEDED",
+      "stoppedTasks": [
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-49b7198e-ClusterEB0386A7-1M3xDshCuVzb/267ef85bf2454e8e94c2cdb3aaaaca1f",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-07T01:13:43.808000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-49b7198e-ClusterEB0386A7-1M3xDshCuVzb/2d347e0834514db58b8a6f607c07b8db",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-07T01:03:25.985000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-49b7198e-ClusterEB0386A7-1M3xDshCuVzb/3df18f62182547da8b2ae7f7831cb4c9",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-07T00:57:19.740000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-49b7198e-ClusterEB0386A7-1M3xDshCuVzb/4c4959f23a3349cf81abbe634a0b844b",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-07T01:01:13.419000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-49b7198e-ClusterEB0386A7-1M3xDshCuVzb/59ecf4da17e54fb1aa18e7f28a8a0735",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-07T00:37:42.959000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        }
+      ],
+      "logTail": [
+        "2026-09-06T19:45:34.210Z > kutt@3.2.6 migrate",
+        "2026-09-06T19:45:34.210Z > knex migrate:latest",
+        "2026-09-06T19:45:36.133Z Batch 1 run: 10 migrations",
+        "2026-09-06T19:45:36.215Z npm notice",
+        "2026-09-06T19:45:36.215Z npm notice New major version of npm available! 10.9.8 -> 12.0.2",
+        "2026-09-06T19:45:36.215Z npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2",
+        "2026-09-06T19:45:36.215Z npm notice To update run: npm install -g npm@12.0.2",
+        "2026-09-06T19:45:36.215Z npm notice",
+        "2026-09-06T19:45:37.107Z > kutt@3.2.6 start",
+        "2026-09-06T19:45:37.107Z > node server/server.js --production",
+        "2026-09-06T19:45:37.402Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T19:45:37.402Z  \u001b[33mMissing\u001b[0m environment variables:",
+        "2026-09-06T19:45:37.402Z     \u001b[34mJWT_SECRET\u001b[0m: undefined",
+        "2026-09-06T19:45:37.402Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T19:45:37.403Z \u001b[33m",
+        "2026-09-06T19:45:37.403Z  Exiting with error code 1\u001b[0m",
+        "2026-09-06T19:50:36.340Z > kutt@3.2.6 migrate",
+        "2026-09-06T19:50:36.340Z > knex migrate:latest",
+        "2026-09-06T19:50:38.246Z Batch 1 run: 10 migrations",
+        "2026-09-06T19:50:38.258Z npm notice",
+        "2026-09-06T19:50:38.258Z npm notice New major version of npm available! 10.9.8 -> 12.0.2",
+        "2026-09-06T19:50:38.258Z npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2",
+        "2026-09-06T19:50:38.258Z npm notice To update run: npm install -g npm@12.0.2",
+        "2026-09-06T19:50:38.258Z npm notice",
+        "2026-09-06T19:50:39.135Z > kutt@3.2.6 start",
+        "2026-09-06T19:50:39.135Z > node server/server.js --production",
+        "2026-09-06T19:50:39.355Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T19:50:39.355Z  \u001b[33mMissing\u001b[0m environment variables:",
+        "2026-09-06T19:50:39.355Z     \u001b[34mJWT_SECRET\u001b[0m: undefined",
+        "2026-09-06T19:50:39.355Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T19:50:39.428Z \u001b[33m",
+        "2026-09-06T19:50:39.428Z  Exiting with error code 1\u001b[0m",
+        "2026-09-06T19:51:33.423Z > kutt@3.2.6 migrate",
+        "2026-09-06T19:51:33.423Z > knex migrate:latest",
+        "2026-09-06T19:51:35.315Z Batch 1 run: 10 migrations",
+        "2026-09-06T19:51:35.326Z npm notice",
+        "2026-09-06T19:51:35.326Z npm notice New major version of npm available! 10.9.8 -> 12.0.2",
+        "2026-09-06T19:51:35.326Z npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2",
+        "2026-09-06T19:51:35.326Z npm notice To update run: npm install -g npm@12.0.2",
+        "2026-09-06T19:51:35.327Z npm notice",
+        "2026-09-06T19:51:36.139Z > kutt@3.2.6 start",
+        "2026-09-06T19:51:36.139Z > node server/server.js --production",
+        "2026-09-06T19:51:36.416Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T19:51:36.416Z  \u001b[33mMissing\u001b[0m environment variables:",
+        "2026-09-06T19:51:36.416Z     \u001b[34mJWT_SECRET\u001b[0m: undefined",
+        "2026-09-06T19:51:36.416Z \u001b[37m================================\u001b[0m",
+        "2026-09-06T19:51:36.417Z \u001b[33m",
+        "2026-09-06T19:51:36.417Z  Exiting with error code 1\u001b[0m"
+      ],
+      "stackFailures": [],
+      "targetHealth": [
+        "draining",
+        "draining"
+      ],
+      "diagnostics": {
+        "failureCode": null,
+        "recoverability": null,
+        "what": null,
+        "why": null,
+        "fix": null,
+        "events": []
+      }
+    }
+  }
+}

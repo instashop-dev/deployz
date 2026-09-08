@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-007",
+  "repository": "ghostfolio/ghostfolio",
+  "commit": "73e4f0368de398d7b67c50fb2926351414e2044e",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/ghostfolio",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "8c6c4f4dace447325ff0a6e87a329c9175a2077c",
+  "runId": "stage-b-repo-007-20260907-152924-718e",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "ACCESS_TOKEN_SALT",
+      "JWT_SECRET_KEY"
+    ],
+    "generatedKeys": [
+      "ACCESS_TOKEN_SALT",
+      "JWT_SECRET_KEY"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "a4f2c4f0-60d1-4cf7-aa78-949ca31cf8e7",
+    "version": "repo-007-20260907-152924-718e",
+    "gitSha": "73e4f0368de398d7b67c50fb2926351414e2044e",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:c9e4ae6007f4c92354cade472da0b429ecbf7a33d0f27fdf80adbb76279b009b",
+    "buildId": null,
+    "durationMs": 332379,
+    "detail": null
+  },
+  "deployment": {
+    "status": "PASS",
+    "deploymentId": "c849f0b0-4f1a-4f05-856f-86664ca66fae",
+    "installationId": "9a1e7910-e0f8-4af7-b63c-2b7104480f13",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-007-c849f0b0",
+    "applicationStack": "deployz-app-9a1e7910",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-007-20260907-152924-718e/application-template-v1.json",
+    "installJobState": "SUCCEEDED",
+    "failureCode": null,
+    "resourceCount": 50,
+    "durationMs": 1675548,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "HEALTHY",
+    "alb": "HEALTHY",
+    "https": "PASS",
+    "healthPath": "/api/v1/health",
+    "healthPathSource": "stage-b",
+    "appUrl": "https://d-c849f0b0-4f1a-4f05-856f-86664ca66fae.deployz.dev",
+    "runningImageDigest": "sha256:c9e4ae6007f4c92354cade472da0b429ecbf7a33d0f27fdf80adbb76279b009b",
+    "releaseServing": true,
+    "observation": {
+      "seconds": 180,
+      "samples": 6,
+      "healthStatuses": [
+        301,
+        301,
+        301,
+        301,
+        301,
+        301
+      ],
+      "appStatuses": [
+        301,
+        301,
+        301,
+        301,
+        301,
+        301
+      ],
+      "httpsHealthStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "FAIL",
+    "redis": "FAIL",
+    "storage": "NOT_REQUIRED",
+    "migration": "PASS",
+    "detail": "dependency binding failed: postgres, redis (bound: )"
+  },
+  "cleanup": {
+    "status": "FAIL",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [
+      "stack deployz-bootstrap-stage-b-repo-007-c849f0b0 DELETE_IN_PROGRESS",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-InstallIdFunctionE00E99D-89RqZ8NADtsi",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-InstallIdProviderframewo-BaC0kXb5bx9p",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-LogRetentionaae0aa3c5b4d-Cfi2qs9Uozw3",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-re-RelayFunctionD137DF95-9vDmACAe2xeh",
+      "ssm /deployz/9a1e7910-e0f8-4af7-b63c-2b7104480f13/pending-command",
+      "ecr repo-007-20260907-152924-718e",
+      "arn:aws:lambda:us-east-1:151955775369:function:deployz-bootstrap-stage-b-re-RelayFunctionD137DF95-9vDmACAe2xeh"
+    ],
+    "durationMs": 5754626,
+    "detail": "destroy/purge: Timed out after 4800s waiting for destroy; last: state=DELETING stage=VERIFYING health=UNKNOWN relay=CONNECTED current=repo-007-20260907-152924-718e lastJob=REMOVE_DOMAIN:SUCCEEDED | leftovers: Timed out after 900s waiting for bootstrap stack deployz-bootstrap-stage-b-repo-007-c849f0b0 deletion; last: DELETE_IN_PROGRESS | leak audit: 8 resource(s) left"
+  },
+  "classification": "APPLICATION_ERROR",
+  "failureStage": "APPLICATION_ERROR",
+  "rootCause": "TEST_HARNESS_FAILURE",
+  "rootCauseEvidence": "the product funnel passed end to end on the PR #217 relay: zero-task INSTALL, CONFIG_UPDATE, 125 Prisma migrations behind the RDS CA bundle, release pointer settled 12 min after INSTALL (DEPLOY-014 verified), ECS/ALB healthy, default HTTPS 200 x6 through the observation window. The failure is the harness's own dependency check reading the RdsCaBundle init container's empty environment (fixed in PR #221: applicationContainerDefinition). Cleanup then broke on an operator incident, not the product: at 17:01-17:04Z an AWS CLI session on the operator machine deleted every IAM role/policy named deployz-bootstrap-stage-b-*, including this installation's live relay role, so the relay lost AWS access mid-Disconnect; the application stack, retained database, secrets, bucket and network were removed by hand and the deployment force-completed (see implementation-notes §7). Attempt 3 gives the verdict.",
+  "findingIds": [],
+  "timing": {
+    "startedAt": "2026-09-07T15:29:25.052Z",
+    "finishedAt": "2026-09-07T16:17:52.567Z",
+    "totalMs": 2907515
+  },
+  "evidence": {
+    "failure": {
+      "point": "dependencies",
+      "message": "dependency binding failed: postgres, redis (bound: )",
+      "stoppedTasks": [
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a1e7910-ClusterEB0386A7-dNkhxLueWjIr/7ac593d5fc2c46a1abb4203687002527",
+          "stoppedReason": "Scaling activity initiated by (deployment ecs-svc/4911489865475016943)",
+          "stopCode": "ServiceSchedulerInitiated",
+          "stoppedAt": "2026-09-07T21:33:49.310000+05:30",
+          "containers": [
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            },
+            {
+              "name": "App",
+              "exitCode": 137,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a1e7910-ClusterEB0386A7-dNkhxLueWjIr/beac3e5ffea943889da926464d000322",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-07T21:23:14.379000+05:30",
+          "containers": [
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            },
+            {
+              "name": "App",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        }
+      ],
+      "logTail": [],
+      "stackFailures": [],
+      "targetHealth": [
+        "healthy"
+      ],
+      "diagnostics": {
+        "failureCode": null,
+        "recoverability": null,
+        "what": null,
+        "why": null,
+        "fix": null,
+        "events": []
+      }
+    }
+  }
+}

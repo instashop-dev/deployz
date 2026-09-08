@@ -9,7 +9,7 @@
   "cohort": "messy",
   "customerRealism": "medium",
   "difficulty": 4,
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
   "runId": null,
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
@@ -30,7 +30,7 @@
       "migration-command-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 15,
+    "analysisVersion": 19,
     "manifest": {
       "dockerfilePath": "docker/Dockerfile",
       "buildContext": ".",
@@ -49,7 +49,11 @@
         "DATABASE_PASSWORD",
         "DATABASE_PORT",
         "DATABASE_URL",
-        "DATABASE_USER"
+        "DATABASE_USER",
+        "DB_HOST",
+        "DB_NAME",
+        "DB_PORT",
+        "DB_USER"
       ],
       "redisBindings": [],
       "storageBindings": [],

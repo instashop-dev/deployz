@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -12,47 +12,63 @@
     "configuredReady": 23
   },
   "build": {
-    "attempted": 0,
-    "succeeded": 0,
-    "failed": 0,
-    "successRateAmongDeployable": 0
+    "attempted": 9,
+    "succeeded": 8,
+    "failed": 1,
+    "successRateAmongDeployable": 12.3
   },
   "infrastructure": {
-    "attempted": 0,
-    "succeeded": 0,
-    "failed": 0
+    "attempted": 8,
+    "succeeded": 5,
+    "failed": 3
   },
   "runtime": {
-    "ecsRunning": 0,
-    "albHealthy": 0,
-    "httpsReachable": 0,
-    "applicationResponseValid": 0
+    "ecsRunning": 5,
+    "albHealthy": 5,
+    "httpsReachable": 5,
+    "applicationResponseValid": 4
   },
   "dependencies": {
-    "postgres": 0,
-    "redis": 0,
-    "storage": 0,
-    "migration": 0
+    "postgres": 4,
+    "redis": 1,
+    "storage": 1,
+    "migration": 1
   },
-  "trueDeploymentSuccess": 0,
-  "trueDeploymentSuccessRate": 0,
+  "trueDeploymentSuccess": 4,
+  "trueDeploymentSuccessRate": 6.2,
   "cleanup": {
-    "destroys": 0,
+    "destroys": 9,
     "destroyFailures": 0,
     "leaks": 0,
-    "successRate": 0
+    "successRate": 100
   },
   "byClassification": {
+    "APPLICATION_ERROR": 1,
+    "BUILD_ERROR": 1,
+    "CONFIG_ERROR": 1,
+    "CONTAINER_START_ERROR": 1,
+    "DATABASE_ERROR": 1,
+    "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 47
+    "PASS": 41
   },
   "byFailureStage": {
+    "APPLICATION_ERROR": 1,
+    "BUILD_ERROR": 1,
+    "CONFIG_ERROR": 1,
+    "CONTAINER_START_ERROR": 1,
+    "DATABASE_ERROR": 1,
+    "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24
   },
   "byRootCause": {
-    "CORRECTLY_UNSUPPORTED": 49
+    "ANALYSIS_BUG": 1,
+    "ANALYSIS_MISSING_SIGNAL": 1,
+    "CORRECTLY_UNSUPPORTED": 49,
+    "DEPLOYZ_BUG": 3,
+    "TEST_HARNESS_FAILURE": 1
   },
   "byFinding": {
     "DEPLOY-002": [
@@ -93,8 +109,43 @@
     ],
     "DEPLOY-005": [
       "repo-003",
+      "repo-016",
       "repo-021",
-      "repo-035",
+      "repo-039"
+    ],
+    "DEPLOY-006": [
+      "repo-008"
+    ],
+    "DEPLOY-007": [
+      "repo-001",
+      "repo-003"
+    ],
+    "DEPLOY-008": [
+      "repo-004",
+      "repo-039"
+    ],
+    "DEPLOY-009": [
+      "repo-003"
+    ],
+    "DEPLOY-010": [
+      "repo-003"
+    ],
+    "DEPLOY-011": [
+      "repo-003"
+    ],
+    "DEPLOY-012": [
+      "repo-003"
+    ],
+    "DEPLOY-013": [
+      "repo-003"
+    ],
+    "DEPLOY-014": [
+      "repo-007"
+    ],
+    "DEPLOY-015": [
+      "repo-039"
+    ],
+    "DEPLOY-016": [
       "repo-039"
     ]
   },
@@ -102,8 +153,8 @@
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 0,
-      "trueDeploymentSuccess": 0,
+      "deployed": 5,
+      "trueDeploymentSuccess": 4,
       "expectedUnsupported": 34,
       "gateCorrect": 69
     },
@@ -144,8 +195,8 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 0,
-      "trueDeploymentSuccess": 0,
+      "deployed": 5,
+      "trueDeploymentSuccess": 4,
       "expectedUnsupported": 24,
       "gateCorrect": 54
     }
