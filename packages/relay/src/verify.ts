@@ -93,6 +93,8 @@ export interface VerifyOptions {
   readonly stackName?: string;
   /** Expect an ElastiCache cluster. Defaults to false. */
   readonly redisRequired?: boolean;
+  /** Expect an RDS database. Defaults to true (legacy behavior). */
+  readonly databaseRequired?: boolean;
 }
 
 export interface VerificationCheck {
@@ -222,9 +224,10 @@ async function runChecks(
 
   // 4. It contains the application, not just an empty shell.
   const resources = await options.cfn.describeStackResources(stackName);
-  const expected = options.redisRequired
-    ? [...REQUIRED_RESOURCES, CACHE_RESOURCE]
-    : [...REQUIRED_RESOURCES];
+  const expected = [
+    ...REQUIRED_RESOURCES.filter((r) => r.name !== 'database' || options.databaseRequired !== false),
+    ...(options.redisRequired ? [CACHE_RESOURCE] : []),
+  ];
 
   for (const want of expected) {
     const present = resources.some(

@@ -47,11 +47,12 @@ The flow a deployment follows, end to end:
 5. **Release Build** — a release is built by CodeBuild into an immutable
    ECR image digest; a deploy always targets `repository@sha256:…`.
 6. **Install Infrastructure** — the customer opens the install link and runs
-   the Quick Create. The bootstrap stack brings the relay up; the relay claims
-   the INSTALL job and provisions the published application template
-   (VPC, ALB, ECS/Fargate service, RDS PostgreSQL, and S3 — the template always
-   carries them — plus the ElastiCache Valkey cache when the application
-   requires Redis) in the customer account. Cross-account ECR pull
+    the Quick Create. The bootstrap stack brings the relay up; the relay claims
+    the INSTALL job, resolves the correct published application template variant
+    from the deployment manifest's infrastructure requirements, and provisions
+    it (VPC, ALB, ECS/Fargate service, and S3 — plus RDS PostgreSQL when the
+    manifest requires a database, plus the ElastiCache Valkey cache when the
+    application requires Redis) in the customer account. Cross-account ECR pull
    is granted control-plane-side. The INSTALL job carries the deployment's
    newest READY release's image reference as the template's image parameter,
    so a fresh install runs the application's own release (the template
@@ -102,11 +103,62 @@ The flow a deployment follows, end to end:
     (routing + validation) as the deployment is destroyed, and the purge
     backstop reconciles any orphaned records.
 
+## Application template selection
+
+The relay does not install a single fixed template. It resolves one of four
+published template variants from the deployment manifest's infrastructure
+requirements, through a deterministic chain:
+
+**`DeploymentManifest` → `InfrastructureProfile` → template URL**
+
+1. **DeploymentManifest** (`database.postgres`, `redis.required`) is the
+   single infrastructure source of truth. The analyzer writes it; the relay
+   reads it. Legacy top-level flags (`databaseRequired`, `redisRequired`)
+   remain the fallback for control planes that have not shipped the manifest
+   yet.
+2. **InfrastructureProfile** (`@deployz/contracts/src/index.ts`) is a shared
+   type `{ postgres: boolean, redis: boolean }` that captures only the
+   infrastructure graph-shaping requirements. Port, health path, domain, and
+   normal env vars are CloudFormation parameters passed into the template,
+   not variants.
+3. **`resolveApplicationTemplateUrl`** (pure string derivation, no network)
+   computes the exact template URL by replacing the base template's key with
+   the profile's deterministic key. All four templates are always published
+   side by side under the same S3 key prefix.
+
+**The four published template variants:**
+
+| PostgreSQL | Redis | Template key |
+|---|---|---|
+| true | false | `application-template-v1.json` |
+| true | true | `application-template-redis-v1.json` |
+| false | false | `application-template-stateless-v1.json` |
+| false | true | `application-template-stateless-redis-v1.json` |
+
+The first two rows keep the original keys so existing deployments continue
+to resolve the same objects. The stateless variants (rows 3–4) contain zero
+RDS instances, DB credential secrets, or database-env footprint.
+
+**Rules:**
+- **Manifest is authoritative.** Invalid or missing manifest requirements
+  fail before provisioning (the relay returns an error, never silently
+  defaults to PostgreSQL).
+- **Only infrastructure graph-shaping requirements are variants.** Port,
+  health path, domain, and application env vars are CloudFormation
+  parameters, not template variants.
+- **No runtime CDK synthesis.** The four templates are pre-synthesized and
+  published by the release pipeline. The relay never runs `cdk synth`.
+- **No CloudFormation Conditions for RDS.** The conditional resource set is
+  materialized at publish time, not evaluated at deploy time.
+- **Existing deployments are untouched.** Previously published stacks keep
+  their original PostgreSQL template until their normal destroy/purge
+  lifecycle.
+
 ## The MVP support boundary
 
 Deployz supports one opinionated architecture: a single Linux web/API
-container on ECS/Fargate with a published application template, RDS
-PostgreSQL, S3, and an optional ElastiCache Valkey cache. The relay installs
+container on ECS/Fargate with a published application template, S3, and
+optional RDS PostgreSQL and ElastiCache Valkey cache. The relay installs
 only from fixed, published templates. Everything that does not fit is
 rejected at analysis time with evidence, never silently adapted.
 
@@ -144,4 +196,6 @@ removed), never raw CloudFormation enums.
 - Test hierarchy and canary escalation: `docs/testing/README.md`,
   `docs/testing/ai-agent-testing-guide.md`
 - Redis support details: `docs/redis-mvp-implementation.md`
+- Application template selection and variants: this document's
+  *Application template selection* section
 - Team Admin: `docs/admin/team-admin.md`

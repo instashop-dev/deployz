@@ -167,6 +167,7 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
       containerPort: 8080,
       healthPath: '/api/health',
       migrationCommand: 'pnpm db:migrate',
+      databaseRequired: true,
       redisRequired: true,
     });
     expect(patchResponse.statusCode, patchResponse.body).toBe(200);

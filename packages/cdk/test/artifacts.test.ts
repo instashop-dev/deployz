@@ -61,4 +61,27 @@ describe('committed CFN artifacts match a fresh synth', () => {
       withStableAssetHashes(readArtifact('application-template-redis-v1.json')),
     );
   });
+
+  it('application-template-stateless-v1.json matches synthesizeApplicationStack with databaseRequired:false', async () => {
+    const { template } = await synthesizeApplicationStack({
+      outdir: mkdtempSync(join(tmpdir(), 'deployz-artifact-check-')),
+      databaseRequired: false,
+    });
+
+    expect(withStableAssetHashes(template)).toEqual(
+      withStableAssetHashes(readArtifact('application-template-stateless-v1.json')),
+    );
+  });
+
+  it('application-template-stateless-redis-v1.json matches synthesizeApplicationStack with databaseRequired:false + redisRequired', async () => {
+    const { template } = await synthesizeApplicationStack({
+      outdir: mkdtempSync(join(tmpdir(), 'deployz-artifact-check-')),
+      databaseRequired: false,
+      redisRequired: true,
+    });
+
+    expect(withStableAssetHashes(template)).toEqual(
+      withStableAssetHashes(readArtifact('application-template-stateless-redis-v1.json')),
+    );
+  });
 });

@@ -3,7 +3,7 @@ import type { DeploymentManifest } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
-import { DESIRED_COUNT_PARAMETER, buildInstallParameters, readRedisRequired } from './install-parameters.js';
+import { DESIRED_COUNT_PARAMETER, buildInstallParameters, readDatabaseRequired, readRedisRequired } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
 import { readStoredManifest } from './manifest.js';
 
@@ -108,6 +108,7 @@ export async function buildInstallPayload(
   const parameters = await buildInstallParameters(db, deployment.id, { startAfterConfig });
   return {
     parameters,
+    databaseRequired: await readDatabaseRequired(db, deployment.applicationId),
     redisRequired: await readRedisRequired(db, deployment.applicationId),
     // The canonical manifest this deployment was created with — the relay
     // derives port/health/binding parameters from it (Phase 2).

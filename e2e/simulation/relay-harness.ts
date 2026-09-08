@@ -256,6 +256,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   // Refreshed every poll from GET /api/relay/commands' `deployment` meta —
   // same role as `deploymentMeta` in packages/relay/src/index.ts.
   let redisRequired = false;
+  let databaseRequired: boolean | undefined = undefined;
   let probeUrl: string | null = null;
 
   const stackNameOrDefault = (): string => account.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
@@ -280,8 +281,9 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   const installDeps: InstallExecutorDeps = {
     installationId,
     // Never resolved for real — only its shape (ending in the published
-    // application-template key) matters, so `redisApplicationTemplateUrl`
-    // can locate the Redis variant when a scenario ever requires one.
+    // application-template key) matters, so the generic resolver
+    // (`resolveApplicationTemplateUrl`) can locate any profile variant
+    // when a scenario ever requires one.
     templateUrl: `https://simulated-templates.deployz.test/application/v1/${APPLICATION_TEMPLATE_KEY}`,
     // The collector's `operationStartedAt` boundary and the pending marker's
     // `startedAt` — both read off the account's own virtual clock so every
@@ -558,6 +560,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
           installationId,
           stackName: stackNameOrDefault(),
           ...(redisRequired ? { redisRequired: true } : {}),
+          ...(databaseRequired !== undefined ? { databaseRequired } : {}),
         }),
       () => buildProvisioningSnapshot(account.cloudFormationReader(), stackNameOrDefault()),
       () =>
@@ -598,6 +601,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
           },
     onDeploymentMeta: (meta) => {
       redisRequired = meta.redisRequired;
+      databaseRequired = meta.databaseRequired;
       probeUrl = meta.probeUrl;
     },
     // Chained the same way `relayHandler`'s default `resume` composes its

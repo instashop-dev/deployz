@@ -31,14 +31,17 @@ import {
   errorEnvelopeSchema,
   eventLogSchema,
   failureCodeSchema,
+  APPLICATION_TEMPLATE_KEY,
+  APPLICATION_TEMPLATE_REDIS_KEY,
+  applicationTemplateKeyForProfile,
   healthComponentsSchema,
   isSupportedRegion,
   organizationSchema,
-  redisApplicationTemplateUrl,
   regionSchema,
   relayCommandProgressSchema,
   relayStackEventSchema,
   releaseSchema,
+  resolveApplicationTemplateUrl,
   resolveBootstrapTemplate,
   userSchema,
   vendorDeploymentStatusSchema,
@@ -497,27 +500,72 @@ describe('applicationStackNameForInstallation', () => {
   });
 });
 
-describe('redisApplicationTemplateUrl', () => {
-  it('derives the sibling Redis-enabled template URL', () => {
-    expect(
-      redisApplicationTemplateUrl(
-        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
-      ),
-    ).toBe('https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json');
-  });
-
-  it('preserves the prefix path exactly', () => {
-    expect(redisApplicationTemplateUrl('s3://a/b/c/application-template-v1.json')).toBe(
-      's3://a/b/c/application-template-redis-v1.json',
+describe('applicationTemplateKeyForProfile', () => {
+  it('maps all four InfrastructureProfile combinations to deterministic keys', () => {
+    expect(applicationTemplateKeyForProfile({ postgres: true, redis: false })).toBe(
+      'application-template-v1.json',
+    );
+    expect(applicationTemplateKeyForProfile({ postgres: true, redis: true })).toBe(
+      'application-template-redis-v1.json',
+    );
+    expect(applicationTemplateKeyForProfile({ postgres: false, redis: false })).toBe(
+      'application-template-stateless-v1.json',
+    );
+    expect(applicationTemplateKeyForProfile({ postgres: false, redis: true })).toBe(
+      'application-template-stateless-redis-v1.json',
     );
   });
 
+  it('keeps the PostgreSQL variants on the original keys existing deployments resolve', () => {
+    expect(applicationTemplateKeyForProfile({ postgres: true, redis: false })).toBe(
+      APPLICATION_TEMPLATE_KEY,
+    );
+    expect(applicationTemplateKeyForProfile({ postgres: true, redis: true })).toBe(
+      APPLICATION_TEMPLATE_REDIS_KEY,
+    );
+  });
+});
+
+describe('resolveApplicationTemplateUrl', () => {
+  const base =
+    'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json';
+
+  it.each([
+    [{ postgres: true, redis: false }, base],
+    [
+      { postgres: true, redis: true },
+      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+    ],
+    [
+      { postgres: false, redis: false },
+      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-v1.json',
+    ],
+    [
+      { postgres: false, redis: true },
+      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-redis-v1.json',
+    ],
+  ] as const)('resolves %# to exactly one template URL', (profile, expected) => {
+    expect(resolveApplicationTemplateUrl(base, profile)).toBe(expected);
+  });
+
+  it('preserves the prefix path exactly', () => {
+    expect(resolveApplicationTemplateUrl('s3://a/b/c/application-template-v1.json', {
+      postgres: false,
+      redis: true,
+    })).toBe('s3://a/b/c/application-template-stateless-redis-v1.json');
+  });
+
   it('returns undefined for a URL not ending in the base template key', () => {
-    expect(redisApplicationTemplateUrl('https://bucket.s3.amazonaws.com/other-template.json')).toBeUndefined();
+    expect(
+      resolveApplicationTemplateUrl('https://bucket.s3.amazonaws.com/other-template.json', {
+        postgres: true,
+        redis: false,
+      }),
+    ).toBeUndefined();
   });
 
   it('returns undefined for an empty string', () => {
-    expect(redisApplicationTemplateUrl('')).toBeUndefined();
+    expect(resolveApplicationTemplateUrl('', { postgres: false, redis: false })).toBeUndefined();
   });
 });
 

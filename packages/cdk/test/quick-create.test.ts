@@ -22,6 +22,8 @@ import { phaseOf, QuickCreateOrchestrator } from '../src/quick-create/orchestrat
 import {
   APPLICATION_TEMPLATE_KEY,
   APPLICATION_TEMPLATE_REDIS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
   ApplicationPublisher,
   BootstrapPublisher,
   parsePublishRegions,
@@ -35,6 +37,8 @@ import {
 import {
   APPLICATION_TEMPLATE_KEY as CONTRACTS_APPLICATION_TEMPLATE_KEY,
   APPLICATION_TEMPLATE_REDIS_KEY as CONTRACTS_APPLICATION_TEMPLATE_REDIS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_KEY as CONTRACTS_STATELESS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY as CONTRACTS_STATELESS_REDIS_KEY,
 } from '@deployz/contracts';
 
 describe('quick-create', () => {
@@ -993,9 +997,53 @@ describe('quick-create', () => {
       expect(uploads.find((u) => u.key === 'application/v1/application-template-v1.json')).toBeUndefined();
     });
 
-    it('re-exports the template keys the relay derives the Redis URL from, unchanged', () => {
+    it('publishes the stateless template under its own key', async () => {
+      const { client, uploads } = mockS3();
+      const publisher = new ApplicationPublisher(client, {
+        region,
+        bucket,
+        keyPrefix: 'application/v1',
+      });
+
+      const result = await publisher.publish(
+        { template: syntheticTemplate, assets: [] },
+        undefined,
+        APPLICATION_TEMPLATE_STATELESS_KEY,
+      );
+
+      expect(result.templateKey).toBe('application/v1/application-template-stateless-v1.json');
+      expect(result.templateUrl).toBe(
+        'https://deployz-public-assets.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-v1.json',
+      );
+      expect(uploads.find((u) => u.key === 'application/v1/application-template-v1.json')).toBeUndefined();
+    });
+
+    it('publishes the stateless+redis template under its own key', async () => {
+      const { client, uploads } = mockS3();
+      const publisher = new ApplicationPublisher(client, {
+        region,
+        bucket,
+        keyPrefix: 'application/v1',
+      });
+
+      const result = await publisher.publish(
+        { template: syntheticTemplate, assets: [] },
+        undefined,
+        APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
+      );
+
+      expect(result.templateKey).toBe('application/v1/application-template-stateless-redis-v1.json');
+      expect(result.templateUrl).toBe(
+        'https://deployz-public-assets.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-redis-v1.json',
+      );
+      expect(uploads.find((u) => u.key === 'application/v1/application-template-v1.json')).toBeUndefined();
+    });
+
+    it('re-exports the template keys the relay derives the URL from, unchanged', () => {
       expect(APPLICATION_TEMPLATE_KEY).toBe(CONTRACTS_APPLICATION_TEMPLATE_KEY);
       expect(APPLICATION_TEMPLATE_REDIS_KEY).toBe(CONTRACTS_APPLICATION_TEMPLATE_REDIS_KEY);
+      expect(APPLICATION_TEMPLATE_STATELESS_KEY).toBe(CONTRACTS_STATELESS_KEY);
+      expect(APPLICATION_TEMPLATE_STATELESS_REDIS_KEY).toBe(CONTRACTS_STATELESS_REDIS_KEY);
     });
   });
 
@@ -1105,6 +1153,67 @@ describe('quick-create', () => {
 
         expect(Object.keys(parameters)).toContain('paramPublicUrl');
         expect(JSON.stringify(synth.template)).toContain('/api/health');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('databaseRequired:false — zero RDS resources, no DB env vars, no DB outputs', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-stateless-'));
+      try {
+        const synth = await synthesizeApplicationStack({ outdir, databaseRequired: false });
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+        const json = JSON.stringify(synth.template);
+        const outputs = synth.template.Outputs ?? {};
+
+        expect(types).not.toContain('AWS::RDS::DBInstance');
+        expect(types).not.toContain('AWS::RDS::DBSubnetGroup');
+        expect(json).not.toContain('DATABASE_HOST');
+        expect(json).not.toContain('DATABASE_PASSWORD');
+        expect(Object.keys(outputs)).not.toContain('DbHost');
+        expect(Object.keys(outputs)).not.toContain('DbSecretArn');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('databaseRequired:false + redisRequired:true — zero RDS, has ElastiCache', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-stateless-redis-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          databaseRequired: false,
+          redisRequired: true,
+        });
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+        const json = JSON.stringify(synth.template);
+
+        expect(types).not.toContain('AWS::RDS::DBInstance');
+        expect(types).not.toContain('AWS::RDS::DBSubnetGroup');
+        expect(json).not.toContain('DATABASE_HOST');
+        expect(json).not.toContain('DATABASE_PASSWORD');
+        expect(types).toContain('AWS::ElastiCache::ReplicationGroup');
+        expect(types).toContain('AWS::ElastiCache::SubnetGroup');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('databaseRequired:true + redisRequired:true — both RDS and ElastiCache present', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-pg-redis-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          databaseRequired: true,
+          redisRequired: true,
+        });
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+
+        expect(types).toContain('AWS::RDS::DBInstance');
+        expect(types).toContain('AWS::ElastiCache::ReplicationGroup');
       } finally {
         rmSync(outdir, { recursive: true, force: true });
       }

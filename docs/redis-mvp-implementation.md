@@ -60,7 +60,7 @@ By package, relative to base commit `19b5b98`:
 | `packages/analysis` | `src/redis.ts` (new, ~640 lines), `src/analyser.ts`, `src/rejection.ts`, `src/remediation.ts`, `src/rules.ts`, `src/failure-codes.ts`, `src/index.ts` | `assessRedis()` detection + compatibility; wired into the analyser's rejection/remediation tables; two new failure codes |
 | `apps/api` | `src/analysis.ts`, `src/github.ts`, `src/server.ts` | Persists `redisRequired`; readiness/install/detail endpoints report cache status and `resourcesCreated`; file-fetching for Redis-relevant paths |
 | `apps/web` | `src/lib/deployment-vocabulary.ts`, `src/lib/diagnostic-vocabulary.ts`, `src/lib/security-details.ts`, `src/lib/applications.ts`, `src/lib/deployments.ts`, `src/components/application-ready-card.tsx`, `src/app/install/[installLinkId]/security/page.tsx`, `src/app/dashboard/deployments/[id]/page.tsx` | Redis-aware copy, readiness card, install-security disclosure |
-| `packages/cdk` | `src/application/application-stack.ts`, `src/bootstrap/bootstrap-stack.ts` | ElastiCache Valkey provisioning (published template variants); IAM cache actions; template artifacts `application-template-v1.json` + `application-template-redis-v1.json` |
+| `packages/cdk` | `src/application/application-stack.ts`, `src/bootstrap/bootstrap-stack.ts` | ElastiCache Valkey provisioning (published template variants); IAM cache actions; template artifacts `application-template-v1.json`, `application-template-redis-v1.json`, `application-template-stateless-v1.json`, `application-template-stateless-redis-v1.json` |
 | `packages/copy-map` | `src/index.ts` | `redis` event family, cache-setup vocabulary, diagnostic copy |
 | `packages/contracts` | `src/index.ts`, `vitest.config.ts` (new — pre-existing gap filled) | Shared `FailureCode` additions |
 | `packages/db` | `src/enums.ts`, `src/schema/core.ts`, `drizzle/0011_*` | `redisRequired` column + migration |
@@ -326,13 +326,15 @@ pre-existing condition, not something Task 11 introduced). The extension:
   not "first cluster returned," so it's safe alongside other clusters in the
   account), deletes the stack, and asserts both the stack and the cache are
   gone.
-- **Cost/time note for whoever runs this**: the ApplicationStack
-  unconditionally provisions a full VPC + NAT gateway + RDS PostgreSQL + ALB
-  + ECS Fargate + S3 alongside the cache (there's no lighter-weight way to
-  synth just the cache resources today) — expect ~15-25 minutes to reach
-  `CREATE_COMPLETE`, AWS charges for that window, and the RDS instance
-  inside this stack is `RemovalPolicy.RETAIN` (pre-existing, unrelated to
-  Redis) so it will need manual deletion after the test's stack-delete step.
+- **Cost/time note for whoever runs this**: the test uses the
+  PostgreSQL+Redis template variant, so the ApplicationStack provisions a
+  full VPC + NAT gateway + RDS PostgreSQL + ALB + ECS Fargate + S3 alongside
+  the cache (there is no lighter-weight way to synth just the cache resources
+  today) — expect ~15-25 minutes to reach `CREATE_COMPLETE`, AWS charges for
+  that window, and the RDS instance inside this stack is
+  `RemovalPolicy.RETAIN` (pre-existing, unrelated to Redis) so it will need
+  manual deletion after the test's stack-delete step. Stateless template
+  variants exist for applications that do not require PostgreSQL.
 - **Image requirement**: `ApplicationStack`'s own placeholder default image
   (`public.ecr.aws/deployz/fixture@sha256:000...000`) is not a real,
   pullable digest. Left unoverridden, ECS fails to start the service, the
@@ -413,8 +415,10 @@ findings raised and fixed across Tasks 1-10:
   (`packages/relay/src/install.ts`, `deploy.ts`, `verify.ts`) and the
   `redis-success` simulated E2E scenario proves a Redis-required install to
   HEALTHY with the cache in the inventory. `scripts/synth-app.mjs` now
-  synthesizes both template variants (`application-template-v1.json` and
-  `application-template-redis-v1.json`). The live-AWS golden-path suite
+  synthesizes all four template variants (`application-template-v1.json`,
+  `application-template-redis-v1.json`,
+  `application-template-stateless-v1.json`, and
+  `application-template-stateless-redis-v1.json`). The live-AWS golden-path suite
   (`packages/cdk/test/golden-path-live-aws.test.ts`) remains the real-account
   proof; transient live-AWS verification is the canary runbook's domain
   (`docs/testing/`).

@@ -131,8 +131,9 @@ import {
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
   applicationStackNameForInstallation,
   deploymentManifestSchema,
-  redisApplicationTemplateUrl,
+  resolveApplicationTemplateUrl,
   type DeploymentManifest,
+  type InfrastructureProfile,
 } from '@deployz/contracts';
 
 /**
@@ -697,32 +698,44 @@ async function settleInstall(
   const verifyOptions = readVerifyOptionsFromPayload(request.payload);
   const manifest = readDeploymentManifest(request.payload);
 
-  let templateUrl = deps.templateUrl;
-  // The canonical manifest's redis requirement is the source of truth when
-  // the payload carries it; the legacy top-level flag remains the fallback
-  // for control planes that have not shipped the manifest yet.
-  const redisRequired = verifyOptions.redisRequired ?? manifest?.redis.required ?? false;
-  if (redisRequired) {
-    const redisTemplateUrl = redisApplicationTemplateUrl(deps.templateUrl);
-    if (redisTemplateUrl === undefined) {
-      // Provisioning the base template here would build a stack with no
-      // cache and only discover the mistake ~20 minutes later, when
-      // verification demands an ElastiCache cluster that was never asked
-      // for. Failing fast, before CloudFormation is even called, is cheaper
-      // and honest about what went wrong: the relay's configured template
-      // URL, not the customer's account.
-      return {
-        deferred: false,
-        success: false,
-        error:
-          `Redis is required for this installation, but the configured application ` +
-          `template URL ("${deps.templateUrl}") is not recognized, so the Redis-enabled ` +
-          'variant cannot be located',
-        output: {},
-      };
-    }
-    templateUrl = redisTemplateUrl;
+  // Manifest present but invalid — fail fast before provisioning.
+  if (request.payload['manifest'] !== undefined && manifest === null) {
+    return {
+      deferred: false,
+      success: false,
+      error: 'Invalid deployment manifest — infrastructure requirements cannot be parsed',
+      output: {},
+    };
   }
+
+  // The canonical manifest's infrastructure requirements are authoritative
+  // when present; legacy top-level flags remain the fallback for control
+  // planes that have not shipped the manifest yet.
+  const profile: InfrastructureProfile = manifest
+    ? { postgres: manifest.database.postgres, redis: manifest.redis.required }
+    : {
+        postgres: verifyOptions.databaseRequired ?? true,
+        redis: verifyOptions.redisRequired ?? false,
+      };
+
+  const resolved = resolveApplicationTemplateUrl(deps.templateUrl, profile);
+  if (resolved === undefined) {
+    // Provisioning the wrong template would build a stack that disagrees
+    // with the infrastructure requirements and only discover the mismatch
+    // ~20 minutes later, when verification demands a resource that was
+    // never asked for. Failing fast, before CloudFormation is even called,
+    // is cheaper and honest about what went wrong.
+    return {
+      deferred: false,
+      success: false,
+      error:
+        `No application template variant exists for the resolved infrastructure profile ` +
+        `(postgres: ${profile.postgres}, redis: ${profile.redis}) — the configured ` +
+        `base template URL ("${deps.templateUrl}") is not recognized`,
+      output: {},
+    };
+  }
+  const templateUrl = resolved;
 
   // Manifest-derived template parameters win over whatever the control
   // plane resolved ad-hoc (health path / port columns); the control plane's
@@ -1228,12 +1241,14 @@ export function readDeploymentManifest(payload: Record<string, unknown>): Deploy
  */
 export function readVerifyOptionsFromPayload(
   payload: Record<string, unknown>,
-): Pick<VerifyOptions, 'redisRequired' | 'stackName'> {
+): Pick<VerifyOptions, 'redisRequired' | 'databaseRequired' | 'stackName'> {
   const redisRequired = payload['redisRequired'];
+  const databaseRequired = payload['databaseRequired'];
   const stackName = payload['stackName'];
 
   return {
     ...(typeof redisRequired === 'boolean' ? { redisRequired } : {}),
+    ...(typeof databaseRequired === 'boolean' ? { databaseRequired } : {}),
     ...(typeof stackName === 'string' && stackName.length > 0 ? { stackName } : {}),
   };
 }
@@ -1265,6 +1280,7 @@ export function compactPendingInstallPayload(
       ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
     },
     redisRequired: verifyOptions.redisRequired ?? manifest?.redis.required ?? false,
+    databaseRequired: verifyOptions.databaseRequired ?? manifest?.database.postgres ?? true,
     // Stage B phase 2: the compact alias list survives the SSM size cap so a
     // resumed install can still register the manifest's binding aliases after
     // the stack settles (the full manifest cannot ride the pending marker).
@@ -1615,8 +1631,9 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   // cache and which application URL to probe — without this, a redis-required
   // deployment's heartbeats verify against the cache-less expectation and
   // never report the cache check, and no probe would ever run.
-  const deploymentMeta: { redisRequired: boolean; probeUrl: string | null } = {
+  const deploymentMeta: { redisRequired: boolean; databaseRequired?: boolean; probeUrl: string | null } = {
     redisRequired: false,
+    databaseRequired: true,
     probeUrl: null,
   };
 
@@ -1703,6 +1720,9 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               installationId,
               stackName: relayApplicationStackName(),
               ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
+              ...(deploymentMeta.databaseRequired !== undefined
+                ? { databaseRequired: deploymentMeta.databaseRequired }
+                : {}),
             }),
           () => buildProvisioningSnapshot(getCloudFormationReader(), relayApplicationStackName()),
           () =>
@@ -1776,6 +1796,9 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             : probeHealthUrl(deps.fetchFn, deploymentMeta.probeUrl)),
       onDeploymentMeta: (meta) => {
         deploymentMeta.redisRequired = meta.redisRequired;
+        if (meta.databaseRequired !== undefined) {
+          deploymentMeta.databaseRequired = meta.databaseRequired;
+        }
         deploymentMeta.probeUrl = meta.probeUrl;
       },
     };

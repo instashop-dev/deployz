@@ -1103,33 +1103,77 @@ export function applicationStackNameForInstallation(installationId: string): str
  * `DEPLOYZ_APPLICATION_TEMPLATE_URL`.
  *
  * Shared between the publisher (which writes the object under this name) and
- * the relay (which recognizes it to derive the Redis variant's URL), so the
- * two cannot drift apart.
+ * the relay (which recognizes it to derive any profile variant's URL), so the
+ * two cannot drift apart. It is also the PostgreSQL template's own key: the
+ * base variant every other profile derives from.
  */
 export const APPLICATION_TEMPLATE_KEY = 'application-template-v1.json';
 
 /**
- * Final path segment of the Redis-enabled application template variant —
+ * Final path segment of the PostgreSQL + Redis application template variant —
  * synthesized from the same stack code with `redisRequired: true`, published
  * alongside the base template under the same key prefix.
  */
 export const APPLICATION_TEMPLATE_REDIS_KEY = 'application-template-redis-v1.json';
 
 /**
- * Derives the Redis-enabled template variant's URL from the base application
- * template URL the relay is configured with.
+ * Final path segment of the stateless application template variant — no
+ * PostgreSQL, no Redis. Synthesized with `databaseRequired: false` and
+ * `redisRequired: false`; contains zero database footprint.
+ */
+export const APPLICATION_TEMPLATE_STATELESS_KEY = 'application-template-stateless-v1.json';
+
+/**
+ * Final path segment of the stateless + Redis application template variant —
+ * synthesized with `databaseRequired: false` and `redisRequired: true`.
+ */
+export const APPLICATION_TEMPLATE_STATELESS_REDIS_KEY =
+  'application-template-stateless-redis-v1.json';
+
+/**
+ * The infrastructure graph-shaping requirements an application template
+ * variant must satisfy. Only requirements that change the template's
+ * resource graph belong here — port, health path, domain, and normal env
+ * vars are CloudFormation parameters, not variants.
+ */
+export interface InfrastructureProfile {
+  readonly postgres: boolean;
+  readonly redis: boolean;
+}
+
+/**
+ * The deterministic template variant for a profile. Exactly four exist;
+ * `postgresql: true` templates keep the original keys so existing
+ * deployments keep resolving the same objects.
+ */
+export function applicationTemplateKeyForProfile(profile: InfrastructureProfile): string {
+  if (profile.postgres) {
+    return profile.redis ? APPLICATION_TEMPLATE_REDIS_KEY : APPLICATION_TEMPLATE_KEY;
+  }
+  return profile.redis
+    ? APPLICATION_TEMPLATE_STATELESS_REDIS_KEY
+    : APPLICATION_TEMPLATE_STATELESS_KEY;
+}
+
+/**
+ * Resolves the one application-template URL an INSTALL must use, from the
+ * base application template URL the relay is configured with and the
+ * canonical manifest's infrastructure profile.
  *
  * Returns `undefined` when the base URL does not end in
- * `APPLICATION_TEMPLATE_KEY` — the caller must treat that as "no Redis
- * variant is known to exist", not guess a URL CloudFormation cannot fetch.
- * Pure string derivation (no network): the two templates are always
- * published side by side under the same key prefix.
+ * `APPLICATION_TEMPLATE_KEY` — the caller must treat that as "no variant is
+ * known to exist" and fail before provisioning, not guess a URL
+ * CloudFormation cannot fetch. Pure string derivation (no network): all four
+ * templates are always published side by side under the same key prefix.
  */
-export function redisApplicationTemplateUrl(baseTemplateUrl: string): string | undefined {
+export function resolveApplicationTemplateUrl(
+  baseTemplateUrl: string,
+  profile: InfrastructureProfile,
+): string | undefined {
   if (!baseTemplateUrl.endsWith(APPLICATION_TEMPLATE_KEY)) return undefined;
   return (
     baseTemplateUrl.slice(0, baseTemplateUrl.length - APPLICATION_TEMPLATE_KEY.length) +
-    APPLICATION_TEMPLATE_REDIS_KEY
+    applicationTemplateKeyForProfile(profile)
   );
 }
 

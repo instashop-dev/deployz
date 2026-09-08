@@ -230,7 +230,7 @@ describe('pollOnce — command fetching', () => {
         deployment: { redisRequired: true, probeUrl: 'http://alb.example/health' },
       },
     });
-    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
+    const meta: { redisRequired: boolean; databaseRequired?: boolean; probeUrl: string | null }[] = [];
     const deps = makeDeps({
       fetchFn,
       onDeploymentMeta: (m) => meta.push(m),
@@ -243,6 +243,26 @@ describe('pollOnce — command fetching', () => {
     expect(meta).toEqual([{ redisRequired: true, probeUrl: 'http://alb.example/health' }]);
   });
 
+  it('hands databaseRequired from the deployment meta to the observe hook', async () => {
+    const { fetchFn } = makeMockFetch({
+      commandsBody: {
+        commands: [],
+        deployment: { redisRequired: true, databaseRequired: false, probeUrl: null },
+      },
+    });
+    const meta: { redisRequired: boolean; databaseRequired?: boolean; probeUrl: string | null }[] = [];
+    const deps = makeDeps({
+      fetchFn,
+      onDeploymentMeta: (m) => meta.push(m),
+    });
+    const authState = createAuthState('inst-test', 'tok-123');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    expect(meta).toEqual([{ redisRequired: true, databaseRequired: false, probeUrl: null }]);
+  });
+
   it('treats a malformed probeUrl in the deployment meta as none', async () => {
     const { fetchFn } = makeMockFetch({
       commandsBody: {
@@ -250,7 +270,7 @@ describe('pollOnce — command fetching', () => {
         deployment: { redisRequired: false, probeUrl: 'not-a-url' },
       },
     });
-    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
+    const meta: { redisRequired: boolean; databaseRequired?: boolean; probeUrl: string | null }[] = [];
     const deps = makeDeps({
       fetchFn,
       onDeploymentMeta: (m) => meta.push(m),
@@ -267,7 +287,7 @@ describe('pollOnce — command fetching', () => {
     const { fetchFn } = makeMockFetch({
       commandsBody: { commands: [], deployment: { redisRequired: 'yes' } },
     });
-    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
+    const meta: { redisRequired: boolean; databaseRequired?: boolean; probeUrl: string | null }[] = [];
     const deps = makeDeps({
       fetchFn,
       onDeploymentMeta: (m) => meta.push(m),
