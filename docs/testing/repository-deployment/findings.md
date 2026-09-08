@@ -17,7 +17,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-002 | CONFIG_ERROR | ANALYSIS_BUG | OPEN | repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 (gate audit, analysis version 15) |
 | DEPLOY-003 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 18 expected-deployable repositories the gate rejects (gate audit, analysis version 15) |
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
-| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIXED for `process.env` reads (PR #212, analysis v16; kutt rerun 6 reached RDS through `DB_HOST`); SECOND SHAPE measured on directus (attempt 1, 2026-09-07): reads through a local env object (`const env = useEnv(); env['DB_HOST']`) were invisible to the env detectors, so no alias was bound — FIXED in analysis v17 (PR #224 merged and deployed 2026-09-07; directus rerun pending); THIRD SHAPE measured on memos (attempt 1, 2026-09-08): Go `viper.SetEnvPrefix("memos")` + `viper.GetString("dsn")` means `MEMOS_DSN`, a name that appears nowhere as a literal, so no `url` alias was bound and the configured task dialled `127.0.0.1:5432` — fix in review (analysis v18: viper prefix + key ⇒ env name) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
+| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIXED for `process.env` reads (PR #212, analysis v16; kutt rerun 6 reached RDS through `DB_HOST`); SECOND SHAPE measured on directus (attempt 1, 2026-09-07): reads through a local env object (`const env = useEnv(); env['DB_HOST']`) were invisible to the env detectors, so no alias was bound — FIXED in analysis v17 (PR #224 merged and deployed 2026-09-07; directus rerun pending); THIRD SHAPE measured on memos (attempt 1, 2026-09-08): Go `viper.SetEnvPrefix("memos")` + `viper.GetString("dsn")` means `MEMOS_DSN`, a name that appears nowhere as a literal, so no `url` alias was bound and the configured task dialled `127.0.0.1:5432` — fix in review (PR #226, analysis v18: viper prefix + key ⇒ env name) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 | DEPLOY-007 | DATABASE_ERROR | DEPLOYZ_BUG | FIXED (PR #213 merged, application templates republished 2026-09-07 ~11:35Z: option A — an init container delivers the regional RDS CA bundle into the task, `NODE_EXTRA_CA_CERTS` + `PGSSLROOTCERT`); kutt and umami reruns pending | repo-003 (kutt, `ssl: true`); repo-001 (umami, `sslmode=require` via adapter-pg) likely; every node-postgres client that verifies |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
@@ -27,7 +27,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-012 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #210 merged, bootstrap republished 2026-09-07; kutt rerun 4's config pass SUCCEEDED) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 3, the first config pass that found its secret (DEPLOY-010) |
 | DEPLOY-013 | ENV_BINDING_ERROR | DEPLOYZ_BUG + ANALYSIS_BUG | FIXED in two parts: PR #211 merged and deployed (mint app-internal secrets; kutt rerun 5 minted `JWT_SECRET`); PR #212 in review (the analyser called `DB_PASSWORD`, `REDIS_PASSWORD`, `MAIL_PASSWORD` internal secrets, so rerun 5 minted those too) | every vendor-scope secret typed before an install — found on kutt reruns 4 and 5 |
 | DEPLOY-014 | TIMEOUT | DEPLOYZ_BUG | FIXED (PR #217 merged, bootstrap template republished 2026-09-07 ~14:30Z: the relay reads digest and exit code from the task's essential container; regression the #213 init container exposed; verified on ghostfolio attempt 2: the release pointer settled in 12 minutes) | repo-007 (ghostfolio, measured: healthy and serving, DEPLOY_RELEASE never settled); every database-backed application deployed on the #213 template until the relay republish |
-| DEPLOY-015 | APPLICATION_ERROR (a false success) | DEPLOYZ_BUG | FIX IN REVIEW (relay: a deploy settles only when the service's PRIMARY deployment runs the revision the deploy targeted; crash loops are counted on that revision) | repo-039 (memos, measured: the circuit breaker rolled the first start back to the unconfigured template revision, which runs the same pinned image, and the relay reported SUCCEEDED while the app served from SQLite); every configured first start whose configured revision fails to become healthy |
+| DEPLOY-015 | APPLICATION_ERROR (a false success) | DEPLOYZ_BUG | FIX IN REVIEW (PR #225, relay: a deploy settles only when the service's PRIMARY deployment runs the revision the deploy targeted; crash loops are counted on that revision) | repo-039 (memos, measured: the circuit breaker rolled the first start back to the unconfigured template revision, which runs the same pinned image, and the relay reported SUCCEEDED while the app served from SQLite); every configured first start whose configured revision fails to become healthy |
 
 ---
 
@@ -271,7 +271,7 @@ module that calls `viper.SetEnvPrefix("<p>")` with `AutomaticEnv()`
 contributes `<P>_<KEY>` for every `viper.Get*("<key>")`,
 `viper.SetDefault("<key>", …)` and `Flags().<Type>("<key>", …)` it names
 (`-` → `_` when a key replacer is set), so `MEMOS_DSN` reaches the model
-and the existing `*_DSN` url alias binds it.
+and the existing `*_DSN` url alias binds it (PR #226).
 
 ## DEPLOY-006 — The generic template's container health check needs a shell and curl inside the image
 
@@ -810,7 +810,7 @@ database.
 
 **Stage** APPLICATION_ERROR — a false success: the product shows HEALTHY and
 `DEPLOY_RELEASE: SUCCEEDED` while the application runs unconfigured ·
-**Root cause** DEPLOYZ_BUG · **Resolution** FIX IN REVIEW · **Found**
+**Root cause** DEPLOYZ_BUG · **Resolution** FIX IN REVIEW (PR #225) · **Found**
 Phase 3, Wave 1, memos attempt 1 (2026-09-08).
 
 **Behaviour.** A configured first start (DEPLOY-009) scales the service
