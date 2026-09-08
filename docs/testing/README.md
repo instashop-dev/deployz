@@ -19,6 +19,19 @@ a way the simulator cannot exercise — see
 [`ai-agent-testing-guide.md`](ai-agent-testing-guide.md) for the exact
 escalation ladder.
 
+## Hierarchy ladder
+
+Use tests in this order of increasing cost and decreasing frequency:
+
+targeted unit/integration → targeted simulated E2E → full simulated
+regression suite → persistent read-only AWS canary → reusable AWS
+deployment/version canary → fresh AWS create/destroy → full-product AWS
+release validation.
+
+> Use the cheapest layer capable of establishing confidence. Real AWS is an
+> escalation and release-confidence mechanism, not the normal debugging
+> loop.
+
 ## Test hierarchy
 
 | Layer | Proves | AWS required | Command |

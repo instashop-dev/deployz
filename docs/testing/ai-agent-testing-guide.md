@@ -1,14 +1,31 @@
 # Deployz AI Agent Testing Policy
 
-Use the cheapest test capable of establishing confidence.
+## Mandatory escalation order
 
-Default:
+Follow these steps in order. Do not skip a layer unless you are confident
+the current layer cannot establish confidence.
 
-1. Run targeted unit/integration tests.
-2. Run simulated E2E for affected product flows.
-3. Run relevant simulated failure scenarios.
+1. **Targeted unit/integration tests** — Run only the relevant tests for the
+   package you changed, e.g.
+   `pnpm --filter @deployz/<package> exec vitest run <test-file>`.
+   Do not run the full test suite during each fix iteration.
 
-Do not provision fresh AWS infrastructure by default.
+2. **Targeted simulated E2E** — Run only the affected product flows via the
+   scenario flag: `pnpm e2e --scenario=<scenario-id>`. Choose the scenario
+   closest to the behaviour under test, e.g. `--scenario=happy-path` for a
+   golden-path deployment, `--scenario=cloudformation-rollback` for rollback
+   handling, `--scenario=ecs-failure` for ECS provisioning errors. You can
+   also run a single Playwright spec directly:
+   `pnpm e2e e2e/<spec>.spec.ts`. Do not run the entire E2E suite during
+   each fix iteration.
+
+3. **Simulated regression suite before merge** — Run the full simulated
+   scenario suite: `pnpm e2e:scenarios`. This is what CI's `e2e-simulated`
+   job runs on every PR.
+
+4. **Real AWS escalation** — Only where simulated tests cannot establish
+   confidence. Always set `DEPLOYZ_E2E_ALLOW_REAL_AWS=1`. Do not launch
+   fresh AWS infrastructure merely because deployment-related code changed.
 
 Escalate to AWS canary when changes affect:
 
@@ -45,12 +62,27 @@ the variable merely to get past a refusal you don't understand.
 Do not modify tests merely to make a failing implementation pass.
 Diagnose the implementation first.
 
-When a new real-world AWS failure is discovered:
+## AWS failure → simulator regression rule
 
-1. reproduce;
-2. understand root cause;
-3. fix;
-4. add a deterministic regression scenario where feasible.
+When a real AWS failure occurs (canary, fresh, version canary, Stage B
+repository deployments, or manual AWS testing):
+
+1. Capture the exact AWS state, SDK response, or event sequence.
+2. Add a deterministic simulator scenario under
+   `e2e/simulation/scenarios/` that reproduces the failure. Reuse
+   `SimulatedCustomerAccount`, the relay-harness, and the existing
+   scenario registration pattern in `scenarios/index.ts`.
+3. Reproduce the failure locally through the simulator.
+4. Fix the root cause locally.
+5. Rerun the simulator to confirm the fix.
+6. Confirm once on real AWS.
+
+Scenario files use problem-oriented names, e.g. `ecs-target-timeout.ts`,
+`missing-stack-output.ts`, `relay-disconnect-during-destroy.ts`.
+
+For every AWS bug, explicitly decide: "Can this AWS failure be represented
+in the simulator?" If yes, add the regression scenario before closing the
+bug. If no, document why in the bug report.
 
 ## Mapping the ladder to this repository
 
