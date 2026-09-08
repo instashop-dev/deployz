@@ -41,7 +41,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 12 Customer portal | done | this PR | `apps/api/src/billing-portal.ts`, `POST /api/billing/portal` (short-lived Paddle portal links for the org's own customer), `ManageBillingButton`: billing page (overview + payment details), PAST_DUE banner deep-links to the card form |
 | 13 Entitlements by status | done | this PR | Per-status rules made explicit and tested: creation needs ACTIVE; day-2 on existing deployments never gated (CANCELED guard added); checkout only from evaluation or CANCELED (409 `SUBSCRIPTION_NEEDS_ATTENTION` for PAST_DUE/PAUSED); the creation screen routes each refusal to its real fix |
 | 14 Admin | done | this PR | Vendor detail carries `billing` (live count, subscription, last reconciled, last 5 reconciliation outcomes); `POST /api/admin/vendors/:id/reconcile-billing` runs the same `reconcileBilling` as the safety job and writes an `admin.billing.reconcile_requested` audit row |
-| 15 Test matrix | pending | | |
+| 15 Test matrix | done | this PR | `apps/api/src/billing-matrix.test.ts` walks every cell of the pure decision tables (12 transition cells, 6 billable cells, the status mapping); `docs/billing/billing-matrix.md` is the same tables plus the integration-covered ones, each naming its test |
 | 16 Sandbox E2E | pending | | |
 | 17 Regression + docs | pending | | |
 
@@ -226,6 +226,15 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   deployment of the organization, never derived from the capped, ordered
   list the detail page already shows — a vendor with more deployments than
   LIST_CAP would otherwise read as under-billed.
+- R15-1: the matrix test walks PURE decision tables cell by cell
+  (`applyBillingTransition`, `isBillableDeployment`, `mapSubscriptionStatus`)
+  so a missing cell is a failing test. Tables that need a database or Paddle
+  (entitlements, reconciliation, webhook delivery) stay in their story-shaped
+  suites; the doc names the covering test for each so coverage is auditable
+  without reading every file.
+- R15-2: `mapSubscriptionStatus` is exported only for the matrix test. Nothing
+  outside billing-webhooks.ts calls it — the webhook handler remains the only
+  writer of subscription status.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
