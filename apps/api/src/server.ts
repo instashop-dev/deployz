@@ -31,6 +31,7 @@ import {
   RELAY_STALE_AFTER_MS,
   SUPPORTED_AWS_REGIONS,
   aggregateInfrastructureComponents,
+  billingSubscriptionStatusSchema,
   bootstrapStackName,
   buildBootstrapQuickCreateUrl,
   deploymentStateAfterFailedJob,
@@ -46,6 +47,7 @@ import {
   resolveBootstrapTemplate,
   summarizeInfrastructureStatus,
   type ApplicationAnalysis,
+  type BillingSubscriptionStatus,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
@@ -197,6 +199,11 @@ import {
   type DeployLinkRow,
 } from './deploy-links.js';
 import {
+  assertProductionDeploymentAllowed,
+  assertTestDeploymentSlot,
+  isTestDeploymentSlotViolation,
+} from './billing-entitlements.js';
+import {
   DEFAULT_HTTPS_APEX,
   DEFAULT_HTTPS_FIXTURE_APEX,
   applyDefaultHttpsJobResult,
@@ -291,6 +298,12 @@ export interface ServerDeps {
   // unset; tests inject a fake PaddleBilling so no real Paddle call ever
   // leaves the machine.
   paddle?: PaddleBilling | null | undefined;
+  // Injectable Paddle migration Phase 7 fixture-mode override. Defaults to
+  // env.billingFixtureMode; mirrors githubFixtureMode's `?? env.x` pattern.
+  // When on, POST /api/organizations seeds a fixture ACTIVE subscription
+  // (organizations.ts) and the fixture-only
+  // POST /internal/fixture/billing/subscription route below exists.
+  billingFixtureMode?: boolean | undefined;
 }
 
 // application/deployment/release ids are uuid-keyed columns. A non-uuid id
@@ -1271,7 +1284,9 @@ export async function buildServer({
   teamAdminEnvGrantsEnabled = env.teamAdminEnvGrantsEnabled,
   loggerInstance,
   paddle = createPaddle(),
+  billingFixtureMode,
 }: ServerDeps): Promise<FastifyInstance> {
+  const billingFixtureModeResolved = billingFixtureMode ?? env.billingFixtureMode;
   // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
   // grant must not fail the install request that owns it (see ecr-pull-grants.ts).
   const ecrGrantDeps: EcrPullGrantDeps = createEcrPullGrantDeps(ecrClient);
@@ -1573,6 +1588,56 @@ export async function buildServer({
     webUrl: env.webUrl,
   };
 
+  // Fixture-only billing surface (Paddle migration Phase 7 CI fixture mode).
+  // Every fresh organization already gets an ACTIVE subscription under
+  // billingFixtureMode (organizations.ts createOrganization, auth.ts's
+  // signup session hook) — this route lets a scenario drive
+  // PAST_DUE/PAUSED/CANCELED/evaluation (null) on top of that. Session-
+  // authenticated (unlike the DNS/release-image fixture routes above)
+  // because it acts on the caller's own organization. Registered only under
+  // billingFixtureMode, so it does not exist in production.
+  if (billingFixtureModeResolved) {
+    app.post(
+      '/internal/fixture/billing/subscription',
+      { preHandler: requireAuth },
+      async (request) => {
+        const organizationId = requireSessionOrganizationId(request);
+        const body = request.body as { status?: unknown };
+        if (body?.status !== null && !billingSubscriptionStatusSchema.safeParse(body?.status).success) {
+          throw new ApiError(
+            400,
+            'INVALID_REQUEST',
+            "status must be 'ACTIVE', 'PAST_DUE', 'PAUSED', 'CANCELED', or null",
+          );
+        }
+        if (body.status === null) {
+          await db
+            .delete(schema.billingSubscriptions)
+            .where(eq(schema.billingSubscriptions.organizationId, organizationId));
+          return { subscriptionStatus: null };
+        }
+        const status = body.status as BillingSubscriptionStatus;
+        const now = new Date();
+        const currentPeriodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        await db
+          .insert(schema.billingSubscriptions)
+          .values({
+            organizationId,
+            providerCustomerId: `ctm_fixture_${organizationId}`,
+            providerSubscriptionId: `sub_fixture_${organizationId}`,
+            status,
+            currentPeriodStart: now,
+            currentPeriodEnd,
+          })
+          .onConflictDoUpdate({
+            target: schema.billingSubscriptions.organizationId,
+            set: { status, currentPeriodStart: now, currentPeriodEnd },
+          });
+        return { subscriptionStatus: status };
+      },
+    );
+  }
+
   app.get('/api/me', { preHandler: requireAuth }, async (request) => ({
     user: request.user ?? null,
     organization: request.organization ?? null,
@@ -1610,6 +1675,7 @@ export async function buildServer({
       requireActor(request),
       requireSessionId(request),
       body,
+      billingFixtureModeResolved,
     );
     return reply.code(201).send(created);
   });
@@ -3352,21 +3418,43 @@ export async function buildServer({
       );
     }
     const organizationId = resolveWriteOrganizationId(request, body.organizationId);
+    // Paddle migration Phase 7 — evaluation is free (TEST deployments never
+    // consult billing); only PRODUCTION requires an ACTIVE subscription, and
+    // only one active TEST deployment is allowed per application. Both gates
+    // run before createDeploymentRecord and before any customer row is
+    // created for this deployment.
+    if (body.deploymentType === 'TEST') {
+      await assertTestDeploymentSlot(db, body.applicationId);
+    } else {
+      await assertProductionDeploymentAllowed(db, organizationId);
+    }
     // Everything after this point (org-scoped 404s, the Phase 2 manifest
     // readiness gates, and the insert) is shared with the deploy-link flow —
     // see createDeploymentRecord in apps/api/src/deploy-links.ts. The final
     // manifest is persisted as the deployment's desired state so rollback and
     // day-2 deploys keep the exact config this deployment was created with.
-    const { deployment } = await createDeploymentRecord(db, {
-      organizationId,
-      applicationId: body.applicationId,
-      customerId: body.customerId,
-      region: body.region,
-      deploymentType: body.deploymentType,
-      createdBy: request.user?.id ?? null,
-      updatedBy: request.user?.id ?? null,
-      source: 'manual',
-    });
+    let deployment;
+    try {
+      ({ deployment } = await createDeploymentRecord(db, {
+        organizationId,
+        applicationId: body.applicationId,
+        customerId: body.customerId,
+        region: body.region,
+        deploymentType: body.deploymentType,
+        createdBy: request.user?.id ?? null,
+        updatedBy: request.user?.id ?? null,
+        source: 'manual',
+      }));
+    } catch (error) {
+      // Two concurrent creates can both pass assertTestDeploymentSlot before
+      // either inserts — the partial unique index catches the loser here.
+      // Re-running the same check now finds the winner's committed row and
+      // throws the identical 409, with its deploymentId.
+      if (body.deploymentType === 'TEST' && isTestDeploymentSlotViolation(error)) {
+        await assertTestDeploymentSlot(db, body.applicationId);
+      }
+      throw error;
+    }
     return reply.code(201).send(deployment);
   });
 

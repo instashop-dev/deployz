@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import { ApiRequestError } from '../src/lib/api-client';
 import {
   DeploymentActionError,
   actionErrorMessage,
+  createDeploymentErrorMessage,
+  existingTestDeploymentId,
   listedUnderStatus,
   matchesRememberedCustomer,
   readinessFindingMessages,
@@ -78,6 +81,63 @@ describe('actionErrorMessage', () => {
       'fallback',
     );
     expect(actionErrorMessage(new Error('nope'), 'fallback')).toBe('fallback');
+  });
+});
+
+describe('createDeploymentErrorMessage (Paddle migration Phase 7)', () => {
+  it('explains a missing/inactive subscription for a blocked production deployment', () => {
+    expect(
+      createDeploymentErrorMessage(
+        new ApiRequestError('SUBSCRIPTION_REQUIRED', 'A production deployment needs an active Deployz subscription.', {
+          subscriptionStatus: null,
+        }),
+      ),
+    ).toBe(
+      'Production deployments need an active Deployz subscription. Billing activation arrives with the next release.',
+    );
+  });
+
+  it('explains an existing test deployment conflict', () => {
+    expect(
+      createDeploymentErrorMessage(
+        new ApiRequestError(
+          'TEST_DEPLOYMENT_EXISTS',
+          'This application already has a test deployment. Remove it before you create another.',
+          { deploymentId: 'dep-1' },
+        ),
+      ),
+    ).toBe('This application already has a test deployment.');
+  });
+
+  it('falls back to the server message for any other error', () => {
+    expect(createDeploymentErrorMessage(new ApiRequestError('MANIFEST_NOT_COMPATIBLE', 'Not compatible.'))).toBe(
+      'Not compatible.',
+    );
+    expect(createDeploymentErrorMessage(new Error('nope'))).toBe(
+      'Something went wrong. Try again in a moment.',
+    );
+  });
+});
+
+describe('existingTestDeploymentId', () => {
+  it('reads the conflicting deployment id off a TEST_DEPLOYMENT_EXISTS 409', () => {
+    expect(
+      existingTestDeploymentId(
+        new ApiRequestError('TEST_DEPLOYMENT_EXISTS', 'This application already has a test deployment.', {
+          deploymentId: 'dep-1',
+        }),
+      ),
+    ).toBe('dep-1');
+  });
+
+  it('is null for any other error, or when the server sent no deploymentId', () => {
+    expect(
+      existingTestDeploymentId(new ApiRequestError('TEST_DEPLOYMENT_EXISTS', 'no details')),
+    ).toBeNull();
+    expect(
+      existingTestDeploymentId(new ApiRequestError('SUBSCRIPTION_REQUIRED', 'blocked', { subscriptionStatus: null })),
+    ).toBeNull();
+    expect(existingTestDeploymentId(new Error('nope'))).toBeNull();
   });
 });
 

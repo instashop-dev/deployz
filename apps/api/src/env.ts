@@ -246,6 +246,16 @@ export const env = {
   // always 409. Marks a new release built immediately with a deterministic
   // fixture digest instead of enqueuing. Mirrors githubFixtureMode.
   buildFixtureMode: process.env.BUILD_FIXTURE_MODE === 'true',
+  // Paddle migration Phase 7 fixture mode — every newly created organization
+  // (signup's default tenant in auth.ts, and createOrganization in
+  // organizations.ts) also gets a normal ACTIVE billing_subscriptions row, so
+  // the simulated E2E suite's PRODUCTION-deployment scenarios exercise the
+  // real entitlement gate (billing-entitlements.ts) instead of always
+  // hitting 402 SUBSCRIPTION_REQUIRED. Also unlocks the fixture-only
+  // POST /internal/fixture/billing/subscription route (server.ts), which
+  // later phases use to drive past-due/canceled/evaluation UI scenarios.
+  // Mirrors githubFixtureMode.
+  billingFixtureMode: process.env.BILLING_FIXTURE_MODE === 'true',
   // The release-image registry (the control plane's own ECR repository) is
   // consulted only from the deployed Lambda: locally a release is either
   // fixture-built (BUILD_FIXTURE_MODE) or never READY, so the scriptable

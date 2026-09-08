@@ -62,6 +62,7 @@ import migration0032 from '../../../db/drizzle/0032_remove_stripe_billing.sql';
 import migration0033 from '../../../db/drizzle/0033_deployment_billing_state.sql';
 import migration0034 from '../../../db/drizzle/0034_billing_subscriptions.sql';
 import migration0035 from '../../../db/drizzle/0035_billing_scheduled_change.sql';
+import migration0036 from '../../../db/drizzle/0036_one_active_test_deployment.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -111,6 +112,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0033_deployment_billing_state': migration0033,
   '0034_billing_subscriptions': migration0034,
   '0035_billing_scheduled_change': migration0035,
+  '0036_one_active_test_deployment': migration0036,
 };
 
 interface RdsSecret {

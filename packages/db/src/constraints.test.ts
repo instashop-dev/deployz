@@ -1,4 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Db } from './client.js';
@@ -280,6 +281,63 @@ describe('constraints and enums', () => {
         customerId: ids.customerId,
         key: 'TIER',
         value: 'premium',
+      });
+    });
+
+    // Paddle migration Phase 7 — free evaluation entitlements: at most one
+    // non-deleted TEST deployment per application, enforced at the database
+    // level as the backstop for the route-level check in
+    // apps/api/src/billing-entitlements.ts.
+    it('rejects a second active TEST deployment for the same application, and allows one after the first is DELETED', async () => {
+      const firstId = crypto.randomUUID();
+      await db!.insert(deployments).values({
+        id: firstId,
+        customerId: ids.customerId,
+        applicationId: ids.applicationId,
+        organizationId: ids.organizationId,
+        region: 'us-east-1',
+        deploymentType: 'TEST',
+        installationId: 'inst-test-slot-1',
+        enrollmentCode: 'code-test-slot-1',
+      });
+      await expectPgError(
+        db!.insert(deployments).values({
+          customerId: ids.customerId,
+          applicationId: ids.applicationId,
+          organizationId: ids.organizationId,
+          region: 'us-east-1',
+          deploymentType: 'TEST',
+          installationId: 'inst-test-slot-2',
+          enrollmentCode: 'code-test-slot-2',
+        }),
+        /duplicate key value violates unique constraint "deployments_one_active_test_per_application_uidx"/,
+      );
+
+      // A PRODUCTION deployment for the same application is unaffected — the
+      // index only ever looks at TEST rows.
+      await db!.insert(deployments).values({
+        customerId: ids.customerId,
+        applicationId: ids.applicationId,
+        organizationId: ids.organizationId,
+        region: 'us-east-1',
+        deploymentType: 'PRODUCTION',
+        installationId: 'inst-test-slot-prod',
+        enrollmentCode: 'code-test-slot-prod',
+      });
+
+      // Once the first TEST row is DELETED, a new one is allowed again.
+      await db!
+        .update(deployments)
+        .set({ state: 'DELETED', deletedAt: new Date() })
+        .where(eq(deployments.id, firstId));
+      await db!.insert(deployments).values({
+        customerId: ids.customerId,
+        applicationId: ids.applicationId,
+        organizationId: ids.organizationId,
+        region: 'us-east-1',
+        deploymentType: 'TEST',
+        installationId: 'inst-test-slot-3',
+        enrollmentCode: 'code-test-slot-3',
       });
     });
   });
