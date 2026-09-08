@@ -80,6 +80,7 @@ import {
   fixInstructionsCacheKey,
   readCachedFixInstructions,
 } from './fix-instructions.js';
+import { completePendingCheckoutIntent, createCheckoutIntent } from './billing-checkout.js';
 import {
   isBillableDeployment,
   PLATFORM_PRICE_DOLLARS,
@@ -2532,6 +2533,16 @@ export async function buildServer({
     // hand-maintained duplicate.
     region: regionSchema,
     deploymentType: deploymentTypeSchema.default('PRODUCTION'),
+  });
+
+  // Paddle migration Phase 8 — the same three parameters a production
+  // deployment needs, parked as a checkout intent instead of a deployment.
+  // deploymentType is absent on purpose: a checkout is only ever for a
+  // PRODUCTION deployment (a TEST one is free and needs no subscription).
+  const createCheckoutBodySchema = z.object({
+    applicationId: z.string().uuid(),
+    customerId: z.string().uuid(),
+    region: regionSchema,
   });
 
   // Deploy Link generation targets the SESSION org's customer (path) and
@@ -5215,6 +5226,35 @@ export async function buildServer({
     };
   });
 
+  // POST /api/billing/checkout — the vendor's first production deployment
+  // (Phase 8). Nothing is provisioned here: the request is parked as a
+  // checkout intent and answered with the Paddle transaction id apps/web
+  // opens with Paddle.js. The deployment row appears only when the
+  // subscription activates (see onSubscriptionChanged below).
+  app.post('/api/billing/checkout', { preHandler: requireAuth }, async (request) => {
+    const body = createCheckoutBodySchema.parse(request.body);
+    const organizationId = requireSessionOrganizationId(request);
+    // Same fail-closed region gate as POST /api/deployments — a checkout must
+    // never be sold for a region the deployment could not be created in.
+    if (!env.deployableAwsRegions.includes(body.region)) {
+      throw new ApiError(
+        422,
+        'REGION_NOT_SUPPORTED',
+        `Region ${body.region} is not available for installation yet.`,
+      );
+    }
+    return createCheckoutIntent(
+      { db, paddle },
+      {
+        organizationId,
+        applicationId: body.applicationId,
+        customerId: body.customerId,
+        region: body.region,
+        createdBy: request.user?.id ?? null,
+      },
+    );
+  });
+
   // POST /api/billing/webhook — Paddle subscription/transaction events.
   // Signature-verified over the raw body (see the addContentTypeParser
   // carve-out above); ApiErrors (missing/invalid signature, billing
@@ -5224,7 +5264,32 @@ export async function buildServer({
   app.post('/api/billing/webhook', async (request, reply) => {
     const signatureHeader = request.headers['paddle-signature'];
     const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
-    const result = await handlePaddleWebhook({ db, paddle }, request.body as string, signature);
+    const result = await handlePaddleWebhook(
+      {
+        db,
+        paddle,
+        // Phase 8 — the subscription is live, so the production deployment
+        // parked on it can now be created. completePendingCheckoutIntent
+        // never throws, so a deployment that cannot be created does not make
+        // Paddle redeliver an event that was applied correctly.
+        onSubscriptionChanged: async ({ organizationId, status, checkoutIntentId }) => {
+          if (status !== 'ACTIVE') return;
+          const completed = await completePendingCheckoutIntent(
+            { db, paddle },
+            organizationId,
+            checkoutIntentId,
+          );
+          if (completed?.status === 'FAILED') {
+            request.log.error(
+              { organizationId, checkoutIntentId: completed.checkoutIntentId, err: completed.error },
+              'checkout intent could not be completed',
+            );
+          }
+        },
+      },
+      request.body as string,
+      signature,
+    );
     return reply.send({ received: true, outcome: result.outcome });
   });
 

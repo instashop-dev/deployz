@@ -18,7 +18,7 @@ describe('migrations', () => {
     await client?.close();
   });
 
-  it('creates all 22 core tables', async () => {
+  it('creates all 23 core tables', async () => {
     const { rows } = await client!.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -28,6 +28,7 @@ describe('migrations', () => {
       'account',
       'application_configs',
       'applications',
+      'billing_checkout_intents',
       'billing_provider_events',
       'billing_reconciliation_events',
       'billing_subscriptions',
@@ -59,6 +60,7 @@ describe('migrations', () => {
     expect(rows.map((r) => r.typname)).toEqual([
       'ai_explanation_state',
       'analysis_status',
+      'billing_checkout_intent_status',
       'billing_event_processing_status',
       'billing_provider',
       'billing_reconciliation_status',

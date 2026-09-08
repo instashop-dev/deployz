@@ -57,7 +57,7 @@ function requireUuidId(id: string): void {
 // Same rules as server.ts: a link/deployment/customer of another org 404s,
 // never 403s, so cross-tenant existence never leaks.
 
-async function loadOwnedApplication(
+export async function loadOwnedApplication(
   db: RuntimeDb,
   id: string,
   organizationId: string,
@@ -74,7 +74,7 @@ async function loadOwnedApplication(
   return rows[0]!;
 }
 
-async function loadOwnedCustomer(db: RuntimeDb, id: string, organizationId: string): Promise<CustomerRow> {
+export async function loadOwnedCustomer(db: RuntimeDb, id: string, organizationId: string): Promise<CustomerRow> {
   requireUuidId(id);
   const rows = await db
     .select()

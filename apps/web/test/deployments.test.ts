@@ -85,7 +85,7 @@ describe('actionErrorMessage', () => {
 });
 
 describe('createDeploymentErrorMessage (Paddle migration Phase 7)', () => {
-  it('explains a missing/inactive subscription for a blocked production deployment', () => {
+  it('sends a blocked production deployment to checkout (Phase 8)', () => {
     expect(
       createDeploymentErrorMessage(
         new ApiRequestError('SUBSCRIPTION_REQUIRED', 'A production deployment needs an active Deployz subscription.', {
@@ -93,7 +93,7 @@ describe('createDeploymentErrorMessage (Paddle migration Phase 7)', () => {
         }),
       ),
     ).toBe(
-      'Production deployments need an active Deployz subscription. Billing activation arrives with the next release.',
+      'This is your first customer deployment, so it starts your subscription. Continue to checkout below.',
     );
   });
 

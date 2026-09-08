@@ -190,6 +190,15 @@ export const billingReconciliationStatusEnum = pgEnum('billing_reconciliation_st
   'SKIPPED',
 ]);
 
+// billing_checkout_intents.status — Paddle migration Phase 8 lifecycle of a
+// production deployment requested before the subscription existed.
+export const billingCheckoutIntentStatusEnum = pgEnum('billing_checkout_intent_status', [
+  'PENDING',
+  'COMPLETED',
+  'FAILED',
+  'EXPIRED',
+]);
+
 export const buildStatusEnum = pgEnum('build_status', [
   'PENDING',
   'BUILDING',

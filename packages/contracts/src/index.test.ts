@@ -11,6 +11,7 @@ import {
   SUPPORTED_AWS_REGIONS,
   applicationSchema,
   applicationStackNameForInstallation,
+  billingCheckoutIntentStatusSchema,
   billingProviderSchema,
   billingReconciliationStatusSchema,
   billingSubscriptionSchema,
@@ -98,6 +99,15 @@ describe('billing enums (Paddle migration Phase 3)', () => {
 
   it('billingReconciliationStatusSchema accepts the three reconciliation outcomes', () => {
     expect(billingReconciliationStatusSchema.options).toEqual(['SUCCEEDED', 'FAILED', 'SKIPPED']);
+  });
+
+  it('billingCheckoutIntentStatusSchema accepts the four checkout intent states', () => {
+    expect(billingCheckoutIntentStatusSchema.options).toEqual([
+      'PENDING',
+      'COMPLETED',
+      'FAILED',
+      'EXPIRED',
+    ]);
   });
 });
 

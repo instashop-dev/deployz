@@ -11,8 +11,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { ApiRequestError } from '@/lib/api-client';
+import { ApiRequestError, errorMessage } from '@/lib/api-client';
 import { fetchApplications, type Application } from '@/lib/applications';
+import {
+  createCheckoutIntent,
+  fetchBillingConfig,
+  openSubscriptionCheckout,
+} from '@/lib/billing-checkout';
 import {
   createCustomerRecord,
   createDeploymentErrorMessage,
@@ -59,6 +64,14 @@ export default function NewDeploymentPage() {
   );
 }
 
+/** The production deployment the vendor asked for, waiting on checkout. */
+interface CheckoutRequest {
+  applicationId: string;
+  customerId: string;
+  region: string;
+  customerName: string;
+}
+
 type AppsState =
   | { status: 'loading' }
   | { status: 'error' }
@@ -88,6 +101,10 @@ function NewDeploymentScreen() {
   // Set only for a TEST_DEPLOYMENT_EXISTS conflict, so the error can link to
   // the application's existing test deployment (Paddle migration Phase 7).
   const [conflictingTestDeploymentId, setConflictingTestDeploymentId] = useState<string | null>(null);
+  // Paddle migration Phase 8 — set only when the API refuses a production
+  // deployment for want of a subscription. It carries exactly the parameters
+  // the checkout intent needs, so the vendor never retypes them.
+  const [checkoutRequest, setCheckoutRequest] = useState<CheckoutRequest | null>(null);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(preselectedApplicationId);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
 
@@ -161,6 +178,7 @@ function NewDeploymentScreen() {
     setReadinessApplicationId(null);
     setReadinessFindings([]);
     setConflictingTestDeploymentId(null);
+    setCheckoutRequest(null);
     setPending(true);
     const form = new FormData(event.currentTarget);
     const customerName = String(form.get('customerName') ?? '').trim();
@@ -169,10 +187,12 @@ function NewDeploymentScreen() {
     const applicationId = String(form.get('application') ?? '');
     const region = String(form.get('region') ?? regions[0]?.value ?? '');
 
+    // Declared outside the try so the subscription branch below can reach the
+    // customer this attempt created.
+    let customerId: string | null = null;
     try {
       // A prior failed attempt may already have created this customer — reuse
       // it rather than inserting a duplicate (CANARY-004).
-      let customerId: string;
       if (matchesRememberedCustomer(rememberedCustomer, customerName, customerEmail)) {
         customerId = rememberedCustomer.id;
       } else {
@@ -201,6 +221,11 @@ function NewDeploymentScreen() {
         setReadinessFindings(readinessFindingMessages(caught.details));
       }
       setConflictingTestDeploymentId(existingTestDeploymentId(caught));
+      // The subscription gate is not a dead end: the customer row already
+      // exists, so the same request can go straight to checkout.
+      if (caught instanceof ApiRequestError && caught.code === 'SUBSCRIPTION_REQUIRED' && customerId) {
+        setCheckoutRequest({ applicationId, customerId, region, customerName });
+      }
     } finally {
       setPending(false);
     }
@@ -227,6 +252,13 @@ function NewDeploymentScreen() {
             : 'Add a customer and generate their install link. The customer opens the link and signs in to their own cloud account — their credentials never touch Deployz.'}
         </p>
       </div>
+
+      {checkoutRequest ? (
+        <SubscriptionCheckoutCard
+          request={checkoutRequest}
+          onCancel={() => setCheckoutRequest(null)}
+        />
+      ) : null}
 
       {installLink ? (
         <InstallLinkCard
@@ -374,6 +406,89 @@ function NewDeploymentScreen() {
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * Paddle migration Phase 8 — the checkout hand-off. The deployment the vendor
+ * asked for is parked on the control plane; paying starts the subscription
+ * and the deployment is created from the parked request. Payment happens
+ * inside Paddle's own overlay, so no card details reach Deployz.
+ */
+function SubscriptionCheckoutCard({
+  request,
+  onCancel,
+}: {
+  request: CheckoutRequest;
+  onCancel: () => void;
+}) {
+  const [status, setStatus] = useState<'idle' | 'opening' | 'paid'>('idle');
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  async function onContinue(): Promise<void> {
+    setCheckoutError(null);
+    setStatus('opening');
+    try {
+      const config = await fetchBillingConfig();
+      const intent = await createCheckoutIntent({
+        applicationId: request.applicationId,
+        customerId: request.customerId,
+        region: request.region,
+      });
+      const outcome = await openSubscriptionCheckout(config, intent.transactionId);
+      setStatus(outcome === 'completed' ? 'paid' : 'idle');
+    } catch (caught) {
+      setCheckoutError(errorMessage(caught));
+      setStatus('idle');
+    }
+  }
+
+  if (status === 'paid') {
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="size-5 text-primary" aria-hidden />
+            <CardTitle>Payment received</CardTitle>
+          </div>
+          <CardDescription>
+            Your subscription is starting. {request.customerName}&apos;s deployment is created as
+            soon as it is active, and appears on your deployments page with its install link.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild size="sm">
+            <Link href="/dashboard/deployments">Go to deployments</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Start your subscription</CardTitle>
+        <CardDescription>
+          Your first customer deployment starts billing: $49 per month for the platform, plus $19
+          per month for each customer deployment that is live. Test deployments stay free. Nothing
+          is installed until the payment goes through.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center gap-3">
+        <Button onClick={() => void onContinue()} disabled={status === 'opening'}>
+          {status === 'opening' ? 'Opening checkout…' : 'Continue to checkout'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Not now
+        </Button>
+        {checkoutError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {checkoutError}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -156,6 +156,9 @@ importers:
       '@deployz/copy-map':
         specifier: workspace:*
         version: link:../../packages/copy-map
+      '@paddle/paddle-js':
+        specifier: ^1.6.5
+        version: 1.6.5
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3
@@ -1765,6 +1768,9 @@ packages:
   '@opentelemetry/semantic-conventions@1.43.0':
     resolution: {integrity: sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg==}
     engines: {node: '>=14'}
+
+  '@paddle/paddle-js@1.6.5':
+    resolution: {integrity: sha512-uFRvptUzYRqRlqTU5XmfcZWC9BGVYpZNdANd3giJjZbJlHesnE4gn8PyjtYpesU1ar2ZGPuJxHvrrSIV9jjdVw==}
 
   '@paddle/paddle-node-sdk@2.8.0':
     resolution: {integrity: sha512-7SeFdE1k8j4Lme0A4SvPh3ak2e4HLtmTwsxEcQeWWSwy3vcwMSoE8hpHKGkqgHWdLV71FKFCMn9RYJFtbUb4Zg==}
@@ -6644,6 +6650,8 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.43.0
 
   '@opentelemetry/semantic-conventions@1.43.0': {}
+
+  '@paddle/paddle-js@1.6.5': {}
 
   '@paddle/paddle-node-sdk@2.8.0': {}
 

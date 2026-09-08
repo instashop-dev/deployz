@@ -539,6 +539,11 @@ export async function deleteOrganization(
       .delete(schema.applicationConfigs)
       .where(inArray(schema.applicationConfigs.applicationId, applicationIds));
   }
+  // Checkout intents FK to deployments (Paddle migration Phase 8) — they go
+  // leaf-first, before the deployments they point at.
+  await db
+    .delete(schema.billingCheckoutIntents)
+    .where(eq(schema.billingCheckoutIntents.organizationId, organizationId));
   await db.delete(schema.deployments).where(eq(schema.deployments.organizationId, organizationId));
   if (applicationIds.length > 0) {
     await db.delete(schema.releases).where(inArray(schema.releases.applicationId, applicationIds));
