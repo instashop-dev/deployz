@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "62bb2d7522b2182729758504fcd294df784379d3",
+  "deployzCommit": "3dc80cea64c2b185124e4198812414b5a532b44c",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -19,13 +19,13 @@
   },
   "infrastructure": {
     "attempted": 8,
-    "succeeded": 5,
-    "failed": 3
+    "succeeded": 4,
+    "failed": 4
   },
   "runtime": {
-    "ecsRunning": 5,
-    "albHealthy": 5,
-    "httpsReachable": 5,
+    "ecsRunning": 4,
+    "albHealthy": 4,
+    "httpsReachable": 4,
     "applicationResponseValid": 3
   },
   "dependencies": {
@@ -38,9 +38,9 @@
   "trueDeploymentSuccessRate": 4.6,
   "cleanup": {
     "destroys": 9,
-    "destroyFailures": 0,
-    "leaks": 0,
-    "successRate": 100
+    "destroyFailures": 1,
+    "leaks": 1,
+    "successRate": 88.9
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
@@ -48,9 +48,10 @@
     "CONFIG_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
-    "ENV_BINDING_ERROR": 2,
+    "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
+    "INFRA_ERROR": 1,
     "PASS": 40
   },
   "byFailureStage": {
@@ -59,12 +60,14 @@
     "CONFIG_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
-    "ENV_BINDING_ERROR": 2,
+    "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24
+    "GATE_ERROR": 24,
+    "INFRA_ERROR": 1
   },
   "byRootCause": {
-    "ANALYSIS_MISSING_SIGNAL": 2,
+    "ANALYSIS_BUG": 1,
+    "ANALYSIS_MISSING_SIGNAL": 1,
     "CORRECTLY_UNSUPPORTED": 49,
     "DEPLOYZ_BUG": 1
   },
@@ -106,6 +109,7 @@
       "repo-097"
     ],
     "DEPLOY-005": [
+      "repo-016",
       "repo-021",
       "repo-039"
     ],
@@ -113,7 +117,8 @@
       "repo-003"
     ],
     "DEPLOY-008": [
-      "repo-004"
+      "repo-004",
+      "repo-039"
     ],
     "DEPLOY-014": [
       "repo-007"
@@ -126,7 +131,7 @@
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 5,
+      "deployed": 4,
       "trueDeploymentSuccess": 3,
       "expectedUnsupported": 34,
       "gateCorrect": 59
@@ -168,7 +173,7 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 5,
+      "deployed": 4,
       "trueDeploymentSuccess": 3,
       "expectedUnsupported": 24,
       "gateCorrect": 44

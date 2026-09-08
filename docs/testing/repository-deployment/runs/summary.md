@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
+Deployz commit: `3dc80cea64c2b185124e4198812414b5a532b44c`
 
 | Metric | Value |
 | --- | --- |
@@ -12,11 +12,11 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | Gate: READY with the Stage B configuration | 13 |
 | Build attempted / succeeded / failed | 9 / 8 / 1 |
 | Build success among expected deployable | 12.3% |
-| Infrastructure attempted / succeeded / failed | 8 / 5 / 3 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 3 |
+| Infrastructure attempted / succeeded / failed | 8 / 4 / 4 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 4 / 4 / 4 / 3 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 3 / 1 / 0 / 1 |
 | **True deployment success / expected deployable** | **3 / 65 (4.6%)** |
-| Cleanup: destroys / failures / leaks / success rate | 9 / 0 / 0 / 100% |
+| Cleanup: destroys / failures / leaks / success rate | 9 / 1 / 1 / 88.9% |
 
 ## By classification
 
@@ -27,16 +27,18 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | CONFIG_ERROR | 1 |
 | CONTAINER_START_ERROR | 1 |
 | DATABASE_ERROR | 1 |
-| ENV_BINDING_ERROR | 2 |
+| ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
+| INFRA_ERROR | 1 |
 | PASS | 40 |
 
 ## By root cause
 
 | Root cause | Repositories |
 | --- | --- |
-| ANALYSIS_MISSING_SIGNAL | 2 |
+| ANALYSIS_BUG | 1 |
+| ANALYSIS_MISSING_SIGNAL | 1 |
 | CORRECTLY_UNSUPPORTED | 49 |
 | DEPLOYZ_BUG | 1 |
 
@@ -47,9 +49,9 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | DEPLOY-002 | 6: repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 |
 | DEPLOY-003 | 18: repo-005, repo-022, repo-023, repo-024, repo-041, repo-043, repo-053, repo-055, repo-060, repo-082, repo-083, repo-087, repo-094, repo-204, repo-206, repo-207, repo-211, repo-220 |
 | DEPLOY-004 | 6: repo-072, repo-074, repo-084, repo-088, repo-089, repo-097 |
-| DEPLOY-005 | 2: repo-021, repo-039 |
+| DEPLOY-005 | 3: repo-016, repo-021, repo-039 |
 | DEPLOY-007 | 1: repo-003 |
-| DEPLOY-008 | 1: repo-004 |
+| DEPLOY-008 | 2: repo-004, repo-039 |
 | DEPLOY-014 | 1: repo-007 |
 | DEPLOY-015 | 1: repo-039 |
 
@@ -57,7 +59,7 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 59 | 5 | 3 |
+| improvement | 80 | 46 | 34 | 59 | 4 | 3 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -67,7 +69,7 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 44 | 5 | 3 |
+| realistic | 69 | 45 | 24 | 44 | 4 | 3 |
 
 ## Repositories
 
@@ -88,7 +90,7 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | repo-013 | louislam/uptime-kuma@5df2a3c | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-014 | automatisch/automatisch@41f3c56 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-015 | immich-app/immich@6d85f20 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | — (—) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_REQUIRED | CONFIG_ERROR |  |
+| repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | — (—) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_REQUIRED | CONFIG_ERROR / ANALYSIS_BUG | DEPLOY-005 |
 | repo-017 | lukevella/rallly@d374ed4 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-018 | docmost/docmost@5b85464 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-019 | linkwarden/linkwarden@789aa2b | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
@@ -111,7 +113,7 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | repo-036 | django-helpdesk/django-helpdesk@1cc6776 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-037 | apache/superset@765a4ec | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-038 | apache/answer@3b9f137 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | ENV_BINDING_ERROR / ANALYSIS_MISSING_SIGNAL | DEPLOY-005, DEPLOY-015 |
+| repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | FAIL | INFRA_ERROR | DEPLOY-005, DEPLOY-008, DEPLOY-015 |
 | repo-040 | authelia/authelia@fd4b742 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-041 | coder/coder@07f9018 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-042 | grafana/grafana@0ecd582 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

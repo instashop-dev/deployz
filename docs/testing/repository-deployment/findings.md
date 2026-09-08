@@ -28,6 +28,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-013 | ENV_BINDING_ERROR | DEPLOYZ_BUG + ANALYSIS_BUG | FIXED in two parts: PR #211 merged and deployed (mint app-internal secrets; kutt rerun 5 minted `JWT_SECRET`); PR #212 in review (the analyser called `DB_PASSWORD`, `REDIS_PASSWORD`, `MAIL_PASSWORD` internal secrets, so rerun 5 minted those too) | every vendor-scope secret typed before an install — found on kutt reruns 4 and 5 |
 | DEPLOY-014 | TIMEOUT | DEPLOYZ_BUG | FIXED (PR #217 merged, bootstrap template republished 2026-09-07 ~14:30Z: the relay reads digest and exit code from the task's essential container; regression the #213 init container exposed; verified on ghostfolio attempt 2: the release pointer settled in 12 minutes) | repo-007 (ghostfolio, measured: healthy and serving, DEPLOY_RELEASE never settled); every database-backed application deployed on the #213 template until the relay republish |
 | DEPLOY-015 | APPLICATION_ERROR (a false success) | DEPLOYZ_BUG | FIXED (PR #225 merged 2026-09-08; bootstrap republish pending the AWS session; relay: a deploy settles only when the service's PRIMARY deployment runs the revision the deploy targeted; crash loops are counted on that revision) | repo-039 (memos, measured: the circuit breaker rolled the first start back to the unconfigured template revision, which runs the same pinned image, and the relay reported SUCCEEDED while the app served from SQLite); every configured first start whose configured revision fails to become healthy |
+| DEPLOY-016 | INFRA_ERROR (control plane down) | DEPLOYZ_BUG | OPEN — task handed to the billing workstream (migration 0036 must settle duplicates; a failed init must not be cached by warm containers); production restored by hand 2026-09-08 03:45Z | every request to api.deployz.dev for ten minutes; memos attempt 2's install wait and cleanup |
 
 ---
 
@@ -856,4 +857,39 @@ revision, not on whatever the service currently runs. Regression tests in
 **Affected.** repo-039 (memos, measured); directus attempt 1 would have
 shown it too had its template revision passed the health check; every
 configured first start whose configured revision fails at boot.
+
+---
+
+## DEPLOY-016 — A schema migration that fails on existing rows takes the whole API down, and warm containers keep the failure
+
+**Stage** INFRA_ERROR (the control plane, not the deployment) · **Root
+cause** DEPLOYZ_BUG · **Resolution** OPEN — production restored by hand;
+the fix belongs to the billing workstream (task handed over) · **Found**
+Phase 3, Wave 1, memos attempt 2 (2026-09-08), by the API answering 500 to
+the harness's install wait.
+
+**Behaviour.** `packages/db/drizzle/0036_one_active_test_deployment.sql`
+(PR #228) creates a partial unique index on `deployments(application_id)
+WHERE deployment_type = 'TEST' AND state <> 'DELETED'`. Production held
+one application with three non-DELETED TEST deployments (all FAILED, from
+the 2026-09-04 Documenso E2E), so the index failed with 23505. The API
+Lambda runs migrations at init and caches the promise: every warm
+container re-threw the rejected promise in 2 ms, and every request —
+`/api/health` included — answered `500 {"message":"Internal Server
+Error"}` from ~03:35Z until the data was corrected and the function's
+configuration touched to recycle its execution environments (03:45Z).
+
+**Effect.** api.deployz.dev down for about ten minutes; the deploy
+workflow reported failure after the code was already live; memos attempt
+2 lost its install wait, Disconnect and connector removal (the relay,
+which only needs the control plane for polls, carried the install on).
+
+**Fix (handed over).** The migration settles existing duplicates before
+creating the index (or a rule the product owner prefers), with a test on
+a table that already holds duplicates; the init-time migration must not
+poison a warm container — retry on the next invocation and report the
+failure on the health route instead of a generic 500.
+
+**Affected.** every vendor and every relay poll during the window; the
+Stage B harness run in flight.
 
