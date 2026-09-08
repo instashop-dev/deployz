@@ -65,7 +65,16 @@ export async function createBillingPortalLinks(
     session = await paddle.client.customerPortalSessions.create(subscription.providerCustomerId, [
       subscription.providerSubscriptionId,
     ]);
-  } catch {
+  } catch (error) {
+    // Same operability rule as the checkout: log the provider's reason, never
+    // return it.
+    console.error(
+      JSON.stringify({
+        event: 'billing:portal-session-failed',
+        organizationId,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
     throw new ApiError(502, 'PORTAL_UNAVAILABLE', 'Could not open billing. Try again.');
   }
 

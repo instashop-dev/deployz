@@ -172,7 +172,17 @@ export async function createCheckoutIntent(
       customData: { organizationId: params.organizationId, checkoutIntentId: intent.id },
     });
     transactionId = transaction.id;
-  } catch {
+  } catch (error) {
+    // Phase 16 finding: the provider's reason was swallowed entirely, which
+    // turned a malformed API key into an undiagnosable 502. Logged server-side
+    // only — the client never sees provider internals.
+    console.error(
+      JSON.stringify({
+        event: 'billing:checkout-transaction-failed',
+        organizationId: params.organizationId,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
     throw new ApiError(502, 'CHECKOUT_UNAVAILABLE', 'Could not start checkout. Try again.');
   }
 

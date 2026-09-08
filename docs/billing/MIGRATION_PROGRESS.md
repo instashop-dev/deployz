@@ -42,7 +42,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 13 Entitlements by status | done | this PR | Per-status rules made explicit and tested: creation needs ACTIVE; day-2 on existing deployments never gated (CANCELED guard added); checkout only from evaluation or CANCELED (409 `SUBSCRIPTION_NEEDS_ATTENTION` for PAST_DUE/PAUSED); the creation screen routes each refusal to its real fix |
 | 14 Admin | done | this PR | Vendor detail carries `billing` (live count, subscription, last reconciled, last 5 reconciliation outcomes); `POST /api/admin/vendors/:id/reconcile-billing` runs the same `reconcileBilling` as the safety job and writes an `admin.billing.reconcile_requested` audit row |
 | 15 Test matrix | done | this PR | `apps/api/src/billing-matrix.test.ts` walks every cell of the pure decision tables (12 transition cells, 6 billable cells, the status mapping); `docs/billing/billing-matrix.md` is the same tables plus the integration-covered ones, each naming its test |
-| 16 Sandbox E2E | pending | | |
+| 16 Sandbox E2E | webhook half done; key half blocked | this PR | Real Paddle deliveries through a cloudflared tunnel to a local PGlite API: activated -> PROCESSED -> parked deployment created; replay -> DUPLICATE, no second deployment; past_due and canceled -> projection + Phase 13 refusals + destroy still allowed under CANCELED. The transaction/reconcile/portal/overlay half is blocked on a valid `PADDLE_API_KEY` (the one supplied is the key's masked id, not the secret). Findings in `docs/billing/paddle-billing.md` |
 | 17 Regression + docs | pending | | |
 
 ## Rulings
@@ -235,6 +235,26 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 - R15-2: `mapSubscriptionStatus` is exported only for the matrix test. Nothing
   outside billing-webhooks.ts calls it — the webhook handler remains the only
   writer of subscription status.
+- R16-1: the webhook path is verified against REAL Paddle signing and
+  delivery without a card: a notification destination minted through the
+  sandbox MCP (its `endpoint_secret_key` is `PADDLE_WEBHOOK_SECRET`) pointed
+  at a cloudflared quick tunnel, and Paddle's own simulations carrying
+  `custom_data.organizationId`. Paddle merges a partial simulation payload
+  into its demo entity, so only `custom_data` needs supplying.
+- R16-2: an activation with no `checkoutIntentId` in `customData` resolves to
+  the organization's single PENDING intent — observed live: the parked
+  deployment appeared from a demo subscription id. That fallback is what
+  makes simulations usable, and it is safe because one PENDING intent per
+  organization is enforced at the database.
+- R16-3: a provider error on checkout or portal must be LOGGED server-side
+  (`billing:checkout-transaction-failed`, `billing:portal-session-failed`)
+  even though it is never returned to the client. Without it a malformed API
+  key was an undiagnosable 502; a direct SDK reproduction was needed to read
+  `authentication_malformed`.
+- R16-4: a Paddle sandbox API key has five `_`-separated segments; the four-
+  segment `pdl_sdbx_apikey_<26-char id>` form is the key's masked identifier
+  shown in the dashboard list, not the one-time secret. Validate this shape
+  before assuming a permissions problem.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
@@ -265,11 +285,15 @@ Env names (Phase 5): `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,
   `@paddle/paddle-js` to apps/web and reverted those two churn patterns by
   hand, leaving only the new package in the lockfile diff;
   `pnpm install --frozen-lockfile` still passes.
-- Phase 8 has not opened a real sandbox checkout yet. The catalog now exists
-  (Phase 4), so the remaining verification is: point a local API at the
-  sandbox keys, run `POST /api/billing/checkout`, pay the transaction in
-  Paddle's overlay, and confirm the webhook completes the intent and creates
-  the deployment. Phase 16 covers this end to end.
+- Phase 16 second half (needs a VALID `PADDLE_API_KEY` + `PADDLE_CLIENT_TOKEN`
+  in the worktree `.env`): `POST /api/billing/checkout` -> real transaction;
+  pay in Paddle's overlay with the test card; reconcile pushes quantity 1 to a
+  real sandbox subscription; `POST /api/billing/portal` opens. Local stack
+  recipe and the destination/simulation ids are in
+  `docs/billing/paddle-billing.md` (Sandbox verification). The destination
+  `ntfset_01m20j6f98zk75cv0w8723dgmc` was left DEACTIVATED with its secret
+  still in `.env`; reactivate and repoint it at the new tunnel URL when
+  resuming (quick tunnels change URL on every start).
 - CLOSED by Phase 10: a `billing_provider_events` row left in `RECEIVED` by a
   crash between insert and processing read as a duplicate on redelivery.
   `sweepBilling` now resets rows older than 10 minutes that are still
