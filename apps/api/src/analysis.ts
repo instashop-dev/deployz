@@ -136,7 +136,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // env prefix (`viper.SetEnvPrefix("memos")`, `AutomaticEnv()`) contributes
 // `<PREFIX>_<KEY>` for every viper key it names (`MEMOS_DSN`), so the
 // `*_DSN` url alias binds — stored v17 models hold none of these names.
-export const ANALYSIS_VERSION = 18;
+// Version 19 (DEPLOY-005, outline): a read through a module's env object
+// records the key but never a requirement — the env module owns the defaults
+// — so the v17 rule no longer turns `env.CDN_URL` in a call into a gate
+// blocker; stored v17/v18 models over-require and must re-run.
+export const ANALYSIS_VERSION = 19;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
