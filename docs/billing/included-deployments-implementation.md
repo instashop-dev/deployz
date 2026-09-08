@@ -196,7 +196,7 @@ Shipped in four stacked pull requests, one commit per phase:
 | PR | Phases | Content |
 |---|---|---|
 | #243 | 0–3 | this note; `organization.included_production_deployments` + migration 0038 + Lambda bundle entry; `billableDeploymentQuantity` in reconcile and the billing summary; admin read model |
-| #244 | 4–7 | admin mutation route (locked update, validation, audit, immediate reconcile); vendor-detail editor with preview and confirmation; audit-log labels; Team Admin docs |
+| #247 (replaces #244) | 4–7 | admin mutation route (locked update, validation, audit, immediate reconcile); vendor-detail editor with preview and confirmation; audit-log labels; Team Admin docs |
 | #245 | 8–10 | vendor Billing page pool line; allowance-aware create page and checkout card; deployment detail and disconnect copy |
 | #246 | 11–14 | safety-job test; edge-case tests; these docs |
 
