@@ -43,7 +43,7 @@ interface PendingCommandsResponse {
    * Deployment facts the control plane passes along every poll — the only
    * channel that reaches the observe hooks, which run outside any command.
    */
-  deployment?: { redisRequired?: boolean; probeUrl?: string | null };
+  deployment?: { redisRequired?: boolean; storageRequired?: boolean; databaseRequired?: boolean; probeUrl?: string | null };
 }
 
 /** Payload for POST /api/relay/commands/:id/result */
@@ -117,7 +117,7 @@ export interface PollDependencies {
    * cycle's health observation runs — the observe hooks read them to know
    * whether the installation should include a cache and what URL to probe.
    */
-  onDeploymentMeta?: (meta: { redisRequired: boolean; probeUrl: string | null }) => void;
+  onDeploymentMeta?: (meta: { redisRequired: boolean; storageRequired: boolean; databaseRequired: boolean; probeUrl: string | null }) => void;
 }
 
 /** Result of a single poll cycle. */
@@ -255,6 +255,8 @@ export async function pollOnce(
     const rawProbeUrl = body.deployment.probeUrl;
     deps.onDeploymentMeta?.({
       redisRequired: body.deployment.redisRequired,
+      storageRequired: body.deployment.storageRequired !== false,
+      databaseRequired: body.deployment.databaseRequired !== false,
       probeUrl:
         typeof rawProbeUrl === 'string' &&
         (rawProbeUrl.startsWith('http://') || rawProbeUrl.startsWith('https://'))

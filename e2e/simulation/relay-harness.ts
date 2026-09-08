@@ -256,6 +256,8 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   // Refreshed every poll from GET /api/relay/commands' `deployment` meta —
   // same role as `deploymentMeta` in packages/relay/src/index.ts.
   let redisRequired = false;
+  let storageRequired = true;
+  let databaseRequired = true;
   let probeUrl: string | null = null;
 
   const stackNameOrDefault = (): string => account.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
@@ -558,6 +560,8 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
           installationId,
           stackName: stackNameOrDefault(),
           ...(redisRequired ? { redisRequired: true } : {}),
+          ...(storageRequired ? {} : { storageRequired: false }),
+          ...(databaseRequired ? {} : { databaseRequired: false }),
         }),
       () => buildProvisioningSnapshot(account.cloudFormationReader(), stackNameOrDefault()),
       () =>
@@ -598,6 +602,8 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
           },
     onDeploymentMeta: (meta) => {
       redisRequired = meta.redisRequired;
+      storageRequired = meta.storageRequired;
+      databaseRequired = meta.databaseRequired;
       probeUrl = meta.probeUrl;
     },
     // Chained the same way `relayHandler`'s default `resume` composes its

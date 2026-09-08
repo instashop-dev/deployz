@@ -1,7 +1,7 @@
 /**
  * Synthesizes the application stack and writes the versioned CloudFormation
  * artifacts to packages/cdk/artifacts/application-template-v1.json and
- * application-template-redis-v1.json.
+ * application-template-redis-v1.json, plus the no-storage variants.
  *
  * This is the programmatic equivalent of `cdk synth` — it runs the same
  * App.synth() assembly the CDK CLI drives and emits the identical
@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { synthesizeApplicationStack } from '../dist/quick-create/publish.js';
+import { applicationTemplateVariantKey } from '@deployz/contracts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, '..', 'artifacts');
@@ -30,27 +31,26 @@ mkdirSync(outDir, { recursive: true });
 // customers actually install cannot drift. `synthesizeApplicationStack` is
 // what fixes the two choices that matter — plain Fargate (the verifier
 // requires an ECS service and an ALB) and no certificate at synth time.
-const { template } = await synthesizeApplicationStack({
-  outdir: mkdtempSync(join(tmpdir(), 'deployz-synth-app-')),
-});
+const variants = [
+  { redis: false, storage: true, label: '(base)' },
+  { redis: true, storage: true, label: '(redis)' },
+  { redis: false, storage: false, label: '(no-storage)' },
+  { redis: true, storage: false, label: '(redis, no-storage)' },
+];
 
-const outPath = join(outDir, 'application-template-v1.json');
-writeFileSync(outPath, `${JSON.stringify(template, null, 2)}\n`);
+for (const variant of variants) {
+  const { template } = await synthesizeApplicationStack({
+    outdir: mkdtempSync(join(tmpdir(), `deployz-synth-app-${variant.label}-`)),
+    redisRequired: variant.redis,
+    storageRequired: variant.storage,
+  });
 
-console.log(
-  `Wrote ${outPath} — ${Object.keys(template.Resources).length} resources, ` +
-    `${Buffer.byteLength(JSON.stringify(template))} bytes (uncompressed)`,
-);
+  const key = applicationTemplateVariantKey(variant);
+  const outPath = join(outDir, key);
+  writeFileSync(outPath, `${JSON.stringify(template, null, 2)}\n`);
 
-const { template: redisTemplate } = await synthesizeApplicationStack({
-  outdir: mkdtempSync(join(tmpdir(), 'deployz-synth-app-redis-')),
-  redisRequired: true,
-});
-
-const redisOutPath = join(outDir, 'application-template-redis-v1.json');
-writeFileSync(redisOutPath, `${JSON.stringify(redisTemplate, null, 2)}\n`);
-
-console.log(
-  `Wrote ${redisOutPath} — ${Object.keys(redisTemplate.Resources).length} resources, ` +
-    `${Buffer.byteLength(JSON.stringify(redisTemplate))} bytes (uncompressed)`,
-);
+  console.log(
+    `Wrote ${outPath} — ${Object.keys(template.Resources).length} resources, ` +
+      `${Buffer.byteLength(JSON.stringify(template))} bytes (uncompressed)`,
+  );
+}

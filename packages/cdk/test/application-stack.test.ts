@@ -716,8 +716,19 @@ describe('ApplicationStack', () => {
       const json = JSON.stringify(template.toJSON());
       expect(json).not.toContain('S3_BUCKET');
       expect(json).not.toContain('AWS_S3_BUCKET');
-      // The bucket itself is still provisioned — only the env injection gates.
-      template.resourceCountIs('AWS::S3::Bucket', 1);
+      expect(json).not.toContain('STORAGE_BUCKET');
+      // The bucket itself is NOT provisioned when storage is not required.
+      template.resourceCountIs('AWS::S3::Bucket', 0);
+      // No StorageBucketName output.
+      const outputs = Object.keys(template.findOutputs('*'));
+      expect(outputs).not.toContain('StorageBucketName');
+      // No S3 actions on the task role.
+      const roles = template.findResources('AWS::IAM::Role');
+      const taskRole = Object.values(roles).find(
+        (r) => r.Properties?.Description === 'Runtime role for the customer application container.',
+      ) as { Properties?: { Policies?: Array<{ PolicyDocument?: { Statement?: Array<{ Action?: string[] }> } }> } };
+      const roleJson = JSON.stringify(taskRole);
+      expect(roleJson).not.toContain('s3:');
     });
 
     it('applies containerPort/healthCheckPath to the task definition and target group (HTTP branch)', () => {
@@ -1407,5 +1418,92 @@ describe('Stage B phase 2 — database binding aliases', () => {
     // Every bucket-named entry carries the same provisioned bucket name.
     const bucketName = envByName['AWS_S3_BUCKET'];
     expect(envByName['S3_ATTACHMENTS_BUCKET']).toEqual(bucketName);
+  });
+
+  describe('conditional resource matrix', () => {
+    it('stateless: no database, no redis, no storage — zero of each', () => {
+      const { template } = synth(false, {
+        databaseRequired: false,
+        redisRequired: false,
+        storageRequired: false,
+      });
+      template.resourceCountIs('AWS::RDS::DBInstance', 0);
+      template.resourceCountIs('AWS::ElastiCache::ReplicationGroup', 0);
+      template.resourceCountIs('AWS::S3::Bucket', 0);
+      const outputs = Object.keys(template.findOutputs('*'));
+      expect(outputs).not.toContain('DbHost');
+      expect(outputs).not.toContain('DbSecretArn');
+      expect(outputs).not.toContain('StorageBucketName');
+      expect(outputs).not.toContain('CacheEndpoint');
+    });
+
+    it('storage-only: bucket present, no RDS, no Redis', () => {
+      const { template } = synth(false, {
+        databaseRequired: false,
+        redisRequired: false,
+        storageRequired: true,
+      });
+      template.resourceCountIs('AWS::RDS::DBInstance', 0);
+      template.resourceCountIs('AWS::ElastiCache::ReplicationGroup', 0);
+      template.resourceCountIs('AWS::S3::Bucket', 1);
+    });
+
+    it('DB-only: RDS present, no Redis, no storage', () => {
+      const { template } = synth(false, {
+        databaseRequired: true,
+        redisRequired: false,
+        storageRequired: false,
+      });
+      template.resourceCountIs('AWS::RDS::DBInstance', 1);
+      template.resourceCountIs('AWS::ElastiCache::ReplicationGroup', 0);
+      template.resourceCountIs('AWS::S3::Bucket', 0);
+    });
+
+    it('Redis-only: cache present, no DB, no storage', () => {
+      const { template } = synth(false, {
+        databaseRequired: false,
+        redisRequired: true,
+        storageRequired: false,
+      });
+      template.resourceCountIs('AWS::RDS::DBInstance', 0);
+      template.resourceCountIs('AWS::ElastiCache::ReplicationGroup', 1);
+      template.resourceCountIs('AWS::S3::Bucket', 0);
+    });
+
+    it('full: all three present — unchanged behavior', () => {
+      const { template } = synth(false, {
+        databaseRequired: true,
+        redisRequired: true,
+        storageRequired: true,
+      });
+      template.resourceCountIs('AWS::RDS::DBInstance', 1);
+      template.resourceCountIs('AWS::ElastiCache::ReplicationGroup', 1);
+      template.resourceCountIs('AWS::S3::Bucket', 1);
+    });
+
+    it('worker with storageRequired: true — worker exists and gets storage env vars', () => {
+      const { template } = synth(false, {
+        workerCommand: 'node worker.js',
+        databaseRequired: false,
+        redisRequired: false,
+        storageRequired: true,
+      });
+      template.resourceCountIs('AWS::ECS::Service', 2);
+      const json = JSON.stringify(template.toJSON());
+      expect(json).toContain('S3_BUCKET');
+    });
+
+    it('worker with storageRequired: false — worker exists but no storage env vars', () => {
+      const { template } = synth(false, {
+        workerCommand: 'node worker.js',
+        databaseRequired: false,
+        redisRequired: false,
+        storageRequired: false,
+      });
+      template.resourceCountIs('AWS::ECS::Service', 2);
+      template.resourceCountIs('AWS::S3::Bucket', 0);
+      const json = JSON.stringify(template.toJSON());
+      expect(json).not.toContain('S3_BUCKET');
+    });
   });
 });

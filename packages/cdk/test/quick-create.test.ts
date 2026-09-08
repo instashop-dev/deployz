@@ -35,6 +35,7 @@ import {
 import {
   APPLICATION_TEMPLATE_KEY as CONTRACTS_APPLICATION_TEMPLATE_KEY,
   APPLICATION_TEMPLATE_REDIS_KEY as CONTRACTS_APPLICATION_TEMPLATE_REDIS_KEY,
+  applicationTemplateVariantKey,
 } from '@deployz/contracts';
 
 describe('quick-create', () => {
@@ -993,6 +994,38 @@ describe('quick-create', () => {
       expect(uploads.find((u) => u.key === 'application/v1/application-template-v1.json')).toBeUndefined();
     });
 
+    it('publishes all four variants under their correct keys via applicationTemplateVariantKey', async () => {
+      const { client, uploads } = mockS3();
+      const publisher = new ApplicationPublisher(client, {
+        region,
+        bucket,
+        keyPrefix: 'application/v1',
+      });
+
+      const variants = [
+        { redis: false, storage: true },
+        { redis: true, storage: true },
+        { redis: false, storage: false },
+        { redis: true, storage: false },
+      ];
+
+      for (const variant of variants) {
+        await publisher.publish(
+          { template: syntheticTemplate, assets: [] },
+          undefined,
+          applicationTemplateVariantKey(variant),
+        );
+      }
+
+      // All four variants were uploaded.
+      expect(uploads).toHaveLength(4);
+      const keys = uploads.map((u) => u.key);
+      expect(keys).toContain('application/v1/application-template-v1.json');
+      expect(keys).toContain('application/v1/application-template-redis-v1.json');
+      expect(keys).toContain('application/v1/application-template-no-storage-v1.json');
+      expect(keys).toContain('application/v1/application-template-redis-no-storage-v1.json');
+    });
+
     it('re-exports the template keys the relay derives the Redis URL from, unchanged', () => {
       expect(APPLICATION_TEMPLATE_KEY).toBe(CONTRACTS_APPLICATION_TEMPLATE_KEY);
       expect(APPLICATION_TEMPLATE_REDIS_KEY).toBe(CONTRACTS_APPLICATION_TEMPLATE_REDIS_KEY);
@@ -1092,6 +1125,44 @@ describe('quick-create', () => {
 
         expect(types).toContain('AWS::ElastiCache::ReplicationGroup');
         expect(types).toContain('AWS::ElastiCache::SubnetGroup');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('provisions no S3 bucket when storageRequired is false', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-no-storage-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          stackId: 'DeployzApplicationNoStorage',
+          storageRequired: false,
+        });
+
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+
+        expect(types).not.toContain('AWS::S3::Bucket');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('provisions no S3 bucket and no Redis when both are false', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-minimal-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          stackId: 'DeployzApplicationMinimal',
+          redisRequired: false,
+          storageRequired: false,
+        });
+
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const types = Object.values(resources).map((r) => r.Type);
+
+        expect(types).not.toContain('AWS::S3::Bucket');
+        expect(types).not.toContain('AWS::ElastiCache::ReplicationGroup');
       } finally {
         rmSync(outdir, { recursive: true, force: true });
       }

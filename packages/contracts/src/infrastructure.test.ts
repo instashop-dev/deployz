@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   aggregateInfrastructureComponents,
+  expectedInfrastructureResources,
   type InfrastructureResourceRow,
 } from './infrastructure.js';
 
@@ -22,6 +23,65 @@ function row(overrides: Partial<InfrastructureResourceRow> = {}): Infrastructure
     ...overrides,
   };
 }
+
+describe('expectedInfrastructureResources', () => {
+  it('always expects compute and ingress', () => {
+    const resources = expectedInfrastructureResources({
+      postgres: false,
+      redis: false,
+      storage: false,
+      worker: false,
+    });
+    expect(resources.map((resource) => resource.type)).toEqual([
+      'AWS::ECS::Service',
+      'AWS::ElasticLoadBalancingV2::LoadBalancer',
+    ]);
+  });
+
+  it('expects database, storage and cache only when the profile requires them', () => {
+    const all = expectedInfrastructureResources({
+      postgres: true,
+      redis: true,
+      storage: true,
+      worker: true,
+    });
+    expect(all.map((resource) => resource.type)).toEqual([
+      'AWS::ECS::Service',
+      'AWS::ElasticLoadBalancingV2::LoadBalancer',
+      'AWS::RDS::DBInstance',
+      'AWS::S3::Bucket',
+      'AWS::ElastiCache::ReplicationGroup',
+    ]);
+
+    const storageOnly = expectedInfrastructureResources({
+      postgres: false,
+      redis: false,
+      storage: true,
+      worker: false,
+    });
+    expect(storageOnly.map((resource) => resource.type)).toEqual([
+      'AWS::ECS::Service',
+      'AWS::ElasticLoadBalancingV2::LoadBalancer',
+      'AWS::S3::Bucket',
+    ]);
+  });
+
+  it('gives worker no distinct inventory resource', () => {
+    const withoutWorker = expectedInfrastructureResources({
+      postgres: true,
+      redis: false,
+      storage: true,
+      worker: false,
+    });
+    const withWorker = expectedInfrastructureResources({
+      postgres: true,
+      redis: false,
+      storage: true,
+      worker: true,
+    });
+    expect(withWorker).toEqual(withoutWorker);
+  });
+});
 
 describe('aggregateInfrastructureComponents', () => {
   it('composes an all-ready snapshot into ready components and a ready summary', () => {

@@ -29,7 +29,7 @@ import {
   DescribeStacksCommand,
   ListStackResourcesCommand,
 } from '@aws-sdk/client-cloudformation';
-import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
+import { DEFAULT_APPLICATION_STACK_NAME, expectedInfrastructureResources } from '@deployz/contracts';
 import type { ProvisioningSnapshot } from './provision-progress.js';
 
 // ── Observed shapes ─────────────────────────────────────────────────────────
@@ -93,6 +93,10 @@ export interface VerifyOptions {
   readonly stackName?: string;
   /** Expect an ElastiCache cluster. Defaults to false. */
   readonly redisRequired?: boolean;
+  /** Expect an S3 storage bucket. Defaults to true — preserves today's behavior. */
+  readonly storageRequired?: boolean;
+  /** Expect an RDS instance. Defaults to true — preserves today's behavior. */
+  readonly databaseRequired?: boolean;
 }
 
 export interface VerificationCheck {
@@ -140,18 +144,7 @@ const INSTALLATION_TAG = 'deployz:installation';
 /** Stack and resource statuses that mean "this finished, and it worked". */
 const COMPLETE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
 
-const REQUIRED_RESOURCES = [
-  { name: 'compute', type: 'AWS::ECS::Service', label: 'ECS service' },
-  { name: 'ingress', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', label: 'load balancer' },
-  { name: 'database', type: 'AWS::RDS::DBInstance', label: 'database' },
-  { name: 'storage', type: 'AWS::S3::Bucket', label: 'storage bucket' },
-] as const;
 
-const CACHE_RESOURCE = {
-  name: 'cache',
-  type: 'AWS::ElastiCache::ReplicationGroup',
-  label: 'cache',
-} as const;
 
 export async function verifyInstallation(options: VerifyOptions): Promise<VerificationResult> {
   const checks: VerificationCheck[] = [];
@@ -222,9 +215,14 @@ async function runChecks(
 
   // 4. It contains the application, not just an empty shell.
   const resources = await options.cfn.describeStackResources(stackName);
-  const expected = options.redisRequired
-    ? [...REQUIRED_RESOURCES, CACHE_RESOURCE]
-    : [...REQUIRED_RESOURCES];
+  const storageRequired = options.storageRequired ?? true;
+  const databaseRequired = options.databaseRequired ?? true;
+  const expected = expectedInfrastructureResources({
+    postgres: databaseRequired,
+    redis: options.redisRequired ?? false,
+    storage: storageRequired,
+    worker: false,
+  });
 
   for (const want of expected) {
     const present = resources.some(
@@ -239,20 +237,48 @@ async function runChecks(
     });
   }
 
-  // Cache is always OBSERVED even when not required: its absence is what
-  // distinguishes "Not provisioned" from "Not reporting" on the dashboard.
+  // Non-required resources are still OBSERVED: their absence distinguishes
+  // "Not provisioned" from "Not reporting" on the dashboard.
   if (!options.redisRequired) {
     const cachePresent = resources.some(
       (resource) =>
-        resource.type === CACHE_RESOURCE.type && COMPLETE_STATUSES.has(resource.status),
+        resource.type === 'AWS::ElastiCache::ReplicationGroup' && COMPLETE_STATUSES.has(resource.status),
     );
     checks.push({
-      name: CACHE_RESOURCE.name,
+      name: 'cache',
       passed: cachePresent,
       required: false,
       detail: cachePresent
         ? 'Found a cache cluster (not required by this application)'
         : 'No cache cluster in the stack — not provisioned',
+    });
+  }
+
+  if (!storageRequired) {
+    const storagePresent = resources.some(
+      (resource) => resource.type === 'AWS::S3::Bucket' && COMPLETE_STATUSES.has(resource.status),
+    );
+    checks.push({
+      name: 'storage',
+      passed: storagePresent,
+      required: false,
+      detail: storagePresent
+        ? 'Found a storage bucket (not required by this application)'
+        : 'No storage bucket in the stack — not provisioned',
+    });
+  }
+
+  if (!databaseRequired) {
+    const dbPresent = resources.some(
+      (resource) => resource.type === 'AWS::RDS::DBInstance' && COMPLETE_STATUSES.has(resource.status),
+    );
+    checks.push({
+      name: 'database',
+      passed: dbPresent,
+      required: false,
+      detail: dbPresent
+        ? 'Found a database (not required by this application)'
+        : 'No database in the stack — not provisioned',
     });
   }
 

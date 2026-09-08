@@ -49,11 +49,12 @@ The flow a deployment follows, end to end:
 6. **Install Infrastructure** — the customer opens the install link and runs
    the Quick Create. The bootstrap stack brings the relay up; the relay claims
    the INSTALL job and provisions the published application template
-   (VPC, ALB, ECS/Fargate service, RDS PostgreSQL, and S3 — the template always
-   carries them — plus the ElastiCache Valkey cache when the application
-   requires Redis) in the customer account. Cross-account ECR pull
-   is granted control-plane-side. INSTALL success auto-deploys the newest
-   READY release.
+   (VPC, ALB, and ECS/Fargate service are always present; RDS PostgreSQL,
+   S3 storage, and the ElastiCache Valkey cache are provisioned only when
+   the application requires them — the relay selects one of four published
+   template variants per the redis/storage combination) in the customer
+   account. Cross-account ECR pull is granted control-plane-side. INSTALL
+   success auto-deploys the newest READY release.
 7. **Deploy Release** — DEPLOY_RELEASE runs the migration command (if any) as
    a one-off ECS task and then updates the service to the pinned digest.
 8. **Migration** — the migration stage runs before the service update,

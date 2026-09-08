@@ -363,7 +363,10 @@ describe('INSTALL job payload.parameters wiring', () => {
       .select()
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
-    expect((job!.payload as { redisRequired?: boolean }).redisRequired).toBe(true);
+    const payload = job!.payload as { redisRequired?: boolean; storageRequired?: boolean; databaseRequired?: boolean };
+    expect(payload.redisRequired).toBe(true);
+    expect(payload.storageRequired).toBe(false);
+    expect(payload.databaseRequired).toBe(false);
   });
 
   it('POST /api/relay/register carries redisRequired: false when the application does not require Redis', async () => {
@@ -387,6 +390,29 @@ describe('INSTALL job payload.parameters wiring', () => {
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
     expect((job!.payload as { redisRequired?: boolean }).redisRequired).toBe(false);
+  });
+
+  it('POST /api/relay/register carries storageRequired: true when the application requires storage', async () => {
+    const application = await insertApplication(db, org.organizationId, { storageRequired: true });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+    });
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId: `inst-${crypto.randomUUID()}` },
+      { authorization: 'Bearer relay-token-install-params-storage' },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect((job!.payload as { storageRequired?: boolean }).storageRequired).toBe(true);
   });
 
   it('POST /api/relay/register carries the canonical manifest from desired_state.manifest', async () => {
@@ -452,12 +478,16 @@ describe('INSTALL job payload.parameters wiring', () => {
       recovery?: { neverInstalled?: boolean };
       parameters?: Record<string, string>;
       redisRequired?: boolean;
+      storageRequired?: boolean;
+      databaseRequired?: boolean;
     };
     expect(payload.recovery).toEqual({ neverInstalled: true });
     expect(payload.parameters?.[DOCUMENSO_PARAMETERS.nextauthSecret]).toMatch(SECRET_SHAPE);
     expect(payload.parameters?.[DOCUMENSO_PARAMETERS.encryptionKey]).toMatch(SECRET_SHAPE);
     expect(payload.parameters?.[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).toMatch(SECRET_SHAPE);
     expect(payload.redisRequired).toBe(false);
+    expect(payload.storageRequired).toBe(false);
+    expect(payload.databaseRequired).toBe(false);
   });
 
   it('POST /api/deployments/:id/retry-install carries redisRequired: true when the application requires Redis', async () => {

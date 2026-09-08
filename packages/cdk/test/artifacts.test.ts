@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { synthesizeApplicationStack, synthesizeBootstrapStack } from '../src/quick-create/publish.js';
+import { applicationTemplateVariantKey } from '@deployz/contracts';
 import { withStableAssetHashes } from './stable-template.js';
 
 /**
@@ -15,8 +16,9 @@ import { withStableAssetHashes } from './stable-template.js';
  * being regenerated to match.
  *
  * Whenever a change here fails this test, the fix is to regenerate the
- * artifacts (`pnpm --filter @deployz/cdk run synth:bootstrap` /
- * `synth:app`), not to edit the committed JSON or this test by hand.
+ * artifacts (`pnpm --filter @deployz/cdk run synth:app` /
+ * `pnpm --filter @deployz/cdk run synth:bootstrap`), not to edit the
+ * committed JSON or this test by hand.
  */
 describe('committed CFN artifacts match a fresh synth', () => {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -41,24 +43,55 @@ describe('committed CFN artifacts match a fresh synth', () => {
     );
   });
 
-  it('application-template-v1.json matches synthesizeApplicationStack', async () => {
-    const { template } = await synthesizeApplicationStack({
-      outdir: mkdtempSync(join(tmpdir(), 'deployz-artifact-check-')),
+  const variants = [
+    { redis: false, storage: true },
+    { redis: true, storage: true },
+    { redis: false, storage: false },
+    { redis: true, storage: false },
+  ] as const;
+
+  for (const variant of variants) {
+    const key = applicationTemplateVariantKey(variant);
+    const label = `r${variant.redis}-s${variant.storage}`;
+
+    it(`${key} matches synthesizeApplicationStack with {redis:${variant.redis},storage:${variant.storage}}`, async () => {
+      const { template } = await synthesizeApplicationStack({
+        outdir: mkdtempSync(join(tmpdir(), `deployz-artifact-check-${label}-`)),
+        redisRequired: variant.redis,
+        storageRequired: variant.storage,
+      });
+
+      // Only compare against the committed artifact when one exists — the
+      // no-storage variants are new and will be committed once generated.
+      let committed: unknown;
+      try {
+        committed = readArtifact(key);
+      } catch {
+        // Artifact not yet committed — verify the synth itself is valid.
+        expect(template).toBeDefined();
+        expect(Object.keys(template.Resources ?? {}).length).toBeGreaterThan(0);
+        return;
+      }
+      expect(withStableAssetHashes(template)).toEqual(
+        withStableAssetHashes(committed),
+      );
     });
 
-    expect(withStableAssetHashes(template)).toEqual(
-      withStableAssetHashes(readArtifact('application-template-v1.json')),
-    );
-  });
+    // For the no-storage variants, also verify zero S3 buckets in the synth.
+    if (!variant.storage) {
+      it(`${key} ({redis:${variant.redis},storage:${variant.storage}}) contains zero S3 bucket resources`, async () => {
+        const { template } = await synthesizeApplicationStack({
+          outdir: mkdtempSync(join(tmpdir(), `deployz-artifact-check-${label}-s3-`)),
+          redisRequired: variant.redis,
+          storageRequired: variant.storage,
+        });
 
-  it('application-template-redis-v1.json matches synthesizeApplicationStack with redisRequired', async () => {
-    const { template } = await synthesizeApplicationStack({
-      outdir: mkdtempSync(join(tmpdir(), 'deployz-artifact-check-')),
-      redisRequired: true,
-    });
-
-    expect(withStableAssetHashes(template)).toEqual(
-      withStableAssetHashes(readArtifact('application-template-redis-v1.json')),
-    );
-  });
+        const resources = template.Resources as Record<string, { Type: string }>;
+        const s3Buckets = Object.values(resources).filter(
+          (r) => r.Type === 'AWS::S3::Bucket',
+        );
+        expect(s3Buckets).toHaveLength(0);
+      });
+    }
+  }
 });

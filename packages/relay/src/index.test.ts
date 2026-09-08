@@ -620,9 +620,16 @@ describe('createObserveHook', () => {
 });
 
 describe('readVerifyOptionsFromPayload', () => {
-  it('reads redisRequired and stackName when both are present and well-typed', () => {
-    expect(readVerifyOptionsFromPayload({ redisRequired: true, stackName: 'deployz-app-custom' })).toEqual({
+  it('reads all fields when present and well-typed', () => {
+    expect(readVerifyOptionsFromPayload({
       redisRequired: true,
+      storageRequired: false,
+      databaseRequired: false,
+      stackName: 'deployz-app-custom',
+    })).toEqual({
+      redisRequired: true,
+      storageRequired: false,
+      databaseRequired: false,
       stackName: 'deployz-app-custom',
     });
   });
@@ -636,6 +643,11 @@ describe('readVerifyOptionsFromPayload', () => {
     expect(readVerifyOptionsFromPayload({ redisRequired: 1 })).toEqual({});
   });
 
+  it('ignores non-boolean storageRequired and databaseRequired', () => {
+    expect(readVerifyOptionsFromPayload({ storageRequired: 'false' })).toEqual({});
+    expect(readVerifyOptionsFromPayload({ databaseRequired: 1 })).toEqual({});
+  });
+
   it('ignores a non-string or empty stackName rather than trusting it', () => {
     expect(readVerifyOptionsFromPayload({ stackName: 42 })).toEqual({});
     expect(readVerifyOptionsFromPayload({ stackName: '' })).toEqual({});
@@ -643,6 +655,13 @@ describe('readVerifyOptionsFromPayload', () => {
 
   it('reads redisRequired: false explicitly, not just truthy values', () => {
     expect(readVerifyOptionsFromPayload({ redisRequired: false })).toEqual({ redisRequired: false });
+  });
+
+  it('reads storageRequired: false and databaseRequired: false explicitly', () => {
+    expect(readVerifyOptionsFromPayload({ storageRequired: false, databaseRequired: false })).toEqual({
+      storageRequired: false,
+      databaseRequired: false,
+    });
   });
 });
 
@@ -813,13 +832,13 @@ describe('createInstallExecutor', () => {
       }),
     )({ ...command, payload: { redisRequired: true } });
 
-    expect(await pending.read()).toEqual({
+    expect(await pending.read()).toMatchObject({
       commandId: 'cmd-1',
       idempotencyKey: 'dep-1:INSTALL',
       type: 'INSTALL',
       stackName: 'deployz-app',
       startedAt: '2026-08-26T12:00:00.000Z',
-      payload: { redisRequired: true, parameters: {} },
+      payload: { redisRequired: true, storageRequired: true, databaseRequired: true, parameters: {} },
     });
   });
 
@@ -1335,7 +1354,7 @@ describe('settleInstall picks the Redis-enabled template variant', () => {
       type: 'INSTALL',
       stackName: 'deployz-app',
       startedAt: '2026-08-26T12:00:00.000Z',
-      payload: { redisRequired: true },
+      payload: { redisRequired: true, storageRequired: true },
     });
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
@@ -1349,6 +1368,53 @@ describe('settleInstall picks the Redis-enabled template variant', () => {
       templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
     });
     expect(results[0]).toMatchObject({ commandId: 'cmd-1', success: true });
+  });
+
+  it('installs the no-storage variant when storageRequired is false', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: { storageRequired: false },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-no-storage-v1.json',
+    });
+  });
+
+  it('installs the redis-no-storage variant when both redisRequired:true and storageRequired:false', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: { redisRequired: true, storageRequired: false },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-no-storage-v1.json',
+    });
+  });
+
+  it('fails immediately when no-storage variant is needed but the base URL is unrecognized', async () => {
+    const install = vi.fn();
+
+    const result = await createInstallExecutor(
+      makeInstallDeps({ install, templateUrl: 'https://example.com/some-other-template.json' }),
+    )({ ...command, payload: { storageRequired: false } });
+
+    expect(install).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/storage/i);
+    expect(result.error).toMatch(/variant/i);
   });
 });
 
@@ -1589,7 +1655,7 @@ function bigManifestPayload() {
 }
 
 describe('compactPendingInstallPayload', () => {
-  it('drops the manifest, merges the manifest-derived parameters over the payload parameters, and resolves redisRequired from the manifest', () => {
+  it('drops the manifest, merges the manifest-derived parameters over the payload parameters, and resolves requirements from the manifest', () => {
     const manifest = bigManifestPayload();
     const payload = {
       parameters: { paramHealthCheckPath: '/legacy', paramAppApiKey: 'k' },
@@ -1607,6 +1673,8 @@ describe('compactPendingInstallPayload', () => {
       paramHealthCheckPath: '/api/health', // the manifest wins over the ad-hoc value
     });
     expect(compacted['redisRequired']).toBe(true);
+    expect(compacted['storageRequired']).toBe(true);
+    expect(compacted['databaseRequired']).toBe(true);
 
     const marker = {
       commandId: 'cmd-1',

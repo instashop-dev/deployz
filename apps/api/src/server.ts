@@ -119,7 +119,7 @@ import { refineFailureCode } from './failure-classification.js';
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
-import { buildInstallParameters, readRedisRequired } from './install-parameters.js';
+import { buildInstallParameters, readDatabaseRequired, readRedisRequired, readStorageRequired } from './install-parameters.js';
 import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
 import { readStoredManifest } from './manifest.js';
 import { enqueue } from './queue.js';
@@ -4383,6 +4383,8 @@ export async function buildServer({
         recovery: { neverInstalled: true },
         parameters: await buildInstallParameters(db, deployment.id),
         redisRequired: await readRedisRequired(db, deployment.applicationId),
+        storageRequired: await readStorageRequired(db, deployment.applicationId),
+        databaseRequired: await readDatabaseRequired(db, deployment.applicationId),
         // The canonical manifest this deployment was created with — the relay
         // derives port/health/binding parameters from it (Phase 2).
         manifest: readStoredManifest(deployment.desiredState),
@@ -5199,6 +5201,8 @@ export async function buildServer({
               payload: {
                 parameters: await buildInstallParameters(db, deployment.id),
                 redisRequired: await readRedisRequired(db, deployment.applicationId),
+                storageRequired: await readStorageRequired(db, deployment.applicationId),
+                databaseRequired: await readDatabaseRequired(db, deployment.applicationId),
                 // The canonical manifest this deployment was created with — the
                 // relay derives port/health/binding parameters from it (Phase 2).
                 manifest: readStoredManifest(deployment.desiredState),
@@ -5302,7 +5306,12 @@ export async function buildServer({
     // heartbeat runs outside any command, so this poll response is the only
     // channel that reaches it.
     const appRows = await db
-      .select({ redisRequired: schema.applications.redisRequired, healthPath: schema.applications.healthPath })
+      .select({
+        redisRequired: schema.applications.redisRequired,
+        storageRequired: schema.applications.storageRequired,
+        databaseRequired: schema.applications.databaseRequired,
+        healthPath: schema.applications.healthPath,
+      })
       .from(schema.applications)
       .where(eq(schema.applications.id, deployment.applicationId))
       .limit(1);
@@ -5329,6 +5338,8 @@ export async function buildServer({
       })),
       deployment: {
         redisRequired: appRows[0]?.redisRequired ?? false,
+        storageRequired: appRows[0]?.storageRequired ?? false,
+        databaseRequired: appRows[0]?.databaseRequired ?? false,
         probeUrl: resolveProbeUrl(installJobs, appRows[0]?.healthPath ?? null, activeDomain, defaultHttps),
       },
     };

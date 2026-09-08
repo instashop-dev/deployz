@@ -412,7 +412,7 @@ export class ApplicationStack extends Stack {
   public readonly databaseUrlSecret?: Secret;
   /** App runtime secrets — supplied via NoEcho `param_` parameters (M17). */
   public readonly appSecret: Secret;
-  public readonly storageBucket: Bucket;
+  public readonly storageBucket?: Bucket;
   public readonly cluster: Cluster;
   /** Plain-Fargate service (defined when `expressMode` is false). */
   public readonly fargateService?: FargateService;
@@ -436,6 +436,7 @@ export class ApplicationStack extends Stack {
     const desiredCount = props.desiredCount ?? 1;
     const imageReference = `${imageRepository}@${imageDigest}`;
     const databaseRequired = props.databaseRequired ?? true;
+    const storageRequired = props.storageRequired ?? true;
     // Per-install container port. A parameter (defaulting to the synth-time
     // prop) rather than a baked constant: the published template is shared by
     // every install, and the relay's INSTALL carries the manifest's web.port
@@ -642,34 +643,36 @@ export class ApplicationStack extends Stack {
       },
     });
 
-    // ── 5. S3 object storage (versioned) ─────────────────────────────────
-    this.storageBucket = new Bucket(this, 'AppStorage', {
-      versioned: true,
-      encryption: BucketEncryption.S3_MANAGED,
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-      // Phase 9 lifecycle decision: RETAIN (documented) — destroying the stack
-      // keeps the bucket and its objects; the relay's PURGE empties (every
-      // version and delete marker) then deletes the bucket.
-      removalPolicy: RemovalPolicy.RETAIN,
-      // Cost control on the retained, versioned bucket: expire non-current
-      // versions (versioned overwrites) and abort multipart uploads that
-      // never completed. Current versions are never expired.
-      lifecycleRules: [
-        {
-          id: 'ExpireNoncurrentVersions',
-          enabled: true,
-          noncurrentVersionExpiration: Duration.days(NONCURRENT_VERSION_EXPIRATION_DAYS),
-        },
-        {
-          id: 'AbortIncompleteMultipartUploads',
-          enabled: true,
-          abortIncompleteMultipartUploadAfter: Duration.days(
-            ABORT_INCOMPLETE_MULTIPART_AFTER_DAYS,
-          ),
-        },
-      ],
-    });
+    // ── 5. S3 object storage (versioned) — gated on storageRequired ──────
+    if (storageRequired) {
+      this.storageBucket = new Bucket(this, 'AppStorage', {
+        versioned: true,
+        encryption: BucketEncryption.S3_MANAGED,
+        blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+        enforceSSL: true,
+        // Phase 9 lifecycle decision: RETAIN (documented) — destroying the stack
+        // keeps the bucket and its objects; the relay's PURGE empties (every
+        // version and delete marker) then deletes the bucket.
+        removalPolicy: RemovalPolicy.RETAIN,
+        // Cost control on the retained, versioned bucket: expire non-current
+        // versions (versioned overwrites) and abort multipart uploads that
+        // never completed. Current versions are never expired.
+        lifecycleRules: [
+          {
+            id: 'ExpireNoncurrentVersions',
+            enabled: true,
+            noncurrentVersionExpiration: Duration.days(NONCURRENT_VERSION_EXPIRATION_DAYS),
+          },
+          {
+            id: 'AbortIncompleteMultipartUploads',
+            enabled: true,
+            abortIncompleteMultipartUploadAfter: Duration.days(
+              ABORT_INCOMPLETE_MULTIPART_AFTER_DAYS,
+            ),
+          },
+        ],
+      });
+    }
 
     // ── 7. CloudWatch log group for ECS tasks ─────────────────────────────
     const logGroup = new LogGroup(this, 'AppLogGroup', {
@@ -833,25 +836,25 @@ export class ApplicationStack extends Stack {
           )
         : [];
 
-    const storageRequired = props.storageRequired ?? true;
     // S3 bindings injected when storage is required — the manifest's storage
     // requirement surfaces as the bucket name under each of the names the
-    // application and its SDKs typically read. The bucket is still always
-    // provisioned; this gates only the environment injection. Empty when
-    // storageRequired is false — no STORAGE_*/S3_* env vars anywhere. Stage B
-    // phase 2: alias bucket names the app reads (S3_ATTACHMENTS_BUCKET) are
-    // injected with the same bucket name alongside the fixed set.
-    const storageEnvEntries: Array<[string, string]> = storageRequired
-      ? [
-          ['STORAGE_BUCKET', this.storageBucket.bucketName],
-          ['S3_BUCKET', this.storageBucket.bucketName],
-          ['AWS_S3_BUCKET', this.storageBucket.bucketName],
-          ['AWS_REGION', this.region],
-          ...(props.storageBucketEnvNames ?? []).map(
-            (name): [string, string] => [name, this.storageBucket.bucketName],
-          ),
-        ]
-      : [];
+    // application and its SDKs typically read. Empty when storageRequired is
+    // false — no STORAGE_*/S3_* env vars anywhere. Stage B phase 2: alias
+    // bucket names the app reads (S3_ATTACHMENTS_BUCKET) are injected with the
+    // same bucket name alongside the fixed set.
+    const storageBucket = this.storageBucket;
+    const storageEnvEntries: Array<[string, string]> =
+      storageBucket === undefined
+        ? []
+        : [
+            ['STORAGE_BUCKET', storageBucket.bucketName],
+            ['S3_BUCKET', storageBucket.bucketName],
+            ['AWS_S3_BUCKET', storageBucket.bucketName],
+            ['AWS_REGION', this.region],
+            ...(props.storageBucketEnvNames ?? []).map(
+              (name): [string, string] => [name, storageBucket.bucketName],
+            ),
+          ];
 
     // databaseUrlEnvNames ECS secrets: the whole DatabaseUrlSecret value
     // (no JSON key suffix) injected under each configured env name into
@@ -946,7 +949,7 @@ export class ApplicationStack extends Stack {
       path: '/deployz/',
       description: 'Runtime role for the customer application container.',
     });
-    this.storageBucket.grantReadWrite(taskRole);
+    this.storageBucket?.grantReadWrite(taskRole);
     this.databaseSecret?.grantRead(taskRole);
     this.databaseUrlSecret?.grantRead(taskRole);
     this.appSecret.grantRead(taskRole);
@@ -1438,9 +1441,11 @@ const dbEnv =
         value: this.databaseSecret.secretArn,
       });
     }
-    new CfnOutput(this, 'StorageBucketName', {
-      value: this.storageBucket.bucketName,
-    });
+    if (this.storageBucket !== undefined) {
+      new CfnOutput(this, 'StorageBucketName', {
+        value: this.storageBucket.bucketName,
+      });
+    }
     new CfnOutput(this, 'ClusterName', {
       value: this.cluster.clusterName,
     });

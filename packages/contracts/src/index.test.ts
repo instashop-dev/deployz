@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
 
 import {
+  APPLICATION_TEMPLATE_KEY,
+  APPLICATION_TEMPLATE_REDIS_NO_STORAGE_KEY,
   DEFAULT_APPLICATION_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME,
   DESTROY_PENDING_STALE_AFTER_MS,
@@ -11,6 +13,8 @@ import {
   SUPPORTED_AWS_REGIONS,
   applicationSchema,
   applicationStackNameForInstallation,
+  applicationTemplateVariantKey,
+  applicationTemplateVariantUrl,
   bootstrapStackName,
   bootstrapTemplateBucketName,
   componentProgressStatusSchema,
@@ -496,6 +500,56 @@ describe('redisApplicationTemplateUrl', () => {
 
   it('returns undefined for an empty string', () => {
     expect(redisApplicationTemplateUrl('')).toBeUndefined();
+  });
+});
+
+describe('applicationTemplateVariantUrl', () => {
+  const base = 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json';
+
+  it('returns the base URL unchanged for the storage-keeping, non-redis variant', () => {
+    expect(applicationTemplateVariantUrl(base, { redis: false, storage: true })).toBe(base);
+  });
+
+  it('derives the redis variant URL', () => {
+    expect(applicationTemplateVariantUrl(base, { redis: true, storage: true })).toBe(
+      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+    );
+  });
+
+  it('derives the storage-less variant URL', () => {
+    expect(applicationTemplateVariantUrl(base, { redis: false, storage: false })).toBe(
+      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-no-storage-v1.json',
+    );
+  });
+
+  it('derives the redis, storage-less variant URL', () => {
+    expect(applicationTemplateVariantUrl(base, { redis: true, storage: false })).toBe(
+      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-no-storage-v1.json',
+    );
+  });
+
+  it('agrees with redisApplicationTemplateUrl for the redis variant', () => {
+    expect(applicationTemplateVariantUrl(base, { redis: true, storage: true })).toBe(
+      redisApplicationTemplateUrl(base),
+    );
+  });
+
+  it('returns undefined for a URL not ending in the base template key', () => {
+    expect(
+      applicationTemplateVariantUrl('https://bucket.s3.amazonaws.com/other-template.json', {
+        redis: false,
+        storage: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('derives variant keys under the same prefix path', () => {
+    expect(applicationTemplateVariantKey({ redis: false, storage: true })).toBe(
+      APPLICATION_TEMPLATE_KEY,
+    );
+    expect(applicationTemplateVariantKey({ redis: true, storage: false })).toBe(
+      APPLICATION_TEMPLATE_REDIS_NO_STORAGE_KEY,
+    );
   });
 });
 

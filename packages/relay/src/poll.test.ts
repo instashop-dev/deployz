@@ -230,7 +230,7 @@ describe('pollOnce — command fetching', () => {
         deployment: { redisRequired: true, probeUrl: 'http://alb.example/health' },
       },
     });
-    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
+    const meta: { redisRequired: boolean; storageRequired: boolean; databaseRequired: boolean; probeUrl: string | null }[] = [];
     const deps = makeDeps({
       fetchFn,
       onDeploymentMeta: (m) => meta.push(m),
@@ -240,7 +240,7 @@ describe('pollOnce — command fetching', () => {
 
     await pollOnce(deps, authState);
 
-    expect(meta).toEqual([{ redisRequired: true, probeUrl: 'http://alb.example/health' }]);
+    expect(meta).toEqual([{ redisRequired: true, storageRequired: true, databaseRequired: true, probeUrl: 'http://alb.example/health' }]);
   });
 
   it('treats a malformed probeUrl in the deployment meta as none', async () => {
@@ -250,7 +250,7 @@ describe('pollOnce — command fetching', () => {
         deployment: { redisRequired: false, probeUrl: 'not-a-url' },
       },
     });
-    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
+    const meta: { redisRequired: boolean; storageRequired: boolean; databaseRequired: boolean; probeUrl: string | null }[] = [];
     const deps = makeDeps({
       fetchFn,
       onDeploymentMeta: (m) => meta.push(m),
@@ -260,14 +260,14 @@ describe('pollOnce — command fetching', () => {
 
     await pollOnce(deps, authState);
 
-    expect(meta).toEqual([{ redisRequired: false, probeUrl: null }]);
+    expect(meta).toEqual([{ redisRequired: false, storageRequired: true, databaseRequired: true, probeUrl: null }]);
   });
 
   it('ignores a deployment meta that is missing or wrongly typed', async () => {
     const { fetchFn } = makeMockFetch({
       commandsBody: { commands: [], deployment: { redisRequired: 'yes' } },
     });
-    const meta: { redisRequired: boolean; probeUrl: string | null }[] = [];
+    const meta: { redisRequired: boolean; storageRequired: boolean; databaseRequired: boolean; probeUrl: string | null }[] = [];
     const deps = makeDeps({
       fetchFn,
       onDeploymentMeta: (m) => meta.push(m),

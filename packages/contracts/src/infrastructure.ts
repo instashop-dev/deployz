@@ -176,6 +176,79 @@ export function mapResourceStatus(awsStatus: string): InfrastructureComponentSta
 }
 
 // ---------------------------------------------------------------------------
+// Infrastructure profile — which optional components an application requires
+// ---------------------------------------------------------------------------
+
+/**
+ * The optional infrastructure components an application requires. The single
+ * source for "what should this installation's stack contain": template
+ * variant selection and install verification both derive from this shape
+ * instead of re-deriving it from ad-hoc booleans.
+ *
+ * `worker` has no distinct stack resource today — the worker process rides
+ * the application's ECS service — so it participates in template selection
+ * only, never in resource inventory.
+ */
+export interface InfrastructureProfile {
+  readonly postgres: boolean;
+  readonly redis: boolean;
+  readonly storage: boolean;
+  readonly worker: boolean;
+}
+
+/** One stack resource an installation is expected to contain. */
+export interface ExpectedInfrastructureResource {
+  readonly name: string;
+  readonly type: string;
+  readonly label: string;
+}
+
+// Names, types and labels are the wire vocabulary install verification
+// reports per component — stable, do not rename casually.
+const COMPUTE_RESOURCE: ExpectedInfrastructureResource = {
+  name: 'compute',
+  type: 'AWS::ECS::Service',
+  label: 'ECS service',
+};
+const INGRESS_RESOURCE: ExpectedInfrastructureResource = {
+  name: 'ingress',
+  type: 'AWS::ElasticLoadBalancingV2::LoadBalancer',
+  label: 'load balancer',
+};
+const DATABASE_RESOURCE: ExpectedInfrastructureResource = {
+  name: 'database',
+  type: 'AWS::RDS::DBInstance',
+  label: 'database',
+};
+const STORAGE_RESOURCE: ExpectedInfrastructureResource = {
+  name: 'storage',
+  type: 'AWS::S3::Bucket',
+  label: 'storage bucket',
+};
+const CACHE_RESOURCE: ExpectedInfrastructureResource = {
+  name: 'cache',
+  type: 'AWS::ElastiCache::ReplicationGroup',
+  label: 'cache',
+};
+
+/**
+ * The stack resources an installation with this profile is expected to
+ * contain: compute and ingress always; database, storage and cache only
+ * when the profile requires them. Order is presentation order.
+ */
+export function expectedInfrastructureResources(
+  profile: InfrastructureProfile,
+): readonly ExpectedInfrastructureResource[] {
+  return [
+    COMPUTE_RESOURCE,
+    INGRESS_RESOURCE,
+    ...(profile.postgres ? [DATABASE_RESOURCE] : []),
+    ...(profile.storage ? [STORAGE_RESOURCE] : []),
+    ...(profile.redis ? [CACHE_RESOURCE] : []),
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Composed component view (GET /api/deployments/:id/infrastructure)
 // ---------------------------------------------------------------------------
 

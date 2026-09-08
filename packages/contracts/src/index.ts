@@ -1080,6 +1080,62 @@ export const APPLICATION_TEMPLATE_KEY = 'application-template-v1.json';
 export const APPLICATION_TEMPLATE_REDIS_KEY = 'application-template-redis-v1.json';
 
 /**
+ * Final path segment of the storage-less application template variant —
+ * synthesized from the same stack code with `storageRequired: false`, so an
+ * application that does not use object storage provisions zero S3 resources.
+ */
+export const APPLICATION_TEMPLATE_NO_STORAGE_KEY = 'application-template-no-storage-v1.json';
+
+/**
+ * Final path segment of the Redis-enabled, storage-less application template
+ * variant — both dimension flags off at once.
+ */
+export const APPLICATION_TEMPLATE_REDIS_NO_STORAGE_KEY =
+  'application-template-redis-no-storage-v1.json';
+
+/**
+ * Which optional components a published application template variant
+ * provisions. `storage` defaults to true in stack synthesis, matching
+ * every template published before conditional storage existed.
+ */
+export interface ApplicationTemplateVariant {
+  readonly redis: boolean;
+  readonly storage: boolean;
+}
+
+/** The object key suffix for a variant, derived from the same infix rule the
+ *  publisher and the relay both apply — the two cannot drift apart. */
+export function applicationTemplateVariantKey(variant: ApplicationTemplateVariant): string {
+  const infix = [variant.redis ? 'redis' : '', variant.storage ? '' : 'no-storage']
+    .filter((part) => part !== '')
+    .join('-');
+  return infix === '' ? APPLICATION_TEMPLATE_KEY : `application-template-${infix}-v1.json`;
+}
+
+/**
+ * Derives a published application template variant's URL from the base
+ * application template URL the relay is configured with, per the variant's
+ * redis/storage requirements.
+ *
+ * Returns `undefined` when the base URL does not end in
+ * `APPLICATION_TEMPLATE_KEY` — the caller must treat that as "no variant is
+ * known to exist", not guess a URL CloudFormation cannot fetch. Pure string
+ * derivation (no network): variants are always published side by side under
+ * the same key prefix. The identity variant ({ redis: false, storage: true })
+ * returns the base URL unchanged.
+ */
+export function applicationTemplateVariantUrl(
+  baseTemplateUrl: string,
+  variant: ApplicationTemplateVariant,
+): string | undefined {
+  if (!baseTemplateUrl.endsWith(APPLICATION_TEMPLATE_KEY)) return undefined;
+  return (
+    baseTemplateUrl.slice(0, baseTemplateUrl.length - APPLICATION_TEMPLATE_KEY.length) +
+    applicationTemplateVariantKey(variant)
+  );
+}
+
+/**
  * Derives the Redis-enabled template variant's URL from the base application
  * template URL the relay is configured with.
  *

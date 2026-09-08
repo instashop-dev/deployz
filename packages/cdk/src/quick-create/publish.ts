@@ -31,6 +31,7 @@ import {
   APPLICATION_TEMPLATE_REDIS_KEY,
   BOOTSTRAP_TEMPLATE_KEY,
   SUPPORTED_AWS_REGIONS,
+  applicationTemplateVariantKey,
   bootstrapTemplateBucketName,
   buildBootstrapQuickCreateUrl,
 } from '@deployz/contracts';
@@ -582,7 +583,7 @@ export async function verifyPublishedRegion(
 
 // ── Application template ────────────────────────────────────────────────────
 
-export { APPLICATION_TEMPLATE_KEY, APPLICATION_TEMPLATE_REDIS_KEY };
+export { APPLICATION_TEMPLATE_KEY, APPLICATION_TEMPLATE_REDIS_KEY, applicationTemplateVariantKey };
 
 export interface SynthesizeApplicationOptions {
   /** Output directory for the cloud assembly (temp dir is fine). */
@@ -595,6 +596,20 @@ export interface SynthesizeApplicationOptions {
   readonly imageDigest?: string;
   /** Provision an ElastiCache Valkey cache alongside the application. */
   readonly redisRequired?: boolean;
+  /**
+   * Provision the S3 object storage bucket alongside the application.
+   *
+   * `true` (default) — the bucket is provisioned with versioning, encryption,
+   * lifecycle rules, and RETAIN removal policy, byte-identical to the
+   * pre-conditional-storage behaviour. The published template ships with the
+   * bucket and the `STORAGE_BUCKET`/`S3_BUCKET`/`AWS_S3_BUCKET`/`AWS_REGION`
+   * container env vars.
+   *
+   * `false` — no S3 bucket, no storage outputs, no storage IAM grants, no
+   * storage env vars. Use for applications analysed as not requiring object
+   * storage.
+   */
+  readonly storageRequired?: boolean;
   /**
    * Vendor application preset. When set, the preset's `ApplicationStackProps`
    * are spread into the stack — `'documenso'` applies
@@ -640,6 +655,7 @@ export async function synthesizeApplicationStack(
       : {}),
     ...(options.imageDigest !== undefined ? { imageDigest: options.imageDigest } : {}),
     ...(options.redisRequired !== undefined ? { redisRequired: options.redisRequired } : {}),
+    ...(options.storageRequired !== undefined ? { storageRequired: options.storageRequired } : {}),
   });
 
   const assembly = app.synth();

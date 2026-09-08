@@ -130,8 +130,8 @@ import {
   DEFAULT_APPLICATION_STACK_NAME as DEFAULT_STACK_NAME,
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
   applicationStackNameForInstallation,
+  applicationTemplateVariantUrl,
   deploymentManifestSchema,
-  redisApplicationTemplateUrl,
   type DeploymentManifest,
 } from '@deployz/contracts';
 
@@ -675,30 +675,39 @@ async function settleInstall(
   const manifest = readDeploymentManifest(request.payload);
 
   let templateUrl = deps.templateUrl;
-  // The canonical manifest's redis requirement is the source of truth when
-  // the payload carries it; the legacy top-level flag remains the fallback
-  // for control planes that have not shipped the manifest yet.
+  // The canonical manifest's requirements are the source of truth when the
+  // payload carries it; the legacy top-level flags remain the fallback for
+  // control planes that have not shipped the manifest yet.
   const redisRequired = verifyOptions.redisRequired ?? manifest?.redis.required ?? false;
-  if (redisRequired) {
-    const redisTemplateUrl = redisApplicationTemplateUrl(deps.templateUrl);
-    if (redisTemplateUrl === undefined) {
-      // Provisioning the base template here would build a stack with no
-      // cache and only discover the mistake ~20 minutes later, when
-      // verification demands an ElastiCache cluster that was never asked
-      // for. Failing fast, before CloudFormation is even called, is cheaper
-      // and honest about what went wrong: the relay's configured template
-      // URL, not the customer's account.
+  const storageRequired = verifyOptions.storageRequired ?? manifest?.storage?.required ?? true;
+  const databaseRequired = verifyOptions.databaseRequired ?? manifest?.database?.postgres ?? true;
+  const isIdentityVariant = !redisRequired && storageRequired;
+  const variantUrl = applicationTemplateVariantUrl(deps.templateUrl, {
+    redis: redisRequired,
+    storage: storageRequired,
+  });
+  if (variantUrl === undefined) {
+    // The identity variant ({redis:false,storage:true}) returns the base URL
+    // unchanged, so `undefined` means the base URL itself is unrecognized.
+    // Identity variant → use `deps.templateUrl` as today, even if unrecognized.
+    // Non-identity variants fail fast before CloudFormation is even called.
+    if (!isIdentityVariant) {
+      const reason = redisRequired && !storageRequired
+        ? 'Redis is required and storage is not — the combined variant cannot be located'
+        : redisRequired
+          ? 'Redis is required for this installation, but the Redis-enabled variant cannot be located'
+          : 'Storage is not required for this installation, but the no-storage variant cannot be located';
       return {
         deferred: false,
         success: false,
         error:
-          `Redis is required for this installation, but the configured application ` +
-          `template URL ("${deps.templateUrl}") is not recognized, so the Redis-enabled ` +
-          'variant cannot be located',
+          `${reason} — the configured application template URL ("${deps.templateUrl}") ` +
+          'is not recognized',
         output: {},
       };
     }
-    templateUrl = redisTemplateUrl;
+  } else {
+    templateUrl = variantUrl;
   }
 
   // Manifest-derived template parameters win over whatever the control
@@ -751,6 +760,12 @@ async function settleInstall(
       installationId: deps.installationId,
       stackName: request.stackName,
       ...verifyOptions,
+      // The resolved flags (payload → manifest → default) are the same source
+      // template selection used — verification must check what was installed,
+      // not what the payload happened to carry.
+      redisRequired,
+      storageRequired,
+      databaseRequired,
     });
   } catch (err) {
     verification = {
@@ -1205,12 +1220,16 @@ export function readDeploymentManifest(payload: Record<string, unknown>): Deploy
  */
 export function readVerifyOptionsFromPayload(
   payload: Record<string, unknown>,
-): Pick<VerifyOptions, 'redisRequired' | 'stackName'> {
+): Pick<VerifyOptions, 'redisRequired' | 'stackName' | 'storageRequired' | 'databaseRequired'> {
   const redisRequired = payload['redisRequired'];
   const stackName = payload['stackName'];
+  const storageRequired = payload['storageRequired'];
+  const databaseRequired = payload['databaseRequired'];
 
   return {
     ...(typeof redisRequired === 'boolean' ? { redisRequired } : {}),
+    ...(typeof storageRequired === 'boolean' ? { storageRequired } : {}),
+    ...(typeof databaseRequired === 'boolean' ? { databaseRequired } : {}),
     ...(typeof stackName === 'string' && stackName.length > 0 ? { stackName } : {}),
   };
 }
@@ -1242,6 +1261,8 @@ export function compactPendingInstallPayload(
       ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
     },
     redisRequired: verifyOptions.redisRequired ?? manifest?.redis.required ?? false,
+    storageRequired: verifyOptions.storageRequired ?? manifest?.storage?.required ?? true,
+    databaseRequired: verifyOptions.databaseRequired ?? manifest?.database?.postgres ?? true,
     // Stage B phase 2: the compact alias list survives the SSM size cap so a
     // resumed install can still register the manifest's binding aliases after
     // the stack settles (the full manifest cannot ride the pending marker).
@@ -1589,11 +1610,14 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   // Deployment facts the commands response refreshes every poll. The §59
   // observe hook runs outside any command, so the poll response is the only
   // channel that can tell it whether the installation should include a
-  // cache and which application URL to probe — without this, a redis-required
-  // deployment's heartbeats verify against the cache-less expectation and
-  // never report the cache check, and no probe would ever run.
-  const deploymentMeta: { redisRequired: boolean; probeUrl: string | null } = {
+  // cache, storage, or database and which application URL to probe — without
+  // this, a redis-required deployment's heartbeats verify against the
+  // cache-less expectation and never report the cache check, and no probe
+  // would ever run.
+  const deploymentMeta: { redisRequired: boolean; storageRequired: boolean; databaseRequired: boolean; probeUrl: string | null } = {
     redisRequired: false,
+    storageRequired: true,
+    databaseRequired: true,
     probeUrl: null,
   };
 
@@ -1680,6 +1704,8 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               installationId,
               stackName: relayApplicationStackName(),
               ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
+              ...(deploymentMeta.storageRequired ? {} : { storageRequired: false }),
+              ...(deploymentMeta.databaseRequired ? {} : { databaseRequired: false }),
             }),
           () => buildProvisioningSnapshot(getCloudFormationReader(), relayApplicationStackName()),
           () =>
@@ -1753,6 +1779,8 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             : probeHealthUrl(deps.fetchFn, deploymentMeta.probeUrl)),
       onDeploymentMeta: (meta) => {
         deploymentMeta.redisRequired = meta.redisRequired;
+        deploymentMeta.storageRequired = meta.storageRequired;
+        deploymentMeta.databaseRequired = meta.databaseRequired;
         deploymentMeta.probeUrl = meta.probeUrl;
       },
     };

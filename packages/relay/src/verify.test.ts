@@ -147,6 +147,72 @@ describe('verifyInstallation', () => {
     expect(result.verified).toBe(true);
   });
 
+  it('passes with storageRequired:false and no storage bucket — informational check', async () => {
+    const withoutStorage = COMPLETE_RESOURCES.filter((r) => r.type !== 'AWS::S3::Bucket');
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), withoutStorage),
+      installationId: INSTALLATION,
+      storageRequired: false,
+    });
+
+    expect(result.verified).toBe(true);
+    const storage = result.checks.find((c) => c.name === 'storage');
+    expect(storage).toMatchObject({ passed: false, required: false });
+    expect(storage?.detail).toContain('not provisioned');
+  });
+
+  it('reports informational storage-found when storageRequired:false but bucket is present', async () => {
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), COMPLETE_RESOURCES),
+      installationId: INSTALLATION,
+      storageRequired: false,
+    });
+
+    expect(result.verified).toBe(true);
+    const storage = result.checks.find((c) => c.name === 'storage');
+    expect(storage).toMatchObject({ passed: true, required: false });
+    expect(storage?.detail).toContain('not required by this application');
+  });
+
+  it('requires storage when storageRequired:true (default) and bucket is absent', async () => {
+    const withoutStorage = COMPLETE_RESOURCES.filter((r) => r.type !== 'AWS::S3::Bucket');
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), withoutStorage),
+      installationId: INSTALLATION,
+      storageRequired: true,
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toContain('storage bucket');
+  });
+
+  it('passes with databaseRequired:false and no database — informational check', async () => {
+    const withoutDb = COMPLETE_RESOURCES.filter((r) => r.type !== 'AWS::RDS::DBInstance');
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), withoutDb),
+      installationId: INSTALLATION,
+      databaseRequired: false,
+    });
+
+    expect(result.verified).toBe(true);
+    const database = result.checks.find((c) => c.name === 'database');
+    expect(database).toMatchObject({ passed: false, required: false });
+    expect(database?.detail).toContain('not provisioned');
+  });
+
+  it('reports informational database-found when databaseRequired:false but db is present', async () => {
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), COMPLETE_RESOURCES),
+      installationId: INSTALLATION,
+      databaseRequired: false,
+    });
+
+    expect(result.verified).toBe(true);
+    const database = result.checks.find((c) => c.name === 'database');
+    expect(database).toMatchObject({ passed: true, required: false });
+    expect(database?.detail).toContain('not required by this application');
+  });
+
   it('honours an explicit stack name', async () => {
     let requestedStackName: string | undefined;
     const cfn: CloudFormationReader = {
