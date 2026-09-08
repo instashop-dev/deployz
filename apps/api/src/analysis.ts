@@ -132,7 +132,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // configuration through a local `env` object (`const env = useEnv()`,
 // `env['DB_HOST']`) now contributes those keys to the env-var model and the
 // binding aliases — stored models from Version 16 saw no such reads.
-export const ANALYSIS_VERSION = 17;
+// Version 18 (DEPLOY-005, memos): a Go module that configures viper with an
+// env prefix (`viper.SetEnvPrefix("memos")`, `AutomaticEnv()`) contributes
+// `<PREFIX>_<KEY>` for every viper key it names (`MEMOS_DSN`), so the
+// `*_DSN` url alias binds — stored v17 models hold none of these names.
+export const ANALYSIS_VERSION = 18;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

@@ -65,6 +65,37 @@ describe('detectEnvVarModel (§11.2)', () => {
     expect(byKey.has('VITE_API_URL')).toBe(false);
   });
 
+  it('synthesises viper env names from the env prefix and the keys the module names (memos shape, DEPLOY-005)', () => {
+    const model = detectEnvVarModel({
+      'cmd/memos/main.go': [
+        'package main',
+        'import "github.com/spf13/viper"',
+        'func init() {',
+        '\tviper.SetDefault("driver", "sqlite")',
+        '\trootCmd.Flags().String("dsn", "", "database source name (DSN)")',
+        '\trootCmd.Flags().String("instance-url", "", "public URL")',
+        '\tviper.SetEnvPrefix("memos")',
+        '\tviper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))',
+        '\tviper.AutomaticEnv()',
+        '\tdriver := viper.GetString("driver")',
+        '}',
+        '',
+      ].join('\n'),
+    });
+    const byKey = new Map(model.map((entry) => [entry.key, entry]));
+    expect(byKey.get('MEMOS_DSN')).toMatchObject({ required: false });
+    expect(byKey.get('MEMOS_DSN')!.source.join(' ')).toContain('cmd/memos/main.go');
+    expect(byKey.has('MEMOS_DRIVER')).toBe(true);
+    expect(byKey.has('MEMOS_INSTANCE_URL')).toBe(true);
+  });
+
+  it('contributes no viper names without an env prefix and AutomaticEnv', () => {
+    const model = detectEnvVarModel({
+      'main.go': 'package main\nfunc main() { port := viper.GetInt("port") }\n',
+    });
+    expect(model.some((entry) => entry.key.endsWith('_PORT'))).toBe(false);
+  });
+
   it('requires a code-only bare read of a secret-named variable with no default anywhere', () => {
     const tree: FileTree = {
       'src/index.js': "const token = process.env.INTERNAL_API_TOKEN;\n",

@@ -1225,6 +1225,8 @@ export function detectEnvVars(tree: FileTree): DetectorFinding {
           if (key) vars.add(key);
         }
       }
+    } else if (GO_SOURCE.test(path) && content) {
+      for (const key of scanViperEnvKeys(content)) vars.add(key);
     }
   }
 
@@ -2292,6 +2294,31 @@ function scanJvmEnvReads(content: string): { key: string; needsValue: boolean }[
   return found;
 }
 
+/**
+ * Go viper with an env prefix (Stage B Wave 1, DEPLOY-005, memos):
+ * `viper.SetEnvPrefix("memos")` + `viper.AutomaticEnv()` make every
+ * `viper.Get*("dsn")`, `viper.SetDefault("dsn", …)` and `Flags().String("dsn", …)`
+ * key readable as `MEMOS_DSN` — a name that never appears as a literal. The
+ * env names are synthesised from the prefix and the keys the module names;
+ * `-` becomes `_` (viper's usual `SetEnvKeyReplacer`). Nothing marks them
+ * required: viper never refuses to start on a missing key.
+ */
+export function scanViperEnvKeys(content: string): string[] {
+  if (!content.includes('viper.')) return [];
+  const prefixMatch = /viper\.SetEnvPrefix\(\s*"([A-Za-z][A-Za-z0-9_-]*)"\s*\)/.exec(content);
+  if (!prefixMatch || !/viper\.AutomaticEnv\s*\(/.test(content)) return [];
+  const prefix = prefixMatch[1]!.toUpperCase().replace(/-/g, '_');
+  const keys = new Set<string>();
+  const keyRegex =
+    /viper\.(?:Get\w*|SetDefault|BindEnv|IsSet)\(\s*"([a-zA-Z][\w-]*)"|\.(?:Persistent)?Flags\(\)\.\w+\(\s*"([a-zA-Z][\w-]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = keyRegex.exec(content)) !== null) {
+    const key = (match[1] ?? match[2])!;
+    keys.add(`${prefix}_${key.toUpperCase().replace(/-/g, '_')}`);
+  }
+  return [...keys].sort();
+}
+
 /** Go `os.Getenv` / `os.LookupEnv`, required only with an adjacent missing-check or a required struct tag. */
 function scanGoEnvReads(content: string): { key: string; needsValue: boolean }[] {
   const found: { key: string; needsValue: boolean }[] = [];
@@ -2665,6 +2692,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         recordRead(entry.key, entry.needsValue, path);
       }
     } else if (GO_SOURCE.test(path)) {
+      for (const key of scanViperEnvKeys(content)) recordRead(key, false, path);
       for (const entry of scanGoEnvReads(content)) {
         recordRead(entry.key, entry.needsValue, path);
       }
