@@ -2573,6 +2573,16 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       while ((match = readRegex.exec(content)) !== null) {
         const key = match[1] ?? match[2] ?? match[3] ?? match[4];
         if (!key) continue;
+        // A read through the module's env object proves the app reads the
+        // key — the model, the binding aliases and secret minting need that —
+        // but never that it REQUIRES a value: the env module that built the
+        // object owns the defaults (outline's `env.CDN_URL` in a call has a
+        // default inside `server/env.ts`), so the process.env call-argument
+        // and bare-secret rules below do not transfer (DEPLOY-005, outline).
+        if (match[3] !== undefined || match[4] !== undefined) {
+          recordRead(key, false, path);
+          continue;
+        }
         // Statement-bound tail: a `??`/`||` on a LATER statement must not look
         // like a fallback for this read.
         const rawTail = content.slice(match.index + match[0].length, match.index + match[0].length + 160);

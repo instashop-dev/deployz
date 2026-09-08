@@ -59,10 +59,27 @@ describe('detectEnvVarModel (§11.2)', () => {
     const byKey = new Map(model.map((entry) => [entry.key, entry]));
     expect(byKey.get('DB_HOST')!.source.join(' ')).toContain('api/src/database/index.ts');
     expect(byKey.get('DB_CLIENT')).toBeDefined();
-    // A presence guard tolerates absence; a bare secret read is required.
+    // Reads through the env object never imply a requirement: the env
+    // module owns the defaults. The secret is still modelled as a secret.
     expect(byKey.get('DB_CONNECT_STRING')).toMatchObject({ required: false });
-    expect(byKey.get('SECRET')).toMatchObject({ required: true, secret: true });
+    expect(byKey.get('SECRET')).toMatchObject({ required: false, secret: true });
     expect(byKey.has('VITE_API_URL')).toBe(false);
+  });
+
+  it('never requires a value for a read through the env object, even inside a call (outline shape)', () => {
+    const model = detectEnvVarModel({
+      'server/utils/mail.ts': [
+        'import env from "@server/env";',
+        'const transport = createTransport({ pass: env.SMTP_PASSWORD, cipher: env.SMTP_TLS_CIPHERS });',
+        'setTimeout(reap, env.REQUEST_TIMEOUT);',
+        'const cdn = env.CDN_URL;',
+        '',
+      ].join('\n'),
+    });
+    const byKey = new Map(model.map((entry) => [entry.key, entry]));
+    for (const key of ['SMTP_PASSWORD', 'SMTP_TLS_CIPHERS', 'REQUEST_TIMEOUT', 'CDN_URL']) {
+      expect(byKey.get(key)).toMatchObject({ required: false });
+    }
   });
 
   it('synthesises viper env names from the env prefix and the keys the module names (memos shape, DEPLOY-005)', () => {
