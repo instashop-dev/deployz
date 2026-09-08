@@ -429,7 +429,18 @@ function VendorBillingSection({
       <Card>
         <CardContent className="flex flex-col gap-3 py-4">
           <MetaRow label="Status" value={subscriptionStatusLabel(detail.organization.subscriptionStatus)} />
-          <MetaRow label="Live customer deployments" value={String(billing.liveDeployments)} />
+          <MetaRow label="Active production deployments" value={String(billing.activeProductionDeployments)} />
+          <MetaRow label="Included deployments" value={String(billing.includedProductionDeployments)} />
+          <MetaRow label="Billable deployment quantity" value={String(billing.billableDeploymentQuantity)} />
+          {billing.providerDeploymentQuantity !== null ? (
+            <MetaRow
+              label="Paddle deployment quantity"
+              value={`${billing.providerDeploymentQuantity} (as of ${fmt(billing.providerQuantityAsOf)})`}
+            />
+          ) : null}
+          {billing.monthlyRateDollars !== null ? (
+            <MetaRow label="Current monthly rate" value={`$${billing.monthlyRateDollars}`} />
+          ) : null}
           {billing.subscription ? (
             <>
               <MetaRow label="Subscription" value={billing.subscription.providerSubscriptionId} />

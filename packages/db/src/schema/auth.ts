@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, check, index, integer, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+
+import { INCLUDED_PRODUCTION_DEPLOYMENTS_MAX } from '@deployz/contracts';
 
 // Better Auth core + organization-plugin schema. Todo 3 wires Better Auth
 // against these tables, so table names, column names, and column types MUST
@@ -108,15 +110,31 @@ export const verification = pgTable(
 // familiar, but the control plane owns every write: apps/api exposes the only
 // endpoints that touch these tables, which is where the role checks and the
 // last-owner safeguards live.
-export const organization = pgTable('organization', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
-  logo: text('logo'),
-  metadata: text('metadata'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).$onUpdate(() => new Date()),
-});
+export const organization = pgTable(
+  'organization',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull().unique(),
+    logo: text('logo'),
+    metadata: text('metadata'),
+    // Deployz field: how many live PRODUCTION deployments this organization
+    // may run before the per-deployment charge applies (docs/billing/
+    // included-deployments-implementation.md). A pooled, concurrent allowance
+    // — not credits, not per app, not per customer. Lives on the organization
+    // because it must exist before any subscription does. Written only by the
+    // Team Admin route; default 0 preserves plain billing.
+    includedProductionDeployments: integer('included_production_deployments').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).$onUpdate(() => new Date()),
+  },
+  (t) => [
+    check(
+      'organization_included_production_deployments_range',
+      sql`${t.includedProductionDeployments} >= 0 AND ${t.includedProductionDeployments} <= ${sql.raw(String(INCLUDED_PRODUCTION_DEPLOYMENTS_MAX))}`,
+    ),
+  ],
+);
 
 export const member = pgTable(
   'member',

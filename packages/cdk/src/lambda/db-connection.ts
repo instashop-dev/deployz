@@ -64,6 +64,7 @@ import migration0034 from '../../../db/drizzle/0034_billing_subscriptions.sql';
 import migration0035 from '../../../db/drizzle/0035_billing_scheduled_change.sql';
 import migration0036 from '../../../db/drizzle/0036_one_active_test_deployment.sql';
 import migration0037 from '../../../db/drizzle/0037_billing_checkout_intents.sql';
+import migration0038 from '../../../db/drizzle/0038_included_production_deployments.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -115,6 +116,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0035_billing_scheduled_change': migration0035,
   '0036_one_active_test_deployment': migration0036,
   '0037_billing_checkout_intents': migration0037,
+  '0038_included_production_deployments': migration0038,
 };
 
 interface RdsSecret {

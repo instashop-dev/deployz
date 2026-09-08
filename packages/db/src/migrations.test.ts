@@ -112,6 +112,24 @@ describe('migrations', () => {
     expect(rows[0]?.column_default).toBe('false');
   });
 
+  // Included production deployments: an additive column with a default, so
+  // every existing organization keeps plain billing (allowance 0).
+  it('organization has included_production_deployments: integer, not null, default 0', async () => {
+    const { rows } = await client!.query<{
+      data_type: string;
+      is_nullable: string;
+      column_default: string | null;
+    }>(
+      `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'organization'
+         AND column_name = 'included_production_deployments'`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.data_type).toBe('integer');
+    expect(rows[0]?.is_nullable).toBe('NO');
+    expect(rows[0]?.column_default).toBe('0');
+  });
+
   // §61 taxonomy extension: two Redis failure codes must exist as real enum
   // labels in the migrated catalog, not just in the TypeScript source.
   it('failure_code enum includes the two Redis failure codes', async () => {

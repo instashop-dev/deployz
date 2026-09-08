@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyBillingTransition,
+  billableDeploymentQuantity,
   countBillableDeployments,
+  productionDeploymentCounts,
   isBillableDeployment,
   DEPLOYMENT_PRICE_DOLLARS,
   PLATFORM_PRICE_DOLLARS,
@@ -107,6 +109,51 @@ describe('countBillableDeployments', () => {
 
   it('is 0 for an empty list', () => {
     expect(countBillableDeployments([])).toBe(0);
+  });
+});
+
+describe('billableDeploymentQuantity (included production deployments)', () => {
+  it('is the active count when nothing is included — the pre-allowance behavior', () => {
+    expect(billableDeploymentQuantity(5, 0)).toBe(5);
+    expect(billableDeploymentQuantity(0, 0)).toBe(0);
+  });
+
+  it('subtracts the pooled allowance', () => {
+    expect(billableDeploymentQuantity(5, 2)).toBe(3);
+  });
+
+  it('is 0 when active equals the allowance', () => {
+    expect(billableDeploymentQuantity(3, 3)).toBe(0);
+  });
+
+  it('never goes negative when the allowance exceeds the active count', () => {
+    expect(billableDeploymentQuantity(1, 3)).toBe(0);
+    expect(billableDeploymentQuantity(0, 10000)).toBe(0);
+  });
+
+  it('crosses the threshold one deployment at a time', () => {
+    expect([0, 1, 2, 3, 4].map((active) => billableDeploymentQuantity(active, 2))).toEqual([0, 0, 0, 1, 2]);
+  });
+});
+
+describe('productionDeploymentCounts', () => {
+  it('reports active, included and billable from the rows and the allowance', () => {
+    const rows = [
+      { deploymentType: 'PRODUCTION', billingState: 'ACTIVE' },
+      { deploymentType: 'PRODUCTION', billingState: 'ACTIVE' },
+      { deploymentType: 'PRODUCTION', billingState: 'ACTIVE' },
+      { deploymentType: 'PRODUCTION', billingState: 'NOT_STARTED' },
+      { deploymentType: 'TEST', billingState: 'ACTIVE' },
+    ] as const;
+    expect(productionDeploymentCounts(rows, 2)).toEqual({ active: 3, included: 2, billable: 1 });
+  });
+
+  it('a TEST deployment never consumes the allowance', () => {
+    const rows = [
+      { deploymentType: 'TEST', billingState: 'ACTIVE' },
+      { deploymentType: 'TEST', billingState: 'NOT_STARTED' },
+    ] as const;
+    expect(productionDeploymentCounts(rows, 1)).toEqual({ active: 0, included: 1, billable: 0 });
   });
 });
 

@@ -7,6 +7,7 @@ import {
   applicationConfigs,
   deploymentJobs,
   deployments,
+  organization,
   user,
 } from './schema/index.js';
 import { createTestDb, seedBase, type BaseIds } from './test-utils.js';
@@ -339,6 +340,45 @@ describe('constraints and enums', () => {
         installationId: 'inst-test-slot-3',
         enrollmentCode: 'code-test-slot-3',
       });
+    });
+  });
+
+  describe('organization.included_production_deployments', () => {
+    it('defaults to 0 and accepts the whole 0..10000 range', async () => {
+      const [row] = await db!
+        .select({ included: organization.includedProductionDeployments })
+        .from(organization)
+        .where(eq(organization.id, ids.organizationId));
+      expect(row?.included).toBe(0);
+
+      for (const value of [1, 10000, 0]) {
+        await db!
+          .update(organization)
+          .set({ includedProductionDeployments: value })
+          .where(eq(organization.id, ids.organizationId));
+      }
+    });
+
+    // The CHECK constraint is the backstop below the API's zod validation:
+    // a negative allowance or one above the cap must be impossible to store.
+    it('rejects a negative allowance', async () => {
+      await expectPgError(
+        db!
+          .update(organization)
+          .set({ includedProductionDeployments: -1 })
+          .where(eq(organization.id, ids.organizationId)),
+        /organization_included_production_deployments_range/,
+      );
+    });
+
+    it('rejects an allowance above 10000', async () => {
+      await expectPgError(
+        db!
+          .update(organization)
+          .set({ includedProductionDeployments: 10001 })
+          .where(eq(organization.id, ids.organizationId)),
+        /organization_included_production_deployments_range/,
+      );
     });
   });
 

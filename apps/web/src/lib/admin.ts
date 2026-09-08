@@ -210,8 +210,17 @@ export interface AdminVendorConnectionRow {
 
 /** Paddle migration Phase 14 — the billing facts an admin needs at a glance. */
 export interface AdminVendorBilling {
-  /** PRODUCTION deployments whose billing_state is ACTIVE — the one number Deployz owns. */
-  liveDeployments: number;
+  /** PRODUCTION deployments whose billing_state is ACTIVE. */
+  activeProductionDeployments: number;
+  /** The admin-set pooled allowance (organization.included_production_deployments). */
+  includedProductionDeployments: number;
+  /** max(active - included, 0) — the only quantity Paddle is ever told. */
+  billableDeploymentQuantity: number;
+  /** What Paddle held after the last reconciliation that updated it; null when never pushed. */
+  providerDeploymentQuantity: number | null;
+  providerQuantityAsOf: string | null;
+  /** Display run-rate ($49 + billable × $19); null while evaluating or canceled. */
+  monthlyRateDollars: number | null;
   subscription: {
     providerSubscriptionId: string;
     currentPeriodEnd: string | null;
