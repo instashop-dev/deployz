@@ -213,3 +213,101 @@ describe('sweepBilling (Paddle migration Phase 10)', () => {
     expect(result.reconciled).toBe(0);
   });
 });
+
+// Included production deployments (Phase 12): the sweep runs the SAME
+// reconcileBilling as everything else, so it repairs drift to the allowance
+// formula without any allowance-specific scheduling of its own.
+describe('sweepBilling respects the included production deployment allowance', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  const organizationId = 'org-billing-sweep-allowance';
+  let applicationId: string;
+  let customerId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    await db.insert(schema.organization).values({
+      id: organizationId,
+      name: 'Allowance Org',
+      slug: 'allowance-org-1234',
+      includedProductionDeployments: 2,
+    });
+    const [application] = await db
+      .insert(schema.applications)
+      .values({ organizationId, name: 'App', repoFullName: 'acme/allow', repoUrl: 'https://github.com/acme/allow' })
+      .returning();
+    applicationId = application!.id;
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId, name: 'Acme', email: 'allow@acme.test' })
+      .returning();
+    customerId = customer!.id;
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId,
+      providerCustomerId: 'ctm_allow',
+      providerSubscriptionId: 'sub_allow',
+      status: 'ACTIVE',
+      // Never reconciled: the drift sweep must pick it up on the first pass.
+      lastReconciledAt: null,
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await db.insert(schema.deployments).values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        enrollmentCode: randomUUID(),
+        deploymentType: 'PRODUCTION',
+        billingState: 'ACTIVE',
+      });
+    }
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('repairs Paddle to max(active − included, 0): 5 live, 2 included, Paddle had 4 → 3', async () => {
+    const updates: UpdateCall[] = [];
+    const paddle = {
+      ...fakePaddle(updates),
+      client: {
+        subscriptions: {
+          get: async () => ({
+            items: [
+              { price: { id: PRICE_PLATFORM }, quantity: 1, status: 'active' },
+              { price: { id: PRICE_DEPLOYMENT }, quantity: 4, status: 'active' },
+            ],
+          }),
+          update: async (_id: string, body: UpdateCall) => {
+            updates.push(body);
+            return {};
+          },
+        },
+      },
+    } as unknown as Parameters<typeof sweepBilling>[1];
+
+    const result = await sweepBilling(db, paddle);
+
+    expect(result.reconciled).toBe(1);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.items).toEqual([
+      { priceId: PRICE_PLATFORM, quantity: 1 },
+      { priceId: PRICE_DEPLOYMENT, quantity: 3 },
+    ]);
+    const [ledger] = await db
+      .select()
+      .from(schema.billingReconciliationEvents)
+      .where(eq(schema.billingReconciliationEvents.organizationId, organizationId));
+    expect(ledger).toMatchObject({ expectedDeploymentQuantity: 3, providerDeploymentQuantity: 4, status: 'SUCCEEDED' });
+  });
+
+  it('a repeated pass within the hour is a no-op', async () => {
+    const updates: UpdateCall[] = [];
+    const result = await sweepBilling(db, fakePaddle(updates));
+    expect(result.reconciled).toBe(0);
+    expect(updates).toHaveLength(0);
+  });
+});
