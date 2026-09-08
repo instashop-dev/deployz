@@ -7,9 +7,9 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 38 / 49 |
+| Gate: correct accept / correct reject | 37 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 14 |
+| Gate: READY with the Stage B configuration | 13 |
 | Build attempted / succeeded / failed | 9 / 8 / 1 |
 | Build success among expected deployable | 12.3% |
 | Infrastructure attempted / succeeded / failed | 8 / 5 / 3 |
@@ -24,12 +24,13 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | --- | --- |
 | APPLICATION_ERROR | 1 |
 | BUILD_ERROR | 1 |
+| CONFIG_ERROR | 1 |
 | CONTAINER_START_ERROR | 1 |
 | DATABASE_ERROR | 1 |
 | ENV_BINDING_ERROR | 2 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| PASS | 41 |
+| PASS | 40 |
 
 ## By root cause
 
@@ -56,7 +57,7 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 60 | 5 | 3 |
+| improvement | 80 | 46 | 34 | 59 | 5 | 3 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -66,7 +67,7 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 45 | 5 | 3 |
+| realistic | 69 | 45 | 24 | 44 | 5 | 3 |
 
 ## Repositories
 
@@ -87,7 +88,7 @@ Deployz commit: `62bb2d7522b2182729758504fcd294df784379d3`
 | repo-013 | louislam/uptime-kuma@5df2a3c | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-014 | automatisch/automatisch@41f3c56 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-015 | immich-app/immich@6d85f20 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
+| repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | — (—) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_REQUIRED | CONFIG_ERROR |  |
 | repo-017 | lukevella/rallly@d374ed4 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-018 | docmost/docmost@5b85464 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-019 | linkwarden/linkwarden@789aa2b | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

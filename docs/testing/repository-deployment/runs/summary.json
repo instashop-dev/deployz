@@ -4,12 +4,12 @@
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "gate": {
-    "attempted": 120,
-    "correctAccept": 38,
+    "attempted": 119,
+    "correctAccept": 37,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 14
+    "configuredReady": 13
   },
   "build": {
     "attempted": 9,
@@ -45,16 +45,18 @@
   "byClassification": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
+    "CONFIG_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 2,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 41
+    "PASS": 40
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
+    "CONFIG_ERROR": 1,
     "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 2,
@@ -127,7 +129,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 3,
       "expectedUnsupported": 34,
-      "gateCorrect": 60
+      "gateCorrect": 59
     },
     "unseen": {
       "total": 20,
@@ -169,7 +171,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 3,
       "expectedUnsupported": 24,
-      "gateCorrect": 45
+      "gateCorrect": 44
     }
   }
 }
