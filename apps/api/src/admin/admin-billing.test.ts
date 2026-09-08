@@ -181,8 +181,8 @@ describe('admin billing (Paddle migration Phase 14)', () => {
       headers: { cookie: admin.cookie },
     });
     expect(detail.statusCode, detail.body).toBe(200);
-    const billing = (detail.json() as { billing: { liveDeployments: number; subscription: { providerSubscriptionId: string; lastReconciledAt: string | null } | null; recentReconciliations: { action: string; status: string }[] } }).billing;
-    expect(billing.liveDeployments).toBe(1);
+    const billing = (detail.json() as { billing: { activeProductionDeployments: number; subscription: { providerSubscriptionId: string; lastReconciledAt: string | null } | null; recentReconciliations: { action: string; status: string }[] } }).billing;
+    expect(billing.activeProductionDeployments).toBe(1);
     expect(billing.subscription).toMatchObject({ providerSubscriptionId: 'sub_test_1' });
     expect(billing.subscription?.lastReconciledAt).not.toBeNull();
     expect(billing.recentReconciliations[0]).toMatchObject({ action: 'ITEM_ADDED', status: 'SUCCEEDED' });

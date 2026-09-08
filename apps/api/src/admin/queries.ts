@@ -11,7 +11,11 @@ import { normalizeErrorText, redactSecrets } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { countBillableDeployments } from '../billing-domain.js';
+import {
+  DEPLOYMENT_PRICE_DOLLARS,
+  PLATFORM_PRICE_DOLLARS,
+  productionDeploymentCounts,
+} from '../billing-domain.js';
 
 import { deriveDeploymentStatus, toVendorDeploymentStatus } from '../deployment-status.js';
 import { parseDefaultHttps } from '../default-https.js';
@@ -732,8 +736,9 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
     .limit(30);
 
   // Paddle migration Phase 14 — what an admin needs to judge a billing
-  // question without opening Paddle: the one number Deployz owns (live
-  // production deployments), what Paddle was last told, and how the last few
+  // question without opening Paddle: the numbers Deployz owns (live
+  // production deployments, the included allowance, and the billable
+  // quantity they yield), what Paddle was last told, and how the last few
   // reconciliations went. Counted with its own query, not from the capped
   // list above: a vendor with more deployments than LIST_CAP would otherwise
   // read as under-billed.
@@ -744,12 +749,21 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
     })
     .from(schema.deployments)
     .where(eq(schema.deployments.organizationId, organizationId));
+  const counts = productionDeploymentCounts(billingRows, organization.includedProductionDeployments);
   const recentReconciliations = await db
     .select()
     .from(schema.billingReconciliationEvents)
     .where(eq(schema.billingReconciliationEvents.organizationId, organizationId))
     .orderBy(desc(schema.billingReconciliationEvents.createdAt))
     .limit(5);
+  // The provider quantity is not stored live. A ledger row carries a
+  // provider quantity only when a pass read Paddle AND pushed an update, so
+  // the newest such row's expected quantity is what Paddle held afterwards.
+  const lastProviderRead = recentReconciliations.find((row) => row.providerDeploymentQuantity !== null);
+  // A run-rate only means something once there is a subscription to bill
+  // against; evaluation is free. Display arithmetic from the display prices —
+  // Paddle remains the source of truth for money.
+  const billsRunRate = subscription !== undefined && subscription.status !== 'CANCELED';
 
   return {
     organization: {
@@ -760,7 +774,14 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
       createdAt: organization.createdAt,
     },
     billing: {
-      liveDeployments: countBillableDeployments(billingRows),
+      activeProductionDeployments: counts.active,
+      includedProductionDeployments: counts.included,
+      billableDeploymentQuantity: counts.billable,
+      providerDeploymentQuantity: lastProviderRead?.expectedDeploymentQuantity ?? null,
+      providerQuantityAsOf: lastProviderRead?.createdAt ?? null,
+      monthlyRateDollars: billsRunRate
+        ? PLATFORM_PRICE_DOLLARS + counts.billable * DEPLOYMENT_PRICE_DOLLARS
+        : null,
       subscription: subscription
         ? {
             providerSubscriptionId: subscription.providerSubscriptionId,
