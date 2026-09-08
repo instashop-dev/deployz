@@ -75,6 +75,15 @@ describe('deployment lifecycle — states, events, and removal', () => {
     const { cookie: sessionCookie, organizationId } = await signUp(auth, db, 'lifecycle@example.com');
     cookie = sessionCookie;
     await connectInstallation(db, organizationId);
+    // createDeployment() below creates PRODUCTION deployments (the default);
+    // Paddle migration Phase 7 gates those behind an ACTIVE subscription,
+    // which is unrelated to what this file exercises (states, events, removal).
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId,
+      providerCustomerId: 'ctm_fixture_lifecycle',
+      providerSubscriptionId: 'sub_fixture_lifecycle',
+      status: 'ACTIVE',
+    });
 
     const application = await send(
       app,

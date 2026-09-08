@@ -6,6 +6,7 @@ import type { DeploymentType, Region } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
@@ -230,6 +231,11 @@ export async function createDeployLink(
       `Region ${params.region} is not available for installation yet.`,
     );
   }
+  // Paddle migration Phase 7 — a deploy link always creates a PRODUCTION
+  // deployment, so it needs an ACTIVE subscription just like the manual
+  // flow. Checked before createDeploymentRecord and before the deploy_links
+  // row exists.
+  await assertProductionDeploymentAllowed(db, params.organizationId);
   const token = mintDeployLinkToken();
   const result = await db.transaction(async (tx) => {
     const { deployment, application } = await createDeploymentRecord(tx, {

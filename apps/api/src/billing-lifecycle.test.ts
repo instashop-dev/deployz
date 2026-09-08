@@ -309,8 +309,25 @@ describe('billing lifecycle', () => {
     await seedDeployment({ deploymentType: 'PRODUCTION', billingState: 'STOPPED', billingStoppedAt: new Date() });
     // Hand-crafted inconsistent row (never reachable through the domain
     // rules) to prove the summary route filters on BOTH columns, not just
-    // billingState.
-    await seedDeployment({ deploymentType: 'TEST', billingState: 'ACTIVE', billingStartedAt: new Date() });
+    // billingState. A separate application avoids the Phase 7 one-active-
+    // TEST-per-application index — test 2 above already left a live TEST
+    // row on the shared applicationId.
+    const [otherApplication] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'App 8b',
+        repoFullName: `acme/bl-8b-${crypto.randomUUID().slice(0, 8)}`,
+        repoUrl: 'https://github.com/acme/bl-8b',
+        defaultBranch: 'main',
+      })
+      .returning();
+    await seedDeployment({
+      applicationId: otherApplication!.id,
+      deploymentType: 'TEST',
+      billingState: 'ACTIVE',
+      billingStartedAt: new Date(),
+    });
 
     const rows = await db
       .select({ deploymentType: schema.deployments.deploymentType, billingState: schema.deployments.billingState })

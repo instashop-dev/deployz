@@ -11,11 +11,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { ApiRequestError, errorMessage } from '@/lib/api-client';
+import { ApiRequestError } from '@/lib/api-client';
 import { fetchApplications, type Application } from '@/lib/applications';
 import {
   createCustomerRecord,
+  createDeploymentErrorMessage,
   createDeploymentRecord,
+  existingTestDeploymentId,
   matchesRememberedCustomer,
   readinessFindingMessages,
   type RememberedCustomer,
@@ -83,6 +85,9 @@ function NewDeploymentScreen() {
   // application's readiness findings.
   const [readinessApplicationId, setReadinessApplicationId] = useState<string | null>(null);
   const [readinessFindings, setReadinessFindings] = useState<string[]>([]);
+  // Set only for a TEST_DEPLOYMENT_EXISTS conflict, so the error can link to
+  // the application's existing test deployment (Paddle migration Phase 7).
+  const [conflictingTestDeploymentId, setConflictingTestDeploymentId] = useState<string | null>(null);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(preselectedApplicationId);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
 
@@ -155,6 +160,7 @@ function NewDeploymentScreen() {
     setError(null);
     setReadinessApplicationId(null);
     setReadinessFindings([]);
+    setConflictingTestDeploymentId(null);
     setPending(true);
     const form = new FormData(event.currentTarget);
     const customerName = String(form.get('customerName') ?? '').trim();
@@ -189,11 +195,12 @@ function NewDeploymentScreen() {
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       setInstallLink(`${origin}/install/${deployment.installLinkId}`);
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(createDeploymentErrorMessage(caught));
       if (caught instanceof ApiRequestError && READINESS_ERROR_CODES.has(caught.code)) {
         setReadinessApplicationId(applicationId);
         setReadinessFindings(readinessFindingMessages(caught.details));
       }
+      setConflictingTestDeploymentId(existingTestDeploymentId(caught));
     } finally {
       setPending(false);
     }
@@ -216,7 +223,7 @@ function NewDeploymentScreen() {
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {isTestDeployment
-            ? "Deploy your own app as a test — it won't be billed."
+            ? 'Deploy your own app as a free test deployment. It does not affect billing.'
             : 'Add a customer and generate their install link. The customer opens the link and signs in to their own cloud account — their credentials never touch Deployz.'}
         </p>
       </div>
@@ -327,7 +334,11 @@ function NewDeploymentScreen() {
 
               <div className="flex items-center gap-3">
                 <Button type="submit" disabled={pending || regionsError || regions.length === 0}>
-                  {pending ? 'Creating…' : isTestDeployment ? 'Create Test Deployment' : 'Create Customer Deployment'}
+                  {pending
+                    ? 'Creating…'
+                    : isTestDeployment
+                      ? 'Run free test deployment'
+                      : 'Create Customer Deployment'}
                 </Button>
                 {error ? (
                   <div role="alert" className="flex flex-col gap-1 text-sm text-destructive">
@@ -345,6 +356,14 @@ function NewDeploymentScreen() {
                         className="underline underline-offset-4"
                       >
                         Review the application&apos;s readiness findings
+                      </Link>
+                    ) : null}
+                    {conflictingTestDeploymentId ? (
+                      <Link
+                        href={`/dashboard/deployments/${conflictingTestDeploymentId}`}
+                        className="underline underline-offset-4"
+                      >
+                        View the existing test deployment
                       </Link>
                     ) : null}
                   </div>

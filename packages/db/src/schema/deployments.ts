@@ -1,4 +1,5 @@
-import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import {
   cleanupStateEnum,
@@ -14,7 +15,9 @@ import { organization } from './auth.js';
 import { auditFields, id } from './common.js';
 import { applications, customers, releases } from './core.js';
 
-export const deployments = pgTable('deployments', {
+export const deployments = pgTable(
+  'deployments',
+  {
   id: id(),
   customerId: uuid('customer_id')
     .notNull()
@@ -106,4 +109,17 @@ export const deployments = pgTable('deployments', {
   // the control plane knows something about the AWS-side leftovers.
   cleanupState: cleanupStateEnum('cleanup_state'),
   ...auditFields(),
-});
+  },
+  (t) => [
+    // Structural guarantee for the free-evaluation entitlement (Paddle
+    // migration Phase 7): at most one non-deleted TEST deployment per
+    // application. Retries and recreates are allowed once the previous one
+    // is DELETED. The route-level check in apps/api/src/billing-entitlements.ts
+    // is the friendly fast path; this partial unique index is the correctness
+    // backstop for two concurrent creates that both pass the check before
+    // either inserts.
+    uniqueIndex('deployments_one_active_test_per_application_uidx')
+      .on(t.applicationId)
+      .where(sql`${t.deploymentType} = 'TEST' AND ${t.state} <> 'DELETED'`),
+  ],
+);

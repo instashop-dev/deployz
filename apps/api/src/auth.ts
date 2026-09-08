@@ -6,7 +6,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { env } from './env.js';
-import { organizationSlug } from './organizations.js';
+import { organizationSlug, seedFixtureBillingSubscription } from './organizations.js';
 
 // Better Auth instance for the control plane: email/password + GitHub OAuth
 // (env-driven). Better Auth owns identity ONLY — user, session, account and
@@ -15,7 +15,14 @@ import { organizationSlug } from './organizations.js';
 // through apps/api/src/organizations.ts, so every membership write goes past
 // one set of role checks and last-owner safeguards. The session keeps the
 // familiar `activeOrganizationId` field as the tenant pointer.
-export function createAuth(db: RuntimeDb) {
+export function createAuth(
+  db: RuntimeDb,
+  // Injectable Paddle migration Phase 7 fixture-mode override (mirrors
+  // ServerDeps.billingFixtureMode's `?? env.x` pattern) — tests can enable it
+  // without mutating module-level env.
+  opts: { billingFixtureMode?: boolean } = {},
+) {
+  const billingFixtureMode = opts.billingFixtureMode ?? env.billingFixtureMode;
   return betterAuth({
     appName: 'Deployz',
     baseURL: env.apiUrl,
@@ -115,6 +122,9 @@ export function createAuth(db: RuntimeDb) {
                 userId: session.userId,
                 role: 'owner',
               });
+              if (billingFixtureMode) {
+                await seedFixtureBillingSubscription(db, organizationId);
+              }
               await db
                 .update(schema.user)
                 .set({ lastActiveOrganizationId: organizationId })

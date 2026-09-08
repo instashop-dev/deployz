@@ -58,6 +58,12 @@ export default defineConfig({
         // *.deployz-fixture.test names, with no check throttle — lets the
         // custom-domain E2E drive the state machine without real DNS/network.
         DOMAIN_FIXTURE_MODE: 'true',
+        // Paddle migration Phase 7 fixture mode: every fresh organization
+        // (signup and POST /api/organizations) gets an ACTIVE
+        // billing_subscriptions row, so specs that create a PRODUCTION
+        // deployment through the real routes exercise the entitlement gate
+        // instead of always hitting 402 SUBSCRIPTION_REQUIRED.
+        BILLING_FIXTURE_MODE: 'true',
         // Phase 11 default HTTPS under the fixture DNS (opt-in): the existing
         // fixture suite is written against HTTP-only installs, so the
         // automatic default-HTTPS flow stays off unless an operator sets this

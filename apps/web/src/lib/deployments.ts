@@ -9,7 +9,7 @@ import type { CustomDomainStatus } from './domains';
 // vocabulary only — no raw AWS/CFN/ECS terms at the top level (M14:
 // deployment health only).
 
-import { apiRequest } from '@/lib/api-client';
+import { apiRequest, ApiRequestError, errorMessage } from '@/lib/api-client';
 import { apiUrl } from '@/lib/api-url';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
@@ -581,4 +581,36 @@ export function readinessFindingMessages(details: unknown): string[] {
     const entry = finding as { severity?: unknown; message?: unknown };
     return entry.severity === 'error' && typeof entry.message === 'string' ? [entry.message] : [];
   });
+}
+
+/**
+ * The message for a failed create-deployment attempt (Paddle migration
+ * Phase 7 — free evaluation entitlements). `SUBSCRIPTION_REQUIRED` and
+ * `TEST_DEPLOYMENT_EXISTS` get vendor-facing copy this phase owns (Phase 8
+ * replaces the subscription message with the checkout hand-off); every
+ * other error keeps the server's own message (already jargon-free, §65).
+ */
+export function createDeploymentErrorMessage(caught: unknown): string {
+  if (caught instanceof ApiRequestError) {
+    if (caught.code === 'SUBSCRIPTION_REQUIRED') {
+      return 'Production deployments need an active Deployz subscription. Billing activation arrives with the next release.';
+    }
+    if (caught.code === 'TEST_DEPLOYMENT_EXISTS') {
+      return 'This application already has a test deployment.';
+    }
+  }
+  return errorMessage(caught);
+}
+
+/**
+ * The existing TEST deployment's id from a `TEST_DEPLOYMENT_EXISTS` 409's
+ * details, so the error can link to it — null for any other error, or when
+ * the server did not send one.
+ */
+export function existingTestDeploymentId(caught: unknown): string | null {
+  if (!(caught instanceof ApiRequestError) || caught.code !== 'TEST_DEPLOYMENT_EXISTS') {
+    return null;
+  }
+  const deploymentId = (caught.details as { deploymentId?: unknown } | null)?.deploymentId;
+  return typeof deploymentId === 'string' ? deploymentId : null;
 }

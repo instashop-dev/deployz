@@ -32,8 +32,8 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 3 Billing schema | done | PR #220 | `billing_subscriptions`, `billing_provider_events`, `billing_reconciliation_events` (migration `0034`); `organization.plan` removed; organization responses carry `subscriptionStatus` |
 | 4 Paddle catalog (MCP) | deferred | | Blocked on the Paddle sandbox MCP in this session (DNS failure, then tools not loadable in-process). Must complete before Phase 8 checkout verification. Sandbox catalog was empty at baseline. See "Phase 4 resume steps" |
 | 5 SDK + config | done | PR #222 | `@paddle/paddle-node-sdk`, `apps/api/src/paddle.ts`, `PADDLE_*` env validation, CDK allowlist, deploy workflow, `GET /api/billing/config` |
-| 6 Webhooks | done | this PR | `apps/api/src/billing-webhooks.ts`, `POST /api/billing/webhook` (raw body, `Paddle-Signature`), event ledger dedupe, `occurredAt` regression guard, migration `0035` (scheduled change) |
-| 7 Evaluation entitlements | pending | | |
+| 6 Webhooks | done | PR #223 | `apps/api/src/billing-webhooks.ts`, `POST /api/billing/webhook` (raw body, `Paddle-Signature`), event ledger dedupe, `occurredAt` regression guard, migration `0035` (scheduled change) |
+| 7 Evaluation entitlements | done | this PR | `apps/api/src/billing-entitlements.ts`: PRODUCTION needs an ACTIVE subscription (402 `SUBSCRIPTION_REQUIRED`), one active TEST deployment per application (409 `TEST_DEPLOYMENT_EXISTS`, partial unique index, migration `0036`) |
 | 8 First production activation | pending | | |
 | 9 Reconciliation | pending | | |
 | 10 Scheduled safety job | pending | | |
@@ -72,6 +72,14 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   catalog exists. Flip to unconditional once Phase 4 is done and the secrets
   are populated. Cost if wrong: a half-configured provider is caught only
   when the key is present — which is exactly when it matters.
+- R7-1: the simulated E2E suite needs production deployments without a
+  real checkout. `BILLING_FIXTURE_MODE=true` (set only by the simulated E2E
+  runner; never in the CDK allowlist or the deploy workflow) seeds a normal
+  `ACTIVE` `billing_subscriptions` row for each new organization and exposes
+  `POST /internal/fixture/billing/subscription` to change or clear it. The
+  entitlement gate itself is unchanged. Cost if wrong: none in production;
+  a simulated scenario could forget to clear the row when it tests
+  evaluation mode.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops

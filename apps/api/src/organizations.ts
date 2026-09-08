@@ -6,6 +6,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { sendQuietly, type EmailSender } from './email.js';
+import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 
 // User, account and organization management: organizations, memberships,
@@ -353,11 +354,37 @@ export async function getSubscriptionStatus(
 
 // ── Organization lifecycle ──────────────────────────────────────────────────
 
+/**
+ * Paddle migration Phase 7 fixture mode: give a fresh organization a normal
+ * ACTIVE billing_subscriptions row (fixture ids only — never a realistic
+ * Paddle id), so a caller under billingFixtureMode exercises the real
+ * entitlement gate in billing-entitlements.ts instead of always hitting 402
+ * SUBSCRIPTION_REQUIRED. Called from here (POST /api/organizations) and from
+ * auth.ts's signup session hook — the two places a fresh organization exists.
+ */
+export async function seedFixtureBillingSubscription(
+  db: RuntimeDb,
+  organizationId: string,
+): Promise<void> {
+  const now = new Date();
+  await db.insert(schema.billingSubscriptions).values({
+    organizationId,
+    providerCustomerId: `ctm_fixture_${organizationId}`,
+    providerSubscriptionId: `sub_fixture_${organizationId}`,
+    status: 'ACTIVE',
+    currentPeriodStart: now,
+    currentPeriodEnd: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+  });
+}
+
 export async function createOrganization(
   db: RuntimeDb,
   actor: Actor,
   sessionId: string,
   body: z.infer<typeof createOrganizationBodySchema>,
+  // Injectable so tests can flip it without mutating module-level env
+  // (mirrors ServerDeps.githubFixtureMode's `?? env.x` fallback).
+  billingFixtureMode: boolean = env.billingFixtureMode,
 ): Promise<OrganizationSummary> {
   const id = crypto.randomUUID();
   const [organization] = await db
@@ -368,6 +395,9 @@ export async function createOrganization(
     .insert(schema.member)
     .values({ id: crypto.randomUUID(), organizationId: id, userId: actor.id, role: 'owner' });
   await setActiveOrganization(db, actor.id, sessionId, id);
+  if (billingFixtureMode) {
+    await seedFixtureBillingSubscription(db, id);
+  }
   await recordAuditEvent(db, {
     organizationId: id,
     actorId: actor.id,
@@ -379,8 +409,9 @@ export async function createOrganization(
     id,
     name: organization!.name,
     slug: organization!.slug,
-    // A brand-new organization has no billing_subscriptions row yet.
-    subscriptionStatus: null,
+    // A brand-new organization has no billing_subscriptions row yet, unless
+    // fixture mode just seeded one.
+    subscriptionStatus: billingFixtureMode ? 'ACTIVE' : null,
     role: 'owner',
     memberCount: 1,
     createdAt: organization!.createdAt,

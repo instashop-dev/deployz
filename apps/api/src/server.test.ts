@@ -383,6 +383,15 @@ describe('server — organization identity comes from the session, not the clien
       accountLogin: 'org-a',
       accountType: 'Organization',
     });
+    // This describe block creates PRODUCTION deployments (the default) to
+    // exercise ownership/manifest gates unrelated to billing — an ACTIVE
+    // subscription keeps them past the Phase 7 entitlement gate.
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: orgA.organizationId,
+      providerCustomerId: 'ctm_fixture_org_a',
+      providerSubscriptionId: 'sub_fixture_org_a',
+      status: 'ACTIVE',
+    });
     app = await buildServer({ auth, db });
   }, 60_000);
 

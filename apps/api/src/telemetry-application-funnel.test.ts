@@ -72,6 +72,15 @@ describe('application/analysis funnel events (PR1)', () => {
     db = createDb(client);
     auth = createAuth(db);
     org = await signUpAndGetOrg(auth, db, 'telemetry-funnel@example.com');
+    // Deploy-link creation below is always PRODUCTION; Paddle migration
+    // Phase 7 gates that behind an ACTIVE subscription, unrelated to what
+    // this file exercises (application/analysis funnel telemetry).
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: org.organizationId,
+      providerCustomerId: 'ctm_fixture_telemetry_funnel',
+      providerSubscriptionId: 'sub_fixture_telemetry_funnel',
+      status: 'ACTIVE',
+    });
     // Fixture-mode GitHub so the /analyse route runs the real deterministic
     // analyser on a fixture tree with no network. The AI gateway is disabled
     // explicitly (env.aiGateway may be configured on a developer machine);
