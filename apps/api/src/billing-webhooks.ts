@@ -18,12 +18,16 @@ export interface WebhookDeps {
   paddle: PaddleBilling | null;
   now?: () => Date;
   // Fired after commit, once a subscription's status actually changed.
-  // Not wired to anything yet — later phases resume pending deployments
-  // (Phase 8) and reconcile (Phase 9).
+  // Phase 8 wires this to completePendingCheckoutIntent (billing-checkout.ts);
+  // Phase 9 will reconcile from here too. `checkoutIntentId` is Deployz's own
+  // customData, which Paddle copies from the checkout transaction onto the
+  // subscription it creates — it names the exact parked request that was paid
+  // for, so the wrong one can never be resumed.
   onSubscriptionChanged?: (change: {
     organizationId: string;
     previousStatus: BillingSubscriptionStatus | null;
     status: BillingSubscriptionStatus;
+    checkoutIntentId: string | undefined;
   }) => Promise<void>;
 }
 
@@ -56,6 +60,14 @@ function organizationIdFromCustomData(customData: unknown): string | undefined {
   if (typeof customData !== 'object' || customData === null) return undefined;
   const organizationId = (customData as Record<string, unknown>).organizationId;
   return typeof organizationId === 'string' ? organizationId : undefined;
+}
+
+/** The checkout intent id Deployz set on the transaction's customData
+ *  (billing-checkout.ts), copied by Paddle onto the subscription event. */
+function checkoutIntentIdFromCustomData(customData: unknown): string | undefined {
+  if (typeof customData !== 'object' || customData === null) return undefined;
+  const checkoutIntentId = (customData as Record<string, unknown>).checkoutIntentId;
+  return typeof checkoutIntentId === 'string' ? checkoutIntentId : undefined;
 }
 
 /**
@@ -279,7 +291,12 @@ export async function handlePaddleWebhook(
   }
 
   let subscriptionChange:
-    | { organizationId: string; previousStatus: BillingSubscriptionStatus | null; status: BillingSubscriptionStatus }
+    | {
+        organizationId: string;
+        previousStatus: BillingSubscriptionStatus | null;
+        status: BillingSubscriptionStatus;
+        checkoutIntentId: string | undefined;
+      }
     | undefined;
 
   try {
@@ -305,6 +322,9 @@ export async function handlePaddleWebhook(
             organizationId,
             previousStatus: result.previousStatus,
             status: result.newStatus,
+            checkoutIntentId: checkoutIntentIdFromCustomData(
+              (event.data as { customData?: unknown }).customData,
+            ),
           };
         }
         return { outcome: result.status } as const;

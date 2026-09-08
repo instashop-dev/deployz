@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 
 import type { Region } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
@@ -6,6 +6,7 @@ import * as schema from '@deployz/db/schema';
 
 import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer } from './deploy-links.js';
 import { ApiError } from './errors.js';
+import { recordEvent } from './events.js';
 import { getSubscriptionStatus } from './organizations.js';
 import type { PaddleBilling } from './paddle.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
@@ -15,7 +16,17 @@ import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
 // deployment row is written and no install link exists. The request is parked
 // as a billing_checkout_intents row tied to a Paddle transaction, and the
 // vendor pays through Paddle.js. When the subscription activates, the Phase 6
-// webhook resumes the intent and only then does the deployment row appear.
+// webhook completes the intent and only then does the deployment row appear.
+//
+// The transaction carries the PLATFORM price only. The per-deployment price
+// is billed by quantity through Phase 9 reconciliation, which counts
+// deployments that are actually live (billing_state ACTIVE) — a deployment
+// that has not installed yet is not live, so charging $19 here would bill for
+// something that is not running.
+
+/** A parked request older than this is stale: Paddle may have dropped its
+ *  transaction, and the vendor's intent has plainly moved on. */
+const CHECKOUT_INTENT_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 export interface CheckoutDeps {
   db: RuntimeDb;
@@ -36,12 +47,36 @@ export interface CreatedCheckoutIntent {
   transactionId: string;
 }
 
+/** Expires PENDING intents older than the window, so a checkout retried much
+ *  later never resurrects a transaction Paddle has long since dropped. */
+async function expireStalePendingIntents(
+  db: RuntimeDb,
+  organizationId: string,
+  now: Date,
+): Promise<void> {
+  await db
+    .update(schema.billingCheckoutIntents)
+    .set({ status: 'EXPIRED', resolvedAt: now })
+    .where(
+      and(
+        eq(schema.billingCheckoutIntents.organizationId, organizationId),
+        eq(schema.billingCheckoutIntents.status, 'PENDING'),
+        lt(schema.billingCheckoutIntents.createdAt, new Date(now.getTime() - CHECKOUT_INTENT_EXPIRY_MS)),
+      ),
+    );
+}
+
 /**
  * Parks a production deployment request and opens a Paddle transaction for
  * it. Everything that can be checked before the vendor pays is checked here
  * — organization ownership of the application and the customer, and the same
  * preflight gate createDeploymentRecord runs — so a completed checkout does
  * not land on a request that was never going to work.
+ *
+ * Pressing the button twice is safe: an organization has at most one PENDING
+ * intent (partial unique index), so a second call updates that row with the
+ * newest request and reuses its transaction. Paddle is never asked for a
+ * second transaction the first checkout would leave dangling.
  */
 export async function createCheckoutIntent(
   deps: CheckoutDeps,
@@ -70,64 +105,71 @@ export async function createCheckoutIntent(
   const { result } = await runApplicationPreflight(db, application, params.customerId);
   requirePreflightReady(result);
 
-  // One PENDING intent per organization (partial unique index): activation
-  // resumes every pending intent, so a second one would provision a second
-  // deployment for one checkout. A new checkout wins.
-  await db
-    .update(schema.billingCheckoutIntents)
-    .set({ status: 'SUPERSEDED', resolvedAt: now() })
+  const startedAt = now();
+  await expireStalePendingIntents(db, params.organizationId, startedAt);
+
+  const [existing] = await db
+    .select()
+    .from(schema.billingCheckoutIntents)
     .where(
       and(
         eq(schema.billingCheckoutIntents.organizationId, params.organizationId),
         eq(schema.billingCheckoutIntents.status, 'PENDING'),
       ),
-    );
+    )
+    .limit(1);
 
-  const [intent] = await db
-    .insert(schema.billingCheckoutIntents)
-    .values({
-      organizationId: params.organizationId,
-      applicationId: params.applicationId,
-      customerId: params.customerId,
-      region: params.region,
-      createdBy: params.createdBy,
-    })
-    .returning();
+  const request = {
+    applicationId: params.applicationId,
+    customerId: params.customerId,
+    region: params.region,
+    createdBy: params.createdBy,
+  };
+  let intent: typeof schema.billingCheckoutIntents.$inferSelect;
+  if (existing) {
+    const [updated] = await db
+      .update(schema.billingCheckoutIntents)
+      .set(request)
+      .where(eq(schema.billingCheckoutIntents.id, existing.id))
+      .returning();
+    intent = updated!;
+  } else {
+    const [inserted] = await db
+      .insert(schema.billingCheckoutIntents)
+      .values({ organizationId: params.organizationId, ...request })
+      .returning();
+    intent = inserted!;
+  }
+
+  if (intent.providerTransactionId) {
+    return { checkoutIntentId: intent.id, transactionId: intent.providerTransactionId };
+  }
 
   // The intent id travels in customData so the webhook can attribute the
-  // subscription to this organization before any subscription row exists —
-  // hence the insert above must come first.
+  // subscription to this organization — and to this exact parked request —
+  // before any subscription row exists. Hence the row must exist first; a
+  // Paddle failure leaves it PENDING with no transaction, and the next call
+  // reuses the row and retries.
   let transactionId: string;
   try {
     const transaction = await paddle.client.transactions.create({
-      items: [
-        { priceId: paddle.config.pricePlatform, quantity: 1 },
-        { priceId: paddle.config.priceDeployment, quantity: 1 },
-      ],
-      customData: { organizationId: params.organizationId, checkoutIntentId: intent!.id },
+      items: [{ priceId: paddle.config.pricePlatform, quantity: 1 }],
+      customData: { organizationId: params.organizationId, checkoutIntentId: intent.id },
     });
     transactionId = transaction.id;
-  } catch (error) {
-    await db
-      .update(schema.billingCheckoutIntents)
-      .set({
-        status: 'FAILED',
-        error: error instanceof Error ? error.message : String(error),
-        resolvedAt: now(),
-      })
-      .where(eq(schema.billingCheckoutIntents.id, intent!.id));
+  } catch {
     throw new ApiError(502, 'CHECKOUT_UNAVAILABLE', 'Could not start checkout. Try again.');
   }
 
   await db
     .update(schema.billingCheckoutIntents)
     .set({ providerTransactionId: transactionId })
-    .where(eq(schema.billingCheckoutIntents.id, intent!.id));
+    .where(eq(schema.billingCheckoutIntents.id, intent.id));
 
-  return { checkoutIntentId: intent!.id, transactionId };
+  return { checkoutIntentId: intent.id, transactionId };
 }
 
-export interface ResumedCheckoutIntent {
+export interface CompletedCheckoutIntent {
   checkoutIntentId: string;
   status: 'COMPLETED' | 'FAILED';
   deploymentId?: string;
@@ -135,34 +177,49 @@ export interface ResumedCheckoutIntent {
 }
 
 /**
- * Creates the deployment for every PENDING intent of an organization whose
- * subscription just became ACTIVE. Never throws: this runs inside the webhook
- * path, and a failure to create the deployment must not make Paddle redeliver
- * a subscription event that was applied correctly. A failed intent is
- * recorded as FAILED with its reason — the subscription is real, so the
- * vendor now passes the Phase 7 gate and can create the deployment directly.
+ * Creates the deployment for the intent an activated subscription paid for.
+ * The event names the intent through Deployz's own `customData`, which Paddle
+ * copies from the checkout transaction onto the subscription; without one,
+ * the organization's single PENDING intent is used.
+ *
+ * The deployment insert and the intent's completion run in ONE transaction
+ * guarded by `WHERE status = 'PENDING'`, so a redelivered webhook — or two
+ * ACTIVE events racing — can never create the deployment twice.
+ *
+ * Never throws: this runs inside the webhook path, and a failure to create
+ * the deployment must not make Paddle redeliver a subscription event that was
+ * applied correctly. A failed intent is recorded FAILED with its reason — the
+ * subscription is real, so the vendor now passes the Phase 7 gate and can
+ * create the deployment directly.
  */
-export async function resumePendingCheckoutIntents(
+export async function completePendingCheckoutIntent(
   deps: CheckoutDeps,
   organizationId: string,
-): Promise<ResumedCheckoutIntent[]> {
+  checkoutIntentId: string | undefined,
+): Promise<CompletedCheckoutIntent | null> {
   const { db } = deps;
   const now = deps.now ?? (() => new Date());
-  const intents = await db
-    .select()
-    .from(schema.billingCheckoutIntents)
-    .where(
-      and(
-        eq(schema.billingCheckoutIntents.organizationId, organizationId),
-        eq(schema.billingCheckoutIntents.status, 'PENDING'),
-      ),
-    );
+  let intentId: string | undefined;
+  try {
+    return await db.transaction(async (tx) => {
+      const [intent] = await tx
+        .select()
+        .from(schema.billingCheckoutIntents)
+        .where(
+          and(
+            eq(schema.billingCheckoutIntents.organizationId, organizationId),
+            eq(schema.billingCheckoutIntents.status, 'PENDING'),
+            ...(checkoutIntentId ? [eq(schema.billingCheckoutIntents.id, checkoutIntentId)] : []),
+          ),
+        )
+        .limit(1);
+      // An ACTIVE subscription with nothing parked on it — a resubscribe, or
+      // an intent another delivery already completed.
+      if (!intent) return null;
+      intentId = intent.id;
 
-  const results: ResumedCheckoutIntent[] = [];
-  for (const intent of intents) {
-    try {
-      const { deployment } = await createDeploymentRecord(db, {
-        organizationId: intent.organizationId,
+      const { deployment } = await createDeploymentRecord(tx, {
+        organizationId,
         applicationId: intent.applicationId,
         customerId: intent.customerId,
         region: intent.region,
@@ -171,23 +228,35 @@ export async function resumePendingCheckoutIntents(
         updatedBy: intent.createdBy,
         source: 'manual',
       });
-      await db
+      const resolvedAt = now();
+      await tx
         .update(schema.billingCheckoutIntents)
-        .set({ status: 'COMPLETED', deploymentId: deployment.id, resolvedAt: now() })
-        .where(eq(schema.billingCheckoutIntents.id, intent.id));
-      results.push({
-        checkoutIntentId: intent.id,
-        status: 'COMPLETED',
+        .set({ status: 'COMPLETED', deploymentId: deployment.id, resolvedAt })
+        .where(
+          and(
+            eq(schema.billingCheckoutIntents.id, intent.id),
+            eq(schema.billingCheckoutIntents.status, 'PENDING'),
+          ),
+        );
+      await recordEvent(tx, {
+        organizationId,
+        eventType: 'billing.subscription_activated',
+        actorType: 'system',
+        actorId: 'billing-webhook',
         deploymentId: deployment.id,
+        customerId: intent.customerId,
+        payload: { schemaVersion: 1, checkoutIntentId: intent.id, deploymentId: deployment.id },
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await db
-        .update(schema.billingCheckoutIntents)
-        .set({ status: 'FAILED', error: message, resolvedAt: now() })
-        .where(eq(schema.billingCheckoutIntents.id, intent.id));
-      results.push({ checkoutIntentId: intent.id, status: 'FAILED', error: message });
-    }
+      return { checkoutIntentId: intent.id, status: 'COMPLETED' as const, deploymentId: deployment.id };
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!intentId) return null;
+    // Outside the rolled-back transaction, so the reason survives.
+    await db
+      .update(schema.billingCheckoutIntents)
+      .set({ status: 'FAILED', error: message, resolvedAt: now() })
+      .where(eq(schema.billingCheckoutIntents.id, intentId));
+    return { checkoutIntentId: intentId, status: 'FAILED', error: message };
   }
-  return results;
 }

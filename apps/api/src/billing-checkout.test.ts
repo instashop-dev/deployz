@@ -8,7 +8,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
-import { resumePendingCheckoutIntents } from './billing-checkout.js';
+import { completePendingCheckoutIntent } from './billing-checkout.js';
 import { createPaddle, type PaddleBilling } from './paddle.js';
 import { buildServer } from './server.js';
 
@@ -82,6 +82,7 @@ function signedWebhook(event: Record<string, unknown>): {
 function subscriptionActivated(
   organizationId: string,
   eventId: string,
+  checkoutIntentId?: string,
   subscriptionId = 'sub_test_1',
 ): Record<string, unknown> {
   const occurredAt = new Date().toISOString();
@@ -103,7 +104,7 @@ function subscriptionActivated(
       current_billing_period: { starts_at: occurredAt, ends_at: occurredAt },
       scheduled_change: null,
       items: [],
-      custom_data: { organizationId },
+      custom_data: checkoutIntentId ? { organizationId, checkoutIntentId } : { organizationId },
     },
   };
 }
@@ -177,6 +178,14 @@ function postJson(
     headers: { 'content-type': 'application/json', ...extraHeaders },
     payload: JSON.stringify(body),
   });
+}
+
+/** Clears whatever a previous test parked — the PENDING intent is reused by
+ *  design, so a test that needs a fresh checkout must start from none. */
+async function clearIntents(db: Db, organizationId: string): Promise<void> {
+  await db
+    .delete(schema.billingCheckoutIntents)
+    .where(eq(schema.billingCheckoutIntents.organizationId, organizationId));
 }
 
 function pendingIntents(db: Db, organizationId: string) {
@@ -260,13 +269,11 @@ describe('POST /api/billing/checkout (Paddle migration Phase 8)', () => {
       const payload = response.json() as { checkoutIntentId: string; transactionId: string };
       expect(payload.transactionId).toBe('txn_test_1');
 
-      // The transaction carries both prices and the ids the webhook resolves.
+      // The PLATFORM price only: the parked deployment is not live yet, and
+      // Phase 9 reconciliation bills live deployments by quantity.
       expect(created).toEqual([
         {
-          items: [
-            { priceId: 'pri_platform_replace_me', quantity: 1 },
-            { priceId: 'pri_deployment_replace_me', quantity: 1 },
-          ],
+          items: [{ priceId: 'pri_platform_replace_me', quantity: 1 }],
           customData: {
             organizationId: org.organizationId,
             checkoutIntentId: payload.checkoutIntentId,
@@ -299,9 +306,18 @@ describe('POST /api/billing/checkout (Paddle migration Phase 8)', () => {
     }
   });
 
-  it('a second checkout supersedes the first, leaving exactly one PENDING intent', async () => {
-    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+  it('a second checkout reuses the same intent and transaction', async () => {
+    let calls = 0;
+    const app = await buildServer({
+      auth,
+      db,
+      paddle: buildPaddle(async () => {
+        calls += 1;
+        return { id: `txn_test_reuse_${calls}` };
+      }),
+    });
     try {
+      await clearIntents(db, org.organizationId);
       const application = await insertApplication(db, org.organizationId);
       const customer = await insertCustomer(db, org.organizationId);
       const body = { applicationId: application.id, customerId: customer.id, region: 'us-east-1' };
@@ -309,19 +325,38 @@ describe('POST /api/billing/checkout (Paddle migration Phase 8)', () => {
       const second = await postJson(app, '/api/billing/checkout', body, { cookie: org.cookie });
       expect(first.statusCode, first.body).toBe(200);
       expect(second.statusCode, second.body).toBe(200);
+      // Paddle is asked once: a second transaction would be left dangling.
+      expect(calls).toBe(1);
+      expect(second.json()).toEqual(first.json());
+      expect(await pendingIntents(db, org.organizationId)).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
 
-      const pending = await pendingIntents(db, org.organizationId);
-      expect(pending).toHaveLength(1);
-      expect(pending[0]!.id).toBe((second.json() as { checkoutIntentId: string }).checkoutIntentId);
-
-      const [superseded] = await db
+  it('a later checkout replaces the parked request on the same intent', async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const [pending] = await pendingIntents(db, org.organizationId);
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode, response.body).toBe(200);
+      expect((response.json() as { checkoutIntentId: string }).checkoutIntentId).toBe(pending!.id);
+      const [updated] = await db
         .select()
         .from(schema.billingCheckoutIntents)
-        .where(
-          eq(schema.billingCheckoutIntents.id, (first.json() as { checkoutIntentId: string }).checkoutIntentId),
-        );
-      expect(superseded!.status).toBe('SUPERSEDED');
-      expect(superseded!.resolvedAt).not.toBeNull();
+        .where(eq(schema.billingCheckoutIntents.id, pending!.id));
+      expect(updated).toMatchObject({
+        applicationId: application.id,
+        customerId: customer.id,
+        status: 'PENDING',
+      });
     } finally {
       await app.close();
     }
@@ -365,7 +400,7 @@ describe('POST /api/billing/checkout (Paddle migration Phase 8)', () => {
     }
   });
 
-  it('marks the intent FAILED and answers 502 when Paddle refuses the transaction', async () => {
+  it('leaves the intent PENDING and answers 502 when Paddle refuses the transaction', async () => {
     const app = await buildServer({
       auth,
       db,
@@ -374,6 +409,7 @@ describe('POST /api/billing/checkout (Paddle migration Phase 8)', () => {
       }),
     });
     try {
+      await clearIntents(db, org.organizationId);
       const application = await insertApplication(db, org.organizationId);
       const customer = await insertCustomer(db, org.organizationId);
       const response = await postJson(
@@ -384,18 +420,11 @@ describe('POST /api/billing/checkout (Paddle migration Phase 8)', () => {
       );
       expect(response.statusCode).toBe(502);
       expect(response.json()).toMatchObject({ error: { code: 'CHECKOUT_UNAVAILABLE' } });
-      // No PENDING intent is left behind to be resumed by a later activation.
-      expect(await pendingIntents(db, org.organizationId)).toHaveLength(0);
-      const [failed] = await db
-        .select()
-        .from(schema.billingCheckoutIntents)
-        .where(
-          and(
-            eq(schema.billingCheckoutIntents.organizationId, org.organizationId),
-            eq(schema.billingCheckoutIntents.status, 'FAILED'),
-          ),
-        );
-      expect(failed!.error).toBe('paddle is down');
+      // The row survives with no transaction id, so the next call retries it
+      // rather than stranding the vendor.
+      const pending = await pendingIntents(db, org.organizationId);
+      expect(pending).toHaveLength(1);
+      expect(pending[0]!.providerTransactionId).toBeNull();
     } finally {
       await app.close();
     }
@@ -435,7 +464,7 @@ describe('checkout intents resume on activation (Paddle migration Phase 8)', () 
       const { checkoutIntentId } = checkout.json() as { checkoutIntentId: string };
 
       const { body, headers } = signedWebhook(
-        subscriptionActivated(org.organizationId, 'evt_test_resume_1'),
+        subscriptionActivated(org.organizationId, 'evt_test_resume_1', checkoutIntentId),
       );
       const webhook = await app.inject({
         method: 'POST',
@@ -470,6 +499,26 @@ describe('checkout intents resume on activation (Paddle migration Phase 8)', () 
     }
   });
 
+  it('a second ACTIVE delivery creates no second deployment', async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const before = await db.select().from(schema.deployments);
+      const { body, headers } = signedWebhook(
+        subscriptionActivated(org.organizationId, 'evt_test_resume_2'),
+      );
+      const webhook = await app.inject({
+        method: 'POST',
+        url: '/api/billing/webhook',
+        headers,
+        payload: body,
+      });
+      expect(webhook.statusCode, webhook.body).toBe(200);
+      expect(await db.select().from(schema.deployments)).toHaveLength(before.length);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('records FAILED without throwing when the deployment cannot be created', async () => {
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);
@@ -489,13 +538,16 @@ describe('checkout intents resume on activation (Paddle migration Phase 8)', () 
       })
       .returning();
 
-    const results = await resumePendingCheckoutIntents(
+    const result = await completePendingCheckoutIntent(
       { db, paddle: buildPaddle() },
       org.organizationId,
+      intent!.id,
     );
-    expect(results).toEqual([
-      { checkoutIntentId: intent!.id, status: 'FAILED', error: expect.any(String) },
-    ]);
+    expect(result).toEqual({
+      checkoutIntentId: intent!.id,
+      status: 'FAILED',
+      error: expect.any(String),
+    });
 
     const [row] = await db
       .select()

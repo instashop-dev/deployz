@@ -87,10 +87,10 @@ describe('billing schema constraints', () => {
     );
   });
 
-  it('allows a new PENDING intent once the previous one is SUPERSEDED', async () => {
+  it('allows a new PENDING intent once the previous one is EXPIRED', async () => {
     await db!
       .update(billingCheckoutIntents)
-      .set({ status: 'SUPERSEDED' })
+      .set({ status: 'EXPIRED' })
       .where(eq(billingCheckoutIntents.organizationId, ids.organizationId));
     await expect(
       db!.insert(billingCheckoutIntents).values({
@@ -98,7 +98,24 @@ describe('billing schema constraints', () => {
         applicationId: ids.applicationId,
         customerId: ids.customerId,
         region: 'us-east-1',
+        providerTransactionId: 'txn_test_1',
       }),
     ).resolves.toBeDefined();
+  });
+
+  // One intent per Paddle transaction: the webhook resolves an activation
+  // back to a single parked request.
+  it('rejects a duplicate billing_checkout_intents.provider_transaction_id', async () => {
+    await expectPgError(
+      db!.insert(billingCheckoutIntents).values({
+        organizationId: ids.organizationId,
+        applicationId: ids.applicationId,
+        customerId: ids.customerId,
+        region: 'us-east-1',
+        status: 'COMPLETED',
+        providerTransactionId: 'txn_test_1',
+      }),
+      /duplicate key value violates unique constraint/,
+    );
   });
 });

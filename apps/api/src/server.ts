@@ -80,7 +80,7 @@ import {
   fixInstructionsCacheKey,
   readCachedFixInstructions,
 } from './fix-instructions.js';
-import { createCheckoutIntent, resumePendingCheckoutIntents } from './billing-checkout.js';
+import { completePendingCheckoutIntent, createCheckoutIntent } from './billing-checkout.js';
 import {
   isBillableDeployment,
   PLATFORM_PRICE_DOLLARS,
@@ -5268,17 +5268,21 @@ export async function buildServer({
       {
         db,
         paddle,
-        // Phase 8 — the subscription is live, so every production deployment
-        // parked before it can now be created. resumePendingCheckoutIntents
+        // Phase 8 — the subscription is live, so the production deployment
+        // parked on it can now be created. completePendingCheckoutIntent
         // never throws, so a deployment that cannot be created does not make
         // Paddle redeliver an event that was applied correctly.
-        onSubscriptionChanged: async ({ organizationId, status }) => {
+        onSubscriptionChanged: async ({ organizationId, status, checkoutIntentId }) => {
           if (status !== 'ACTIVE') return;
-          const resumed = await resumePendingCheckoutIntents({ db, paddle }, organizationId);
-          for (const intent of resumed.filter((r) => r.status === 'FAILED')) {
+          const completed = await completePendingCheckoutIntent(
+            { db, paddle },
+            organizationId,
+            checkoutIntentId,
+          );
+          if (completed?.status === 'FAILED') {
             request.log.error(
-              { organizationId, checkoutIntentId: intent.checkoutIntentId, err: intent.error },
-              'checkout intent could not be resumed',
+              { organizationId, checkoutIntentId: completed.checkoutIntentId, err: completed.error },
+              'checkout intent could not be completed',
             );
           }
         },

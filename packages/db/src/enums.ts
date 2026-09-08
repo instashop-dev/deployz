@@ -196,7 +196,7 @@ export const billingCheckoutIntentStatusEnum = pgEnum('billing_checkout_intent_s
   'PENDING',
   'COMPLETED',
   'FAILED',
-  'SUPERSEDED',
+  'EXPIRED',
 ]);
 
 export const buildStatusEnum = pgEnum('build_status', [

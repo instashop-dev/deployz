@@ -97,7 +97,7 @@ export const billingCheckoutIntents = pgTable(
     // Null only in the instant between the row insert and the provider
     // accepting the transaction — the intent id goes into the transaction's
     // customData, so the row must exist first.
-    providerTransactionId: text('provider_transaction_id'),
+    providerTransactionId: text('provider_transaction_id').unique(),
     status: billingCheckoutIntentStatusEnum('status').notNull().default('PENDING'),
     // The deployment this intent became, once resumed.
     deploymentId: uuid('deployment_id').references(() => deployments.id),

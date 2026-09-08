@@ -34,7 +34,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 5 SDK + config | done | PR #222 | `@paddle/paddle-node-sdk`, `apps/api/src/paddle.ts`, `PADDLE_*` env validation, CDK allowlist, deploy workflow, `GET /api/billing/config` |
 | 6 Webhooks | done | PR #223 | `apps/api/src/billing-webhooks.ts`, `POST /api/billing/webhook` (raw body, `Paddle-Signature`), event ledger dedupe, `occurredAt` regression guard, migration `0035` (scheduled change) |
 | 7 Evaluation entitlements | done | PR #228 | `apps/api/src/billing-entitlements.ts`: PRODUCTION needs an ACTIVE subscription (402 `SUBSCRIPTION_REQUIRED`), one active TEST deployment per application (409 `TEST_DEPLOYMENT_EXISTS`, partial unique index, migration `0036`) |
-| 8 First production activation | done | this PR | `billing_checkout_intents` (migration `0037`), `apps/api/src/billing-checkout.ts`, `POST /api/billing/checkout`, webhook resume on ACTIVE; web checkout hand-off (`apps/web/src/lib/billing-checkout.ts`, Paddle.js). Not verified against Paddle — Phase 4 catalog still missing |
+| 8 First production activation | done | this PR | `billing_checkout_intents` (migration `0037`), `apps/api/src/billing-checkout.ts`, `POST /api/billing/checkout` (platform price only), webhook completion on ACTIVE; web checkout hand-off (`apps/web/src/lib/billing-checkout.ts`, Paddle.js). Not verified against Paddle — Phase 4 catalog still missing |
 | 9 Reconciliation | pending | | |
 | 10 Scheduled safety job | pending | | |
 | 11 App-wide UX | pending | | |
@@ -82,22 +82,35 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   evaluation mode.
 - R8-1: at most one PENDING checkout intent per organization (partial unique
   index `billing_checkout_intents_one_pending_per_organization_uidx`).
-  Activation resumes every PENDING intent, so two of them would provision two
-  deployments for one checkout. A new checkout SUPERSEDES the previous one.
-  Cost if wrong: a vendor who wanted two production deployments queued before
-  paying gets one; the second is created normally once the subscription is
-  ACTIVE.
-- R8-2: `createCheckoutIntent` runs the ownership and preflight gates BEFORE
-  it opens the transaction, so a completed checkout does not land on a request
-  that was never going to work. Cost if wrong: a preflight that passes at
-  checkout and fails at resume, which R8-3 already covers.
-- R8-3: `resumePendingCheckoutIntents` never throws. A deployment that cannot
-  be created is recorded FAILED with its reason and logged; the webhook still
-  answers 200 because the subscription event itself was applied correctly.
-  The subscription is real, so the vendor now passes the Phase 7 gate and can
-  create the deployment directly. Cost if wrong: a vendor who paid has to
-  press the button once more.
-- R8-4: the web app reads the Paddle client token from
+  A second checkout REUSES that row — it overwrites the parked request and
+  returns the transaction already on it, so Paddle is never asked for a
+  second transaction the first checkout would leave dangling. A PENDING
+  intent older than 24h expires (EXPIRED), because Paddle may have dropped
+  its transaction by then. Cost if wrong: a vendor cannot queue two
+  production deployments before paying; the second is created normally once
+  the subscription is ACTIVE.
+- R8-2: the checkout transaction carries the PLATFORM price only, never the
+  per-deployment price. The parked deployment is not live yet, and Phase 9
+  reconciliation bills live deployments (billing_state ACTIVE) by quantity —
+  charging $19 at checkout would bill for something that is not running.
+- R8-3: `createCheckoutIntent` runs the ownership and preflight gates BEFORE
+  it opens the transaction, so a completed checkout does not land on a
+  request that was never going to work. A Paddle failure leaves the intent
+  PENDING with no transaction id, so the next call reuses the row and
+  retries. Cost if wrong: a preflight that passes at checkout and fails at
+  completion, which R8-4 covers.
+- R8-4: `completePendingCheckoutIntent` picks the intent the paid transaction
+  names through Paddle's echoed `customData`, falling back to the
+  organization's single PENDING intent. The deployment insert and the
+  intent's completion run in ONE transaction guarded by
+  `WHERE status = 'PENDING'`, so a redelivered webhook — or two ACTIVE events
+  racing — cannot create the deployment twice. It never throws: a deployment
+  that cannot be created is recorded FAILED (in a write outside the
+  rolled-back transaction, so the reason survives) and logged, because the
+  subscription event itself was applied correctly. The subscription is real,
+  so the vendor now passes the Phase 7 gate and can create the deployment
+  directly. Cost if wrong: a vendor who paid presses the button once more.
+- R8-5: the web app reads the Paddle client token from
   `GET /api/billing/config` at runtime instead of a baked `NEXT_PUBLIC_*`
   value, so `deploy-web.yml` needs no Paddle configuration (audit §9 assumed
   the baked route). Cost if wrong: one extra request before checkout opens.

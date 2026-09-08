@@ -374,7 +374,7 @@ export const billingCheckoutIntentStatusSchema = z.enum([
   'PENDING',
   'COMPLETED',
   'FAILED',
-  'SUPERSEDED',
+  'EXPIRED',
 ]);
 export type BillingCheckoutIntentStatus = z.infer<typeof billingCheckoutIntentStatusSchema>;
 

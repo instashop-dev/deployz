@@ -1,4 +1,4 @@
-CREATE TYPE "public"."billing_checkout_intent_status" AS ENUM('PENDING', 'COMPLETED', 'FAILED', 'SUPERSEDED');--> statement-breakpoint
+CREATE TYPE "public"."billing_checkout_intent_status" AS ENUM('PENDING', 'COMPLETED', 'FAILED', 'EXPIRED');--> statement-breakpoint
 CREATE TABLE "billing_checkout_intents" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" text NOT NULL,
@@ -13,7 +13,8 @@ CREATE TABLE "billing_checkout_intents" (
 	"resolved_at" timestamp with time zone,
 	"created_by" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "billing_checkout_intents_provider_transaction_id_unique" UNIQUE("provider_transaction_id")
 );--> statement-breakpoint
 ALTER TABLE "billing_checkout_intents" ADD CONSTRAINT "billing_checkout_intents_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "billing_checkout_intents" ADD CONSTRAINT "billing_checkout_intents_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
