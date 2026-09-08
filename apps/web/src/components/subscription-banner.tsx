@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { AlertTriangle, CreditCard } from 'lucide-react';
 
+import { ManageBillingButton } from '@/components/manage-billing-button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
@@ -43,9 +44,16 @@ export function SubscriptionBanner({ status }: { status: SubscriptionStatus | nu
       <AlertTitle>{banner.title}</AlertTitle>
       <AlertDescription className="flex flex-wrap items-center gap-3">
         <span>{banner.description}</span>
-        <Button asChild size="sm" variant="outline">
-          <Link href="/dashboard/settings/billing">{banner.action}</Link>
-        </Button>
+        {/* Phase 12: a failed payment goes straight to Paddle's card form —
+            the one action that actually fixes it — rather than to a page
+            that then asks the vendor to click again. */}
+        {status === 'PAST_DUE' ? (
+          <ManageBillingButton target="updatePaymentMethod">{banner.action}</ManageBillingButton>
+        ) : (
+          <Button asChild size="sm" variant="outline">
+            <Link href="/dashboard/settings/billing">{banner.action}</Link>
+          </Button>
+        )}
       </AlertDescription>
     </Alert>
   );

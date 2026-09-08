@@ -38,7 +38,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 9 Reconciliation | done | this PR | `apps/api/src/billing-reconcile.ts`: absolute per-deployment quantity pushed onto the subscription, `billing_reconciliation_events` ledger, wired to every billing transition (map rows 7, 12-15, 19) outside the caller's transaction |
 | 10 Scheduled safety job | done | this PR | `sweepBilling` in `packages/cdk/src/lambda/worker.ts`, on the existing 15-minute `WatchdogSchedule`: promotes missed READY activations, releases webhook events abandoned in `RECEIVED`, and reconciles subscriptions stale for an hour. New `@deployz/api` entry points `./billing`, `./billing-lifecycle`, `./paddle` |
 | 11 App-wide UX | done | this PR | Past-due/canceled banners, evaluation vs subscribed billing page, evaluation notice (home + readiness), Test·Free badges, deployment Billing row, subscription-aware creation copy, honest disconnect copy, `subscriptionStatus` on `/api/me` |
-| 12 Customer portal | pending | | |
+| 12 Customer portal | done | this PR | `apps/api/src/billing-portal.ts`, `POST /api/billing/portal` (short-lived Paddle portal links for the org's own customer), `ManageBillingButton`: billing page (overview + payment details), PAST_DUE banner deep-links to the card form |
 | 13 Entitlements by status | pending | | |
 | 14 Admin | pending | | |
 | 15 Test matrix | pending | | |
@@ -188,6 +188,18 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   once it is "healthy". HEALTHY is a visible §46 state, and the audit
   explicitly does not preserve the bill-on-bare-HEALTHY gate — the gate is
   the verified READY stage.
+- R12-1: card, invoices and cancellation live on Paddle's hosted portal,
+  never on a Deployz screen. Deployz mints a short-lived pre-authenticated
+  session for the signed-in organization's OWN `providerCustomerId` — that id
+  is the authorization; nothing from the request chooses the customer. The
+  session is never cached and never iframed (Paddle's guidance, and it is
+  where the vendor's card lives).
+- R12-2: evaluation gets 409 `NO_SUBSCRIPTION`, which the UI never reaches —
+  the button only renders on the subscribed branch. A Paddle failure answers
+  502 `PORTAL_UNAVAILABLE` without leaking the provider error.
+- R12-3: the PAST_DUE banner deep-links straight to the card form — the one
+  action that actually fixes a failed payment — instead of sending the vendor
+  to a page that asks them to click again.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops

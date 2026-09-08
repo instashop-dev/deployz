@@ -1,5 +1,6 @@
 import { Receipt } from 'lucide-react';
 
+import { ManageBillingButton } from '@/components/manage-billing-button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -137,6 +138,22 @@ function SubscribedCard({ billing }: { billing: BillingSummary }) {
             <span>Monthly total</span>
             <span className="tabular-nums">{formatDollars(billing.total)}</span>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Manage billing</CardTitle>
+          <CardDescription>
+            Invoices, payment details and cancellation are handled on our billing partner’s secure
+            portal. You will be signed in automatically.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <ManageBillingButton target="overview" variant="default">
+            Open billing portal
+          </ManageBillingButton>
+          <ManageBillingButton target="updatePaymentMethod">Update payment details</ManageBillingButton>
         </CardContent>
       </Card>
 

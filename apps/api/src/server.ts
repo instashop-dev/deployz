@@ -87,6 +87,7 @@ import {
   DEPLOYMENT_PRICE_DOLLARS,
 } from './billing-domain.js';
 import { markDeploymentLive, markDeploymentRemoved } from './billing-lifecycle.js';
+import { createBillingPortalLinks } from './billing-portal.js';
 import { reconcileBilling } from './billing-reconcile.js';
 import { handlePaddleWebhook } from './billing-webhooks.js';
 import { createPaddle, type PaddleBilling } from './paddle.js';
@@ -5308,6 +5309,15 @@ export async function buildServer({
         createdBy: request.user?.id ?? null,
       },
     );
+  });
+
+  // POST /api/billing/portal — mint short-lived, pre-authenticated links into
+  // Paddle's hosted customer portal (Phase 12). Card, invoices and cancel all
+  // live there, never on a Deployz screen. The links are for the signed-in
+  // organization's own Paddle customer; nothing about the session is cached.
+  app.post('/api/billing/portal', { preHandler: requireAuth }, async (request) => {
+    const organizationId = requireSessionOrganizationId(request);
+    return createBillingPortalLinks({ db, paddle }, organizationId);
   });
 
   // POST /api/billing/webhook — Paddle subscription/transaction events.
