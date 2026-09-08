@@ -37,6 +37,7 @@ import {
   assertNoOverlap,
   buildProtectedInventory,
   isOwnedByInstallation,
+  isProtectedByTags,
   requireConfirmToken,
   type DeletionCandidate,
 } from './safety.js';
@@ -81,23 +82,43 @@ async function cleanUpDeployment(manifest: Manifest, deployment: ManifestDeploym
   const applicationStackName = deployment.applicationStackName ?? applicationStackNameForInstallation(installationId);
   const applicationStack = findOwnedStack(stacks, 'application', applicationStackName, installationId);
   if (applicationStack) {
-    console.log(`[customer-reset] deleting application stack ${applicationStack.stackName} (${region})`);
-    await deleteOwnedStack(region, applicationStack);
+    if (isProtectedByTags(applicationStack.tags)) {
+      console.warn(
+        `[customer-reset] BLOCKED: ${applicationStack.stackName} (${region}) carries DeployzPersistent/DeployzProtected — skipping`,
+      );
+    } else {
+      console.log(`[customer-reset] deleting application stack ${applicationStack.stackName} (${region})`);
+      await deleteOwnedStack(region, applicationStack);
+    }
   }
 
-  console.log(`[customer-reset] sweeping tag-verified orphans for installation ${installationId} (${region})`);
-  const swept = await deleteOrphansForInstallation(installationId, region);
-  if (swept.rdsInstancesDeleted.length || swept.replicationGroupsDeleted.length || swept.bucketsDeleted.length) {
-    console.log(
-      `[customer-reset]   rds=${swept.rdsInstancesDeleted.length} cache=${swept.replicationGroupsDeleted.length} buckets=${swept.bucketsDeleted.length}`,
+  // Orphan sweep — skip if any stack in this region is tag-protected
+  const protectedStack = stacks.find((s) => isProtectedByTags(s.tags));
+  if (protectedStack) {
+    console.warn(
+      `[customer-reset] BLOCKED: orphan sweep for installation ${installationId} (${region}) — protected stack ${protectedStack.stackName} found`,
     );
+  } else {
+    console.log(`[customer-reset] sweeping tag-verified orphans for installation ${installationId} (${region})`);
+    const swept = await deleteOrphansForInstallation(installationId, region);
+    if (swept.rdsInstancesDeleted.length || swept.replicationGroupsDeleted.length || swept.bucketsDeleted.length) {
+      console.log(
+        `[customer-reset]   rds=${swept.rdsInstancesDeleted.length} cache=${swept.replicationGroupsDeleted.length} buckets=${swept.bucketsDeleted.length}`,
+      );
+    }
   }
 
   if (deployment.bootstrapStackName) {
     const bootstrapStack = findOwnedStack(stacks, 'bootstrap', deployment.bootstrapStackName, installationId);
     if (bootstrapStack) {
-      console.log(`[customer-reset] deleting bootstrap stack ${bootstrapStack.stackName} (${region})`);
-      await deleteOwnedStack(region, bootstrapStack);
+      if (isProtectedByTags(bootstrapStack.tags)) {
+        console.warn(
+          `[customer-reset] BLOCKED: ${bootstrapStack.stackName} (${region}) carries DeployzPersistent/DeployzProtected — skipping`,
+        );
+      } else {
+        console.log(`[customer-reset] deleting bootstrap stack ${bootstrapStack.stackName} (${region})`);
+        await deleteOwnedStack(region, bootstrapStack);
+      }
     }
   }
 }
@@ -109,6 +130,7 @@ export async function runCleanup(argv: readonly string[]): Promise<void> {
   const protectedInventory = buildProtectedInventory();
   const candidates: DeletionCandidate[] = Object.values(manifest.stacksByRegion)
     .flat()
+    .filter((stack) => !isProtectedByTags(stack.tags))
     .map((stack) => ({ kind: 'stack', name: stack.stackName }));
   assertNoOverlap(candidates, protectedInventory);
 

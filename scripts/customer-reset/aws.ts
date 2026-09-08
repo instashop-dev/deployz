@@ -89,6 +89,8 @@ export interface CustomerStack {
   readonly stackStatus: string;
   readonly installationTag: string;
   readonly kind: 'application' | 'bootstrap';
+  /** All CloudFormation stack tags, indexed by key. Used by the tag-based protection check in safety.ts. */
+  readonly tags: Record<string, string>;
 }
 
 // The naming conventions from @deployz/contracts (applicationStackNameForInstallation /
@@ -122,7 +124,11 @@ export async function listCustomerStacks(region: string): Promise<CustomerStack[
       if (!kind) continue;
       const installationTag = (stack.Tags ?? []).find((tag) => tag.Key === INSTALLATION_TAG)?.Value;
       if (installationTag === undefined) continue;
-      stacks.push({ stackName: name, stackStatus: stack.StackStatus ?? 'UNKNOWN', installationTag, kind });
+      const tags: Record<string, string> = {};
+      for (const tag of stack.Tags ?? []) {
+        if (tag.Key && tag.Value !== undefined) tags[tag.Key] = tag.Value;
+      }
+      stacks.push({ stackName: name, stackStatus: stack.StackStatus ?? 'UNKNOWN', installationTag, kind, tags });
     }
     nextToken = response.NextToken;
   } while (nextToken);

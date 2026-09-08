@@ -130,3 +130,40 @@ export function isOwnedByInstallation(evidence: OwnershipEvidence, installationI
   if (evidence.stackMatchesManifest === true) return true;
   return false;
 }
+
+// ── Tag-based protection (belt-and-suspenders) ───────────────────────────────
+
+/**
+ * Pure predicate: returns true when a resource's tags include
+ * `DeployzPersistent=true` or `DeployzProtected=true`. This is an
+ * independent protection layer — even if the manifest-based check
+ * somehow misses a resource, the tag-based guard will block its deletion.
+ */
+export function isProtectedByTags(tags: Record<string, string>): boolean {
+  return tags['DeployzPersistent'] === 'true' || tags['DeployzProtected'] === 'true';
+}
+
+export interface BlockedEntry {
+  readonly name: string;
+  readonly reason: string;
+}
+
+// ── Inline self-check ────────────────────────────────────────────────────────
+// The vitest workspace does not cover scripts/customer-reset, so this
+// inline validation confirms the predicate logic at module load time.
+
+function _validatePredicate(): void {
+  const protectedTags = { DeployzPersistent: 'true', DeployzTestMode: 'canary' };
+  const protectedTags2 = { DeployzProtected: 'true', Environment: 'e2e' };
+  const safeTags = { Environment: 'prod', deployz: 'installation' };
+  const emptyTags: Record<string, string> = {};
+
+  if (!isProtectedByTags(protectedTags)) throw new Error('safety: DeployzPersistent=true not detected');
+  if (!isProtectedByTags(protectedTags2)) throw new Error('safety: DeployzProtected=true not detected');
+  if (isProtectedByTags(safeTags)) throw new Error('safety: safe tags falsely flagged as protected');
+  if (isProtectedByTags(emptyTags)) throw new Error('safety: empty tags falsely flagged as protected');
+
+  console.debug('[safety] tag-predicate self-check passed');
+}
+
+_validatePredicate();
