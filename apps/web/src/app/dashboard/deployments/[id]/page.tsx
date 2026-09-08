@@ -778,7 +778,7 @@ function DeploymentActions({
         deploymentId={detail.id}
         customerName={detail.customerName}
         infrastructure={infrastructure}
-        billed={detail.deploymentType === 'PRODUCTION' && detail.billingState === 'ACTIVE'}
+        counted={detail.deploymentType === 'PRODUCTION' && detail.billingState === 'ACTIVE'}
         onDone={() => {
           setOpen(null);
           onChanged();
@@ -1381,7 +1381,7 @@ function DisconnectDialog({
   deploymentId,
   customerName,
   infrastructure,
-  billed,
+  counted,
   onDone,
   onCancel,
 }: {
@@ -1389,8 +1389,8 @@ function DisconnectDialog({
   deploymentId: string;
   customerName: string;
   infrastructure: InfrastructureResponse | null;
-  /** Whether removing this deployment actually stops a Deployz charge. */
-  billed: boolean;
+  /** Whether this deployment counts toward the production deployment total. */
+  counted: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -1465,11 +1465,18 @@ function DisconnectDialog({
             </p>
           )}
           <p>The Deployz connector remains installed.</p>
-          {/* Only true when this deployment is actually being billed: a test
-              deployment is free, and one that never went live was never
-              charged. Retained AWS resources are the customer's own AWS
+          {/* Only for a live production deployment: a test deployment is
+              free, and one that never went live never counted. The allowance
+              is pooled, so this never claims a per-deployment charge stops —
+              whether the bill changes depends on the organization's included
+              deployments. Retained AWS resources are the customer's own AWS
               bill and keep costing whatever they cost. */}
-          {billed ? <p>This stops the $19/month Deployz charge for this deployment.</p> : null}
+          {counted ? (
+            <p>
+              Removing this deployment reduces your active production deployment count. Your
+              billing adjusts automatically if this changes your billable deployment quantity.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="disconnect-confirm">

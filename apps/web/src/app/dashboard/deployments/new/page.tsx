@@ -17,9 +17,14 @@ import { fetchApplications, type Application } from '@/lib/applications';
 import {
   createCheckoutIntent,
   fetchBillingConfig,
+  fetchProductionDeploymentCounts,
   fetchSubscriptionStatus,
   openSubscriptionCheckout,
 } from '@/lib/billing-checkout';
+import {
+  nextProductionDeploymentCopy,
+  type ProductionDeploymentCounts,
+} from '@/lib/deployment-billing';
 import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 import {
   blockedSubscriptionStatus,
@@ -117,6 +122,9 @@ function NewDeploymentScreen() {
   const [subscriptionStatus, setSubscriptionStatus] = useState<
     SubscriptionStatus | null | undefined
   >(undefined);
+  // Included production deployments: the live/included/billed counts that
+  // say whether THIS deployment adds a charge once live. Null while unknown.
+  const [deploymentCounts, setDeploymentCounts] = useState<ProductionDeploymentCounts | null>(null);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(preselectedApplicationId);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
 
@@ -149,6 +157,13 @@ function NewDeploymentScreen() {
       .catch(() => {
         // No price line rather than a wrong one — the API is the authority
         // on whether this deployment is allowed at all.
+      });
+    fetchProductionDeploymentCounts()
+      .then((counts) => {
+        if (!cancelled) setDeploymentCounts(counts);
+      })
+      .catch(() => {
+        // The copy falls back to the price without counts.
       });
     return () => {
       cancelled = true;
@@ -289,10 +304,8 @@ function NewDeploymentScreen() {
             : 'Add a customer and generate their install link. The customer opens the link and signs in to their own cloud account — their credentials never touch Deployz.'}
         </p>
         {!isTestDeployment && subscriptionStatus !== undefined ? (
-          <p className="mt-2 text-sm text-muted-foreground">
-            {subscriptionStatus === 'ACTIVE'
-              ? 'This adds $19/month once the deployment is live.'
-              : 'This is your first customer deployment, so it starts your subscription: $49/month for the platform, plus $19/month for each customer deployment once it is live.'}
+          <p className="mt-2 text-sm text-muted-foreground" data-testid="deployment-billing-impact">
+            {nextProductionDeploymentCopy(subscriptionStatus === 'ACTIVE', deploymentCounts)}
           </p>
         ) : null}
       </div>
@@ -322,6 +335,7 @@ function NewDeploymentScreen() {
 
       {checkoutRequest ? (
         <SubscriptionCheckoutCard
+          includedDeployments={deploymentCounts?.included ?? 0}
           request={checkoutRequest}
           onCancel={() => setCheckoutRequest(null)}
         />
@@ -484,9 +498,12 @@ function NewDeploymentScreen() {
  */
 function SubscriptionCheckoutCard({
   request,
+  includedDeployments,
   onCancel,
 }: {
   request: CheckoutRequest;
+  /** The organization's included production deployments, if any. */
+  includedDeployments: number;
   onCancel: () => void;
 }) {
   const [status, setStatus] = useState<'idle' | 'opening' | 'paid'>('idle');
@@ -538,8 +555,12 @@ function SubscriptionCheckoutCard({
         <CardTitle>Start your subscription</CardTitle>
         <CardDescription>
           Your first customer deployment starts billing: $49 per month for the platform, plus $19
-          per month for each customer deployment that is live. Test deployments stay free. Nothing
-          is installed until the payment goes through.
+          per month for each customer deployment that is live.
+          {includedDeployments > 0
+            ? ` ${includedDeployments} production ${includedDeployments === 1 ? 'deployment is' : 'deployments are'} included with your account, so this one adds no deployment charge once it is live — the platform fee still applies.`
+            : ''}
+          {' '}
+          Test deployments stay free. Nothing is installed until the payment goes through.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3">
