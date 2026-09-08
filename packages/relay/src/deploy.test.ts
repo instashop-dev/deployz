@@ -617,6 +617,66 @@ describe('createEcsDeployExecutor', () => {
     expect((await d.pending.read())?.payload['startedFromZero']).toBe(true);
   });
 
+  it('remembers the revision it rolled out on the pending marker (DEPLOY-015)', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V2;
+    const d = deps(state);
+    await run(createEcsDeployExecutor(d), deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3 }));
+    const pending = await d.pending.read();
+    expect(pending?.payload['targetTaskDefinitionArn']).toBe(
+      'arn:aws:ecs:us-east-1:151955775369:task-definition/app:1',
+    );
+  });
+
+  it('fails ECS_DEPLOYMENT_FAILED when the circuit breaker rolled the service back to a previous revision running the same image (DEPLOY-015)', async () => {
+    const state = baseState();
+    // The rollback target (the pinned template revision) runs the release
+    // digest already and is stable, COMPLETED and healthy — every gate
+    // that used to declare success.
+    state.runningDigest = DIGEST_V3;
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'COMPLETED', taskDefinition: BASE_DEF_ARN }];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: {
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        startedFromZero: true,
+        targetTaskDefinitionArn: 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:8',
+      },
+    });
+
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
+    expect(String(results[0]!.error)).toContain('rolled the service back');
+    // A first start goes back to zero tasks, as a rollout the breaker failed.
+    expect(state.updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, desiredCount: 0 }]);
+  });
+
+  it('settles a deferred deploy as a success only on the revision it rolled out (DEPLOY-015)', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'COMPLETED', taskDefinition: BASE_DEF_ARN }];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3, targetTaskDefinitionArn: BASE_DEF_ARN },
+    });
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.success).toBe(true);
+  });
+
   it('scales a first start the circuit breaker rolled back to zero tasks, then fails ECS_DEPLOYMENT_FAILED (DEPLOY-009)', async () => {
     const state = baseState();
     state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'FAILED' }];

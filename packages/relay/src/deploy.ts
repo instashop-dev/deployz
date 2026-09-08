@@ -47,7 +47,11 @@ export interface EcsDeployClient {
       desiredCount?: number | undefined;
       runningCount?: number | undefined;
       taskDefinition?: string | undefined;
-      deployments?: { status?: string | undefined; rolloutState?: string | undefined }[];
+      deployments?: {
+        status?: string | undefined;
+        rolloutState?: string | undefined;
+        taskDefinition?: string | undefined;
+      }[];
       networkConfiguration?: {
         awsvpcConfiguration?: {
           subnets?: string[] | undefined;
@@ -192,7 +196,13 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
 type EcsDeployOutcome =
   | { readonly state: 'succeeded'; readonly alreadyRunning: boolean }
   | { readonly state: 'failed'; readonly reason: string; readonly failureCode?: string }
-  | { readonly state: 'in-progress'; readonly migration?: PendingMigration; readonly startedFromZero?: boolean };
+  | {
+      readonly state: 'in-progress';
+      readonly migration?: PendingMigration;
+      readonly startedFromZero?: boolean;
+      /** The task-definition revision this deploy rolls out (DEPLOY-015). */
+      readonly targetTaskDefinitionArn?: string;
+    };
 
 /**
  * Tasks a service is scaled to when a deploy finds it at zero (DEPLOY-009):
@@ -217,6 +227,13 @@ export interface DeploySettleContext {
    * so the template's unconfigured task definition never churns.
    */
   readonly startedFromZero?: boolean;
+  /**
+   * The revision an earlier invocation of this command rolled out. A service
+   * whose PRIMARY deployment runs another revision was rolled back by the
+   * circuit breaker — never a success, even when that revision runs the
+   * same image (a pinned first start's template revision, DEPLOY-015).
+   */
+  readonly targetTaskDefinitionArn?: string | null;
 }
 
 /**
@@ -273,6 +290,27 @@ export async function settleEcsDeploy(
     };
   }
 
+  // DEPLOY-015: once this command has rolled a revision out, a PRIMARY
+  // deployment on any other revision means ECS rolled it back — the circuit
+  // breaker restored the previous deployment, which on a pinned first start
+  // runs the same image and comes up "healthy" unconfigured.
+  const primary = service.deployments?.find((deployment) => deployment.status === 'PRIMARY');
+  const target = context.targetTaskDefinitionArn ?? null;
+  if (target !== null && primary?.taskDefinition !== undefined && primary.taskDefinition !== target) {
+    if (context.startedFromZero) {
+      try {
+        await deps.ecs.updateService({ cluster, service: serviceArn, desiredCount: 0 });
+      } catch {
+        // Best effort: the failure below is the outcome either way.
+      }
+    }
+    return {
+      state: 'failed',
+      reason: `ECS rolled the service back to ${primary.taskDefinition}; the new revision never became healthy`,
+      failureCode: 'ECS_DEPLOYMENT_FAILED',
+    };
+  }
+
   // A service at zero tasks is an install that waited for configuration
   // (DEPLOY-009): this deploy is its first start.
   const startFromZero = (service.desiredCount ?? 0) === 0;
@@ -292,7 +330,8 @@ export async function settleEcsDeploy(
     (service.desiredCount ?? 0) > 0 && (service.runningCount ?? 0) >= (service.desiredCount ?? 0);
   const rolloutCompleted = primaryRolloutCompleted(service.deployments);
   const targetsHealthy = await deploymentTargetsHealthy(deps);
-  if (runningDigest === request.imageDigest && stable && rolloutCompleted && targetsHealthy) {
+  const onTarget = target === null || primary?.taskDefinition === undefined || primary.taskDefinition === target;
+  if (runningDigest === request.imageDigest && stable && rolloutCompleted && targetsHealthy && onTarget) {
     return { state: 'succeeded', alreadyRunning: true };
   }
 
@@ -308,7 +347,7 @@ export async function settleEcsDeploy(
   // in-progress until the control plane's 24-hour grace. Once the service
   // runs this request's revision, its own stopped tasks are the verdict.
   if (alreadyRegistered) {
-    const crashed = await crashedTasksOfRevision(deps, cluster, serviceArn, service.taskDefinition);
+    const crashed = await crashedTasksOfRevision(deps, cluster, serviceArn, target ?? service.taskDefinition);
     if (crashed.count >= CRASH_LOOP_THRESHOLD) {
       if (context.startedFromZero) {
         try {
@@ -388,11 +427,14 @@ export async function settleEcsDeploy(
   }
 
   // The rollout just started or is still in flight — only its own progress
-  // can settle it, on a later poll.
+  // can settle it, on a later poll. The revision it rolls out rides along so
+  // that poll can tell a rollback from a rollout (DEPLOY-015).
+  const rolledOut = target ?? registeredApplicationArn ?? service.taskDefinition;
   return {
     state: 'in-progress',
     ...(migration === undefined ? {} : { migration }),
     ...(startedFromZero ? { startedFromZero: true } : {}),
+    targetTaskDefinitionArn: rolledOut,
   };
 }
 
@@ -833,8 +875,14 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       stackName: deps.stackName,
       startedAt: (deps.now ?? (() => new Date().toISOString()))(),
       // A first start from zero rides the marker so the resumer can scale a
-      // rolled-back rollout back down (DEPLOY-009).
-      payload: outcome.startedFromZero ? { ...command.payload, startedFromZero: true } : command.payload,
+      // rolled-back rollout back down (DEPLOY-009); the revision rolled out
+      // rides along so the resumer can tell a rollback from a rollout
+      // (DEPLOY-015).
+      payload: {
+        ...command.payload,
+        ...(outcome.startedFromZero ? { startedFromZero: true } : {}),
+        ...(outcome.targetTaskDefinitionArn ? { targetTaskDefinitionArn: outcome.targetTaskDefinitionArn } : {}),
+      },
       ...(outcome.migration ? { migration: outcome.migration } : {}),
     });
     if (!recorded) {
@@ -876,10 +924,12 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
       ];
     }
 
+    const target = pending.payload['targetTaskDefinitionArn'];
     const outcome = await settleEcsDeploy(deps, request, {
       allowMigration: pending.type === 'DEPLOY_RELEASE',
       migration: pending.migration ?? null,
       startedFromZero: pending.payload['startedFromZero'] === true,
+      targetTaskDefinitionArn: typeof target === 'string' ? target : null,
     });
     if (outcome.state === 'in-progress') {
       // The moment a migration task is first observed STOPPED + exit 0, pin

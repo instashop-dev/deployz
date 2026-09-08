@@ -298,6 +298,7 @@ function getEcsServiceReader(): EcsServiceReader {
             deployments: (service.deployments ?? []).map((deployment) => ({
               status: deployment.status ?? undefined,
               rolloutState: deployment.rolloutState ?? undefined,
+              taskDefinition: deployment.taskDefinition ?? undefined,
             })),
           })),
         };
@@ -347,6 +348,7 @@ function getEcsDeployClient(): EcsDeployClient {
             deployments: (service.deployments ?? []).map((deployment) => ({
               status: deployment.status ?? undefined,
               rolloutState: deployment.rolloutState ?? undefined,
+              taskDefinition: deployment.taskDefinition ?? undefined,
             })),
             networkConfiguration: service.networkConfiguration
               ? {
