@@ -87,6 +87,7 @@ import {
   DEPLOYMENT_PRICE_DOLLARS,
 } from './billing-domain.js';
 import { markDeploymentLive, markDeploymentRemoved } from './billing-lifecycle.js';
+import { reconcileBilling } from './billing-reconcile.js';
 import { handlePaddleWebhook } from './billing-webhooks.js';
 import { createPaddle, type PaddleBilling } from './paddle.js';
 import {
@@ -1076,6 +1077,26 @@ function resolveProbeUrl(
 }
 
 /**
+ * Paddle migration Phase 9 — pushes the absolute live-deployment count onto
+ * the subscription after a billing state actually changed. Always called
+ * OUTSIDE the caller's transaction: a Paddle round trip must never hold a
+ * database connection open. Never throws — reconcileBilling records its own
+ * failure, and the Phase 10 safety job retries the drift.
+ */
+async function reconcileAfterBillingChange(
+  db: RuntimeDb,
+  paddle: PaddleBilling | null,
+  organizationId: string,
+): Promise<void> {
+  const result = await reconcileBilling({ db, paddle }, organizationId);
+  if (result.status === 'FAILED') {
+    console.error(
+      JSON.stringify({ event: 'billing:reconcile-failed', organizationId, error: result.reason }),
+    );
+  }
+}
+
+/**
  * Step-timings follow-up shared by both relay-authenticated write paths
  * (POST /api/relay/health and the job-result handler below): re-derive the
  * deployment's status from the values THEY just wrote (not the stale
@@ -1096,6 +1117,7 @@ function resolveProbeUrl(
  */
 async function advanceStepTimingsAfterWrite(
   db: RuntimeDb,
+  paddle: PaddleBilling | null,
   freshDeployment: DeploymentRow,
   knownDomain?: CustomDomainRow | null,
 ): Promise<void> {
@@ -1128,7 +1150,12 @@ async function advanceStepTimingsAfterWrite(
   // this best-effort follow-up, same contract as every other side effect here.
   if (derived.stage === 'READY') {
     try {
-      await markDeploymentLive(db, freshDeployment, new Date());
+      // Phase 9: reconcile only when the billing state ACTUALLY moved. A
+      // heartbeat on an already-billing deployment must not pay for a Paddle
+      // round trip, and the Phase 10 job sweeps up any drift regardless.
+      if (await markDeploymentLive(db, freshDeployment, new Date())) {
+        await reconcileAfterBillingChange(db, paddle, freshDeployment.organizationId);
+      }
     } catch (error) {
       console.error(JSON.stringify({ event: 'billing:mark-live-failed', deploymentId: freshDeployment.id, error: String(error) }));
     }
@@ -4127,6 +4154,7 @@ export async function buildServer({
     // watched a confirmation dialog close and nothing happen.
     if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') {
       const removalActor = { actorType: 'user' as const, actorId: request.user?.id ?? 'system' };
+      let billingStopped = false;
       await db.transaction(async (tx) => {
         await tx
           .update(schema.deployments)
@@ -4145,8 +4173,13 @@ export async function buildServer({
         });
         // Accepted removal intent (R0-1): this IS the destroy, there being no
         // relay job to accept it later.
-        await markDeploymentRemoved(tx, deployment, new Date(), removalActor);
+        billingStopped = await markDeploymentRemoved(tx, deployment, new Date(), removalActor);
       });
+      // Phase 9: outside the transaction — a Paddle round trip must never
+      // hold the connection the delete just used.
+      if (billingStopped) {
+        await reconcileAfterBillingChange(db, paddle, deployment.organizationId);
+      }
       return reply.code(200).send({ jobId: null, state: 'DELETED' });
     }
 
@@ -4185,10 +4218,14 @@ export async function buildServer({
     // Accepted removal intent (R0-1): a DESTROY has been queued for a
     // deployment that was actually installed. Idempotent — a replay of an
     // already-accepted destroy is a no-op.
-    await markDeploymentRemoved(db, deployment, new Date(), {
-      actorType: 'user',
-      actorId: request.user?.id ?? 'system',
-    });
+    if (
+      await markDeploymentRemoved(db, deployment, new Date(), {
+        actorType: 'user',
+        actorId: request.user?.id ?? 'system',
+      })
+    ) {
+      await reconcileAfterBillingChange(db, paddle, deployment.organizationId);
+    }
 
     // The stack is coming down — start tearing down any custom domain
     // alongside it rather than leaving it dangling once the deployment is
@@ -4315,6 +4352,7 @@ export async function buildServer({
     const reason = job ? 'RELAY_OFFLINE' : 'REPEATED_DESTROY_FAILURE';
     const settleJobId = job?.id ?? destroys[0]!.id;
 
+    let billingStopped = false;
     await db.transaction(async (tx) => {
       if (job) {
         await tx
@@ -4354,7 +4392,7 @@ export async function buildServer({
       // Idempotent backstop (R0-1): the destroy route already stopped
       // billing when the removal was accepted; this only catches a
       // deployment that somehow reached force-complete while still ACTIVE.
-      await markDeploymentRemoved(tx, deployment, new Date(), {
+      billingStopped = await markDeploymentRemoved(tx, deployment, new Date(), {
         actorType: 'user',
         actorId: actorId ?? 'system',
       });
@@ -4377,6 +4415,12 @@ export async function buildServer({
         },
       });
     });
+
+    // Phase 9: outside the transaction, and only when this backstop was the
+    // write that actually stopped billing.
+    if (billingStopped) {
+      await reconcileAfterBillingChange(db, paddle, deployment.organizationId);
+    }
 
     // Phase 11: best-effort drop of the deployz-zone CNAMEs on the same
     // force-complete (the DB state was cleared inside the transaction).
@@ -5285,6 +5329,11 @@ export async function buildServer({
               'checkout intent could not be completed',
             );
           }
+          // Phase 9 (transition map row 19): the subscription is live, so
+          // push the absolute live-deployment count onto it. Also covers a
+          // resumed subscription whose deployments changed while it was
+          // paused.
+          await reconcileAfterBillingChange(db, paddle, organizationId);
         },
       },
       request.body as string,
@@ -5976,6 +6025,7 @@ export async function buildServer({
     // REMOVE_DOMAIN success) or the whole stack is gone (DESTROY success).
     const preTxDefaultHttps = parseDefaultHttps(deployment.defaultHttps);
 
+    let billingStopped = false;
     await db.transaction(async (tx) => {
       await tx
         .update(schema.deploymentJobs)
@@ -6038,7 +6088,7 @@ export async function buildServer({
         // Idempotent backstop (R0-1): the destroy route already stopped
         // billing when the removal was accepted; this only catches a
         // deployment that somehow reached DESTROY success while still ACTIVE.
-        await markDeploymentRemoved(tx, deployment, new Date(), {
+        billingStopped = await markDeploymentRemoved(tx, deployment, new Date(), {
           actorType: 'relay',
           actorId: deployment.installationId ?? deployment.id,
         });
@@ -6094,11 +6144,17 @@ export async function buildServer({
     });
 
     // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
+    // Phase 9: outside the transaction, and only when this backstop was the
+    // write that actually stopped billing.
+    if (billingStopped) {
+      await reconcileAfterBillingChange(db, paddle, deployment.organizationId);
+    }
+
     // derived from the values THIS request just wrote, not the stale
     // pre-transaction `deployment`. The release pointers are deliberately
     // absent: promotion happens on the heartbeat (§10.3).
     try {
-      await advanceStepTimingsAfterWrite(db, {
+      await advanceStepTimingsAfterWrite(db, paddle, {
         ...deployment,
         ...(nextState ? { state: nextState } : {}),
       });
@@ -6272,7 +6328,7 @@ export async function buildServer({
           .where(eq(schema.deployments.id, deployment.id));
 
         try {
-          await advanceStepTimingsAfterWrite(db, { ...deployment, observedState: nextObservedState });
+          await advanceStepTimingsAfterWrite(db, paddle, { ...deployment, observedState: nextObservedState });
         } catch (error) {
           request.log.warn({ err: error }, 'step-timings advance failed');
         }
@@ -6564,6 +6620,7 @@ export async function buildServer({
     try {
       await advanceStepTimingsAfterWrite(
         db,
+        paddle,
         {
           ...deployment,
           observedState: observedState as Record<string, unknown> | null,

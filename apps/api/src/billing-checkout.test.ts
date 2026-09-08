@@ -36,7 +36,10 @@ const READY_METADATA = {
 
 /**
  * The real client's `webhooks` (signature verification must be real) with a
- * stubbed `transactions.create` — no test ever reaches the Paddle API.
+ * stubbed `transactions.create` and `subscriptions` — no test ever reaches
+ * the Paddle API. `subscriptions` is here because the webhook's ACTIVE path
+ * also reconciles (Phase 9); reconciliation itself is tested in
+ * billing-reconcile.test.ts.
  */
 function buildPaddle(
   createTransaction: (body: unknown) => Promise<{ id: string }> = async () => ({
@@ -57,6 +60,10 @@ function buildPaddle(
     client: {
       webhooks: billing.client.webhooks,
       transactions: { create: createTransaction },
+      subscriptions: {
+        get: async () => ({ items: [{ price: { id: 'pri_platform_replace_me' }, quantity: 1 }] }),
+        update: async () => ({}),
+      },
     } as unknown as PaddleBilling['client'],
   };
 }
