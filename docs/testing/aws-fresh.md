@@ -5,6 +5,17 @@ path. See [`README.md`](README.md) and
 [`discovery/phase1-design-decisions.md`](discovery/phase1-design-decisions.md)
 (D5) for how this fits the rest of the test hierarchy.
 
+## Scope
+
+Fresh mode is a bootstrap and release-confidence mechanism, not a routine
+debugging loop. It proves that the real create/destroy golden path works
+against a real AWS account: stack provisioning, IAM role creation, relay
+registration, resource tagging, and destruction. For iterative work on the
+relay's read-side logic, the CDK application template, or version deployment
+semantics, use the persistent canary (`pnpm e2e:canary`) or the version canary
+(`pnpm e2e:canary:versions`) instead — those modes reuse infrastructure and
+skip the 5+ minute bootstrap create/destroy cycle.
+
 ## When fresh is justified
 
 Only after a change to the actual create/destroy path a customer's bootstrap

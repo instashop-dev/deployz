@@ -73,7 +73,8 @@ canary (tsx, scripts/version-canary)          test AWS account 151955775369
 
 ```bash
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions preflight
-DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core [--keep] [--existing-image=<digest>] [--reuse-stack]
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions resilience [--keep]
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions cleanup --run-id <id>
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions audit --run-id <id>
 ```
@@ -94,8 +95,17 @@ published from a commit that includes the relay you want to test
 | `DEPLOYZ_CANARY_FIXTURE_REPO` | `instashop-dev/deployz-canary-app` | Fixture repository |
 | `DEPLOYZ_CANARY_RESULTS_DIR` | `canary-results` | Evidence root (gitignored) |
 
-`core --keep` leaves the environment in place for investigation; run
-`cleanup --run-id` afterwards.
+### Core flags
+
+| Flag | Env var | Effect |
+| --- | --- | --- |
+| `--keep` | — | Leave the environment in place for investigation; run `cleanup --run-id` afterwards. |
+| `--existing-image=<digest>` | `DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST` | Skip CodeBuild/GitHub-source rebuilds and use the supplied digest for every release version. The digest must match `sha256:[0-9a-f]{64}`. All versions (v1, v2, v3, v4) share the same digest — version verification relies on release and deployment records, not image changes. Use this flag during deployment-engine iteration when the image is already published and the ~20-minute build wait is unnecessary. The default path (no `--existing-image`) builds each release through CodeBuild and is required for full build-pipeline validation. |
+| `--reuse-stack` | — | Skip bootstrap stack creation, application stack provisioning, and final infrastructure teardown. Reuse a standing stack that is already tagged `DeployzPersistent=true` and `DeployzTestMode=canary`. The stack name defaults to `deployz-app` (overridable via `DEPLOYZ_E2E_CANARY_STACK_NAME`). The canary hard-fails if the stack does not exist or the tags are wrong. Per-run resources (customer, deployment, releases) are still created and cleaned. Infrastructure is left standing. Do not use this flag when testing bootstrap or teardown logic. |
+
+`--keep` and `--reuse-stack` can be combined: the environment stays running
+for investigation, and the infrastructure stays standing for the next
+reuse-stack run.
 
 ## The core scenario
 
