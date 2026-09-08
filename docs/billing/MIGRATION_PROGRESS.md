@@ -43,7 +43,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 14 Admin | done | this PR | Vendor detail carries `billing` (live count, subscription, last reconciled, last 5 reconciliation outcomes); `POST /api/admin/vendors/:id/reconcile-billing` runs the same `reconcileBilling` as the safety job and writes an `admin.billing.reconcile_requested` audit row |
 | 15 Test matrix | done | this PR | `apps/api/src/billing-matrix.test.ts` walks every cell of the pure decision tables (12 transition cells, 6 billable cells, the status mapping); `docs/billing/billing-matrix.md` is the same tables plus the integration-covered ones, each naming its test |
 | 16 Sandbox E2E | webhook half done; key half blocked | this PR | Real Paddle deliveries through a cloudflared tunnel to a local PGlite API: activated -> PROCESSED -> parked deployment created; replay -> DUPLICATE, no second deployment; past_due and canceled -> projection + Phase 13 refusals + destroy still allowed under CANCELED. The transaction/reconcile/portal/overlay half is blocked on a valid `PADDLE_API_KEY` (the one supplied is the key's masked id, not the secret). Findings in `docs/billing/paddle-billing.md` |
-| 17 Regression + docs | pending | | |
+| 17 Regression + docs | done | this PR | Regression authority is CI: PR #238 (the final code) passed Test-and-build and Simulated E2E. `docs/billing/paddle-billing.md` is the reference document; audit §9 open items closed there. Phase 16 REST-API half stays open pending a valid sandbox key |
 
 ## Rulings
 
@@ -255,6 +255,15 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   segment `pdl_sdbx_apikey_<26-char id>` form is the key's masked identifier
   shown in the dashboard list, not the one-time secret. Validate this shape
   before assuming a permissions problem.
+- R17-1: the regression pass is CI, not a local run. The full local suite
+  was killed twice for memory on the author's machine during Phase 17 (other
+  sessions were resident); CI ran every suite plus the simulated E2E on the
+  final code (#238) and is the authority, as the repo's standing rule says.
+- R17-2: the migration is complete except one verification, and that is
+  recorded rather than papered over: every path that calls the Paddle REST
+  API awaits a valid `PADDLE_API_KEY` (R16-4). The code is merged, tested
+  against Paddle doubles, and its webhook half is verified against real
+  Paddle; nothing in production is switched on until the secrets exist.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
