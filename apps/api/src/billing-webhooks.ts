@@ -94,7 +94,10 @@ async function resolveOrganizationId(
   return existing?.organizationId;
 }
 
-function mapSubscriptionStatus(status: string): BillingSubscriptionStatus | undefined {
+/** Paddle's subscription status -> Deployz's. Exported for the Phase 15
+ *  matrix test; nothing outside this module calls it. Unknown values map to
+ *  undefined and the event is IGNORED — never guessed. */
+export function mapSubscriptionStatus(status: string): BillingSubscriptionStatus | undefined {
   switch (status) {
     case 'active':
     case 'trialing':
