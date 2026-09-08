@@ -3,6 +3,9 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import type { RuntimeDb } from '@deployz/db';
+
+import { reconcileBilling } from '../billing-reconcile.js';
+import type { PaddleBilling } from '../paddle.js';
 import * as schema from '@deployz/db/schema';
 
 import { ApiError, NotFoundError } from '../errors.js';
@@ -27,6 +30,9 @@ import {
 
 export interface AdminRouteDeps {
   db: RuntimeDb;
+  // Phase 14: the Reconcile action talks to Paddle through the same client
+  // the billing routes use; null when billing is disabled.
+  paddle: PaddleBilling | null;
   requireTeamAdmin: (request: FastifyRequest) => Promise<void>;
   // Safe recovery actions (docs/admin/team-admin.md's Supported admin
   // actions): the SAME domain workflows the vendor routes use, extracted in
@@ -126,6 +132,7 @@ export function registerAdminRoutes(
   app: FastifyInstance,
   {
     db,
+    paddle,
     requireTeamAdmin,
     performRetryInstall,
     performRollback,
@@ -295,6 +302,38 @@ export function registerAdminRoutes(
   // direct state mutation), loads the deployment cross-tenant, and writes an
   // admin.* audit event only after the workflow succeeds — a guard refusal
   // propagates without an audit row.
+
+  // POST /api/admin/vendors/:id/reconcile-billing — Paddle migration Phase
+  // 14. Runs the SAME reconcileBilling the lifecycle hooks and the safety job
+  // run: it pushes the absolute live-deployment count onto the subscription
+  // and records its own ledger row, so an admin can settle a "why was I
+  // billed for N?" question with one click and one audit trail. Safe action:
+  // reconcileBilling never throws and is idempotent, so reason is optional.
+  app.post(
+    '/api/admin/vendors/:id/reconcile-billing',
+    { preHandler: requireTeamAdmin },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const detail = await getVendorDetail(db, id);
+      if (!detail) throw new NotFoundError('Vendor not found');
+      const body = retryInstallBodySchema.parse(request.body ?? {});
+      const actor = requireActor(request);
+      const result = await reconcileBilling({ db, paddle }, id);
+
+      await recordAdminAuditEvent(db, {
+        actor,
+        eventType: 'admin.billing.reconcile_requested',
+        organizationId: id,
+        targetType: 'organization',
+        targetId: id,
+        ...(body.reason !== undefined ? { reason: body.reason } : {}),
+        result: result.status,
+        payload: { action: result.action, expected: result.expected, provider: result.provider },
+      });
+
+      return result;
+    },
+  );
 
   // POST /api/admin/deployments/:id/retry-install — same guarded flow as the
   // vendor retry-install route. Safe action: reason is optional.

@@ -208,8 +208,29 @@ export interface AdminVendorConnectionRow {
   state: DeploymentState;
 }
 
+/** Paddle migration Phase 14 — the billing facts an admin needs at a glance. */
+export interface AdminVendorBilling {
+  /** PRODUCTION deployments whose billing_state is ACTIVE — the one number Deployz owns. */
+  liveDeployments: number;
+  subscription: {
+    providerSubscriptionId: string;
+    currentPeriodEnd: string | null;
+    lastReconciledAt: string | null;
+  } | null;
+  recentReconciliations: {
+    id: string;
+    expected: number;
+    provider: number | null;
+    action: string;
+    status: 'SUCCEEDED' | 'FAILED' | 'SKIPPED';
+    error: string | null;
+    createdAt: string;
+  }[];
+}
+
 export interface AdminVendorDetail {
   organization: { id: string; name: string; slug: string; subscriptionStatus: SubscriptionStatus | null; createdAt: string };
+  billing: AdminVendorBilling;
   members: { userId: string; name: string; email: string; role: OrgRole }[];
   applications: AdminVendorApplication[];
   deployments: AdminVendorDeploymentRow[];
@@ -406,6 +427,17 @@ export function deriveConnectionState(
 export interface AdminJobActionResult {
   jobId: string;
   state: string;
+}
+
+/** Phase 14 — runs the same reconciliation the safety job runs, on demand. */
+export function reconcileVendorBillingAdmin(
+  vendorId: string,
+  reason?: string,
+): Promise<{ status: 'SUCCEEDED' | 'FAILED' | 'SKIPPED'; action: string; expected: number; provider: number | null; reason?: string }> {
+  return apiRequest(`/api/admin/vendors/${encodeURIComponent(vendorId)}/reconcile-billing`, {
+    method: 'POST',
+    body: reason ? { reason } : {},
+  });
 }
 
 export function retryInstallAdmin(

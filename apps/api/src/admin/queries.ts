@@ -11,6 +11,8 @@ import { normalizeErrorText, redactSecrets } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import { countBillableDeployments } from '../billing-domain.js';
+
 import { deriveDeploymentStatus, toVendorDeploymentStatus } from '../deployment-status.js';
 import { parseDefaultHttps } from '../default-https.js';
 import { findActiveDomain } from '../domains.js';
@@ -231,6 +233,8 @@ const PILOT_INSIGHT_EVENT_TYPES = [
   'admin.destroy.force_completed',
   'admin.relay.reset_requested',
   'admin.support_session.started',
+  // Phase 14: targets the organization's subscription, not a deployment.
+  'admin.billing.reconcile_requested',
 ] as const;
 
 function payloadString(payload: Record<string, unknown> | null | undefined, key: string): string | null {
@@ -612,7 +616,12 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
   if (!organization) return null;
 
   const [subscription] = await db
-    .select({ status: schema.billingSubscriptions.status })
+    .select({
+      status: schema.billingSubscriptions.status,
+      providerSubscriptionId: schema.billingSubscriptions.providerSubscriptionId,
+      currentPeriodEnd: schema.billingSubscriptions.currentPeriodEnd,
+      lastReconciledAt: schema.billingSubscriptions.lastReconciledAt,
+    })
     .from(schema.billingSubscriptions)
     .where(eq(schema.billingSubscriptions.organizationId, organizationId))
     .limit(1);
@@ -722,6 +731,26 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
     .orderBy(desc(schema.eventLogs.occurredAt))
     .limit(30);
 
+  // Paddle migration Phase 14 — what an admin needs to judge a billing
+  // question without opening Paddle: the one number Deployz owns (live
+  // production deployments), what Paddle was last told, and how the last few
+  // reconciliations went. Counted with its own query, not from the capped
+  // list above: a vendor with more deployments than LIST_CAP would otherwise
+  // read as under-billed.
+  const billingRows = await db
+    .select({
+      deploymentType: schema.deployments.deploymentType,
+      billingState: schema.deployments.billingState,
+    })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.organizationId, organizationId));
+  const recentReconciliations = await db
+    .select()
+    .from(schema.billingReconciliationEvents)
+    .where(eq(schema.billingReconciliationEvents.organizationId, organizationId))
+    .orderBy(desc(schema.billingReconciliationEvents.createdAt))
+    .limit(5);
+
   return {
     organization: {
       id: organization.id,
@@ -729,6 +758,25 @@ export async function getVendorDetail(db: RuntimeDb, organizationId: string) {
       slug: organization.slug,
       subscriptionStatus: subscription?.status ?? null,
       createdAt: organization.createdAt,
+    },
+    billing: {
+      liveDeployments: countBillableDeployments(billingRows),
+      subscription: subscription
+        ? {
+            providerSubscriptionId: subscription.providerSubscriptionId,
+            currentPeriodEnd: subscription.currentPeriodEnd,
+            lastReconciledAt: subscription.lastReconciledAt,
+          }
+        : null,
+      recentReconciliations: recentReconciliations.map((row) => ({
+        id: row.id,
+        expected: row.expectedDeploymentQuantity,
+        provider: row.providerDeploymentQuantity,
+        action: row.action,
+        status: row.status,
+        error: row.error,
+        createdAt: row.createdAt,
+      })),
     },
     members,
     applications,

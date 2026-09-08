@@ -1694,6 +1694,7 @@ export async function buildServer({
 
   registerAdminRoutes(app, {
     db,
+    paddle,
     requireTeamAdmin,
     performRetryInstall,
     performRollback,

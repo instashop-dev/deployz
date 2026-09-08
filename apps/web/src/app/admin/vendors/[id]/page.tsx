@@ -20,7 +20,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ApiRequestError, errorMessage } from '@/lib/api-client';
-import { fetchAdminVendor, startSupportSession, type AdminVendorDetail } from '@/lib/admin';
+import {
+  fetchAdminVendor,
+  reconcileVendorBillingAdmin,
+  startSupportSession,
+  type AdminVendorDetail,
+} from '@/lib/admin';
 import {
   adminEventTypeLabel,
   analysisStatusLabel,
@@ -98,12 +103,12 @@ export default function AdminVendorDetailPage() {
           ) : null}
         </section>
       ) : null}
-      {state.status === 'loaded' ? <VendorDetailBody detail={state.detail} /> : null}
+      {state.status === 'loaded' ? <VendorDetailBody detail={state.detail} onReload={() => void load()} /> : null}
     </div>
   );
 }
 
-function VendorDetailBody({ detail }: { detail: AdminVendorDetail }) {
+function VendorDetailBody({ detail, onReload }: { detail: AdminVendorDetail; onReload: () => void }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const owner = detail.members.find((member) => member.role === 'owner') ?? null;
@@ -158,6 +163,10 @@ function VendorDetailBody({ detail }: { detail: AdminVendorDetail }) {
           </CardContent>
         </Card>
       </section>
+
+      {/* Phase 14: a reconcile changes the facts on screen — re-run the
+          page's own loader rather than track a second piece of state. */}
+      <VendorBillingSection detail={detail} onReconciled={onReload} />
 
       <section aria-labelledby="applications" className="flex flex-col gap-3">
         <h2 id="applications" className="text-base font-semibold">
@@ -356,5 +365,115 @@ function DetailSkeleton() {
       <Skeleton className="h-32 w-full rounded-xl" />
       <Skeleton className="h-48 w-full rounded-xl" />
     </div>
+  );
+}
+
+
+// Paddle migration Phase 14 — the billing facts an admin needs to settle a
+// "why was I billed for N?" question, and the one action that fixes drift.
+// The live count is Deployz's number; the provider column is what Paddle had
+// on the last pass. Reconcile runs the SAME code the safety job runs.
+function VendorBillingSection({
+  detail,
+  onReconciled,
+}: {
+  detail: AdminVendorDetail;
+  onReconciled: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+
+  async function onReconcile(): Promise<void> {
+    setPending(true);
+    try {
+      const result = await reconcileVendorBillingAdmin(detail.organization.id);
+      if (result.status === 'SUCCEEDED') {
+        toast.success(
+          result.action === 'NONE'
+            ? `Already in sync — ${result.expected} live deployment${result.expected === 1 ? '' : 's'}.`
+            : `Reconciled — Paddle now billing ${result.expected} live deployment${result.expected === 1 ? '' : 's'} (was ${result.provider ?? 0}).`,
+        );
+      } else {
+        toast.error(`Reconciliation ${result.status.toLowerCase()}: ${result.reason ?? 'no reason recorded'}`);
+      }
+      onReconciled();
+    } catch (caught) {
+      toast.error(errorMessage(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const { billing } = detail;
+  const fmt = (value: string | null) =>
+    value ? new Date(value).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+
+  return (
+    <section aria-labelledby="billing" className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="billing" className="text-base font-semibold">
+          Billing
+        </h2>
+        {billing.subscription ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={() => void onReconcile()}
+            data-testid="admin-reconcile-billing"
+          >
+            {pending ? 'Reconciling…' : 'Reconcile with Paddle'}
+          </Button>
+        ) : null}
+      </div>
+      <Card>
+        <CardContent className="flex flex-col gap-3 py-4">
+          <MetaRow label="Status" value={subscriptionStatusLabel(detail.organization.subscriptionStatus)} />
+          <MetaRow label="Live customer deployments" value={String(billing.liveDeployments)} />
+          {billing.subscription ? (
+            <>
+              <MetaRow label="Subscription" value={billing.subscription.providerSubscriptionId} />
+              <MetaRow label="Next billed" value={fmt(billing.subscription.currentPeriodEnd)} />
+              <MetaRow label="Last reconciled" value={fmt(billing.subscription.lastReconciledAt)} />
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Evaluating — no subscription, nothing to reconcile.</p>
+          )}
+        </CardContent>
+      </Card>
+      {billing.recentReconciliations.length > 0 ? (
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <Table data-testid="vendor-reconciliations-table">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>When</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Expected</TableHead>
+                  <TableHead>Paddle had</TableHead>
+                  <TableHead>Outcome</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {billing.recentReconciliations.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="text-muted-foreground">{fmt(row.createdAt)}</TableCell>
+                    <TableCell>{row.action}</TableCell>
+                    <TableCell className="tabular-nums">{row.expected}</TableCell>
+                    <TableCell className="tabular-nums">{row.provider ?? '—'}</TableCell>
+                    <TableCell>
+                      <Badge variant={row.status === 'SUCCEEDED' ? 'secondary' : 'destructive'}>
+                        {row.status}
+                      </Badge>
+                      {row.error ? <span className="ml-2 text-xs text-muted-foreground">{row.error}</span> : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
+    </section>
   );
 }
