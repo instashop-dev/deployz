@@ -44,7 +44,7 @@ import {
   createRealS3Client,
   synthesizeApplicationStack,
 } from '../dist/quick-create/publish.js';
-import { APPLICATION_TEMPLATE_REDIS_KEY } from '@deployz/contracts';
+import { applicationTemplateKeyForProfile } from '@deployz/contracts';
 
 const region = process.env.AWS_REGION ?? 'us-east-1';
 const stackName = process.env.CONTROL_PLANE_STACK ?? 'Deployz';
@@ -94,41 +94,41 @@ async function resolveBucket() {
 const bucket = await resolveBucket();
 const publisher = new ApplicationPublisher(createRealS3Client(), { region, bucket, keyPrefix });
 
-const synth = await synthesizeApplicationStack({
-  outdir: mkdtempSync(join(tmpdir(), 'deployz-application-')),
-  imageRepository,
-  imageDigest,
-  ...(preset !== undefined ? { preset } : {}),
-});
-const result = await publisher.publish(synth);
+const presetOpt = preset !== undefined ? { preset } : {};
 
-// Same default stack id as the base synth (each call runs its own CDK App,
-// so the ids never collide): CFN output/export names derive from the stack
-// id, and consumers key on them (the control plane reads
-// ExportDeployzApplicationPublicEndpoint off the INSTALL result) — a variant
-// with its own id would make redis installs emit differently-named outputs.
-const redisSynth = await synthesizeApplicationStack({
-  outdir: mkdtempSync(join(tmpdir(), 'deployz-application-redis-')),
-  imageRepository,
-  imageDigest,
-  redisRequired: true,
-  ...(preset !== undefined ? { preset } : {}),
-});
-const redisResult = await publisher.publish(redisSynth, undefined, APPLICATION_TEMPLATE_REDIS_KEY);
+/** Synthesize one variant, publish it under its profile key, and return the result. */
+async function publishOne(profile, label) {
+  const synth = await synthesizeApplicationStack({
+    outdir: mkdtempSync(join(tmpdir(), `deployz-application-${label}-`)),
+    imageRepository,
+    imageDigest,
+    ...(profile.postgres === false ? { databaseRequired: false } : {}),
+    ...(profile.redis ? { redisRequired: true } : {}),
+    ...presetOpt,
+  });
 
-const resourceCount = Object.keys(synth.template.Resources ?? {}).length;
-const redisResourceCount = Object.keys(redisSynth.template.Resources ?? {}).length;
+  const key = applicationTemplateKeyForProfile(profile);
+  const result = await publisher.publish(synth, undefined, key);
+  const resourceCount = Object.keys(synth.template.Resources ?? {}).length;
+  return { ...result, resourceCount, label };
+}
+
+const PROFILES = [
+  { postgres: true,  redis: false, label: 'base' },
+  { postgres: true,  redis: true,  label: 'redis' },
+  { postgres: false, redis: false, label: 'stateless' },
+  { postgres: false, redis: true,  label: 'stateless-redis' },
+];
+
+const results = await Promise.all(PROFILES.map((p) => publishOne(p, p.label)));
+
 console.log(`Published the application templates to ${bucket}`);
-console.log(`  template       ${result.templateUrl}`);
-console.log(`  template redis ${redisResult.templateUrl}`);
+for (const r of results) {
+  console.log(`  ${r.label.padEnd(16)} ${r.templateUrl}`);
+  console.log(`  ${''.padEnd(16)} ${r.templateBytes} bytes, ${r.parameterCount} parameter(s), ${r.resourceCount} resource(s)`);
+}
 console.log(`  image          ${imageRepository}@${imageDigest}`);
 console.log(`  preset         ${preset ?? '(none)'}`);
-console.log(
-  `  size           ${result.templateBytes} bytes, ${result.parameterCount} parameter(s), ${resourceCount} resource(s)`,
-);
-console.log(
-  `  size redis     ${redisResult.templateBytes} bytes, ${redisResult.parameterCount} parameter(s), ${redisResourceCount} resource(s)`,
-);
 console.log();
 console.log('Now republish the bootstrap template so new installs point at it:');
-console.log(`  APPLICATION_TEMPLATE_URL=${result.templateUrl} pnpm --filter @deployz/cdk run publish:bootstrap`);
+console.log(`  APPLICATION_TEMPLATE_URL=${results[0].templateUrl} pnpm --filter @deployz/cdk run publish:bootstrap`);

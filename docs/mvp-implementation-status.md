@@ -768,10 +768,16 @@ The documented behavior is now:
 
 ### MVP tradeoffs (documented, deliberate)
 
-- **Unconditional PostgreSQL provisioning**: every published template
-  provisions the RDS instance; `databaseRequired` is a synth-time prop the
-  relay never toggles. Provisioning a database for an app that does not need
-  one is an explicit MVP tradeoff, not a silent behavior.
+- **Resolved — requirement-aware template selection**: the relay now
+  resolves the exact published template variant from the deployment manifest
+  (`database.postgres`, `redis.required`) via a shared `InfrastructureProfile`
+  (`@deployz/contracts`). Four variants are published side by side:
+  PostgreSQL, PostgreSQL+Redis, stateless (no PostgreSQL, no Redis), and
+  stateless+Redis. The stateless templates contain zero RDS, secrets, or DB
+  env footprint. The relay picks the correct URL before INSTALL; invalid or
+  missing manifest requirements fail before provisioning, never silently
+  default to PostgreSQL. Existing deployments keep their original templates
+  until their normal destroy/purge lifecycle.
 - **Express-mode DB ingress**: whole-VPC CIDR (see above), because ECS
   manages the task security groups.
 - **Failed-first-install retry**: recovery deletes the doomed RDS instance

@@ -281,8 +281,12 @@ plus cleanup/leak audit — remains to be executed via the canary runbook
   follow-up sweep can remove them).
 - **Express-mode database ingress is whole-VPC** (ECS manages task security
   groups; documented tradeoff, not silent).
-- **Every published template provisions RDS** even for apps that do not need
-  a database (explicit MVP tradeoff).
+- **Resolved — requirement-aware template selection**: the relay now
+  resolves one of four published template variants from the deployment
+  manifest's `database.postgres` and `redis.required` fields. Stateless
+  variants contain zero RDS footprint. The old unconditional PostgreSQL
+  provisioning is superseded; existing deployments keep their original
+  templates until their normal lifecycle.
 - **Rollback never reverses schema migrations** (documented; vendors must
   write backward-compatible migrations).
 - **Port-mismatch diagnosis is imprecise** — no log access by design, so a

@@ -279,6 +279,16 @@ export function normalizeDeploymentManifest(
   if (meta['usesLocalFilesystem'] === true) {
     unsupported.push('Persistent local filesystem storage is not supported');
   }
+  // Inconsistency guard: a migration command configured without PostgreSQL.
+  // The only source of manifest.migration.command is overrides.migrationCommand
+  // (line ~377), so this catches the case where a vendor set a migration command
+  // but the manifest's postgres requirement resolves to false — never silently
+  // provision RDS to resolve the mismatch.
+  if (overrides.migrationCommand && overrides.migrationCommand.length > 0 && !postgresRequired) {
+    unsupported.push(
+      'This app is configured to run a database migration on deploy but the manifest does not require PostgreSQL — Deployz cannot run migrations without a provisioned database',
+    );
+  }
   // Phase 8 boundary — background worker processes are deferred. The worker
   // start command is resolved per analysis (`resolvedWorkerCommand`, current
   // metadata) with the sticky column as the legacy fallback. An app that has

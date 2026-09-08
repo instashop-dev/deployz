@@ -152,6 +152,76 @@ describe('normalizeDeploymentManifest', () => {
     expect(manifest.redis.required).toBe(true);
     expect(manifest.redis.envBindings).toEqual([{ name: 'REDIS_URL', kind: 'url' }]);
   });
+
+  // ── Stateless regression (no-PostgreSQL deployments) ──────────────────────
+
+  /** A dockerized web app with a health endpoint, NO PostgreSQL, NO database
+   *  env vars, but WITH an unrelated `migrate` script in package.json. A
+   *  script named `migrate` must NOT imply PostgreSQL. */
+  const STATELESS_TREE: FileTree = {
+    'Dockerfile': 'FROM node:20-alpine\nEXPOSE 3000\nHEALTHCHECK CMD curl -f http://localhost:3000/health || exit 1\nCMD ["node", "dist/index.js"]\n',
+    'package.json': JSON.stringify({
+      name: 'stateless-app',
+      scripts: { start: 'node dist/index.js', build: 'tsc', migrate: 'node scripts/migrate-data.js' },
+      dependencies: { express: '^4.18.0' },
+    }),
+    'src/index.ts': "import express from 'express';\nconst app = express();\napp.get('/health', (_req, res) => res.json({ ok: true }));\napp.listen(3000);\n",
+    'scripts/migrate-data.js': '// one-time data migration script, no database required\n',
+  };
+
+  it('stateless app: postgres not required, database.postgres false, deployable, migrationMode none, no migration command', () => {
+    const analysis = analyseRepo(STATELESS_TREE);
+    const postgresMeta = analysis.metadata.postgres as { required?: boolean };
+    expect(postgresMeta?.required).not.toBe(true);
+    expect(analysis.metadata.migrationMode).toBe('none');
+
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.database.postgres).toBe(false);
+    expect(manifest.migration.command).toBeNull();
+    expect(manifest.migration.mode).toBe('none');
+    expect(manifest.unsupported).toEqual([]);
+    expect(evaluateManifestReadiness(manifest).state).toBe('READY');
+  });
+
+  // ── Inconsistency guard: migration command without PostgreSQL ─────────────
+
+  it('blocks when a migration command override is set but postgresRequired is false', () => {
+    const analysis = analyseRepo(STATELESS_TREE);
+    const manifest = normalizeDeploymentManifest(analysis, {
+      migrationCommand: 'npm run migrate',
+    });
+    expect(manifest.database.postgres).toBe(false);
+    expect(manifest.migration.command).toBe('npm run migrate');
+    expect(manifest.unsupported).toEqual(
+      expect.arrayContaining([expect.stringMatching(/database migration on deploy/i)]),
+    );
+    expect(evaluateManifestReadiness(manifest).state).toBe('NOT_COMPATIBLE');
+    // normalizeDeploymentManifest already calls deploymentManifestSchema.parse,
+    // so unsupported reasons are data, not schema violations.
+  });
+
+  it('does NOT fire the guard when postgres is true (existing migration-command-missing warning path unchanged)', () => {
+    const analysis = analyseRepo(READY_TREE);
+    // READY_TREE has postgres=true, no migrationCommand override
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.database.postgres).toBe(true);
+    // No unsupported reason from the guard
+    expect(manifest.unsupported).toEqual([]);
+    // The existing warning still fires
+    const result = evaluateManifestReadiness(manifest);
+    expect(result.state).toBe('READY');
+    expect(result.findings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'migration-command-missing' })]),
+    );
+  });
+
+  it('does NOT fire the guard for postgres=false with no migration command override', () => {
+    const analysis = analyseRepo(STATELESS_TREE);
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.database.postgres).toBe(false);
+    expect(manifest.migration.command).toBeNull();
+    expect(manifest.unsupported).toEqual([]);
+  });
 });
 
 describe('evaluateManifestReadiness', () => {

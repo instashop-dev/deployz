@@ -32,6 +32,21 @@ export async function readRedisRequired(db: RuntimeDb, applicationId: string): P
 }
 
 /**
+ * Whether the deployment's application needs a PostgreSQL database
+ * provisioned. Same shape as `readRedisRequired` — the relay reads this
+ * as a top-level payload field so a lost INSTALL payload can be verified
+ * requirement-aware.
+ */
+export async function readDatabaseRequired(db: RuntimeDb, applicationId: string): Promise<boolean> {
+  const rows = await db
+    .select({ databaseRequired: schema.applications.databaseRequired })
+    .from(schema.applications)
+    .where(eq(schema.applications.id, applicationId))
+    .limit(1);
+  return rows[0]?.databaseRequired ?? false;
+}
+
+/**
  * Builds the CloudFormation parameter values for an INSTALL job (§31).
  * Phase 1: the runtime-v1 template is Documenso-shaped, so every install
  * receives these; unrelated images simply ignore the injected env vars.

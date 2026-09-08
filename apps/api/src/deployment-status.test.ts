@@ -932,6 +932,27 @@ describe('applicable steps list', () => {
     expect(derive({ application: makeApplication({ storageRequired: true }) }).steps).toContain('DATABASE_STORAGE');
   });
 
+  it('stateless app with storage: DATABASE_STORAGE driven by storage alone, no database assumption', () => {
+    // storageRequired=true, databaseRequired=false, redisRequired=false
+    const status = derive({
+      application: makeApplication({ databaseRequired: false, redisRequired: false, storageRequired: true }),
+    });
+    expect(status.steps).toContain('DATABASE_STORAGE');
+    expect(status.steps).not.toContain('REDIS');
+    // No step derivation assumes a database — only storage drives DATABASE_STORAGE.
+    const stepIndex = status.steps.indexOf('DATABASE_STORAGE');
+    expect(stepIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it('fully stateless (no database, storage, or redis) omits DATABASE_STORAGE entirely', () => {
+    const status = derive({
+      application: makeApplication({ databaseRequired: false, storageRequired: false, redisRequired: false }),
+    });
+    expect(status.steps).not.toContain('DATABASE_STORAGE');
+    expect(status.steps).not.toContain('REDIS');
+    expect(status.steps).not.toContain('MIGRATION');
+  });
+
   it('is always in canonical order', () => {
     const status = derive({
       application: makeApplication({

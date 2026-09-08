@@ -1,7 +1,11 @@
 /**
  * Synthesizes the application stack and writes the versioned CloudFormation
- * artifacts to packages/cdk/artifacts/application-template-v1.json and
- * application-template-redis-v1.json.
+ * artifacts to packages/cdk/artifacts/ for all four infrastructure variants:
+ *
+ *   - application-template-v1.json               (postgres, no redis)
+ *   - application-template-redis-v1.json          (postgres, redis)
+ *   - application-template-stateless-v1.json      (no postgres, no redis)
+ *   - application-template-stateless-redis-v1.json (no postgres, redis)
  *
  * This is the programmatic equivalent of `cdk synth` — it runs the same
  * App.synth() assembly the CDK CLI drives and emits the identical
@@ -21,36 +25,37 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { synthesizeApplicationStack } from '../dist/quick-create/publish.js';
+import { applicationTemplateKeyForProfile } from '@deployz/contracts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, '..', 'artifacts');
 mkdirSync(outDir, { recursive: true });
 
-// Same synth the publisher runs, so the committed artifact and the template
-// customers actually install cannot drift. `synthesizeApplicationStack` is
-// what fixes the two choices that matter — plain Fargate (the verifier
-// requires an ECS service and an ALB) and no certificate at synth time.
-const { template } = await synthesizeApplicationStack({
-  outdir: mkdtempSync(join(tmpdir(), 'deployz-synth-app-')),
-});
+/** Synthesize one variant and write its artifact. */
+async function synthOne(profile, outdirLabel) {
+  const { template } = await synthesizeApplicationStack({
+    outdir: mkdtempSync(join(tmpdir(), `deployz-synth-${outdirLabel}-`)),
+    ...(profile.postgres === false ? { databaseRequired: false } : {}),
+    ...(profile.redis ? { redisRequired: true } : {}),
+  });
 
-const outPath = join(outDir, 'application-template-v1.json');
-writeFileSync(outPath, `${JSON.stringify(template, null, 2)}\n`);
+  const key = applicationTemplateKeyForProfile(profile);
+  const outPath = join(outDir, key);
+  writeFileSync(outPath, `${JSON.stringify(template, null, 2)}\n`);
 
-console.log(
-  `Wrote ${outPath} — ${Object.keys(template.Resources).length} resources, ` +
-    `${Buffer.byteLength(JSON.stringify(template))} bytes (uncompressed)`,
-);
+  console.log(
+    `Wrote ${outPath} — ${Object.keys(template.Resources).length} resources, ` +
+      `${Buffer.byteLength(JSON.stringify(template))} bytes (uncompressed)`,
+  );
+}
 
-const { template: redisTemplate } = await synthesizeApplicationStack({
-  outdir: mkdtempSync(join(tmpdir(), 'deployz-synth-app-redis-')),
-  redisRequired: true,
-});
+const PROFILES = [
+  { postgres: true,  redis: false },
+  { postgres: true,  redis: true  },
+  { postgres: false, redis: false },
+  { postgres: false, redis: true  },
+];
 
-const redisOutPath = join(outDir, 'application-template-redis-v1.json');
-writeFileSync(redisOutPath, `${JSON.stringify(redisTemplate, null, 2)}\n`);
-
-console.log(
-  `Wrote ${redisOutPath} — ${Object.keys(redisTemplate.Resources).length} resources, ` +
-    `${Buffer.byteLength(JSON.stringify(redisTemplate))} bytes (uncompressed)`,
-);
+for (const profile of PROFILES) {
+  await synthOne(profile, `${profile.postgres ? 'pg' : 'sl'}-${profile.redis ? 'redis' : 'base'}`);
+}

@@ -110,6 +110,39 @@ describe('verifyInstallation', () => {
     expect(result.checks.filter((c) => c.required !== false).every((c) => c.passed)).toBe(true);
   });
 
+  it('passes on a stack without RDS when databaseRequired is false', async () => {
+    const withoutDb = COMPLETE_RESOURCES.filter((r) => r.type !== 'AWS::RDS::DBInstance');
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), withoutDb),
+      installationId: INSTALLATION,
+      databaseRequired: false,
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.checks.find((c) => c.name === 'database')).toBeUndefined();
+  });
+
+  it('fails on a stack without RDS when databaseRequired is undefined (legacy default)', async () => {
+    const withoutDb = COMPLETE_RESOURCES.filter((r) => r.type !== 'AWS::RDS::DBInstance');
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), withoutDb),
+      installationId: INSTALLATION,
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toContain('database');
+  });
+
+  it('passes on a stack without RDS when databaseRequired is explicitly true — stack has one', async () => {
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), COMPLETE_RESOURCES),
+      installationId: INSTALLATION,
+      databaseRequired: true,
+    });
+
+    expect(result.verified).toBe(true);
+  });
+
   it('always reports the cache observation, informational when redis is not required', async () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack(), COMPLETE_RESOURCES),

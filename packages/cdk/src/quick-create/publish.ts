@@ -29,6 +29,8 @@ import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
 import {
   APPLICATION_TEMPLATE_KEY,
   APPLICATION_TEMPLATE_REDIS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
   BOOTSTRAP_TEMPLATE_KEY,
   SUPPORTED_AWS_REGIONS,
   bootstrapTemplateBucketName,
@@ -582,7 +584,12 @@ export async function verifyPublishedRegion(
 
 // ── Application template ────────────────────────────────────────────────────
 
-export { APPLICATION_TEMPLATE_KEY, APPLICATION_TEMPLATE_REDIS_KEY };
+export {
+  APPLICATION_TEMPLATE_KEY,
+  APPLICATION_TEMPLATE_REDIS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
+};
 
 export interface SynthesizeApplicationOptions {
   /** Output directory for the cloud assembly (temp dir is fine). */
@@ -595,6 +602,15 @@ export interface SynthesizeApplicationOptions {
   readonly imageDigest?: string;
   /** Provision an ElastiCache Valkey cache alongside the application. */
   readonly redisRequired?: boolean;
+  /**
+   * Provision a managed RDS PostgreSQL instance for the application.
+   *
+   * `true` (default) provisions the full RDS footprint — db instance,
+   * security group, generated credential secret, `DATABASE_*` env vars,
+   * and DbHost/DbSecretArn outputs. Pass `false` for stateless variants
+   * that need zero database resources.
+   */
+  readonly databaseRequired?: boolean;
   /**
    * Vendor application preset. When set, the preset's `ApplicationStackProps`
    * are spread into the stack — `'documenso'` applies
@@ -640,6 +656,7 @@ export async function synthesizeApplicationStack(
       : {}),
     ...(options.imageDigest !== undefined ? { imageDigest: options.imageDigest } : {}),
     ...(options.redisRequired !== undefined ? { redisRequired: options.redisRequired } : {}),
+    ...(options.databaseRequired !== undefined ? { databaseRequired: options.databaseRequired } : {}),
   });
 
   const assembly = app.synth();

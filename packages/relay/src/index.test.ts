@@ -620,9 +620,10 @@ describe('createObserveHook', () => {
 });
 
 describe('readVerifyOptionsFromPayload', () => {
-  it('reads redisRequired and stackName when both are present and well-typed', () => {
-    expect(readVerifyOptionsFromPayload({ redisRequired: true, stackName: 'deployz-app-custom' })).toEqual({
+  it('reads redisRequired, databaseRequired, and stackName when present and well-typed', () => {
+    expect(readVerifyOptionsFromPayload({ redisRequired: true, databaseRequired: false, stackName: 'deployz-app-custom' })).toEqual({
       redisRequired: true,
+      databaseRequired: false,
       stackName: 'deployz-app-custom',
     });
   });
@@ -636,6 +637,11 @@ describe('readVerifyOptionsFromPayload', () => {
     expect(readVerifyOptionsFromPayload({ redisRequired: 1 })).toEqual({});
   });
 
+  it('ignores a non-boolean databaseRequired rather than trusting it', () => {
+    expect(readVerifyOptionsFromPayload({ databaseRequired: 'false' })).toEqual({});
+    expect(readVerifyOptionsFromPayload({ databaseRequired: 0 })).toEqual({});
+  });
+
   it('ignores a non-string or empty stackName rather than trusting it', () => {
     expect(readVerifyOptionsFromPayload({ stackName: 42 })).toEqual({});
     expect(readVerifyOptionsFromPayload({ stackName: '' })).toEqual({});
@@ -643,6 +649,10 @@ describe('readVerifyOptionsFromPayload', () => {
 
   it('reads redisRequired: false explicitly, not just truthy values', () => {
     expect(readVerifyOptionsFromPayload({ redisRequired: false })).toEqual({ redisRequired: false });
+  });
+
+  it('reads databaseRequired: false explicitly, not just truthy values', () => {
+    expect(readVerifyOptionsFromPayload({ databaseRequired: false })).toEqual({ databaseRequired: false });
   });
 });
 
@@ -819,7 +829,7 @@ describe('createInstallExecutor', () => {
       type: 'INSTALL',
       stackName: 'deployz-app',
       startedAt: '2026-08-26T12:00:00.000Z',
-      payload: { redisRequired: true, parameters: {} },
+      payload: { redisRequired: true, databaseRequired: true, parameters: {} },
     });
   });
 
@@ -1238,9 +1248,10 @@ describe('createInstallResumer', () => {
 // The control plane sends `redisRequired` at the top level of the INSTALL
 // payload, alongside `parameters` and `recovery`. `settleInstall` — shared by
 // `createInstallExecutor` and `createInstallResumer` — must pick the
-// Redis-enabled template variant for it, so retries and resumed installs
-// agree with the first attempt about which template built the stack.
-describe('settleInstall picks the Redis-enabled template variant', () => {
+// correct template variant for the resolved infrastructure profile, so
+// retries and resumed installs agree with the first attempt about which
+// template built the stack.
+describe('settleInstall picks the correct template variant from the infrastructure profile', () => {
   const command = {
     id: 'cmd-1',
     deploymentId: 'dep-1',
@@ -1249,10 +1260,12 @@ describe('settleInstall picks the Redis-enabled template variant', () => {
     payload: {},
   };
 
+  const BASE_URL = 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json';
+
   function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
     return {
       installationId: 'inst-1',
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      templateUrl: BASE_URL,
       install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
       verify: async () => ({ verified: true, checks: [] }),
       pending: memoryPendingStore(),
@@ -1261,7 +1274,21 @@ describe('settleInstall picks the Redis-enabled template variant', () => {
     };
   }
 
-  it('installs the redis-variant template when redisRequired is true', async () => {
+  it('installs the base (postgres-only) template when both flags are absent (legacy default)', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install }))(command);
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl: BASE_URL,
+    });
+  });
+
+  it('installs the redis-variant template when redisRequired is true (legacy flag)', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1280,7 +1307,7 @@ describe('settleInstall picks the Redis-enabled template variant', () => {
     });
   });
 
-  it('installs the base template when redisRequired is false', async () => {
+  it('installs the base template when redisRequired is false (legacy flag)', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1293,25 +1320,75 @@ describe('settleInstall picks the Redis-enabled template variant', () => {
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      templateUrl: BASE_URL,
     });
   });
 
-  it('installs the base template when redisRequired is absent', async () => {
+  it('installs the stateless template when manifest has postgres:false and redis:false', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
       outputs: {},
     }));
 
-    await createInstallExecutor(makeInstallDeps({ install }))(command);
+    await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: {
+        manifest: {
+          application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+          build: { command: 'npm run build', context: '.' },
+          web: { command: 'node server.js', port: 8080 },
+          health: { path: '/health' },
+          database: { postgres: false },
+          redis: { required: false, envBindings: [] },
+          storage: { required: false, envBindings: [] },
+          migration: { command: null },
+          worker: { command: null },
+          environment: { variables: [] },
+          externalServices: [],
+          unsupported: [],
+        },
+      },
+    });
 
     expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-v1.json',
     });
   });
 
-  it('fails immediately, without installing or writing a pending marker, when the base template URL is unrecognized', async () => {
+  it('installs the stateless+redis template when manifest has postgres:false and redis:true', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: {
+        manifest: {
+          application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+          build: { command: 'npm run build', context: '.' },
+          web: { command: 'node server.js', port: 8080 },
+          health: { path: '/health' },
+          database: { postgres: false },
+          redis: { required: true, envBindings: [{ name: 'REDIS_URL', kind: 'url' }] },
+          storage: { required: false, envBindings: [] },
+          migration: { command: null },
+          worker: { command: null },
+          environment: { variables: [] },
+          externalServices: [],
+          unsupported: [],
+        },
+      },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-redis-v1.json',
+    });
+  });
+
+  it('fails immediately, without installing, when the base template URL is unrecognized', async () => {
     const install = vi.fn();
     const pending = memoryPendingStore();
 
@@ -1324,7 +1401,25 @@ describe('settleInstall picks the Redis-enabled template variant', () => {
     expect(result.success).toBe(false);
     expect(result.deferred).toBeUndefined();
     expect(result.failureCode).toBe('STACK_CREATE_FAILED');
-    expect(result.error).toMatch(/redis/i);
+    expect(result.error).toMatch(/profile/i);
+  });
+
+  it('fails fast when the manifest is present but invalid', async () => {
+    const install = vi.fn();
+    const pending = memoryPendingStore();
+
+    const result = await createInstallExecutor(
+      makeInstallDeps({ install, pending }),
+    )({
+      ...command,
+      payload: { manifest: { database: { postgres: 'yes' }, redis: { required: false } } },
+    });
+
+    expect(install).not.toHaveBeenCalled();
+    expect(await pending.read()).toBeNull();
+    expect(result.success).toBe(false);
+    expect(result.deferred).toBeUndefined();
+    expect(result.error).toMatch(/invalid deployment manifest/i);
   });
 
   it('resumes a pending install with the redis-variant template', async () => {
@@ -1335,7 +1430,7 @@ describe('settleInstall picks the Redis-enabled template variant', () => {
       type: 'INSTALL',
       stackName: 'deployz-app',
       startedAt: '2026-08-26T12:00:00.000Z',
-      payload: { redisRequired: true },
+      payload: { redisRequired: true, databaseRequired: true },
     });
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
@@ -1589,7 +1684,7 @@ function bigManifestPayload() {
 }
 
 describe('compactPendingInstallPayload', () => {
-  it('drops the manifest, merges the manifest-derived parameters over the payload parameters, and resolves redisRequired from the manifest', () => {
+  it('drops the manifest, merges the manifest-derived parameters, and resolves redisRequired/databaseRequired from the manifest', () => {
     const manifest = bigManifestPayload();
     const payload = {
       parameters: { paramHealthCheckPath: '/legacy', paramAppApiKey: 'k' },
@@ -1607,6 +1702,7 @@ describe('compactPendingInstallPayload', () => {
       paramHealthCheckPath: '/api/health', // the manifest wins over the ad-hoc value
     });
     expect(compacted['redisRequired']).toBe(true);
+    expect(compacted['databaseRequired']).toBe(true); // manifest has postgres: true
 
     const marker = {
       commandId: 'cmd-1',
@@ -1653,7 +1749,7 @@ describe('createInstallExecutor / createInstallResumer with a production-size ma
     };
   }
 
-  it('defers past the watch budget without writing the manifest into the pending marker, then resumes to the same redis template and parameters', async () => {
+  it('defers past the watch budget without writing the manifest into the pending marker, then resumes to the same template and parameters', async () => {
     const pending = memoryPendingStore();
     const manifest = bigManifestPayload();
     const bigPayload = {
@@ -1680,8 +1776,8 @@ describe('createInstallExecutor / createInstallResumer with a production-size ma
     expect(JSON.stringify(marker).length).toBeLessThan(4096);
 
     // Resume: the marker alone (no manifest) must resolve the same
-    // redis-variant template and the same merged parameters the first
-    // attempt sent to CloudFormation.
+    // redis-variant template, the same merged parameters, and the same
+    // databaseRequired that the first attempt resolved.
     const resumeInstall = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1700,6 +1796,17 @@ describe('createInstallExecutor / createInstallResumer with a production-size ma
     });
 
     logSpy.mockRestore();
+  });
+
+  it('preserves databaseRequired:false in the compacted payload when the manifest has postgres:false', async () => {
+    const manifest = manifestPayload({ database: { postgres: false }, redis: { required: false, envBindings: [] } });
+    const compacted = compactPendingInstallPayload({
+      parameters: { paramAppApiKey: 'k' },
+      manifest,
+    });
+
+    expect(compacted['databaseRequired']).toBe(false);
+    expect(compacted['redisRequired']).toBe(false);
   });
 });
 

@@ -5867,7 +5867,7 @@ export async function buildServer({
     // heartbeat runs outside any command, so this poll response is the only
     // channel that reaches it.
     const appRows = await db
-      .select({ redisRequired: schema.applications.redisRequired, healthPath: schema.applications.healthPath })
+      .select({ databaseRequired: schema.applications.databaseRequired, redisRequired: schema.applications.redisRequired, healthPath: schema.applications.healthPath })
       .from(schema.applications)
       .where(eq(schema.applications.id, deployment.applicationId))
       .limit(1);
@@ -5893,6 +5893,7 @@ export async function buildServer({
         payload: job.payload,
       })),
       deployment: {
+        databaseRequired: appRows[0]?.databaseRequired ?? false,
         redisRequired: appRows[0]?.redisRequired ?? false,
         probeUrl: resolveProbeUrl(installJobs, appRows[0]?.healthPath ?? null, activeDomain, defaultHttps),
       },
