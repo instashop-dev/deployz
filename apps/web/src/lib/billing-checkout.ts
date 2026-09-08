@@ -48,6 +48,19 @@ export function createCheckoutIntent(input: CreateCheckoutIntentInput): Promise<
   return apiRequest<CheckoutIntent>('/api/billing/checkout', { method: 'POST', body: input });
 }
 
+/** Which page of Paddle's hosted portal to land on. */
+export type BillingPortalTarget = 'overview' | 'updatePaymentMethod' | 'cancel';
+
+/** `POST /api/billing/portal` — a short-lived, pre-authenticated link into
+ *  Paddle's customer portal (Phase 12). Minted on every click and never
+ *  cached: the session is temporary by design. */
+export async function openBillingPortal(target: BillingPortalTarget): Promise<string> {
+  const links = await apiRequest<Record<BillingPortalTarget, string>>('/api/billing/portal', {
+    method: 'POST',
+  });
+  return links[target];
+}
+
 /** 'completed' means Paddle took the payment; 'closed' means the vendor left
  *  the overlay. Neither is the authority on the subscription — the webhook is. */
 export type CheckoutOutcome = 'completed' | 'closed';
