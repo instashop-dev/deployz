@@ -1668,7 +1668,18 @@ export async function buildServer({
 
   app.get('/api/me', { preHandler: requireAuth }, async (request) => ({
     user: request.user ?? null,
-    organization: request.organization ?? null,
+    // Paddle migration Phase 11: the active organization carries its
+    // subscription status so the dashboard shell can raise a past-due or
+    // canceled banner without a second round trip. Read here rather than
+    // looked up from `organizations` on the client, because in a support
+    // session `organization` is the VENDOR's while `organizations` is the
+    // admin's own memberships — the lookup would silently find nothing.
+    organization: request.organization
+      ? {
+          ...request.organization,
+          subscriptionStatus: await getSubscriptionStatus(db, request.organization.id),
+        }
+      : null,
     role: request.member?.role ?? null,
     organizations: request.user ? await listOrganizations(db, request.user.id) : [],
     isTeamAdmin: request.user

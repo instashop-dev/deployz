@@ -1,10 +1,16 @@
 import { cookies } from 'next/headers';
 
-import type { OrgRole, OrganizationSummary } from './organization-vocabulary';
+import type { OrgRole, OrganizationSummary, SubscriptionStatus } from './organization-vocabulary';
 
 interface Me {
   user: { id: string; name: string; email: string; image: string | null };
-  organization: { id: string; name: string; slug: string } | null;
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    /** `null` means evaluation — no subscription has ever been bought. */
+    subscriptionStatus: SubscriptionStatus | null;
+  } | null;
   /** The user's role in the active organization, null when they have none. */
   role: OrgRole | null;
   /** Every organization the user belongs to — the tenant switcher's data. */

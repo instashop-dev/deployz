@@ -7,6 +7,7 @@
 import { CheckoutEventNames, initializePaddle, type Paddle } from '@paddle/paddle-js';
 
 import { apiRequest } from '@/lib/api-client';
+import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 
 /** `GET /api/billing/config` — never the API key or the webhook secret. */
 export interface BillingConfig {
@@ -30,6 +31,15 @@ export interface CreateCheckoutIntentInput {
 
 export function fetchBillingConfig(): Promise<BillingConfig> {
   return apiRequest<BillingConfig>('/api/billing/config');
+}
+
+/** The active organization's subscription status — `null` means evaluation.
+ *  Client-side counterpart of lib/organization.ts, which is server-only. */
+export async function fetchSubscriptionStatus(): Promise<SubscriptionStatus | null> {
+  const organization = await apiRequest<{ subscriptionStatus: SubscriptionStatus | null }>(
+    '/api/organization',
+  );
+  return organization.subscriptionStatus;
 }
 
 /** `POST /api/billing/checkout` — parks the deployment, opens a transaction.

@@ -17,6 +17,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { EvaluationNotice } from '@/components/evaluation-notice';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -176,6 +177,11 @@ export default function ApplicationReadinessPage() {
           </Link>
         </Button>
       </div>
+
+      {/* Paddle migration Phase 11 — the same evaluation line as the
+          homepage, on the screen where a vendor decides an application is
+          ready for its first customer. Gone once a subscription exists. */}
+      <EvaluationNotice />
 
       {state.status === 'loading' ? <PageSkeleton /> : null}
       {state.status === 'error' ? (

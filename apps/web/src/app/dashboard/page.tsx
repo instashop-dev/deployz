@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApplicationPreparingCard } from '@/components/application-preparing-card';
 import { ApplicationReadyCard } from '@/components/application-ready-card';
 import { DeploymentList } from '@/components/deployment-list';
+import { EvaluationNotice } from '@/components/evaluation-notice';
 import { FirstDeploymentCard } from '@/components/first-deployment-card';
 import { FleetSummary } from '@/components/fleet-summary';
 import { GetStartedCard } from '@/components/get-started-card';
@@ -92,17 +93,28 @@ export default function HomePage() {
   if (state.status === 'loading') return <LoadingState />;
   if (state.status === 'error') return <ErrorState onRetry={() => setAttempt((n) => n + 1)} />;
 
-  switch (state.home.kind) {
+  // Paddle migration Phase 11 — the evaluation line rides above whichever
+  // homepage state is showing, and disappears once a subscription exists.
+  return (
+    <>
+      <EvaluationNotice />
+      {homeStateContent(state.home)}
+    </>
+  );
+}
+
+function homeStateContent(home: HomeState) {
+  switch (home.kind) {
     case 'setup':
       return <GetStartedCard />;
     case 'preparing':
-      return <ApplicationPreparingCard application={state.home.application} />;
+      return <ApplicationPreparingCard application={home.application} />;
     case 'ready':
-      return <ApplicationReadyCard application={state.home.application} />;
+      return <ApplicationReadyCard application={home.application} />;
     case 'first-deployment':
-      return <FirstDeploymentCard deployment={state.home.deployment} />;
+      return <FirstDeploymentCard deployment={home.deployment} />;
     case 'operational':
-      return <OperationalHome home={state.home} />;
+      return <OperationalHome home={home} />;
   }
 }
 

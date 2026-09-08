@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { DashboardShell } from '@/components/dashboard-shell';
+import { SubscriptionBanner } from '@/components/subscription-banner';
 import { SupportModeBanner } from '@/components/support-mode-banner';
 import { fetchMe } from '@/lib/me';
 
@@ -30,6 +31,10 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         organizations={me.organizations}
         activeOrganizationId={me.organization?.id ?? null}
       >
+        {/* Paddle migration Phase 11 — inside the shell's <main>, so it
+            inherits the page's own spacing rather than becoming a second
+            chrome bar above the header. */}
+        <SubscriptionBanner status={me.organization?.subscriptionStatus ?? null} />
         {children}
       </DashboardShell>
     </>
