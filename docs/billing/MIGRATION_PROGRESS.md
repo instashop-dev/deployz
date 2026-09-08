@@ -33,8 +33,8 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 4 Paddle catalog (MCP) | deferred | | Blocked on the Paddle sandbox MCP in this session (DNS failure, then tools not loadable in-process). Must complete before Phase 8 checkout verification. Sandbox catalog was empty at baseline. See "Phase 4 resume steps" |
 | 5 SDK + config | done | PR #222 | `@paddle/paddle-node-sdk`, `apps/api/src/paddle.ts`, `PADDLE_*` env validation, CDK allowlist, deploy workflow, `GET /api/billing/config` |
 | 6 Webhooks | done | PR #223 | `apps/api/src/billing-webhooks.ts`, `POST /api/billing/webhook` (raw body, `Paddle-Signature`), event ledger dedupe, `occurredAt` regression guard, migration `0035` (scheduled change) |
-| 7 Evaluation entitlements | done | this PR | `apps/api/src/billing-entitlements.ts`: PRODUCTION needs an ACTIVE subscription (402 `SUBSCRIPTION_REQUIRED`), one active TEST deployment per application (409 `TEST_DEPLOYMENT_EXISTS`, partial unique index, migration `0036`) |
-| 8 First production activation | pending | | |
+| 7 Evaluation entitlements | done | PR #228 | `apps/api/src/billing-entitlements.ts`: PRODUCTION needs an ACTIVE subscription (402 `SUBSCRIPTION_REQUIRED`), one active TEST deployment per application (409 `TEST_DEPLOYMENT_EXISTS`, partial unique index, migration `0036`) |
+| 8 First production activation | done | this PR | `billing_checkout_intents` (migration `0037`), `apps/api/src/billing-checkout.ts`, `POST /api/billing/checkout`, webhook resume on ACTIVE; web checkout hand-off (`apps/web/src/lib/billing-checkout.ts`, Paddle.js). Not verified against Paddle — Phase 4 catalog still missing |
 | 9 Reconciliation | pending | | |
 | 10 Scheduled safety job | pending | | |
 | 11 App-wide UX | pending | | |
@@ -80,6 +80,27 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   entitlement gate itself is unchanged. Cost if wrong: none in production;
   a simulated scenario could forget to clear the row when it tests
   evaluation mode.
+- R8-1: at most one PENDING checkout intent per organization (partial unique
+  index `billing_checkout_intents_one_pending_per_organization_uidx`).
+  Activation resumes every PENDING intent, so two of them would provision two
+  deployments for one checkout. A new checkout SUPERSEDES the previous one.
+  Cost if wrong: a vendor who wanted two production deployments queued before
+  paying gets one; the second is created normally once the subscription is
+  ACTIVE.
+- R8-2: `createCheckoutIntent` runs the ownership and preflight gates BEFORE
+  it opens the transaction, so a completed checkout does not land on a request
+  that was never going to work. Cost if wrong: a preflight that passes at
+  checkout and fails at resume, which R8-3 already covers.
+- R8-3: `resumePendingCheckoutIntents` never throws. A deployment that cannot
+  be created is recorded FAILED with its reason and logged; the webhook still
+  answers 200 because the subscription event itself was applied correctly.
+  The subscription is real, so the vendor now passes the Phase 7 gate and can
+  create the deployment directly. Cost if wrong: a vendor who paid has to
+  press the button once more.
+- R8-4: the web app reads the Paddle client token from
+  `GET /api/billing/config` at runtime instead of a baked `NEXT_PUBLIC_*`
+  value, so `deploy-web.yml` needs no Paddle configuration (audit §9 assumed
+  the baked route). Cost if wrong: one extra request before checkout opens.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
@@ -122,6 +143,15 @@ Env names (already used by Phase 5): `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,
   `--maxWorkers=2`; CI is authoritative.
 - `.mcp.json` in the worktree is untracked and not ignored. Stage files
   explicitly; never commit it.
+- Adding a dependency makes pnpm re-resolve unrelated peers in
+  `pnpm-lock.yaml` (`better-call@1.4.0(zod@4.4.3)` -> `(zod@3.25.76)`,
+  `next@15.5.23(@babel/core@7.29.7)` -> without it). Phase 8 added
+  `@paddle/paddle-js` to apps/web and reverted those two churn patterns by
+  hand, leaving only the new package in the lockfile diff;
+  `pnpm install --frozen-lockfile` still passes.
+- Phase 8 is unverified against Paddle: the sandbox catalog (Phase 4) does not
+  exist, so `PADDLE_PRICE_*` name nothing and no real checkout has been
+  opened. Run the Phase 8 Paddle-facing verification right after Phase 4.
 - Phase 10 follow-up: a `billing_provider_events` row left in `RECEIVED`
   by a crash between insert and processing reads as a duplicate on redelivery.
   The safety job should reset rows older than 10 minutes that are still

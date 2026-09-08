@@ -1,0 +1,526 @@
+import { PGlite } from '@electric-sql/pglite';
+import { createHmac } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { applyMigrations, createDb, type Db } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
+
+import { createAuth, type Auth } from './auth.js';
+import { resumePendingCheckoutIntents } from './billing-checkout.js';
+import { createPaddle, type PaddleBilling } from './paddle.js';
+import { buildServer } from './server.js';
+
+// Paddle migration Phase 8 — first production activation. A vendor without a
+// subscription asks for a customer deployment: nothing is provisioned and no
+// deployment row exists until the subscription activates. Fixture ids only
+// (txn_test_1, sub_test_1, ...) — never anything that looks like a real
+// Paddle id.
+
+const WEBHOOK_SECRET = 'whsec_test_1';
+
+const READY_METADATA = {
+  hasDockerfile: true,
+  dockerfilePath: 'Dockerfile',
+  port: '3000',
+  startupCommands: ['node dist/index.js'],
+  usesPostgresql: false,
+  postgres: { required: false },
+  usesRedis: false,
+  redis: { required: false },
+  usesS3: false,
+  usesLocalFilesystem: false,
+  databaseState: 'none',
+};
+
+/**
+ * The real client's `webhooks` (signature verification must be real) with a
+ * stubbed `transactions.create` — no test ever reaches the Paddle API.
+ */
+function buildPaddle(
+  createTransaction: (body: unknown) => Promise<{ id: string }> = async () => ({
+    id: 'txn_test_1',
+  }),
+): PaddleBilling {
+  const billing = createPaddle({
+    paddleApiKey: 'test_replace_me',
+    paddleWebhookSecret: WEBHOOK_SECRET,
+    paddleClientToken: 'pdl_sdbx_replace_me',
+    paddlePricePlatform: 'pri_platform_replace_me',
+    paddlePriceDeployment: 'pri_deployment_replace_me',
+    paddleEnvironment: 'sandbox',
+  });
+  if (!billing) throw new Error('createPaddle unexpectedly returned null in the test fixture');
+  return {
+    config: billing.config,
+    client: {
+      webhooks: billing.client.webhooks,
+      transactions: { create: createTransaction },
+    } as unknown as PaddleBilling['client'],
+  };
+}
+
+/** Signs a webhook body the way Paddle does: `ts=<ts>;h1=<hmac-sha256(secret, "ts:body")>`. */
+function signedWebhook(event: Record<string, unknown>): {
+  body: string;
+  headers: Record<string, string>;
+} {
+  const body = JSON.stringify(event);
+  const ts = Math.floor(Date.now() / 1000);
+  const h1 = createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
+  return {
+    body,
+    headers: {
+      'paddle-signature': `ts=${ts};h1=${h1}`,
+      'content-type': 'application/json',
+    },
+  };
+}
+
+/** Paddle's wire shape (snake_case) for subscription.activated. */
+function subscriptionActivated(
+  organizationId: string,
+  eventId: string,
+  subscriptionId = 'sub_test_1',
+): Record<string, unknown> {
+  const occurredAt = new Date().toISOString();
+  return {
+    event_id: eventId,
+    event_type: 'subscription.activated',
+    occurred_at: occurredAt,
+    notification_id: `ntf_${eventId}`,
+    data: {
+      id: subscriptionId,
+      status: 'active',
+      customer_id: 'ctm_test_1',
+      address_id: 'add_test_1',
+      currency_code: 'USD',
+      created_at: occurredAt,
+      updated_at: occurredAt,
+      collection_mode: 'automatic',
+      billing_cycle: { interval: 'month', frequency: 1 },
+      current_billing_period: { starts_at: occurredAt, ends_at: occurredAt },
+      scheduled_change: null,
+      items: [],
+      custom_data: { organizationId },
+    },
+  };
+}
+
+async function signUpAndGetOrg(
+  auth: Auth,
+  db: Db,
+  email: string,
+): Promise<{ userId: string; organizationId: string; cookie: string }> {
+  const password = 'super-secret-1';
+  const signup = await auth.api.signUpEmail({ body: { email, password, name: email.split('@')[0]! } });
+  const signin = await auth.api.signInEmail({ body: { email, password }, asResponse: true });
+  const setCookie = signin.headers.get('set-cookie');
+  if (!setCookie) {
+    throw new Error('sign-in did not set a session cookie');
+  }
+  const memberships = await db
+    .select({ organizationId: schema.member.organizationId })
+    .from(schema.member)
+    .where(eq(schema.member.userId, signup.user.id))
+    .limit(1);
+  const organizationId = memberships[0]?.organizationId;
+  if (!organizationId) {
+    throw new Error('signup did not provision an organization');
+  }
+  return { userId: signup.user.id, organizationId, cookie: setCookie };
+}
+
+async function insertApplication(
+  db: Db,
+  organizationId: string,
+): Promise<typeof schema.applications.$inferSelect> {
+  const [row] = await db
+    .insert(schema.applications)
+    .values({
+      organizationId,
+      name: 'Checkout App',
+      repoFullName: `acme/checkout-${crypto.randomUUID().slice(0, 8)}`,
+      repoUrl: 'https://github.com/acme/checkout',
+      defaultBranch: 'main',
+      detectedMetadata: READY_METADATA,
+    })
+    .returning();
+  return row!;
+}
+
+async function insertCustomer(
+  db: Db,
+  organizationId: string,
+): Promise<typeof schema.customers.$inferSelect> {
+  const [row] = await db
+    .insert(schema.customers)
+    .values({
+      organizationId,
+      name: 'Checkout Customer',
+      email: `checkout-${crypto.randomUUID()}@example.com`,
+    })
+    .returning();
+  return row!;
+}
+
+function postJson(
+  app: FastifyInstance,
+  url: string,
+  body: unknown,
+  extraHeaders: Record<string, string> = {},
+) {
+  return app.inject({
+    method: 'POST',
+    url,
+    headers: { 'content-type': 'application/json', ...extraHeaders },
+    payload: JSON.stringify(body),
+  });
+}
+
+function pendingIntents(db: Db, organizationId: string) {
+  return db
+    .select()
+    .from(schema.billingCheckoutIntents)
+    .where(
+      and(
+        eq(schema.billingCheckoutIntents.organizationId, organizationId),
+        eq(schema.billingCheckoutIntents.status, 'PENDING'),
+      ),
+    );
+}
+
+describe('POST /api/billing/checkout (Paddle migration Phase 8)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, `checkout-${crypto.randomUUID()}@example.com`);
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('401s without a session', async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const response = await postJson(app, '/api/billing/checkout', {});
+      expect(response.statusCode).toBe(401);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('503s when Paddle is not configured', async () => {
+    const app = await buildServer({ auth, db, paddle: null });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ error: { code: 'BILLING_DISABLED' } });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('parks the request as a PENDING intent and returns the transaction id — no deployment row', async () => {
+    const created: unknown[] = [];
+    const app = await buildServer({
+      auth,
+      db,
+      paddle: buildPaddle(async (body) => {
+        created.push(body);
+        return { id: 'txn_test_1' };
+      }),
+    });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode, response.body).toBe(200);
+      const payload = response.json() as { checkoutIntentId: string; transactionId: string };
+      expect(payload.transactionId).toBe('txn_test_1');
+
+      // The transaction carries both prices and the ids the webhook resolves.
+      expect(created).toEqual([
+        {
+          items: [
+            { priceId: 'pri_platform_replace_me', quantity: 1 },
+            { priceId: 'pri_deployment_replace_me', quantity: 1 },
+          ],
+          customData: {
+            organizationId: org.organizationId,
+            checkoutIntentId: payload.checkoutIntentId,
+          },
+        },
+      ]);
+
+      const [intent] = await db
+        .select()
+        .from(schema.billingCheckoutIntents)
+        .where(eq(schema.billingCheckoutIntents.id, payload.checkoutIntentId));
+      expect(intent).toMatchObject({
+        status: 'PENDING',
+        providerTransactionId: 'txn_test_1',
+        applicationId: application.id,
+        customerId: customer.id,
+        region: 'us-east-1',
+        createdBy: org.userId,
+        deploymentId: null,
+      });
+
+      // Nothing is provisioned before the vendor pays.
+      const deployments = await db
+        .select()
+        .from(schema.deployments)
+        .where(eq(schema.deployments.applicationId, application.id));
+      expect(deployments).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('a second checkout supersedes the first, leaving exactly one PENDING intent', async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const body = { applicationId: application.id, customerId: customer.id, region: 'us-east-1' };
+      const first = await postJson(app, '/api/billing/checkout', body, { cookie: org.cookie });
+      const second = await postJson(app, '/api/billing/checkout', body, { cookie: org.cookie });
+      expect(first.statusCode, first.body).toBe(200);
+      expect(second.statusCode, second.body).toBe(200);
+
+      const pending = await pendingIntents(db, org.organizationId);
+      expect(pending).toHaveLength(1);
+      expect(pending[0]!.id).toBe((second.json() as { checkoutIntentId: string }).checkoutIntentId);
+
+      const [superseded] = await db
+        .select()
+        .from(schema.billingCheckoutIntents)
+        .where(
+          eq(schema.billingCheckoutIntents.id, (first.json() as { checkoutIntentId: string }).checkoutIntentId),
+        );
+      expect(superseded!.status).toBe('SUPERSEDED');
+      expect(superseded!.resolvedAt).not.toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('422s on a region that is not deployable, before any intent exists', async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const before = await pendingIntents(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'ap-south-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'REGION_NOT_SUPPORTED' } });
+      expect(await pendingIntents(db, org.organizationId)).toHaveLength(before.length);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("404s on another organization's application", async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const other = await signUpAndGetOrg(auth, db, `checkout-other-${crypto.randomUUID()}@example.com`);
+      const application = await insertApplication(db, other.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(404);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('marks the intent FAILED and answers 502 when Paddle refuses the transaction', async () => {
+    const app = await buildServer({
+      auth,
+      db,
+      paddle: buildPaddle(async () => {
+        throw new Error('paddle is down');
+      }),
+    });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(502);
+      expect(response.json()).toMatchObject({ error: { code: 'CHECKOUT_UNAVAILABLE' } });
+      // No PENDING intent is left behind to be resumed by a later activation.
+      expect(await pendingIntents(db, org.organizationId)).toHaveLength(0);
+      const [failed] = await db
+        .select()
+        .from(schema.billingCheckoutIntents)
+        .where(
+          and(
+            eq(schema.billingCheckoutIntents.organizationId, org.organizationId),
+            eq(schema.billingCheckoutIntents.status, 'FAILED'),
+          ),
+        );
+      expect(failed!.error).toBe('paddle is down');
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('checkout intents resume on activation (Paddle migration Phase 8)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, `resume-${crypto.randomUUID()}@example.com`);
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('subscription.activated creates the parked deployment and completes the intent', async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const checkout = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(checkout.statusCode, checkout.body).toBe(200);
+      const { checkoutIntentId } = checkout.json() as { checkoutIntentId: string };
+
+      const { body, headers } = signedWebhook(
+        subscriptionActivated(org.organizationId, 'evt_test_resume_1'),
+      );
+      const webhook = await app.inject({
+        method: 'POST',
+        url: '/api/billing/webhook',
+        headers,
+        payload: body,
+      });
+      expect(webhook.statusCode, webhook.body).toBe(200);
+
+      const [intent] = await db
+        .select()
+        .from(schema.billingCheckoutIntents)
+        .where(eq(schema.billingCheckoutIntents.id, checkoutIntentId));
+      expect(intent!.status).toBe('COMPLETED');
+      expect(intent!.deploymentId).not.toBeNull();
+
+      const [deployment] = await db
+        .select()
+        .from(schema.deployments)
+        .where(eq(schema.deployments.id, intent!.deploymentId!));
+      expect(deployment).toMatchObject({
+        organizationId: org.organizationId,
+        applicationId: application.id,
+        customerId: customer.id,
+        region: 'us-east-1',
+        deploymentType: 'PRODUCTION',
+        state: 'NOT_INSTALLED',
+        billingState: 'NOT_STARTED',
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('records FAILED without throwing when the deployment cannot be created', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    // An application with no usable metadata never passes the preflight gate.
+    await db
+      .update(schema.applications)
+      .set({ detectedMetadata: {} })
+      .where(eq(schema.applications.id, application.id));
+    const [intent] = await db
+      .insert(schema.billingCheckoutIntents)
+      .values({
+        organizationId: org.organizationId,
+        applicationId: application.id,
+        customerId: customer.id,
+        region: 'us-east-1',
+        providerTransactionId: 'txn_test_2',
+      })
+      .returning();
+
+    const results = await resumePendingCheckoutIntents(
+      { db, paddle: buildPaddle() },
+      org.organizationId,
+    );
+    expect(results).toEqual([
+      { checkoutIntentId: intent!.id, status: 'FAILED', error: expect.any(String) },
+    ]);
+
+    const [row] = await db
+      .select()
+      .from(schema.billingCheckoutIntents)
+      .where(eq(schema.billingCheckoutIntents.id, intent!.id));
+    expect(row!.status).toBe('FAILED');
+    expect(row!.error).toBeTruthy();
+    expect(row!.deploymentId).toBeNull();
+  });
+
+  it('409s a checkout once the subscription is ACTIVE', async () => {
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ error: { code: 'SUBSCRIPTION_ALREADY_ACTIVE' } });
+    } finally {
+      await app.close();
+    }
+  });
+});

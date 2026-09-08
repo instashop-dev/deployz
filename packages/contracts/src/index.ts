@@ -365,6 +365,19 @@ export type BillingEventProcessingStatus = z.infer<typeof billingEventProcessing
 export const billingReconciliationStatusSchema = z.enum(['SUCCEEDED', 'FAILED', 'SKIPPED']);
 export type BillingReconciliationStatus = z.infer<typeof billingReconciliationStatusSchema>;
 
+// billing_checkout_intents.status — Paddle migration Phase 8. A production
+// deployment the vendor asked for before there was a subscription: PENDING
+// until the subscription activates, then COMPLETED (the deployment row now
+// exists), FAILED (creating it did not work) or SUPERSEDED (the vendor
+// started a newer checkout).
+export const billingCheckoutIntentStatusSchema = z.enum([
+  'PENDING',
+  'COMPLETED',
+  'FAILED',
+  'SUPERSEDED',
+]);
+export type BillingCheckoutIntentStatus = z.infer<typeof billingCheckoutIntentStatusSchema>;
+
 export const buildStatusSchema = z.enum(['PENDING', 'BUILDING', 'SUCCEEDED', 'FAILED']);
 export type BuildStatus = z.infer<typeof buildStatusSchema>;
 

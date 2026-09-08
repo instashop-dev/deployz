@@ -586,14 +586,15 @@ export function readinessFindingMessages(details: unknown): string[] {
 /**
  * The message for a failed create-deployment attempt (Paddle migration
  * Phase 7 — free evaluation entitlements). `SUBSCRIPTION_REQUIRED` and
- * `TEST_DEPLOYMENT_EXISTS` get vendor-facing copy this phase owns (Phase 8
- * replaces the subscription message with the checkout hand-off); every
+ * `TEST_DEPLOYMENT_EXISTS` get vendor-facing copy this phase owns; every
  * other error keeps the server's own message (already jargon-free, §65).
+ * Phase 8: the subscription message introduces the checkout card the
+ * creation screen shows next to it.
  */
 export function createDeploymentErrorMessage(caught: unknown): string {
   if (caught instanceof ApiRequestError) {
     if (caught.code === 'SUBSCRIPTION_REQUIRED') {
-      return 'Production deployments need an active Deployz subscription. Billing activation arrives with the next release.';
+      return 'This is your first customer deployment, so it starts your subscription. Continue to checkout below.';
     }
     if (caught.code === 'TEST_DEPLOYMENT_EXISTS') {
       return 'This application already has a test deployment.';

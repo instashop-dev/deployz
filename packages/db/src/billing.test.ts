@@ -1,8 +1,9 @@
 import type { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Db } from './client.js';
-import { billingProviderEvents, billingSubscriptions } from './schema/index.js';
+import { billingCheckoutIntents, billingProviderEvents, billingSubscriptions } from './schema/index.js';
 import { createTestDb, seedBase, type BaseIds } from './test-utils.js';
 
 // drizzle-orm wraps driver errors as `Failed query: ...`; the underlying
@@ -68,5 +69,36 @@ describe('billing schema constraints', () => {
       }),
       /duplicate key value violates unique constraint/,
     );
+  });
+
+  // Paddle migration Phase 8 — activation resumes every PENDING intent, so a
+  // second one would provision a second deployment for one checkout.
+  it('rejects a second PENDING billing_checkout_intents row for the same organization', async () => {
+    const intent = {
+      organizationId: ids.organizationId,
+      applicationId: ids.applicationId,
+      customerId: ids.customerId,
+      region: 'us-east-1' as const,
+    };
+    await db!.insert(billingCheckoutIntents).values(intent);
+    await expectPgError(
+      db!.insert(billingCheckoutIntents).values(intent),
+      /billing_checkout_intents_one_pending_per_organization_uidx/,
+    );
+  });
+
+  it('allows a new PENDING intent once the previous one is SUPERSEDED', async () => {
+    await db!
+      .update(billingCheckoutIntents)
+      .set({ status: 'SUPERSEDED' })
+      .where(eq(billingCheckoutIntents.organizationId, ids.organizationId));
+    await expect(
+      db!.insert(billingCheckoutIntents).values({
+        organizationId: ids.organizationId,
+        applicationId: ids.applicationId,
+        customerId: ids.customerId,
+        region: 'us-east-1',
+      }),
+    ).resolves.toBeDefined();
   });
 });
