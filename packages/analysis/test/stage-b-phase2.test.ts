@@ -161,6 +161,30 @@ describe('deriveInfrastructureBindings — postgres', () => {
     }
   });
 
+  it('binds MEMOS_DSN as the url alias when memos names it only through viper (DEPLOY-005)', () => {
+    const viperTree: FileTree = shell({
+      'cmd/memos/main.go': [
+        'package main',
+        'import "github.com/spf13/viper"',
+        'func init() {',
+        '\trootCmd.Flags().String("driver", "sqlite", "database driver")',
+        '\trootCmd.Flags().String("dsn", "", "database source name (DSN)")',
+        '\tviper.SetEnvPrefix("memos")',
+        '\tviper.AutomaticEnv()',
+        '}',
+        '',
+      ].join('\n'),
+      'store/db/db.go': 'package db\nimport _ "github.com/lib/pq"\n',
+    });
+    const analysis = analyse(viperTree);
+    const bindings = deriveInfrastructureBindings(viperTree, analysis);
+    expect(bindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ resource: 'postgres', semantic: 'url', applicationVariable: 'MEMOS_DSN' }),
+      ]),
+    );
+  });
+
   it('detects the DB_* family read through a local env object (Directus useEnv shape, DEPLOY-005)', () => {
     const directusTree: FileTree = shell({
       'api/src/database/index.ts': [
