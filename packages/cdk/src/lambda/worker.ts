@@ -15,10 +15,13 @@
  * The Lambda entry point (worker-handler.ts) wires the real seams; this
  * module holds no AWS clients of its own, so the logic stays testable.
  */
-import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 
+import { reconcileBilling } from '@deployz/api/billing';
+import { markDeploymentLive } from '@deployz/api/billing-lifecycle';
 import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob, newerReadyReleaseExists } from '@deployz/api/jobs';
+import type { PaddleBilling } from '@deployz/api/paddle';
 import type { QueueMessage } from '@deployz/api/queue';
 import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
@@ -933,4 +936,123 @@ export async function sweepStuckBuilds(deps: WorkerDeps, now: Date = new Date())
     swept += 1;
   }
   return swept;
+}
+
+// ── Billing safety job (Paddle migration Phase 10) ───────────────────────
+//
+// Every billing write in the request path is best-effort by design: a Paddle
+// failure or a lost write must never fail a deployment. This sweep is what
+// makes that safe — it runs on the same 15-minute schedule as the watchdogs
+// and closes the three gaps that leaves.
+
+/** A webhook event row still claimed after this long was abandoned by a crash. */
+const STUCK_WEBHOOK_EVENT_MS = 10 * 60 * 1000;
+
+/** How stale a subscription's last reconciliation may be before the sweep redoes it. */
+const RECONCILE_STALE_AFTER_MS = 60 * 60 * 1000;
+
+export interface BillingSweepResult {
+  /** Deployments observed READY whose billing activation never landed. */
+  promoted: number;
+  /** Webhook event rows released so Paddle's next redelivery is processed. */
+  unstuck: number;
+  /** Organizations whose subscription quantity was re-checked against Paddle. */
+  reconciled: number;
+}
+
+/**
+ * The billing safety net (transition map row 20).
+ *
+ *  1. Promotes a PRODUCTION deployment that reached READY but is still
+ *     NOT_STARTED. The signal is the PERSISTED `step_timings.READY` entry,
+ *     not a re-derivation: advanceStepTimings always stamps the active step,
+ *     and markDeploymentLive runs independently of that write, so a row with
+ *     a READY timing and no billing state is exactly a missed activation.
+ *     DELETING/DELETED rows are excluded — the billing state machine
+ *     deliberately ignores `state`, so this query has to exclude them itself,
+ *     or the sweep would start billing something being torn down.
+ *
+ *  2. Releases `billing_provider_events` rows abandoned in RECEIVED. A crash
+ *     between the insert and processing leaves a row that makes Paddle's
+ *     redelivery read as a duplicate, so the event is never processed at all.
+ *     FAILED is the state handlePaddleWebhook retries.
+ *
+ *  3. Re-checks subscriptions whose quantity has not been reconciled for an
+ *     hour. This is what lets the request path skip reconciling on every
+ *     harmless transition: drift is bounded by this pass, not by hoping no
+ *     call was ever missed.
+ *
+ * Never throws for one organization's sake: each reconcile is independent and
+ * records its own outcome.
+ */
+export async function sweepBilling(
+  db: RuntimeDb,
+  paddle: PaddleBilling | null,
+  now: Date = new Date(),
+): Promise<BillingSweepResult> {
+  const organizationsToReconcile = new Set<string>();
+
+  // 1. Missed activations.
+  const missed = await db
+    .select()
+    .from(schema.deployments)
+    .where(
+      and(
+        eq(schema.deployments.deploymentType, 'PRODUCTION'),
+        eq(schema.deployments.billingState, 'NOT_STARTED'),
+        notInArray(schema.deployments.state, ['DELETING', 'DELETED']),
+        // `-> 'READY' IS NOT NULL`, never the `?` containment operator: `?`
+        // collides with the driver's own parameter placeholders.
+        sql`${schema.deployments.stepTimings} -> 'READY' IS NOT NULL`,
+      ),
+    );
+  let promoted = 0;
+  for (const deployment of missed) {
+    // Attributed to the safety job, not the relay: the relay never reported
+    // this one — that is precisely why the sweep had to catch it.
+    const promotedHere = await markDeploymentLive(db, deployment, now, {
+      actorType: 'system',
+      actorId: 'billing-safety-job',
+    });
+    if (promotedHere) {
+      promoted += 1;
+      organizationsToReconcile.add(deployment.organizationId);
+    }
+  }
+
+  // 2. Abandoned webhook events.
+  const unstuck = await db
+    .update(schema.billingProviderEvents)
+    .set({ processingStatus: 'FAILED', error: 'abandoned in RECEIVED; released for redelivery' })
+    .where(
+      and(
+        eq(schema.billingProviderEvents.processingStatus, 'RECEIVED'),
+        lt(schema.billingProviderEvents.createdAt, new Date(now.getTime() - STUCK_WEBHOOK_EVENT_MS)),
+      ),
+    )
+    .returning({ id: schema.billingProviderEvents.id });
+
+  // 3. Drift sweep over subscriptions Paddle will still accept updates for.
+  const stale = await db
+    .select({ organizationId: schema.billingSubscriptions.organizationId })
+    .from(schema.billingSubscriptions)
+    .where(
+      and(
+        inArray(schema.billingSubscriptions.status, ['ACTIVE', 'PAST_DUE']),
+        or(
+          isNull(schema.billingSubscriptions.lastReconciledAt),
+          lt(
+            schema.billingSubscriptions.lastReconciledAt,
+            new Date(now.getTime() - RECONCILE_STALE_AFTER_MS),
+          ),
+        ),
+      ),
+    );
+  for (const row of stale) organizationsToReconcile.add(row.organizationId);
+
+  for (const organizationId of organizationsToReconcile) {
+    await reconcileBilling({ db, paddle, now: () => now }, organizationId);
+  }
+
+  return { promoted, unstuck: unstuck.length, reconciled: organizationsToReconcile.size };
 }

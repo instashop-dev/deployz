@@ -14,12 +14,14 @@ import { PutObjectCommand, S3Client as SdkS3Client } from '@aws-sdk/client-s3';
 import { createAiGateway } from '@deployz/analysis';
 import { resolveAiGatewayConfig } from '@deployz/api/ai-config';
 import { createAnalysisRunner } from '@deployz/api/analysis';
+import { createPaddle } from '@deployz/api/paddle';
 import type { QueueMessage } from '@deployz/api/queue';
 
 import { connectDb, type LambdaDb } from './db-connection.js';
 import {
   handleMessage,
   recordBuildResult,
+  sweepBilling,
   sweepRelayLiveness,
   sweepStuckBuilds,
   sweepStuckJobs,
@@ -168,12 +170,22 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
         console.error('sweepStuckBuilds failed', error);
         return 0;
       });
+      // Paddle migration Phase 10 — the billing safety net. Same contract as
+      // the build sweep: a Paddle or billing failure must not fail the whole
+      // scheduled invoke, and the next tick retries it anyway.
+      const billing = await sweepBilling(db, createPaddle()).catch((error: unknown) => {
+        console.error('sweepBilling failed', error);
+        return { promoted: 0, unstuck: 0, reconciled: 0 };
+      });
       console.log(
         JSON.stringify({
           event: 'watchdog:sweep-complete',
           failedJobs: failed,
           relaysDisconnected,
           sweptBuilds,
+          billingPromoted: billing.promoted,
+          billingEventsUnstuck: billing.unstuck,
+          billingReconciled: billing.reconciled,
         }),
       );
     }

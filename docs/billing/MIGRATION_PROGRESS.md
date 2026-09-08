@@ -36,7 +36,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 7 Evaluation entitlements | done | PR #228 | `apps/api/src/billing-entitlements.ts`: PRODUCTION needs an ACTIVE subscription (402 `SUBSCRIPTION_REQUIRED`), one active TEST deployment per application (409 `TEST_DEPLOYMENT_EXISTS`, partial unique index, migration `0036`) |
 | 8 First production activation | done | this PR | `billing_checkout_intents` (migration `0037`), `apps/api/src/billing-checkout.ts`, `POST /api/billing/checkout` (platform price only), webhook completion on ACTIVE; web checkout hand-off (`apps/web/src/lib/billing-checkout.ts`, Paddle.js). Not verified against Paddle — Phase 4 catalog still missing |
 | 9 Reconciliation | done | this PR | `apps/api/src/billing-reconcile.ts`: absolute per-deployment quantity pushed onto the subscription, `billing_reconciliation_events` ledger, wired to every billing transition (map rows 7, 12-15, 19) outside the caller's transaction |
-| 10 Scheduled safety job | pending | | |
+| 10 Scheduled safety job | done | this PR | `sweepBilling` in `packages/cdk/src/lambda/worker.ts`, on the existing 15-minute `WatchdogSchedule`: promotes missed READY activations, releases webhook events abandoned in `RECEIVED`, and reconciles subscriptions stale for an hour. New `@deployz/api` entry points `./billing`, `./billing-lifecycle`, `./paddle` |
 | 11 App-wide UX | pending | | |
 | 12 Customer portal | pending | | |
 | 13 Entitlements by status | pending | | |
@@ -147,6 +147,23 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   lying about what is live).
 - R9-6: PAST_DUE subscriptions are reconciled — Paddle is still billing them.
   PAUSED and CANCELED are not: Paddle does not accept item updates on them.
+- R10-1: the missed-activation signal is the PERSISTED `step_timings.READY`
+  entry, not a re-derivation. `advanceStepTimings` always stamps the active
+  step, `deriveDeploymentStatus` sets step `READY` for a READY stage, and
+  `markDeploymentLive` runs independently of the step-timings write — so a
+  row with a READY timing and `billing_state = NOT_STARTED` is exactly a
+  billing write that did not land. Cheap and DB-only. Cost if wrong: a
+  deployment whose READY was never persisted is not promoted either, but the
+  next heartbeat re-derives READY and runs both writes again.
+- R10-2: `DELETING`/`DELETED` deployments are never promoted. The billing
+  state machine deliberately takes no `state` input, so the sweep's own query
+  is the only thing that stops it billing a deployment on its way out.
+- R10-3: the sweep never fails the scheduled invoke — same `.catch()`
+  contract as `sweepStuckBuilds`. The next tick retries it.
+- R10-4: the drift sweep reconciles ACTIVE/PAST_DUE subscriptions whose
+  `last_reconciled_at` is null or older than an hour. This is what makes R9-2
+  safe: the request path can skip reconciling on harmless transitions because
+  drift is bounded here, not by hoping no call was ever missed.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
@@ -182,7 +199,7 @@ Env names (Phase 5): `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,
   sandbox keys, run `POST /api/billing/checkout`, pay the transaction in
   Paddle's overlay, and confirm the webhook completes the intent and creates
   the deployment. Phase 16 covers this end to end.
-- Phase 10 follow-up: a `billing_provider_events` row left in `RECEIVED`
-  by a crash between insert and processing reads as a duplicate on redelivery.
-  The safety job should reset rows older than 10 minutes that are still
-  `RECEIVED` to `FAILED` so the next redelivery processes them.
+- CLOSED by Phase 10: a `billing_provider_events` row left in `RECEIVED` by a
+  crash between insert and processing read as a duplicate on redelivery.
+  `sweepBilling` now resets rows older than 10 minutes that are still
+  `RECEIVED` to `FAILED`, which is the state `handlePaddleWebhook` retries.
