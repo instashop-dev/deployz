@@ -172,7 +172,42 @@ checkout or portal was swallowed entirely, so a bad key surfaced only as a
 bare 502. Both now log `billing:checkout-transaction-failed` /
 `billing:portal-session-failed` server-side (R16-3).
 
-**Key finding:** the supplied `PADDLE_API_KEY` was the key's masked
+**Follow-up, same day, with a valid key:** authentication and a catalog read
+succeeded, and `customerPortalSessions.create` returned a real session on
+`sandbox-customer-portal.paddle.com` — the portal path is verified live. What
+still blocks every transaction-dependent check is account-level and
+dashboard-only: `transaction_default_checkout_url_not_set`. The sandbox
+refuses *every* `transactions.create` — even a manually-collected one with
+checkout disabled — until Paddle sandbox → Checkout → Checkout settings →
+**Default payment link** is set (e.g. `http://localhost:3000/dashboard/settings/billing`).
+There is no API for it.
+
+**Verified live, same day, once the payment link was set** (server-free,
+no card): a manually-collected transaction `txn_01m20s54pf4be7a3gh2cj111hs`
+billed at $49.00 became real subscription `sub_01m20s55dzz7jew6b1wv3g0aw3`
+with the transaction's `custom_data` carried through — the mechanism the
+webhook's organization resolution relies on. Against it, the exact item
+updates `reconcileBilling` sends behaved as documented: the deployment item
+**added** at quantity 1, set to an **absolute** 3, **removed** entirely when
+the last live deployment goes (the platform item untouched throughout), and
+read back correctly each time. `customerPortalSessions.create` returned
+cancel and update-payment deep links for that subscription. It was then
+canceled immediately for cleanup. Note for anyone repeating this: Paddle
+creates the subscription *asynchronously* after billing — `subscriptionId` is
+null in the create response and appears within seconds — and a manually
+collected transaction needs a full postal address, not just country and ZIP.
+
+**Still unverified live:** the Paddle.js overlay (needs a browser and the
+client token) and, trivially, `POST /api/billing/checkout` calling
+`transactions.create` from inside the API — the identical SDK call with the
+identical key that just succeeded, blocked earlier only by the malformed key.
+Once set, the server-free script pattern (customer →
+address → manual billed transaction → real subscription → update items the
+way `reconcileBilling` does → read the quantity back → cancel) proves the
+remaining REST paths without a card or a running API; the overlay still needs
+a browser and the client token.
+
+**Original key finding:** the first-supplied `PADDLE_API_KEY` was the key's masked
 identifier (`pdl_sdbx_apikey_<26-char id>`, four segments), not the one-time
 secret (five segments). Paddle answers `authentication_malformed` for it.
 Every path that calls the Paddle REST API is therefore **not yet verified
