@@ -100,7 +100,16 @@ describe('reconcileBilling (Paddle migration Phase 9)', () => {
     await db.delete(schema.billingReconciliationEvents);
     await db.delete(schema.deployments);
     await db.delete(schema.billingSubscriptions);
+    await setIncluded(0);
   });
+
+  /** The organization's included production deployments (admin-set allowance). */
+  async function setIncluded(included: number): Promise<void> {
+    await db
+      .update(schema.organization)
+      .set({ includedProductionDeployments: included })
+      .where(eq(schema.organization.id, ORG));
+  }
 
   async function addDeployment(
     deploymentType: 'TEST' | 'PRODUCTION',
@@ -393,5 +402,130 @@ describe('reconcileBilling (Paddle migration Phase 9)', () => {
 
     expect(result.status).toBe('SUCCEEDED');
     expect(updates).toHaveLength(1);
+  });
+
+  // ── Included production deployments ─────────────────────────────────────
+  // The allowance reduces ONLY the per-deployment quantity: Paddle receives
+  // max(active - included, 0), never learns the allowance itself, and the
+  // platform item is untouched throughout.
+  describe('included production deployments', () => {
+    const platformOnly = [{ priceId: PRICE_PLATFORM, quantity: 1 }];
+
+    it('subtracts the allowance from the live count', async () => {
+      await addSubscription('ACTIVE');
+      await setIncluded(2);
+      for (let i = 0; i < 5; i += 1) await addDeployment('PRODUCTION', 'ACTIVE');
+      const updates: UpdateCall[] = [];
+
+      const result = await reconcileBilling({ db, paddle: fakePaddle({ items: platformOnly, updates }) }, ORG);
+
+      expect(result).toMatchObject({ status: 'SUCCEEDED', action: 'ITEM_ADDED', active: 5, included: 2, expected: 3 });
+      expect(updates[0]!.body.items).toEqual([
+        { priceId: PRICE_PLATFORM, quantity: 1 },
+        { priceId: PRICE_DEPLOYMENT, quantity: 3 },
+      ]);
+    });
+
+    it('removes the deployment item when every live deployment is included', async () => {
+      await addSubscription('ACTIVE');
+      await setIncluded(3);
+      for (let i = 0; i < 3; i += 1) await addDeployment('PRODUCTION', 'ACTIVE');
+      const updates: UpdateCall[] = [];
+
+      const result = await reconcileBilling(
+        {
+          db,
+          paddle: fakePaddle({
+            items: [...platformOnly, { priceId: PRICE_DEPLOYMENT, quantity: 3 }],
+            updates,
+          }),
+        },
+        ORG,
+      );
+
+      expect(result).toMatchObject({ status: 'SUCCEEDED', action: 'ITEM_REMOVED', active: 3, included: 3, expected: 0, provider: 3 });
+      // Platform × 1 only — never a $0 line, never a quantity-0 item.
+      expect(updates[0]!.body.items).toEqual(platformOnly);
+    });
+
+    it('never goes negative when the allowance exceeds the live count', async () => {
+      await addSubscription('ACTIVE');
+      await setIncluded(10000);
+      await addDeployment('PRODUCTION', 'ACTIVE');
+      const updates: UpdateCall[] = [];
+
+      const result = await reconcileBilling({ db, paddle: fakePaddle({ items: platformOnly, updates }) }, ORG);
+
+      expect(result).toMatchObject({ status: 'SUCCEEDED', action: 'NONE', active: 1, included: 10000, expected: 0, provider: 0 });
+      expect(updates).toHaveLength(0);
+    });
+
+    it('a TEST deployment neither counts nor consumes the allowance', async () => {
+      await addSubscription('ACTIVE');
+      await setIncluded(1);
+      await addDeployment('TEST', 'ACTIVE');
+      await addDeployment('PRODUCTION', 'ACTIVE');
+      const updates: UpdateCall[] = [];
+
+      const result = await reconcileBilling({ db, paddle: fakePaddle({ items: platformOnly, updates }) }, ORG);
+
+      expect(result).toMatchObject({ active: 1, included: 1, expected: 0 });
+      expect(updates).toHaveLength(0);
+    });
+
+    it('converges to the absolute formula whichever order the allowance and the count change in', async () => {
+      await addSubscription('ACTIVE');
+      const updates: UpdateCall[] = [];
+      const paddle = fakePaddle({ items: platformOnly, updates });
+
+      // 2 live, allowance 0 → 2; allowance becomes 2 → item removed; a third
+      // deployment goes live → 1; allowance back to 0 → 3. Every pass sends the
+      // absolute quantity for the state at that moment.
+      await addDeployment('PRODUCTION', 'ACTIVE');
+      await addDeployment('PRODUCTION', 'ACTIVE');
+      expect((await reconcileBilling({ db, paddle }, ORG)).expected).toBe(2);
+      await setIncluded(2);
+      expect((await reconcileBilling({ db, paddle }, ORG)).expected).toBe(0);
+      await addDeployment('PRODUCTION', 'ACTIVE');
+      expect((await reconcileBilling({ db, paddle }, ORG)).expected).toBe(1);
+      await setIncluded(0);
+      expect((await reconcileBilling({ db, paddle }, ORG)).expected).toBe(3);
+
+      // The fake always reports the platform item only (provider 0), so the
+      // pass that expected 0 was a no-op and every other pass pushed.
+      expect(updates.map((u) => u.body.items.find((i) => i.priceId === PRICE_DEPLOYMENT)?.quantity ?? 0)).toEqual([
+        2, 1, 3,
+      ]);
+    });
+
+    it('with no subscription the allowance changes nothing: no Paddle call, no ledger row', async () => {
+      await setIncluded(3);
+      await addDeployment('PRODUCTION', 'ACTIVE');
+      const updates: UpdateCall[] = [];
+
+      const result = await reconcileBilling({ db, paddle: fakePaddle({ items: platformOnly, updates }) }, ORG);
+
+      expect(result).toMatchObject({ status: 'SKIPPED', reason: 'no subscription', active: 1, included: 3, expected: 0 });
+      expect(updates).toHaveLength(0);
+      // Nothing should be billed, so the "live deployment with no
+      // subscription" anomaly row is not written either.
+      expect(await reconciliationRows()).toHaveLength(0);
+    });
+
+    it('a Paddle failure records the expected quantity under the allowance for the retry', async () => {
+      await addSubscription('ACTIVE');
+      await setIncluded(1);
+      for (let i = 0; i < 4; i += 1) await addDeployment('PRODUCTION', 'ACTIVE');
+
+      const result = await reconcileBilling(
+        { db, paddle: fakePaddle({ items: platformOnly, updateError: new Error('paddle down') }) },
+        ORG,
+      );
+
+      expect(result).toMatchObject({ status: 'FAILED', expected: 3, reason: 'paddle down' });
+      const rows = await reconciliationRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ expectedDeploymentQuantity: 3, status: 'FAILED' });
+    });
   });
 });

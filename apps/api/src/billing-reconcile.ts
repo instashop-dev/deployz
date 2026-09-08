@@ -3,15 +3,17 @@ import { eq } from 'drizzle-orm';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { countBillableDeployments } from './billing-domain.js';
+import { productionDeploymentCounts } from './billing-domain.js';
 import type { PaddleBilling } from './paddle.js';
 
 // Paddle migration Phase 9 — reconciliation. Deployz owns exactly one billing
-// number: how many production deployments are actually live. This module
-// pushes that ABSOLUTE count onto the subscription's per-deployment item —
-// never a delta, never an increment. A missed or duplicated call therefore
-// cannot drift the quantity: running it twice produces the same subscription
-// as running it once.
+// number: how many production deployments are actually live, less the
+// organization's included allowance (billing-domain.ts). This module pushes
+// that ABSOLUTE quantity onto the subscription's per-deployment item — never
+// a delta, never an increment. A missed or duplicated call therefore cannot
+// drift the quantity: running it twice produces the same subscription as
+// running it once. Paddle never learns about the allowance itself; it only
+// ever receives the final billable quantity.
 //
 // Everything here is decoupled from deployment safety (audit §4). It is
 // called only after a billing state actually changed, it never runs inside
@@ -36,7 +38,11 @@ export type ReconcileAction =
 export interface ReconcileResult {
   status: 'SUCCEEDED' | 'FAILED' | 'SKIPPED';
   action: ReconcileAction;
-  /** What Deployz believes should be billed. */
+  /** Live production deployments, before the allowance. */
+  active: number;
+  /** The organization's included production deployments. */
+  included: number;
+  /** What Deployz believes should be billed: max(active - included, 0). */
   expected: number;
   /** What the provider had before the update — null when it was never read. */
   provider: number | null;
@@ -86,12 +92,28 @@ export async function reconcileBilling(
     })
     .from(schema.deployments)
     .where(eq(schema.deployments.organizationId, organizationId));
-  const expected = countBillableDeployments(rows);
+  const [organization] = await db
+    .select({ included: schema.organization.includedProductionDeployments })
+    .from(schema.organization)
+    .where(eq(schema.organization.id, organizationId))
+    .limit(1);
+  const { active, included, billable: expected } = productionDeploymentCounts(
+    rows,
+    organization?.included ?? 0,
+  );
 
   if (!paddle) {
     // Billing is switched off for this deployment of the control plane; there
     // is no provider to disagree with.
-    return { status: 'SKIPPED', action: 'SKIPPED', expected, provider: null, reason: 'billing disabled' };
+    return {
+      status: 'SKIPPED',
+      action: 'SKIPPED',
+      active,
+      included,
+      expected,
+      provider: null,
+      reason: 'billing disabled',
+    };
   }
 
   const [subscription] = await db
@@ -107,6 +129,8 @@ export async function reconcileBilling(
     const result: ReconcileResult = {
       status: 'SKIPPED',
       action: 'SKIPPED',
+      active,
+      included,
       expected,
       provider: null,
       reason: 'no subscription',
@@ -119,6 +143,8 @@ export async function reconcileBilling(
     const result: ReconcileResult = {
       status: 'SKIPPED',
       action: 'SKIPPED',
+      active,
+      included,
       expected,
       provider: null,
       reason: `subscription is ${subscription.status}`,
@@ -144,7 +170,7 @@ export async function reconcileBilling(
         .update(schema.billingSubscriptions)
         .set({ lastReconciledAt: now() })
         .where(eq(schema.billingSubscriptions.organizationId, organizationId));
-      return { status: 'SUCCEEDED', action: 'NONE', expected, provider };
+      return { status: 'SUCCEEDED', action: 'NONE', active, included, expected, provider };
     }
 
     // Paddle replaces the item list wholesale: anything omitted is removed,
@@ -173,7 +199,7 @@ export async function reconcileBilling(
 
     const action: ReconcileAction =
       expected === 0 ? 'ITEM_REMOVED' : provider === 0 ? 'ITEM_ADDED' : 'QUANTITY_UPDATED';
-    const result: ReconcileResult = { status: 'SUCCEEDED', action, expected, provider };
+    const result: ReconcileResult = { status: 'SUCCEEDED', action, active, included, expected, provider };
     await recordReconciliation(db, organizationId, result);
     await db
       .update(schema.billingSubscriptions)
@@ -184,6 +210,8 @@ export async function reconcileBilling(
     const result: ReconcileResult = {
       status: 'FAILED',
       action: 'NONE',
+      active,
+      included,
       expected,
       provider: null,
       reason: error instanceof Error ? error.message : String(error),

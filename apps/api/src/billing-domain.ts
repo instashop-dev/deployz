@@ -68,7 +68,47 @@ export function isBillableDeployment(deployment: BillingSnapshot): boolean {
   return deployment.deploymentType === 'PRODUCTION' && deployment.billingState === 'ACTIVE';
 }
 
-/** Number of billable rows (Phase 9 reconciliation reads this). */
+/** Number of live PRODUCTION rows — the active production deployment count. */
 export function countBillableDeployments(rows: readonly BillingSnapshot[]): number {
   return rows.filter(isBillableDeployment).length;
+}
+
+// ── Included production deployments ──────────────────────────────────────
+//
+// An organization may carry an admin-set allowance of included production
+// deployments (organization.included_production_deployments). It is a
+// pooled, concurrent allowance across every application and customer in the
+// organization — not credits that are consumed, not a per-deployment flag.
+// It reduces ONLY the per-deployment quantity the provider bills; the
+// platform subscription is untouched, and no deployment is ever marked free.
+
+/**
+ * The quantity the provider bills for: live production deployments beyond
+ * the allowance, never negative. This is the ONLY number reconciliation ever
+ * pushes to the provider.
+ */
+export function billableDeploymentQuantity(
+  activeProductionDeployments: number,
+  includedProductionDeployments: number,
+): number {
+  return Math.max(activeProductionDeployments - includedProductionDeployments, 0);
+}
+
+/** The three counts every billing surface shows: active, included, billable. */
+export interface ProductionDeploymentCounts {
+  active: number;
+  included: number;
+  billable: number;
+}
+
+export function productionDeploymentCounts(
+  rows: readonly BillingSnapshot[],
+  includedProductionDeployments: number,
+): ProductionDeploymentCounts {
+  const active = countBillableDeployments(rows);
+  return {
+    active,
+    included: includedProductionDeployments,
+    billable: billableDeploymentQuantity(active, includedProductionDeployments),
+  };
 }

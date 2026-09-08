@@ -83,6 +83,7 @@ import {
 import { completePendingCheckoutIntent, createCheckoutIntent } from './billing-checkout.js';
 import {
   isBillableDeployment,
+  productionDeploymentCounts,
   PLATFORM_PRICE_DOLLARS,
   DEPLOYMENT_PRICE_DOLLARS,
 } from './billing-domain.js';
@@ -5241,7 +5242,16 @@ export async function buildServer({
       applicationName: d.applicationName,
       amount: DEPLOYMENT_PRICE_DOLLARS,
     }));
-    const total = PLATFORM_PRICE_DOLLARS + deploymentItems.length * DEPLOYMENT_PRICE_DOLLARS;
+    // The organization is billed for the live production deployments beyond
+    // its included allowance, and the total is computed from that quantity —
+    // the same formula reconciliation pushes to Paddle.
+    const [organizationRow] = await db
+      .select({ included: schema.organization.includedProductionDeployments })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, organizationId))
+      .limit(1);
+    const counts = productionDeploymentCounts(deployments, organizationRow?.included ?? 0);
+    const total = PLATFORM_PRICE_DOLLARS + counts.billable * DEPLOYMENT_PRICE_DOLLARS;
 
     const [subscriptionRow] = await db
       .select({
@@ -5255,7 +5265,9 @@ export async function buildServer({
 
     return {
       base: PLATFORM_PRICE_DOLLARS,
+      deploymentPrice: DEPLOYMENT_PRICE_DOLLARS,
       deployments: deploymentItems,
+      productionDeployments: counts,
       total,
       subscription: subscriptionRow
         ? {
