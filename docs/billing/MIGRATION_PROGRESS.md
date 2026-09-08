@@ -40,7 +40,7 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
 | 11 App-wide UX | done | this PR | Past-due/canceled banners, evaluation vs subscribed billing page, evaluation notice (home + readiness), Test·Free badges, deployment Billing row, subscription-aware creation copy, honest disconnect copy, `subscriptionStatus` on `/api/me` |
 | 12 Customer portal | done | this PR | `apps/api/src/billing-portal.ts`, `POST /api/billing/portal` (short-lived Paddle portal links for the org's own customer), `ManageBillingButton`: billing page (overview + payment details), PAST_DUE banner deep-links to the card form |
 | 13 Entitlements by status | done | this PR | Per-status rules made explicit and tested: creation needs ACTIVE; day-2 on existing deployments never gated (CANCELED guard added); checkout only from evaluation or CANCELED (409 `SUBSCRIPTION_NEEDS_ATTENTION` for PAST_DUE/PAUSED); the creation screen routes each refusal to its real fix |
-| 14 Admin | pending | | |
+| 14 Admin | done | this PR | Vendor detail carries `billing` (live count, subscription, last reconciled, last 5 reconciliation outcomes); `POST /api/admin/vendors/:id/reconcile-billing` runs the same `reconcileBilling` as the safety job and writes an `admin.billing.reconcile_requested` audit row |
 | 15 Test matrix | pending | | |
 | 16 Sandbox E2E | pending | | |
 | 17 Regression + docs | pending | | |
@@ -217,6 +217,15 @@ https://claude.ai/code/session_01FVGF7sZpmJ6Va6u11L23kb
   routes each refusal to its actual next step with no new API surface:
   evaluation/CANCELED -> checkout card, PAST_DUE -> card form, PAUSED ->
   portal. The message names the reason, never just "subscription required".
+- R14-1: the admin Reconcile action runs the SAME `reconcileBilling` the
+  lifecycle hooks and the safety job run — never a separate admin-only code
+  path. It is idempotent and never throws, so it is a safe action (reason
+  optional) and is audited like every other admin intervention, with
+  `targetType: 'organization'`.
+- R14-2: the admin's live-deployment count is its own query over every
+  deployment of the organization, never derived from the capped, ordered
+  list the detail page already shows — a vendor with more deployments than
+  LIST_CAP would otherwise read as under-billed.
 - R6-1: the webhook route answers 401 for a missing or invalid signature and
   500 for a processing failure; both make Paddle retry. Duplicate, stale
   (older `occurredAt`) and unresolvable events answer 200 so Paddle stops
