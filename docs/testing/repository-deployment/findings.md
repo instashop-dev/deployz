@@ -17,7 +17,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-002 | CONFIG_ERROR | ANALYSIS_BUG | OPEN | repo-001, repo-002, repo-008, repo-051, repo-090, repo-092 (gate audit, analysis version 15) |
 | DEPLOY-003 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 18 expected-deployable repositories the gate rejects (gate audit, analysis version 15) |
 | DEPLOY-004 | GATE_ERROR | ANALYSIS_MISSING_SIGNAL | DEFERRED_WITH_REASON | 6 expected-unsupported repositories the gate accepts (gate audit, analysis version 15) |
-| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIXED for `process.env` reads (PR #212, analysis v16; kutt rerun 6 reached RDS through `DB_HOST`); SECOND SHAPE measured on directus (attempt 1, 2026-09-07): reads through a local env object (`const env = useEnv(); env['DB_HOST']`) were invisible to the env detectors, so no alias was bound — FIX IN REVIEW (analysis v17: `env.X` / `env['X']` count as reads in a module that binds `env`) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
+| DEPLOY-005 | ENV_BINDING_ERROR | ANALYSIS_MISSING_SIGNAL | FIXED for `process.env` reads (PR #212, analysis v16; kutt rerun 6 reached RDS through `DB_HOST`); SECOND SHAPE measured on directus (attempt 1, 2026-09-07): reads through a local env object (`const env = useEnv(); env['DB_HOST']`) were invisible to the env detectors, so no alias was bound — FIXED in analysis v17 (PR #224 merged and deployed 2026-09-07; directus rerun pending); THIRD SHAPE measured on memos (attempt 1, 2026-09-08): Go `viper.SetEnvPrefix("memos")` + `viper.GetString("dsn")` means `MEMOS_DSN`, a name that appears nowhere as a literal, so no `url` alias was bound and the configured task dialled `127.0.0.1:5432` — fix in review (analysis v18: viper prefix + key ⇒ env name) | measured on repo-003 (kutt rerun 5: `connect ECONNREFUSED 127.0.0.1:5432`, no `DB_HOST` bound); predicted repo-021, repo-039; repo-035 ihatemoney PASSED (the v15 binding delivered `SQLALCHEMY_DATABASE_URI`) |
 | DEPLOY-006 | HEALTH_PATH_ERROR | DEPLOYZ_BUG | FIXED (pending deploy) | repo-008 (gatus; every image without a shell + curl) |
 | DEPLOY-007 | DATABASE_ERROR | DEPLOYZ_BUG | FIXED (PR #213 merged, application templates republished 2026-09-07 ~11:35Z: option A — an init container delivers the regional RDS CA bundle into the task, `NODE_EXTRA_CA_CERTS` + `PGSSLROOTCERT`); kutt and umami reruns pending | repo-003 (kutt, `ssl: true`); repo-001 (umami, `sslmode=require` via adapter-pg) likely; every node-postgres client that verifies |
 | DEPLOY-008 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (deployed 2026-09-06) | repo-004 (miniflux); predicted repo-039 (memos); every vendor override of the Dockerfile path, build context/command, start command or app root that an analysis run follows |
@@ -27,6 +27,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-012 | ENV_BINDING_ERROR | DEPLOYZ_BUG | FIXED (PR #210 merged, bootstrap republished 2026-09-07; kutt rerun 4's config pass SUCCEEDED) | every CONFIG_UPDATE with a secret to write — found on kutt rerun 3, the first config pass that found its secret (DEPLOY-010) |
 | DEPLOY-013 | ENV_BINDING_ERROR | DEPLOYZ_BUG + ANALYSIS_BUG | FIXED in two parts: PR #211 merged and deployed (mint app-internal secrets; kutt rerun 5 minted `JWT_SECRET`); PR #212 in review (the analyser called `DB_PASSWORD`, `REDIS_PASSWORD`, `MAIL_PASSWORD` internal secrets, so rerun 5 minted those too) | every vendor-scope secret typed before an install — found on kutt reruns 4 and 5 |
 | DEPLOY-014 | TIMEOUT | DEPLOYZ_BUG | FIXED (PR #217 merged, bootstrap template republished 2026-09-07 ~14:30Z: the relay reads digest and exit code from the task's essential container; regression the #213 init container exposed; verified on ghostfolio attempt 2: the release pointer settled in 12 minutes) | repo-007 (ghostfolio, measured: healthy and serving, DEPLOY_RELEASE never settled); every database-backed application deployed on the #213 template until the relay republish |
+| DEPLOY-015 | APPLICATION_ERROR (a false success) | DEPLOYZ_BUG | FIX IN REVIEW (relay: a deploy settles only when the service's PRIMARY deployment runs the revision the deploy targeted; crash loops are counted on that revision) | repo-039 (memos, measured: the circuit breaker rolled the first start back to the unconfigured template revision, which runs the same pinned image, and the relay reported SUCCEEDED while the app served from SQLite); every configured first start whose configured revision fails to become healthy |
 
 ---
 
@@ -255,6 +256,22 @@ booted next to the configured revision for about five minutes (on SQLite,
 directus's default driver) before the rollout replaced it — the
 unconfigured start DEPLOY-009 exists to prevent, recorded as an
 observation for the relay's scale-up ordering.
+
+**Memos (repo-039, attempt 1, 2026-09-08).** Go, `cmd/memos/main.go`:
+`viper.SetEnvPrefix("memos")`, `viper.SetEnvKeyReplacer("-" → "_")`,
+`viper.AutomaticEnv()`, then `viper.GetString("dsn")` /
+`rootCmd.Flags().String("dsn", …)`. The variable the app reads is
+`MEMOS_DSN`, a name that exists nowhere as a literal, so the env-var model
+held one variable for the repository (`SKIP_CONTAINER_TESTS`, from a
+test helper) and the manifest bound only `DATABASE_*`. With the vendor's
+`MEMOS_DRIVER=postgres` and no DSN, memos dialled its default
+`127.0.0.1:5432` and exited — four times, then the circuit breaker rolled
+the service back (see DEPLOY-015). Generic fix (analysis version 18): a Go
+module that calls `viper.SetEnvPrefix("<p>")` with `AutomaticEnv()`
+contributes `<P>_<KEY>` for every `viper.Get*("<key>")`,
+`viper.SetDefault("<key>", …)` and `Flags().<Type>("<key>", …)` it names
+(`-` → `_` when a key replacer is set), so `MEMOS_DSN` reaches the model
+and the existing `*_DSN` url alias binds it.
 
 ## DEPLOY-006 — The generic template's container health check needs a shell and curl inside the image
 
@@ -786,3 +803,57 @@ attempt 2's recovery.
 application deployed on the PR #213 template until the relay republish —
 kutt, umami, directus, memos, outline and every Wave 2+ repository with a
 database.
+
+---
+
+## DEPLOY-015 — A first start the circuit breaker rolls back to the unconfigured template revision is reported as a successful deploy
+
+**Stage** APPLICATION_ERROR — a false success: the product shows HEALTHY and
+`DEPLOY_RELEASE: SUCCEEDED` while the application runs unconfigured ·
+**Root cause** DEPLOYZ_BUG · **Resolution** FIX IN REVIEW · **Found**
+Phase 3, Wave 1, memos attempt 1 (2026-09-08).
+
+**Behaviour.** A configured first start (DEPLOY-009) scales the service
+from zero with the CONFIG_UPDATE revision. When that revision's tasks exit
+at boot, ECS's deployment circuit breaker rolls the service back to the
+previous deployment — the template revision, which the pinned template
+runs on the same image digest — and that revision, unconfigured, comes up
+healthy on its defaults (memos and directus boot on SQLite). The relay's
+success gate (`packages/relay/src/deploy.ts`, `settleEcsDeploy`) compares
+the running digest with the release digest, requires a stable service, a
+PRIMARY deployment in `COMPLETED` and healthy targets: all four hold on
+the rolled-back service. `rolloutFailed` only sees the failed deployment
+while ECS still lists it, and DEPLOY-011's crash count keys on
+`service.taskDefinition`, which after the rollback is the old revision,
+so the configured revision's exits are no longer counted.
+
+**Effect.** memos: `DEPLOY_RELEASE` SUCCEEDED with `alreadyRunning: true`
+at 00:30Z, `currentReleaseId` set, the deployment HEALTHY and serving over
+default HTTPS — on SQLite, with the vendor's `MEMOS_DRIVER=postgres`
+silently discarded. The harness's runtime, HTTPS and observation checks
+passed against that task; only the observation window's crash count (four
+non-zero exits) exposed it. A customer would see a healthy deployment
+whose data lives in the container.
+
+**Evidence.** run `stage-b-repo-039-20260907-234923-bbde`: CONFIG_UPDATE
+SUCCEEDED 00:10:08Z; the template-revision task started 00:10:25Z
+("Database driver: sqlite") and served; configured-revision tasks exited
+`dial tcp 127.0.0.1:5432` at 00:10:34, 00:16:14, 00:22:07, 00:23:28Z; ECS
+"Scaling activity initiated by (deployment …)" at 00:23:45Z and "reached a
+steady state" on the previous deployment at 00:25:15Z; the relay's poll at
+00:30Z reported success.
+
+**Generic fix (in review).** The deploy remembers the revision it targets
+(`registeredApplicationArn`, else the service's task definition when the
+command starts) on the pending marker, and settles as a success only when
+the service's PRIMARY deployment runs that revision; a PRIMARY deployment
+on another revision after the deploy started means ECS rolled it back →
+`ECS_DEPLOYMENT_FAILED` (a first start scales back to zero, as
+DEPLOY-009). The crash-loop count (DEPLOY-011) is taken on the target
+revision, not on whatever the service currently runs. Regression tests in
+`packages/relay/src/deploy.test.ts`; bootstrap republish after merge.
+
+**Affected.** repo-039 (memos, measured); directus attempt 1 would have
+shown it too had its template revision passed the health check; every
+configured first start whose configured revision fails at boot.
+

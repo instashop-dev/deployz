@@ -116,7 +116,7 @@ repositories:
       - "Node; PostgreSQL via DB_CLIENT=pg with DB_HOST/DB_PORT/DB_DATABASE/DB_USER/DB_PASSWORD (or DB_CONNECTION_STRING). Migrations run at boot. Port 8055."
 
   - id: repo-039
-    findings: [DEPLOY-005, DEPLOY-008]
+    findings: [DEPLOY-005, DEPLOY-008, DEPLOY-015]
     overrides:
       dockerfilePath: scripts/Dockerfile
       buildContext: .
