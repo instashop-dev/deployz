@@ -471,6 +471,80 @@ describe('POST /api/billing/webhook (Paddle)', () => {
     expect(eventRow?.error).toBe('subscription mismatch');
   });
 
+  it.each(['PAST_DUE', 'PAUSED'] as const)(
+    'ignores a different active subscription id while the stored one is %s — only CANCELED may be replaced',
+    async (status) => {
+      const org = await signUpAndGetOrg(auth, db, nextEmail());
+      const storedSubscriptionId = `sub_test_a_${status}`;
+      await db.insert(schema.billingSubscriptions).values({
+        organizationId: org.organizationId,
+        providerCustomerId: 'ctm_test_1',
+        providerSubscriptionId: storedSubscriptionId,
+        status,
+        lastProviderEventAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+
+      const event = subscriptionEvent({
+        eventId: `evt_mismatch_${status}`,
+        eventType: 'subscription.activated',
+        occurredAt: '2026-01-02T00:00:00.000Z',
+        organizationId: org.organizationId,
+        subscriptionId: `sub_test_b_${status}`,
+        status: 'active',
+      });
+      const signed = signedWebhook(WEBHOOK_SECRET, event);
+      const response = await app.inject({ method: 'POST', url: '/api/billing/webhook', headers: signed.headers, payload: signed.body });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ outcome: 'IGNORED' });
+
+      const rows = await db
+        .select()
+        .from(schema.billingSubscriptions)
+        .where(eq(schema.billingSubscriptions.organizationId, org.organizationId));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.providerSubscriptionId).toBe(storedSubscriptionId);
+      expect(rows[0]!.status).toBe(status);
+
+      const eventRow = await getEventRow(db, `evt_mismatch_${status}`);
+      expect(eventRow?.processingStatus).toBe('IGNORED');
+      expect(eventRow?.error).toBe('subscription mismatch');
+    },
+  );
+
+  it('a resubscription after CANCELED updates the one row in place to the new subscription id — never a second row', async () => {
+    const org = await signUpAndGetOrg(auth, db, nextEmail());
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: org.organizationId,
+      providerCustomerId: 'ctm_test_1',
+      providerSubscriptionId: 'sub_test_old',
+      status: 'CANCELED',
+      lastProviderEventAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    const event = subscriptionEvent({
+      eventId: 'evt_resub_1',
+      eventType: 'subscription.activated',
+      occurredAt: '2026-01-02T00:00:00.000Z',
+      organizationId: org.organizationId,
+      subscriptionId: 'sub_test_new',
+      status: 'active',
+    });
+    const signed = signedWebhook(WEBHOOK_SECRET, event);
+    const response = await app.inject({ method: 'POST', url: '/api/billing/webhook', headers: signed.headers, payload: signed.body });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ outcome: 'PROCESSED' });
+
+    const rows = await db
+      .select()
+      .from(schema.billingSubscriptions)
+      .where(eq(schema.billingSubscriptions.organizationId, org.organizationId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.providerSubscriptionId).toBe('sub_test_new');
+    expect(rows[0]!.status).toBe('ACTIVE');
+  });
+
   it('ignores an unknown event type but still records the event row', async () => {
     const org = await signUpAndGetOrg(auth, db, nextEmail());
     const event = productUpdatedEvent({
