@@ -9,7 +9,7 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
   "runId": null,
   "stageAExpected": "NOT_COMPATIBLE",
   "expectedDeployable": false,
@@ -27,6 +27,9 @@
     "requiredKeys": [
       "AXIOM_DATASET",
       "AXIOM_TOKEN",
+      "BIRD_ACCESS_KEY",
+      "BIRD_CHANNEL_ID",
+      "BIRD_WORKSPACE_ID",
       "CLICKHOUSE_PASSWORD",
       "CRON_SECRET",
       "DATABASE_AUTH_TOKEN",
@@ -42,7 +45,11 @@
       "OUTBOX_ROLLOUT_PCT",
       "QSTASH_CURRENT_SIGNING_KEY",
       "QSTASH_NEXT_SIGNING_KEY",
+      "QSTASH_NEXT_SIGNING_SECRET",
+      "QSTASH_SIGNING_SECRET",
       "QSTASH_TOKEN",
+      "R2_ACCESS_KEY",
+      "R2_SECRET_KEY",
       "RESEND_API_KEY",
       "SCREENSHOT_SERVICE_URL",
       "SELF_HOST",
@@ -62,6 +69,9 @@
     "missingKeys": [
       "AXIOM_DATASET",
       "AXIOM_TOKEN",
+      "BIRD_ACCESS_KEY",
+      "BIRD_CHANNEL_ID",
+      "BIRD_WORKSPACE_ID",
       "CLICKHOUSE_PASSWORD",
       "DATABASE_AUTH_TOKEN",
       "GCP_CLIENT_EMAIL",
@@ -74,6 +84,7 @@
       "OUTBOX_DEADLINE_MS",
       "OUTBOX_ROLLOUT_PCT",
       "QSTASH_TOKEN",
+      "R2_ACCESS_KEY",
       "RESEND_API_KEY",
       "SCREENSHOT_SERVICE_URL",
       "SELF_HOST",
@@ -100,7 +111,7 @@
       "required-env-vars-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 15,
+    "analysisVersion": 18,
     "manifest": {
       "dockerfilePath": "apps/checker/Dockerfile",
       "buildContext": ".",
@@ -130,7 +141,10 @@
       "generatedKeys": [
         "CRON_SECRET",
         "QSTASH_CURRENT_SIGNING_KEY",
-        "QSTASH_NEXT_SIGNING_KEY"
+        "QSTASH_NEXT_SIGNING_KEY",
+        "QSTASH_NEXT_SIGNING_SECRET",
+        "QSTASH_SIGNING_SECRET",
+        "R2_SECRET_KEY"
       ]
     },
     "detail": null

@@ -152,12 +152,12 @@ records `repositoryForm: "fork"`.
 | 1 Harness | `scripts/repository-deployment/`, `pnpm benchmark:deploy`, tests, `deploy-config.yaml` skeleton | Done — 37 harness tests (`pnpm vitest run --project repository-deployment`); the gate audit smoke-ran offline on repo-001/repo-013 |
 | 2 B1 gate audit, all 100 | `runs/*.json` gate sections, `summary.*`, gate findings, analyser fixes with regression tests where in scope | Done — 120 of 120 analysed offline at analysis version 15; gate 47 correct accepts / 49 correct rejects / 6 false acceptances / 18 false rejections (identical to the Stage A v15 run); deterministic on rerun; DEPLOY-002/003/004 recorded, DEPLOY-005 predicted; no analyser change (all mistakes are open Stage A findings, deferred with reason) |
 | 3a DEPLOY-001 fix | image parameter + INSTALL payload + relay pass-through + tests + republish recipe | Done — PR #197 (main `1f85974`); API deployed; templates republished 2026-09-05 |
-| 3 Wave 1 (10) | full funnel, serial, systemic fixes | In progress — see section 7; 6 of 10 attempted (gatus PASS, ihatemoney PASS, umami CONTAINER_START_ERROR ×4 (DEPLOY-007 suspected), docuseal harness-false-fail rerun pending, miniflux BUILD_ERROR rerun pending, kutt DATABASE_ERROR after six attempts that each exposed one layer); DEPLOY-006 fixed (#200); DEPLOY-008 (#206), DEPLOY-009 (#207), DEPLOY-010 (#208), DEPLOY-011 (#209), DEPLOY-012 (#210), DEPLOY-013 (#211/#212), DEPLOY-005 (#212) fixed and deployed; DEPLOY-007 fixed (#213 merged, templates republished 2026-09-07); wave resumed at ghostfolio, which installed and served but exposed DEPLOY-014 (relay reads the first container's digest — fix #217, verified) and stopped the wave again on its failed cleanup; ghostfolio PASS on attempt 3; directus DEPLOY-005 second shape (analyser blind to `env['X']`, fixed #224, v17); memos DEPLOY-015 (false success after a circuit-breaker rollback onto the same-digest template revision) + DEPLOY-005 third shape (viper env prefix) — 10 of 10 attempted, 4 PASS (gatus, ihatemoney, ghostfolio, memos); reruns of miniflux, docuseal, outline, directus, kutt, umami in flight; DEPLOY-016 (an unsafe billing migration took the API down mid-run) handed to the billing workstream; harness fixes #199/#201/#202/#204/#205 |
-| 4 Wave 2 (15) | full funnel, wave-wide cleanup audit | Pending |
-| 5 Remaining improvement set | every improvement repository has an outcome; findings resolved | Pending |
-| 6 Freeze | green `main`, freeze SHA recorded here | Pending |
-| 7 Unseen 20 (+ unseen2 20 when time allows) | frozen baseline preserved, post-fix reruns separate | Pending |
-| 8 Final verification + report | `final-report.md`, docs, zero leaks | Pending |
+| 3 Wave 1 (10) | full funnel, serial, systemic fixes | Done as far as the product owner took it (stopped 2026-09-08 after Wave 1; the six reruns were not run) — see section 7; 6 of 10 attempted (gatus PASS, ihatemoney PASS, umami CONTAINER_START_ERROR ×4 (DEPLOY-007 suspected), docuseal harness-false-fail rerun pending, miniflux BUILD_ERROR rerun pending, kutt DATABASE_ERROR after six attempts that each exposed one layer); DEPLOY-006 fixed (#200); DEPLOY-008 (#206), DEPLOY-009 (#207), DEPLOY-010 (#208), DEPLOY-011 (#209), DEPLOY-012 (#210), DEPLOY-013 (#211/#212), DEPLOY-005 (#212) fixed and deployed; DEPLOY-007 fixed (#213 merged, templates republished 2026-09-07); wave resumed at ghostfolio, which installed and served but exposed DEPLOY-014 (relay reads the first container's digest — fix #217, verified) and stopped the wave again on its failed cleanup; ghostfolio PASS on attempt 3; directus DEPLOY-005 second shape (analyser blind to `env['X']`, fixed #224, v17); memos DEPLOY-015 (false success after a circuit-breaker rollback onto the same-digest template revision) + DEPLOY-005 third shape (viper env prefix) — 10 of 10 attempted, 4 PASS (gatus, ihatemoney, ghostfolio, memos); reruns of miniflux, docuseal, outline, directus, kutt, umami NOT run (owner's decision); DEPLOY-016 (an unsafe billing migration took the API down mid-run) handed to the billing workstream; harness fixes #199/#201/#202/#204/#205 |
+| 4 Wave 2 (15) | full funnel, wave-wide cleanup audit | Not run — audit stopped after Wave 1 |
+| 5 Remaining improvement set | every improvement repository has an outcome; findings resolved | Not run — audit stopped after Wave 1 |
+| 6 Freeze | green `main`, freeze SHA recorded here | Not done — a freeze is meaningful only after the reruns; main at the last Stage B change is `9ddd10e` (#227) |
+| 7 Unseen 20 (+ unseen2 20 when time allows) | frozen baseline preserved, post-fix reruns separate | Not run — audit stopped after Wave 1 |
+| 8 Final verification + report | `final-report.md`, docs, zero leaks | Done for what ran: [`final-report.md`](final-report.md) written 2026-09-08; the gate audit refreshed offline at analysis v19 (section 6); every closed ledger's leak audit clean |
 
 ## 5. Watch list (evidence needed before anything is changed)
 
@@ -205,7 +205,7 @@ What the audit decided:
   used), and the harness imports the built `dist`, so `pnpm build` must
   precede a run (analysis version 14 was reported until rebuilt).
 
-## 7. Phase 3 record — Wave 1 (in progress, paused 2026-09-06)
+## 7. Phase 3 record — Wave 1 (stopped after Wave 1 on 2026-09-08)
 
 Order: gatus, umami, docuseal, miniflux, ihatemoney, kutt, ghostfolio,
 directus, memos, outline (`deploy-config.yaml`, `wave-1`). Serial, pinned

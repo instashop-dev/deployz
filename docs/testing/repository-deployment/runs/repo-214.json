@@ -9,7 +9,7 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
   "runId": null,
   "stageAExpected": "NOT_COMPATIBLE",
   "expectedDeployable": false,
@@ -26,10 +26,14 @@
     ],
     "requiredKeys": [
       "API_BASE_URL",
+      "CORS_ALLOWED_ORIGINS",
+      "LIVE_BASE_PATH",
       "LIVE_SERVER_SECRET_KEY"
     ],
     "missingKeys": [
-      "API_BASE_URL"
+      "API_BASE_URL",
+      "CORS_ALLOWED_ORIGINS",
+      "LIVE_BASE_PATH"
     ],
     "unsupported": [
       "docker-compose-multi-service",
@@ -42,7 +46,7 @@
       "required-env-vars-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 15,
+    "analysisVersion": 18,
     "manifest": {
       "dockerfilePath": "apps/admin/Dockerfile.admin",
       "buildContext": ".",

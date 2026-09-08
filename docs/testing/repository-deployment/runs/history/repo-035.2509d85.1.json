@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-035",
+  "repository": "spiral-project/ihatemoney",
+  "commit": "e66a7672e8e5c41549bf53c4a824c72c43ab9079",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/ihatemoney",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzCommit": "2509d85ff66152365431a427cc207d8badc6c581",
+  "runId": "stage-b-repo-035-20260906-125614-c00c",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "SECRET_KEY"
+    ],
+    "generatedKeys": [
+      "SECRET_KEY"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "24e498e0-d7f2-4126-ab93-084564b4404b",
+    "version": "repo-035-20260906-125614-c00c",
+    "gitSha": "e66a7672e8e5c41549bf53c4a824c72c43ab9079",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:27a1ada1152d6527b3c66600c3372c4a19461ee5ac150cf62f00105eb89d299f",
+    "buildId": null,
+    "durationMs": 84413,
+    "detail": null
+  },
+  "deployment": {
+    "status": "PASS",
+    "deploymentId": "77d3e6b9-6fdf-4fff-9cf4-aa7f6420fc0b",
+    "installationId": "6b888512-60a9-4131-8b96-7b06e8977e07",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-035-77d3e6b9",
+    "applicationStack": "deployz-app-6b888512",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-035-20260906-125614-c00c/application-template-v1.json",
+    "installJobState": "SUCCEEDED",
+    "failureCode": null,
+    "resourceCount": 47,
+    "durationMs": 1072263,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "HEALTHY",
+    "alb": "HEALTHY",
+    "https": "PASS",
+    "healthPath": "/healthcheck",
+    "healthPathSource": "stage-b",
+    "appUrl": "https://d-77d3e6b9-6fdf-4fff-9cf4-aa7f6420fc0b.deployz.dev",
+    "runningImageDigest": "sha256:27a1ada1152d6527b3c66600c3372c4a19461ee5ac150cf62f00105eb89d299f",
+    "releaseServing": true,
+    "observation": {
+      "seconds": 180,
+      "samples": 6,
+      "healthStatuses": [
+        301,
+        301,
+        301,
+        301,
+        301,
+        301
+      ],
+      "appStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "httpsHealthStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "PASS",
+    "redis": "NOT_REQUIRED",
+    "storage": "NOT_REQUIRED",
+    "migration": "NOT_REQUIRED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "PASS",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [],
+    "durationMs": 5368398,
+    "detail": null
+  },
+  "classification": "PASS",
+  "failureStage": null,
+  "rootCause": null,
+  "rootCauseEvidence": null,
+  "findingIds": [],
+  "timing": {
+    "startedAt": "2026-09-06T12:56:14.935Z",
+    "finishedAt": "2026-09-06T13:29:35.647Z",
+    "totalMs": 2000712
+  },
+  "evidence": {}
+}

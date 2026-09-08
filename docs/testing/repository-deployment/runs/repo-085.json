@@ -9,7 +9,7 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzCommit": "3be8bb885612ec3d3f8587fc64394d1110b19fc5",
+  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
   "runId": null,
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
@@ -35,7 +35,7 @@
       "required-env-vars-missing"
     ],
     "source": "in-process",
-    "analysisVersion": 15,
+    "analysisVersion": 18,
     "manifest": {
       "dockerfilePath": "dockers/teable/Dockerfile",
       "buildContext": ".",

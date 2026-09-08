@@ -1,15 +1,15 @@
 {
-  "deployzCommit": "864e240f8034d703d9924a14446a02dc7fe24f70",
+  "deployzCommit": "084f62a938efb37170c85bc4e2ae30af56093d35",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "gate": {
-    "attempted": 119,
-    "correctAccept": 37,
+    "attempted": 120,
+    "correctAccept": 47,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 13
+    "configuredReady": 18
   },
   "build": {
     "attempted": 9,
@@ -107,21 +107,44 @@
       "repo-097"
     ],
     "DEPLOY-005": [
+      "repo-003",
       "repo-016",
       "repo-021",
       "repo-039"
     ],
+    "DEPLOY-006": [
+      "repo-008"
+    ],
     "DEPLOY-007": [
+      "repo-001",
       "repo-003"
     ],
     "DEPLOY-008": [
       "repo-004",
       "repo-039"
     ],
+    "DEPLOY-009": [
+      "repo-003"
+    ],
+    "DEPLOY-010": [
+      "repo-003"
+    ],
+    "DEPLOY-011": [
+      "repo-003"
+    ],
+    "DEPLOY-012": [
+      "repo-003"
+    ],
+    "DEPLOY-013": [
+      "repo-003"
+    ],
     "DEPLOY-014": [
       "repo-007"
     ],
     "DEPLOY-015": [
+      "repo-039"
+    ],
+    "DEPLOY-016": [
       "repo-039"
     ]
   },
@@ -132,7 +155,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 34,
-      "gateCorrect": 59
+      "gateCorrect": 69
     },
     "unseen": {
       "total": 20,
@@ -174,7 +197,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 24,
-      "gateCorrect": 44
+      "gateCorrect": 54
     }
   }
 }

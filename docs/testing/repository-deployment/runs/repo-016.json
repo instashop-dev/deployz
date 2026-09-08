@@ -15,19 +15,72 @@
   "expectedDeployable": true,
   "mode": "deploy",
   "gate": {
-    "status": "NOT_ATTEMPTED",
-    "verdict": null,
-    "analysisVerdict": null,
-    "outcome": null,
-    "gateFindings": [],
-    "requiredKeys": [],
-    "missingKeys": [],
+    "status": "PASS",
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "APP_NAME",
+      "AWS_S3_ACCELERATE_URL",
+      "CDN_URL",
+      "DD_SERVICE",
+      "REDIS_COLLABORATION_URL",
+      "REQUEST_TIMEOUT",
+      "SERVICES",
+      "SMTP_PASSWORD",
+      "SMTP_TLS_CIPHERS"
+    ],
+    "missingKeys": [
+      "APP_NAME",
+      "AWS_S3_ACCELERATE_URL",
+      "CDN_URL",
+      "DD_SERVICE",
+      "REDIS_COLLABORATION_URL",
+      "REQUEST_TIMEOUT",
+      "SERVICES",
+      "SMTP_PASSWORD",
+      "SMTP_TLS_CIPHERS"
+    ],
     "unsupported": [],
-    "configuredVerdict": null,
-    "configuredFindings": [],
-    "source": "control-plane",
-    "analysisVersion": null,
-    "manifest": null,
+    "configuredVerdict": "NEEDS_CONFIGURATION",
+    "configuredFindings": [
+      "required-env-vars-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 3000,
+      "healthPath": "/_health",
+      "healthMode": "explicit",
+      "migrationCommand": "npx sequelize db:migrate",
+      "migrationMode": "pre_deploy",
+      "postgres": true,
+      "redis": true,
+      "storage": true,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER",
+        "SENTRY_DSN"
+      ],
+      "redisBindings": [
+        "REDIS_URL"
+      ],
+      "storageBindings": [
+        "AWS_S3_BUCKET",
+        "AWS_S3_UPLOAD_BUCKET_NAME"
+      ],
+      "generatedKeys": []
+    },
     "detail": null
   },
   "configuration": {

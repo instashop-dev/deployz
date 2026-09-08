@@ -16,18 +16,50 @@
   "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": null,
-    "analysisVerdict": null,
-    "outcome": null,
-    "gateFindings": [],
-    "requiredKeys": [],
-    "missingKeys": [],
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "requiredKeys": [
+      "BASE_URL"
+    ],
+    "missingKeys": [
+      "BASE_URL"
+    ],
     "unsupported": [],
-    "configuredVerdict": null,
-    "configuredFindings": [],
-    "source": "control-plane",
-    "analysisVersion": null,
-    "manifest": null,
+    "configuredVerdict": "READY",
+    "configuredFindings": [
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 8080,
+      "healthPath": "/health",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
     "detail": null
   },
   "configuration": {
@@ -127,7 +159,8 @@
   "rootCause": null,
   "rootCauseEvidence": null,
   "findingIds": [
-    "DEPLOY-002"
+    "DEPLOY-002",
+    "DEPLOY-006"
   ],
   "timing": {
     "startedAt": "2026-09-06T04:42:30.645Z",

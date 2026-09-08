@@ -16,18 +16,59 @@
   "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": null,
-    "analysisVerdict": null,
-    "outcome": null,
-    "gateFindings": [],
-    "requiredKeys": [],
-    "missingKeys": [],
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "CLICKHOUSE_URL",
+      "CLOUD_MODE",
+      "DATABASE_URL",
+      "KAFKA_BROKER",
+      "KAFKA_MAX_MESSAGE_BYTES",
+      "KAFKA_URL",
+      "REDIS_URL"
+    ],
+    "missingKeys": [
+      "CLICKHOUSE_URL",
+      "CLOUD_MODE",
+      "KAFKA_BROKER",
+      "KAFKA_MAX_MESSAGE_BYTES",
+      "KAFKA_URL"
+    ],
     "unsupported": [],
-    "configuredVerdict": null,
+    "configuredVerdict": "READY",
     "configuredFindings": [],
-    "source": "control-plane",
-    "analysisVersion": null,
-    "manifest": null,
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 3000,
+      "healthPath": "/api/heartbeat",
+      "healthMode": "explicit",
+      "migrationCommand": "npx prisma migrate deploy",
+      "migrationMode": "pre_deploy",
+      "postgres": true,
+      "redis": true,
+      "storage": false,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [
+        "REDIS_URL"
+      ],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
     "detail": null
   },
   "configuration": {
@@ -101,10 +142,11 @@
   },
   "classification": "CONTAINER_START_ERROR",
   "failureStage": "CONTAINER_START_ERROR",
-  "rootCause": null,
-  "rootCauseEvidence": "four attempts: the App container exits 1 after minutes with zero log events (install-wait snapshot and an external watcher agree); cause open — a --keep attempt with a one-off command override is scheduled after the wave",
+  "rootCause": "DEPLOYZ_BUG",
+  "rootCauseEvidence": "four attempts, each the same shape: the App container exits 1 about five minutes after start with no log line (the process emits nothing), the circuit breaker rolls the install back. The last attempt ran before the RDS CA bundle (DEPLOY-007, PR #213) and before the configured first start (DEPLOY-009, PR #207); umami's check-db.js opens Postgres through @prisma/adapter-pg with sslmode=require, the exact node-postgres path kutt attempt 6 proved fails on the RDS chain, so DEPLOY-007 is the attributed cause. Not confirmed by a log line and not rerun: the audit was stopped after Wave 1.",
   "findingIds": [
-    "DEPLOY-002"
+    "DEPLOY-002",
+    "DEPLOY-007"
   ],
   "timing": {
     "startedAt": "2026-09-06T16:47:58.093Z",

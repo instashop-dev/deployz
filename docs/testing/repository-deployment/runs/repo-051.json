@@ -16,18 +16,56 @@
   "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": null,
-    "analysisVerdict": null,
-    "outcome": null,
-    "gateFindings": [],
-    "requiredKeys": [],
-    "missingKeys": [],
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "requiredKeys": [
+      "SIDEKIQ_BASIC_AUTH_PASSWORD"
+    ],
+    "missingKeys": [
+      "SIDEKIQ_BASIC_AUTH_PASSWORD"
+    ],
     "unsupported": [],
-    "configuredVerdict": null,
-    "configuredFindings": [],
-    "source": "control-plane",
-    "analysisVersion": null,
-    "manifest": null,
+    "configuredVerdict": "READY",
+    "configuredFindings": [
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 3000,
+      "healthPath": "/up",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": true,
+      "storage": true,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "REDIS_URL"
+      ],
+      "storageBindings": [
+        "AWS_S3_BUCKET"
+      ],
+      "generatedKeys": []
+    },
     "detail": null
   },
   "configuration": {
@@ -126,8 +164,8 @@
   },
   "classification": "APPLICATION_ERROR",
   "failureStage": "APPLICATION_ERROR",
-  "rootCause": null,
-  "rootCauseEvidence": "health path unstable: http 200/301/301/301/301/301 https 521/200/200/200/200/200",
+  "rootCause": "TEST_HARNESS_FAILURE",
+  "rootCauseEvidence": "a healthy deployment failed by a harness window rule: install, ECS/ALB health and default HTTPS all passed; the harness's first HTTPS sample came back 521 from the edge before the endpoint settled and its observation rule failed the run (harness fix PR #205: bounded wait after ACTIVE, httpsReadyMs). Not rerun: the audit was stopped after Wave 1.",
   "findingIds": [
     "DEPLOY-002"
   ],

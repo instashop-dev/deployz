@@ -16,18 +16,92 @@
   "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": null,
-    "analysisVerdict": null,
-    "outcome": null,
-    "gateFindings": [],
-    "requiredKeys": [],
-    "missingKeys": [],
+    "verdict": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "requiredKeys": [
+      "ADMIN_EMAILS",
+      "CONTACT_EMAIL",
+      "DB_PASSWORD",
+      "DEFAULT_DOMAIN",
+      "DISALLOW_LOGIN_FORM",
+      "DISALLOW_REGISTRATION",
+      "JWT_SECRET",
+      "LINK_CUSTOM_ALPHABET",
+      "LINK_LENGTH",
+      "MAIL_ENABLED",
+      "MAIL_PASSWORD",
+      "OIDC_CLIENT_SECRET",
+      "OIDC_EMAIL_CLAIM",
+      "OIDC_ENABLED",
+      "OIDC_ISSUER",
+      "REDIS_PASSWORD",
+      "REPORT_EMAIL",
+      "SITE_NAME"
+    ],
+    "missingKeys": [
+      "ADMIN_EMAILS",
+      "CONTACT_EMAIL",
+      "DEFAULT_DOMAIN",
+      "DISALLOW_LOGIN_FORM",
+      "DISALLOW_REGISTRATION",
+      "LINK_CUSTOM_ALPHABET",
+      "LINK_LENGTH",
+      "MAIL_ENABLED",
+      "MAIL_PASSWORD",
+      "OIDC_CLIENT_SECRET",
+      "OIDC_EMAIL_CLAIM",
+      "OIDC_ENABLED",
+      "OIDC_ISSUER",
+      "REDIS_PASSWORD",
+      "REPORT_EMAIL",
+      "SITE_NAME"
+    ],
     "unsupported": [],
-    "configuredVerdict": null,
-    "configuredFindings": [],
-    "source": "control-plane",
-    "analysisVersion": null,
-    "manifest": null,
+    "configuredVerdict": "NEEDS_CONFIGURATION",
+    "configuredFindings": [
+      "required-env-vars-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 3000,
+      "healthPath": "/health",
+      "healthMode": "explicit",
+      "migrationCommand": "npx knex migrate:latest",
+      "migrationMode": "pre_deploy",
+      "postgres": true,
+      "redis": true,
+      "storage": false,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER",
+        "DB_HOST",
+        "DB_NAME",
+        "DB_PASSWORD",
+        "DB_PORT",
+        "DB_USER"
+      ],
+      "redisBindings": [
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "REDIS_URL"
+      ],
+      "storageBindings": [],
+      "generatedKeys": [
+        "JWT_SECRET"
+      ]
+    },
     "detail": null
   },
   "configuration": {
@@ -107,7 +181,13 @@
   "rootCause": "DEPLOYZ_BUG",
   "rootCauseEvidence": "migration one-off (knex migrate over DB_HOST=<rds endpoint>, DB_SSL=true) exited 1 on `Error: self-signed certificate in certificate chain` at TLSSocket.onConnectSecure: node-postgres verifies the RDS chain against Node's trust store, which does not hold the RDS CA (DEPLOY-007, fix PR #213). The configuration chain held: zero-task INSTALL, CONFIG_UPDATE minted JWT_SECRET only, the DB_* aliases delivered the RDS endpoint (DEPLOY-005 verified fixed).",
   "findingIds": [
-    "DEPLOY-007"
+    "DEPLOY-005",
+    "DEPLOY-007",
+    "DEPLOY-009",
+    "DEPLOY-010",
+    "DEPLOY-011",
+    "DEPLOY-012",
+    "DEPLOY-013"
   ],
   "timing": {
     "startedAt": "2026-09-07T09:23:39.785Z",

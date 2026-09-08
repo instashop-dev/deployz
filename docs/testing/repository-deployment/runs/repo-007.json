@@ -16,18 +16,51 @@
   "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": null,
-    "analysisVerdict": null,
-    "outcome": null,
+    "verdict": "READY",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
     "gateFindings": [],
-    "requiredKeys": [],
+    "requiredKeys": [
+      "JWT_SECRET_KEY"
+    ],
     "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": null,
+    "configuredVerdict": "READY",
     "configuredFindings": [],
-    "source": "control-plane",
-    "analysisVersion": null,
-    "manifest": null,
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 3333,
+      "healthPath": "/api/v1/health",
+      "healthMode": "explicit",
+      "migrationCommand": "npx prisma migrate deploy",
+      "migrationMode": "pre_deploy",
+      "postgres": true,
+      "redis": true,
+      "storage": false,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER",
+        "POSTGRES_DB",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_USER"
+      ],
+      "redisBindings": [
+        "REDIS_HOST",
+        "REDIS_PORT"
+      ],
+      "storageBindings": [],
+      "generatedKeys": [
+        "JWT_SECRET_KEY"
+      ]
+    },
     "detail": null
   },
   "configuration": {

@@ -16,18 +16,45 @@
   "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": null,
-    "analysisVerdict": null,
-    "outcome": null,
-    "gateFindings": [],
+    "verdict": "READY",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "migration-command-missing"
+    ],
     "requiredKeys": [],
     "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": null,
-    "configuredFindings": [],
-    "source": "control-plane",
-    "analysisVersion": null,
-    "manifest": null,
+    "configuredVerdict": "READY",
+    "configuredFindings": [
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 8080,
+      "healthPath": "/v1/integrations/status",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
     "detail": null
   },
   "configuration": {
@@ -108,8 +135,8 @@
   },
   "classification": "BUILD_ERROR",
   "failureStage": "BUILD_ERROR",
-  "rootCause": null,
-  "rootCauseEvidence": "CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1 — decide ANALYSIS_BUG (Dockerfile/context selection) vs REPO_CONFIGURATION vs UPSTREAM_REPO_FAILURE",
+  "rootCause": "DEPLOYZ_BUG",
+  "rootCauseEvidence": "release build failed because the analysis write dropped the vendor's manifest overrides (buildContext '.', Dockerfile path), so CodeBuild built from the wrong context (DEPLOY-008, fixed in PR #206 and deployed 2026-09-06). Not rerun: the audit was stopped after Wave 1.",
   "findingIds": [
     "DEPLOY-008"
   ],

@@ -16,18 +16,48 @@
   "mode": "deploy",
   "gate": {
     "status": "PASS",
-    "verdict": null,
-    "analysisVerdict": null,
-    "outcome": null,
-    "gateFindings": [],
+    "verdict": "READY",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "migration-command-missing"
+    ],
     "requiredKeys": [],
     "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": null,
-    "configuredFindings": [],
-    "source": "control-plane",
-    "analysisVersion": null,
-    "manifest": null,
+    "configuredVerdict": "READY",
+    "configuredFindings": [
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 18,
+    "manifest": {
+      "dockerfilePath": "scripts/Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 5230,
+      "healthPath": "/healthz",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": false,
+      "storage": true,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER",
+        "MEMOS_DSN"
+      ],
+      "redisBindings": [],
+      "storageBindings": [
+        "AWS_S3_BUCKET"
+      ],
+      "generatedKeys": []
+    },
     "detail": null
   },
   "configuration": {
@@ -134,7 +164,8 @@
   "findingIds": [
     "DEPLOY-005",
     "DEPLOY-008",
-    "DEPLOY-015"
+    "DEPLOY-015",
+    "DEPLOY-016"
   ],
   "timing": {
     "startedAt": "2026-09-08T05:11:53.197Z",
