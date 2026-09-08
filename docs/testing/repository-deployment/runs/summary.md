@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `3dc80cea64c2b185124e4198812414b5a532b44c`
+Deployz commit: `7300d556e5284520d971844fe3b47fd2053b654b`
 
 | Metric | Value |
 | --- | --- |
@@ -12,11 +12,11 @@ Deployz commit: `3dc80cea64c2b185124e4198812414b5a532b44c`
 | Gate: READY with the Stage B configuration | 13 |
 | Build attempted / succeeded / failed | 9 / 8 / 1 |
 | Build success among expected deployable | 12.3% |
-| Infrastructure attempted / succeeded / failed | 8 / 4 / 4 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 4 / 4 / 4 / 3 |
-| Dependencies: PostgreSQL / Redis / storage / migration verified | 3 / 1 / 0 / 1 |
-| **True deployment success / expected deployable** | **3 / 65 (4.6%)** |
-| Cleanup: destroys / failures / leaks / success rate | 9 / 1 / 1 / 88.9% |
+| Infrastructure attempted / succeeded / failed | 8 / 5 / 3 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
+| Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
+| **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
+| Cleanup: destroys / failures / leaks / success rate | 9 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -30,8 +30,7 @@ Deployz commit: `3dc80cea64c2b185124e4198812414b5a532b44c`
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| INFRA_ERROR | 1 |
-| PASS | 40 |
+| PASS | 41 |
 
 ## By root cause
 
@@ -59,7 +58,7 @@ Deployz commit: `3dc80cea64c2b185124e4198812414b5a532b44c`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 59 | 4 | 3 |
+| improvement | 80 | 46 | 34 | 59 | 5 | 4 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -69,7 +68,7 @@ Deployz commit: `3dc80cea64c2b185124e4198812414b5a532b44c`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 44 | 4 | 3 |
+| realistic | 69 | 45 | 24 | 44 | 5 | 4 |
 
 ## Repositories
 
@@ -113,7 +112,7 @@ Deployz commit: `3dc80cea64c2b185124e4198812414b5a532b44c`
 | repo-036 | django-helpdesk/django-helpdesk@1cc6776 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-037 | apache/superset@765a4ec | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-038 | apache/answer@3b9f137 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | FAIL | INFRA_ERROR | DEPLOY-005, DEPLOY-008, DEPLOY-015 |
+| repo-039 | usememos/memos@dfa0fda | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-005, DEPLOY-008, DEPLOY-015 |
 | repo-040 | authelia/authelia@fd4b742 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-041 | coder/coder@07f9018 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-042 | grafana/grafana@0ecd582 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
