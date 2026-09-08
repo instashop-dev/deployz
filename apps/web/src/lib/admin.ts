@@ -449,6 +449,39 @@ export function reconcileVendorBillingAdmin(
   });
 }
 
+/** The result of updating a vendor's pooled "included production
+ *  deployments" allowance — the allowance itself is always saved; the
+ *  provider (Paddle) side is best-effort and reported separately via
+ *  `reconciliation`, which is null when there was nothing to reconcile
+ *  (unchanged value, or no subscription). */
+export interface AdminIncludedDeploymentsResult {
+  organizationId: string;
+  activeProductionDeployments: number;
+  previous: { includedProductionDeployments: number; billableDeploymentQuantity: number };
+  current: { includedProductionDeployments: number; billableDeploymentQuantity: number };
+  changed: boolean;
+  reconciliation: {
+    status: 'SUCCEEDED' | 'FAILED' | 'SKIPPED';
+    action: 'NONE' | 'QUANTITY_UPDATED' | 'ITEM_REMOVED' | 'ITEM_ADDED' | 'SKIPPED';
+    active: number;
+    included: number;
+    expected: number;
+    provider: number | null;
+    reason?: string;
+  } | null;
+}
+
+export function updateIncludedDeploymentsAdmin(
+  vendorId: string,
+  includedProductionDeployments: number,
+  reason: string,
+): Promise<AdminIncludedDeploymentsResult> {
+  return apiRequest<AdminIncludedDeploymentsResult>(
+    `/api/admin/vendors/${encodeURIComponent(vendorId)}/included-deployments`,
+    { method: 'POST', body: { includedProductionDeployments, reason } },
+  );
+}
+
 export function retryInstallAdmin(
   deploymentId: string,
   reason?: string,
