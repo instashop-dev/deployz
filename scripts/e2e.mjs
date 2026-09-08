@@ -43,6 +43,14 @@ if (!VALID_MODES.includes(mode)) {
   process.exit(1);
 }
 
+const startTime = Date.now();
+
+function finishWithDuration(code, signal) {
+  const elapsed = Math.round((Date.now() - startTime) / 1000);
+  console.log(`\ndeployz test summary\n  mode: ${mode.padEnd(16)} ${elapsed}s`);
+  process.exit(code ?? (signal ? 1 : 0));
+}
+
 // Guard runs before dry-run handling — dry-run must not be a way to peek at
 // what a real-AWS run would do without the opt-in.
 if (
@@ -69,7 +77,7 @@ if (mode === 'canary-versions') {
     shell: true,
   });
   child.on('exit', (code, signal) => {
-    process.exit(code ?? (signal ? 1 : 0));
+    finishWithDuration(code, signal);
   });
   child.on('error', (err) => {
     console.error(err);
@@ -97,7 +105,7 @@ if (mode === 'canary-versions') {
   const child = spawn('pnpm', vitestArgs, { env: childEnv, stdio: 'inherit', shell: true });
 
   child.on('exit', (code, signal) => {
-    process.exit(code ?? (signal ? 1 : 0));
+    finishWithDuration(code, signal);
   });
   child.on('error', (err) => {
     console.error(err);
@@ -131,7 +139,7 @@ if (mode === 'canary-versions') {
   });
 
   child.on('exit', (code, signal) => {
-    process.exit(code ?? (signal ? 1 : 0));
+    finishWithDuration(code, signal);
   });
   child.on('error', (err) => {
     console.error(err);
