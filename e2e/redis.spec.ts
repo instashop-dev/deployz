@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { extractQuickCreateParam, fetchInstallCredentials } from './simulation/relay-harness.js';
 
 // Redis Support MVP (tasks 1-9): §7 Redis detection + §8 the managed,
 // automatic-provisioning path for supported Redis usage. Fixture mode (Task
@@ -82,11 +83,18 @@ async function seedCustomerAndDeployment(
     enrollmentCode: string;
   };
 
+  const installResponse = await page.request.get(`${API_URL}/api/install/${deployment.installLinkId}`);
+  expect(installResponse.ok()).toBeTruthy();
+  const installData = (await installResponse.json()) as { quickCreateUrl: string | null };
+  expect(installData.quickCreateUrl).not.toBeNull();
+  const relayCredential = extractQuickCreateParam(installData.quickCreateUrl!, 'RelayCredential');
+
   return {
     deploymentId: deployment.id,
     installLinkId: deployment.installLinkId,
     installationId: `inst-${suffix}`,
     enrollmentCode: deployment.enrollmentCode,
+    relayCredential,
   };
 }
 
@@ -102,8 +110,9 @@ async function driveDeploymentToHealthy(
   page: Page,
   installationId: string,
   enrollmentCode: string,
+  relayCredential: string,
 ): Promise<void> {
-  const authHeaders = { Authorization: `Bearer ${installationId}` };
+  const authHeaders = { Authorization: `Bearer ${relayCredential}` };
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
     headers: authHeaders,
     data: { installationId, enrollmentCode },
@@ -157,7 +166,7 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   // ── 3. Create a customer + deployment for this application, then open the
   // install link page: the "Deployz will create" list includes a Redis cache
   // because this application's analysed `redisRequired` is true.
-  const { deploymentId, installLinkId, installationId, enrollmentCode } =
+  const { deploymentId, installLinkId, installationId, enrollmentCode, relayCredential } =
     await seedCustomerAndDeployment(page, applicationId, suffix);
   await page.goto(`/install/${installLinkId}`);
   const willCreateSection = page.locator('section[aria-labelledby="will-create"]');
@@ -174,9 +183,9 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   // `showInfrastructureRows`), so drive a real install through the relay job
   // workflow first — the same sequence fleet.spec.ts's
   // `driveDeploymentToHealthy` uses — then report the inventory.
-  await driveDeploymentToHealthy(page, installationId, enrollmentCode);
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode, relayCredential);
   const health = await page.request.post(`${API_URL}/api/relay/health`, {
-    headers: { Authorization: `Bearer ${installationId}` },
+    headers: { Authorization: `Bearer ${relayCredential}` },
     data: {
       installationId,
       healthStatus: 'HEALTHY',

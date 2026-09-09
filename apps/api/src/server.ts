@@ -134,7 +134,12 @@ import {
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
-import { createOrReuseJob, hasStartedInstall, newerReadyReleaseExists } from './jobs.js';
+import {
+  createOrReuseJob,
+  flipHealthyDeploymentsToUpdateAvailable,
+  hasStartedInstall,
+  newerReadyReleaseExists,
+} from './jobs.js';
 import { readStoredManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
@@ -234,6 +239,7 @@ import { advanceStepTimings } from './step-timings.js';
 import {
   hashRelayToken,
   mintEnrollmentCode,
+  mintRelayCredential,
   verifyRelayToken,
   verifyRelayTokenWithRotation,
 } from './relay-store.js';
@@ -566,9 +572,8 @@ function toDeployLinkView(input: {
 
 // The Quick Create link for the public deploy-link page — the same rules the
 // install page applies: no link once the enrollment code is spent, the
-// template resolved for THIS deployment's region (never cross-region), and no
-// credential in the URL beyond the single-use code the customer's own
-// CloudFormation stack consumes.
+// template resolved for THIS deployment's region (never cross-region).
+// DZ-AUDIT-013: carries the relayCredential parameter when one is stored.
 function deployLinkQuickCreateUrl(input: {
   region: DeploymentRow['region'];
   deploymentId: string;
@@ -577,6 +582,7 @@ function deployLinkQuickCreateUrl(input: {
   bootstrapStackName: string | null;
   enrollmentCode: string;
   enrollmentUsedAt: Date | null;
+  relayCredential?: string | null;
 }): string | null {
   if (input.enrollmentUsedAt !== null) return null;
   const stackName =
@@ -596,6 +602,7 @@ function deployLinkQuickCreateUrl(input: {
         templateUrl,
         controlPlaneUrl: env.apiUrl,
         enrollmentCode: input.enrollmentCode,
+        relayCredential: input.relayCredential ?? undefined,
         stackName,
       })
     : null;
@@ -1946,6 +1953,7 @@ export async function buildServer({
         bootstrapStackName: schema.deployments.bootstrapStackName,
         installStartedAt: schema.deployments.installStartedAt,
         observedState: schema.deployments.observedState,
+        relayCredential: schema.deployments.relayCredential,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
@@ -2017,17 +2025,8 @@ export async function buildServer({
       // single-use enrollment code. The link carries no credential — the
       // relay's is minted by CloudFormation inside the customer's account.
       //
-      // Spent codes get no link. The page renders its "already set up" state
-      // in that case and never follows the URL, so building one only hands
-      // the enrollment code to whoever replays the link out of a mailbox.
-      //
-      // The template is resolved for THIS deployment's region, never for a
-      // bucket in another region: a Lambda must read its code from a bucket
-      // in the function's own region, and a cross-region reference fails
-      // stack creation with an S3 PermanentRedirect (verified in
-      // production). resolveBootstrapTemplate fails closed — an unsupported
-      // or unpublished region yields no URL, and no cross-region link is
-      // ever generated.
+      // DZ-AUDIT-013: the relayCredential is carried alongside the enrollment
+      // code whenever one has been established. Spent codes get no link.
       quickCreateUrl:
         !alreadyInstalled
           ? (() => {
@@ -2043,6 +2042,7 @@ export async function buildServer({
                     templateUrl,
                     controlPlaneUrl: env.apiUrl,
                     enrollmentCode: row.enrollmentCode,
+                    relayCredential: row.relayCredential ?? undefined,
                     stackName,
                   })
                 : null;
@@ -2231,6 +2231,7 @@ export async function buildServer({
       attempt: nextAttempt,
     });
     const enrollmentCode = mintEnrollmentCode();
+    const relayCredential = mintRelayCredential();
     await db.transaction(async (tx) => {
       await tx
         .update(schema.deploymentJobs)
@@ -2258,7 +2259,9 @@ export async function buildServer({
           ...(deployment.bootstrapStackName
             ? { previousBootstrapStackName: deployment.bootstrapStackName }
             : {}),
-          relayTokenHash: null,
+          // DZ-AUDIT-013: fresh credential on every retry.
+          relayCredential,
+          relayTokenHash: hashRelayToken(relayCredential),
           relayBoundAt: null,
           relayStatus: 'UNKNOWN',
           attemptNumber: nextAttempt,
@@ -2298,6 +2301,7 @@ export async function buildServer({
               templateUrl: env.bootstrapTemplateUrl,
               controlPlaneUrl: env.apiUrl,
               enrollmentCode,
+              relayCredential,
               stackName,
             })
           : null,
@@ -3206,6 +3210,7 @@ export async function buildServer({
           bootstrapStackName: deployment.bootstrapStackName,
           enrollmentCode: deployment.enrollmentCode,
           enrollmentUsedAt: deployment.enrollmentUsedAt,
+          relayCredential: deployment.relayCredential,
         }),
         domain: domain ? toDomainView(domain) : null,
         routingTarget: domain?.routingTarget ?? null,
@@ -3369,6 +3374,7 @@ export async function buildServer({
         attempt: nextAttempt,
       });
       const enrollmentCode = mintEnrollmentCode();
+      const relayCredential = mintRelayCredential();
       await db.transaction(async (tx) => {
         await tx
           .update(schema.deploymentJobs)
@@ -3396,7 +3402,9 @@ export async function buildServer({
             ...(deployment.bootstrapStackName
               ? { previousBootstrapStackName: deployment.bootstrapStackName }
               : {}),
-            relayTokenHash: null,
+            // DZ-AUDIT-013: fresh credential on retry.
+            relayCredential,
+            relayTokenHash: hashRelayToken(relayCredential),
             relayBoundAt: null,
             relayStatus: 'UNKNOWN',
             attemptNumber: nextAttempt,
@@ -3437,6 +3445,7 @@ export async function buildServer({
           bootstrapStackName: stackName,
           enrollmentCode,
           enrollmentUsedAt: null,
+          relayCredential,
         }),
       };
     },
@@ -3750,6 +3759,9 @@ export async function buildServer({
             releaseStatus: 'READY',
           })
           .where(eq(schema.releases.id, row.id));
+        // Same fleet flip the worker's recordBuildResult performs in
+        // production — the fixture build path must stay truthful (DZ-AUDIT-007).
+        await flipHealthyDeploymentsToUpdateAvailable(db, id);
       } else {
         await enqueue({ type: 'BUILD_RELEASE', releaseId: row.id });
       }
@@ -4616,6 +4628,7 @@ export async function buildServer({
     actorId: string | null,
   ): Promise<{ installLinkId: string | null; attemptNumber: number }> {
     const enrollmentCode = mintEnrollmentCode();
+    const relayCredential = mintRelayCredential();
     const [application] = await db
       .select({ name: schema.applications.name })
       .from(schema.applications)
@@ -4657,7 +4670,9 @@ export async function buildServer({
           ...(deployment.bootstrapStackName
             ? { previousBootstrapStackName: deployment.bootstrapStackName }
             : {}),
-          relayTokenHash: null,
+          // DZ-AUDIT-013: fresh credential on every reset.
+          relayCredential,
+          relayTokenHash: hashRelayToken(relayCredential),
           relayBoundAt: null,
           relayStatus: 'UNKNOWN',
           attemptNumber: nextAttempt,
@@ -5713,6 +5728,24 @@ export async function buildServer({
 
     const tokenHash = hashRelayToken(token);
 
+    // DZ-AUDIT-013: if this deployment has a server-established credential
+    // (relayCredential was stored at creation / relay/reset), the presented
+    // bearer MUST verify against the stored hash. If it does not match,
+    // refuse — the credential is not negotiable, only the bootstrap stack
+    // that received it through the Quick Create URL knows it.
+    // Legacy deployments (relayCredential is null) keep the old adopt-and-bind
+    // path so in-flight installations before this change still work.
+    if (deployment.relayCredential !== null) {
+      if (!verifyRelayToken(deployment.relayTokenHash, token)) {
+        throw new ApiError(
+          401,
+          'RELAY_CREDENTIAL_MISMATCH',
+          'The relay bearer token does not match the server-established credential. ' +
+          'Only a bootstrap stack deployed from the install link can present the right token.',
+        );
+      }
+    }
+
     if (deployment.enrollmentUsedAt !== null) {
       // Already enrolled. A relay cold start or a retry replays this call
       // with the same id and token, which must stay harmless.
@@ -5811,6 +5844,10 @@ export async function buildServer({
         .update(schema.deployments)
         .set({
           installationId: body.installationId!,
+          // DZ-AUDIT-013: the plaintext credential is consumed on successful
+          // registration — the Quick Create URL has been used and won't be
+          // issued again. Re-enrollment mints a fresh one.
+          relayCredential: null,
           relayTokenHash: tokenHash,
           relayBoundAt: new Date(),
           enrollmentUsedAt: new Date(),

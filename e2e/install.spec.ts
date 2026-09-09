@@ -8,6 +8,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 // customer. Unknown installation ids now get an honest not-found state
 // instead of fabricated content.
 
+import { extractQuickCreateParam } from './simulation/relay-harness.js';
 import { makeApplicationDeployable } from './seed-ready-manifest.js';
 
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
@@ -15,21 +16,6 @@ const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 // Raw AWS service terms that must NOT appear in rendered top-level copy.
 // ("AWS" itself is fine — §44's framing is "AWS auth happens at AWS".)
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC)\b/;
-
-/**
- * Extracts and URL-decodes `param_EnrollmentCode` from the CloudFormation
- * Quick Create deep-link. `GET /api/install/:installLinkId` never returns the
- * enrollment code as its own field — it is single-use and only travels
- * inside the quick-create URL it builds (see the route in
- * apps/api/src/server.ts) — so this mirrors custom-domain.spec.ts's helper.
- */
-function extractEnrollmentCode(quickCreateUrl: string): string {
-  const match = quickCreateUrl.match(/param_EnrollmentCode=([^&]+)/);
-  if (!match) {
-    throw new Error(`No param_EnrollmentCode found in quick-create URL: ${quickCreateUrl}`);
-  }
-  return decodeURIComponent(match[1]!);
-}
 
 async function seedInstall(
   request: APIRequestContext,
@@ -124,8 +110,11 @@ test('install page renders the real application/publisher and the Deploy to AWS 
   // deployment. The relay's own communication credential is still minted by
   // CloudFormation inside the customer's account and never travels here.
   expect(href).toContain('param_EnrollmentCode=');
-  // The URL carries no credential or installation identifier.
-  expect(href).not.toMatch(/token|secret|credential|installationId/i);
+  // DZ-AUDIT-013: the server-established relay credential rides the Quick
+  // Create URL as a template parameter (NoEcho in the customer's console) —
+  // first registration verifies against it. No installation identifier leaks.
+  expect(href).toContain('param_RelayCredential=');
+  expect(href).not.toMatch(/installationId/i);
 
   // §44 framing: the customer authenticates at their own cloud provider.
   await expect(page.getByText(/AWS auth happens at AWS/)).toBeVisible();
@@ -230,11 +219,13 @@ test('a setup link that has already been used says so instead of leading to a de
   // it back out of the link the install page hands the customer. The
   // console deep-link carries its parameters after the `#` fragment, not in
   // the URL query — `searchParams` alone would not see them.
+  // DZ-AUDIT-013: the relay credential is also carried in the URL.
   const install = await request.get(`${API_URL}/api/install/${installLinkId}`);
   const { quickCreateUrl } = (await install.json()) as { quickCreateUrl: string };
-  const enrollmentCode = extractEnrollmentCode(quickCreateUrl);
+  const enrollmentCode = extractQuickCreateParam(quickCreateUrl, 'EnrollmentCode');
+  const relayCredential = extractQuickCreateParam(quickCreateUrl, 'RelayCredential');
   const register = await request.post(`${API_URL}/api/relay/register`, {
-    headers: { Authorization: 'Bearer relay-token-for-e2e' },
+    headers: { Authorization: `Bearer ${relayCredential}` },
     data: { installationId: `inst-${crypto.randomUUID()}`, enrollmentCode },
   });
   expect(register.ok()).toBeTruthy();
@@ -278,8 +269,9 @@ test('two deployments of the same application in the same region prefill differe
   // The short deployment-id suffix is what keeps two installs of the same
   // app from colliding on one fixed stack name in one AWS account.
   expect(firstHref).not.toBe(secondHref);
-  // The prefilled name still carries no credential.
-  expect(firstHref).not.toMatch(/token|secret|credential/i);
+  // The prefilled stack name carries no credential — only the designed
+  // RelayCredential template parameter does (DZ-AUDIT-013).
+  expect(firstHref).not.toMatch(/stackName=[^&]*(token|secret|credential)/i);
 });
 
 test('pressing Deploy to AWS reports the launch and the page then waits for the connector', async ({

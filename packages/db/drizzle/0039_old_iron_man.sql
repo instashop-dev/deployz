@@ -1,0 +1,1 @@
+ALTER TABLE "deployments" ADD COLUMN "relay_credential" text;--> statement-breakpoint

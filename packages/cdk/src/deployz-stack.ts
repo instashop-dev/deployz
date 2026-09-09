@@ -20,7 +20,7 @@ import {
   PostgresEngineVersion,
 } from 'aws-cdk-lib/aws-rds';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
-import { Queue } from 'aws-cdk-lib/aws-sqs';
+import { Queue, QueueEncryption } from 'aws-cdk-lib/aws-sqs';
 import {
   BlockPublicAccess,
   Bucket,
@@ -104,9 +104,11 @@ export class DeployzStack extends Stack {
     // The dead-letter queue is what makes a poisoned message visible: without
     // one a message that always throws is retried until it silently expires.
     const jobDeadLetterQueue = new Queue(this, 'JobDeadLetterQueue', {
-      retentionPeriod: Duration.days(14),
+      encryption: QueueEncryption.SQS_MANAGED,
+      retentionPeriod: Duration.days(3),
     });
     const jobQueue = new Queue(this, 'JobQueue', {
+      encryption: QueueEncryption.SQS_MANAGED,
       // Must be at least the worker's timeout, or SQS re-delivers a message
       // that is still being processed.
       visibilityTimeout: Duration.minutes(15),

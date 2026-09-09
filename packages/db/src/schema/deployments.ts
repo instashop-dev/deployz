@@ -87,6 +87,12 @@ export const deployments = pgTable(
   // sha256 of the relay's bearer token. Stored (not the plaintext) and in
   // Postgres (not in memory) so a restart cannot reopen the enrollment.
   relayTokenHash: text('relay_token_hash'),
+  // DZ-AUDIT-013: server-established relay credential plaintext. Set at
+  // deployment creation / relay/reset / install-link retry together with
+  // relayTokenHash. NULLed after the relay's first successful registration
+  // (the credential has been delivered through the Quick Create URL and is
+  // consumed). Re-enrollment mints a fresh one.
+  relayCredential: text('relay_credential'),
   relayBoundAt: timestamp('relay_bound_at', { withTimezone: true }),
   // Relay identity, reported at enrollment and on every heartbeat. Older
   // relays never report these — they stay null, which the UI reads as

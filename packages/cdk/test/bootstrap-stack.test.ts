@@ -133,17 +133,15 @@ describe('BootstrapStack', () => {
     });
   });
 
-  it('generates the communication credential as a bootstrap secret (not a parameter)', () => {
+  it('creates two mutually exclusive credential secrets (DZ-AUDIT-013, replaces one secret)', () => {
     const { template } = synth();
-    template.resourceCountIs('AWS::SecretsManager::Secret', 1);
-    // GenerateSecretString mints the token at deploy time — a secret passed in
-    // as a template parameter would instead carry a `SecretString`/dynamic ref.
-    template.hasResourceProperties('AWS::SecretsManager::Secret', {
-      GenerateSecretString: {
-        GenerateStringKey: 'token',
-        SecretStringTemplate: '{}',
-      },
-    });
+    // DZ-AUDIT-013: two CfnSecrets, one always created (conditioned away).
+    template.resourceCountIs('AWS::SecretsManager::Secret', 2);
+    // At least one of them uses GenerateSecretString for legacy deployments.
+    const generated = Object.values(allResources(template)).filter(
+      (r) => r.Type === 'AWS::SecretsManager::Secret' && r.Properties?.['GenerateSecretString'],
+    );
+    expect(generated.length).toBeGreaterThanOrEqual(1);
   });
 
   it('mints the installation identifier via a custom resource', () => {
@@ -202,10 +200,12 @@ describe('BootstrapStack', () => {
     );
     expect(hasTag(relayFn?.['Properties'] as Record<string, unknown>, 'deployz:installation')).toBe(true);
 
-    const secret = Object.values(resources).find(
+    const secrets = Object.values(resources).filter(
       (r) => r['Type'] === 'AWS::SecretsManager::Secret',
     );
-    expect(hasTag(secret?.['Properties'] as Record<string, unknown>, 'deployz:installation')).toBe(true);
+    for (const secret of secrets) {
+      expect(hasTag(secret['Properties'] as Record<string, unknown>, 'deployz:installation')).toBe(true);
+    }
 
     const rule = Object.values(resources).find((r) => r['Type'] === 'AWS::Events::Rule');
     expect(hasTag(rule?.['Properties'] as Record<string, unknown>, 'deployz:installation')).toBe(true);
@@ -601,7 +601,7 @@ describe('BootstrapStack', () => {
     }
   });
 
-  it('carries no secret template parameters', () => {
+  it('carries the RelayCredential NoEcho parameter (DZ-AUDIT-013) alongside the existing public params', () => {
     const { template } = synth();
     const json = template.toJSON();
     const params = (json['Parameters'] ?? {}) as Record<string, Record<string, unknown>>;
@@ -613,25 +613,23 @@ describe('BootstrapStack', () => {
       Object.entries(params).filter(([name]) => name !== 'BootstrapVersion'),
     );
 
+    // RelayCredential is the one NoEcho parameter — allowing it is the
+    // DZ-AUDIT-013 change; the rest stay non-secret.
     for (const [name, param] of Object.entries(appParams)) {
-      // No parameter may be NoEcho (a NoEcho param would carry a credential).
-      expect(param['NoEcho'], `parameter ${name} must not be NoEcho`).not.toBe(true);
-      // No parameter name may imply a credential.
-      expect(name.toLowerCase(), `parameter ${name} looks like a credential`).not.toMatch(
-        /token|secret|credential|password|api.?key/,
-      );
-      // Every application parameter is non-secret: two public URLs and a
-      // single-use enrollment code.
-      expect(['ControlPlaneUrl', 'EnrollmentCode', 'ApplicationTemplateUrl']).toContain(name);
+      if (name === 'RelayCredential') {
+        expect(param['NoEcho'], 'RelayCredential must be NoEcho').toBe(true);
+        expect(param['Type']).toBe('String');
+        expect(param['Default']).toBe('');
+      } else {
+        expect(param['NoEcho'], `parameter ${name} must not be NoEcho`).not.toBe(true);
+        expect(['ControlPlaneUrl', 'EnrollmentCode', 'ApplicationTemplateUrl']).toContain(name);
+      }
     }
-    // EnrollmentCode is single use: the control plane burns it when the relay
-    // first binds, and refuses to bind it to a second relay afterwards. It is
-    // not the relay's communication credential — CloudFormation still mints
-    // that inside the customer's account, and it is still never a parameter.
     expect(Object.keys(appParams).sort()).toEqual([
       'ApplicationTemplateUrl',
       'ControlPlaneUrl',
       'EnrollmentCode',
+      'RelayCredential',
     ]);
   });
 
@@ -696,6 +694,66 @@ describe('BootstrapStack', () => {
     expect(withStableAssetHashes(template.toJSON())).toMatchSnapshot();
   });
 });
+
+it('creates two mutually exclusive credential secrets with conditions (DZ-AUDIT-013)', () => {
+    const { template } = synth();
+    const resources = allResources(template);
+
+    const secrets = Object.entries(resources).filter(
+      ([, r]) => r.Type === 'AWS::SecretsManager::Secret',
+    );
+
+    // Two CfnSecrets: one from parameter (HasRelayCredential), one generated (NoRelayCredential).
+    expect(secrets).toHaveLength(2);
+
+    for (const [, resource] of secrets) {
+      expect(resource.Properties?.['Tags']).toEqual(
+        expect.arrayContaining([{ Key: 'deployz:component', Value: 'bootstrap' }]),
+      );
+      if (resource.Properties?.['SecretString'] !== undefined) {
+        expect(resource.Properties!['GenerateSecretString']).toBeUndefined();
+      } else {
+        expect(resource.Properties!['GenerateSecretString']).toBeDefined();
+      }
+    }
+
+    // Conditions present in the Conditions section.
+    const json = template.toJSON();
+    const conditions = json['Conditions'] as Record<string, unknown> | undefined;
+    expect(conditions).toBeDefined();
+    expect(conditions!['HasRelayCredential']).toBeDefined();
+    expect(conditions!['NoRelayCredential']).toBeDefined();
+  });
+
+  it('the credential secret ARN in the relay Lambda env uses Fn::If (DZ-AUDIT-013)', () => {
+    const { template } = synth();
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: {
+        Variables: Match.objectLike({
+          DEPLOYZ_CREDENTIAL_SECRET_ARN: { 'Fn::If': Match.anyValue() },
+        }),
+      },
+    });
+  });
+
+  it('the CredentialSecretArn output uses Fn::If (DZ-AUDIT-013)', () => {
+    const { template } = synth();
+    const outputs = (template.toJSON()['Outputs'] ?? {}) as Record<string, Record<string, unknown>>;
+    const credOutput = outputs['CredentialSecretArn'];
+    expect(credOutput).toBeDefined();
+    const value = credOutput!['Value'] as Record<string, unknown>;
+    expect(value).toBeDefined();
+    expect(value['Fn::If']).toBeDefined();
+  });
+
+  it('creates the HasRelayCredential and NoRelayCredential conditions (DZ-AUDIT-013)', () => {
+    const { template } = synth();
+    const json = template.toJSON();
+    const conditions = json['Conditions'] as Record<string, unknown>;
+    expect(conditions).toBeDefined();
+    expect(conditions!['HasRelayCredential']).toBeDefined();
+    expect(conditions!['NoRelayCredential']).toBeDefined();
+  });
 
 // ── Provisioning the application stack ──────────────────────────────────────
 //

@@ -2,6 +2,28 @@
 
 exports[`BootstrapStack > matches the committed snapshot 1`] = `
 {
+  "Conditions": {
+    "HasRelayCredential": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "RelayCredential",
+            },
+            "",
+          ],
+        },
+      ],
+    },
+    "NoRelayCredential": {
+      "Fn::Equals": [
+        {
+          "Ref": "RelayCredential",
+        },
+        "",
+      ],
+    },
+  },
   "Outputs": {
     "ApplicationExecutionRoleArn": {
       "Value": {
@@ -13,7 +35,21 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
     },
     "CredentialSecretArn": {
       "Value": {
-        "Ref": "RelayCredential6AA8BC18",
+        "Fn::If": [
+          "HasRelayCredential",
+          {
+            "Fn::GetAtt": [
+              "RelayCredentialFromParam",
+              "Arn",
+            ],
+          },
+          {
+            "Fn::GetAtt": [
+              "RelayCredentialGenerated",
+              "Arn",
+            ],
+          },
+        ],
       },
     },
     "InstallationId": {
@@ -57,6 +93,12 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
     "EnrollmentCode": {
       "Default": "",
       "Description": "Single-use code from your install link. Ties this installation to your deployment.",
+      "Type": "String",
+    },
+    "RelayCredential": {
+      "Default": "",
+      "Description": "Server-established relay credential. When set, used as the secret value instead of generating one inside the account. Not a customer secret.",
+      "NoEcho": true,
       "Type": "String",
     },
   },
@@ -477,9 +519,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "secretsmanager:DescribeSecret",
               ],
               "Effect": "Allow",
-              "Resource": {
-                "Ref": "RelayCredential6AA8BC18",
-              },
+              "Resource": "*",
             },
             {
               "Action": [
@@ -1576,10 +1616,43 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
       },
       "Type": "AWS::IAM::ManagedPolicy",
     },
-    "RelayCredential6AA8BC18": {
-      "DeletionPolicy": "Delete",
+    "RelayCredentialFromParam": {
+      "Condition": "HasRelayCredential",
       "Properties": {
-        "Description": "Bootstrap-generated relay communication credential. Minted by CloudFormation at deploy time; registered with the control plane on the relay first poll. Never a template parameter.",
+        "Description": "Server-established relay communication credential. Value was minted by the control plane and delivered via the Quick Create URL.",
+        "SecretString": {
+          "Ref": "RelayCredential",
+        },
+        "Tags": [
+          {
+            "Key": "deployz:component",
+            "Value": "bootstrap",
+          },
+          {
+            "Key": "deployz:installation",
+            "Value": {
+              "Fn::GetAtt": [
+                "InstallationId",
+                "InstallationId",
+              ],
+            },
+          },
+          {
+            "Key": "deployz:managed",
+            "Value": "true",
+          },
+          {
+            "Key": "deployz:scope",
+            "Value": "customer",
+          },
+        ],
+      },
+      "Type": "AWS::SecretsManager::Secret",
+    },
+    "RelayCredentialGenerated": {
+      "Condition": "NoRelayCredential",
+      "Properties": {
+        "Description": "Bootstrap-generated relay communication credential. Minted by CloudFormation at deploy time; registered with the control plane on the relay first poll.",
         "GenerateSecretString": {
           "ExcludePunctuation": false,
           "GenerateStringKey": "token",
@@ -1611,7 +1684,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
         ],
       },
       "Type": "AWS::SecretsManager::Secret",
-      "UpdateReplacePolicy": "Delete",
     },
     "RelayFunctionD137DF95": {
       "DependsOn": [
@@ -1643,7 +1715,21 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Ref": "ControlPlaneUrl",
             },
             "DEPLOYZ_CREDENTIAL_SECRET_ARN": {
-              "Ref": "RelayCredential6AA8BC18",
+              "Fn::If": [
+                "HasRelayCredential",
+                {
+                  "Fn::GetAtt": [
+                    "RelayCredentialFromParam",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::GetAtt": [
+                    "RelayCredentialGenerated",
+                    "Arn",
+                  ],
+                },
+              ],
             },
             "DEPLOYZ_ENROLLMENT_CODE": {
               "Ref": "EnrollmentCode",
@@ -1737,9 +1823,7 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "secretsmanager:DescribeSecret",
               ],
               "Effect": "Allow",
-              "Resource": {
-                "Ref": "RelayCredential6AA8BC18",
-              },
+              "Resource": "*",
               "Sid": "RelayAccessCredential",
             },
             {

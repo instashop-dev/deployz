@@ -20,7 +20,12 @@ import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from 'dr
 import { reconcileBilling } from '@deployz/api/billing';
 import { markDeploymentLive } from '@deployz/api/billing-lifecycle';
 import { mintInstallationToken } from '@deployz/api/github';
-import { createOrReuseJob, hasStartedInstall, newerReadyReleaseExists } from '@deployz/api/jobs';
+import {
+  createOrReuseJob,
+  flipHealthyDeploymentsToUpdateAvailable,
+  hasStartedInstall,
+  newerReadyReleaseExists,
+} from '@deployz/api/jobs';
 import type { PaddleBilling } from '@deployz/api/paddle';
 import type { QueueMessage } from '@deployz/api/queue';
 import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
@@ -554,15 +559,7 @@ export async function recordBuildResult(
       .set({ imageDigest, buildStatus: 'SUCCEEDED', releaseStatus: 'READY' })
       .where(eq(schema.releases.id, releaseId));
     if (application) {
-      await tx
-        .update(schema.deployments)
-        .set({ state: 'UPDATE_AVAILABLE' })
-        .where(
-          and(
-            eq(schema.deployments.applicationId, application.id),
-            eq(schema.deployments.state, 'HEALTHY'),
-          ),
-        );
+      await flipHealthyDeploymentsToUpdateAvailable(tx, application.id);
       await insertReleaseBuildEvent(tx, {
         organizationId: application.organizationId,
         releaseId,

@@ -63,3 +63,13 @@ export function verifyRelayTokenWithRotation(
 export function mintEnrollmentCode(): string {
   return crypto.randomBytes(32).toString('hex');
 }
+
+/**
+ * A fresh server-established relay credential (DZ-AUDIT-013).
+ *
+ * 64 hex characters (256 bits of entropy) — same effective length as the
+ * bootstrap-generated secret the relay previously minted for itself.
+ */
+export function mintRelayCredential(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
