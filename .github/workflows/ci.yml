@@ -33,6 +33,12 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # scripts/ is not a workspace package, so `pnpm build` never
+      # compiles the four real-AWS harnesses and eslint only covers the
+      # .mjs runners. Without this they reach a live AWS run unchecked.
+      - name: Typecheck the AWS harnesses
+        run: pnpm typecheck:scripts
+
   # Simulated E2E (docs/testing/e2e-testing.md): the mode/guard tests plus the
   # full simulated scenario regression suite. Runs through scripts/e2e.mjs, so
   # the workflow-level AWS credentials below double as a live proof that
