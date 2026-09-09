@@ -529,13 +529,10 @@ export async function runDomainCheck(
       break;
     }
     case 'ERROR': {
-      // Retry: fall back to the earliest still-plausible stage and re-run.
-      const nextStatus = domain.validationName ? 'WAITING_FOR_DNS' : 'PENDING';
-      await db
-        .update(schema.customDomains)
-        .set({ status: nextStatus, lastError: null })
-        .where(eq(schema.customDomains.id, domain.id));
-      await ensureConfigureJob(db, deployment, domain, { forceNewCycle: true });
+      // Terminal: no automatic retry (DZ-AUDIT-008). The vendor retries by
+      // removing and re-adding the custom domain — the re-add creates a fresh
+      // domain row with a clean budget. Unbounded CONFIGURE_DOMAIN churn is
+      // prevented on permanently broken setups (e.g. SCP denies ACM).
       break;
     }
     case 'REMOVING':

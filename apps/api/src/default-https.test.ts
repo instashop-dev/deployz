@@ -376,7 +376,7 @@ describe('default-https service', () => {
       });
     });
 
-    it('ERROR retries automatically: falls back and re-runs the earliest stage', async () => {
+    it('ERROR is terminal: runDefaultHttpsCheck leaves ERROR untouched (DZ-AUDIT-008)', async () => {
       const deployment = await install();
       await settleNewestConfigureJob(deployment.id, {
         certificateArn: 'arn:aws:acm:us-east-1:1:certificate/abc',
@@ -391,12 +391,11 @@ describe('default-https service', () => {
 
       await runDefaultHttpsCheck(db, deployment, deps());
       const state = await stateOf(deployment.id);
-      // Records were (re)written and a fresh cycle was minted from the
-      // WAITING_FOR_DNS fallback.
-      expect(state?.status).toBe('WAITING_FOR_DNS');
-      expect(state?.lastError).toBeNull();
+      // ERROR is terminal — no automatic retry, no new jobs.
+      expect(state?.status).toBe('ERROR');
+      expect(state?.lastError).toBe('CONFIGURE_FAILED');
       const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
-      expect(jobs).toHaveLength(2);
+      expect(jobs).toHaveLength(1);
     });
   });
 
@@ -906,10 +905,38 @@ describe('default-https service', () => {
       }
       expect((await stateOf(deployment.id))?.status).toBe('ERROR');
 
-      // The provider recovers: the ERROR retry resets the budget, reconciles
-      // the records, mints a fresh cycle, and the relay outcome can still
-      // reach ACTIVE.
+      // ERROR is terminal — automatic retry is removed (DZ-AUDIT-008). The
+      // vendor must call the retry route to reset the machine; simulate that
+      // here by resetting the state to PENDING + fresh budget.
       const goodDns = createFakeCloudflareDnsClient({ zoneId: 'zone-1', zoneName: apex });
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: goodDns }));
+      expect((await stateOf(deployment.id))?.status).toBe('ERROR');
+
+      // Simulate the vendor retry: reset to PENDING.
+      const s = (await stateOf(deployment.id))!;
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: { ...s, status: 'PENDING', configureAttempts: 0, lastError: null } })
+        .where(eq(schema.deployments.id, deployment.id));
+      await runDefaultHttpsCheck(db, deployment, deps({ dns: goodDns }));
+      // PENDING created a fresh configure job — settle it to get validation
+      // records and advance to WAITING_FOR_DNS.
+      const pendingJob = (await jobsFor(deployment.id))
+        .filter((j) => j.type === 'CONFIGURE_DOMAIN')
+        .pop()!;
+      await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'SUCCEEDED', finishedAt: new Date() })
+        .where(eq(schema.deploymentJobs.id, pendingJob.id));
+      await applyDefaultHttpsJobResult(db, deployment.id, pendingJob, {
+        success: true,
+        output: {
+          certificateArn: 'arn:aws:acm:us-east-1:1:certificate/retry',
+          validationName: `_x1.${defaultHttpsHostname(deployment.id, apex)}`,
+          validationValue: '_y1.acm-validations.aws.',
+          routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+        },
+      });
       await runDefaultHttpsCheck(db, deployment, deps({ dns: goodDns }));
       expect((await stateOf(deployment.id))?.status).toBe('WAITING_FOR_DNS');
 

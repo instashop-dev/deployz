@@ -274,6 +274,7 @@ const FAILURE_COMPONENT: Record<FailureCode, string | null> = {
   IMAGE_PULL_FAILED: 'runtime',
   CONTAINER_START_FAILED: 'runtime',
   MISSING_SECRET: 'runtime',
+  TEMPLATE_UNAVAILABLE: null,
   UNSUPPORTED_ARCHITECTURE: 'runtime',
   UNKNOWN: null,
   REDIS_PROVISIONING_FAILED: 'redis',

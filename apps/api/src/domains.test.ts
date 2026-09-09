@@ -643,7 +643,7 @@ describe('domains (custom-domain service)', () => {
       expect(calls).toBe(2);
     });
 
-    it('ERROR status falls back to WAITING_FOR_DNS (validation already known) and enqueues a fresh job (the Retry path)', async () => {
+    it('ERROR is terminal: runDomainCheck leaves ERROR untouched (DZ-AUDIT-008)', async () => {
       const { deployment } = await seedDeployment();
       const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
       await markSucceeded(deployment.id, 'CONFIGURE_DOMAIN');
@@ -660,14 +660,15 @@ describe('domains (custom-domain service)', () => {
 
       const fresh = await runDomainCheck(db, deployment, errored, fakeDeps());
 
-      expect(fresh.status).toBe('WAITING_FOR_DNS');
-      expect(fresh.lastError).toBeNull();
+      // ERROR is terminal — no automatic retry (DZ-AUDIT-008). Vendor
+      // recovers by removing and re-adding the domain.
+      expect(fresh.status).toBe('ERROR');
+      expect(fresh.lastError).toBe('CONFIGURE_FAILED');
       const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
-      expect(jobs).toHaveLength(2);
-      expect(jobs.some((job) => job.idempotencyKey.endsWith(':1'))).toBe(true);
+      expect(jobs).toHaveLength(1);
     });
 
-    it('ERROR status with no validation known yet falls back to PENDING', async () => {
+    it('ERROR status with no validation known is also terminal (DZ-AUDIT-008)', async () => {
       const { deployment } = await seedDeployment();
       const domain = await createCustomDomain(db, deployment, freshHostname(), 'user-1');
       await markSucceeded(deployment.id, 'CONFIGURE_DOMAIN');
@@ -679,8 +680,8 @@ describe('domains (custom-domain service)', () => {
 
       const fresh = await runDomainCheck(db, deployment, errored, fakeDeps());
 
-      expect(fresh.status).toBe('PENDING');
-      expect(fresh.lastError).toBeNull();
+      expect(fresh.status).toBe('ERROR');
+      expect(fresh.lastError).toBe('CONFIGURE_FAILED');
     });
 
     it('REMOVING nudges (and idempotently reuses) the REMOVE_DOMAIN job', async () => {

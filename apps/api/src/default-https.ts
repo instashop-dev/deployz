@@ -16,7 +16,7 @@
  *   WAITING_FOR_DNS  cert requested; validation + routing records written
  *   CONFIGURING      cert issued + 443 listener wired; HTTPS being probed
  *   ACTIVE           HTTPS verified reachable — the deployment's URL
- *   ERROR            last attempt failed; retried on the next driver pass
+ *   ERROR            last attempt failed; terminal — explicit vendor retry required
  *   REMOVING         destroy/remove in progress
  *
  * Driver cadence: the relay heartbeat (~5 min, the same existing background
@@ -61,8 +61,9 @@ export interface DefaultHttpsState {
    *  failures since the last timeout/ERROR recovery. A rate-limited attempt
    *  NEVER consumes it (Cloudflare said stop; no progress was made). At
    *  MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES the machine times out to ERROR with
-   *  DEFAULT_DNS_TIMEOUT; the ERROR retry resets it to 0 so recovery gets a
-   *  fresh budget. Absent = 0. */
+   *  DEFAULT_DNS_TIMEOUT. ERROR is terminal (DZ-AUDIT-008); the vendor
+   *  retries explicitly via the retry route, which resets the budget.
+   *  Absent = 0. */
   configureAttempts?: number;
 }
 
@@ -574,13 +575,13 @@ export async function runDefaultHttpsCheck(
   }
 
   let working: DefaultHttpsState = state;
-  while (working.status !== 'ACTIVE' && working.status !== 'REMOVING') {
+  while (working.status !== 'ACTIVE' && working.status !== 'REMOVING' && working.status !== 'ERROR') {
     // Phase 12 watchdog: a pre-ACTIVE machine that has consumed its whole
     // configure budget (MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES attempts) without
-    // reaching ACTIVE stops minting and reports DEFAULT_DNS_TIMEOUT. The
-    // ERROR branch below is the recovery — it resets the budget so a fresh
-    // attempt can still reach ACTIVE once the provider recovers. CONFIGURING
-    // is exempt: it spends no budget (the probe is not a configure attempt).
+    // reaching ACTIVE stops minting and reports DEFAULT_DNS_TIMEOUT. ERROR
+    // is terminal (DZ-AUDIT-008); the vendor retries explicitly.
+    // CONFIGURING is exempt: it spends no budget (the probe is not a
+    // configure attempt).
     if (
       (working.status === 'PENDING' || working.status === 'WAITING_FOR_DNS') &&
       (working.configureAttempts ?? 0) >= MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES
@@ -677,21 +678,10 @@ export async function runDefaultHttpsCheck(
         }
         return;
       }
-      case 'ERROR': {
-        // Automatic retry: fall back to the earliest still-plausible stage
-        // and re-run, mirroring the custom-domain Retry path. Phase 12: the
-        // retry also RESETS the watchdog budget (configureAttempts) so a
-        // DEFAULT_DNS_TIMEOUT is followed by one fresh budget of configure
-        // cycles that can still reach ACTIVE; checkCycle keeps rising so the
-        // new job's idempotency key never collides with an old one.
-        working = {
-          ...working,
-          status: working.validationName ? 'WAITING_FOR_DNS' : 'PENDING',
-          configureAttempts: 0,
-          lastError: null,
-        };
-        await persistState(db, deployment.id, working);
-        continue;
+      default: {
+        // ERROR (terminal: DZ-AUDIT-008) or any other unexpected status
+        // — nothing to do here. The vendor retries explicitly.
+        return;
       }
     }
   }

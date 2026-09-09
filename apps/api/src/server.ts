@@ -222,6 +222,7 @@ import {
   reconcileOrphanedDefaultRecords,
   runDefaultHttpsCheck,
   type DefaultHttpsDeps,
+  type DefaultHttpsState,
 } from './default-https.js';
 import {
   createCloudflareDnsClient,
@@ -1443,6 +1444,24 @@ export async function buildServer({
   // Stable, minimal readiness probe for external monitors: no internal or
   // customer detail crosses this boundary — reachability is the whole answer.
   app.get('/api/health', () => ({ status: 'ok' }));
+
+  // DZ-AUDIT-015: readiness endpoint that proves the process answers AND the
+  // DB is reachable. Used by the deploy workflow's health check instead of the
+  // static /health probe, so a silent DB failure (migration-wedge, credential
+  // expiry) is caught before traffic is routed here. Cheap, non-destructive,
+  // no internal details in the response.
+  app.get('/health/ready', async () => {
+    try {
+      await db.execute(sql`SELECT 1`);
+      // Proves the migrated schema is queryable, not just that the DB
+      // answers — a deployment whose migrations never applied must fail the
+      // deploy workflow's probe visibly (DZ-AUDIT-015).
+      await db.execute(sql`SELECT 1 FROM deployments LIMIT 1`);
+    } catch {
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Service not ready');
+    }
+    return { ok: true };
+  });
 
   // ── Fixture-only default-HTTPS DNS surface (Phase 14 simulated E2E) ───────
   // Registered ONLY when the in-memory provider exists (both fixture flags on,
@@ -4950,6 +4969,34 @@ export async function buildServer({
       return { domain: toDomainView(fresh) };
     },
   );
+
+  // POST /api/deployments/:id/default-https/retry — DZ-AUDIT-008: vendor
+  // reset for a default-HTTPS machine stuck in ERROR. Resets the machine
+  // to PENDING with a fresh budget and kicks off the driver immediately.
+  app.post('/api/deployments/:id/default-https/retry', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const parsed = parseDefaultHttps(deployment.defaultHttps);
+    if (!parsed || parsed.status !== 'ERROR') {
+      throw new ApiError(409, 'NOT_IN_ERROR', 'Default HTTPS is not in an error state.');
+    }
+    const reset: DefaultHttpsState = {
+      ...parsed,
+      status: 'PENDING',
+      configureAttempts: 0,
+      lastError: null,
+    };
+    await db
+      .update(schema.deployments)
+      .set({ defaultHttps: reset as unknown as Record<string, unknown> })
+      .where(eq(schema.deployments.id, deployment.id));
+    // Kick the driver so the machine starts moving immediately, not just
+    // on the next heartbeat cadence.
+    await runDefaultHttpsCheck(db, deployment, defaultHttpsDeps);
+    return { status: 'retrying' };
+  });
 
   // ── Events & diagnostics (§24, §29, §40) ────────────────────────────────
 
