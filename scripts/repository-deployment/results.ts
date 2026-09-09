@@ -133,6 +133,12 @@ export const buildResultSchema = z
     imageDigest: z.string().nullable(),
     buildId: z.string().nullable(),
     durationMs: z.number().int().nonnegative().nullable(),
+    /**
+     * True when the attempt deployed a release an earlier attempt had already
+     * built, instead of running CodeBuild again (`--reuse-application`).
+     * Absent in results recorded before the flag existed.
+     */
+    imageReused: z.boolean().default(false),
     detail: z.string().nullable(),
   })
   .strict();
@@ -304,6 +310,7 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
       imageDigest: null,
       buildId: null,
       durationMs: null,
+      imageReused: false,
       detail: null,
     },
     deployment: {

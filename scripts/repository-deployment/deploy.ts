@@ -7,7 +7,7 @@
  * flow (ordering, stop conditions, cleanup in `finally`, classification)
  * is testable with fakes. The real wiring is `realDeps()` in index.ts.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { applicationStackNameForInstallation } from '@deployz/contracts';
 
@@ -52,6 +52,34 @@ export const DEFAULT_TIMEOUTS: Timeouts = {
 
 /** CloudFormation states in which an install stack will never become healthy. */
 export const STACK_TERMINAL_FAILURE = /^(ROLLBACK_COMPLETE|ROLLBACK_FAILED|CREATE_FAILED|DELETE_COMPLETE|DELETE_FAILED)$/;
+
+/**
+ * The vendor overrides that change what CodeBuild produces. Everything else a
+ * vendor can set — port, health path, the infrastructure flags — shapes the
+ * deployment, not the image, so it must not make a built image unreusable.
+ */
+const IMAGE_INPUT_OVERRIDES = [
+  'appRoot',
+  'dockerfilePath',
+  'buildContext',
+  'buildCommand',
+  'startCommand',
+  'migrationCommand',
+] as const;
+
+/**
+ * The release version a `--reuse-application` attempt looks for and, failing
+ * that, builds: one identity per (repository, pinned commit, image inputs).
+ * Change any of those and the version changes, so a retry can never redeploy
+ * an image that the current configuration would not have produced.
+ */
+export function reusableReleaseVersion(benchmark: BenchmarkEntry, config: RepositoryConfig): string {
+  const inputs = IMAGE_INPUT_OVERRIDES.map(
+    (key) => `${key}=${String(config.overrides?.[key] ?? '')}`,
+  ).join('|');
+  const fingerprint = createHash('sha256').update(inputs).digest('hex').slice(0, 8);
+  return `${benchmark.id}-${benchmark.commit.slice(0, 7)}-${fingerprint}`;
+}
 
 /** The vendor-side routes the funnel drives (a subset of the canary's ControlPlane). */
 export interface ControlPlaneLike {
@@ -111,6 +139,13 @@ export interface DeployDeps {
   keep: boolean;
   generateSecret?: ((format: SecretFormat) => string) | undefined;
   pollIntervalMs?: number | undefined;
+  /**
+   * Retries reuse the repository's application instead of a fresh one, so a
+   * release an earlier attempt already built can be redeployed rather than
+   * rebuilt (`--reuse-application`). Off by default: a repository's first
+   * attempt must exercise the create-application path like a real vendor.
+   */
+  reuseApplication?: boolean | undefined;
 }
 
 export interface RepositoryAttemptInput {
@@ -121,6 +156,12 @@ export interface RepositoryAttemptInput {
   evidence: Evidence;
   /** The result document to fill; the caller persists it. */
   result: StageBResult;
+  /**
+   * The application an earlier attempt of this repository created, when
+   * `--reuse-application` is on. Its releases are what make image reuse
+   * possible; the funnel still re-runs analysis and re-applies overrides.
+   */
+  existingApplicationId?: string | undefined;
 }
 
 export class FunnelStop extends Error {
@@ -194,13 +235,16 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
     const applicationId = await step('gate', () =>
       evidence.step('Application and analysis', async (details) => {
         await deps.api.bindGithubInstallation(deps.githubInstallationId);
-        const created = await deps.api.createApplication({
-          name: `stage-b-${benchmark.id}`,
-          githubInstallationId: deps.githubInstallationId,
-          repoFullName: input.repositoryUsed,
-          repoUrl: `https://github.com/${input.repositoryUsed}`,
-          defaultBranch: benchmark.commit,
-        });
+        const created = input.existingApplicationId
+          ? { id: input.existingApplicationId }
+          : await deps.api.createApplication({
+              name: `stage-b-${benchmark.id}`,
+              githubInstallationId: deps.githubInstallationId,
+              repoFullName: input.repositoryUsed,
+              repoUrl: `https://github.com/${input.repositoryUsed}`,
+              defaultBranch: benchmark.commit,
+            });
+        details['applicationReused'] = Boolean(input.existingApplicationId);
         run.applicationId = created.id;
         evidence.save();
         details['applicationId'] = created.id;
@@ -271,12 +315,29 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
     const buildStarted = deps.now();
     const release = await step('build', () =>
       evidence.step('Release build through CodeBuild', async (details) => {
-        const version = `${benchmark.id}-${run.runId.slice('stage-b-'.length + benchmark.id.length + 1)}`;
-        const created = await deps.api.createRelease(applicationId, {
-          version,
-          gitSha: benchmark.commit,
-          ...(config.overrides?.migrationCommand ? { migrationCommand: config.overrides.migrationCommand } : {}),
-        });
+        // Without reuse, one release per attempt. With it, the version is
+        // derived from the pinned commit and the build-affecting overrides, so
+        // a retry of the same inputs finds the release an earlier attempt
+        // built — and any change to those inputs mints a different version
+        // rather than silently redeploying a stale image.
+        const version = deps.reuseApplication
+          ? reusableReleaseVersion(benchmark, config)
+          : `${benchmark.id}-${run.runId.slice('stage-b-'.length + benchmark.id.length + 1)}`;
+        const existing = deps.reuseApplication
+          ? (await deps.api.listReleases(applicationId)).find(
+              (r) => r.version === version && r.status === 'READY',
+            )
+          : undefined;
+        if (existing) console.log(`  reusing release ${version} (${existing.id}) — no CodeBuild run`);
+        const created = existing
+          ? { id: existing.id, version }
+          : await deps.api.createRelease(applicationId, {
+              version,
+              gitSha: benchmark.commit,
+              ...(config.overrides?.migrationCommand ? { migrationCommand: config.overrides.migrationCommand } : {}),
+            });
+        result.build.imageReused = Boolean(existing);
+        details['imageReused'] = Boolean(existing);
         run.releases['release'] = { id: created.id, version, gitSha: benchmark.commit };
         evidence.save();
         result.build.releaseId = created.id;

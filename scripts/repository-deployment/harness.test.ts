@@ -10,7 +10,7 @@ import type { DeploymentDetail } from '../version-canary/control-plane.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
 import { appUrlKeys, configFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
-import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps } from './deploy.js';
+import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
 import { applicationContainerDefinition, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
 import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
@@ -442,6 +442,10 @@ interface Script {
   application?: Record<string, unknown>;
   presence?: { rds: string | null; cache: string | null; bucket: string | null };
   taskEnv?: { environment: string[]; secrets: string[] };
+  /** Releases the application already carries (what --reuse-application looks for). */
+  existingReleases?: { id: string; version: string; status: string; failureReason: string | null }[];
+  /** Retries reuse the application and any release it already built. */
+  reuseApplication?: boolean;
 }
 
 function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Record<string, unknown>[] } {
@@ -502,6 +506,7 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
       return { id: releaseId, version: input.version };
     },
     async listReleases() {
+      if (script.existingReleases) return script.existingReleases;
       return [{ id: releaseId, version: 'v', status: script.releaseStatus ?? 'READY', failureReason: script.releaseFailure ?? null }];
     },
     async createCustomer() {
@@ -622,13 +627,35 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
   return { deps, calls, puts };
 }
 
-function attempt(entry: BenchmarkEntry, script: Script, config = configFor(DEPLOY_CONFIG, entry.id)) {
+function attempt(
+  entry: BenchmarkEntry,
+  script: Script,
+  config = configFor(DEPLOY_CONFIG, entry.id),
+  existingApplicationId?: string,
+) {
   const evidenceDir = join(tmp, 'evidence', `${entry.id}-${Math.random().toString(36).slice(2, 8)}`);
   const runId = stageBRunId(entry.id);
   const evidence = openLedger(evidenceDir, loadConfig({}), { repoId: entry.id, repository: entry.repository, commit: entry.commit, deployzCommit: SHA, cleanupNeeded: false }, runId);
   const result = emptyResult(identityFor(entry, SHA, 'deploy', runId));
   const { deps, calls, puts } = fakes(script);
-  return { run: () => runRepositoryAttempt(deps, { benchmark: entry, config, repositoryUsed: 'instashop-dev/api', repositoryForm: 'fork', evidence, result }), calls, puts, evidence, result, evidenceDir };
+  if (script.reuseApplication) deps.reuseApplication = true;
+  return {
+    run: () =>
+      runRepositoryAttempt(deps, {
+        benchmark: entry,
+        config,
+        repositoryUsed: 'instashop-dev/api',
+        repositoryForm: 'fork',
+        evidence,
+        result,
+        ...(existingApplicationId ? { existingApplicationId } : {}),
+      }),
+    calls,
+    puts,
+    evidence,
+    result,
+    evidenceDir,
+  };
 }
 
 describe('the funnel', () => {
@@ -769,6 +796,86 @@ describe('the funnel', () => {
     const out = await run();
     expect(out.dependencies.postgres).toBe('FAIL');
     expect(out.classification).toBe('APPLICATION_ERROR');
+  });
+});
+
+describe('reusing an application on a retry (--reuse-application)', () => {
+  const deployable = BENCHMARK.repositories[0]!;
+  const config = configFor(DEPLOY_CONFIG, deployable.id);
+
+  it('names a release by repository, pinned commit and image inputs', () => {
+    const version = reusableReleaseVersion(deployable, config);
+    expect(version).toBe(`${deployable.id}-${deployable.commit.slice(0, 7)}-${version.split('-').pop()}`);
+    // A different pinned commit is a different image.
+    expect(reusableReleaseVersion({ ...deployable, commit: 'f'.repeat(40) }, config)).not.toBe(version);
+  });
+
+  it('changes the version when an image input changes, not when a runtime one does', () => {
+    const version = reusableReleaseVersion(deployable, config);
+    const rebuilt = { ...config, overrides: { ...config.overrides, dockerfilePath: 'other/Dockerfile' } };
+    expect(reusableReleaseVersion(deployable, rebuilt)).not.toBe(version);
+    // Port and health path shape the deployment, never the image.
+    const sameImage = { ...config, overrides: { ...config.overrides, containerPort: 9999, healthPath: '/other' } };
+    expect(reusableReleaseVersion(deployable, sameImage)).toBe(version);
+  });
+
+  it('builds when the application has no matching release, and records that it built', async () => {
+    const { run, calls } = attempt(deployable, { reuseApplication: true });
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(calls).toContain(`createRelease ${SHA}`);
+    expect(out.build.imageReused).toBe(false);
+  });
+
+  it('redeploys the release a previous attempt built instead of running CodeBuild', async () => {
+    const version = reusableReleaseVersion(deployable, config);
+    const { run, calls } = attempt(deployable, {
+      reuseApplication: true,
+      existingReleases: [{ id: 'rel-1', version, status: 'READY', failureReason: null }],
+    });
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(calls.some((c) => c.startsWith('createRelease'))).toBe(false);
+    expect(out.build.imageReused).toBe(true);
+    expect(out.build.version).toBe(version);
+    expect(() => stageBResultSchema.parse(out)).not.toThrow();
+  });
+
+  it('rebuilds rather than reusing a release that is not READY, or one of another version', async () => {
+    const version = reusableReleaseVersion(deployable, config);
+    const failed = attempt(deployable, {
+      reuseApplication: true,
+      existingReleases: [{ id: 'rel-1', version, status: 'FAILED', failureReason: 'BUILD: x' }],
+    });
+    await failed.run();
+    expect(failed.calls).toContain(`createRelease ${SHA}`);
+
+    const other = attempt(deployable, {
+      reuseApplication: true,
+      existingReleases: [{ id: 'rel-1', version: 'someone-elses-version', status: 'READY', failureReason: null }],
+    });
+    await other.run();
+    expect(other.calls).toContain(`createRelease ${SHA}`);
+  });
+
+  it('never reuses without the flag, so a first attempt always builds', async () => {
+    const version = reusableReleaseVersion(deployable, config);
+    const { run, calls } = attempt(deployable, {
+      existingReleases: [{ id: 'rel-1', version, status: 'READY', failureReason: null }],
+    });
+    const out = await run();
+    expect(calls).toContain(`createRelease ${SHA}`);
+    expect(out.build.imageReused).toBe(false);
+  });
+
+  it('enters the application a previous attempt created instead of creating one', async () => {
+    const { run, calls } = attempt(deployable, { reuseApplication: true }, config, 'app-from-attempt-1');
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(calls).not.toContain('createApplication');
+    // The funnel still re-analyses and re-applies the vendor overrides.
+    expect(calls).toContain('analyse');
+    expect(calls).toContain('patch containerPort,healthPath');
   });
 });
 

@@ -77,6 +77,13 @@ export function listUnfinishedLedgers(evidenceDir: string): { runId: string; rep
 export interface SeriesState {
   vendor?: { email: string; password: string };
   templates: Record<string, { url: string; keyPrefix: string; bucket: string }>;
+  /**
+   * The organization and application a repository's first attempt created,
+   * keyed by Stage A id. Only `--reuse-application` reads it: a retry then
+   * adds a release to the same application instead of minting a new
+   * organization, which is what lets it redeploy an image already built.
+   */
+  applications?: Record<string, { organizationId: string; applicationId: string }>;
 }
 
 export function readSeries(evidenceDir: string): SeriesState {
