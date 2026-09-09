@@ -11,7 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
-import { applicationStackNameForInstallation, parseApplicationTemplateUrl } from '@deployz/contracts';
+import { applicationStackNameForInstallation, parseApplicationTemplateUrl, releaseImageTag } from '@deployz/contracts';
 
 import { probeLiveApp, readMarker, sampleLiveApp, writeMarker } from './app.js';
 import {
@@ -203,7 +203,7 @@ export async function buildRelease(canary: Canary, fixtureTag: string): Promise<
       gitSha: tagInfo.sha,
       ...(release.migrationCommand ? { migrationCommand: release.migrationCommand } : {}),
     });
-    evidence.run.releases[fixtureTag] = { id: created.id, version, gitSha: tagInfo.sha };
+    evidence.run.releases[fixtureTag] = { id: created.id, version, gitSha: tagInfo.sha, imageTag: releaseImageTag(applicationId, version) };
     evidence.save();
     details['releaseId'] = created.id;
     details['version'] = version;
@@ -218,8 +218,9 @@ export async function buildRelease(canary: Canary, fixtureTag: string): Promise<
     details['buildStatus'] = ready.status;
     assert(ready.status === 'READY', `release ${version} build ${ready.status}: ${ready.failureReason ?? ''}`);
 
-    const digest = await ecrDigestForTag(config.region, ECR_REPOSITORY, version);
-    assert(digest, `ECR has no image tagged ${version}`);
+    const imageTag = releaseImageTag(applicationId, version);
+    const digest = await ecrDigestForTag(config.region, ECR_REPOSITORY, imageTag);
+    assert(digest, `ECR has no image tagged ${imageTag}`);
     details['ecrDigest'] = digest;
     evidence.run.releases[fixtureTag]!.imageDigest = digest;
     evidence.save();
@@ -255,7 +256,7 @@ async function buildReleaseWithExistingImage(
       gitSha: tagInfo.sha,
       ...(release.migrationCommand ? { migrationCommand: release.migrationCommand } : {}),
     });
-    evidence.run.releases[fixtureTag] = { id: created.id, version, gitSha: tagInfo.sha, imageDigest: digest };
+    evidence.run.releases[fixtureTag] = { id: created.id, version, gitSha: tagInfo.sha, imageDigest: digest, imageTag: releaseImageTag(applicationId, version) };
     evidence.save();
     details['releaseId'] = created.id;
     details['version'] = version;
@@ -480,7 +481,7 @@ export async function assertServing(canary: Canary, expected: ExpectedState, det
     service.runningDigests[0] === digestSuffix(release.imageDigest),
     `running digest ${service.runningDigests[0]} != release ${expected.serving} digest ${release.imageDigest}`,
   );
-  const ecr = await ecrDigestForTag(config.region, ECR_REPOSITORY, release.version);
+  const ecr = await ecrDigestForTag(config.region, ECR_REPOSITORY, release.imageTag ?? release.version);
   assert(ecr === digestSuffix(release.imageDigest), `ECR digest for ${release.version} is ${ecr}, release row says ${release.imageDigest}`);
   assert(
     digestSuffix(detail.runningImageDigest) === digestSuffix(release.imageDigest),

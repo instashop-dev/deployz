@@ -1374,3 +1374,17 @@ export const DOCUMENSO_PARAMETERS = {
   smtpFromAddress: 'paramSmtpFromAddress',
   smtpFromName: 'paramSmtpFromName',
 } as const;
+
+/**
+ * The ECR tag a release's image is pushed under.
+ *
+ * A release version is unique per application, not per registry, so two
+ * applications can both call a release `v1.0.0`. Namespacing the tag by the
+ * application keeps them apart in the single shared `deployz-images`
+ * repository. The build pipeline pushes under this tag and every reader —
+ * the digest lookup after a build, the ECR cleanup, the leak audit — has to
+ * compose it the same way, so the rule lives here rather than in each caller.
+ */
+export function releaseImageTag(applicationId: string, version: string): string {
+  return `${applicationId}-${version}`;
+}

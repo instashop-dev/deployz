@@ -32,6 +32,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-017 | (harness) | TEST_HARNESS_FAILURE | FIXED (the mode refuses; the dead path is removed) | the B1 runtime-reuse lane, i.e. the default deployment class of 107 of the 120 corpus entries |
 | DEPLOY-018 | BUILD_ERROR | DEPLOYZ_BUG (build infrastructure) | OPEN — needs a Docker Hub credential decision | every repository whose Dockerfile pulls a Docker Hub base image, i.e. almost all of them; measured on repo-008 |
 | DEPLOY-019 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (a rebuild takes the next version) | every `--reuse-application` retry after a failed build; measured on repo-008 |
+| DEPLOY-020 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (the tag rule is shared) | every real-AWS run of Stage B and of the version canary since PR #261, plus the ECR cleanup and leak audit of both |
 
 ---
 
@@ -1038,3 +1039,48 @@ now takes the next free one (`<version>-r2`, `-r3`, …) via
 `nextReleaseVersion`. The fake now answers 409 on a taken version, so the
 regression is real, and a test asserts a retry after a failed build reaches
 PASS on `-r2`.
+
+---
+
+## DEPLOY-020 — The ECR image tag was namespaced by application, but the harnesses still looked up the bare version
+
+**Stage** BUILD_ERROR · **Root cause** TEST_HARNESS_FAILURE ·
+**Resolution** FIXED (the tag rule is shared, so it cannot drift again) ·
+**Found** 2026-09-09, repo-008 attempt 3 of the 2-repository pilot.
+
+**Behaviour.** PR #261 (`cb97d91`, DZ-AUDIT-002) changed the build pipeline to
+push under `${application.id}-${release.version}`, so two applications can
+each hold a release called `v1.0.0` in the single shared `deployz-images`
+repository. Nothing that *reads* the tag was changed with it:
+
+- `scripts/repository-deployment/deploy.ts` looked up
+  `ecrDigestForTag(version)` — the bare version.
+- `scripts/version-canary/steps.ts` did the same in two places.
+- `scripts/version-canary/teardown.ts` deleted ECR tags by `r.version`, and
+  the leak audit listed `ecrTags` the same way.
+
+**Evidence.** repo-008 attempt 3: CodeBuild `8dea5d64` SUCCEEDED in 55s and
+pushed `326f33cf-3cb2-4bfa-a4bb-c0bc73f35918-repo-008-4d15cb7-5ca84474-r2`,
+confirmed by `aws ecr list-images`. The funnel then stopped with
+`ECR has no image tagged repo-008-4d15cb7-5ca84474-r2` and recorded
+`BUILD_ERROR` against a repository whose build had in fact succeeded.
+
+**Effect.** Two failures, one loud and one silent. Every Stage B real-AWS run
+and every version canary run has failed immediately after a successful build
+since #261 — the whole corpus, not one repository. And because cleanup
+deleted a tag that does not exist, every run since #261 has leaked its image
+in ECR while the leak audit reported clean.
+
+**Resolution.** The rule now lives once, in `@deployz/contracts` as
+`releaseImageTag(applicationId, version)`, and the product worker
+(`packages/cdk/src/lambda/worker.ts`), both harnesses, the ECR cleanup and
+the leak audit all compose the tag from it. The ledger records the tag that
+was actually pushed, and teardown deletes `imageTag ?? version` so ledgers
+written before this change still clean up. A harness test asserts the funnel
+looks the image up under the namespaced tag and never under the bare
+version; a contracts test pins the rule itself.
+
+**Follow-on fixed with it.** Reuse matched only the exact base version, so
+the `-r2` release a retry builds (DEPLOY-019) could never be reused and a
+repository whose first build failed would rebuild on every later attempt.
+`reusableRelease` now picks the newest READY release in the version family.

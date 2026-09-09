@@ -23,6 +23,7 @@ import { mintInstallationToken } from '@deployz/api/github';
 import { createOrReuseJob, newerReadyReleaseExists } from '@deployz/api/jobs';
 import type { PaddleBilling } from '@deployz/api/paddle';
 import type { QueueMessage } from '@deployz/api/queue';
+import { releaseImageTag } from '@deployz/contracts';
 import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -251,7 +252,7 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
 
     const environmentVariables: { name: string; value: string }[] = [
       { name: 'SOURCE_S3_URI', value: `s3://${bucket}/${archive.s3Key}` },
-      { name: 'RELEASE_VERSION', value: `${application.id}-${release.version}` },
+      { name: 'RELEASE_VERSION', value: releaseImageTag(application.id, release.version) },
       { name: 'GIT_SHA', value: release.gitSha },
       { name: 'RELEASE_ID', value: release.id },
       { name: 'DOCKERFILE_PATH', value: dockerfilePath },

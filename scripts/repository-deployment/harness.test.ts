@@ -10,7 +10,7 @@ import type { DeploymentDetail } from '../version-canary/control-plane.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
 import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
-import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, nextReleaseVersion, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
+import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, nextReleaseVersion, reusableRelease, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
 import { applicationContainerDefinition, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
 import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
@@ -693,7 +693,11 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
     async albDnsName() {
       return 'alb.example.com';
     },
-    async ecrDigestForTag() {
+    async ecrDigestForTag(tag) {
+      // Recorded so a test can pin which tag the funnel looks up: the pipeline
+      // pushes under <applicationId>-<version>, and a lookup of the bare
+      // version finds nothing (DEPLOY-020).
+      calls.push(`ecrDigestForTag ${tag}`);
       return 'sha256:deadbeef';
     },
     async listStackResources() {
@@ -962,6 +966,39 @@ describe('reusing an application on a retry (--reuse-application)', () => {
     expect(out.build.imageReused).toBe(false);
     expect(out.build.version).toBe(`${version}-r2`);
     expect(calls).toContain(`createRelease ${SHA} ${version}-r2`);
+  });
+
+  it('looks the built image up under the tag the pipeline pushes, not the bare version', async () => {
+    const { run, calls } = attempt(deployable, { reuseApplication: true });
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    const version = out.build.version!;
+    expect(calls).toContain(`ecrDigestForTag app-1-${version}`);
+    expect(calls).not.toContain(`ecrDigestForTag ${version}`);
+    expect(out.build.imageDigest).toBe('sha256:deadbeef');
+  });
+
+  it('reuses the newest READY release in the family, not only the base name', async () => {
+    const version = reusableReleaseVersion(deployable, config);
+    const { run, calls } = attempt(deployable, {
+      reuseApplication: true,
+      existingReleases: [
+        { id: 'rel-old', version, status: 'FAILED', failureReason: 'BUILD: docker build failed' },
+        { id: 'rel-1', version: `${version}-r2`, status: 'READY', failureReason: null },
+      ],
+    });
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(out.build.imageReused).toBe(true);
+    expect(out.build.version).toBe(`${version}-r2`);
+    expect(calls.some((c) => c.startsWith('createRelease'))).toBe(false);
+  });
+
+  it('picks the highest attempt when several are READY', () => {
+    const ready = (v: string) => ({ version: v, status: 'READY' });
+    expect(reusableRelease('v', [ready('v'), ready('v-r3'), ready('v-r2')])?.version).toBe('v-r3');
+    expect(reusableRelease('v', [{ version: 'v', status: 'FAILED' }])).toBeUndefined();
+    expect(reusableRelease('v', [ready('v-rx'), ready('other')])).toBeUndefined();
   });
 
   it('keeps taking the next free version as failed attempts pile up', () => {

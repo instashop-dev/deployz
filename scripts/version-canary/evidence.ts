@@ -46,7 +46,7 @@ export interface RunRecord {
   canaryTemplateUrl?: string;
   canaryTemplateKeyPrefix?: string;
   templateBucket?: string;
-  releases: Record<string, { id: string; version: string; gitSha: string; imageDigest?: string }>;
+  releases: Record<string, { id: string; version: string; gitSha: string; imageDigest?: string; imageTag?: string }>;
   fixtureTags?: Record<string, { sha: string; contentSha: string }>;
   albEndpoint?: string;
   markers: string[];
