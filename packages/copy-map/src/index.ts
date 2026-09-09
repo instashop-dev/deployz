@@ -298,6 +298,7 @@ export const FAILURE_CODES = [
   'IMAGE_PULL_FAILED',
   'CONTAINER_START_FAILED',
   'MISSING_SECRET',
+  'TEMPLATE_UNAVAILABLE',
   'UNSUPPORTED_ARCHITECTURE',
   'UNKNOWN',
   'REDIS_PROVISIONING_FAILED',
@@ -350,6 +351,7 @@ export const FAILURE_RECOVERABILITY: Record<FailureCode, FailureRecoverability> 
   IMAGE_PULL_FAILED: 'DEPLOYZ_ACTION',
   CONTAINER_START_FAILED: 'USER_ACTION',
   MISSING_SECRET: 'USER_ACTION',
+  TEMPLATE_UNAVAILABLE: 'DEPLOYZ_ACTION',
   UNSUPPORTED_ARCHITECTURE: 'TERMINAL',
   UNKNOWN: 'RECONCILE_FIRST',
   REDIS_PROVISIONING_FAILED: 'DEPLOYZ_ACTION',
@@ -466,6 +468,11 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     label: 'Missing secret',
     description: 'A required secret is not configured.',
     severity: 'warning',
+  },
+  TEMPLATE_UNAVAILABLE: {
+    label: 'Installation template unavailable',
+    description: "The installation template couldn't be fetched from the cloud region.",
+    severity: 'critical',
   },
   UNSUPPORTED_ARCHITECTURE: {
     label: 'Unsupported architecture',
@@ -608,6 +615,11 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
     what: 'A required secret has no value for this customer.',
     why: 'The application asks for a secret that is not set as a default or an override.',
     fix: 'Set the missing value on the Configuration screen, then deploy again.',
+  },
+  TEMPLATE_UNAVAILABLE: {
+    what: 'The installation template could not be fetched.',
+    why: 'The installation template for this region is missing or unreachable from the customer account.',
+    fix: 'Contact Deployz support — the regional template needs to be published before installations can proceed in this region.',
   },
   UNSUPPORTED_ARCHITECTURE: {
     what: 'This application cannot be deployed as it is built.',

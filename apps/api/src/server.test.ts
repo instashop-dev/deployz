@@ -244,6 +244,12 @@ describe('server (Fastify base over PGlite)', () => {
     expect(response.statusCode).toBe(200);
   });
 
+  it('GET /health/ready returns 200 when the DB and schema are usable (DZ-AUDIT-015)', async () => {
+    const response = await app.inject({ method: 'GET', url: '/health/ready' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+  });
+
   // The browser writes config with PUT and renames the org with PATCH. The
   // @fastify/cors default is GET,HEAD,POST, which fails both preflights and
   // makes those saves silently impossible from the dashboard.

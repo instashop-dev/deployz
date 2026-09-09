@@ -147,6 +147,9 @@ export const failureCodeEnum = pgEnum('failure_code', [
   // CANARY-006: the relay's own failure to persist its deferral marker —
   // a Deployz-side fault, distinct from any customer resource failure.
   'RELAY_STATE_WRITE_FAILED',
+  // DZ-AUDIT-005: S3 404 when fetching the bootstrap or application
+  // template — the template was never published or was deleted.
+  'TEMPLATE_UNAVAILABLE',
 ]);
 
 export const relayStatusEnum = pgEnum('relay_status', [
