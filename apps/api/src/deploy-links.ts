@@ -11,7 +11,7 @@ import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
-import { hashRelayToken, mintEnrollmentCode, verifyRelayToken } from './relay-store.js';
+import { hashRelayToken, mintEnrollmentCode, mintRelayCredential, verifyRelayToken } from './relay-store.js';
 
 // Deploy Links — a vendor-generated, tokenized entry point. Each link pre-
 // creates one deployment (deployments.source = 'deploy_link') through the
@@ -161,6 +161,7 @@ export async function createDeploymentRecord(
     });
   }
   requirePreflightReady(result);
+  const relayCredential = mintRelayCredential();
   const [row] = await db
     .insert(schema.deployments)
     .values({
@@ -172,6 +173,11 @@ export async function createDeploymentRecord(
       source: params.source,
       desiredState: { manifest },
       enrollmentCode: mintEnrollmentCode(),
+      // DZ-AUDIT-013: server-established relay credential stored alongside
+      // its hash. Delivered through the Quick Create URL and NULLed after
+      // the relay's first successful registration.
+      relayCredential,
+      relayTokenHash: hashRelayToken(relayCredential),
       deploymentType: params.deploymentType,
       createdBy: params.createdBy,
       updatedBy: params.updatedBy,

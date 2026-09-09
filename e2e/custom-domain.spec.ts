@@ -10,6 +10,7 @@ import { expect, test, type Page } from '@playwright/test';
 // everything else — seeding and the relay protocol — through `page.request`,
 // which shares the signed-in session's cookies).
 
+import { extractQuickCreateParam } from './simulation/relay-harness.js';
 import { makeApplicationDeployable } from './seed-ready-manifest.js';
 
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
@@ -62,23 +63,6 @@ async function seedDeployment(
   return { deploymentId: deployment.id, installLinkId: deployment.installLinkId, applicationName };
 }
 
-/**
- * Extracts and URL-decodes `param_EnrollmentCode` from the CloudFormation
- * Quick Create deep-link. The parameter lives inside the URL's fragment (its
- * own `?...` query string after the `#/stacks/create/review` hash, per
- * `buildBootstrapQuickCreateUrl`), not the URL's real search params — so a
- * plain `new URL(...).searchParams` read would miss it. Extracting it this
- * way mirrors what a real customer's bootstrap stack receives as a template
- * parameter, rather than shortcutting through a control-plane-internal field.
- */
-function extractEnrollmentCode(quickCreateUrl: string): string {
-  const match = quickCreateUrl.match(/param_EnrollmentCode=([^&]+)/);
-  if (!match) {
-    throw new Error(`No param_EnrollmentCode found in quick-create URL: ${quickCreateUrl}`);
-  }
-  return decodeURIComponent(match[1]!);
-}
-
 test('custom domain: add, verify DNS, connect, activate, appear on the dashboard, then remove', async ({
   page,
 }) => {
@@ -91,7 +75,6 @@ test('custom domain: add, verify DNS, connect, activate, appear on the dashboard
   const suffix = crypto.randomUUID().slice(0, 8);
   const hostname = `app.${suffix}.deployz-fixture.test`;
   const installationId = `e2e-inst-${suffix}`;
-  const relayAuth = { Authorization: `Bearer e2e-relay-${suffix}` };
 
   async function fetchRelayCommands(): Promise<RelayCommand[]> {
     const response = await page.request.get(
@@ -103,6 +86,7 @@ test('custom domain: add, verify DNS, connect, activate, appear on the dashboard
     return body.commands;
   }
 
+  let relayAuth: { Authorization: string };
   async function postRelayResult(jobId: string, data: Record<string, unknown>): Promise<void> {
     const response = await page.request.post(`${API_URL}/api/relay/commands/${jobId}/result`, {
       headers: relayAuth,
@@ -115,14 +99,17 @@ test('custom domain: add, verify DNS, connect, activate, appear on the dashboard
   await signUp(page);
   const { deploymentId, installLinkId, applicationName } = await seedDeployment(page, suffix);
 
-  // ── 2. Fetch the public install page data and pull the enrollment code out
-  // of the CloudFormation Quick Create link, exactly as a customer's bootstrap
-  // stack would receive it as a template parameter.
+  // ── 2. Fetch the public install page data and pull the enrollment code and
+  // relay credential out of the CloudFormation Quick Create link, exactly as a
+  // customer's bootstrap stack would receive them as template parameters.
+  // DZ-AUDIT-013: the relay credential is also carried in the URL.
   const installResponse = await page.request.get(`${API_URL}/api/install/${installLinkId}`);
   expect(installResponse.ok()).toBeTruthy();
   const installData = (await installResponse.json()) as { quickCreateUrl: string | null };
   expect(installData.quickCreateUrl).not.toBeNull();
-  const enrollmentCode = extractEnrollmentCode(installData.quickCreateUrl!);
+  const enrollmentCode = extractQuickCreateParam(installData.quickCreateUrl!, 'EnrollmentCode');
+  const relayCredential = extractQuickCreateParam(installData.quickCreateUrl!, 'RelayCredential');
+  relayAuth = { Authorization: `Bearer ${relayCredential}` };
 
   // ── 3. Simulate relay enrollment.
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {

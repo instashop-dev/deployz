@@ -117,12 +117,14 @@ test.describe('update-failure', () => {
     const afterV1 = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(afterV1.state).toBe('HEALTHY');
 
-    // v2's release creation no longer flips the deployment: UPDATE_AVAILABLE
-    // means a newer READY release exists, and v2 is still BUILDING. The
-    // deployment stays HEALTHY until the build actually succeeds.
+    // UPDATE_AVAILABLE means a newer READY release exists (DZ-AUDIT-007).
+    // Fixture-mode builds complete synchronously, so v2 is already READY when
+    // creation returns and the flip has fired; the no-flip-while-BUILDING
+    // invariant is pinned by the unit suite (lifecycle.test.ts), where the
+    // build is genuinely pending.
     const v2ReleaseId = await createRelease(request, applicationId, '2.0.0');
     const afterV2Created = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(afterV2Created.state).toBe('HEALTHY');
+    expect(afterV2Created.state).toBe('UPDATE_AVAILABLE');
 
     // v2 deploys; the ECS deployment circuit breaker trips.
     const deployV2 = await deployRelease(request, deploymentId, v2ReleaseId);

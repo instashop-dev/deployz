@@ -33,7 +33,7 @@
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
-import { startSimulatedRelay } from './simulation/relay-harness.js';
+import { extractQuickCreateParam, startSimulatedRelay } from './simulation/relay-harness.js';
 import { getScenario } from './simulation/scenarios/index.js';
 import { API_URL } from './simulation/fixtures.js';
 
@@ -110,16 +110,6 @@ async function createRelease(
   }
   const release = (await response.json()) as ReleaseResponse;
   return release.id;
-}
-
-/** Extracts and URL-decodes `param_EnrollmentCode` from the CloudFormation
- *  Quick Create deep-link — same helper install.spec.ts uses. */
-function extractEnrollmentCode(quickCreateUrl: string): string {
-  const match = quickCreateUrl.match(/param_EnrollmentCode=([^&]+)/);
-  if (!match) {
-    throw new Error(`No param_EnrollmentCode found in quick-create URL: ${quickCreateUrl}`);
-  }
-  return decodeURIComponent(match[1]!);
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -200,13 +190,19 @@ test.describe('lifecycle-sweep', () => {
     expect(launch.ok()).toBeTruthy();
 
     // ── Install — the real relay drives the lifecycle-sweep scenario. ───────
+    // DZ-AUDIT-013: fetch the server-minted relay credential from the install page.
+    const installA = await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) => r.json()) as {
+      quickCreateUrl: string | null;
+    };
+    expect(installA.quickCreateUrl).not.toBeNull();
+    const relayCredentialA = extractQuickCreateParam(installA.quickCreateUrl!, 'RelayCredential');
     const installationId = `inst-${suffix}`;
     const relayA = startSimulatedRelay({
       scenario: getScenario('lifecycle-sweep'),
       apiUrl: API_URL,
       installationId,
       enrollmentCode,
-      relayToken: `e2e-sweep-relay-a-${suffix}`,
+      relayToken: relayCredentialA,
     });
 
     try {
@@ -301,20 +297,22 @@ test.describe('lifecycle-sweep', () => {
       expect(refused.status()).toBe(409);
       expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('RELAY_NOT_CONNECTED');
 
-      // The fresh single-use code travels only inside the Quick Create link,
-      // exactly as the install page hands it to a rebuilding customer.
+      // The fresh single-use code and credential travel only inside the Quick
+      // Create link, exactly as the install page hands them to a rebuilding
+      // customer. DZ-AUDIT-013: the relay credential is also carried here.
       const installInfo = await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) => r.json()) as {
         quickCreateUrl: string | null;
       };
       expect(installInfo.quickCreateUrl).not.toBeNull();
-      const freshEnrollmentCode = extractEnrollmentCode(installInfo.quickCreateUrl!);
+      const freshEnrollmentCode = extractQuickCreateParam(installInfo.quickCreateUrl!, 'EnrollmentCode');
+      const freshRelayCredential = extractQuickCreateParam(installInfo.quickCreateUrl!, 'RelayCredential');
 
       const relayB = startSimulatedRelay({
         scenario: getScenario('lifecycle-sweep'),
         apiUrl: API_URL,
         installationId,
         enrollmentCode: freshEnrollmentCode,
-        relayToken: `e2e-sweep-relay-b-${suffix}`,
+        relayToken: freshRelayCredential,
         // The SAME simulated customer account: a rebuilt relay re-enrolls into
         // the account the first relay already installed into.
         account: relayA.account,

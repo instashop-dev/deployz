@@ -14,7 +14,7 @@
 
 import { test as base, type APIRequestContext, type Page } from '@playwright/test';
 
-import { startSimulatedRelay, type SimulatedRelayHandle } from './relay-harness.js';
+import { extractQuickCreateParam, startSimulatedRelay, type SimulatedRelayHandle } from './relay-harness.js';
 import { getScenario } from './scenarios/index.js';
 
 export const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
@@ -191,7 +191,7 @@ async function seedAndLaunch(
   request: APIRequestContext,
   suffix: string,
   options: { repoFullName?: string } = {},
-): Promise<{ deploymentId: string; installLinkId: string; enrollmentCode: string }> {
+): Promise<{ deploymentId: string; installLinkId: string; enrollmentCode: string; relayCredential: string }> {
   const { applicationId, customerId } = await seedAppAndCustomer(request, suffix, options);
 
   const deploymentResponse = await request.post(`${API_URL}/api/deployments`, {
@@ -214,10 +214,22 @@ async function seedAndLaunch(
     throw new Error(`launch failed: ${launchResponse.status()} ${await launchResponse.text()}`);
   }
 
+  // DZ-AUDIT-013: fetch the server-minted relay credential from the install page.
+  const installResponse = await request.get(`${API_URL}/api/install/${deployment.installLinkId}`);
+  if (!installResponse.ok()) {
+    throw new Error(`get install info failed: ${installResponse.status()}`);
+  }
+  const installBody = (await installResponse.json()) as { quickCreateUrl: string | null; enrollmentCode?: string };
+  if (!installBody.quickCreateUrl) {
+    throw new Error(`No quickCreateUrl for install ${deployment.installLinkId}`);
+  }
+  const relayCredential = extractQuickCreateParam(installBody.quickCreateUrl, 'RelayCredential');
+
   return {
     deploymentId: deployment.id,
     installLinkId: deployment.installLinkId,
     enrollmentCode: deployment.enrollmentCode,
+    relayCredential,
   };
 }
 
@@ -295,7 +307,7 @@ export const test = base.extend<{
   ) => {
     const suffix = crypto.randomUUID().slice(0, 8);
     await signUp(request, suffix);
-    const { deploymentId, installLinkId, enrollmentCode } = await seedAndLaunch(
+    const { deploymentId, installLinkId, enrollmentCode, relayCredential } = await seedAndLaunch(
       request,
       suffix,
       deployzRepoFullName ? { repoFullName: deployzRepoFullName } : {},
@@ -308,7 +320,7 @@ export const test = base.extend<{
           apiUrl: API_URL,
           installationId,
           enrollmentCode,
-          relayToken: `e2e-scenario-relay-${suffix}`,
+          relayToken: relayCredential,
           ...deployzRelayOptions,
         })
       : undefined;
@@ -333,7 +345,7 @@ export const test = base.extend<{
   ) => {
     const suffix = crypto.randomUUID().slice(0, 8);
     await signUpViaBrowser(page, suffix);
-    const { deploymentId, installLinkId, enrollmentCode } = await seedAndLaunch(
+    const { deploymentId, installLinkId, enrollmentCode, relayCredential } = await seedAndLaunch(
       page.request,
       suffix,
       deployzRepoFullName ? { repoFullName: deployzRepoFullName } : {},
@@ -359,7 +371,7 @@ export const test = base.extend<{
           apiUrl: API_URL,
           installationId,
           enrollmentCode,
-          relayToken: `e2e-scenario-ui-relay-${suffix}`,
+          relayToken: relayCredential,
           ...deployzRelayOptions,
         })
       : undefined;
@@ -398,6 +410,24 @@ export const test = base.extend<{
       token: string;
     };
 
+    // DZ-AUDIT-013: the deployment's installLinkId is needed to fetch the
+    // relay credential from the install page. GET the deployment detail via
+    // the signed-up session (the deploy-link response does not include it).
+    const deploymentDetail = await request.get(`${API_URL}/api/deployments/${generated.deployment.id}`);
+    if (!deploymentDetail.ok()) {
+      throw new Error(`get deployment detail failed: ${deploymentDetail.status()}`);
+    }
+    const { installLinkId } = (await deploymentDetail.json()) as { installLinkId: string };
+    const installInfo = await request.get(`${API_URL}/api/install/${installLinkId}`);
+    if (!installInfo.ok()) {
+      throw new Error(`get install info failed: ${installInfo.status()}`);
+    }
+    const installBody = (await installInfo.json()) as { quickCreateUrl: string | null };
+    if (!installBody.quickCreateUrl) {
+      throw new Error(`No quickCreateUrl for install ${installLinkId}`);
+    }
+    const relayCredential = extractQuickCreateParam(installBody.quickCreateUrl, 'RelayCredential');
+
     // The customer opens the hosted page and presses "Deploy to AWS": both
     // steps go through the PUBLIC deploy-link routes with the secret in the
     // x-deployz-token header — no session, no install link involved.
@@ -424,7 +454,7 @@ export const test = base.extend<{
           apiUrl: API_URL,
           installationId,
           enrollmentCode: generated.deployment.enrollmentCode,
-          relayToken: `e2e-deploy-link-relay-${suffix}`,
+          relayToken: relayCredential,
           ...deployzRelayOptions,
         })
       : undefined;

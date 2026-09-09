@@ -740,7 +740,12 @@ describe('deploy links', () => {
     const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
     expect(deployment!.enrollmentCode).not.toBe(original!.enrollmentCode);
     expect(deployment!.installationId).toBeNull();
-    expect(deployment!.relayTokenHash).toBeNull();
+    // DZ-AUDIT-013: the retry mints a fresh relay credential — the stored
+    // hash is the NEW credential's (never the stale one, never null), and the
+    // plaintext rides the rebuilt Quick Create URL.
+    expect(deployment!.relayTokenHash).not.toBeNull();
+    expect(deployment!.relayTokenHash).not.toBe('stale-hash');
+    expect(deployment!.relayCredential).not.toBeNull();
     expect(deployment!.attemptNumber).toBe(body.attemptNumber);
 
     const events = await db

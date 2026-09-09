@@ -25,7 +25,7 @@
 
 import type { APIRequestContext } from '@playwright/test';
 
-import { startSimulatedRelay } from './simulation/relay-harness.js';
+import { extractQuickCreateParam, startSimulatedRelay } from './simulation/relay-harness.js';
 import { getScenario } from './simulation/scenarios/index.js';
 import { API_URL, expect, test } from './simulation/fixtures.js';
 
@@ -310,12 +310,18 @@ test.describe('monorepo-classified-deploy (C)', () => {
     // Install + a real DEPLOY_RELEASE settle to HEALTHY with the pointer
     // advanced — the classification result composes all the way through the
     // simulated build+deploy pass.
+    // DZ-AUDIT-013: fetch the server-minted relay credential from the install page.
+    const installInfo = await request.get(`${API_URL}/api/install/${deployment.installLinkId}`).then((r) => r.json()) as {
+      quickCreateUrl: string | null;
+    };
+    expect(installInfo.quickCreateUrl).not.toBeNull();
+    const relayCredential = extractQuickCreateParam(installInfo.quickCreateUrl!, 'RelayCredential');
     const relay = startSimulatedRelay({
       scenario: getScenario('happy-path'),
       apiUrl: API_URL,
       installationId: `inst-${suffix}`,
       enrollmentCode: deployment.enrollmentCode,
-      relayToken: `e2e-matrix-relay-${suffix}`,
+      relayToken: relayCredential,
     });
     try {
       await expect

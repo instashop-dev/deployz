@@ -11,6 +11,7 @@ import { expect, test, type Page } from '@playwright/test';
 // hasn't failed) end to end and the page linking from deployment detail.
 
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)\b/;
+import { extractQuickCreateParam } from './simulation/relay-harness.js';
 import { makeApplicationDeployable } from './seed-ready-manifest.js';
 
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
@@ -33,6 +34,7 @@ async function seedDeployment(
   installationId: string;
   installLinkId: string;
   enrollmentCode: string;
+  relayCredential: string;
 }> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const appResponse = await page.request.post(`${API_URL}/api/applications`, {
@@ -60,6 +62,13 @@ async function seedDeployment(
     installLinkId: string;
     enrollmentCode: string;
   };
+  // DZ-AUDIT-013: fetch the server-minted relay credential from the install page.
+  const installResponse = await page.request.get(`${API_URL}/api/install/${deployment.installLinkId}`);
+  expect(installResponse.ok()).toBeTruthy();
+  const installData = (await installResponse.json()) as { quickCreateUrl: string | null };
+  expect(installData.quickCreateUrl).not.toBeNull();
+  const relayCredential = extractQuickCreateParam(installData.quickCreateUrl!, 'RelayCredential');
+
   return {
     deploymentId: deployment.id,
     applicationId: application.id,
@@ -67,6 +76,7 @@ async function seedDeployment(
     installationId: `inst-${crypto.randomUUID()}`,
     installLinkId: deployment.installLinkId,
     enrollmentCode: deployment.enrollmentCode,
+    relayCredential,
   };
 }
 
@@ -89,8 +99,9 @@ async function driveDeploymentToFailed(
   page: Page,
   installationId: string,
   enrollmentCode: string,
+  relayCredential: string,
 ): Promise<void> {
-  const authHeaders = { Authorization: `Bearer ${installationId}` };
+  const authHeaders = { Authorization: `Bearer ${relayCredential}` };
 
   // Enrollment, not just registration: the installation id a real relay
   // reports is minted inside the CUSTOMER's account, so the control plane has
@@ -158,8 +169,8 @@ test('a deployment failed via the relay job workflow shows a real §29 classific
   page,
 }) => {
   await signUp(page);
-  const { deploymentId, installationId, enrollmentCode } = await seedDeployment(page);
-  await driveDeploymentToFailed(page, installationId, enrollmentCode);
+  const { deploymentId, installationId, enrollmentCode, relayCredential } = await seedDeployment(page);
+  await driveDeploymentToFailed(page, installationId, enrollmentCode, relayCredential);
 
   await page.goto(`/dashboard/deployments/${deploymentId}/diagnostics`);
 

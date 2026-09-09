@@ -1226,6 +1226,7 @@ export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 
 /** The bootstrap stack's single-use enrollment parameter. */
 export const ENROLLMENT_CODE_PARAMETER = 'EnrollmentCode';
+export const RELAY_CREDENTIAL_PARAMETER = 'RelayCredential';
 
 /**
  * Deterministic public bucket that carries one supported region's bootstrap
@@ -1311,6 +1312,16 @@ export interface BootstrapQuickCreateOptions {
    * code for their specific deployment.
    */
   readonly enrollmentCode?: string | undefined;
+  /**
+   * Server-established relay credential (DZ-AUDIT-013). Delivered through
+   * the Quick Create URL as a bootstrap template parameter, exactly like the
+   * enrollment code.
+   *
+   * Optional (legacy deployments created before this change have none). When
+   * set, the bootstrap stack uses it as SecretString instead of generating
+   * one inside the customer account.
+   */
+  readonly relayCredential?: string | undefined;
   /** CloudFormation stack name. Defaults to `deployz-bootstrap`. */
   readonly stackName?: string | undefined;
 }
@@ -1346,6 +1357,9 @@ export function buildBootstrapQuickCreateUrl(options: BootstrapQuickCreateOption
   query.set(`param_${CONTROL_PLANE_URL_PARAMETER}`, options.controlPlaneUrl);
   if (options.enrollmentCode !== undefined) {
     query.set(`param_${ENROLLMENT_CODE_PARAMETER}`, options.enrollmentCode);
+  }
+  if (options.relayCredential !== undefined) {
+    query.set(`param_${RELAY_CREDENTIAL_PARAMETER}`, options.relayCredential);
   }
 
   return `${base}?${query.toString()}`;

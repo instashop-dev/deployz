@@ -134,6 +134,24 @@ export async function newerReadyReleaseExists(
 }
 
 /**
+ * A release just became READY (DZ-AUDIT-007): every HEALTHY deployment of the
+ * application is now behind — one newer READY release exists. Shared between
+ * the worker's recordBuildResult and the API's fixture-mode build path so
+ * both writers flip the fleet identically.
+ */
+export async function flipHealthyDeploymentsToUpdateAvailable(
+  db: RuntimeDb,
+  applicationId: string,
+): Promise<void> {
+  await db
+    .update(schema.deployments)
+    .set({ state: 'UPDATE_AVAILABLE' })
+    .where(
+      and(eq(schema.deployments.applicationId, applicationId), eq(schema.deployments.state, 'HEALTHY')),
+    );
+}
+
+/**
  * Whether anything has ever run in this deployment: a SUCCEEDED install that
  * started its task, or a SUCCEEDED deploy/rollback. A zero-task install
  * (`payload.startAfterConfig`, DEPLOY-009) succeeded without starting

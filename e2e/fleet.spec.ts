@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { extractQuickCreateParam } from './simulation/relay-harness.js';
 
 // §23 fleet dashboard + §24 deployment detail + activity feed, against the
 // REAL API (no fixture fallback — a 404 now renders a real not-found/error
@@ -32,6 +33,7 @@ async function seedDeployment(page: Page): Promise<{
   installationId: string;
   installLinkId: string;
   enrollmentCode: string;
+  relayCredential: string;
   applicationName: string;
   customerName: string;
 }> {
@@ -65,6 +67,13 @@ async function seedDeployment(page: Page): Promise<{
     enrollmentCode: string;
   };
 
+  // DZ-AUDIT-013: the server-minted relay credential rides the Quick Create URL.
+  const installResponse = await page.request.get(`${API_URL}/api/install/${deployment.installLinkId}`);
+  expect(installResponse.ok()).toBeTruthy();
+  const installData = (await installResponse.json()) as { quickCreateUrl: string | null };
+  expect(installData.quickCreateUrl).not.toBeNull();
+  const relayCredential = extractQuickCreateParam(installData.quickCreateUrl!, 'RelayCredential');
+
   return {
     deploymentId: deployment.id,
     applicationId: application.id,
@@ -73,6 +82,7 @@ async function seedDeployment(page: Page): Promise<{
     installationId: `inst-${crypto.randomUUID()}`,
     installLinkId: deployment.installLinkId,
     enrollmentCode: deployment.enrollmentCode,
+    relayCredential,
     applicationName: application.name,
     customerName: customer.name,
   };
@@ -89,10 +99,11 @@ async function driveDeploymentToHealthy(
   page: Page,
   installationId: string,
   enrollmentCode: string,
+  relayCredential: string,
   /** Capabilities the relay advertises, for tests that assert a gated action. */
   capabilities?: Record<string, boolean>,
 ): Promise<void> {
-  const authHeaders = { Authorization: `Bearer ${installationId}` };
+  const authHeaders = { Authorization: `Bearer ${relayCredential}` };
 
   // Enrollment, not just registration: the installation id a real relay
   // reports is minted inside the CUSTOMER's account, so the control plane has
@@ -218,8 +229,8 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
 
 test('infrastructure rows appear only for the components the relay reports', async ({ page }) => {
   await signUp(page);
-  const { deploymentId, installationId, enrollmentCode } = await seedDeployment(page);
-  await driveDeploymentToHealthy(page, installationId, enrollmentCode);
+  const { deploymentId, installationId, enrollmentCode, relayCredential } = await seedDeployment(page);
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode, relayCredential);
 
   // The Infrastructure section (apps/web/src/components/infrastructure-section.tsx)
   // renders from the persisted resource inventory (§59), not from the
@@ -230,7 +241,7 @@ test('infrastructure rows appear only for the components the relay reports', asy
   // application/database/load-balancer resources and the page must not
   // invent a fourth or fifth row.
   const health = await page.request.post(`${API_URL}/api/relay/health`, {
-    headers: { Authorization: `Bearer ${installationId}` },
+    headers: { Authorization: `Bearer ${relayCredential}` },
     data: {
       installationId,
       healthStatus: 'HEALTHY',
@@ -299,8 +310,8 @@ test('rollback is offered, disabled, until a previous successful release exists'
   page,
 }) => {
   await signUp(page);
-  const { deploymentId, installationId, enrollmentCode } = await seedDeployment(page);
-  await driveDeploymentToHealthy(page, installationId, enrollmentCode);
+  const { deploymentId, installationId, enrollmentCode, relayCredential } = await seedDeployment(page);
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode, relayCredential);
 
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   // A freshly installed deployment has no previous release, so Rollback is
@@ -315,7 +326,8 @@ test('rollback is offered, disabled, until a previous successful release exists'
 
 test('disconnect requires typing the customer name to confirm (§63)', async ({ page }) => {
   await signUp(page);
-  const { deploymentId, customerName, installationId, enrollmentCode } = await seedDeployment(page);
+  const { deploymentId, customerName, installationId, enrollmentCode, relayCredential } =
+    await seedDeployment(page);
 
   // Disconnect is gated twice (see `canDisconnect` in the detail page): on
   // the relay advertising the capability, and on no other operation owning
@@ -324,7 +336,7 @@ test('disconnect requires typing the customer name to confirm (§63)', async ({ 
   // than buying the vendor a confirmation dialog and a 409. Driving the
   // install to completion satisfies both: the relay reports its
   // capabilities on registration, and the INSTALL job settles.
-  await driveDeploymentToHealthy(page, installationId, enrollmentCode, {
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode, relayCredential, {
     deployRelease: true,
     rollback: true,
     restart: true,
@@ -354,8 +366,9 @@ test('a new release marks a HEALTHY deployment "Update available" on the fleet l
   page,
 }) => {
   await signUp(page);
-  const { applicationId, installationId, enrollmentCode, customerName } = await seedDeployment(page);
-  await driveDeploymentToHealthy(page, installationId, enrollmentCode);
+  const { applicationId, installationId, enrollmentCode, customerName, relayCredential } =
+    await seedDeployment(page);
+  await driveDeploymentToHealthy(page, installationId, enrollmentCode, relayCredential);
 
   const releaseResponse = await page.request.post(
     `${API_URL}/api/applications/${applicationId}/releases`,

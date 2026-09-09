@@ -66,6 +66,30 @@ describe('DeployzStack', () => {
     });
   });
 
+  // Phase 4 — DZ-AUDIT-012: SSE-SQS on both queues, DLQ retention 3 days.
+  // SQS_MANAGED encryption synthesises to SqsManagedSseEnabled: true on each
+  // queue resource (the CDK default is unencrypted, which omits the key).
+  it('enables SSE-SQS on both queues and shortens DLQ retention to 3 days', () => {
+    const app = new App();
+    const stack = new DeployzStack(app, 'DeployzTest');
+    const template = Template.fromStack(stack);
+
+    const queues = template.findResources('AWS::SQS::Queue');
+    const entries = Object.values(queues);
+    expect(entries.length).toBe(2);
+
+    // Both queues must have SSE-SQS enabled
+    for (const q of entries) {
+      expect(q.Properties).toMatchObject({ SqsManagedSseEnabled: true });
+    }
+
+    // DLQ has no RedrivePolicy; the main queue does
+    const dlq = entries.find((q) => !q.Properties.RedrivePolicy);
+    expect(dlq).toBeDefined();
+    // DLQ retention: 3 days = 259200 seconds
+    expect(dlq!.Properties).toMatchObject({ MessageRetentionPeriod: 259200 });
+  });
+
   // A queue with no consumer is the failure this wiring exists to prevent:
   // messages accumulate, jobs never run, and nothing reports an error.
   it('subscribes the worker to the job queue', () => {

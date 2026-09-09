@@ -157,7 +157,11 @@ describe('deployment lifecycle — states, events, and removal', () => {
     // provisioned rendered four green infrastructure rows.
     expect(row!.healthStatus).toBe('UNKNOWN');
     expect(row!.installationId).toBeNull();
-    expect(row!.relayTokenHash).toBeNull();
+    // DZ-AUDIT-013: creation stores the expected relay credential hash (the
+    // credential itself rides the Quick Create URL); the binding markers stay
+    // unset until a relay actually registers.
+    expect(row!.relayCredential).not.toBeNull();
+    expect(row!.relayBoundAt).toBeNull();
   });
 
   it('removing a never-installed deployment removes it, with no job for a relay that will never exist', async () => {

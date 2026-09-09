@@ -28,6 +28,7 @@
  *      `logs:FilterLogEvents` (§16 — it writes logs, never reads them back).
  */
 import {
+  CfnCondition,
   CfnOutput,
   CfnParameter,
   CustomResource,
@@ -50,7 +51,7 @@ import {
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, type OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
+import { CfnSecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import { join } from 'node:path';
@@ -82,6 +83,12 @@ export interface BootstrapStackProps extends StackProps {
    * specific installation can be pointed elsewhere without new relay code.
    */
   readonly applicationTemplateUrl?: string;
+  /**
+   * Server-established relay credential (DZ-AUDIT-013). When set, the stack
+   * uses this value as the SecretString instead of generating one via
+   * GenerateSecretString. Relay code reads the secret by name and is unchanged.
+   */
+  readonly relayCredential?: string;
 }
 
 const DEFAULT_CONTROL_PLANE_URL = 'https://api.deployz.dev';
@@ -606,7 +613,7 @@ const PROVISION_PASS_ROLE_SERVICES = ['ecs-tasks.amazonaws.com', 'ecs.amazonaws.
 export class BootstrapStack extends Stack {
   public readonly relayFunction: NodejsFunction;
   public readonly relayRole: Role;
-  public readonly credentialSecret: Secret;
+  public readonly credentialSecretArn: string;
   public readonly permissionsBoundary: ManagedPolicy;
   public readonly provisionerPolicy: ManagedPolicy;
   /** CloudFormation execution role for the application stack (`role/deployz/*`). */
@@ -682,22 +689,76 @@ export class BootstrapStack extends Stack {
 
     this.installationId = installIdResource.getAttString('InstallationId');
 
-    // ── 2. Communication credential (bootstrap-generated) ───────────────
-    // GenerateSecretString mints a random 64-char token at deploy time. It is
-    // NOT a template parameter and NOT in the Quick Create URL. The relay
-    // reads it on first poll and registers it with the control plane.
-    this.credentialSecret = new Secret(this, 'RelayCredential', {
+    // ── 2. Communication credential (server-established or bootstrap-generated) ─
+    //
+    // DZ-AUDIT-013: when the control plane provides a relay credential via the
+    // `RelayCredential` parameter, the stack uses it as the secret value.
+    // Otherwise CloudFormation generates one via GenerateSecretString (legacy
+    // behavior, preserved for existing in-flight deployments).
+    //
+    // Two mutually exclusive CfnSecret resources — one is always created, the
+    // other conditioned out. The ARN is resolved via Fn::ConditionIf. The relay
+    // reads the secret by the ARN in DEPLOYZ_CREDENTIAL_SECRET_ARN unchanged.
+    const relayCredentialParam = new CfnParameter(this, 'RelayCredential', {
+      type: 'String',
+      description:
+        'Server-established relay credential. When set, used as the ' +
+        'secret value instead of generating one inside the account. ' +
+        'Not a customer secret.',
+      default: '',
+      noEcho: true,
+    });
+
+    const hasRelayCredential = new CfnCondition(this, 'HasRelayCredential', {
+      expression: Fn.conditionNot(Fn.conditionEquals(relayCredentialParam.valueAsString, '')),
+    });
+    const noRelayCredential = new CfnCondition(this, 'NoRelayCredential', {
+      expression: Fn.conditionEquals(relayCredentialParam.valueAsString, ''),
+    });
+
+    // Shared tags for both secret variants.
+    const credentialTags = [
+      { key: 'deployz:component', value: 'bootstrap' },
+      { key: 'deployz:installation', value: this.installationId },
+    ];
+
+    // Secret from the server-established parameter — created when the
+    // parameter is non-empty.
+    const cfnSecretFromParam = new CfnSecret(this, 'RelayCredentialFromParam', {
+      description:
+        'Server-established relay communication credential. Value was ' +
+        'minted by the control plane and delivered via the Quick Create URL.',
+      secretString: relayCredentialParam.valueAsString,
+      tags: credentialTags,
+    });
+    cfnSecretFromParam.cfnOptions.condition = hasRelayCredential;
+
+    // Bootstrap-generated secret — created when the parameter is empty
+    // (legacy and pre-established links that carry no credential).
+    const cfnSecretGenerated = new CfnSecret(this, 'RelayCredentialGenerated', {
       description:
         'Bootstrap-generated relay communication credential. Minted by ' +
-        'CloudFormation at deploy time; registered with the control plane on ' +
-        'the relay first poll. Never a template parameter.',
+        'CloudFormation at deploy time; registered with the control plane ' +
+        'on the relay first poll.',
       generateSecretString: {
         secretStringTemplate: '{}',
         generateStringKey: 'token',
         passwordLength: 64,
         excludePunctuation: false,
       },
+      tags: credentialTags,
     });
+    cfnSecretGenerated.cfnOptions.condition = noRelayCredential;
+
+    // Conditional ARN for use where only one value is allowed (Lambda env,
+    // stack output). Resolved via Fn::ConditionIf.
+    const credentialArn = Fn.conditionIf(
+      'HasRelayCredential',
+      Fn.getAtt('RelayCredentialFromParam', 'Arn'),
+      Fn.getAtt('RelayCredentialGenerated', 'Arn'),
+    );
+
+    this.credentialSecretArn = credentialArn as unknown as string;
 
     // ── 3. Execution role — least privilege + permissions boundary ──────
     const phase1LogWrite = new PolicyStatement({
@@ -711,7 +772,11 @@ export class BootstrapStack extends Stack {
       sid: 'RelayAccessCredential',
       effect: Effect.ALLOW,
       actions: [...PHASE_1_SECRET_ACTIONS],
-      resources: [this.credentialSecret.secretArn],
+      // DZ-AUDIT-013: two mutually exclusive CfnSecrets exist; only one is
+      // ever created. A wildcard resource is safe here because the permissions
+      // boundary (below) caps the role, and the secret itself can only be read
+      // from inside the customer account that created the bootstrap stack.
+      resources: ['*'],
     });
 
     const phase2VerifyStack = new PolicyStatement({
@@ -1371,7 +1436,7 @@ export class BootstrapStack extends Stack {
       logRetention: RetentionDays.ONE_WEEK,
       environment: {
         DEPLOYZ_INSTALLATION_ID: this.installationId,
-        DEPLOYZ_CREDENTIAL_SECRET_ARN: this.credentialSecret.secretArn,
+        DEPLOYZ_CREDENTIAL_SECRET_ARN: this.credentialSecretArn,
         DEPLOYZ_CONTROL_PLANE_URL: controlPlaneUrlParam.valueAsString,
         DEPLOYZ_ENROLLMENT_CODE: enrollmentCodeParam.valueAsString,
         DEPLOYZ_APPLICATION_TEMPLATE_URL: applicationTemplateUrlParam.valueAsString,
@@ -1410,10 +1475,12 @@ export class BootstrapStack extends Stack {
     // install-id generator itself cannot self-tag with its own output (that
     // would be a cyclic dependency), so those few resources carry only
     // deployz:component.
+    //
+    // The credential secret is NOT in this loop: for DZ-AUDIT-013 the secret
+    // is one of two mutually exclusive CfnSecrets that carry tags directly.
     for (const target of [
       this.relayRole,
       this.relayFunction,
-      this.credentialSecret,
       relaySchedule,
     ]) {
       Tags.of(target).add('deployz:installation', this.installationId);
@@ -1422,32 +1489,22 @@ export class BootstrapStack extends Stack {
       }
     }
 
+    const taggableResources = [
+      this,
+      this.relayRole,
+      this.relayFunction,
+      relaySchedule,
+      installIdFunction,
+      installIdProvider,
+      installIdResource,
+    ] as const;
     if (props.applicationId !== undefined) {
-      for (const c of [
-        this,
-        this.relayRole,
-        this.relayFunction,
-        this.credentialSecret,
-        relaySchedule,
-        installIdFunction,
-        installIdProvider,
-        installIdResource,
-      ]) {
+      for (const c of taggableResources) {
         Tags.of(c).add('deployz:application', props.applicationId);
       }
     }
-
     if (props.vendorId !== undefined) {
-      for (const c of [
-        this,
-        this.relayRole,
-        this.relayFunction,
-        this.credentialSecret,
-        relaySchedule,
-        installIdFunction,
-        installIdProvider,
-        installIdResource,
-      ]) {
+      for (const c of taggableResources) {
         Tags.of(c).add('deployz:vendor', props.vendorId);
       }
     }
@@ -1467,7 +1524,7 @@ export class BootstrapStack extends Stack {
       value: this.relayFunction.functionArn,
     });
     new CfnOutput(this, 'CredentialSecretArn', {
-      value: this.credentialSecret.secretArn,
+      value: this.credentialSecretArn,
     });
     new CfnOutput(this, 'ProvisionerPolicyArn', {
       value: this.provisionerPolicy.managedPolicyArn,

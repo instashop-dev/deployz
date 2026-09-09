@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fetchInstallCredentials } from './simulation/relay-harness.js';
 
 // Task 10: fixture-mode e2e for the CloudFormation progress-events feature.
 // Drives the relay's new stack-event progress ingest
@@ -193,10 +194,12 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
 }) => {
   test.setTimeout(90_000);
   const suffix = crypto.randomUUID().slice(0, 8);
-  const relayAuth = { Authorization: `Bearer e2e-stack-events-${suffix}` };
   const stackName = `deployz-stack-events-${suffix}`;
   await signUp(page);
   const { deploymentId, installLinkId, installationId, enrollmentCode } = await seedDeployment(page, suffix);
+  // DZ-AUDIT-013: the relay presents the server-minted credential from the Quick Create URL.
+  const { relayCredential } = await fetchInstallCredentials(API_URL, installLinkId);
+  const relayAuth = { Authorization: `Bearer ${relayCredential}` };
 
   // ── 1. Register the relay and fetch the INSTALL command — flips the job
   // to RUNNING, same as deployment-progress.spec.ts's happy path.
@@ -293,11 +296,12 @@ test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while 
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
-  const relayAuth = { Authorization: `Bearer e2e-stack-events-fail-${suffix}` };
   const stackName = `deployz-stack-events-fail-${suffix}`;
   const rawReason = 'Instance class db.t3.micro is not supported in this Availability Zone';
   await signUp(page);
   const { deploymentId, installLinkId, installationId, enrollmentCode } = await seedDeployment(page, suffix);
+  const { relayCredential } = await fetchInstallCredentials(API_URL, installLinkId);
+  const relayAuth = { Authorization: `Bearer ${relayCredential}` };
 
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
     headers: relayAuth,
@@ -364,10 +368,11 @@ test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while 
 
 test('success path: CloudFormation completion alone advances to VERIFYING, never READY', async ({ page }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
-  const relayAuth = { Authorization: `Bearer e2e-stack-events-ok-${suffix}` };
   const stackName = `deployz-stack-events-ok-${suffix}`;
   await signUp(page);
   const { deploymentId, installLinkId, installationId, enrollmentCode } = await seedDeployment(page, suffix);
+  const { relayCredential } = await fetchInstallCredentials(API_URL, installLinkId);
+  const relayAuth = { Authorization: `Bearer ${relayCredential}` };
 
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
     headers: relayAuth,

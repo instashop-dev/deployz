@@ -153,15 +153,62 @@ function emptyPurgeClients(): {
   };
 }
 
+/**
+ * Extract a named CloudFormation Quick Create parameter from the URL.
+ * Mirrors the per-file `extractEnrollmentCode` helpers in e2e/install.spec.ts
+ * and e2e/scenario-sweep.spec.ts. The URL fragment (after `#`) carries
+ * query params that encode template parameters as `param_Xxx=value`.
+ */
+export function extractQuickCreateParam(quickCreateUrl: string, paramName: string): string {
+  const encoded = encodeURIComponent(paramName);
+  const match = quickCreateUrl.match(new RegExp(`param_${encoded}=([^&]+)`));
+  if (!match) {
+    throw new Error(`No param_${paramName} found in quick-create URL: ${quickCreateUrl}`);
+  }
+  return decodeURIComponent(match[1]!);
+}
+
+/**
+ * Fetch install info from the public install page and extract the
+ * enrollment code + relay credential from the Quick Create URL.
+ * DZ-AUDIT-013: the relay credential is now carried inside the URL.
+ */
+export async function fetchInstallCredentials(
+  apiUrl: string,
+  installLinkId: string,
+  fetchFn: FetchFn = globalThis.fetch as unknown as FetchFn,
+): Promise<{ enrollmentCode: string; relayCredential: string }> {
+  const response = await fetchFn(`${apiUrl}/api/install/${installLinkId}`);
+  if (!response.ok) {
+    throw new Error(`GET /api/install/${installLinkId} -> ${response.status}`);
+  }
+  const body = (await response.json()) as { quickCreateUrl: string | null; enrollmentCode?: string };
+  if (!body.quickCreateUrl) {
+    throw new Error(`No quickCreateUrl in install info for ${installLinkId}`);
+  }
+  const enrollmentCode = extractQuickCreateParam(body.quickCreateUrl, 'EnrollmentCode');
+  // DZ-AUDIT-013: relayCredential is present for new deployments, absent
+  // for legacy ones (pre-change). For legacy the caller provides its own.
+  let relayCredential: string | undefined;
+  try {
+    relayCredential = extractQuickCreateParam(body.quickCreateUrl, 'RelayCredential');
+  } catch {
+    // Not present — legacy deployment, caller provides token.
+  }
+  return { enrollmentCode, relayCredential: relayCredential! };
+}
+
 export interface StartSimulatedRelayOptions {
   readonly scenario: ScenarioDefinition;
   /** Base URL of the real local API (e.g. `http://localhost:3001`). */
   readonly apiUrl: string;
   readonly installationId: string;
   readonly enrollmentCode: string;
-  /** The relay's bearer token — mirrors e2e/deployment-progress.spec.ts's
-   *  `Authorization: Bearer <token>` convention (any unique string works;
-   *  the control plane binds whatever token first registers). */
+  /** The relay's bearer token — the server-established relay credential
+   *  (DZ-AUDIT-013). The control plane mints this at deployment creation
+   *  and delivers it through the Quick Create URL as the RelayCredential
+   *  template parameter. The simulated relay presents it exactly like a
+   *  real relay reading it from Secrets Manager. */
   readonly relayToken: string;
   /** Real `fetch` by default — the harness speaks the real HTTP protocol. */
   readonly fetchFn?: FetchFn;
