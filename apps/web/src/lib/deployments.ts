@@ -451,6 +451,14 @@ export function forceCompleteDisconnect(
   );
 }
 
+/** §24 "Retry HTTPS setup" — POST /api/deployments/:id/default-https/retry. */
+export function retryDefaultHttps(deploymentId: string): Promise<{ status: 'retrying' }> {
+  return postJson<{ status: 'retrying' }>(
+    `/api/deployments/${encodeURIComponent(deploymentId)}/default-https/retry`,
+    {},
+  );
+}
+
 /**
  * P2 "Permanently remove retained AWS resources" — POST
  * /api/deployments/:id/purge. Eligible only for a force-completed

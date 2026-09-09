@@ -114,7 +114,7 @@ describe('summarise', () => {
       // Unhealthy but still in the HEALTHY state: counted as attention, not healthy.
       deployment({ id: 'f', healthStatus: 'UNHEALTHY' }),
     ]);
-    expect(summary).toEqual({ total: 7, healthy: 2, attention: 2, deploying: 1, waiting: 2 });
+    expect(summary).toEqual({ total: 7, healthy: 1, attention: 2, deploying: 1, waiting: 2, updates: 1 });
   });
 });
 

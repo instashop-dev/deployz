@@ -2,6 +2,8 @@
 
 import { AlertTriangle, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +15,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DeploymentActionError, retryDefaultHttps } from '@/lib/deployments';
 import type { InfrastructureComponent, InfrastructureResponse } from '@/lib/deployments';
 import {
   INFRASTRUCTURE_COMPONENT_NAME,
@@ -111,6 +114,26 @@ function ComponentRow({
   deploymentId: string;
 }) {
   const failingReason = firstFailingReason(component);
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const needsHttpsRetry = component.kind === 'endpoint' && component.httpsState === 'FAILED';
+
+  async function onRetryHttps(): Promise<void> {
+    setPending(true);
+    setNotice(null);
+    try {
+      await retryDefaultHttps(deploymentId);
+      toast.success('HTTPS setup retry requested');
+    } catch (caught) {
+      if (caught instanceof DeploymentActionError && caught.code === 'NOT_IN_ERROR') {
+        setNotice('HTTPS setup is no longer in a failed state.');
+      } else {
+        setNotice("Couldn't retry HTTPS setup. Try again in a moment.");
+      }
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <li className="flex flex-col gap-2 rounded-lg border px-3 py-2.5">
@@ -134,16 +157,29 @@ function ComponentRow({
       <p className="text-xs text-muted-foreground">
         {INFRASTRUCTURE_LIFECYCLE_LABEL[component.lifecycle]}
       </p>
-      {component.status === 'failed' ? (
+      {component.status === 'failed' || component.httpsState === 'FAILED' ? (
         <div className="flex flex-col gap-2">
           {failingReason ? (
             <p className="text-xs text-destructive">{failingReason}</p>
           ) : null}
-          <Button asChild size="sm" variant="outline" className="self-start">
-            <Link href={`/dashboard/deployments/${deploymentId}/diagnostics`}>
-              View diagnostics
-            </Link>
-          </Button>
+          {needsHttpsRetry ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="self-start"
+              disabled={pending}
+              onClick={() => void onRetryHttps()}
+            >
+              {pending ? 'Retrying…' : 'Retry HTTPS setup'}
+            </Button>
+          ) : (
+            <Button asChild size="sm" variant="outline" className="self-start">
+              <Link href={`/dashboard/deployments/${deploymentId}/diagnostics`}>
+                View diagnostics
+              </Link>
+            </Button>
+          )}
+          {notice ? <p className="text-xs text-muted-foreground">{notice}</p> : null}
         </div>
       ) : null}
       {component.resources.length > 0 ? (

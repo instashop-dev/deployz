@@ -16,6 +16,8 @@ export function FleetSummary({ summary }: { summary: FleetSummaryCounts }) {
   }
   if (summary.deploying > 0) items.push({ label: 'Deploying', value: summary.deploying });
   if (summary.waiting > 0) items.push({ label: 'Waiting to install', value: summary.waiting });
+  if (summary.updates > 0)
+    items.push({ label: summary.updates === 1 ? 'Update available' : 'Updates available', value: summary.updates });
 
   return (
     <div
