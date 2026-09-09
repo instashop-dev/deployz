@@ -205,23 +205,50 @@ jobs:
             --require-approval never \
             --app "npx tsx bin/deployz.ts"
 
+      # The stack can report CREATE_COMPLETE while the function itself dies at
+      # INIT — a migration that cannot apply does exactly that, and it is how
+      # the API sat two releases behind without anyone noticing.
+      - name: Verify the deployed API answers
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              https://api.deployz.dev/health || true)
+            echo "health: $code"
+            if [ "$code" = "200" ]; then
+              echo "API healthy at https://api.deployz.dev" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "API did not return 200 after deploying" >&2
+          exit 1
+
       # The relay that drives every install ships inside this template's Lambda
       # assets, and each region serves its own copy from
-      # deployz-templates-<region>. Republishing here is what stops a region
-      # running relay code older than the control plane just deployed above:
-      # the regional buckets were published once by hand and then left, so
-      # every region except us-east-1 silently missed relay fixes.
+      # deployz-templates-<region>. Nothing republished those: the regional
+      # buckets were published once by hand and then left, so every region
+      # except us-east-1 ran relay code older than the deployed control plane
+      # and silently missed relay fixes.
+      #
+      # Gated, and OFF until the deploy user can actually publish. The
+      # publisher needs s3:GetBucketLocation, s3:PutObject and
+      # cloudformation:ValidateTemplate on the legacy bucket and on every
+      # deployz-templates-<region> bucket; without them this fails after the
+      # stack has already gone out. Grant those, then set the repository
+      # variable BOOTSTRAP_REPUBLISH to `on`.
+      #
+      # Runs AFTER the API verification on purpose: publishing artifacts must
+      # never decide whether the API that just went out gets checked.
       #
       # The published set is DEPLOYABLE_AWS_REGIONS — the same list the API
       # hands out install links for — so a region can never be advertised as
-      # installable while serving stale artifacts. us-east-1 publishes into the
-      # legacy bucket that BOOTSTRAP_TEMPLATE_URL already points at.
-      #
-      # publish:bootstrap verifies every region and fails if any one of them
-      # fails: a half-published set would leave some regions broken with an S3
-      # PermanentRedirect at stack creation, which is worse than a failed
-      # deploy.
+      # installable while serving stale artifacts. publish:bootstrap verifies
+      # every region and fails if any one of them fails: a half-published set
+      # would leave some regions broken with an S3 PermanentRedirect at stack
+      # creation, which is worse than a failed deploy.
       - name: Republish the bootstrap template to every deployable region
+        if: ${{ vars.BOOTSTRAP_REPUBLISH == 'on' }}
         env:
           BOOTSTRAP_PUBLISH_REGIONS: ${{ vars.DEPLOYABLE_AWS_REGIONS }}
           BOOTSTRAP_LEGACY_BUCKET_REGION: us-east-1
@@ -244,22 +271,3 @@ jobs:
           bucket="${bucket%%.s3.*}"
           echo "Publishing into bucket: ${bucket}"
           TEMPLATE_BUCKET="${bucket}" pnpm --filter @deployz/cdk run publish:bootstrap
-
-      # The stack can report CREATE_COMPLETE while the function itself dies at
-      # INIT — a migration that cannot apply does exactly that, and it is how
-      # the API sat two releases behind without anyone noticing.
-      - name: Verify the deployed API answers
-        run: |
-          set -euo pipefail
-          for _ in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
-              https://api.deployz.dev/health || true)
-            echo "health: $code"
-            if [ "$code" = "200" ]; then
-              echo "API healthy at https://api.deployz.dev" >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            sleep 15
-          done
-          echo "API did not return 200 after deploying" >&2
-          exit 1

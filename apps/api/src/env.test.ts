@@ -478,6 +478,32 @@ describe('the deploy republishes bootstrap artifacts to every deployable region'
     expect(steps).toMatch(/run:[\s\S]*?publish:bootstrap/);
   });
 
+  // The publisher needs s3:GetBucketLocation, s3:PutObject and
+  // cloudformation:ValidateTemplate across every regional bucket, and the
+  // deploy user has none of them yet. Ungated, the step failed every deploy
+  // after the stack had already gone out. The switch is what lets the
+  // permissions land first and the invariant be turned on deliberately.
+  it('runs only when BOOTSTRAP_REPUBLISH is switched on', () => {
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
+    const start = steps.indexOf('- name: Republish the bootstrap template');
+    expect(start, 'could not locate the republish step').toBeGreaterThan(-1);
+    const step = steps.slice(start, steps.indexOf('\n      - name:', start + 1));
+
+    expect(step).toMatch(/if:[^\n]*vars\.BOOTSTRAP_REPUBLISH/);
+  });
+
+  // Publishing artifacts must never decide whether the API that just went out
+  // gets checked: the first ungated run failed here and skipped that step
+  // entirely, which is how a broken deploy could pass unnoticed.
+  it('runs after the deployed API has been verified', () => {
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
+    const verify = steps.indexOf('- name: Verify the deployed API answers');
+    const republish = steps.indexOf('- name: Republish the bootstrap template');
+
+    expect(verify, 'could not locate the API verification step').toBeGreaterThan(-1);
+    expect(republish).toBeGreaterThan(verify);
+  });
+
   // resolveBucket (publish-bootstrap.mjs) otherwise falls back to
   // cloudformation:ListExports, which the deploy user is not allowed to call —
   // the first run of this step died on exactly that, after the stack had
