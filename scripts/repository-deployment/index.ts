@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { ANALYSIS_VERSION } from '@deployz/api/analysis';
+import { parseApplicationTemplateUrl } from '@deployz/contracts';
 
 import { openAnalysisSession } from '../repository-compatibility/analyse.js';
 import { loadBenchmark, selectEntries, type Benchmark, type BenchmarkEntry } from '../repository-compatibility/manifest.js';
@@ -340,10 +341,10 @@ function publishPinnedTemplateWith(config: CanaryConfig, region: string) {
       env: { ...process.env, AWS_REGION: region, APP_IMAGE_REPOSITORY: repository, APP_IMAGE_DIGEST: imageDigest, APPLICATION_KEY_PREFIX: keyPrefix },
       shell: process.platform === 'win32',
     });
-    const match = /template\s+(https:\/\/\S+)/.exec(output);
-    if (!match?.[1]) throw new Error(`publish:application printed no template URL:\n${output}`);
+    const templateUrl = parseApplicationTemplateUrl(output);
+    if (!templateUrl) throw new Error(`publish:application printed no template URL:\n${output}`);
     void config;
-    return match[1];
+    return templateUrl;
   };
 }
 

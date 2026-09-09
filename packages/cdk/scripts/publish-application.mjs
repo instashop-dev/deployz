@@ -44,7 +44,7 @@ import {
   createRealS3Client,
   synthesizeApplicationStack,
 } from '../dist/quick-create/publish.js';
-import { applicationTemplateKeyForProfile } from '@deployz/contracts';
+import { APPLICATION_TEMPLATE_URL_LINE, applicationTemplateKeyForProfile } from '@deployz/contracts';
 
 const region = process.env.AWS_REGION ?? 'us-east-1';
 const stackName = process.env.CONTROL_PLANE_STACK ?? 'Deployz';
@@ -132,3 +132,7 @@ console.log(`  preset         ${preset ?? '(none)'}`);
 console.log();
 console.log('Now republish the bootstrap template so new installs point at it:');
 console.log(`  APPLICATION_TEMPLATE_URL=${results[0].templateUrl} pnpm --filter @deployz/cdk run publish:bootstrap`);
+console.log();
+// The machine-readable contract the real-AWS harnesses read (the human table
+// above names variants, which they must never install against).
+console.log(`${APPLICATION_TEMPLATE_URL_LINE} ${results[0].templateUrl}`);

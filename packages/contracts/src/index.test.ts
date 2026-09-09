@@ -33,7 +33,9 @@ import {
   failureCodeSchema,
   APPLICATION_TEMPLATE_KEY,
   APPLICATION_TEMPLATE_REDIS_KEY,
+  APPLICATION_TEMPLATE_URL_LINE,
   applicationTemplateKeyForProfile,
+  parseApplicationTemplateUrl,
   healthComponentsSchema,
   isSupportedRegion,
   organizationSchema,
@@ -566,6 +568,57 @@ describe('resolveApplicationTemplateUrl', () => {
 
   it('returns undefined for an empty string', () => {
     expect(resolveApplicationTemplateUrl('', { postgres: false, redis: false })).toBeUndefined();
+  });
+});
+
+describe('parseApplicationTemplateUrl', () => {
+  const prefix = 'https://bucket.s3.us-east-1.amazonaws.com/application/stage-b';
+  const base = `${prefix}/${APPLICATION_TEMPLATE_KEY}`;
+
+  /** The shape `publish:application` prints: a human table, then the marker. */
+  const output = [
+    'Published the application templates to bucket',
+    `  base             ${base}`,
+    '                   4 bytes, 17 parameter(s), 50 resource(s)',
+    `  redis            ${prefix}/${APPLICATION_TEMPLATE_REDIS_KEY}`,
+    `  stateless        ${prefix}/application-template-stateless-v1.json`,
+    `  stateless-redis  ${prefix}/application-template-stateless-redis-v1.json`,
+    '  image          1.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:abc',
+    '  preset         (none)',
+    '',
+    'Now republish the bootstrap template so new installs point at it:',
+    `  APPLICATION_TEMPLATE_URL=${base} pnpm --filter @deployz/cdk run publish:bootstrap`,
+    '',
+    `${APPLICATION_TEMPLATE_URL_LINE} ${base}`,
+    '',
+  ].join('\n');
+
+  it('reads the base template URL the publisher marked', () => {
+    expect(parseApplicationTemplateUrl(output)).toBe(base);
+  });
+
+  it('reads it from CRLF output', () => {
+    expect(parseApplicationTemplateUrl(output.replace(/\n/g, '\r\n'))).toBe(base);
+  });
+
+  it('never returns a profile variant a harness must not install against', () => {
+    const parsed = parseApplicationTemplateUrl(output);
+    expect(parsed?.endsWith(APPLICATION_TEMPLATE_KEY)).toBe(true);
+    expect(resolveApplicationTemplateUrl(parsed ?? '', { postgres: false, redis: true })).toBe(
+      `${prefix}/application-template-stateless-redis-v1.json`,
+    );
+  });
+
+  it('returns undefined when the publisher printed no marker', () => {
+    const withoutMarker = output
+      .split('\n')
+      .filter((line) => !line.startsWith(APPLICATION_TEMPLATE_URL_LINE))
+      .join('\n');
+    expect(parseApplicationTemplateUrl(withoutMarker)).toBeUndefined();
+  });
+
+  it('returns undefined for empty output', () => {
+    expect(parseApplicationTemplateUrl('')).toBeUndefined();
   });
 });
 
