@@ -22,7 +22,8 @@ as shipped.
 
 Deployz displays prices but does no money math. Paddle owns charges, tax,
 proration, invoices, cards and cancellation. Deployz owns eligibility and
-exactly one number: how many customer deployments are live.
+exactly one number: how many customer deployments are live beyond the
+organization's included allowance (see "Included production deployments").
 
 ## Division of responsibility
 
@@ -30,15 +31,21 @@ exactly one number: how many customer deployments are live.
 |---|---|
 | Whether a deployment may be created (entitlements) | Charging the card |
 | `billing_state` per deployment (NOT_STARTED / ACTIVE / STOPPED) | Proration when the count changes mid-cycle |
-| The live-deployment count pushed as an absolute quantity | Invoices, receipts, tax |
+| The billable deployment quantity pushed as an absolute number: `max(live − included, 0)` | Invoices, receipts, tax |
+| The included production deployment allowance (admin-set, per organization) | Nothing — Paddle never learns it exists |
 | The checkout intent (a parked request, never a deployment) | The checkout overlay and the card form |
 | Subscription status as projected from webhooks | Dunning, past-due, pause/resume, cancel |
 | The customer portal *link* | The customer portal |
 
 ## Data
 
-Four tables (`packages/db/src/schema/billing.ts`) plus two columns on
-`deployments`:
+Four tables (`packages/db/src/schema/billing.ts`), two columns on
+`deployments`, and one on `organization`:
+
+- `organization.included_production_deployments` — integer, NOT NULL,
+  default 0, CHECK 0..10000 (migration 0038). The admin-set allowance; see
+  "Included production deployments" below. Written only by the Team Admin
+  route.
 
 - `deployments.deployment_type` (TEST / PRODUCTION) and
   `deployments.billing_state` with `billing_started_at` / `billing_stopped_at`.
@@ -93,8 +100,9 @@ install link — exist.
 
 `billing_state` moves NOT_STARTED → ACTIVE on the first observed READY stage
 (`markDeploymentLive`, from the relay write paths). That write returning
-`true` triggers `reconcileBilling`, which reads the live count and pushes it
-to Paddle as an **absolute** quantity on the per-deployment item —
+`true` triggers `reconcileBilling`, which reads the live count and the
+organization's included allowance and pushes `max(live − included, 0)` to
+Paddle as an **absolute** quantity on the per-deployment item —
 `prorated_immediately`, `on_payment_failure: apply_change`. Never a delta:
 running it twice yields the same subscription as once.
 
@@ -126,6 +134,96 @@ reconciles any ACTIVE/PAST_DUE subscription not checked for an hour.
 - Admins see live count, subscription, last reconciled, recent outcomes, and
   can run the same `reconcileBilling` on demand, audited.
 
+## Included production deployments
+
+An organization-scoped, admin-controlled allowance: the number of live
+production deployments the organization may run before the per-deployment
+charge applies. Implementation record:
+`included-deployments-implementation.md`.
+
+### Business rule
+
+```
+billableDeploymentQuantity =
+  max(active production billing deployments − included production deployments, 0)
+```
+
+where "active production billing deployments" is `count(deployment_type =
+PRODUCTION AND billing_state = ACTIVE)` — the same predicate as before
+(`billing-matrix.md` §2). `billableDeploymentQuantity` /
+`productionDeploymentCounts` in `apps/api/src/billing-domain.ts` are the
+only implementation; `reconcileBilling`, `GET /api/billing/summary` and the
+admin vendor detail all read them.
+
+### Entitlement semantics
+
+Included production deployments are:
+
+- organization-wide — one value on the `organization` row, pooled across
+  every application and every customer of that organization;
+- a concurrent allowance, not consumable credits — three included means
+  three live at a time, forever, not three lifetime deployments;
+- not per application, not per customer, and never attached to a specific
+  deployment: no deployment row carries an "is free" flag;
+- separate from the vendor's own test deployment, which is free from any
+  state and never counts toward the total;
+- no waiver of the $49/month platform subscription — the first production
+  deployment still activates it, the allowance only affects the $19 item.
+
+Default 0, so every organization bills exactly as before until a Team
+Admin sets a value. The value exists before any subscription does, and it
+survives cancellation and reactivation, ownership transfer and membership
+changes.
+
+### Paddle rule
+
+Paddle receives only the final billable quantity, as an absolute number.
+When it is 0 the deployment item is removed (never a $0 price, never a
+quantity-0 item); the platform item is untouched. Paddle never learns the
+allowance exists: no coupons, discounts, custom prices, $0 prices, per-vendor
+products or per-deployment items are created for it.
+
+### Admin rule
+
+Only a Team Admin can change it, through `POST
+/api/admin/vendors/:id/included-deployments` (`docs/admin/team-admin.md`).
+Every change:
+
+- requires a human-entered reason;
+- is written with the organization row locked, so concurrent changes audit
+  the true previous value;
+- is audited in the immutable `event_logs` as
+  `admin.billing.included_deployments.updated` with the old and new
+  allowance, the active count, the old and new billable quantity, the reason,
+  and the reconciliation outcome;
+- runs the canonical `reconcileBilling` immediately when the organization has
+  a subscription — never a duplicate of the Paddle update logic;
+- keeps the new allowance if Paddle fails: the reconciliation ledger records
+  the drift, and the admin Reconcile action or the 15-minute safety job
+  repairs it.
+
+The vendor detail previews included and billable quantities before and
+after, and a decrease warns that the next invoice may increase.
+
+### What the vendor sees
+
+The Billing page shows the pool — `N active · M included · K billed × $19` —
+and never labels an individual deployment free or paid. The create page says
+whether the next production deployment is covered or is the first billed one,
+and that the platform subscription still starts with the first one. A live
+production deployment's detail reads "Counts toward your production
+deployment total", and the disconnect dialog says the count goes down and
+billing adjusts if the billable quantity changes. Customer-facing install and
+deploy-link pages never show any of it.
+
+### Explicitly out of scope
+
+Not built, deliberately: custom platform prices, free platform months,
+percentage discounts, Paddle coupons or promo codes, expiry dates, per-app or
+per-customer allowances, consumable credits, volume tiers, custom contracts,
+arbitrary price overrides. The allowance is one integer per organization and
+nothing more.
+
 ## Configuration
 
 Six values, all in `.github/workflows/deploy-api.yml` from repository
@@ -141,7 +239,9 @@ separate configuration.
 
 ## What was deliberately not built
 
-- No trials, discounts, annual prices, tiers, or metering.
+- No trials, discounts, annual prices, tiers, or metering. The one
+  commercial override is the included production deployment allowance
+  above — an integer per organization, never a price.
 - No billing screens of Deployz's own for cards, invoices or cancellation.
 - No second subscription is ever sold: PAST_DUE and PAUSED cannot check out.
 - No provider abstraction: `provider = PADDLE` says what a row is, nothing
