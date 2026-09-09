@@ -3710,6 +3710,55 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(response.statusCode).toBe(404);
   });
 
+  it('POST /api/install/:installLinkId/retry records previousInstallationId and previousBootstrapStackName before nulling installationId', async () => {
+    const { deployment, installLinkId } = await seedWaiting({
+      state: 'WAITING_FOR_RELAY',
+      installationId: 'inst-to-be-replaced',
+      enrollmentUsedAt: null,
+    });
+    const oldStackName = bootstrapStackName({
+      appName: 'Widget Suite',
+      deploymentId: deployment.id,
+      attempt: 0,
+    });
+    await db
+      .update(schema.deployments)
+      .set({ bootstrapStackName: oldStackName, installStartedAt: new Date(Date.now() - 20 * 60 * 1000) })
+      .where(eq(schema.deployments.id, deployment.id));
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: deployment.id,
+      type: 'INSTALL',
+      state: 'RUNNING',
+      idempotencyKey: `${deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const response = await postJson(app, `/api/install/${installLinkId}/retry`, {});
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.installationId).toBeNull();
+    expect(dep!.previousInstallationId).toBe('inst-to-be-replaced');
+    expect(dep!.previousBootstrapStackName).toBe(oldStackName);
+  });
+
+  it('POST /api/install/:installLinkId/retry with installationId already null writes no previousInstallationId', async () => {
+    const { deployment, installLinkId } = await seedWaiting({
+      state: 'WAITING_FOR_RELAY',
+      installationId: null,
+      enrollmentUsedAt: null,
+    });
+
+    const response = await postJson(app, `/api/install/${installLinkId}/retry`, {});
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.installationId).toBeNull();
+    // previousInstallationId stays as it was — the retry should not write it when installationId was already null.
+    expect(dep!.previousInstallationId).toBeNull();
+  });
+
   it('relay/reset bumps the attempt, recomputes the stack name, and returns a never-installed deployment to NOT_INSTALLED', async () => {
     const application = await insertApplication(db, org.organizationId, { name: 'Reset App' });
     const customer = await insertCustomer(db, org.organizationId);

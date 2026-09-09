@@ -252,20 +252,13 @@ function getStackDeleter(): StackDeleter {
   return stackDeleter;
 }
 
-// Purge clients are lazy the same way: no SDK client is constructed until a
-// PURGE command actually runs, so importing this module stays AWS-free.
-let purgeClients:
-  | {
-      rds: RdsPurgeClient;
-      cache: CachePurgeClient;
-      s3: S3PurgeClient;
-      secrets: SecretsPurgeClient;
-      acm: AcmPurgeClient;
-      network: NetworkPurgeClient;
-    }
-  | undefined;
-
-function getPurgeClients(installationId: string): {
+// Purge clients are NOT cached (DZ-AUDIT-009): the optional
+// previousInstallationId from the command payload requires fresh clients per
+// invocation.  PURGE is not performance-sensitive.
+function getPurgeClients(
+  installationId: string,
+  previousInstallationId?: string,
+): {
   rds: RdsPurgeClient;
   cache: CachePurgeClient;
   s3: S3PurgeClient;
@@ -273,10 +266,7 @@ function getPurgeClients(installationId: string): {
   acm: AcmPurgeClient;
   network: NetworkPurgeClient;
 } {
-  if (!purgeClients) {
-    purgeClients = createRealPurgeClients(installationId);
-  }
-  return purgeClients;
+  return createRealPurgeClients(installationId, previousInstallationId);
 }
 
 // Lazy readers behind runtime health observation — same construct-on-first-use
@@ -1473,6 +1463,8 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     installationId: installDeps.installationId,
     stackName: relayApplicationStackName(),
     bootstrapStackName: relayBootstrapStackName(),
+    // previousInstallationId is read from the command payload by the executor
+    // and resumer, which also rebuild clients with the extended id set.
     ...getPurgeClients(installDeps.installationId),
   };
 
@@ -1484,7 +1476,21 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     RESTART: createRestartExecutor(deployDeps),
     CONFIG_UPDATE: noop,
     DESTROY: createDestroyExecutor(destroyDeps),
-    PURGE: createPurgeExecutor(purgeDeps),
+    // DZ-AUDIT-009: read previousInstallationId from the command payload
+    // and build deps with clients that know about both ids.
+    PURGE: async (command) => {
+      const prevId = typeof command.payload?.previousInstallationId === 'string'
+        ? command.payload.previousInstallationId
+        : undefined;
+      const deps: PurgeDeps = prevId
+        ? {
+            ...purgeDeps,
+            previousInstallationId: prevId,
+            ...getPurgeClients(installDeps.installationId, prevId),
+          }
+        : purgeDeps;
+      return createPurgeExecutor(deps)(command);
+    },
     MIGRATE: noop,
     REFRESH_METADATA: noop,
     CONFIGURE_DOMAIN: domainExecutors.CONFIGURE_DOMAIN,
@@ -1755,14 +1761,23 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               : {}),
           })();
           if (destroyResults.length > 0) return destroyResults;
+          // DZ-AUDIT-009: read previousInstallationId from the pending
+          // record and build deps with clients that know about both ids.
+          const purgePendingStore = getPendingStore(installationId);
+          const purgePending = await purgePendingStore.read();
+          const purgePrevId =
+            purgePending?.type === 'PURGE' &&
+            typeof purgePending.payload?.previousInstallationId === 'string'
+              ? purgePending.payload.previousInstallationId
+              : undefined;
           return createPurgeResumer({
             cfn: getCloudFormationReader(),
             deleter: getStackDeleter(),
-            pending: getPendingStore(installationId),
+            pending: purgePendingStore,
             installationId,
             stackName: relayApplicationStackName(),
             bootstrapStackName: relayBootstrapStackName(),
-            ...getPurgeClients(installationId),
+            ...getPurgeClients(installationId, purgePrevId),
           })();
         }),
       identity: deps.identity ?? readRelayIdentity(context),

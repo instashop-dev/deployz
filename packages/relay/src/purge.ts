@@ -187,6 +187,10 @@ export interface PurgeDeps {
   readonly deleter: StackDeleter;
   readonly pending: PendingStore;
   readonly installationId: string;
+  /** Optional — previous relay's installation id whose retained resources
+   * must also be swept (DZ-AUDIT-009). When absent, behavior matches the
+   * original single-id ownership model. */
+  readonly previousInstallationId?: string;
   readonly stackName: string;
   readonly bootstrapStackName: string;
   readonly rds: RdsPurgeClient;
@@ -265,7 +269,10 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
   // the next phase, after the stack is gone.
   const lookup = await deps.cfn.describeStack(deps.stackName);
   if (lookup.found) {
-    if (lookup.stack.tags[INSTALLATION_TAG] !== deps.installationId) {
+    const stackTag = lookup.stack.tags[INSTALLATION_TAG];
+    const knownIds: string[] = [deps.installationId];
+    if (deps.previousInstallationId) knownIds.push(deps.previousInstallationId);
+    if (!knownIds.includes(stackTag ?? '')) {
       return {
         state: 'failed',
         reason: `Stack "${deps.stackName}" does not carry this installation's tag — refusing to purge`,
@@ -539,6 +546,10 @@ export function createPurgeExecutor(deps: PurgeDeps): CommandExecutor {
       }),
     );
 
+    // DZ-AUDIT-009: previousInstallationId is read from the command payload
+    // by the caller (index.ts), which passes correctly-configured deps with
+    // extended clients.  This function just uses what it receives.
+
     let outcome: PurgeOutcome;
     try {
       outcome = await settlePurge(deps);
@@ -621,6 +632,10 @@ export function createPurgeResumer(deps: PurgeDeps): () => Promise<RelayCommandR
     const pending = await deps.pending.read();
     if (pending === null || pending.type !== 'PURGE') return [];
 
+    // DZ-AUDIT-009: previousInstallationId was read from the pending record's
+    // payload by the caller (index.ts), which passes correctly-configured
+    // deps with extended clients.  This function just uses what it receives.
+
     const outcome = await settlePurge(deps);
     if (outcome.state === 'purging') {
       console.log(
@@ -676,7 +691,10 @@ export function createPurgeResumer(deps: PurgeDeps): () => Promise<RelayCommandR
  * and returns only this installation's resources — a resource whose tags
  * are unreadable or mismatched is omitted, never attempted.
  */
-export function createRealPurgeClients(installationId: string): {
+export function createRealPurgeClients(
+  installationId: string,
+  previousInstallationId?: string,
+): {
   rds: RdsPurgeClient;
   cache: CachePurgeClient;
   s3: S3PurgeClient;
@@ -684,6 +702,8 @@ export function createRealPurgeClients(installationId: string): {
   acm: AcmPurgeClient;
   network: NetworkPurgeClient;
 } {
+  const knownIds = new Set([installationId]);
+  if (previousInstallationId) knownIds.add(previousInstallationId);
   const rdsBase = createRealRdsCleanupClient();
   const rds = new RDSClient({});
   const cacheBase = createRealCacheCleanupClient();
@@ -693,7 +713,7 @@ export function createRealPurgeClients(installationId: string): {
   const acm = new ACMClient({});
   const owns = (
     tags: readonly { readonly Key?: string | undefined; readonly Value?: string | undefined }[],
-  ) => tags.some((tag) => tag.Key === INSTALLATION_TAG && tag.Value === installationId);
+  ) => tags.some((tag) => tag.Key === INSTALLATION_TAG && tag.Value !== undefined && knownIds.has(tag.Value));
   const ownsApplicationSecret = (
     tags: readonly { readonly Key?: string | undefined; readonly Value?: string | undefined }[],
   ) =>
@@ -888,7 +908,7 @@ export function createRealPurgeClients(installationId: string): {
         await acm.send(new DeleteCertificateCommand({ CertificateArn: certificateArn }));
       },
     },
-    network: createRealNetworkPurgeClient(installationId),
+    network: createRealNetworkPurgeClient(installationId, previousInstallationId),
   };
 }
 
@@ -915,11 +935,16 @@ interface TaggedEc2Resource {
 export function toNetworkPurgeClient(
   client: SendsEc2Commands,
   installationId: string,
+  previousInstallationId?: string,
 ): NetworkPurgeClient {
+  const knownIds = new Set([installationId]);
+  if (previousInstallationId) knownIds.add(previousInstallationId);
   const owns = (resource: TaggedEc2Resource) =>
     (resource.Tags ?? []).some(
-      (tag) => tag.Key === INSTALLATION_TAG && tag.Value === installationId,
+      (tag) => tag.Key === INSTALLATION_TAG && tag.Value !== undefined && knownIds.has(tag.Value),
     );
+  // The EC2 API filter can only match one value, so use the current id for
+  // the fast path; the re-check via owns() above handles the previous id.
   const installationFilter = { Name: `tag:${INSTALLATION_TAG}`, Values: [installationId] };
 
   return {
@@ -1026,6 +1051,9 @@ export function toNetworkPurgeClient(
 }
 
 /** Production network purge client — credentials come from the standard SDK chain. */
-export function createRealNetworkPurgeClient(installationId: string): NetworkPurgeClient {
-  return toNetworkPurgeClient(new EC2Client({}), installationId);
+export function createRealNetworkPurgeClient(
+  installationId: string,
+  previousInstallationId?: string,
+): NetworkPurgeClient {
+  return toNetworkPurgeClient(new EC2Client({}), installationId, previousInstallationId);
 }

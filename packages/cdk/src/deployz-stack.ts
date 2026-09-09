@@ -96,7 +96,8 @@ export class DeployzStack extends Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       backupRetention: Duration.days(7),
-      deletionProtection: false,
+      deletionProtection: true,
+      deleteAutomatedBackups: false,
     });
 
     // ── SQS (async job processing) ───────────────────────────────────────

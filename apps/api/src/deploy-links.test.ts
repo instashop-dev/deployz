@@ -751,6 +751,28 @@ describe('deploy links', () => {
     expect(events[0]!.actorId).toBe(`deploy-link:${publicId}`);
   });
 
+  it('retry records previousInstallationId and previousBootstrapStackName before nulling installationId', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    const oldStackName = `deployz-bootstrap-old-${deploymentId}`;
+    await db
+      .update(schema.deployments)
+      .set({
+        state: 'WAITING_FOR_RELAY',
+        installationId: 'inst-link-stale',
+        bootstrapStackName: oldStackName,
+        relayTokenHash: 'stale-hash',
+      })
+      .where(eq(schema.deployments.id, deploymentId));
+
+    const response = await retry(publicId, token);
+    expect(response.statusCode, response.body).toBe(200);
+
+    const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
+    expect(deployment!.installationId).toBeNull();
+    expect(deployment!.previousInstallationId).toBe('inst-link-stale');
+    expect(deployment!.previousBootstrapStackName).toBe(oldStackName);
+  });
+
   it('retry refuses a deployment that ever installed successfully (409)', async () => {
     const { publicId, token, deploymentId } = await createLink();
     await db.insert(schema.deploymentJobs).values({
