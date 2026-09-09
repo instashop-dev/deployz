@@ -651,16 +651,34 @@ export interface SynthesizeApplicationOptions {
  */
 const DATABASE_ONLY_PRESET_KEYS = ['databaseUrlEnvNames', 'databasePartBindings'] as const;
 
-/** The preset's stack properties, minus anything a database-less stack refuses. */
+/**
+ * Preset properties that only ever describe the preset's OWN container image.
+ * One published template serves EVERY application, so these cannot be baked
+ * into it: the preset's health check shells out to node against its own port
+ * and path, which another image cannot satisfy — an nginx app on :80 has
+ * neither, so ECS kills a task the load balancer is happily serving and
+ * replaces it forever, and the install never leaves "starting the
+ * application". The ALB target group's probe of `healthCheckPath` is the
+ * health signal ECS promotes a deployment on, and that one is a per-install
+ * parameter, so dropping this costs the preset nothing.
+ */
+const IMAGE_ONLY_PRESET_KEYS = ['healthCheckShellCommand'] as const;
+
+/**
+ * The preset's stack properties, minus anything tied to its own image and
+ * anything a database-less stack refuses.
+ */
 function presetProps(
   preset: 'documenso' | undefined,
   databaseRequired: boolean,
 ): Partial<ApplicationStackProps> {
   if (preset !== 'documenso') return {};
-  if (databaseRequired) return DOCUMENSO_APPLICATION_PROPS;
-  const keys: readonly string[] = DATABASE_ONLY_PRESET_KEYS;
+  const dropped: readonly string[] = [
+    ...IMAGE_ONLY_PRESET_KEYS,
+    ...(databaseRequired ? [] : DATABASE_ONLY_PRESET_KEYS),
+  ];
   return Object.fromEntries(
-    Object.entries(DOCUMENSO_APPLICATION_PROPS).filter(([key]) => !keys.includes(key)),
+    Object.entries(DOCUMENSO_APPLICATION_PROPS).filter(([key]) => !dropped.includes(key)),
   ) as Partial<ApplicationStackProps>;
 }
 
