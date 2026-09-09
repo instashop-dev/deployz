@@ -175,71 +175,33 @@ export function requireRealAws(options: RunOptions, env: NodeJS.ProcessEnv): voi
   }
 }
 
-/** Standing installation env vars (mirrors the version-canary convention). */
-export const STANDING_INSTALLATION_ENV = {
-  /** The installation id of the persistent canary installation. */
-  id: 'DEPLOYZ_E2E_CANARY_INSTALLATION_ID',
-  /** The region the standing installation lives in. */
-  region: 'DEPLOYZ_E2E_CANARY_INSTALLATION_REGION',
-  /** The bootstrap stack name of the standing installation. */
-  stack: 'DEPLOYZ_E2E_CANARY_INSTALLATION_STACK',
-} as const;
-
-export interface StandingInstallation {
-  installationId: string;
-  region: string;
-  stackName: string;
-}
-
 /**
- * Read the standing installation config from the environment.
- * Throws with actionable instructions when absent.
+ * B1 runtime-reuse cannot work against the product as it stands, so the mode
+ * refuses instead of failing 15 minutes later with a misleading verdict.
+ *
+ * A deployment owns its installation: `deployments.installation_id` is UNIQUE,
+ * the enrollment code is single-use, and the relay's bearer token is bound to
+ * the deployment that traded it (packages/db/src/schema/deployments.ts). A
+ * standing installation is therefore already owned by the deployment that
+ * enrolled it and can never serve a second one — the new deployment's
+ * enrollment code is never traded, so it stays WAITING_FOR_RELAY until the
+ * install step times out and the attempt is recorded as a product failure.
+ *
+ * Sharing one runtime across repositories needs many deployments per
+ * installation, which is a product change and out of the MVP boundary.
  */
-export function readStandingInstallation(env: NodeJS.ProcessEnv): StandingInstallation {
-  const installationId = env[STANDING_INSTALLATION_ENV.id];
-  const region = env[STANDING_INSTALLATION_ENV.region] ?? 'us-east-1';
-  const stackName = env[STANDING_INSTALLATION_ENV.stack];
-  if (!installationId) {
-    throw new Error(
-      `--runtime-reuse needs a standing installation.\n` +
-      `Set ${STANDING_INSTALLATION_ENV.id}=<installation-id>\n` +
-      `and optionally ${STANDING_INSTALLATION_ENV.region}=<region> (default: us-east-1)\n` +
-      `and ${STANDING_INSTALLATION_ENV.stack}=<bootstrap-stack-name>.\n` +
-      `The standing installation must carry DeployzPersistent=true and DeployzTestMode=canary tags.`,
-    );
-  }
-  if (!stackName) {
-    throw new Error(
-      `--runtime-reuse needs the standing installation's bootstrap stack name.\n` +
-      `Set ${STANDING_INSTALLATION_ENV.stack}=<bootstrap-stack-name>.`,
-    );
-  }
-  return { installationId, region, stackName };
-}
-
-/**
- * Check that the standing installation's bootstrap stack has the expected
- * persistent tags. Throws with actionable instructions when absent.
- * Factored as a pure function so the tag check is testable without AWS.
- */
-export function checkStandingInstallationTags(
-  stack: { status: string; statusReason: string | null; outputs: Record<string, string> },
-  tags: Record<string, string>,
-): void {
-  const hasPersistent = tags['DeployzPersistent'] === 'true';
-  const hasCanaryMode = tags['DeployzTestMode'] === 'canary';
-  if (!hasPersistent || !hasCanaryMode) {
-    const missing: string[] = [];
-    if (!hasPersistent) missing.push('DeployzPersistent=true');
-    if (!hasCanaryMode) missing.push('DeployzTestMode=canary');
-    throw new Error(
-      `Standing installation stack ${stack.status} is missing required tags: ${missing.join(', ')}.\n` +
-      `The standing installation must be tagged with:\n` +
-      `  DeployzPersistent=true  (marks it as a persistent shared installation)\n` +
-      `  DeployzTestMode=canary   (marks it as a test/canary installation)\n` +
-      `Set these tags on the CloudFormation stack and retry.`,
-    );
-  }
+export function assertRuntimeReuseSupported(): never {
+  throw new Error(
+    `--runtime-reuse is not supported: a deployment owns its installation.\n` +
+    `deployments.installation_id is UNIQUE, the enrollment code is single-use, and the\n` +
+    `relay token is bound to the deployment that enrolled it, so a standing installation\n` +
+    `cannot serve a second deployment — the attempt would wait for a bootstrap stack that\n` +
+    `is never created and be recorded as a product failure.\n` +
+    `Use --real-aws (fresh infrastructure per repository). To make retries cheap, add\n` +
+    `--reuse-application, which redeploys the release the repository already built\n` +
+    `instead of running CodeBuild again.\n` +
+    `See docs/testing/repository-deployment/findings.md — DEPLOY-017.`,
+  );
 }
 
 /** Selection by id, set, cohort, wave and finding — every filter narrows. */
@@ -547,68 +509,6 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
   return result;
 }
 
-/**
- * B1 runtime-reuse: build/release the app, then deploy onto a standing
- * installation (never creates fresh AWS infrastructure). After verification,
- * removes only workload-scoped resources (deployment, app records, release
- * image) while keeping the base infrastructure standing.
- *
- * The standing installation's bootstrap stack provides the base infra; the
- * createBootstrapStack call is replaced with a no-op that returns the
- * existing stack name, so the rest of the funnel flows through the shared
- * application stack.
- */
-async function runRuntimeReuseAttempt(
-  standing: StandingInstallation,
-  series: Series,
-  options: RunOptions,
-  config: DeployConfig,
-  entry: BenchmarkEntry,
-): Promise<StageBResult> {
-  const repoConfig = configFor(config, entry.id);
-  const runId = stageBRunId(entry.id);
-  const result = emptyResult(identityFor(entry, series.sha, 'deploy', runId, 'runtime-reuse'));
-  result.findingIds = [...repoConfig.findings];
-  result.deployment.installationId = standing.installationId;
-  result.deployment.bootstrapStack = standing.stackName;
-  const evidence = openLedger(
-    options.evidenceDir,
-    series.config,
-    { repoId: entry.id, repository: entry.repository, commit: entry.commit, deployzCommit: series.sha, cleanupNeeded: false },
-    runId,
-  );
-  console.log(`\n=== [B1] ${entry.id} ${entry.repository}@${entry.commit.slice(0, 7)} — run ${runId} (reusing installation ${standing.installationId})`);
-  const organizationId = await createAttemptOrganization(series.api, `Stage B ${entry.id} ${runId.slice(-9)}`);
-  stageBRun(evidence).stageB.organizationId = organizationId;
-  evidence.save();
-  const { repositoryUsed, repositoryForm } = repositoryUsedFor(entry, repoConfig);
-  const deps = realDeps(series, options, null);
-  // ponytail: replaces createBootstrapStack with a no-op returning the
-  // standing installation's stack name. A dedicated B1-only deploy path
-  // that avoids the install-link flow entirely would be cleaner if B1
-  // throughput becomes a bottleneck.
-  const originalCreate = deps.aws.createBootstrapStack;
-  deps.aws.createBootstrapStack = async (input) => {
-    console.log(`  [B1] reusing standing bootstrap stack ${standing.stackName} (skipped new stack for ${input.stackName})`);
-    return standing.stackName;
-  };
-  try {
-    await runRepositoryAttempt(deps, { benchmark: entry, config: repoConfig, repositoryUsed, repositoryForm, evidence, result });
-  } finally {
-    deps.aws.createBootstrapStack = originalCreate;
-    if (options.keep) {
-      console.log('--keep set: leaving workload resources in place. Run --cleanup --repo later.');
-      stageBRun(evidence).stageB.cleanupNeeded = true;
-      evidence.save();
-    } else {
-      await cleanupAttempt({ config: series.config, api: series.api, evidence, teardown: { destroyThroughProduct, removeCanaryLeftovers, leakAudit }, now: Date.now, resourceStillExists: (arn) => resourceStillExists(series.config.region, arn) }, result);
-      applyCleanupToClassification(result);
-    }
-    evidence.finish(result.classification === 'PASS' || result.classification === 'EXPECTED_UNSUPPORTED' ? 'PASS' : 'FAIL');
-  }
-  return result;
-}
-
 async function cleanupLedger(series: Series, options: RunOptions, runId: string): Promise<void> {
   const evidence = Evidence.open(options.evidenceDir, runId);
   const run = stageBRun(evidence);
@@ -722,65 +622,11 @@ async function main(): Promise<number> {
   }
 
   requireRealAws(options, process.env);
+  if (options.runtimeReuse) assertRuntimeReuseSupported();
   const canaryConfig = loadConfig(process.env);
   const identity = await callerIdentity();
   if (identity.account !== canaryConfig.expectedAccountId) {
     throw new Error(`AWS account ${identity.account} is not the expected test account ${canaryConfig.expectedAccountId} — refusing to run`);
-  }
-
-  if (options.runtimeReuse) {
-    const standing = readStandingInstallation(process.env);
-    // Verify the standing installation's bootstrap stack exists and has the
-    // required persistent tags. Hard-fail on absent tags — never auto-create.
-    const stack = await describeStack(canaryConfig.region, standing.stackName);
-    if (!stack) {
-      throw new Error(
-        `Standing installation bootstrap stack ${standing.stackName} not found in ${standing.region}.\n` +
-        `Create the standing installation first, then set the env vars.`,
-      );
-    }
-    // ponytail: real tag-checking needs describeStack's Tag output. The
-    // current describeStack return type does not include tags. The pure
-    // checkStandingInstallationTags function is factored for testability;
-    // calling it with a tags object from a real AWS API call is a future
-    // refinement. For now the stack existence check is the gate.
-    // checkStandingInstallationTags(stack, tags);
-    const plan = buildPlan(entries, config, existing, options);
-    console.log(renderPlan(plan, options));
-    const b1Entries = plan.filter((line) => line.deploymentClass === 'runtime-reuse' && line.action !== 'skip-has-result');
-    if (b1Entries.length === 0) {
-      console.log('No B1 runtime-reuse repositories to run.');
-      return 0;
-    }
-    console.log(`\nB1 runtime-reuse: ${b1Entries.length} repositories (using standing installation ${standing.installationId})`);
-    const api = await ensureVendor(options.evidenceDir, canaryConfig);
-    const series: Series = { config: canaryConfig, api, sha };
-    const failures: string[] = [];
-    await pool(b1Entries, options.concurrency, async (line) => {
-      const entry = entries.find((e) => e.id === line.id)!;
-      let keepGoing = true;
-      try {
-        const result = await runRuntimeReuseAttempt(standing, series, options, config, entry);
-        writeResult(options.runsDir, result, { force: options.force });
-        if (entry.set !== 'improvement') writeFrozenIfAbsent(options.runsDir, result);
-        console.log(`${entry.id}: ${result.classification}${result.rootCause ? ` (${result.rootCause})` : ''}`);
-        if (shouldStopWave(result)) {
-          keepGoing = false;
-          failures.push(`${entry.id}: cleanup ${result.cleanup.status} — wave stopped (${result.cleanup.detail ?? 'see the result'}); run --cleanup --repo ${entry.id}, then --resume`);
-        }
-      } catch (error) {
-        keepGoing = false;
-        failures.push(`${entry.id}: ${error instanceof Error ? error.message : String(error)}`);
-        console.error(`${entry.id}: harness failure — ${error instanceof Error ? error.message : String(error)}`);
-      }
-      writeSummaries(options.runsDir, sha);
-      return keepGoing;
-    });
-    if (failures.length > 0) {
-      console.error(`\n${failures.length} harness failure(s):\n${failures.join('\n')}`);
-      return 1;
-    }
-    return 0;
   }
 
   if (options.audit) {
