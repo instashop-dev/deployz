@@ -90,6 +90,8 @@ export interface RunOptions {
   audit: boolean;
   force: boolean;
   keep: boolean;
+  /** Retries reuse the repository's application (and any release it already built). */
+  reuseApplication: boolean;
   offline: boolean;
   concurrency: number;
   template: TemplateMode;
@@ -116,6 +118,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       audit: { type: 'boolean', default: false },
       force: { type: 'boolean', default: false },
       keep: { type: 'boolean', default: false },
+      'reuse-application': { type: 'boolean', default: false },
       online: { type: 'boolean', default: false },
       concurrency: { type: 'string' },
       template: { type: 'string' },
@@ -148,6 +151,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     audit: values.audit ?? false,
     force: values.force ?? false,
     keep: values.keep ?? false,
+    reuseApplication: values['reuse-application'] ?? false,
     offline: !(values.online ?? false),
     concurrency,
     template,
@@ -405,6 +409,12 @@ async function ensureVendor(evidenceDir: string, config: CanaryConfig): Promise<
   return api;
 }
 
+/** Re-enters an organization an earlier attempt created (`--reuse-application`). */
+async function activateOrganization(api: ControlPlane, organizationId: string): Promise<string> {
+  await api.request('POST', `/api/organizations/${organizationId}/activate`, {});
+  return organizationId;
+}
+
 /** One organization per attempt: the product allows one application per repository per organization. */
 async function createAttemptOrganization(api: ControlPlane, name: string): Promise<string> {
   const { body } = await api.request<{ id: string }>('POST', '/api/organizations', { name });
@@ -468,6 +478,7 @@ function realDeps(series: Series, options: RunOptions, templateUrl: string | nul
     templateUrl,
     templateSource: options.template === 'pinned' ? 'stage-b-pinned' : options.template === 'generic' ? 'stage-b-generic' : 'production-default',
     publishPinnedTemplate: options.template === 'pinned' ? publishPinnedTemplateWith(series.config, region) : undefined,
+    reuseApplication: options.reuseApplication,
     timeouts: DEFAULT_TIMEOUTS,
     keep: options.keep,
   };
@@ -485,15 +496,44 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
     runId,
   );
   console.log(`\n=== ${entry.id} ${entry.repository}@${entry.commit.slice(0, 7)} — run ${runId} (evidence ${evidence.dir})`);
-  const organizationId = await createAttemptOrganization(series.api, `Stage B ${entry.id} ${runId.slice(-9)}`);
+  // --reuse-application: a retry re-enters the organization and application
+  // the repository's first attempt created, so the release it already built
+  // can be redeployed. Everything downstream of the application — customer,
+  // deployment, bootstrap stack, application stack — is still fresh.
+  const reused = options.reuseApplication ? readSeries(options.evidenceDir).applications?.[entry.id] : undefined;
+  const organizationId = reused
+    ? await activateOrganization(series.api, reused.organizationId)
+    : await createAttemptOrganization(series.api, `Stage B ${entry.id} ${runId.slice(-9)}`);
+  if (reused) console.log(`  reusing organization ${organizationId} and application ${reused.applicationId}`);
   stageBRun(evidence).stageB.organizationId = organizationId;
   evidence.save();
   const { repositoryUsed, repositoryForm } = repositoryUsedFor(entry, repoConfig);
   if (options.template === 'generic') throw new Error('--template generic is not available until DEPLOY-001 is fixed and a generic template is published');
   const deps = realDeps(series, options, null);
   try {
-    await runRepositoryAttempt(deps, { benchmark: entry, config: repoConfig, repositoryUsed, repositoryForm, evidence, result });
+    await runRepositoryAttempt(deps, {
+      benchmark: entry,
+      config: repoConfig,
+      repositoryUsed,
+      repositoryForm,
+      evidence,
+      result,
+      ...(reused ? { existingApplicationId: reused.applicationId } : {}),
+    });
   } finally {
+    // Recorded even on a failed attempt: the application exists either way,
+    // and its release is what the next retry reuses.
+    const attemptApplicationId = stageBRun(evidence).applicationId;
+    if (options.reuseApplication && attemptApplicationId) {
+      const state = readSeries(options.evidenceDir);
+      writeSeries(options.evidenceDir, {
+        ...state,
+        applications: {
+          ...state.applications,
+          [entry.id]: { organizationId, applicationId: attemptApplicationId },
+        },
+      });
+    }
     if (options.keep) {
       console.log('--keep set: leaving the environment in place. Run --cleanup --repo later.');
       stageBRun(evidence).stageB.cleanupNeeded = true;

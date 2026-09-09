@@ -260,7 +260,24 @@ investigation; run `--cleanup` later), `--concurrency 1|2`, `--template
 pinned|generic|production` (see `implementation-notes.md`, "Stage B
 decision on the template"; `pinned` until DEPLOY-001 is fixed), `--online`
 (let the gate audit fetch snapshots that are not cached), `--cache`,
-`--evidence-dir`, `--runs-dir`.
+`--evidence-dir`, `--runs-dir`, `--reuse-application`.
+
+`--reuse-application` is for a **retry**, never a first attempt. Without it
+every attempt mints a new organization and application, so every attempt runs
+CodeBuild again. With it, the repository re-enters the organization and
+application its first attempt created (recorded in `runs/evidence/series.json`)
+and looks for a release named
+`<repo id>-<pinned sha, 7>-<fingerprint of the image inputs>`: if a READY one
+exists it is redeployed as is, and `build.imageReused` records that no build
+ran. The fingerprint covers `appRoot`, `dockerfilePath`, `buildContext`,
+`buildCommand`, `startCommand` and `migrationCommand` — change any of them and
+the version changes, so a retry can never redeploy an image the current
+configuration would not have produced. Port, health path and the
+infrastructure flags shape the deployment, not the image, and do not force a
+rebuild. Everything downstream of the application — customer, deployment,
+bootstrap stack, application stack — is still created fresh, so a retry still
+measures a real install. A repository's first attempt must run without the
+flag, so the create-application path is exercised like a real vendor's.
 
 The gate audit is offline by default and needs the Stage A snapshot cache
 (`../repository-compatibility/.cache/`, 100 repositories; copy it from a
