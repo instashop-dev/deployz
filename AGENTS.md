@@ -28,5 +28,8 @@ For changes under apps/web, follow docs/ui-system.md.
 ## E2E testing
 
 Simulated E2E is the default (`pnpm e2e`). Do not invoke real AWS E2E
-(`pnpm e2e:canary`, `pnpm e2e:fresh`) unless required. Policy at
-`docs/testing/ai-agent-testing-guide.md`.
+(`pnpm e2e:canary`, `pnpm e2e:fresh`) unless required. Escalation order:
+targeted vitest → targeted scenario (`pnpm e2e --scenario=<id>`) →
+full simulated suite (`pnpm e2e:scenarios`) → real AWS only as
+escalation. Use `pnpm test:affected` and `pnpm test:escalation` for
+guided selection. Full policy at `docs/testing/ai-agent-testing-guide.md`.

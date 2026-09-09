@@ -21,6 +21,7 @@
  * adapter here reuses the *types* relay already exports from `./ecs-health`
  * without requiring a relay source change.
  */
+import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import {
   DescribeServicesCommand,
   ECSClient,
@@ -130,6 +131,17 @@ canaryDescribe('canary — read-only verification of the standing installation',
       ...(redisRequired ? { redisRequired: true } : {}),
     });
 
+    if (!result.verified && result.checks.find((c) => c.name === 'stack-exists' && !c.passed)) {
+      throw new Error(
+        `Canary installation "${installationId}" (stack "${stackName}") does not exist in this account/region.\n\n` +
+          `The canary identifies the installation via the DEPLOYZ_E2E_CANARY_INSTALLATION_ID env var\n` +
+          `(fallback: DEPLOYZ_LIVE_INSTALLATION_ID, then hardcoded STANDING_INSTALLATION_ID).\n\n` +
+          `The persistent canary must be PROVISIONED INTENTIONALLY (a real-AWS bootstrap/create cycle).\n` +
+          `e2e:canary will NOT create replacement infrastructure — it is a read-only verification suite.\n` +
+          `To create the canary, run e2e:canary:versions core or e2e:fresh with the appropriate setup.`,
+      );
+    }
+
     if (!result.verified) {
       throw new Error(
         `Canary verification failed for installation ${installationId}: ${result.reason}\n` +
@@ -152,6 +164,26 @@ canaryDescribe('canary — read-only verification of the standing installation',
       expect(result.checks.find((check) => check.name === name)?.passed, name).toBe(true);
     }
   }, 60_000);
+
+  it('persistent-canary tags are present on the application stack', async () => {
+    const cfn = new CloudFormationClient({ region: REGION });
+    const response = await cfn.send(new DescribeStacksCommand({ StackName: stackName }));
+    const stack = response.Stacks?.[0];
+    expect(stack, `Stack "${stackName}" not found for tag check`).toBeDefined();
+    const tags = Object.fromEntries((stack!.Tags ?? []).map((t) => [t.Key, t.Value]));
+
+    const expectedTags: Record<string, string> = {
+      DeployzEnvironment: 'e2e',
+      DeployzTestMode: 'canary',
+      DeployzPersistent: 'true',
+      DeployzProtected: 'true',
+    };
+
+    for (const [key, value] of Object.entries(expectedTags)) {
+      const actual = tags[key];
+      expect(actual, `Stack tag ${key} expected "${value}", got "${actual ?? 'unset'}"`).toBe(value);
+    }
+  }, 30_000);
 
   it('runtime health reports a definitive status (HEALTHY expected)', async () => {
     const health = await observeRuntimeHealth(

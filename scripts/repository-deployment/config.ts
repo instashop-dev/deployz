@@ -17,6 +17,20 @@ import { z } from 'zod';
 const ENTRY_ID_REGEX = /^repo-\d{3}$/;
 const WAVE_ID_REGEX = /^[a-z0-9-]+$/;
 
+/**
+ * The three deployment classes for Stage B (README "Three-class model").
+ *
+ * B1 runtime-reuse (default):  build/release/deploy against a shared standing
+ *   installation. Never creates fresh AWS infrastructure.
+ * B2 capability-cohort:         fresh infrastructure for repos covering each
+ *   capability cohort (PostgreSQL, Redis, PostgreSQL+Redis, storage, custom
+ *   Dockerfile, custom port, custom health check, special topology).
+ * B3 fresh-full:                full funnel through fresh AWS (build → ECR →
+ *   bootstrap → install → healthy → destroy → cleanup audit).
+ */
+export const DEPLOYMENT_CLASSES = ['runtime-reuse', 'capability-cohort', 'fresh-full'] as const;
+export type DeploymentClass = (typeof DEPLOYMENT_CLASSES)[number];
+
 /** Mirrors PATCH /api/applications/:id — the vendor-correctable manifest inputs. */
 export const vendorOverridesSchema = z
   .object({
@@ -109,6 +123,11 @@ export const repositoryConfigSchema = z
     /** Registry findings (findings.md) that explain this entry's known outcome. */
     findings: z.array(z.string().regex(/^DEPLOY-\d{3}$/)).default([]),
     notes: z.array(z.string()).default([]),
+    /**
+     * Override the deployment class for this repository.
+     * Defaults are derived from deploy-config.yaml b2_repos/b3_repos lists.
+     */
+    deploymentClass: z.enum(DEPLOYMENT_CLASSES).optional(),
   })
   .strict();
 export type RepositoryConfig = z.infer<typeof repositoryConfigSchema>;
@@ -119,9 +138,37 @@ export const deployConfigSchema = z
     /** Wave name → Stage A ids, in execution order. */
     waves: z.record(z.string().regex(WAVE_ID_REGEX), z.array(z.string().regex(ENTRY_ID_REGEX)).min(1)).default({}),
     repositories: z.array(repositoryConfigSchema).default([]),
+    /**
+     * Explicit list of repos that run as B2 capability-cohort (fresh
+     * infrastructure per attempt). Chosen for widest capability coverage.
+     * Overrides the default runtime-reuse class for these ids.
+     */
+    b2Repos: z.array(z.string().regex(ENTRY_ID_REGEX)).default([]),
+    /**
+     * Explicit list of repos that run as B3 fresh-full (full funnel through
+     * fresh AWS). Chosen as the ~10-15 most representative repos across the
+     * corpus. Overrides the default runtime-reuse class for these ids.
+     */
+    b3Repos: z.array(z.string().regex(ENTRY_ID_REGEX)).default([]),
   })
   .strict();
 export type DeployConfig = z.infer<typeof deployConfigSchema>;
+
+/**
+ * Resolve the deployment class for a repository id.
+ *
+ *   - Explicit override in the repository config wins.
+ *   - B3 list membership → fresh-full.
+ *   - B2 list membership → capability-cohort.
+ *   - Everything else → runtime-reuse.
+ */
+export function deploymentClassFor(config: DeployConfig, id: string): DeploymentClass {
+  const repoConfig = config.repositories.find((entry) => entry.id === id);
+  if (repoConfig?.deploymentClass) return repoConfig.deploymentClass;
+  if (config.b3Repos.includes(id)) return 'fresh-full';
+  if (config.b2Repos.includes(id)) return 'capability-cohort';
+  return 'runtime-reuse';
+}
 
 /**
  * Parse and cross-validate: unique repository ids, unique keys within an
@@ -149,6 +196,12 @@ export function parseDeployConfig(text: string): DeployConfig {
   for (const [wave, members] of Object.entries(config.waves)) {
     if (new Set(members).size !== members.length) throw new Error(`wave ${wave} lists a repository twice`);
   }
+
+  const overlap = config.b2Repos.filter((id) => config.b3Repos.includes(id));
+  if (overlap.length > 0) {
+    throw new Error(`b2Repos and b3Repos overlap: ${overlap.join(', ')} — each repo must belong to at most one class list`);
+  }
+
   return config;
 }
 

@@ -10,7 +10,16 @@
  *
  * Releases are built just in time: INSTALL success auto-deploys the NEWEST
  * READY release, so building v4 before the install would skip the ladder.
+ *
+ * Two flags modify the flow:
+ * - `--existing-image=<digest>`: skip CodeBuild, use the supplied digest
+ *   for every version (v1, v2, v3, v4 share the same digest).
+ * - `--reuse-stack`: skip bootstrap/stack creation and final infrastructure
+ *   teardown; requires a standing stack tagged DeployzPersistent=true +
+ *   DeployzTestMode=canary.
  */
+import { applicationStackNameForInstallation } from '@deployz/contracts';
+
 import {
   assertMarkers,
   assertSameInfrastructure,
@@ -25,12 +34,63 @@ import {
   seedMarker,
   setUpVendorAndApplication,
   snapshotInfrastructure,
+  verifyReuseStackTags,
   waitForJob,
   waitForPointer,
   type Canary,
 } from './steps.js';
-import { describeRunningService } from './aws.js';
+import { describeStack, describeRunningService } from './aws.js';
 import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from './teardown.js';
+
+/**
+ * Reuse-stack shortcut: verify the stack, create a minimal deployment context,
+ * and return the installation ID from the existing stack tags.
+ */
+async function setupReuseStack(canary: Canary): Promise<void> {
+  const { config, evidence, api } = canary;
+  const stackName = process.env.DEPLOYZ_E2E_CANARY_STACK_NAME ?? 'deployz-app';
+  await verifyReuseStackTags(config.region, stackName);
+
+  await evidence.step('Reuse-stack: create deployment for the standing infrastructure', async (details) => {
+    // Find the installation ID from the existing stack's deployz:installation tag.
+    const stack = await describeStack(config.region, stackName);
+    if (!stack) throw new Error(`Stack "${stackName}" disappeared after verification`);
+    const installationId = stack.tags['deployz:installation'];
+    if (!installationId) throw new Error(`Stack "${stackName}" has no deployz:installation tag`);
+    evidence.run.installationId = installationId;
+    evidence.run.applicationStackName = applicationStackNameForInstallation(installationId);
+    evidence.save();
+
+    // Create a customer + deployment (per-run resources for the control plane).
+    const customer = await api.createCustomer({
+      name: `Canary customer ${config.runId}`,
+      email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
+    });
+    evidence.run.customerId = customer.id;
+    const deployment = await api.createDeployment({ applicationId: evidence.run.applicationId!, customerId: customer.id, region: config.region });
+    evidence.run.deploymentId = deployment.id;
+    evidence.run.installLinkId = deployment.installLinkId;
+    evidence.save();
+    details['installationId'] = installationId;
+    details['deploymentId'] = deployment.id;
+    details['applicationStackName'] = evidence.run.applicationStackName;
+    details['mode'] = 'reuse-stack';
+  });
+}
+
+/** Shared teardown path: per-run resources always cleaned; infrastructure teardown skipped when --reuse-stack is set. */
+async function teardownOrSkipInfrastructure(canary: Canary): Promise<void> {
+  if (canary.config.keep) {
+    console.log('\n--keep set: leaving the environment in place. Run cleanup --run-id later.');
+    return;
+  }
+  if (canary.config.reuseStack) {
+    console.log('\n--reuse-stack set: per-run resources cleaned, infrastructure left standing.');
+  }
+  await destroyThroughProduct(canary);
+  await removeCanaryLeftovers(canary);
+  await leakAudit(canary);
+}
 
 export async function runCore(canary: Canary): Promise<void> {
   const { evidence, api } = canary;
@@ -40,7 +100,14 @@ export async function runCore(canary: Canary): Promise<void> {
   // Phase 4 — v1.
   await buildRelease(canary, 'v1');
   await publishCanaryTemplate(canary, 'v1');
-  await createDeploymentAndInstall(canary);
+
+  // Reuse-stack: skip bootstrap stack creation/install; use the standing stack.
+  if (canary.config.reuseStack) {
+    await setupReuseStack(canary);
+  } else {
+    await createDeploymentAndInstall(canary);
+  }
+
   await evidence.step('v1 is the serving release after install (auto-deploy + digest reconciliation)', async (details) => {
     await waitForPointer(canary, 'v1', 15 * 60_000);
     await assertServing(canary, { serving: 'v1', deploymentState: ['HEALTHY', 'UPDATE_AVAILABLE'] }, details);
@@ -110,11 +177,5 @@ export async function runCore(canary: Canary): Promise<void> {
   });
 
   // Phase 14 — teardown + audit.
-  if (canary.config.keep) {
-    console.log('\n--keep set: leaving the environment in place. Run cleanup --run-id later.');
-    return;
-  }
-  await destroyThroughProduct(canary);
-  await removeCanaryLeftovers(canary);
-  await leakAudit(canary);
+  await teardownOrSkipInfrastructure(canary);
 }

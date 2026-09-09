@@ -20,19 +20,60 @@ run. The installation id comes from `DEPLOYZ_E2E_CANARY_INSTALLATION_ID`
 (falls back to `DEPLOYZ_LIVE_INSTALLATION_ID`, then the historical standing
 id `c2dca2bb-a733-470d-8ef0-8e96bc889442`, in that order).
 
-**State of the world (2026-09-02):** no standing installation currently
-exists — the 2026-08-27 installation behind the historical default id, and
-every other `deployz-app`/bootstrap stack in the test account, was torn down
-by later E2E sessions. Until a persistent canary environment is deliberately
-provisioned (an ongoing-cost decision — an always-on ALB + RDS + ECS
-service), canary runs need a **transient target**: synthesize the production
-application template with the published fixture image
-(`synthesizeApplicationStack` — see `packages/cdk/scripts/synth-app.mjs` and
-`publish-application.mjs` for the pattern), `CreateStack` it as `deployz-app`
-with a fresh `deployz:installation` tag plus `DeployzEnvironment=e2e` /
-`DeployzTestMode=canary` tags, run the canary with
-`DEPLOYZ_E2E_CANARY_INSTALLATION_ID=<that id>`, then delete the stack and the
-`RemovalPolicy.RETAIN`-ed RDS instance it leaves behind.
+## Persistent canary lifecycle
+
+The standing canary installation is a long-lived, always-on application stack
+managed by the test-infrastructure owner. It is the single canonical target
+for `pnpm e2e:canary`.
+
+**Ownership and id.** The standing installation id is
+`c2dca2bb-a733-470d-8ef0-8e96bc889442` (the default in
+`STANDING_INSTALLATION_ID`). The test-infrastructure owner is responsible for
+its provisioning, health, and decommissioning. The installation id is
+overridable via `DEPLOYZ_E2E_CANARY_INSTALLATION_ID` or
+`DEPLOYZ_LIVE_INSTALLATION_ID`.
+
+**Required tags.** The application stack MUST carry all four tags for the
+canary to pass:
+
+| Tag | Value | Purpose |
+| --- | --- | --- |
+| `DeployzEnvironment` | `e2e` | Identifies the environment as test infrastructure |
+| `DeployzTestMode` | `canary` | Marks the stack as a canary target |
+| `DeployzPersistent` | `true` | Signals that the stack is intentionally kept alive |
+| `DeployzProtected` | `true` | Protection marker — prevents accidental cleanup by bulk operations |
+
+**Region.** `us-east-1` per repository convention. Configured via `AWS_REGION`.
+
+**Expected cost.** The canary installation runs one small always-on ECS
+service, an ALB, an RDS instance, and an S3 bucket. For actual cost figures,
+check the AWS Console billing dashboard for the test account
+(151955775369).
+
+**How to provision it intentionally.** The standing installation is created
+through the normal bootstrap + application template flow, as documented in
+[`version-rollback-canary.md`](version-rollback-canary.md) (`pnpm e2e:canary:versions core`
+without `--reuse-stack`). This is an intentional provisioning action — the
+canary test never creates infrastructure.
+
+**How to verify it.** Run the canary ladder:
+1. `pnpm e2e:canary --dry-run` to confirm the resolved command.
+2. `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary` to run the full
+   verify-installation, runtime-health, resource-inventory, and tag check
+   suite.
+
+**How to recover when unhealthy.** First re-run the canary to confirm the
+failure is persistent. Then redeploy the application stack intentionally
+through the normal bootstrap + application template flow (see provisioning
+above). The canary test itself never mutates the installation — it only reads.
+
+**Accidental cleanup prevention.** Two mechanisms protect the standing
+installation:
+- The four required tags (especially `DeployzProtected=true`) act as a
+  marker that bulk operations and scripts can check before acting.
+- The customer-reset tag guard (`scripts/customer-reset/safety.ts`) refuses
+  to reset any stack carrying `DeployzPersistent=true` or
+  `DeployzProtected=true`.
 
 **Never repurpose customer deployments as canary infrastructure.**
 
@@ -115,6 +156,10 @@ access is the entire point).
    and includes the expected resource kinds (`AWS::ECS::Service`,
    `AWS::ElasticLoadBalancingV2::LoadBalancer`, `AWS::RDS::DBInstance`,
    `AWS::S3::Bucket`).
+4. **Persistent-canary tags**: the application stack must carry
+   `DeployzEnvironment=e2e`, `DeployzTestMode=canary`,
+   `DeployzPersistent=true`, and `DeployzProtected=true`. A missing or
+   incorrect tag fails the suite with the expected and actual values.
 
 ## Cleanup rules
 

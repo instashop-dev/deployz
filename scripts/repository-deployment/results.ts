@@ -13,6 +13,7 @@ import { join } from 'node:path';
 
 import { z } from 'zod';
 
+import { DEPLOYMENT_CLASSES } from './config.js';
 import { COHORTS, BENCHMARK_SETS, COMPATIBILITY_STATES, REALISM_LEVELS } from '../repository-compatibility/manifest.js';
 
 export const FAILURE_STAGES = [
@@ -226,6 +227,8 @@ export const stageBResultSchema = z
     expectedDeployable: z.boolean(),
     /** How far the harness was asked to go: the gate only, or the whole funnel. */
     mode: z.enum(['gate', 'deploy']),
+    /** Which deployment class this repository was assigned to (B1/B2/B3). Default runtime-reuse for backward compatibility. */
+    deploymentClass: z.enum(DEPLOYMENT_CLASSES).default('runtime-reuse'),
     gate: gateResultSchema,
     configuration: configurationResultSchema,
     build: buildResultSchema,
@@ -266,6 +269,7 @@ export interface ResultIdentity {
   runId: string | null;
   stageAExpected: StageBResult['stageAExpected'];
   mode: StageBResult['mode'];
+  deploymentClass: StageBResult['deploymentClass'];
 }
 
 /** A result with every stage NOT_ATTEMPTED — the starting point every run fills in. */
@@ -274,6 +278,7 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
   return {
     schemaVersion: 1,
     ...identity,
+    deploymentClass: identity.deploymentClass,
     repositoryForm: null,
     repositoryUsed: null,
     expectedDeployable,
@@ -460,6 +465,7 @@ export interface StageBSummary {
   byFinding: Record<string, string[]>;
   bySet: Record<string, CohortBucket>;
   byCohort: Record<string, CohortBucket>;
+  byClass: Record<string, { total: number; pass: number; fail: number }>;
 }
 
 export interface CohortBucket {
@@ -514,11 +520,21 @@ export function buildStageBSummary(results: readonly StageBResult[], deployzComm
     for (const id of r.findingIds) (byFinding[id] ??= []).push(r.id);
   }
 
+  const byClass: Record<string, { total: number; pass: number; fail: number }> = {};
+  for (const r of results) {
+    const cls = r.deploymentClass;
+    if (!byClass[cls]) byClass[cls] = { total: 0, pass: 0, fail: 0 };
+    byClass[cls].total += 1;
+    if (r.classification === 'PASS' || r.classification === 'EXPECTED_UNSUPPORTED') byClass[cls].pass += 1;
+    else byClass[cls].fail += 1;
+  }
+
   return {
     deployzCommit,
     total: results.length,
     expectedDeployable: deployable.length,
     expectedUnsupported: results.length - deployable.length,
+    byClass,
     gate: {
       attempted: gated.length,
       correctAccept: gated.filter((r) => r.gate.outcome === 'correct-accept').length,
@@ -619,6 +635,12 @@ export function renderStageBSummary(results: readonly StageBResult[], summary: S
     '| Cohort | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |',
     '| --- | --- | --- | --- | --- | --- | --- |',
     ...bucketRows(summary.byCohort),
+    '',
+    '## By deployment class',
+    '',
+    '| Class | Repositories | Pass | Fail |',
+    '| --- | --- | --- | --- |',
+    ...Object.entries(summary.byClass).map(([k, v]) => `| ${k} | ${v.total} | ${v.pass} | ${v.fail} |`),
     '',
     '## Repositories',
     '',

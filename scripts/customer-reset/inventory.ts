@@ -17,7 +17,7 @@ import { applicationStackNameForInstallation } from '@deployz/contracts';
 
 import { listCustomerStacks, type CustomerStack } from './aws.js';
 import { connectDb, readInventory } from './db.js';
-import { assertNoOverlap, buildProtectedInventory, type DeletionCandidate, type ProtectedInventory } from './safety.js';
+import { assertNoOverlap, buildProtectedInventory, isProtectedByTags, type DeletionCandidate, type ProtectedInventory } from './safety.js';
 
 export const MANIFEST_PATH = 'customer-cleanup-manifest.json';
 export const PROTECTED_PATH = 'customer-cleanup-protected.json';
@@ -101,10 +101,12 @@ export async function runInventory(): Promise<void> {
   const protectedInventory = buildProtectedInventory();
 
   const allStacks = Object.values(manifest.stacksByRegion).flat();
-  const candidates: DeletionCandidate[] = allStacks.map((stack) => ({
-    kind: 'stack',
-    name: stack.stackName,
-  }));
+  const candidates: DeletionCandidate[] = allStacks
+    .filter((stack) => !isProtectedByTags(stack.tags))
+    .map((stack) => ({
+      kind: 'stack',
+      name: stack.stackName,
+    }));
   assertNoOverlap(candidates, protectedInventory);
 
   writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
