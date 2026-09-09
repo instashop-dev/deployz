@@ -231,7 +231,19 @@ jobs:
             echo "DEPLOYABLE_AWS_REGIONS is unset — no region is advertised as installable, so there is nothing to publish." >&2
             exit 0
           fi
-          pnpm --filter @deployz/cdk run publish:bootstrap
+          # Hand the publisher the legacy bucket instead of letting it resolve
+          # one: its fallback reads a stack export via cloudformation:ListExports,
+          # which this deploy user is not allowed to call. Taken from the URL the
+          # API already hands out, so there is no second copy of the bucket name
+          # to drift from it.
+          if [ -z "${BOOTSTRAP_TEMPLATE_URL:-}" ]; then
+            echo "BOOTSTRAP_TEMPLATE_URL is unset — cannot derive the template bucket to publish into." >&2
+            exit 1
+          fi
+          bucket="${BOOTSTRAP_TEMPLATE_URL#https://}"
+          bucket="${bucket%%.s3.*}"
+          echo "Publishing into bucket: ${bucket}"
+          TEMPLATE_BUCKET="${bucket}" pnpm --filter @deployz/cdk run publish:bootstrap
 
       # The stack can report CREATE_COMPLETE while the function itself dies at
       # INIT — a migration that cannot apply does exactly that, and it is how
