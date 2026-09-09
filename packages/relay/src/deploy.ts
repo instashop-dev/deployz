@@ -234,6 +234,16 @@ export interface DeploySettleContext {
    * same image (a pinned first start's template revision, DEPLOY-015).
    */
   readonly targetTaskDefinitionArn?: string | null;
+  /**
+   * Command metadata for writing an early migration marker after RunTask
+   * succeeds — set when the executor has the full command.  A migration task
+   * whose ARN is persisted before the poll loop survives invocation death;
+   * without this, a re-offer would start a second RunTask (DZ-AUDIT-003).
+   */
+  readonly markerCommandId?: string;
+  readonly markerIdempotencyKey?: string;
+  readonly markerType?: string;
+  readonly markerPayload?: Record<string, unknown>;
 }
 
 /**
@@ -379,6 +389,10 @@ export async function settleEcsDeploy(
       migrationCommand,
       alreadyRegistered,
       pendingMigration: context.migration ?? null,
+      markerCommandId: context.markerCommandId,
+      markerIdempotencyKey: context.markerIdempotencyKey,
+      markerType: context.markerType,
+      markerPayload: context.markerPayload,
     });
     if (outcome.state === 'failed') {
       return {
@@ -491,6 +505,11 @@ async function settleMigration(
     migrationCommand: string;
     alreadyRegistered: boolean;
     pendingMigration: PendingMigration | null;
+    /** Marker fields for the early migration write after RunTask succeeds. */
+    markerCommandId?: string | undefined;
+    markerIdempotencyKey?: string | undefined;
+    markerType?: string | undefined;
+    markerPayload?: Record<string, unknown> | undefined;
   },
 ): Promise<MigrationOutcome> {
   const { cluster, serviceTaskDefinition, taskDefinition, request, migrationCommand } = params;
@@ -567,6 +586,32 @@ async function settleMigration(
         state: 'failed',
         reason: 'Migration task could not be started (RunTask returned no task ARN)',
       };
+    }
+
+    // DZ-AUDIT-003: persist the migration ARN before entering the poll loop —
+    // a dead invocation must still leave a marker so a re-offer resumes the
+    // SAME task instead of starting a second one.  The late marker write at
+    // ~887 overwrites/merges later; this write is the safety net for the
+    // invocation-death window between RunTask success and the post-settle
+    // marker write.
+    if (
+      params.markerCommandId !== undefined &&
+      params.markerIdempotencyKey !== undefined &&
+      params.markerType !== undefined &&
+      params.markerPayload !== undefined
+    ) {
+      await deps.pending.write({
+        commandId: params.markerCommandId,
+        idempotencyKey: params.markerIdempotencyKey,
+        type: params.markerType,
+        stackName: deps.stackName,
+        startedAt: (deps.now ?? (() => new Date().toISOString()))(),
+        payload: params.markerPayload,
+        migration: {
+          taskArn,
+          ...(registeredArn !== null ? { registeredArn } : {}),
+        },
+      });
     }
   }
 
@@ -827,6 +872,10 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       outcome = await settleEcsDeploy(deps, request, {
         allowMigration: command.type === 'DEPLOY_RELEASE',
         migration,
+        markerCommandId: command.id,
+        markerIdempotencyKey: command.idempotencyKey,
+        markerType: command.type,
+        markerPayload: command.payload,
       });
     } catch (err) {
       return result(command, false, {
@@ -836,6 +885,10 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
     }
 
     if (outcome.state === 'failed') {
+      // The early migration marker (DZ-AUDIT-003) may have been written
+      // inside settleMigration before the poll discovered the failure —
+      // clear it so a stale marker never looks like something to resume.
+      await deps.pending.clear();
       console.log(
         JSON.stringify({
           event: 'relay:command-failed',

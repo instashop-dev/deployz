@@ -7,6 +7,8 @@ import {
   createRestartExecutor,
   readDeployRequest,
   replaceApplicationImages,
+  settleEcsDeploy,
+  type DeployRequest,
   type EcsDeployClient,
   type EcsDeployDeps,
   type EcsTaskDefinition,
@@ -545,6 +547,58 @@ describe('createEcsDeployExecutor', () => {
     // "fix the migration". The previous release keeps serving untouched.
     expect(state.updates).toHaveLength(0);
     expect(await d.pending.read()).toBeNull();
+  });
+
+  it('writes the migration ARN early so a dead invocation never starts a second RunTask (DZ-AUDIT-003)', async () => {
+    const state = baseState();
+    state.migrationTask = { lastStatus: 'RUNNING' };
+    const d = deps(state);
+    d.migrationPollIntervalMs = 0;
+    d.migrationPollMaxAttempts = 1;
+
+    // First "invocation": RunTask via settleEcsDeploy, but the executor's
+    // late pending.write (~887) is skipped — simulating invocation death
+    // after settleEcsDeploy returns but before the marker is persisted.
+    const request: DeployRequest = {
+      imageRepository: REPO,
+      imageDigest: DIGEST_V3,
+      migrationCommand: 'node migrate.js up',
+    };
+    const first = await settleEcsDeploy(d, request, {
+      allowMigration: true,
+      markerCommandId: 'job-1',
+      markerIdempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      markerType: 'DEPLOY_RELEASE',
+      markerPayload: {
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationCommand: 'node migrate.js up',
+      },
+    });
+    expect(first.state).toBe('in-progress');
+    expect(state.runTasks).toHaveLength(1);
+
+    // The early marker was written inside settleMigration (the fix) — a
+    // re-offer will find it and resume the SAME task.
+    const earlyMarker = await d.pending.read();
+    expect(earlyMarker).not.toBeNull();
+    expect(earlyMarker?.migration?.taskArn).toBe(MIGRATION_TASK_ARN);
+    expect(earlyMarker?.migration?.completedAt).toBeUndefined();
+
+    // Second invocation (re-offer): reads the early marker, resumes the
+    // SAME task — must NOT trigger a second RunTask.
+    state.migrationTask = { lastStatus: 'STOPPED', exitCode: 0 };
+    state.runningDigest = DIGEST_V3;
+    const second = await run(
+      createEcsDeployExecutor(d),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationCommand: 'node migrate.js up',
+      }),
+    );
+    expect(state.runTasks).toHaveLength(1);
+    expect(second.success).toBe(true);
   });
 
   it('defers while the migration task runs, resuming the SAME task by ARN', async () => {

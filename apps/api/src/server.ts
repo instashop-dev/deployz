@@ -5768,7 +5768,7 @@ export async function buildServer({
             await createOrReuseJob(db, {
               deploymentId: deployment.id,
               type: 'INSTALL',
-              idempotencyKey: `${deployment.id}:INSTALL`,
+              idempotencyKey: await retryAwareIdempotencyKey(db, deployment.id, 'INSTALL', `${deployment.id}:INSTALL`),
               payload: await buildInstallPayload(db, deployment, configStore),
               requestedBy: null,
             })

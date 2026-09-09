@@ -157,6 +157,77 @@ describe('worker handler', () => {
     expect(startedEvents[0]!.payload).toMatchObject({ schemaVersion: 1, applicationId });
   });
 
+  it('namespaces RELEASE_VERSION as <applicationId>-<version> (DZ-AUDIT-002)', async () => {
+    const release = await insertRelease('v1.3.0');
+    const prevLength = started.length;
+
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release.id }, 'msg-2d');
+
+    const build = started[prevLength];
+    expect(build?.environmentVariables).toContainEqual({
+      name: 'RELEASE_VERSION',
+      value: `${applicationId}-v1.3.0`,
+    });
+  });
+
+  it('produces distinct RELEASE_VERSION for two apps releasing the same version (DZ-AUDIT-002)', async () => {
+    const [app1] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'App A',
+        githubInstallationId: '4242',
+        repoFullName: 'acme/app-a',
+        repoUrl: 'https://github.com/acme/app-a',
+        defaultBranch: 'main',
+        detectedMetadata: { dockerfilePath: 'Dockerfile' },
+      })
+      .returning();
+    const [app2] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'App B',
+        githubInstallationId: '4242',
+        repoFullName: 'acme/app-b',
+        repoUrl: 'https://github.com/acme/app-b',
+        defaultBranch: 'main',
+        detectedMetadata: { dockerfilePath: 'Dockerfile' },
+      })
+      .returning();
+
+    const [release1] = await db
+      .insert(schema.releases)
+      .values({ applicationId: app1!.id, version: '1.0.0', gitSha: 'abc201' })
+      .returning();
+    const [release2] = await db
+      .insert(schema.releases)
+      .values({ applicationId: app2!.id, version: '1.0.0', gitSha: 'abc202' })
+      .returning();
+
+    const prevLength = started.length;
+
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release1!.id }, 'msg-2e');
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release2!.id }, 'msg-2f');
+
+    const build1 = started[prevLength];
+    const build2 = started[prevLength + 1];
+
+    expect(build1?.environmentVariables).toContainEqual({
+      name: 'RELEASE_VERSION',
+      value: `${app1!.id}-1.0.0`,
+    });
+    expect(build2?.environmentVariables).toContainEqual({
+      name: 'RELEASE_VERSION',
+      value: `${app2!.id}-1.0.0`,
+    });
+    expect(
+      build1?.environmentVariables.find((v) => v.name === 'RELEASE_VERSION')?.value,
+    ).not.toBe(
+      build2?.environmentVariables.find((v) => v.name === 'RELEASE_VERSION')?.value,
+    );
+  });
+
   it('does not pass BUILD_CONTEXT for a non-`docker/` Dockerfile path', async () => {
     const [application] = await db
       .insert(schema.applications)

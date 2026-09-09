@@ -251,7 +251,7 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
 
     const environmentVariables: { name: string; value: string }[] = [
       { name: 'SOURCE_S3_URI', value: `s3://${bucket}/${archive.s3Key}` },
-      { name: 'RELEASE_VERSION', value: release.version },
+      { name: 'RELEASE_VERSION', value: `${application.id}-${release.version}` },
       { name: 'GIT_SHA', value: release.gitSha },
       { name: 'RELEASE_ID', value: release.id },
       { name: 'DOCKERFILE_PATH', value: dockerfilePath },
