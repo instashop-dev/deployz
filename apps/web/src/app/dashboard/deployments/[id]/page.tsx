@@ -1,7 +1,7 @@
 'use client';
 
 import { REGION_LABELS, type Region } from '@deployz/contracts';
-import { AlertTriangle, ChevronDown, ExternalLink, MoreHorizontal } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ExternalLink, Loader2, MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -338,7 +338,7 @@ function DetailBody({
               hero={hero}
               releases={releases}
               previousVersion={previousVersion}
-              infrastructure={inventory}
+              infrastructure={infrastructure}
               onChanged={onChanged}
             />
           }
@@ -556,7 +556,7 @@ function DeploymentActions({
   hero: HeroModel;
   releases: Release[];
   previousVersion: string | null;
-  infrastructure: InfrastructureResponse | null;
+  infrastructure: InfrastructureState;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState<
@@ -1388,7 +1388,7 @@ function DisconnectDialog({
   open: boolean;
   deploymentId: string;
   customerName: string;
-  infrastructure: InfrastructureResponse | null;
+  infrastructure: InfrastructureState;
   /** Whether this deployment counts toward the production deployment total. */
   counted: boolean;
   onDone: () => void;
@@ -1398,11 +1398,14 @@ function DisconnectDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirmed = confirmText.trim() === customerName;
+  const loaded = infrastructure.status === 'loaded';
+  const data = loaded ? infrastructure.data : null;
+  const loading = infrastructure.status === 'loading';
 
   const removed =
-    infrastructure?.components.filter((component) => component.lifecycle === 'delete') ?? [];
+    data?.components.filter((component) => component.lifecycle === 'delete') ?? [];
   const retained =
-    infrastructure?.components.filter(
+    data?.components.filter(
       (component) => component.lifecycle === 'retain' || component.lifecycle === 'snapshot',
     ) ?? [];
 
@@ -1432,7 +1435,22 @@ function DisconnectDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex flex-col gap-3 text-sm text-muted-foreground">
-          {infrastructure ? (
+          {loading ? (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-foreground">
+              <Loader2 aria-hidden className="size-4 animate-spin" />
+              <span>Checking retained resources…</span>
+            </div>
+          ) : infrastructure.status === 'error' ? (
+            <Alert variant="destructive">
+              <AlertTriangle aria-hidden className="size-4" />
+              <AlertTitle>Could not verify retained resources</AlertTitle>
+              <AlertDescription>
+                The resource inventory could not be loaded. Disconnecting may leave billable
+                resources—such as the database, stored files, and backups—in your customer&apos;s AWS
+                account.
+              </AlertDescription>
+            </Alert>
+          ) : (
             <>
               {removed.length > 0 ? (
                 <div className="flex flex-col gap-1">
@@ -1459,10 +1477,6 @@ function DisconnectDialog({
                 removed.
               </p>
             </>
-          ) : (
-            <p>
-              Your database, its credentials, stored files, and backups will be retained.
-            </p>
           )}
           <p>The Deployz connector remains installed.</p>
           {/* Only for a live production deployment: a test deployment is
@@ -1495,7 +1509,7 @@ function DisconnectDialog({
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={!confirmed || pending}
+            disabled={!confirmed || pending || loading}
             onClick={(event) => {
               event.preventDefault();
               void onConfirm();

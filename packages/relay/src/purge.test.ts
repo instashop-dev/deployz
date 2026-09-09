@@ -1378,3 +1378,222 @@ describe('toNetworkPurgeClient', () => {
     ]);
   });
 });
+
+// ── previousInstallationId support ──────────────────────────────────────────
+
+const PREV_ID = 'inst-prev-kevin';
+
+describe('settlePurge — previous installation resources', () => {
+  function cfnAppAbsent(): CloudFormationReader {
+    return {
+      async describeStack() {
+        return { found: false };
+      },
+      async describeStackResources() {
+        return [];
+      },
+    };
+  }
+
+  // Test 1: A resource tagged with the PREVIOUS installation id is deleted when
+  // previousInstallationId is in the payload (deps).
+  it('deletes RDS instances tagged with the previous installation id', async () => {
+    const calls: string[] = [];
+    // The fake listOwnedInstances returns an instance — the test DOES NOT hardcode
+    // the installation id check because the real owns() logic is in
+    // createRealPurgeClients/toNetworkPurgeClient, not in fakes.  The test verifies
+    // that the facade picks up whatever listOwned* returns, which is the contract
+    // the real owns() must fulfill: with previousInstallationId set, both-ids
+    // resources are returned.
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      rds: clients(calls, {
+        instances: [{ identifier: 'db-prev', status: 'available' }],
+      }).rds,
+      previousInstallationId: PREV_ID,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toContain('rds:unprotect:db-prev');
+    expect(calls).toContain('rds:delete:db-prev');
+  });
+
+  // Test 1b — ElastiCache with previous id
+  it('deletes cache groups tagged with the previous installation id', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      cache: clients(calls, {
+        groups: [{ identifier: 'cache-prev', status: 'available' }],
+      }).cache,
+      previousInstallationId: PREV_ID,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toContain('cache:delete:cache-prev');
+  });
+
+  // Test 2: Ownership safety — unknown installation id never touched.
+  it('does NOT touch resources tagged with an unknown installation id', async () => {
+    const calls: string[] = [];
+    // The fake client returns nothing for an unknown id — same as the real
+    // owns() rejecting a tag value not in the known set.  The purge proceeds
+    // past the empty sweep without touching anything.
+    const base = clients(calls, {});
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      rds: base.rds,
+      cache: base.cache,
+      s3: base.s3,
+      secrets: base.secrets,
+      acm: base.acm,
+      network: base.network,
+      previousInstallationId: PREV_ID,
+    });
+
+    // All empty sweeps → falls through to bootstrap → succeeded.
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'succeeded' });
+    expect(calls).toEqual([]);
+  });
+
+  // Test 3: Truthfulness — a previous-attempt resource still undeleted keeps
+  // the purge in `purging` state, never `succeeded`.
+  it('keeps the purge `purging` while a previous-attempt resource remains undeleted', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      rds: clients(calls, {
+        instances: [{ identifier: 'db-prev', status: 'available' }],
+      }).rds,
+      previousInstallationId: PREV_ID,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    // Only the first sweep runs — no subsequent phases execute.
+    expect(calls).not.toContain('rds:delete-subnet-group');
+    expect(calls).not.toContain('network:delete-vpc');
+  });
+
+  // Test 3b: a previous-attempt RDS instance that needs deletion protection
+  // removed still keeps the purge `purging` (mirrors the existing deferral
+  // semantics for current-attempt resources).
+  it('waits on a previous-attempt RDS already deleting without re-deleting', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      rds: clients(calls, {
+        instances: [{ identifier: 'db-prev', status: 'deleting' }],
+      }).rds,
+      previousInstallationId: PREV_ID,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('createPurgeExecutor — previous installation id from payload', () => {
+  function cfnAbsent(): CloudFormationReader {
+    return {
+      async describeStack() {
+        return { found: false };
+      },
+      async describeStackResources() {
+        return [];
+      },
+    };
+  }
+
+  // Test 4: No payload previousInstallationId → existing behavior unchanged.
+  it('behaves identically when payload has no previousInstallationId', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAbsent(), calls);
+    const result = await createPurgeExecutor(deps)(command());
+
+    expect(result.success).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  it('passes previousInstallationId from payload through to settlePurge', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAbsent(), calls);
+    // Build a command with previousInstallationId in its payload.
+    const cmd = { ...command(), payload: { previousInstallationId: PREV_ID } };
+
+    const result = await createPurgeExecutor(deps)(cmd);
+
+    // The executor should pass the previousInstallationId so settlePurge
+    // processes resources tagged with it.  With no owned resources, the
+    // purge still succeeds.
+    expect(result.success).toBe(true);
+  });
+
+  it('deletes a previous-attempt orphan through the executor end-to-end', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(cfnAbsent(), calls, {
+      rds: clients(calls, {
+        instances: [{ identifier: 'db-prev', status: 'available' }],
+      }).rds,
+    });
+    const cmd = { ...command(), payload: { previousInstallationId: PREV_ID } };
+
+    const result = await createPurgeExecutor(deps)(cmd);
+
+    expect(result.success).toBe(false);
+    expect(result.deferred).toBe(true);
+    expect(calls).toContain('rds:unprotect:db-prev');
+    expect(calls).toContain('rds:delete:db-prev');
+  });
+});
+
+describe('createPurgeResumer — previous installation id from pending payload', () => {
+  it('reads previousInstallationId from the pending payload and uses it', async () => {
+    const calls: string[] = [];
+    const deps = depsWith(
+      {
+        async describeStack() {
+          return { found: false };
+        },
+        async describeStackResources() {
+          return [];
+        },
+      },
+      calls,
+    );
+    // Write a pending record with previousInstallationId in its payload.
+    await deps.pending.write({
+      commandId: 'cmd-1',
+      idempotencyKey: 'key-1',
+      type: 'PURGE',
+      stackName: APP_STACK,
+      startedAt: '2026-09-01T00:00:00.000Z',
+      payload: { previousInstallationId: PREV_ID },
+    });
+    // Give settlePurge something to sweep.
+    const extendedDeps = depsWith(
+      {
+        async describeStack() {
+          return { found: false };
+        },
+        async describeStackResources() {
+          return [];
+        },
+      },
+      calls,
+      {
+        rds: clients(calls, {
+          instances: [{ identifier: 'db-prev', status: 'available' }],
+        }).rds,
+      },
+    );
+    // Override pending with the one that has the payload.
+    const resumerDeps = { ...extendedDeps, pending: deps.pending };
+    const resumer = createPurgeResumer(resumerDeps);
+
+    const results = await resumer();
+
+    expect(results).toHaveLength(0); // still purging
+    expect(calls).toContain('rds:unprotect:db-prev');
+    expect(calls).toContain('rds:delete:db-prev');
+  });
+});

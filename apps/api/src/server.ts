@@ -2249,6 +2249,15 @@ export async function buildServer({
           enrollmentCode,
           enrollmentUsedAt: null,
           installationId: null,
+          // Phase 5 §9.6: the identifiers this retry replaces stay recorded so
+          // a later purge can still find the PREVIOUS stack's retained
+          // resources — a public retry must not silently orphan them.
+          ...(deployment.installationId
+            ? { previousInstallationId: deployment.installationId }
+            : {}),
+          ...(deployment.bootstrapStackName
+            ? { previousBootstrapStackName: deployment.bootstrapStackName }
+            : {}),
           relayTokenHash: null,
           relayBoundAt: null,
           relayStatus: 'UNKNOWN',
@@ -2266,7 +2275,16 @@ export async function buildServer({
         customerId: deployment.customerId,
         previousState: deployment.state,
         requestedState: 'NOT_INSTALLED',
-        payload: { attempt: nextAttempt, bootstrapStackName: stackName },
+        payload: {
+          attempt: nextAttempt,
+          bootstrapStackName: stackName,
+          ...(deployment.installationId
+            ? { previousInstallationId: deployment.installationId }
+            : {}),
+          ...(deployment.bootstrapStackName
+            ? { previousBootstrapStackName: deployment.bootstrapStackName }
+            : {}),
+        },
       });
     });
     return reply.code(200).send({
@@ -3369,6 +3387,15 @@ export async function buildServer({
             enrollmentCode,
             enrollmentUsedAt: null,
             installationId: null,
+            // Phase 5 §9.6: the identifiers this retry replaces stay recorded so
+            // a later purge can still find the PREVIOUS stack's retained
+            // resources — a public retry must not silently orphan them.
+            ...(deployment.installationId
+              ? { previousInstallationId: deployment.installationId }
+              : {}),
+            ...(deployment.bootstrapStackName
+              ? { previousBootstrapStackName: deployment.bootstrapStackName }
+              : {}),
             relayTokenHash: null,
             relayBoundAt: null,
             relayStatus: 'UNKNOWN',
@@ -3386,7 +3413,16 @@ export async function buildServer({
           customerId: deployment.customerId,
           previousState: deployment.state,
           requestedState: 'NOT_INSTALLED',
-          payload: { attempt: nextAttempt, bootstrapStackName: stackName },
+          payload: {
+            attempt: nextAttempt,
+            bootstrapStackName: stackName,
+            ...(deployment.installationId
+              ? { previousInstallationId: deployment.installationId }
+              : {}),
+            ...(deployment.bootstrapStackName
+              ? { previousBootstrapStackName: deployment.bootstrapStackName }
+              : {}),
+          },
         });
       });
       return {

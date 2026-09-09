@@ -35,6 +35,17 @@ describe('DeployzStack', () => {
     });
   });
 
+  it('enables deletion protection and retains automated backups on the RDS instance', () => {
+    const app = new App();
+    const stack = new DeployzStack(app, 'DeployzTest');
+    const template = Template.fromStack(stack);
+
+    template.hasResourceProperties('AWS::RDS::DBInstance', {
+      DeletionProtection: true,
+      DeleteAutomatedBackups: false,
+    });
+  });
+
   it('creates a Lambda function for the API', () => {
     const app = new App();
     const stack = new DeployzStack(app, 'DeployzTest');
