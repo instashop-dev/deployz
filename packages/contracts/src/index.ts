@@ -1190,6 +1190,30 @@ export function resolveApplicationTemplateUrl(
 }
 
 /**
+ * Prefix of the one machine-readable line `publish:application` prints for the
+ * base template it published. The publish script writes it and the real-AWS
+ * harnesses read it, so the line is a contract, not console decoration: a
+ * harness that cannot find it must fail loudly rather than provision against a
+ * template URL it guessed.
+ */
+export const APPLICATION_TEMPLATE_URL_LINE = 'application-template-url';
+
+/**
+ * Reads the base application-template URL out of `publish:application` output.
+ *
+ * Returns `undefined` when the marker line is absent — the caller must treat
+ * that as "the publish did not report a template" and stop, since every other
+ * URL in that output names a profile variant, not the base template the
+ * bootstrap stack and {@link resolveApplicationTemplateUrl} are given.
+ */
+export function parseApplicationTemplateUrl(output: string): string | undefined {
+  // `\s*$` so a CRLF transcript (the harnesses run on Windows too) still ends
+  // the line where the URL ends.
+  const match = new RegExp(`^${APPLICATION_TEMPLATE_URL_LINE} (\\S+)\\s*$`, 'm').exec(output);
+  return match?.[1];
+}
+
+/**
  * CFN logical id of the application template's image parameter (CDK strips
  * the underscore from `param_ImageReference`). The relay's INSTALL passes the
  * deployment's newest READY release image reference (`repository@sha256:…`)

@@ -11,7 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
-import { applicationStackNameForInstallation } from '@deployz/contracts';
+import { applicationStackNameForInstallation, parseApplicationTemplateUrl } from '@deployz/contracts';
 
 import { probeLiveApp, readMarker, sampleLiveApp, writeMarker } from './app.js';
 import {
@@ -248,12 +248,12 @@ export async function publishCanaryTemplate(canary: Canary, pinnedTag: string): 
         shell: process.platform === 'win32',
       },
     );
-    const match = /template\s+(https:\/\/\S+)/.exec(output);
-    assert(match?.[1], `publish:application printed no template URL:\n${output}`);
-    evidence.run.canaryTemplateUrl = match[1];
+    const templateUrl = parseApplicationTemplateUrl(output);
+    assert(templateUrl, `publish:application printed no template URL:\n${output}`);
+    evidence.run.canaryTemplateUrl = templateUrl;
     evidence.run.canaryTemplateKeyPrefix = keyPrefix;
     evidence.save();
-    details['templateUrl'] = match[1];
+    details['templateUrl'] = templateUrl;
     details['keyPrefix'] = keyPrefix;
     details['pinnedDigest'] = release.imageDigest;
     return match[1];
