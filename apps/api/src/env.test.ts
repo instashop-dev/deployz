@@ -478,6 +478,22 @@ describe('the deploy republishes bootstrap artifacts to every deployable region'
     expect(steps).toMatch(/run:[\s\S]*?publish:bootstrap/);
   });
 
+  // resolveBucket (publish-bootstrap.mjs) otherwise falls back to
+  // cloudformation:ListExports, which the deploy user is not allowed to call —
+  // the first run of this step died on exactly that, after the stack had
+  // already deployed. Handing it the bucket keeps the publish off that API.
+  it('sets TEMPLATE_BUCKET, so the publish never calls cloudformation:ListExports', () => {
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
+    const start = steps.indexOf('- name: Republish the bootstrap template');
+    expect(start, 'could not locate the republish step').toBeGreaterThan(-1);
+    const step = steps.slice(start, steps.indexOf('\n      - name:', start + 1));
+
+    expect(step).toContain('TEMPLATE_BUCKET');
+    // Derived from the URL the API already hands out, not a second copy of the
+    // bucket name that can drift away from it.
+    expect(step).toContain('BOOTSTRAP_TEMPLATE_URL');
+  });
+
   it('publishes exactly the regions DEPLOYABLE_AWS_REGIONS advertises', () => {
     const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
     expect(steps).toContain('BOOTSTRAP_PUBLISH_REGIONS');
