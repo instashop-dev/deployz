@@ -256,7 +256,7 @@ export async function publishCanaryTemplate(canary: Canary, pinnedTag: string): 
     details['templateUrl'] = templateUrl;
     details['keyPrefix'] = keyPrefix;
     details['pinnedDigest'] = release.imageDigest;
-    return match[1];
+    return templateUrl;
   });
 }
 

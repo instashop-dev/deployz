@@ -23,7 +23,7 @@ import {
   ValidateTemplateCommand,
 } from '@aws-sdk/client-cloudformation';
 
-import { ApplicationStack } from '../application/application-stack.js';
+import { ApplicationStack, type ApplicationStackProps } from '../application/application-stack.js';
 import { DOCUMENSO_APPLICATION_PROPS } from '../application/documenso.js';
 import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
 import {
@@ -643,6 +643,27 @@ export interface SynthesizeApplicationOptions {
  *
  * No AWS calls.
  */
+/**
+ * Preset properties that describe how a preset wants the managed database
+ * delivered. A stateless variant has no database, and `ApplicationStack`
+ * refuses database wiring without one, so these are dropped for the stateless
+ * profiles instead of making every preset unpublishable.
+ */
+const DATABASE_ONLY_PRESET_KEYS = ['databaseUrlEnvNames', 'databasePartBindings'] as const;
+
+/** The preset's stack properties, minus anything a database-less stack refuses. */
+function presetProps(
+  preset: 'documenso' | undefined,
+  databaseRequired: boolean,
+): Partial<ApplicationStackProps> {
+  if (preset !== 'documenso') return {};
+  if (databaseRequired) return DOCUMENSO_APPLICATION_PROPS;
+  const keys: readonly string[] = DATABASE_ONLY_PRESET_KEYS;
+  return Object.fromEntries(
+    Object.entries(DOCUMENSO_APPLICATION_PROPS).filter(([key]) => !keys.includes(key)),
+  ) as Partial<ApplicationStackProps>;
+}
+
 export async function synthesizeApplicationStack(
   options: SynthesizeApplicationOptions,
 ): Promise<SynthOutput> {
@@ -650,7 +671,7 @@ export async function synthesizeApplicationStack(
   const stack = new ApplicationStack(app, options.stackId ?? 'DeployzApplication', {
     expressMode: false,
     allowInsecureHttp: true,
-    ...(options.preset === 'documenso' ? DOCUMENSO_APPLICATION_PROPS : {}),
+    ...presetProps(options.preset, options.databaseRequired ?? true),
     ...(options.imageRepository !== undefined
       ? { imageRepository: options.imageRepository }
       : {}),
