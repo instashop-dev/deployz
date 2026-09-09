@@ -98,6 +98,14 @@ if (cookieDomain && !apiUrl.startsWith('https://')) {
   );
 }
 
+// The BILLING_ENFORCEMENT=off kill switch is loud at boot: a paused
+// production gate must never be a silent state somebody forgets to undo.
+if (process.env.BILLING_ENFORCEMENT === 'off') {
+  console.warn(
+    '[billing] BILLING_ENFORCEMENT=off — the production-deployment subscription gate is paused; every organization can deploy to production. Unset it to enforce again.',
+  );
+}
+
 // Phase 5 Paddle billing. Optional at boot: an absent PADDLE_API_KEY only
 // warns — every billing surface then reports BILLING_DISABLED (503) rather
 // than crashing local dev or a fixture-mode test run. Once PADDLE_API_KEY IS
@@ -256,6 +264,14 @@ export const env = {
   // later phases use to drive past-due/canceled/evaluation UI scenarios.
   // Mirrors githubFixtureMode.
   billingFixtureMode: process.env.BILLING_FIXTURE_MODE === 'true',
+  // Kill switch for the PRODUCTION-deployment subscription gate
+  // (billing-entitlements.ts). BILLING_ENFORCEMENT=off lets every
+  // organization deploy to production whatever its subscription status —
+  // for an incident where Paddle state is wrong or unreachable and
+  // customers must not be blocked. Any other value (including unset)
+  // enforces. Nothing else in billing changes: webhooks, checkout,
+  // reconciliation and the allowance counters all keep running.
+  billingEnforcementPaused: process.env.BILLING_ENFORCEMENT === 'off',
   // The release-image registry (the control plane's own ECR repository) is
   // consulted only from the deployed Lambda: locally a release is either
   // fixture-built (BUILD_FIXTURE_MODE) or never READY, so the scriptable
