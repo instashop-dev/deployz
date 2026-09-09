@@ -1221,6 +1221,50 @@ describe('quick-create', () => {
       }
     });
 
+    // ONE published template serves EVERY application, so nothing tied to the
+    // preset's own image may be baked into it. A container health check is:
+    // the preset's command shells out to node against its own port and path,
+    // which another image cannot satisfy — an nginx app on :80 has no node and
+    // no /api/health, so ECS kills a task the ALB is happily serving, forever.
+    // The ALB target group's probe of paramHealthCheckPath is the signal ECS
+    // promotes a deployment on, and that one adapts per install.
+    it('bakes no container health check into any published preset variant', async () => {
+      for (const profile of [{ databaseRequired: true }, { databaseRequired: false }]) {
+        const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-preset-healthcheck-'));
+        try {
+          const synth = await synthesizeApplicationStack({
+            outdir,
+            preset: 'documenso',
+            ...profile,
+          });
+          const containers = Object.values(
+            synth.template.Resources as Record<
+              string,
+              { Type: string; Properties?: { ContainerDefinitions?: unknown } }
+            >,
+          )
+            .filter((resource) => resource.Type === 'AWS::ECS::TaskDefinition')
+            .flatMap(
+              (resource) =>
+                (resource.Properties?.ContainerDefinitions ?? []) as {
+                  Name: string;
+                  HealthCheck?: unknown;
+                }[],
+            );
+
+          expect(containers.length).toBeGreaterThan(0);
+          for (const container of containers) {
+            expect(
+              container.HealthCheck,
+              `${container.Name} (databaseRequired: ${profile.databaseRequired}) carries a preset container health check`,
+            ).toBeUndefined();
+          }
+        } finally {
+          rmSync(outdir, { recursive: true, force: true });
+        }
+      }
+    });
+
     it('databaseRequired:false — zero RDS resources, no DB env vars, no DB outputs', async () => {
       const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-stateless-'));
       try {

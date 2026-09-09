@@ -205,6 +205,34 @@ jobs:
             --require-approval never \
             --app "npx tsx bin/deployz.ts"
 
+      # The relay that drives every install ships inside this template's Lambda
+      # assets, and each region serves its own copy from
+      # deployz-templates-<region>. Republishing here is what stops a region
+      # running relay code older than the control plane just deployed above:
+      # the regional buckets were published once by hand and then left, so
+      # every region except us-east-1 silently missed relay fixes.
+      #
+      # The published set is DEPLOYABLE_AWS_REGIONS — the same list the API
+      # hands out install links for — so a region can never be advertised as
+      # installable while serving stale artifacts. us-east-1 publishes into the
+      # legacy bucket that BOOTSTRAP_TEMPLATE_URL already points at.
+      #
+      # publish:bootstrap verifies every region and fails if any one of them
+      # fails: a half-published set would leave some regions broken with an S3
+      # PermanentRedirect at stack creation, which is worse than a failed
+      # deploy.
+      - name: Republish the bootstrap template to every deployable region
+        env:
+          BOOTSTRAP_PUBLISH_REGIONS: ${{ vars.DEPLOYABLE_AWS_REGIONS }}
+          BOOTSTRAP_LEGACY_BUCKET_REGION: us-east-1
+        run: |
+          set -euo pipefail
+          if [ -z "${BOOTSTRAP_PUBLISH_REGIONS:-}" ]; then
+            echo "DEPLOYABLE_AWS_REGIONS is unset — no region is advertised as installable, so there is nothing to publish." >&2
+            exit 0
+          fi
+          pnpm --filter @deployz/cdk run publish:bootstrap
+
       # The stack can report CREATE_COMPLETE while the function itself dies at
       # INIT — a migration that cannot apply does exactly that, and it is how
       # the API sat two releases behind without anyone noticing.
