@@ -114,6 +114,11 @@ jobs:
       PADDLE_PRICE_PLATFORM: ${{ secrets.PADDLE_PRICE_PLATFORM }}
       PADDLE_PRICE_DEPLOYMENT: ${{ secrets.PADDLE_PRICE_DEPLOYMENT }}
       PADDLE_ENVIRONMENT: ${{ vars.PADDLE_ENVIRONMENT || 'sandbox' }}
+      # Kill switch for the production-deployment subscription gate. A
+      # repository *variable*, not a secret: it carries no credential and ops
+      # must be able to see at a glance whether the gate is currently paused.
+      # Unset — the normal state — enforces.
+      BILLING_ENFORCEMENT: ${{ vars.BILLING_ENFORCEMENT }}
 
     steps:
       - name: Checkout
