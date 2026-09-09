@@ -117,12 +117,12 @@ test.describe('update-failure', () => {
     const afterV1 = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(afterV1.state).toBe('HEALTHY');
 
-    // v2's release creation flips this (already-HEALTHY) deployment to
-    // UPDATE_AVAILABLE — the same synchronous write every HEALTHY deployment
-    // of the application gets (server.ts's releases route).
+    // v2's release creation no longer flips the deployment: UPDATE_AVAILABLE
+    // means a newer READY release exists, and v2 is still BUILDING. The
+    // deployment stays HEALTHY until the build actually succeeds.
     const v2ReleaseId = await createRelease(request, applicationId, '2.0.0');
     const afterV2Created = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(afterV2Created.state).toBe('UPDATE_AVAILABLE');
+    expect(afterV2Created.state).toBe('HEALTHY');
 
     // v2 deploys; the ECS deployment circuit breaker trips.
     const deployV2 = await deployRelease(request, deploymentId, v2ReleaseId);
@@ -213,7 +213,11 @@ test.describe('rollback-success', () => {
       .toBe(true);
 
     const afterRollback = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
-    expect(afterRollback.state).toBe('HEALTHY');
+    // UPDATE_AVAILABLE is truthful here: v2 is still READY and newer than the
+    // running v1 — a rollback is an older-release deployment, and the same
+    // newerReadyReleaseExists rule as a plain deploy applies (DZ-AUDIT-007).
+    // The vendor can retry v2 from the releases list.
+    expect(afterRollback.state).toBe('UPDATE_AVAILABLE');
     expect(afterRollback.deploymentStatus.failure).toBeNull();
     // ROLLBACK success sets currentReleaseId to the rollback's target (v1)
     // and previousReleaseId to whatever currentReleaseId was beforehand —

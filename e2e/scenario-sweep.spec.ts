@@ -272,7 +272,9 @@ test.describe('lifecycle-sweep', () => {
       expect(rollback.status()).toBe(202);
       await waitForEvent(request, deploymentId, 'rollback.completed');
       const afterRollback = await getDeployment(request, deploymentId);
-      expect(afterRollback.state).toBe('HEALTHY');
+      // UPDATE_AVAILABLE is truthful: v2 is still READY and newer than the
+      // running v1 — a rollback is an older-release deployment (DZ-AUDIT-007).
+      expect(afterRollback.state).toBe('UPDATE_AVAILABLE');
       expect(afterRollback.currentReleaseId).toBe(v1ReleaseId);
       expect(afterRollback.deploymentStatus.failure).toBeNull();
       expect(relayA.account.migrationRuns).toBe(2);
@@ -287,7 +289,9 @@ test.describe('lifecycle-sweep', () => {
       });
       expect(reset.ok()).toBeTruthy();
       const afterReset = await getDeployment(request, deploymentId);
-      expect(afterReset.state).toBe('HEALTHY');
+      // Reset preserves the installed deployment's state; UPDATE_AVAILABLE is
+      // still truthful (v2 READY, newer than the running v1).
+      expect(afterReset.state).toBe('UPDATE_AVAILABLE');
       expect(afterReset.relayStatus).toBe('UNKNOWN');
 
       // Day-2 action refused while no relay is connected.

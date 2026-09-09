@@ -1518,7 +1518,8 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       .returning();
 
     // The relay settled the rollout, so the job succeeds and the deployment
-    // becomes HEALTHY — but the release pointers must NOT advance on the job
+    // becomes UPDATE_AVAILABLE (a READY release exists that hasn't been
+    // promoted yet) — but the release pointers must NOT advance on the job
     // result alone: a healthy HTTP probe has not been observed yet.
     await postJson(
       app,
@@ -1528,7 +1529,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     );
 
     const [afterResult] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
-    expect(afterResult!.state).toBe('HEALTHY');
+    expect(afterResult!.state).toBe('UPDATE_AVAILABLE');
     expect(afterResult!.currentReleaseId).toBeNull();
 
     // The next heartbeat observes the digest actually running, a completed
@@ -1562,6 +1563,9 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
     expect(updated!.currentReleaseId).toBe(release.id);
     expect(updated!.previousReleaseId).toBeNull();
+    // Promotion resolved UPDATE_AVAILABLE → HEALTHY: the promoted release is
+    // the newest READY one, so no update remains available.
+    expect(updated!.state).toBe('HEALTHY');
   });
 
   it('a failed update keeps the deployment live and diagnostics still classify it', async () => {

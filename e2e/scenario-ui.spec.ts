@@ -512,7 +512,10 @@ test.describe('update-failure then rollback-success (browser)', () => {
     await expect(page.getByText('The new version could not be rolled out.')).toHaveCount(0);
     await expect(page.getByText('v1.0.0', { exact: true }).first()).toBeVisible();
     const afterRollback = await getDeployment(page, deploymentId);
-    expect(afterRollback.state).toBe('HEALTHY');
+    // UPDATE_AVAILABLE is truthful after the rollback: v2 is still READY and
+    // newer than the running v1 (a rollback is an older-release deployment —
+    // DZ-AUDIT-007's invariant). The page must still show v1 as live.
+    expect(afterRollback.state).toBe('UPDATE_AVAILABLE');
     expect(afterRollback.currentReleaseId).toBe(v1ReleaseId);
     // The rollback recorded the pointer the deployment carried into it —
     // v1, the very release it restored — so previous == current. The page

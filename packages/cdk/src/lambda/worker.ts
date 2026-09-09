@@ -20,7 +20,7 @@ import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from 'dr
 import { reconcileBilling } from '@deployz/api/billing';
 import { markDeploymentLive } from '@deployz/api/billing-lifecycle';
 import { mintInstallationToken } from '@deployz/api/github';
-import { createOrReuseJob, newerReadyReleaseExists } from '@deployz/api/jobs';
+import { createOrReuseJob, hasStartedInstall, newerReadyReleaseExists } from '@deployz/api/jobs';
 import type { PaddleBilling } from '@deployz/api/paddle';
 import type { QueueMessage } from '@deployz/api/queue';
 import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
@@ -324,6 +324,36 @@ async function failRelease(
       })
       .where(eq(schema.releases.id, releaseId));
     if (application) {
+      // If a READY release newer than the deployment's current release no
+      // longer exists, revert UPDATE_AVAILABLE back to HEALTHY — the state
+      // must mean a genuinely newer READY release exists (§46).
+      const updateAvailable = await tx
+        .select({ id: schema.deployments.id, currentReleaseId: schema.deployments.currentReleaseId })
+        .from(schema.deployments)
+        .where(
+          and(
+            eq(schema.deployments.applicationId, application.id),
+            eq(schema.deployments.state, 'UPDATE_AVAILABLE'),
+          ),
+        );
+      for (const dep of updateAvailable) {
+        const stillHasNewer = await newerReadyReleaseExists(
+          db,
+          application.id,
+          dep.currentReleaseId,
+        );
+        if (!stillHasNewer) {
+          await tx
+            .update(schema.deployments)
+            .set({ state: 'HEALTHY' })
+            .where(
+              and(
+                eq(schema.deployments.id, dep.id),
+                eq(schema.deployments.state, 'UPDATE_AVAILABLE'),
+              ),
+            );
+        }
+      }
       await insertReleaseBuildEvent(tx, {
         organizationId: application.organizationId,
         releaseId,
@@ -524,6 +554,15 @@ export async function recordBuildResult(
       .set({ imageDigest, buildStatus: 'SUCCEEDED', releaseStatus: 'READY' })
       .where(eq(schema.releases.id, releaseId));
     if (application) {
+      await tx
+        .update(schema.deployments)
+        .set({ state: 'UPDATE_AVAILABLE' })
+        .where(
+          and(
+            eq(schema.deployments.applicationId, application.id),
+            eq(schema.deployments.state, 'HEALTHY'),
+          ),
+        );
       await insertReleaseBuildEvent(tx, {
         organizationId: application.organizationId,
         releaseId,
@@ -654,14 +693,22 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
 
       if (inFlight && job.reconcileCount < MAX_RECONCILE_REQUEUES) {
         await db.transaction(async (tx) => {
-          await tx
+          const requeued = await tx
             .update(schema.deploymentJobs)
             .set({
               state: 'REQUESTED',
               reconcileCount: job.reconcileCount + 1,
               lastProgressAt: now,
             })
-            .where(eq(schema.deploymentJobs.id, job.id));
+            .where(
+              and(
+                eq(schema.deploymentJobs.id, job.id),
+                inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+              ),
+            )
+            .returning({ id: schema.deploymentJobs.id });
+          // Job already settled (result route won the race) — nothing to requeue.
+          if (requeued.length === 0) return;
           await tx.insert(schema.eventLogs).values({
             actorType: 'system',
             actorId: 'watchdog',
@@ -735,23 +782,6 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
   return settled;
 }
 
-/** Whether any INSTALL job for this deployment ever finished successfully —
- *  mirrors apps/api/src/server.ts's hasSucceededInstall; the watchdog cannot
- *  import it (that module is not one of @deployz/api's exported entry
- *  points), so it keeps its own copy of the same query. */
-async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise<boolean> {
-  const installJobs = await db
-    .select({ state: schema.deploymentJobs.state })
-    .from(schema.deploymentJobs)
-    .where(
-      and(
-        eq(schema.deploymentJobs.deploymentId, deploymentId),
-        eq(schema.deploymentJobs.type, 'INSTALL'),
-      ),
-    );
-  return installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
-}
-
 async function failStuckJob(
   db: RuntimeDb,
   job: typeof schema.deploymentJobs.$inferSelect,
@@ -778,7 +808,7 @@ async function failStuckJob(
         jobType: job.type,
         hasCurrentRelease:
           deployment.currentReleaseId !== null ||
-          (await hasSucceededInstall(db, deployment.id)),
+          (await hasStartedInstall(db, deployment.id)),
         newerReadyReleaseExists: await newerReadyReleaseExists(
           db,
           deployment.applicationId,
@@ -787,7 +817,7 @@ async function failStuckJob(
       });
 
   await db.transaction(async (tx) => {
-    await tx
+    const failed = await tx
       .update(schema.deploymentJobs)
       .set({
         state: 'FAILED',
@@ -795,7 +825,15 @@ async function failStuckJob(
         failureCode,
         result: { timeout: true, reconcileAttempts: job.reconcileCount },
       })
-      .where(eq(schema.deploymentJobs.id, job.id));
+      .where(
+        and(
+          eq(schema.deploymentJobs.id, job.id),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+        ),
+      )
+      .returning({ id: schema.deploymentJobs.id });
+    // Job already settled by the result route — skip all side effects.
+    if (failed.length === 0) return;
 
     if (nextState !== null) {
       await tx

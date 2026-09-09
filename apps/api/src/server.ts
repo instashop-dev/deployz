@@ -134,7 +134,7 @@ import {
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
-import { createOrReuseJob, newerReadyReleaseExists } from './jobs.js';
+import { createOrReuseJob, hasStartedInstall, newerReadyReleaseExists } from './jobs.js';
 import { readStoredManifest } from './manifest.js';
 import { enqueue } from './queue.js';
 import {
@@ -1021,30 +1021,6 @@ async function hasSucceededInstall(db: RuntimeDb, deploymentId: string): Promise
       ),
     );
   return installJobs.some((j) => j.state === 'SUCCEEDED' || j.state === 'SUCCESS');
-}
-
-/**
- * Whether anything has ever run in this deployment: a SUCCEEDED install that
- * started its task, or a SUCCEEDED deploy/rollback. A zero-task install
- * (`payload.startAfterConfig`, DEPLOY-009) succeeded without starting
- * anything — its first deploy is the first start, and a failed first start
- * is a failed environment, not a failed update.
- */
-async function hasStartedInstall(db: RuntimeDb, deploymentId: string): Promise<boolean> {
-  const jobs = await db
-    .select({ type: schema.deploymentJobs.type, state: schema.deploymentJobs.state, payload: schema.deploymentJobs.payload })
-    .from(schema.deploymentJobs)
-    .where(
-      and(
-        eq(schema.deploymentJobs.deploymentId, deploymentId),
-        inArray(schema.deploymentJobs.type, ['INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK']),
-      ),
-    );
-  return jobs.some((j) => {
-    if (j.state !== 'SUCCEEDED' && j.state !== 'SUCCESS') return false;
-    if (j.type !== 'INSTALL') return true;
-    return (j.payload as Record<string, unknown> | null)?.['startAfterConfig'] !== true;
-  });
 }
 
 // resolveAppUrl now lives in ./fleet-row.js, alongside toFleetRow.
@@ -3743,20 +3719,6 @@ export async function buildServer({
       }
     }
 
-    // §22/§25: every live deployment of this application is now behind. The
-    // state existed and was read by the billing rule and the bulk-deploy
-    // gate, but nothing ever wrote it, so the fleet could never show who
-    // needed updating.
-    await db
-      .update(schema.deployments)
-      .set({ state: 'UPDATE_AVAILABLE' })
-      .where(
-        and(
-          eq(schema.deployments.applicationId, id),
-          eq(schema.deployments.state, 'HEALTHY'),
-        ),
-      );
-
     return reply.code(201).send(row);
   });
 
@@ -3980,6 +3942,17 @@ export async function buildServer({
           deploymentId: deployment.id,
           status: 'SKIPPED',
           reason: 'The relay for this deployment is disconnected — reconnect it before deploying.',
+        });
+        continue;
+      }
+      // A deployment whose relay never enrolled has no installationId and
+      // cannot receive commands — skip with a reason instead of queuing a
+      // doomed job (DZ-AUDIT-032).
+      if (!deployment.installationId) {
+        results.push({
+          deploymentId: deployment.id,
+          status: 'SKIPPED',
+          reason: 'The relay for this deployment has not connected yet — install it before deploying.',
         });
         continue;
       }
@@ -5624,6 +5597,28 @@ export async function buildServer({
           previousReleaseId: deployment.currentReleaseId,
         })
         .where(eq(schema.deployments.id, deployment.id));
+      // The result route may have set UPDATE_AVAILABLE because the released
+      // image was not yet promoted — now that it IS promoted, resolve the
+      // state: HEALTHY when no newer READY release exists, else stay
+      // UPDATE_AVAILABLE (a genuinely newer release was published meanwhile).
+      if (deployment.state === 'UPDATE_AVAILABLE') {
+        const hasNewer = await newerReadyReleaseExists(
+          tx,
+          deployment.applicationId,
+          reconciled.id,
+        );
+        if (!hasNewer) {
+          await tx
+            .update(schema.deployments)
+            .set({ state: 'HEALTHY' })
+            .where(
+              and(
+                eq(schema.deployments.id, deployment.id),
+                eq(schema.deployments.state, 'UPDATE_AVAILABLE'),
+              ),
+            );
+        }
+      }
       await recordEvent(tx, {
         organizationId: deployment.organizationId,
         eventType: 'deployment.reconciled',
@@ -5958,14 +5953,6 @@ export async function buildServer({
       throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
     }
 
-    // A settled job never reprocesses: a late duplicate result (the relay's
-    // earlier report timed out and it retried, or the job was already
-    // force-completed/cancelled) must not flip the deployment state again or
-    // recompute release pointers against a since-changed deployment row.
-    if (!['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'].includes(job.state)) {
-      return reply.code(200).send({ received: true, alreadySettled: true });
-    }
-
     const body = request.body as {
       success?: boolean;
       error?: string;
@@ -6041,7 +6028,15 @@ export async function buildServer({
               deployment.currentReleaseId,
             ),
           }) ?? undefined)
-        : JOB_SUCCESS_STATE[job.type];
+        : state === 'SUCCEEDED' && (job.type === 'DEPLOY_RELEASE' || job.type === 'ROLLBACK')
+          ? await newerReadyReleaseExists(
+              db,
+              deployment.applicationId,
+              deployment.currentReleaseId,
+            )
+            ? 'UPDATE_AVAILABLE'
+            : 'HEALTHY'
+          : JOB_SUCCESS_STATE[job.type];
     // The release this job rolled out, for the audit event only. §10.3: a
     // DEPLOY_RELEASE/ROLLBACK success must NOT advance the release pointers
     // here — the relay has settled ECS (rollout + targets), but promotion
@@ -6061,8 +6056,9 @@ export async function buildServer({
     const preTxDefaultHttps = parseDefaultHttps(deployment.defaultHttps);
 
     let billingStopped = false;
+    let alreadySettled = false;
     await db.transaction(async (tx) => {
-      await tx
+      const updated = await tx
         .update(schema.deploymentJobs)
         .set({
           state,
@@ -6071,7 +6067,21 @@ export async function buildServer({
           lastProgressAt: new Date(),
           ...(effectiveFailureCode ? { failureCode: effectiveFailureCode } : {}),
         })
-        .where(eq(schema.deploymentJobs.id, id));
+        .where(
+          and(
+            eq(schema.deploymentJobs.id, id),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+          ),
+        )
+        .returning();
+      // A settled job never reprocesses: a late duplicate result (the relay's
+      // earlier report timed out and it retried, or the job was already
+      // force-completed/cancelled) must not flip the deployment state again or
+      // recompute release pointers against a since-changed deployment row.
+      if (updated.length === 0) {
+        alreadySettled = true;
+        return;
+      }
 
       if (isDomainJobType(job.type)) {
         // Phase 11: default-HTTPS jobs (idempotency keys under the
@@ -6177,6 +6187,12 @@ export async function buildServer({
         });
       }
     });
+
+    // Job was already settled (result route's earlier report won, or
+    // force-complete cancelled it) — skip all side effects.
+    if (alreadySettled) {
+      return reply.code(200).send({ received: true, alreadySettled: true });
+    }
 
     // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
     // Phase 9: outside the transaction, and only when this backstop was the

@@ -90,13 +90,15 @@ test.describe('duplicate-request', () => {
     expect(busy.status()).toBe(409);
     expect(((await busy.json()) as { error: { code: string } }).error.code).toBe('DEPLOYMENT_BUSY');
 
-    // The one deploy settles normally.
+    // The one deploy settles normally. v1 is promoted (newest READY at that
+    // moment), but 1.1.0 was already authored and is READY and newer — so the
+    // truthful settled state is UPDATE_AVAILABLE, not HEALTHY (DZ-AUDIT-007).
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, {
         timeout: 15_000,
         message: 'waiting for the deploy to settle',
       })
-      .toBe('HEALTHY');
+      .toBe('UPDATE_AVAILABLE');
     const events = await getEvents(request, deploymentId);
     expect(events.filter((e) => e.eventType === 'deploy.requested')).toHaveLength(1);
     expect(events.filter((e) => e.eventType === 'deploy.completed')).toHaveLength(1);
