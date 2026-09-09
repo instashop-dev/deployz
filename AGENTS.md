@@ -2,6 +2,20 @@
 
 - Always output the instructions in Simplified Technical English ASD-STE100.
 
+## Deployz MVP
+
+Deployz is currently an MVP. Make all product, engineering, architecture, infrastructure, and UX decisions for the current MVP stage.
+
+- Prefer the simplest reliable solution that meets current requirements.
+- Prioritize deployment reliability, security, usability, low AWS cost, maintainability, and fast iteration.
+- Avoid over-engineering, premature abstractions, speculative scalability, and infrastructure or features for possible future needs.
+- Preserve current MVP boundaries unless the task explicitly changes them.
+- Reuse existing architecture, components, and patterns when practical.
+- When multiple solutions are valid, choose the solution with the lowest implementation and operational complexity.
+- Give the core deployment flow higher priority than architectural elegance or future extensibility.
+- Do not add Azure, GCP, enterprise, multi-cloud, or other post-MVP complexity unless the task explicitly requires it.
+- If a useful capability is not required for the MVP, defer it and state that it is a post-MVP item.
+
 ## Agent Behavior
 
 - Make the smallest necessary change; do not touch, refactor, rename, reorganize, or reformat unrelated code.
