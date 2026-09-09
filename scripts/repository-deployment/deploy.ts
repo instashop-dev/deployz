@@ -81,6 +81,21 @@ export function reusableReleaseVersion(benchmark: BenchmarkEntry, config: Reposi
   return `${benchmark.id}-${benchmark.commit.slice(0, 7)}-${fingerprint}`;
 }
 
+/**
+ * A release version is unique per application, and an attempt whose build
+ * failed still owns the name it took. A retry that cannot reuse the image
+ * therefore has to mint the next name, or `createRelease` answers 409 and the
+ * repository is wedged for every future attempt.
+ */
+export function nextReleaseVersion(base: string, taken: readonly { version: string }[]): string {
+  const names = new Set(taken.map((release) => release.version));
+  if (!names.has(base)) return base;
+  for (let attempt = 2; ; attempt += 1) {
+    const candidate = `${base}-r${attempt}`;
+    if (!names.has(candidate)) return candidate;
+  }
+}
+
 /** The vendor-side routes the funnel drives (a subset of the canary's ControlPlane). */
 export interface ControlPlaneLike {
   request<T>(method: string, path: string, body?: unknown, options?: { headers?: Record<string, string>; allowStatus?: number[] }): Promise<{ status: number; body: T; headers: Headers }>;
@@ -320,14 +335,16 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         // a retry of the same inputs finds the release an earlier attempt
         // built — and any change to those inputs mints a different version
         // rather than silently redeploying a stale image.
-        const version = deps.reuseApplication
+        const releases = deps.reuseApplication ? await deps.api.listReleases(applicationId) : [];
+        const base = deps.reuseApplication
           ? reusableReleaseVersion(benchmark, config)
           : `${benchmark.id}-${run.runId.slice('stage-b-'.length + benchmark.id.length + 1)}`;
         const existing = deps.reuseApplication
-          ? (await deps.api.listReleases(applicationId)).find(
-              (r) => r.version === version && r.status === 'READY',
-            )
+          ? releases.find((r) => r.version === base && r.status === 'READY')
           : undefined;
+        // Reuse keeps the name; a rebuild takes the next one, because the
+        // attempt that failed still owns the name it took.
+        const version = existing ? base : nextReleaseVersion(base, releases);
         if (existing) console.log(`  reusing release ${version} (${existing.id}) — no CodeBuild run`);
         const created = existing
           ? { id: existing.id, version }

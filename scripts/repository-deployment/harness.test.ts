@@ -10,7 +10,7 @@ import type { DeploymentDetail } from '../version-canary/control-plane.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
 import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
-import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
+import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, nextReleaseVersion, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
 import { applicationContainerDefinition, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
 import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
@@ -554,6 +554,8 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
   const calls: string[] = [];
   const puts: Record<string, unknown>[] = [];
   const releaseId = 'rel-1';
+  /** Releases createRelease has minted during this attempt. */
+  const built: { id: string; version: string; status: string; failureReason: string | null }[] = [];
   let deployment: DeploymentDetail & { defaultHttps?: unknown } = {
     id: 'dep-1',
     state: 'WAITING_FOR_RELAY',
@@ -604,11 +606,17 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
       return { healthPath: '/healthz', databaseRequired: true, redisRequired: false, storageRequired: false, detectedMetadata: { healthMode: 'explicit', dockerfilePath: 'Dockerfile' }, ...(script.application ?? {}) };
     },
     async createRelease(_id, input) {
-      calls.push(`createRelease ${input.gitSha}`);
+      calls.push(`createRelease ${input.gitSha} ${input.version}`);
+      // The control plane keeps release versions unique per application.
+      if ([...(script.existingReleases ?? []), ...built].some((r) => r.version === input.version)) {
+        const { ControlPlaneError } = await import('../version-canary/control-plane.js');
+        throw new ControlPlaneError(409, 'RELEASE_VERSION_TAKEN', `Version ${input.version} already exists for this application.`, null);
+      }
+      built.push({ id: releaseId, version: input.version, status: script.releaseStatus ?? 'READY', failureReason: script.releaseFailure ?? null });
       return { id: releaseId, version: input.version };
     },
     async listReleases() {
-      if (script.existingReleases) return script.existingReleases;
+      if (script.existingReleases) return [...script.existingReleases, ...built];
       return [{ id: releaseId, version: 'v', status: script.releaseStatus ?? 'READY', failureReason: script.releaseFailure ?? null }];
     },
     async createCustomer() {
@@ -780,7 +788,7 @@ describe('the funnel', () => {
     expect(out.configuration.keys).toEqual(['APP_URL', 'DB_CLIENT', 'JWT_SECRET', 'SECRET_KEY']);
     expect(out.configuration.generatedKeys).toEqual(['JWT_SECRET', 'SECRET_KEY']);
     expect(calls).toContain('patch containerPort,healthPath');
-    expect(calls).toContain(`createRelease ${SHA}`);
+    expect(calls.some((c) => c.startsWith(`createRelease ${SHA}`))).toBe(true);
     expect(calls).toContain('createStack deployz-bootstrap-x-12345678 ApplicationTemplateUrl,ControlPlaneUrl,EnrollmentCode');
     expect(stageBRun(evidence).stageB.cleanupNeeded).toBe(true);
     expect(stageBRun(evidence).deploymentId).toBe('dep-1');
@@ -925,7 +933,7 @@ describe('reusing an application on a retry (--reuse-application)', () => {
     const { run, calls } = attempt(deployable, { reuseApplication: true });
     const out = await run();
     expect(out.classification).toBe('PASS');
-    expect(calls).toContain(`createRelease ${SHA}`);
+    expect(calls.some((c) => c.startsWith(`createRelease ${SHA}`))).toBe(true);
     expect(out.build.imageReused).toBe(false);
   });
 
@@ -943,21 +951,41 @@ describe('reusing an application on a retry (--reuse-application)', () => {
     expect(() => stageBResultSchema.parse(out)).not.toThrow();
   });
 
+  it('a retry after a failed build takes the next version instead of the name that attempt owns', async () => {
+    const version = reusableReleaseVersion(deployable, config);
+    const { run, calls } = attempt(deployable, {
+      reuseApplication: true,
+      existingReleases: [{ id: 'rel-old', version, status: 'FAILED', failureReason: 'BUILD: docker build failed' }],
+    });
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(out.build.imageReused).toBe(false);
+    expect(out.build.version).toBe(`${version}-r2`);
+    expect(calls).toContain(`createRelease ${SHA} ${version}-r2`);
+  });
+
+  it('keeps taking the next free version as failed attempts pile up', () => {
+    const taken = [{ version: 'v' }, { version: 'v-r2' }, { version: 'v-r3' }];
+    expect(nextReleaseVersion('v', taken)).toBe('v-r4');
+    expect(nextReleaseVersion('v', [])).toBe('v');
+    expect(nextReleaseVersion('v', [{ version: 'other' }])).toBe('v');
+  });
+
   it('rebuilds rather than reusing a release that is not READY, or one of another version', async () => {
     const version = reusableReleaseVersion(deployable, config);
     const failed = attempt(deployable, {
       reuseApplication: true,
-      existingReleases: [{ id: 'rel-1', version, status: 'FAILED', failureReason: 'BUILD: x' }],
+      existingReleases: [{ id: 'rel-old', version, status: 'FAILED', failureReason: 'BUILD: x' }],
     });
     await failed.run();
-    expect(failed.calls).toContain(`createRelease ${SHA}`);
+    expect(failed.calls.some((c) => c.startsWith(`createRelease ${SHA}`))).toBe(true);
 
     const other = attempt(deployable, {
       reuseApplication: true,
-      existingReleases: [{ id: 'rel-1', version: 'someone-elses-version', status: 'READY', failureReason: null }],
+      existingReleases: [{ id: 'rel-old', version: 'someone-elses-version', status: 'READY', failureReason: null }],
     });
     await other.run();
-    expect(other.calls).toContain(`createRelease ${SHA}`);
+    expect(other.calls.some((c) => c.startsWith(`createRelease ${SHA}`))).toBe(true);
   });
 
   it('never reuses without the flag, so a first attempt always builds', async () => {
@@ -966,7 +994,7 @@ describe('reusing an application on a retry (--reuse-application)', () => {
       existingReleases: [{ id: 'rel-1', version, status: 'READY', failureReason: null }],
     });
     const out = await run();
-    expect(calls).toContain(`createRelease ${SHA}`);
+    expect(calls.some((c) => c.startsWith(`createRelease ${SHA}`))).toBe(true);
     expect(out.build.imageReused).toBe(false);
   });
 
