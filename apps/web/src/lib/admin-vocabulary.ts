@@ -162,6 +162,8 @@ const ADMIN_EVENT_TYPE_LABELS: Record<string, string> = {
   'admin.rollback.requested': 'Requested rollback',
   'admin.destroy.force_completed': 'Force-completed disconnect',
   'admin.relay.reset_requested': 'Reset relay connection',
+  'admin.billing.included_deployments.updated': 'Updated included deployments',
+  'admin.billing.reconcile_requested': 'Reconciled billing',
 };
 
 function adminEventFamilyLabel(eventType: string): string {
@@ -186,6 +188,7 @@ export const AUDIT_ACTION_OPTIONS: readonly { value: string; label: string }[] =
   { value: 'admin.rollback', label: 'Rollback' },
   { value: 'admin.destroy', label: 'Force-complete destroy' },
   { value: 'admin.relay', label: 'Reset relay' },
+  { value: 'admin.billing', label: 'Billing' },
 ];
 
 /** Plain-language outcome for an audit row's `result` column. */

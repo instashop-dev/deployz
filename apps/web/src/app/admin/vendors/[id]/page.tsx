@@ -10,6 +10,16 @@ import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -24,8 +34,10 @@ import {
   fetchAdminVendor,
   reconcileVendorBillingAdmin,
   startSupportSession,
+  updateIncludedDeploymentsAdmin,
   type AdminVendorDetail,
 } from '@/lib/admin';
+import { previewIncludedDeploymentsChange } from '@/lib/admin-billing';
 import {
   adminEventTypeLabel,
   analysisStatusLabel,
@@ -407,6 +419,64 @@ function VendorBillingSection({
   const fmt = (value: string | null) =>
     value ? new Date(value).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
+  // Included production deployments — the admin-set pooled allowance
+  // (see AdminVendorBilling.includedProductionDeployments). Kept in sync
+  // with the loaded value; onReconciled() reloads detail after a save, so
+  // this effect also picks up the post-save value without extra local state.
+  const [includedInput, setIncludedInput] = useState(String(billing.includedProductionDeployments));
+  const [includedReason, setIncludedReason] = useState('');
+  const [includedDialogOpen, setIncludedDialogOpen] = useState(false);
+  const [includedPending, setIncludedPending] = useState(false);
+
+  useEffect(() => {
+    setIncludedInput(String(billing.includedProductionDeployments));
+  }, [billing.includedProductionDeployments]);
+
+  const parsedIncluded = Number(includedInput);
+  const isValidIncluded =
+    includedInput.trim() !== '' && Number.isInteger(parsedIncluded) && parsedIncluded >= 0 && parsedIncluded <= 10000;
+  const includedUnchanged = isValidIncluded && parsedIncluded === billing.includedProductionDeployments;
+  const canSubmitIncluded = isValidIncluded && !includedUnchanged && includedReason.trim() !== '';
+  const includedPreview = isValidIncluded
+    ? previewIncludedDeploymentsChange({
+        activeProductionDeployments: billing.activeProductionDeployments,
+        currentIncluded: billing.includedProductionDeployments,
+        nextIncluded: parsedIncluded,
+      })
+    : null;
+
+  async function onConfirmIncludedUpdate(): Promise<void> {
+    if (!canSubmitIncluded) return;
+    setIncludedPending(true);
+    try {
+      const result = await updateIncludedDeploymentsAdmin(
+        detail.organization.id,
+        parsedIncluded,
+        includedReason.trim(),
+      );
+      if (result.reconciliation === null) {
+        toast.success('Allowance updated — nothing to reconcile yet.');
+      } else if (result.reconciliation.status === 'SUCCEEDED') {
+        toast.success(
+          `Allowance updated — Paddle now billing ${result.reconciliation.expected} deployment${result.reconciliation.expected === 1 ? '' : 's'}.`,
+        );
+      } else if (result.reconciliation.status === 'FAILED') {
+        toast.error(
+          `Allowance saved, but Paddle could not be updated: ${result.reconciliation.reason ?? 'no reason recorded'}. Use Reconcile with Paddle to retry.`,
+        );
+      } else {
+        toast.success(`Allowance saved — reconciliation skipped: ${result.reconciliation.reason ?? 'no reason recorded'}.`);
+      }
+      setIncludedReason('');
+      setIncludedDialogOpen(false);
+      onReconciled();
+    } catch (caught) {
+      toast.error(errorMessage(caught));
+    } finally {
+      setIncludedPending(false);
+    }
+  }
+
   return (
     <section aria-labelledby="billing" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -452,6 +522,95 @@ function VendorBillingSection({
           )}
         </CardContent>
       </Card>
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-3 py-4">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="included-deployments-input">Included production deployments</Label>
+            <Input
+              id="included-deployments-input"
+              type="number"
+              min={0}
+              max={10000}
+              step={1}
+              value={includedInput}
+              onChange={(event) => setIncludedInput(event.target.value)}
+              className="w-28"
+              data-testid="admin-included-deployments-input"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="included-deployments-reason">Reason</Label>
+            <Input
+              id="included-deployments-reason"
+              value={includedReason}
+              onChange={(event) => setIncludedReason(event.target.value)}
+              placeholder="Why is the allowance changing?"
+              className="w-64"
+              data-testid="admin-included-deployments-reason"
+            />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!canSubmitIncluded}
+            onClick={() => setIncludedDialogOpen(true)}
+            data-testid="admin-included-deployments-submit"
+          >
+            Update allowance
+          </Button>
+        </CardContent>
+      </Card>
+      <Dialog
+        open={includedDialogOpen}
+        onOpenChange={(next) => (next || includedPending ? undefined : setIncludedDialogOpen(false))}
+      >
+        <DialogContent data-testid="admin-included-deployments-dialog" className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Update included deployments?</DialogTitle>
+            <DialogDescription>
+              {includedPreview?.direction === 'decrease'
+                ? "This may increase the vendor's next invoice."
+                : "This may reduce the vendor's next invoice."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Included deployments</span>
+              <span className="font-medium tabular-nums">
+                {billing.includedProductionDeployments} → {isValidIncluded ? parsedIncluded : '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Billable deployments</span>
+              <span className="font-medium tabular-nums">
+                {includedPreview?.previousBillable ?? '—'} → {includedPreview?.nextBillable ?? '—'}
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The $49/month platform fee is unaffected. This changes the production deployment
+            quantity only. Invoice adjustments and proration are handled by Paddle.
+          </p>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs text-muted-foreground">Reason</span>
+            <p className="text-sm">{includedReason}</p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" disabled={includedPending} onClick={() => setIncludedDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant={includedPreview?.direction === 'decrease' ? 'destructive' : 'default'}
+              disabled={includedPending}
+              onClick={() => void onConfirmIncludedUpdate()}
+              data-testid="admin-included-deployments-confirm"
+            >
+              {includedPending ? 'Updating…' : 'Update allowance'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {billing.recentReconciliations.length > 0 ? (
         <Card>
           <CardContent className="overflow-x-auto p-0">
