@@ -15,7 +15,50 @@
 # requirements. Nothing here patches a repository; a key the analyser wrongly
 # demands is still provided (a vendor would have to), and the mismatch is the
 # gate audit's finding, not the configuration's.
+#
+# Three-class deployment model (README "Three-class model"):
+#   B1 runtime-reuse (default):  build/release/deploy against a shared standing
+#     installation. Never creates fresh AWS infrastructure.
+#   B2 capability-cohort:         fresh infrastructure for repos covering each
+#     capability cohort (PostgreSQL, Redis, PostgreSQL+Redis, storage, custom
+#     Dockerfile, custom port, custom health check, special topology).
+#   B3 fresh-full:                full funnel through fresh AWS (build → ECR →
+#     bootstrap → install → healthy → destroy → cleanup audit).
+#
+# b2Repos and b3Repos are explicit, disjoint lists. Everything else defaults
+# to B1. A per-repo deploymentClass override in the repository entry takes
+# precedence over these lists.
+#
+# Coverage claim (verified at load time — no overlap allowed):
+#   PostgreSQL        ✓ 001, 003, 004, 007, 008, 016, 021, 039, 051, 035
+#   Redis             ✓ 007, 016, 002
+#   Storage           ✓ 016
+#   Custom Dockerfile ✓ 004, 039
+#   Custom port       ✓ 004
+#   Custom health     ✓ 003, 008
+#   Special topology  ✓ 022 (background worker)
 version: 1
+b2Repos:
+  # Rails, PostgreSQL, custom fork — framework-specific build (realistic)
+  - repo-051
+  # Flask, PostgreSQL — Python cohort rep (realistic)
+  - repo-035
+  # ToolJet — special application topology via background worker (realistic)
+  - repo-022
+b3Repos:
+  # 10 representative repos covering the widest capability and cohort spread.
+  # Each is a distinct app type, runtime, or dependency profile. All have
+  # explicit vendor config in the repositories section below.
+  - repo-001  # Next.js + Prisma, PostgreSQL, realistic
+  - repo-003  # Node/Express, PostgreSQL, custom health, realistic
+  - repo-004  # Go, custom Dockerfile, custom port, realistic
+  - repo-007  # NestJS + Prisma, PostgreSQL + Redis, realistic
+  - repo-008  # Go (scratch image), custom health, realistic
+  - repo-016  # Koa/Sequelize, PostgreSQL + Redis + storage, realistic
+  - repo-021  # Node, PostgreSQL, heavy config, realistic
+  - repo-039  # Go, custom Dockerfile, PostgreSQL, messy
+  - repo-002  # Python, Redis, worker, boundary, NOT_COMPATIBLE
+  - repo-005  # boundary, NOT_COMPATIBLE
 
 waves:
   wave-1: [repo-008, repo-001, repo-051, repo-004, repo-035, repo-003, repo-007, repo-021, repo-039, repo-016]

@@ -16,6 +16,7 @@ export interface StepRecord {
   readonly scenario: string;
   readonly startedAt: string;
   finishedAt?: string;
+  durationMs?: number;
   status: StepStatus;
   /** Structured facts (deployment/job ids, digests, states, live answers). */
   details: Record<string, unknown>;
@@ -107,6 +108,7 @@ export class Evidence {
       throw error;
     } finally {
       record.finishedAt = new Date().toISOString();
+      record.durationMs = new Date(record.finishedAt).getTime() - new Date(record.startedAt).getTime();
       if (record.status === 'PASS') console.log(`✓ [${record.index}] ${name}`);
       writeFileSync(
         join(this.dir, 'steps', `${String(record.index).padStart(2, '0')}-${slug(name)}.json`),
@@ -123,6 +125,7 @@ export class Evidence {
     writeFileSync(join(this.dir, 'summary.md'), renderSummary(this.run));
     console.log(`\nAWS Canary (${this.run.scenario}): ${result}\n${renderTable(this.run)}`);
     console.log(`Evidence: ${this.dir}`);
+    console.log(renderDurationSummary(this.run));
   }
 }
 
@@ -139,6 +142,22 @@ function renderTable(run: RunRecord): string {
 
 function firstLine(text: string): string {
   return text.split('\n')[0] ?? text;
+}
+
+export function renderDurationSummary(run: RunRecord): string {
+  const width = Math.max(...run.steps.map((s) => s.name.length), 10);
+  const lines: string[] = ['Deployz test summary'];
+  for (const s of run.steps) {
+    const sec = s.durationMs != null ? Math.round(s.durationMs / 1000) : 0;
+    lines.push(`  ${s.name.padEnd(width)} ${String(sec).padStart(5)}s`);
+  }
+  const totalMs = run.startedAt && run.finishedAt
+    ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()
+    : run.steps.reduce((sum, s) => sum + (s.durationMs ?? 0), 0);
+  const totalSec = Math.round(totalMs / 1000);
+  lines.push(`  ${'─'.repeat(width)} ───────`);
+  lines.push(`  ${'total'.padEnd(width)} ${String(totalSec).padStart(5)}s`);
+  return lines.join('\n');
 }
 
 export function renderSummary(run: RunRecord): string {

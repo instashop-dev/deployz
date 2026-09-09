@@ -14,6 +14,10 @@ import { subscriptionStatusLabel } from '@/lib/organization-vocabulary';
 // untrue. Once a subscription exists the page shows the real rate, the next
 // billing date and the per-customer breakdown.
 //
+// Included production deployments: the allowance is pooled across the
+// organization, so the page never labels one deployment free and another
+// paid — it shows active, included and billed counts, and bills the pool.
+//
 // §65: jargon-free. The provider is never named at the top level.
 export default async function BillingPage() {
   const billing = await fetchBillingSummary();
@@ -38,6 +42,7 @@ export default async function BillingPage() {
 
 /** No subscription: free, no card, no expiry — and what would start billing. */
 function EvaluationCard({ billing }: { billing: BillingSummary }) {
+  const { included } = billing.productionDeployments;
   return (
     <>
       <Card>
@@ -73,11 +78,25 @@ function EvaluationCard({ billing }: { billing: BillingSummary }) {
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium">Each customer deployment, once live</span>
-            <span className="tabular-nums text-muted-foreground">$19/month</span>
+            <span className="tabular-nums text-muted-foreground">
+              {formatDollars(billing.deploymentPrice)}/month
+            </span>
           </div>
+          {included > 0 ? (
+            <div
+              className="flex items-center justify-between text-sm"
+              data-testid="billing-included-deployments"
+            >
+              <span className="font-medium">Included production deployments</span>
+              <span className="tabular-nums text-muted-foreground">{included}</span>
+            </div>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             A test deployment of your own app is always free. A customer deployment is charged only
             once it is live, and the charge stops as soon as it is removed.
+            {included > 0
+              ? ` ${included} production ${included === 1 ? 'deployment is' : 'deployments are'} included with your account: the platform fee still starts with your first customer deployment, and the per-deployment fee applies only to live deployments beyond the included ones.`
+              : ''}
           </p>
         </CardContent>
       </Card>
@@ -88,6 +107,7 @@ function EvaluationCard({ billing }: { billing: BillingSummary }) {
 /** Subscribed: the real rate, the next billing date and the breakdown. */
 function SubscribedCard({ billing }: { billing: BillingSummary }) {
   const subscription = billing.subscription!;
+  const counts = billing.productionDeployments;
   const nextBillingDate = subscription.currentPeriodEnd
     ? new Date(subscription.currentPeriodEnd).toLocaleDateString('en-US', {
         month: 'short',
@@ -116,23 +136,36 @@ function SubscribedCard({ billing }: { billing: BillingSummary }) {
             <span className="font-medium">Platform</span>
             <span className="font-medium tabular-nums">{formatDollars(billing.base)}</span>
           </div>
-          {billing.deployments.map((deployment, index) => (
-            <div
-              key={`${deployment.name}-${index}`}
-              className="flex items-center justify-between text-sm"
-            >
-              <div>
-                <span className="font-medium">{deployment.name}</span>
-                <span className="ml-1.5 text-muted-foreground">({deployment.applicationName})</span>
-              </div>
-              <span className="font-medium tabular-nums">{formatDollars(deployment.amount)}</span>
+          <div className="flex flex-col gap-1 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Production deployments</span>
+              <span className="font-medium tabular-nums">
+                {formatDollars(counts.billable * billing.deploymentPrice)}
+              </span>
             </div>
-          ))}
-          {billing.deployments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No customer deployments are live yet. Each one appears here at $19/month once it is.
+            <p className="text-muted-foreground tabular-nums" data-testid="billing-production-counts">
+              {counts.active} active
+              {counts.included > 0 ? ` · ${counts.included} included` : ''}
+              {` · ${counts.billable} billed × ${formatDollars(billing.deploymentPrice)}`}
             </p>
-          ) : null}
+          </div>
+          {billing.deployments.length > 0 ? (
+            <ul className="flex flex-col gap-1 pl-4 text-sm">
+              {billing.deployments.map((deployment, index) => (
+                <li key={`${deployment.name}-${index}`}>
+                  <span className="font-medium">{deployment.name}</span>
+                  <span className="ml-1.5 text-muted-foreground">({deployment.applicationName})</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No customer deployments are live yet.
+              {counts.included > 0
+                ? ` Your account includes ${counts.included}; each one beyond that is ${formatDollars(billing.deploymentPrice)}/month once it is live.`
+                : ` Each one is ${formatDollars(billing.deploymentPrice)}/month once it is live.`}
+            </p>
+          )}
           <Separator />
           <div className="flex items-center justify-between text-sm font-semibold">
             <span>Monthly total</span>
@@ -158,8 +191,10 @@ function SubscribedCard({ billing }: { billing: BillingSummary }) {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        A test deployment of your own app is not charged. The $19/month fee applies once a customer
-        deployment is live, and stops as soon as that deployment is removed.
+        A test deployment of your own app is not charged.
+        {counts.included > 0
+          ? ` Your account includes ${counts.included} production ${counts.included === 1 ? 'deployment' : 'deployments'}; the ${formatDollars(billing.deploymentPrice)}/month fee applies to each live customer deployment beyond that, and your billing adjusts automatically as deployments go live or are removed.`
+          : ` The ${formatDollars(billing.deploymentPrice)}/month fee applies once a customer deployment is live, and stops as soon as that deployment is removed.`}
       </p>
     </>
   );

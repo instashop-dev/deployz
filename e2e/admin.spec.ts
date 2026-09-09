@@ -220,6 +220,65 @@ test.describe('view as vendor', () => {
   });
 });
 
+test.describe('included production deployments allowance', () => {
+  // Sets the pooled allowance from the vendor 360° page (docs/admin/
+  // team-admin.md's VendorBillingSection editor). Simulated E2E gives every
+  // org a fixture ACTIVE subscription and there is no real Paddle client, so
+  // the API's reconciliation always comes back SKIPPED ({ reason: 'billing
+  // disabled' }) — the UI must still confirm the save and show the new
+  // allowance without depending on a real Paddle round trip.
+  test('an admin sets the allowance, confirms the preview, and the change is audited', async ({
+    page,
+    browser,
+  }) => {
+    const vendorContext = await browser.newContext();
+    const vendorPage = await vendorContext.newPage();
+    await signUp(vendorPage, 'Allowance Vendor Owner', uniqueEmail('vendor-allowance'));
+    const vendorOrg = await currentOrg(vendorPage);
+    await vendorContext.close();
+
+    const adminEmail = uniqueAdminEmail('allowance-admin');
+    await signUp(page, 'Allowance Admin', adminEmail);
+
+    await page.goto(`/admin/vendors/${vendorOrg.id}`);
+    await expect(page.getByRole('heading', { name: vendorOrg.name })).toBeVisible();
+
+    const submitButton = page.getByTestId('admin-included-deployments-submit');
+    const input = page.getByTestId('admin-included-deployments-input');
+    const reasonInput = page.getByTestId('admin-included-deployments-reason');
+
+    // Blank reason keeps the submit button disabled even once the value changed.
+    await fillControlled(input, '2');
+    await expect(submitButton).toBeDisabled();
+
+    await fillControlled(reasonInput, 'Pilot goodwill credit');
+    await expect(submitButton).toBeEnabled();
+    await submitButton.click();
+
+    const dialog = page.getByTestId('admin-included-deployments-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('0 → 2');
+
+    const updateResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/included-deployments') && response.request().method() === 'POST',
+    );
+    await page.getByTestId('admin-included-deployments-confirm').click();
+    const response = await updateResponse;
+    expect(response.ok()).toBeTruthy();
+    await expect(dialog).toBeHidden();
+
+    const includedRow = page.locator('dt', { hasText: 'Included deployments' }).locator('..');
+    await expect(includedRow.locator('dd')).toHaveText('2', { timeout: REFRESH_TIMEOUT });
+
+    await page.goto('/admin/audit-log');
+    await fillControlled(page.getByTestId('audit-actor-filter'), adminEmail);
+    await expect(page.getByTestId('admin-audit-log-table')).toContainText('Updated included deployments', {
+      timeout: REFRESH_TIMEOUT,
+    });
+  });
+});
+
 test.describe('failed deployment diagnosis and recovery', () => {
   test.use({ deployzScenario: 'cloudformation-rollback' });
 

@@ -25,11 +25,25 @@ health, rollback or recovery signal can ever move billing.
 never-live PRODUCTION deployment that is removed goes straight to STOPPED so
 it can never activate later.
 
-## 2. Billable predicate
+## 2. Billable predicate and quantity
 
 `isBillableDeployment` — true only for PRODUCTION + ACTIVE. Six cells, all in
-`billing-matrix.test.ts`. `countBillableDeployments` sums it; that count is
-the ONLY number reconciliation ever pushes to Paddle.
+`billing-matrix.test.ts`. `countBillableDeployments` sums it into the active
+production deployment count.
+
+`billableDeploymentQuantity(active, included) = max(active − included, 0)`,
+with `included = organization.included_production_deployments` (default 0),
+is the ONLY number reconciliation ever pushes to Paddle
+(`billing-domain.test.ts`, `billing-reconcile.test.ts`):
+
+| active | included | billable | Paddle deployment item |
+|---|---|---|---|
+| 5 | 0 | 5 | quantity 5 (unchanged behavior) |
+| 5 | 2 | 3 | quantity 3 |
+| 3 | 3 | 0 | removed |
+| 1 | 10000 | 0 | removed — never negative |
+| 0..4 | 2 | 0, 0, 0, 1, 2 | crosses the threshold one at a time |
+| TEST rows, any state | any | not counted | never consume the allowance |
 
 ## 3. Paddle subscription status → Deployz status
 
@@ -76,8 +90,26 @@ Payment state never touches running customer infrastructure.
 | last live deployment removed | SUCCEEDED | ITEM_REMOVED (item dropped, never qty 0) | yes |
 | Paddle refused | FAILED | NONE | yes, with reason |
 
-Always the ABSOLUTE count, never a delta: two runs produce the same
-subscription as one. Inactive Paddle items are never resent.
+Always the ABSOLUTE quantity (`max(active − included, 0)`), never a delta:
+two runs produce the same subscription as one. Inactive Paddle items are
+never resent. The result also carries `active` and `included` so the admin
+view and the audit trail can show the three numbers behind `expected`.
+
+## 7. Included-deployment allowance changes (admin)
+
+`POST /api/admin/vendors/:id/included-deployments` —
+`admin-included-deployments.test.ts`, `billing-allowance.test.ts`.
+
+| Situation | Stored? | Audited? | Reconciled? |
+|---|---|---|---|
+| Non-admin / anonymous / support mode | no | no | no |
+| Negative, decimal, string, > 10000, blank reason | no (400) | no | no |
+| No subscription yet | yes | yes | no — no provider call |
+| ACTIVE / PAST_DUE, value changed | yes | yes, with outcome | yes — absolute quantity |
+| PAUSED / CANCELED, value changed | yes | yes | SKIPPED (not updatable) |
+| Same value | no write | yes (`changed: false`) | no |
+| Paddle fails | yes — kept | yes, `FAILED` | ledger row; Reconcile action / sweep repair it |
+| Two admins race | serialized on the row lock | both, true previous values | converges to the last write |
 
 ## 6. Webhook delivery handling (Phase 6)
 

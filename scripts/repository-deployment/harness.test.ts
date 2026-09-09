@@ -9,7 +9,7 @@ import { loadConfig } from '../version-canary/config.js';
 import type { DeploymentDetail } from '../version-canary/control-plane.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
-import { appUrlKeys, configFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
+import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys, DEPLOYMENT_CLASSES } from './config.js';
 import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
 import { applicationContainerDefinition, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
@@ -19,8 +19,10 @@ import {
   DEPLOY_CONFIG_PATH,
   STAGE_B_DIR,
   buildPlan,
+  checkStandingInstallationTags,
   identityFor,
   parseRunArgs,
+  readStandingInstallation,
   renderPlan,
   repositoryUsedFor,
   requireRealAws,
@@ -128,6 +130,12 @@ describe('deploy-config', () => {
     expect(() => parseDeployConfig('version: 1\nwaves:\n  w: [repo-001, repo-001]\n')).toThrow('wave w lists a repository twice');
   });
 
+  it('refuses overlapping b2/b3 lists with the overlapping ids', () => {
+    expect(() => parseDeployConfig('version: 1\nb2Repos: [repo-001]\nb3Repos: [repo-001]\n')).toThrow('b2Repos and b3Repos overlap: repo-001');
+    expect(() => parseDeployConfig('version: 1\nb2Repos: [repo-001, repo-002]\nb3Repos: [repo-003, repo-001]\n')).toThrow('repo-001');
+    expect(() => parseDeployConfig('version: 1\nb2Repos: [repo-001]\nb3Repos: [repo-002]\n')).not.toThrow();
+  });
+
   it('never accepts a secret value', () => {
     expect(() => parseDeployConfig('version: 1\nrepositories:\n  - id: repo-001\n    secrets: [{ key: A, value: x }]\n')).toThrow();
     expect(() => parseDeployConfig('version: 1\nrepositories:\n  - id: repo-001\n    secrets: [{ key: A, format: plain }]\n')).toThrow();
@@ -141,6 +149,14 @@ describe('deploy-config', () => {
     for (const members of Object.values(config.waves)) for (const id of members) expect(ids).toContain(id);
     const registry = new Set([...readFileSync(join(STAGE_B_DIR, 'findings.md'), 'utf8').matchAll(/^\| (DEPLOY-\d{3}) \|/gm)].map((m) => m[1]!));
     for (const entry of config.repositories) for (const id of entry.findings) expect(registry, `${entry.id} references unregistered ${id}`).toContain(id);
+    // b2/b3 lists are disjoint and every id is a valid Stage A id.
+    const b2Set = new Set(config.b2Repos);
+    const b3Set = new Set(config.b3Repos);
+    for (const id of config.b2Repos) expect(ids, `b2Repos ${id} is not a Stage A id`).toContain(id);
+    for (const id of config.b3Repos) expect(ids, `b3Repos ${id} is not a Stage A id`).toContain(id);
+    expect(config.b2Repos.length).toBeGreaterThan(0);
+    expect(config.b3Repos.length).toBeGreaterThan(0);
+    expect([...b2Set].filter((id) => b3Set.has(id))).toEqual([]);
   });
 });
 
@@ -269,11 +285,126 @@ describe('selection and CLI', () => {
     expect(buildPlan(BENCHMARK.repositories, DEPLOY_CONFIG, [done], { gate: false, force: false })[0]?.action).toBe('skip-has-result');
     expect(buildPlan(BENCHMARK.repositories, DEPLOY_CONFIG, [done], { gate: false, force: true })[0]?.action).toBe('full-funnel');
     expect(renderPlan(plan, { template: 'pinned', concurrency: 1 })).toContain('full funnel: 1, gate only: 1, skipped: 0');
+    expect(renderPlan(plan, { template: 'pinned', concurrency: 1 })).toContain('B1 runtime-reuse');
+    expect(plan[0]?.deploymentClass).toBe('runtime-reuse');
+    expect(plan[1]?.deploymentClass).toBe('runtime-reuse');
   });
 
   it('points Deployz at the fork the installation can read', () => {
     expect(repositoryUsedFor(BENCHMARK.repositories[0]!, { id: 'repo-001', findings: [], notes: [] })).toEqual({ repositoryUsed: 'instashop-dev/api', repositoryForm: 'fork' });
     expect(repositoryUsedFor(BENCHMARK.repositories[0]!, { id: 'repo-001', fork: 'instashop-dev/acme-api', findings: [], notes: [] }).repositoryUsed).toBe('instashop-dev/acme-api');
+  });
+});
+
+describe('deployment class assignment', () => {
+  const deploymentConfig = () => parseDeployConfig(`
+version: 1
+b2Repos: [repo-002]
+b3Repos: [repo-003]
+repositories:
+  - id: repo-001
+    findings: []
+  - id: repo-002
+    findings: []
+  - id: repo-003
+    findings: []
+  - id: repo-004
+    deploymentClass: fresh-full
+    findings: []
+`);
+
+  it('defaults to runtime-reuse for repos not in b2/b3 lists', () => {
+    const config = deploymentConfig();
+    expect(deploymentClassFor(config, 'repo-001')).toBe('runtime-reuse');
+    expect(deploymentClassFor(config, 'repo-999')).toBe('runtime-reuse');
+  });
+
+  it('assigns capability-cohort for repos in b2Repos', () => {
+    const config = deploymentConfig();
+    expect(deploymentClassFor(config, 'repo-002')).toBe('capability-cohort');
+  });
+
+  it('assigns fresh-full for repos in b3Repos', () => {
+    const config = deploymentConfig();
+    expect(deploymentClassFor(config, 'repo-003')).toBe('fresh-full');
+  });
+
+  it('per-repo deploymentClass override takes precedence over b2/b3 lists', () => {
+    const config = deploymentConfig();
+    expect(deploymentClassFor(config, 'repo-004')).toBe('fresh-full');
+  });
+
+  it('plan printer shows class breakdown with counts', () => {
+    const config = deploymentConfig();
+    const plan = buildPlan(BENCHMARK.repositories, config, [], { gate: false, force: false });
+    const rendered = renderPlan(plan, { template: 'pinned', concurrency: 1 });
+    expect(rendered).toContain('B1 runtime-reuse');
+    expect(rendered).toContain('B2 capability cohorts');
+    expect(rendered).toContain('B3 full-fresh');
+    // repo-001 is not in b2/b3 → runtime-reuse (default)
+    expect(plan.find((l) => l.id === 'repo-001')?.deploymentClass).toBe('runtime-reuse');
+    // repo-002 is in b2Repos → capability-cohort
+    expect(plan.find((l) => l.id === 'repo-002')?.deploymentClass).toBe('capability-cohort');
+  });
+
+  it('result model schema accepts the three deployment classes', () => {
+    const result = emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'run-1', 'runtime-reuse'));
+    expect(result.deploymentClass).toBe('runtime-reuse');
+    expect(() => stageBResultSchema.parse({ ...result, deploymentClass: 'runtime-reuse' })).not.toThrow();
+    expect(() => stageBResultSchema.parse({ ...result, deploymentClass: 'capability-cohort' })).not.toThrow();
+    expect(() => stageBResultSchema.parse({ ...result, deploymentClass: 'fresh-full' })).not.toThrow();
+    expect(() => stageBResultSchema.parse({ ...result, deploymentClass: 'other' })).toThrow();
+  });
+});
+
+describe('runtime-reuse gating', () => {
+  it('refuses without DEPLOYZ_E2E_ALLOW_REAL_AWS', () => {
+    expect(() => requireRealAws(parseRunArgs(['--runtime-reuse']), {})).toThrow('Real AWS E2E is disabled');
+  });
+
+  it('accepts with DEPLOYZ_E2E_ALLOW_REAL_AWS=1', () => {
+    expect(() => requireRealAws(parseRunArgs(['--runtime-reuse']), { DEPLOYZ_E2E_ALLOW_REAL_AWS: '1' })).not.toThrow();
+  });
+
+  it('refuses without standing installation env vars', () => {
+    expect(() => readStandingInstallation({})).toThrow('DEPLOYZ_E2E_CANARY_INSTALLATION_ID');
+  });
+
+  it('refuses without the standing installation stack name', () => {
+    expect(() => readStandingInstallation({ DEPLOYZ_E2E_CANARY_INSTALLATION_ID: 'inst-1' })).toThrow('DEPLOYZ_E2E_CANARY_INSTALLATION_STACK');
+  });
+
+  it('accepts with all standing installation env vars', () => {
+    const standing = readStandingInstallation({
+      DEPLOYZ_E2E_CANARY_INSTALLATION_ID: 'inst-1',
+      DEPLOYZ_E2E_CANARY_INSTALLATION_STACK: 'deployz-bootstrap-x-12345678',
+    });
+    expect(standing.installationId).toBe('inst-1');
+    expect(standing.stackName).toBe('deployz-bootstrap-x-12345678');
+    expect(standing.region).toBe('us-east-1');
+  });
+
+  it('refuses when standing installation lacks persistent tags', () => {
+    expect(() => checkStandingInstallationTags(
+      { status: 'CREATE_COMPLETE', statusReason: null, outputs: {} },
+      { DeployzPersistent: 'false', DeployzTestMode: 'canary' },
+    )).toThrow('DeployzPersistent=true');
+
+    expect(() => checkStandingInstallationTags(
+      { status: 'CREATE_COMPLETE', statusReason: null, outputs: {} },
+      { DeployzPersistent: 'true', DeployzTestMode: 'production' },
+    )).toThrow('DeployzTestMode=canary');
+  });
+
+  it('passes when standing installation has required tags', () => {
+    expect(() => checkStandingInstallationTags(
+      { status: 'CREATE_COMPLETE', statusReason: null, outputs: {} },
+      { DeployzPersistent: 'true', DeployzTestMode: 'canary' },
+    )).not.toThrow();
+  });
+
+  it('--runtime-reuse and --real-aws are exclusive', () => {
+    expect(() => parseRunArgs(['--runtime-reuse', '--real-aws'])).toThrow('exclusive');
   });
 });
 

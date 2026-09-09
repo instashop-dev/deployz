@@ -2,6 +2,20 @@
 
 - Always output the instructions in Simplified Technical English ASD-STE100.
 
+## Deployz MVP
+
+Deployz is currently an MVP. Make all product, engineering, architecture, infrastructure, and UX decisions for the current MVP stage.
+
+- Prefer the simplest reliable solution that meets current requirements.
+- Prioritize deployment reliability, security, usability, low AWS cost, maintainability, and fast iteration.
+- Avoid over-engineering, premature abstractions, speculative scalability, and infrastructure or features for possible future needs.
+- Preserve current MVP boundaries unless the task explicitly changes them.
+- Reuse existing architecture, components, and patterns when practical.
+- When multiple solutions are valid, choose the solution with the lowest implementation and operational complexity.
+- Give the core deployment flow higher priority than architectural elegance or future extensibility.
+- Do not add Azure, GCP, enterprise, multi-cloud, or other post-MVP complexity unless the task explicitly requires it.
+- If a useful capability is not required for the MVP, defer it and state that it is a post-MVP item.
+
 ## Agent Behavior
 
 - Make the smallest necessary change; do not touch, refactor, rename, reorganize, or reformat unrelated code.
@@ -25,19 +39,25 @@ For changes under apps/web, follow docs/ui-system.md.
 - Keep raw AWS/CloudFormation states out of primary customer UI.
 - Do not change application logic unless the task explicitly requires it.
 
-## Deployment logic
+## Deployment Logic
 
-For the final live architecture and the MVP support boundary, read
-docs/architecture.md. Before changing deployment/job/relay/watchdog logic, read
-docs/deployment-resilience.md — it documents the invariants (failed-update
-semantics, operation exclusivity, reconcile-before-fail, the relay trust
-boundary) that code in apps/api, packages/relay and the worker must uphold.
-The boundary-mvp implementation record lives in
-docs/mvp-implementation-status.md; the launch report is
+For the current live architecture and MVP support boundary, read
+docs/architecture.md.
+
+Before changing deployment, job, relay, worker, reconciliation, or watchdog
+logic, read docs/deployment-resilience.md. Preserve its documented invariants,
+including failed-update semantics, operation exclusivity, reconcile-before-fail,
+and the relay trust boundary.
+
+For work that changes the MVP boundary or verifies its implementation status,
+read docs/mvp-implementation-status.md and
 docs/mvp-boundary-implementation-report.md.
 
 ## E2E testing
 
 Simulated E2E is the default (`pnpm e2e`). Do not invoke real AWS E2E
-(`pnpm e2e:canary`, `pnpm e2e:fresh`) unless required. Policy at
-`docs/testing/ai-agent-testing-guide.md`.
+(`pnpm e2e:canary`, `pnpm e2e:fresh`) unless required. Escalation order:
+targeted vitest → targeted scenario (`pnpm e2e --scenario=<id>`) →
+full simulated suite (`pnpm e2e:scenarios`) → real AWS only as
+escalation. Use `pnpm test:affected` and `pnpm test:escalation` for
+guided selection. Full policy at `docs/testing/ai-agent-testing-guide.md`.

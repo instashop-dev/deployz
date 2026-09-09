@@ -3,17 +3,41 @@
 Stage B answers the question Stage A stops short of: **when a repository is
 inside the Deployz MVP support boundary, can Deployz build it, deploy it into
 a real customer AWS account, make it healthy over HTTPS, and remove it
-cleanly afterwards?** It runs the same 100 pinned repositories through the
-real production path — analysis, configuration, CodeBuild, ECR, the
-published templates, the relay, CloudFormation, ECS, the ALB, RDS,
-ElastiCache, S3, the heartbeat health gates, default HTTPS, Disconnect and
-Purge — and records one result per repository.
+cleanly afterwards?** It runs the pinned repositories through the real
+production path — analysis, configuration, CodeBuild, ECR, the published
+templates, the relay, CloudFormation, ECS, the ALB, RDS, ElastiCache, S3,
+the heartbeat health gates, default HTTPS, Disconnect and Purge — and records
+one result per repository.
 
 Stage A ([`../repository-compatibility/README.md`](../repository-compatibility/README.md))
 measures whether the analyser *understands* a repository. Stage B measures
 whether the product *deploys* it. A repository that Stage A expects to be
 unsupported must stop at the deployment gate and must never consume AWS
 deployment resources.
+
+## Three-class model
+
+Stage B splits the repository audit into three classes so "100 repositories"
+does not mean "100 fresh AWS foundations":
+
+| Class | Mode | Infrastructure | Coverage | Repositories |
+| --- | --- | --- | --- | --- |
+| **B1 runtime-reuse** | `--runtime-reuse` | Shared standing installation | Application-specific deployment failures (build, release, health, HTTPS, dependencies) | Most (default) |
+| **B2 capability-cohort** | `--real-aws` | Fresh per attempt | Infrastructure capability cohorts (PostgreSQL, Redis, PostgreSQL+Redis, storage, custom Dockerfile, custom port, custom health check, special topology) | Explicit list in `deploy-config.yaml` (`b2Repos`) |
+| **B3 fresh-full** | `--real-aws` | Fresh per attempt | Full funnel through fresh AWS (build → ECR → bootstrap → install → healthy → destroy → cleanup audit) | 10-15 representative repos in `deploy-config.yaml` (`b3Repos`) |
+
+**B1** (runtime-reuse) is the default for every repository not explicitly
+listed in `b2Repos` or `b3Repos`. It requires a standing installation
+identified by environment variables and never creates or destroys the base
+infrastructure.
+
+**B2** (capability-cohort) and **B3** (fresh-full) both use the existing
+full funnel (`--real-aws` semantics) with fresh AWS per attempt. They differ
+only in which repositories they run and why.
+
+Classification, verdicts, and failure stages are identical across all three
+classes. The class affects scheduling and resource usage, never the
+pass/fail criteria.
 
 > Naming note. The analyser hardening batch recorded as "Stage B" in
 > `../repository-compatibility/implementation-notes.md` (analysis version
@@ -94,7 +118,15 @@ a deployment.
   (`deployz-bootstrap-<app>-<8 chars>`), one application stack
   (`deployz-app-<installation prefix>`). Nothing is shared between
   repositories except the vendor organization and the published Stage B
-  template.
+  template. For B1 runtime-reuse, the bootstrap stack is the standing
+  installation's; workload-scoped resources (app, deployment, release) are
+  removed after verification while the base infrastructure stays standing.
+- **Standing installation (B1)**: a pre-existing, persistent installation
+  whose bootstrap stack carries `DeployzPersistent=true` and
+  `DeployzTestMode=canary` tags. Identified by environment variables
+  (`DEPLOYZ_E2E_CANARY_INSTALLATION_ID`, `DEPLOYZ_E2E_CANARY_INSTALLATION_STACK`,
+  optionally `DEPLOYZ_E2E_CANARY_INSTALLATION_REGION`). Never auto-created;
+  hard-fails if absent or mis-tagged.
 - **Serial by default.** The account's VPC quota is 5 (control plane + one
   pre-existing orphan + at most three installs). Concurrency 2 is allowed
   only after Wave 1 proves isolation and cleanup.
@@ -207,7 +239,9 @@ pnpm build                                     # the harness imports the built p
 pnpm benchmark:deploy --gate                   # B1 (+ offline B2) over every repository, no AWS
 pnpm benchmark:deploy --gate --repo repo-001   # one repository (repeat --repo for several)
 pnpm benchmark:deploy --dry-run --wave wave-1  # print the plan, touch nothing
-DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --repo repo-001
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --runtime-reuse --repo repo-001   # B1: build/release on shared installation
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --runtime-reuse --wave wave-1    # B1: all B1-class repos in the wave
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --repo repo-001       # B2/B3: full funnel with fresh AWS
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --wave wave-1
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --resume
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --cleanup --repo repo-001
@@ -217,7 +251,9 @@ DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --audit
 Selection: `--repo` (repeatable), `--set`, `--cohort`, `--wave` (membership
 and order in `deploy-config.yaml`), `--finding DEPLOY-nnn` (every result
 that references it). Modes are exclusive: `--gate`, `--dry-run`,
-`--real-aws`, `--cleanup`, `--audit`; `--resume` may precede `--real-aws`.
+`--runtime-reuse`, `--real-aws`, `--cleanup`, `--audit`; `--resume` may
+precede `--real-aws`. `--runtime-reuse` and `--real-aws` are mutually
+exclusive.
 Other flags: `--force` (replace a protected deployment result, the old one
 goes to `runs/history/`), `--keep` (leave the environment for
 investigation; run `--cleanup` later), `--concurrency 1|2`, `--template
@@ -245,9 +281,22 @@ flag, so the create-application path is exercised like a real vendor's.
 
 The gate audit is offline by default and needs the Stage A snapshot cache
 (`../repository-compatibility/.cache/`, 100 repositories; copy it from a
-machine that has run `pnpm benchmark:compat`). A real-AWS run needs the
-`aws` CLI authenticated to the test account, `pnpm build`, and the vendor
-GitHub App installation able to read the forks.
+machine that has run `pnpm benchmark:compat`). A real-AWS run or a
+runtime-reuse run needs the `aws` CLI authenticated to the test account,
+`pnpm build`, and the vendor GitHub App installation able to read the forks.
+
+### Environment variables for B1 runtime-reuse
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `DEPLOYZ_E2E_ALLOW_REAL_AWS` | yes | — | Must be `1` to opt in to real AWS |
+| `DEPLOYZ_E2E_CANARY_INSTALLATION_ID` | yes | — | The installation id of the standing installation |
+| `DEPLOYZ_E2E_CANARY_INSTALLATION_STACK` | yes | — | The bootstrap stack name of the standing installation |
+| `DEPLOYZ_E2E_CANARY_INSTALLATION_REGION` | no | `us-east-1` | The region the standing installation lives in |
+
+The standing installation must carry `DeployzPersistent=true` and
+`DeployzTestMode=canary` tags on its bootstrap stack. The harness hard-fails
+with actionable instructions if these tags are absent.
 
 ## How to
 
@@ -260,7 +309,12 @@ GitHub App installation able to read the forks.
   selects every result that references it.
 - **Add a repository**: add it to Stage A first (pin, expected facts, two
   inspections); Stage B needs only a `deploy-config.yaml` entry when vendor
-  configuration is required.
+  configuration is required. The default class is B1 runtime-reuse; add the
+  id to `b2Repos` or `b3Repos` for fresh AWS infrastructure.
+- **Override the class for a specific repository**: add
+  `deploymentClass: fresh-full` (or `capability-cohort` or `runtime-reuse`)
+  in the repository's `deploy-config.yaml` entry. This takes precedence over
+  the `b2Repos`/`b3Repos` lists.
 - **Interpret Stage A vs Stage B**: Stage A says what the analyser
   concluded and whether that matched the repository; Stage B says what
   happened when the product acted on it. A Stage B `GATE_ERROR` on an

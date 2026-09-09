@@ -16,11 +16,20 @@ import { getSubscriptionStatus } from './organizations.js';
 /**
  * A PRODUCTION deployment requires an ACTIVE Deployz subscription.
  * PAST_DUE, PAUSED, CANCELED and no row at all all refuse the same way.
+ *
+ * `enforcementPaused` is the BILLING_ENFORCEMENT=off kill switch (env.ts):
+ * when it is true the gate opens for every organization, whatever its
+ * subscription status. Passed in rather than read here so tests and the
+ * two call sites keep the same injection shape as the rest of env.
  */
 export async function assertProductionDeploymentAllowed(
   db: RuntimeDb,
   organizationId: string,
+  enforcementPaused = false,
 ): Promise<void> {
+  if (enforcementPaused) {
+    return;
+  }
   const subscriptionStatus = await getSubscriptionStatus(db, organizationId);
   if (subscriptionStatus !== 'ACTIVE') {
     throw new ApiError(

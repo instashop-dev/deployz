@@ -456,3 +456,76 @@ describe('Phase 15 — production Cloudflare deploy configuration', () => {
     }
   });
 });
+
+// The relay that drives every install ships INSIDE the bootstrap template's
+// Lambda assets, and each region serves its own copy from
+// `deployz-templates-<region>`. Nothing republished those: the regional
+// buckets were published once by hand and then left, so every region except
+// us-east-1 ran relay code older than the deployed control plane and silently
+// missed relay fixes. Tying the published set to DEPLOYABLE_AWS_REGIONS — the
+// list the API is willing to hand out install links for — is what keeps
+// "advertised as deployable" and "artifacts match the deployed relay" from
+// drifting apart again.
+describe('the deploy republishes bootstrap artifacts to every deployable region', () => {
+  const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+  const workflow = readFileSync(
+    join(repoRoot, '.github', 'workflows', 'deploy-api.yml'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+
+  it('runs publish:bootstrap as a deploy step, not only in a comment', () => {
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
+    expect(steps).toMatch(/run:[\s\S]*?publish:bootstrap/);
+  });
+
+  // The publisher needs s3:GetBucketLocation, s3:PutObject and
+  // cloudformation:ValidateTemplate across every regional bucket, and the
+  // deploy user has none of them yet. Ungated, the step failed every deploy
+  // after the stack had already gone out. The switch is what lets the
+  // permissions land first and the invariant be turned on deliberately.
+  it('runs only when BOOTSTRAP_REPUBLISH is switched on', () => {
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
+    const start = steps.indexOf('- name: Republish the bootstrap template');
+    expect(start, 'could not locate the republish step').toBeGreaterThan(-1);
+    const step = steps.slice(start, steps.indexOf('\n      - name:', start + 1));
+
+    expect(step).toMatch(/if:[^\n]*vars\.BOOTSTRAP_REPUBLISH/);
+  });
+
+  // Publishing artifacts must never decide whether the API that just went out
+  // gets checked: the first ungated run failed here and skipped that step
+  // entirely, which is how a broken deploy could pass unnoticed.
+  it('runs after the deployed API has been verified', () => {
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
+    const verify = steps.indexOf('- name: Verify the deployed API answers');
+    const republish = steps.indexOf('- name: Republish the bootstrap template');
+
+    expect(verify, 'could not locate the API verification step').toBeGreaterThan(-1);
+    expect(republish).toBeGreaterThan(verify);
+  });
+
+  // resolveBucket (publish-bootstrap.mjs) otherwise falls back to
+  // cloudformation:ListExports, which the deploy user is not allowed to call —
+  // the first run of this step died on exactly that, after the stack had
+  // already deployed. Handing it the bucket keeps the publish off that API.
+  it('sets TEMPLATE_BUCKET, so the publish never calls cloudformation:ListExports', () => {
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
+    const start = steps.indexOf('- name: Republish the bootstrap template');
+    expect(start, 'could not locate the republish step').toBeGreaterThan(-1);
+    const step = steps.slice(start, steps.indexOf('\n      - name:', start + 1));
+
+    expect(step).toContain('TEMPLATE_BUCKET');
+    // Derived from the URL the API already hands out, not a second copy of the
+    // bucket name that can drift away from it.
+    expect(step).toContain('BOOTSTRAP_TEMPLATE_URL');
+  });
+
+  it('publishes exactly the regions DEPLOYABLE_AWS_REGIONS advertises', () => {
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
+    expect(steps).toContain('BOOTSTRAP_PUBLISH_REGIONS');
+    // The published set is derived from the advertised set rather than
+    // hardcoded — a region added to the variable must not need a second edit
+    // here to actually get current artifacts.
+    expect(steps).toMatch(/BOOTSTRAP_PUBLISH_REGIONS[^\n]*DEPLOYABLE_AWS_REGIONS/);
+  });
+});

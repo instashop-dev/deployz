@@ -1158,6 +1158,113 @@ describe('quick-create', () => {
       }
     });
 
+    it('publishes a preset stateless variant, dropping only the database wiring', async () => {
+      // `publish:application` synthesizes all four profiles from one preset.
+      // The preset names the env vars it wants the managed database URL in,
+      // which the stateless stack has nothing to put in — dropping them keeps
+      // the rest of the container contract (port, health path, secrets).
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-preset-stateless-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          preset: 'documenso',
+          databaseRequired: false,
+        });
+        const resources = synth.template.Resources as Record<string, { Type: string }>;
+        const parameters = synth.template.Parameters as Record<string, unknown>;
+        const json = JSON.stringify(synth.template);
+
+        expect(Object.values(resources).map((r) => r.Type)).not.toContain('AWS::RDS::DBInstance');
+        expect(json).not.toContain('NEXT_PRIVATE_DATABASE_URL');
+        expect(json).not.toContain('NEXT_PRIVATE_DIRECT_DATABASE_URL');
+        // The rest of the preset survives.
+        expect(Object.keys(parameters)).toContain('paramPublicUrl');
+        expect(json).toContain('/api/health');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps the preset database wiring on the stateless+redis variant too', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-preset-stateless-redis-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          preset: 'documenso',
+          databaseRequired: false,
+          redisRequired: true,
+        });
+        const types = Object.values(
+          synth.template.Resources as Record<string, { Type: string }>,
+        ).map((r) => r.Type);
+
+        expect(types).toContain('AWS::ElastiCache::ReplicationGroup');
+        expect(types).not.toContain('AWS::RDS::DBInstance');
+        expect(JSON.stringify(synth.template)).not.toContain('NEXT_PRIVATE_DATABASE_URL');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps the preset database wiring when the profile has a database', async () => {
+      const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-preset-pg-'));
+      try {
+        const synth = await synthesizeApplicationStack({
+          outdir,
+          preset: 'documenso',
+          databaseRequired: true,
+        });
+
+        expect(JSON.stringify(synth.template)).toContain('NEXT_PRIVATE_DATABASE_URL');
+      } finally {
+        rmSync(outdir, { recursive: true, force: true });
+      }
+    });
+
+    // ONE published template serves EVERY application, so nothing tied to the
+    // preset's own image may be baked into it. A container health check is:
+    // the preset's command shells out to node against its own port and path,
+    // which another image cannot satisfy — an nginx app on :80 has no node and
+    // no /api/health, so ECS kills a task the ALB is happily serving, forever.
+    // The ALB target group's probe of paramHealthCheckPath is the signal ECS
+    // promotes a deployment on, and that one adapts per install.
+    it('bakes no container health check into any published preset variant', async () => {
+      for (const profile of [{ databaseRequired: true }, { databaseRequired: false }]) {
+        const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-preset-healthcheck-'));
+        try {
+          const synth = await synthesizeApplicationStack({
+            outdir,
+            preset: 'documenso',
+            ...profile,
+          });
+          const containers = Object.values(
+            synth.template.Resources as Record<
+              string,
+              { Type: string; Properties?: { ContainerDefinitions?: unknown } }
+            >,
+          )
+            .filter((resource) => resource.Type === 'AWS::ECS::TaskDefinition')
+            .flatMap(
+              (resource) =>
+                (resource.Properties?.ContainerDefinitions ?? []) as {
+                  Name: string;
+                  HealthCheck?: unknown;
+                }[],
+            );
+
+          expect(containers.length).toBeGreaterThan(0);
+          for (const container of containers) {
+            expect(
+              container.HealthCheck,
+              `${container.Name} (databaseRequired: ${profile.databaseRequired}) carries a preset container health check`,
+            ).toBeUndefined();
+          }
+        } finally {
+          rmSync(outdir, { recursive: true, force: true });
+        }
+      }
+    });
+
     it('databaseRequired:false — zero RDS resources, no DB env vars, no DB outputs', async () => {
       const outdir = mkdtempSync(join(tmpdir(), 'deployz-app-stateless-'));
       try {

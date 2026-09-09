@@ -2,8 +2,10 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
+import { includedProductionDeploymentsSchema } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
+import { updateIncludedProductionDeployments } from '../billing-allowance.js';
 import { reconcileBilling } from '../billing-reconcile.js';
 import type { PaddleBilling } from '../paddle.js';
 import * as schema from '@deployz/db/schema';
@@ -100,6 +102,11 @@ const forceCompleteDestroyBodySchema = z.object({
 });
 
 const relayResetBodySchema = z.object({
+  reason: z.string().trim().min(1),
+});
+
+const includedDeploymentsBodySchema = z.object({
+  includedProductionDeployments: includedProductionDeploymentsSchema,
   reason: z.string().trim().min(1),
 });
 
@@ -332,6 +339,81 @@ export function registerAdminRoutes(
       });
 
       return result;
+    },
+  );
+
+  // POST /api/admin/vendors/:id/included-deployments — the included
+  // production deployment allowance (docs/billing/included-deployments-
+  // implementation.md). The ONLY write path for the value: it belongs to the
+  // organization, changes only the per-deployment quantity Paddle bills, and
+  // never touches the platform item or any deployment. Commercial action:
+  // reason is required, every call is audited with the old and new state,
+  // and a real change on a subscribed organization runs the SAME
+  // reconcileBilling the lifecycle hooks and the safety job run. A Paddle
+  // failure there never reverts the allowance — the ledger row and the
+  // Reconcile action / safety job repair the drift.
+  app.post(
+    '/api/admin/vendors/:id/included-deployments',
+    { preHandler: requireTeamAdmin },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const body = includedDeploymentsBodySchema.parse(request.body);
+      const actor = requireActor(request);
+
+      const change = await updateIncludedProductionDeployments(db, id, body.includedProductionDeployments);
+      if (!change) throw new NotFoundError('Vendor not found');
+
+      // Only a subscription can be reconciled; before one exists the
+      // allowance is simply stored, and no provider call is made.
+      const [subscription] = await db
+        .select({ status: schema.billingSubscriptions.status })
+        .from(schema.billingSubscriptions)
+        .where(eq(schema.billingSubscriptions.organizationId, id))
+        .limit(1);
+      const reconciliationTriggered = change.changed && subscription !== undefined;
+      const reconciliation = reconciliationTriggered ? await reconcileBilling({ db, paddle }, id) : null;
+
+      await recordAdminAuditEvent(db, {
+        actor,
+        eventType: 'admin.billing.included_deployments.updated',
+        organizationId: id,
+        targetType: 'organization',
+        targetId: id,
+        reason: body.reason,
+        payload: {
+          previousIncludedProductionDeployments: change.previous.included,
+          includedProductionDeployments: change.current.included,
+          activeProductionDeployments: change.activeProductionDeployments,
+          previousBillableDeploymentQuantity: change.previous.billable,
+          billableDeploymentQuantity: change.current.billable,
+          changed: change.changed,
+          reconciliationTriggered,
+          reconciliation: reconciliation
+            ? {
+                status: reconciliation.status,
+                action: reconciliation.action,
+                expected: reconciliation.expected,
+                provider: reconciliation.provider,
+                ...(reconciliation.reason !== undefined ? { reason: reconciliation.reason } : {}),
+              }
+            : null,
+        },
+      });
+
+      return {
+        organizationId: id,
+        activeProductionDeployments: change.activeProductionDeployments,
+        previous: {
+          includedProductionDeployments: change.previous.included,
+          billableDeploymentQuantity: change.previous.billable,
+        },
+        current: {
+          includedProductionDeployments: change.current.included,
+          billableDeploymentQuantity: change.current.billable,
+        },
+        changed: change.changed,
+        reconciliation,
+      };
     },
   );
 

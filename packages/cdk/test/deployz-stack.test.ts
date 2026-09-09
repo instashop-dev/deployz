@@ -267,4 +267,40 @@ describe('DeployzStack', () => {
       }
     });
   });
+
+  // The BILLING_ENFORCEMENT kill switch (apps/api/src/billing-entitlements.ts)
+  // is only useful if it reaches the deployed API Lambda, so the allowlist
+  // must carry it. Unset means enforce, so an absent key must stay absent.
+  describe('BILLING_ENFORCEMENT kill switch', () => {
+    const KEY = 'BILLING_ENFORCEMENT';
+
+    it('passes BILLING_ENFORCEMENT into the API Lambda environment when set', () => {
+      process.env[KEY] = 'off';
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          Environment: Match.objectLike({ Variables: Match.objectLike({ [KEY]: 'off' }) }),
+        });
+      } finally {
+        delete process.env[KEY];
+      }
+    });
+
+    it('omits BILLING_ENFORCEMENT when unset (absent = enforced)', () => {
+      const previous = process.env[KEY];
+      delete process.env[KEY];
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        const environments = Object.values(template.findResources('AWS::Lambda::Function')).map(
+          (resource) =>
+            (resource.Properties as { Environment?: { Variables?: Record<string, unknown> } })
+              .Environment?.Variables ?? {},
+        );
+        expect(environments.some((env) => KEY in env)).toBe(false);
+      } finally {
+        if (previous === undefined) delete process.env[KEY];
+        else process.env[KEY] = previous;
+      }
+    });
+  });
 });
