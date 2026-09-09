@@ -1797,6 +1797,164 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(dep!.observedState).toMatchObject({ tasksRunning: 2 });
     expect(dep!.lastHealthAt).not.toBeNull();
   });
+
+  // ── DZ-AUDIT-001: registration with a settled INSTALL job must mint a fresh one ──
+
+  it('DZ-AUDIT-001: registration with a FAILED INSTALL job mints a fresh retry-scoped job (NOT the settled one)', async () => {
+    // Simulation: a deployment after relay/reset — state NOT_INSTALLED,
+    // no enrollment, but a FAILED INSTALL job from a previous registration.
+    const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Fail' });
+    const auditCustomer = await insertCustomer(db, org.organizationId);
+    const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+      enrollmentUsedAt: null,
+      relayTokenHash: null,
+    });
+    // Pre-seed a FAILED INSTALL job with the fixed idempotency key (the old registration).
+    const oldJobKey = `${auditDeployment.id}:INSTALL`;
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: auditDeployment.id,
+      type: 'INSTALL',
+      state: 'FAILED',
+      idempotencyKey: oldJobKey,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const RELAY_TOKEN_DZ = 'audit-dz-token';
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: auditDeployment.enrollmentCode, installationId: 'inst-audit-dz' },
+      { authorization: `Bearer ${RELAY_TOKEN_DZ}` },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, auditDeployment.id));
+    expect(dep!.state).toBe('INSTALLING');
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, auditDeployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    // Two jobs: the old FAILED one (untouched) plus a fresh REQUESTED one.
+    expect(jobs).toHaveLength(2);
+
+    const oldJob = jobs.find((j) => j.state === 'FAILED');
+    expect(oldJob).toBeDefined();
+    expect(oldJob!.idempotencyKey).toBe(oldJobKey);
+
+    const newJob = jobs.find((j) => j.state === 'REQUESTED');
+    expect(newJob).toBeDefined();
+    expect(newJob!.idempotencyKey).toBe(`${auditDeployment.id}:INSTALL:RETRY:1`);
+    expect(newJob!.id).not.toBe(oldJob!.id);
+    // The new job is claimable.
+    const claim = await app.inject({
+      method: 'GET',
+      url: `/api/relay/commands?installationId=inst-audit-dz`,
+      headers: { authorization: `Bearer ${RELAY_TOKEN_DZ}` },
+    });
+    const claimBody = claim.json() as { commands: Array<{ id: string }> };
+    expect(claimBody.commands).toHaveLength(1);
+    expect(claimBody.commands[0]!.id).toBe(newJob!.id);
+  });
+
+  it('DZ-AUDIT-001: registration while a legitimate INSTALL job is REQUESTED does NOT create a second job', async () => {
+    const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Active' });
+    const auditCustomer = await insertCustomer(db, org.organizationId);
+    const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+      enrollmentUsedAt: null,
+      relayTokenHash: null,
+    });
+
+    // First registration should create a fresh INSTALL job.
+    const RELAY_TOKEN_ACTIVE = 'audit-active-token';
+    const first = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: auditDeployment.enrollmentCode, installationId: 'inst-audit-active' },
+      { authorization: `Bearer ${RELAY_TOKEN_ACTIVE}` },
+    );
+    expect(first.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, auditDeployment.id));
+    expect(dep!.state).toBe('INSTALLING');
+
+    // Now simulate: enrollmentUsedAt is set, installationId is set, and the
+    // INSTALL job is REQUESTED. A fresh relay cold-start re-registration with
+    // the same id+token should early-return and NOT create a second job.
+    const second = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: auditDeployment.enrollmentCode, installationId: 'inst-audit-active' },
+      { authorization: `Bearer ${RELAY_TOKEN_ACTIVE}` },
+    );
+    expect(second.statusCode).toBe(200);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, auditDeployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.state).toBe('REQUESTED');
+  });
+
+  it('DZ-AUDIT-001: registration after a CANCELLED INSTALL job mints a fresh claimable job', async () => {
+    // After relay/reset cancelled the previous INSTALL, re-registration must
+    // produce a new job.
+    const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Cancel' });
+    const auditCustomer = await insertCustomer(db, org.organizationId);
+    const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+      enrollmentUsedAt: null,
+      relayTokenHash: null,
+    });
+    const oldJobKey = `${auditDeployment.id}:INSTALL`;
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: auditDeployment.id,
+      type: 'INSTALL',
+      state: 'CANCELLED',
+      idempotencyKey: oldJobKey,
+      payload: {},
+      requestedBy: null,
+    });
+
+    const RELAY_TOKEN_CANCEL = 'audit-cancel-token';
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: auditDeployment.enrollmentCode, installationId: 'inst-audit-cancel' },
+      { authorization: `Bearer ${RELAY_TOKEN_CANCEL}` },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, auditDeployment.id));
+    expect(dep!.state).toBe('INSTALLING');
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, auditDeployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect(jobs).toHaveLength(2);
+
+    const newJob = jobs.find((j) => j.state === 'REQUESTED');
+    expect(newJob).toBeDefined();
+    expect(newJob!.idempotencyKey).toBe(`${auditDeployment.id}:INSTALL:RETRY:1`);
+
+    // Claimable.
+    const claim = await app.inject({
+      method: 'GET',
+      url: `/api/relay/commands?installationId=inst-audit-cancel`,
+      headers: { authorization: `Bearer ${RELAY_TOKEN_CANCEL}` },
+    });
+    const claimBody = claim.json() as { commands: Array<{ id: string }> };
+    expect(claimBody.commands).toHaveLength(1);
+    expect(claimBody.commands[0]!.id).toBe(newJob!.id);
+  });
 });
 
 // ── §5: idempotency ──────────────────────────────────────────────────────────

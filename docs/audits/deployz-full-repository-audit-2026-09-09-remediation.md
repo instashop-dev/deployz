@@ -62,4 +62,5 @@ CI on `main` (audit reference run) is green: build, vitest, lint, typecheck:scri
 
 ## Status log
 
-- **Phase 0** (this PR): revalidation complete; all 20 findings confirmed present; baseline recorded.
+- **Phase 0** (PR #259): revalidation complete; all 20 findings confirmed present; baseline recorded.
+- **Phase 1** (this PR): DZ-AUDIT-001 FIXED (retry-aware INSTALL key at registration, `apps/api/src/server.ts`), DZ-AUDIT-002 FIXED (application-namespaced release tags, `packages/cdk/src/lambda/worker.ts`; also shrinks DZ-AUDIT-004's tag-guess surface), DZ-AUDIT-003 FIXED (migration ARN persisted immediately after RunTask, `packages/relay/src/deploy.ts`). Regression tests: registration wedge ×3 (server.test.ts), cross-app tag collision ×2 (worker.test.ts), migration kill-window ×1 (deploy.test.ts). Gates: relay 499/499, api settlement suites 45/45 + server.test.ts 196/196, cdk worker+pipeline 76/76, build/lint/synth green, simulated E2E 32 passed / 8 skipped.
