@@ -1,7 +1,8 @@
 // §48 billing display — data access for the billing page. Wired to the real
-// `GET /api/billing/summary` endpoint: {base, deployments: [{name (customer
-// name), applicationName, amount}], total}. No fixture fallback — a failure
-// here is a real failure, not a loading state. §65: all copy is jargon-free.
+// `GET /api/billing/summary` endpoint: {base, deploymentPrice, deployments:
+// [{name (customer name), applicationName}], productionDeployments: {active,
+// included, billable}, total}. No fixture fallback — a failure here is a real
+// failure, not a loading state. §65: all copy is jargon-free.
 
 import { cookies } from 'next/headers';
 
@@ -10,21 +11,32 @@ import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 
-/** One billable deployment line item — labelled by CUSTOMER name (§48). */
+/** One live production deployment — labelled by CUSTOMER name (§48). It
+ *  carries no amount: the allowance is pooled, so no single deployment is
+ *  the free one or the paid one. */
 export interface BillingDeploymentLine {
   /** Customer name — the §48 line item label. */
   name: string;
   applicationName: string;
-  /** Dollar amount for this line (always $19 at launch pricing, §7). */
-  amount: number;
 }
 
-/** The §48 billing summary: base platform fee + one line per billed deployment. */
+/** Live production deployments, the included allowance, and what is billed. */
+export interface ProductionDeploymentCounts {
+  active: number;
+  included: number;
+  /** max(active − included, 0) — the quantity actually billed. */
+  billable: number;
+}
+
+/** The §48 billing summary: base platform fee + the pooled deployment line. */
 export interface BillingSummary {
   /** Base platform fee in whole dollars ($49). */
   base: number;
+  /** Price of one billed production deployment in whole dollars ($19). */
+  deploymentPrice: number;
   deployments: BillingDeploymentLine[];
-  /** base + sum(deployments.amount), in whole dollars. */
+  productionDeployments: ProductionDeploymentCounts;
+  /** base + billable × deploymentPrice, in whole dollars. */
   total: number;
   /** `null` means the organization has no subscription yet (evaluation). */
   subscription: {

@@ -5240,11 +5240,11 @@ export async function buildServer({
     const deploymentItems = deployments.filter(isBillableDeployment).map((d) => ({
       name: d.customerName,
       applicationName: d.applicationName,
-      amount: DEPLOYMENT_PRICE_DOLLARS,
     }));
-    // The organization is billed for the live production deployments beyond
-    // its included allowance, and the total is computed from that quantity —
-    // the same formula reconciliation pushes to Paddle.
+    // The allowance is pooled: no single deployment is "the free one", so the
+    // lines above carry no amount. The organization is billed for the live
+    // production deployments beyond its included allowance, and the total is
+    // computed from that quantity — the same formula reconciliation pushes.
     const [organizationRow] = await db
       .select({ included: schema.organization.includedProductionDeployments })
       .from(schema.organization)
