@@ -255,9 +255,10 @@ describe('deployment lifecycle — states, events, and removal', () => {
       .select()
       .from(schema.deployments)
       .where(eq(schema.deployments.id, deployment.id));
-    // UPDATE_AVAILABLE was read by the billing rule and the bulk-deploy gate
-    // but written nowhere, so the fleet could never show who needed updating.
-    expect(row!.state).toBe('UPDATE_AVAILABLE');
+    // UPDATE_AVAILABLE is no longer written at release-creation time (the
+    // release is still BUILDING) — the state stays HEALTHY until the worker
+    // marks the release READY (DZ-AUDIT-007).
+    expect(row!.state).toBe('HEALTHY');
 
     // release.created is recorded in the same transaction as the insert.
     const [release] = await db.select().from(schema.releases).where(eq(schema.releases.version, version));

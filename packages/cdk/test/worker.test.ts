@@ -608,6 +608,105 @@ describe('worker handler', () => {
     expect(row?.releaseStatus).toBe('READY');
     expect(row?.imageDigest).toBe(DIGEST_A);
   });
+
+  // ── DZ-AUDIT-007: deployment state after build ──────────────────────────────
+
+  it('DZ-AUDIT-007: build failure does NOT flip HEALTHY→UPDATE_AVAILABLE (no READY release)', async () => {
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'HEALTHY',
+        installationId: `inst-${randomUUID()}`,
+        enrollmentCode: randomUUID(),
+      })
+      .returning();
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version: `fail-v-${randomUUID().slice(0, 4)}`,
+        gitSha: 'abc',
+        releaseStatus: 'BUILDING',
+        buildStatus: 'BUILDING',
+      })
+      .returning();
+
+    // Simulate a CodeBuild FAILED event for this release.
+    const event: CodeBuildStateChangeEvent = {
+      source: 'aws.codebuild',
+      'detail-type': 'CodeBuild Build State Change',
+      detail: {
+        'build-status': 'FAILED',
+        'build-id': `deployz-build:${release!.id}`,
+        'exported-environment-variables': [{ name: 'RELEASE_ID', value: release!.id }],
+        'additional-information': {
+          'exported-environment-variables': [{ name: 'RELEASE_ID', value: release!.id }],
+          environment: { 'environment-variables': [] },
+          phases: [],
+        },
+      },
+    };
+    await recordBuildResult(db, event);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment!.id));
+    // Must stay HEALTHY — the build failed, no READY release exists.
+    expect(dep?.state).toBe('HEALTHY');
+  });
+
+  it('DZ-AUDIT-007: build success flips HEALTHY→UPDATE_AVAILABLE', async () => {
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'HEALTHY',
+        installationId: `inst-${randomUUID()}`,
+        enrollmentCode: randomUUID(),
+      })
+      .returning();
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version: `ok-v-${randomUUID().slice(0, 4)}`,
+        gitSha: 'abc',
+        releaseStatus: 'BUILDING',
+        buildStatus: 'BUILDING',
+      })
+      .returning();
+
+    const event: CodeBuildStateChangeEvent = {
+      source: 'aws.codebuild',
+      'detail-type': 'CodeBuild Build State Change',
+      detail: {
+        'build-status': 'SUCCEEDED',
+        'build-id': `deployz-build:${release!.id}`,
+        'exported-environment-variables': [
+          { name: 'RELEASE_ID', value: release!.id },
+          { name: 'IMAGE_DIGEST', value: `sha256:${'a'.repeat(64)}` },
+        ],
+        'additional-information': {
+          'exported-environment-variables': [
+            { name: 'RELEASE_ID', value: release!.id },
+            { name: 'IMAGE_DIGEST', value: `sha256:${'a'.repeat(64)}` },
+          ],
+          environment: { 'environment-variables': [] },
+          phases: [],
+        },
+      },
+    };
+    await recordBuildResult(db, event);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment!.id));
+    // The build succeeded: HEALTHY deployments of this app become UPDATE_AVAILABLE.
+    expect(dep?.state).toBe('UPDATE_AVAILABLE');
+  });
 });
 
 describe('normalizeBuildId', () => {
@@ -1060,6 +1159,66 @@ describe('sweepStuckJobs', () => {
     const [domainRow] = await db.select().from(schema.customDomains).where(eq(schema.customDomains.id, domain!.id));
     expect(domainRow?.lastError).toBe('DOMAIN_OPERATION_TIMEOUT');
   });
+
+  // ── DZ-AUDIT-006: watchdog must not overwrite a job the result route settled ──
+
+  it('DZ-AUDIT-006: does not overwrite a job already settled by the result route', async () => {
+    const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25, {
+      relayStatus: 'CONNECTED',
+      reconcileCount: 3,
+    });
+    // Simulate the result route settling the job first.
+    await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'SUCCEEDED', finishedAt: new Date() })
+      .where(eq(schema.deploymentJobs.id, jobId));
+
+    await sweepStuckJobs(db);
+
+    // Must still be SUCCEEDED — the watchdog must not flip it back.
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, jobId));
+    expect(job?.state).toBe('SUCCEEDED');
+  });
+
+  // ── DZ-AUDIT-011: zero-task install timeout must settle FAILED, not HEALTHY ──
+
+  it('DZ-AUDIT-011: a zero-task INSTALL (startAfterConfig) that times out in the watchdog settles FAILED', async () => {
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'INSTALLING',
+        relayStatus: 'CONNECTED',
+        installationId: `inst-${randomUUID()}`,
+        enrollmentCode: randomUUID(),
+      })
+      .returning();
+    const started = new Date(Date.now() - 100 * 60 * 1000);
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment!.id,
+        type: 'INSTALL',
+        state: 'RUNNING',
+        idempotencyKey: `watchdog:${randomUUID()}`,
+        payload: { startAfterConfig: true },
+        startedAt: started,
+        reconcileCount: 3,
+      })
+      .returning();
+
+    await sweepStuckJobs(db);
+
+    const [j] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job!.id));
+    expect(j?.state).toBe('FAILED');
+    // hasStartedInstall returns false for a zero-task install with no deploy,
+    // so deploymentStateAfterFailedJob sees hasCurrentRelease=false → FAILED.
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment!.id));
+    expect(dep?.state).toBe('FAILED');
+  });
 });
 
 // ── Relay-liveness sweep (persisted DISCONNECTED) ─────────────────────────
@@ -1333,4 +1492,5 @@ describe('sweepStuckBuilds', () => {
     const [row] = await db.select().from(schema.releases).where(eq(schema.releases.id, release.id));
     expect(row?.releaseStatus).toBe('BUILDING');
   });
-});
+
+  });

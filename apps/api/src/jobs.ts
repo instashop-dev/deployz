@@ -1,4 +1,4 @@
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, inArray } from 'drizzle-orm';
 
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -131,4 +131,31 @@ export async function newerReadyReleaseExists(
     )
     .limit(1);
   return newer.length > 0;
+}
+
+/**
+ * Whether anything has ever run in this deployment: a SUCCEEDED install that
+ * started its task, or a SUCCEEDED deploy/rollback. A zero-task install
+ * (`payload.startAfterConfig`, DEPLOY-009) succeeded without starting
+ * anything — its first deploy is the first start, and a failed first start
+ * is a failed environment, not a failed update.
+ *
+ * Shared between the relay result route and the stuck-job watchdog so they
+ * use the same semantics (DZ-AUDIT-011).
+ */
+export async function hasStartedInstall(db: RuntimeDb, deploymentId: string): Promise<boolean> {
+  const jobs = await db
+    .select({ type: schema.deploymentJobs.type, state: schema.deploymentJobs.state, payload: schema.deploymentJobs.payload })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        inArray(schema.deploymentJobs.type, ['INSTALL', 'DEPLOY_RELEASE', 'ROLLBACK']),
+      ),
+    );
+  return jobs.some((j) => {
+    if (j.state !== 'SUCCEEDED' && j.state !== 'SUCCESS') return false;
+    if (j.type !== 'INSTALL') return true;
+    return (j.payload as Record<string, unknown> | null)?.['startAfterConfig'] !== true;
+  });
 }
