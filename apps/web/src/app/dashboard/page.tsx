@@ -1,8 +1,8 @@
 'use client';
 
-import { ArrowRight, Check } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 
 import { ApplicationPreparingCard } from '@/components/application-preparing-card';
 import { ApplicationReadyCard } from '@/components/application-ready-card';
@@ -22,14 +22,10 @@ import {
   HOMEPAGE_DEPLOYMENT_LIMIT,
   type HomeState,
 } from '@/lib/home-state';
+import { useStatusPoll } from '@/lib/use-status-poll';
 
 /** How often to re-check while something is still being set up. */
 const TRANSIENT_POLL_MS = 5000;
-
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'error' }
-  | { status: 'loaded'; home: HomeState };
 
 // The homepage. One route, five states, all derived from the organization's
 // real applications and deployments: get started, preparing an application,
@@ -37,10 +33,7 @@ type LoadState =
 // view. The full Customer/Version/Region/Status table lives one click deeper,
 // on /dashboard/deployments.
 export default function HomePage() {
-  const [state, setState] = useState<LoadState>({ status: 'loading' });
-  const [attempt, setAttempt] = useState(0);
-
-  const load = useCallback(async (): Promise<HomeState> => {
+  const fetcher = useCallback(async (): Promise<HomeState> => {
     const [applications, deployments] = await Promise.all([
       fetchApplications(),
       fetchDeployments(),
@@ -48,57 +41,32 @@ export default function HomePage() {
     return deriveHomeState({ applications, deployments });
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function run(): Promise<void> {
-      try {
-        const home = await load();
-        if (!cancelled) setState({ status: 'loaded', home });
-      } catch {
-        if (!cancelled) setState({ status: 'error' });
-      }
-    }
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [load, attempt]);
+  const poll = useStatusPoll<HomeState>({
+    fetcher,
+    intervalMs: TRANSIENT_POLL_MS,
+    terminalIntervalMs: 60_000,
+    isTerminal: (home) =>
+      !(
+        home.kind === 'first-deployment' ||
+        (home.kind === 'preparing' && home.application.analysisStatus !== 'COMPLETE')
+      ),
+  });
 
-  // While an application is being prepared or a first deployment is being set
-  // up, the answer changes without the person doing anything — so keep asking.
-  const transient =
-    state.status === 'loaded' &&
-    (state.home.kind === 'first-deployment' ||
-      (state.home.kind === 'preparing' && state.home.application.analysisStatus !== 'COMPLETE'));
-
-  useEffect(() => {
-    if (!transient) return;
-    let cancelled = false;
-    const timer = setInterval(() => {
-      void load()
-        .then((home) => {
-          if (!cancelled) setState({ status: 'loaded', home });
-        })
-        .catch(() => {
-          // A failed poll leaves the last known state on screen; the next
-          // tick tries again.
-        });
-    }, TRANSIENT_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [transient, load]);
-
-  if (state.status === 'loading') return <LoadingState />;
-  if (state.status === 'error') return <ErrorState onRetry={() => setAttempt((n) => n + 1)} />;
+  if (poll.loading && poll.data === null) return <LoadingState />;
+  if (poll.data === null) return <ErrorState onRetry={poll.refresh} />;
 
   // Paddle migration Phase 11 — the evaluation line rides above whichever
   // homepage state is showing, and disappears once a subscription exists.
   return (
     <>
       <EvaluationNotice />
-      {homeStateContent(state.home)}
+      {poll.stale ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          Updates unavailable — showing last known state
+        </p>
+      ) : null}
+      {homeStateContent(poll.data)}
     </>
   );
 }

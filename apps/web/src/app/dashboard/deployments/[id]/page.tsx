@@ -123,7 +123,7 @@ type DetailState =
       detail: FleetDeploymentDetail;
       /** Null when the activity request failed — the feed says so. */
       events: ActivityEvent[] | null;
-      releases: Release[];
+      releases: ReleasesState;
     };
 
 /** The resource inventory: loading, failed (the page stays up), or loaded. */
@@ -131,6 +131,12 @@ type InfrastructureState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'loaded'; data: InfrastructureResponse };
+
+/** Releases the deploy picker may offer: loading, failed, or loaded. */
+type ReleasesState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'loaded'; data: Release[] };
 
 const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to.';
 // After a rollback that followed a failed update, the previous successful
@@ -193,7 +199,9 @@ export default function DeploymentDetailPage() {
     // activity fetch marks its own section, never the whole page.
     const [events, releases] = await Promise.all([
       fetchDeploymentEvents(id).catch((): ActivityEvent[] | null => null),
-      fetchReleases(detail.applicationId).catch((): Release[] => []),
+      fetchReleases(detail.applicationId)
+        .then((data): ReleasesState => ({ status: 'loaded', data }))
+        .catch((): ReleasesState => ({ status: 'error' })),
       refreshInfrastructure(),
     ]);
     lastSignature.current = { stage: detail.deploymentStatus.stage, state: detail.state };
@@ -292,11 +300,14 @@ function DetailBody({
 }: {
   detail: FleetDeploymentDetail;
   events: ActivityEvent[] | null;
-  releases: Release[];
+  releases: ReleasesState;
   infrastructure: InfrastructureState;
   onChanged: () => void;
 }) {
-  const previousVersion = releases.find((r) => r.id === detail.previousReleaseId)?.version ?? null;
+  const previousVersion =
+    releases.status === 'loaded'
+      ? (releases.data.find((r) => r.id === detail.previousReleaseId)?.version ?? null)
+      : null;
   const hero = deriveHero(detail);
   const inventory = infrastructure.status === 'loaded' ? infrastructure.data : null;
 
@@ -554,7 +565,7 @@ function DeploymentActions({
 }: {
   detail: FleetDeploymentDetail;
   hero: HeroModel;
-  releases: Release[];
+  releases: ReleasesState;
   previousVersion: string | null;
   infrastructure: InfrastructureState;
   onChanged: () => void;
@@ -736,6 +747,7 @@ function DeploymentActions({
           onChanged();
         }}
         onCancel={() => setOpen(null)}
+        onRetryReleases={onChanged}
       />
 
       <RollbackDialog
@@ -807,17 +819,21 @@ function DeployUpdateDialog({
   currentReleaseId,
   onDone,
   onCancel,
+  onRetryReleases,
 }: {
   open: boolean;
   deploymentId: string;
   applicationName: string;
   currentVersion: string | null;
-  releases: Release[];
+  releases: ReleasesState;
   currentReleaseId: string | null;
   onDone: () => void;
   onCancel: () => void;
+  onRetryReleases: () => void;
 }) {
-  const candidates = deployableReleases(releases, currentReleaseId);
+  const loading = releases.status === 'loading';
+  const failed = releases.status === 'error';
+  const candidates = releases.status === 'loaded' ? deployableReleases(releases.data, currentReleaseId) : [];
   const [releaseId, setReleaseId] = useState(candidates[0]?.id ?? '');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -846,7 +862,18 @@ function DeployUpdateDialog({
             Pick the release to deploy to {applicationName}.
           </DialogDescription>
         </DialogHeader>
-        {candidates.length === 0 ? (
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading releases…</p>
+        ) : failed ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              Releases could not be loaded. Try again in a moment.
+            </p>
+            <Button variant="outline" size="sm" className="self-start" onClick={onRetryReleases}>
+              Try again
+            </Button>
+          </div>
+        ) : candidates.length === 0 ? (
           <p className="text-sm text-muted-foreground">{NO_DEPLOYABLE_RELEASES_COPY}</p>
         ) : (
           <div className="flex flex-col gap-4">

@@ -50,6 +50,8 @@ export interface FleetSummary {
   deploying: number;
   /** Created, but the customer has not installed it yet. */
   waiting: number;
+  /** A newer READY release exists and can be deployed. */
+  updates: number;
 }
 
 /** Deployments the vendor still has: deleted ones leave the homepage. */
@@ -66,6 +68,7 @@ export function summarise(deployments: FleetDeployment[]): FleetSummary {
     attention: 0,
     deploying: 0,
     waiting: 0,
+    updates: 0,
   };
   for (const deployment of deployments) {
     if (attentionReason(deployment) !== null) {
@@ -74,7 +77,9 @@ export function summarise(deployments: FleetDeployment[]): FleetSummary {
       summary.deploying += 1;
     } else if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') {
       summary.waiting += 1;
-    } else if (deployment.state === 'HEALTHY' || deployment.state === 'UPDATE_AVAILABLE') {
+    } else if (deployment.state === 'UPDATE_AVAILABLE') {
+      summary.updates += 1;
+    } else if (deployment.state === 'HEALTHY') {
       summary.healthy += 1;
     }
   }
