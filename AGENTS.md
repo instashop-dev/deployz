@@ -39,6 +39,20 @@ For changes under apps/web, follow docs/ui-system.md.
 - Keep raw AWS/CloudFormation states out of primary customer UI.
 - Do not change application logic unless the task explicitly requires it.
 
+## Deployment Logic
+
+For the current live architecture and MVP support boundary, read
+docs/architecture.md.
+
+Before changing deployment, job, relay, worker, reconciliation, or watchdog
+logic, read docs/deployment-resilience.md. Preserve its documented invariants,
+including failed-update semantics, operation exclusivity, reconcile-before-fail,
+and the relay trust boundary.
+
+For work that changes the MVP boundary or verifies its implementation status,
+read docs/mvp-implementation-status.md and
+docs/mvp-boundary-implementation-report.md.
+
 ## E2E testing
 
 Simulated E2E is the default (`pnpm e2e`). Do not invoke real AWS E2E
