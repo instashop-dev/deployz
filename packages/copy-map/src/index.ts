@@ -618,7 +618,7 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
   },
   TEMPLATE_UNAVAILABLE: {
     what: 'The installation template could not be fetched.',
-    why: 'The CloudFormation template for this region is missing or unreachable from the customer account.',
+    why: 'The installation template for this region is missing or unreachable from the customer account.',
     fix: 'Contact Deployz support — the regional template needs to be published before installations can proceed in this region.',
   },
   UNSUPPORTED_ARCHITECTURE: {
