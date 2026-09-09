@@ -29,6 +29,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-014 | TIMEOUT | DEPLOYZ_BUG | FIXED (PR #217 merged, bootstrap template republished 2026-09-07 ~14:30Z: the relay reads digest and exit code from the task's essential container; regression the #213 init container exposed; verified on ghostfolio attempt 2: the release pointer settled in 12 minutes) | repo-007 (ghostfolio, measured: healthy and serving, DEPLOY_RELEASE never settled); every database-backed application deployed on the #213 template until the relay republish |
 | DEPLOY-015 | APPLICATION_ERROR (a false success) | DEPLOYZ_BUG | FIXED (PR #225 merged and the bootstrap template republished 2026-09-08; memos attempt 3 PASSED on it; relay: a deploy settles only when the service's PRIMARY deployment runs the revision the deploy targeted; crash loops are counted on that revision) | repo-039 (memos, measured: the circuit breaker rolled the first start back to the unconfigured template revision, which runs the same pinned image, and the relay reported SUCCEEDED while the app served from SQLite); every configured first start whose configured revision fails to become healthy |
 | DEPLOY-016 | INFRA_ERROR (control plane down) | DEPLOYZ_BUG | OPEN — task handed to the billing workstream (migration 0036 must settle duplicates; a failed init must not be cached by warm containers); production restored by hand 2026-09-08 03:45Z | every request to api.deployz.dev for ten minutes; memos attempt 2's install wait and cleanup |
+| DEPLOY-017 | (harness) | TEST_HARNESS_FAILURE | FIXED (the mode refuses; the dead path is removed) | the B1 runtime-reuse lane, i.e. the default deployment class of 107 of the 120 corpus entries |
 
 ---
 
@@ -893,3 +894,60 @@ failure on the health route instead of a generic 500.
 **Affected.** every vendor and every relay poll during the window; the
 Stage B harness run in flight.
 
+---
+
+## DEPLOY-017 — B1 runtime-reuse cannot work: a deployment owns its installation
+
+**Stage** (harness — no repository reaches a product stage) · **Root cause**
+TEST_HARNESS_FAILURE · **Resolution** FIXED (the mode refuses with the
+reason; the unreachable path is removed) · **Found** 2026-09-09, by
+inspection during the 2-repository pilot, before any AWS time was spent.
+
+**Behaviour.** `--runtime-reuse` was meant to deploy each repository onto one
+standing installation instead of provisioning fresh infrastructure per
+repository. It cannot: a deployment owns its installation. In
+`packages/db/src/schema/deployments.ts`, `installation_id` is UNIQUE on the
+deployments table, `enrollment_code` is single-use, and `relay_token_hash`
+binds the relay to the deployment that traded the code —
+`packages/db/src/constraints.test.ts` already asserts *rejects a duplicate
+deployments.installation_id*. A standing installation is therefore already
+owned by the deployment that enrolled it, and no second deployment can
+attach to it.
+
+The lane compounded that with a surface defect. `runRuntimeReuseAttempt`
+replaced `deps.aws.createBootstrapStack` with a no-op returning the standing
+stack name, but the return value was discarded: `deploy.ts` records
+`run.bootstrapStackName = quick.stackName`, the *new* per-deployment name
+from the install link. The next step then waited on `describeStack` for a
+stack that was never created.
+
+**Effect.** Every B1 attempt would wait out the 15-minute `bootstrapMs`
+timeout and be recorded as a product failure (`INFRA_ERROR`), not a harness
+failure — a wrong verdict against the repository under test. B1 is the
+default class for every repository not listed in `b2Repos`/`b3Repos`: 107 of
+the 120 corpus entries. Running the corpus on it would have burned roughly
+25 hours to produce entirely false results. The lane had never run against
+real AWS — all ten Wave 1 repositories ran fresh — and `harness.test.ts`
+covered only plan selection and env-var parsing, never the funnel.
+
+Had the surface defect been "fixed" by recording the standing stack name,
+cleanup would then have deleted it: `removeCanaryLeftovers` deletes the
+recorded bootstrap stack unconditionally, so the shared foundation would
+have been destroyed after the first repository.
+
+**Resolution.** `--runtime-reuse` now refuses in seconds and names the
+working alternatives (`assertRuntimeReuseSupported`, regression-tested in
+`harness.test.ts`). The unreachable execution path, `runRuntimeReuseAttempt`
+and the standing-installation env helpers are removed.
+
+**What to use instead.** `--real-aws` provisions fresh infrastructure per
+repository, which is the only lane that works. `--reuse-application` makes a
+retry cheap by redeploying the release the repository already built instead
+of running CodeBuild again — real reuse, at the image layer rather than the
+infrastructure layer.
+
+**Post-MVP.** Sharing one runtime across repositories needs many deployments
+per installation. That is a product change (drop the uniqueness of
+`installation_id`, rework enrollment and relay binding to be per-deployment
+within an installation), not a testing change, and it is outside the MVP
+boundary.

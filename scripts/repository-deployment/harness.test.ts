@@ -9,7 +9,7 @@ import { loadConfig } from '../version-canary/config.js';
 import type { DeploymentDetail } from '../version-canary/control-plane.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
-import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys, DEPLOYMENT_CLASSES } from './config.js';
+import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
 import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
 import { applicationContainerDefinition, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
@@ -18,11 +18,10 @@ import {
   BENCHMARK_PATH,
   DEPLOY_CONFIG_PATH,
   STAGE_B_DIR,
+  assertRuntimeReuseSupported,
   buildPlan,
-  checkStandingInstallationTags,
   identityFor,
   parseRunArgs,
-  readStandingInstallation,
   renderPlan,
   repositoryUsedFor,
   requireRealAws,
@@ -366,41 +365,13 @@ describe('runtime-reuse gating', () => {
     expect(() => requireRealAws(parseRunArgs(['--runtime-reuse']), { DEPLOYZ_E2E_ALLOW_REAL_AWS: '1' })).not.toThrow();
   });
 
-  it('refuses without standing installation env vars', () => {
-    expect(() => readStandingInstallation({})).toThrow('DEPLOYZ_E2E_CANARY_INSTALLATION_ID');
+  it('refuses to run: a deployment owns its installation', () => {
+    expect(() => assertRuntimeReuseSupported()).toThrow('--runtime-reuse is not supported');
   });
 
-  it('refuses without the standing installation stack name', () => {
-    expect(() => readStandingInstallation({ DEPLOYZ_E2E_CANARY_INSTALLATION_ID: 'inst-1' })).toThrow('DEPLOYZ_E2E_CANARY_INSTALLATION_STACK');
-  });
-
-  it('accepts with all standing installation env vars', () => {
-    const standing = readStandingInstallation({
-      DEPLOYZ_E2E_CANARY_INSTALLATION_ID: 'inst-1',
-      DEPLOYZ_E2E_CANARY_INSTALLATION_STACK: 'deployz-bootstrap-x-12345678',
-    });
-    expect(standing.installationId).toBe('inst-1');
-    expect(standing.stackName).toBe('deployz-bootstrap-x-12345678');
-    expect(standing.region).toBe('us-east-1');
-  });
-
-  it('refuses when standing installation lacks persistent tags', () => {
-    expect(() => checkStandingInstallationTags(
-      { status: 'CREATE_COMPLETE', statusReason: null, outputs: {} },
-      { DeployzPersistent: 'false', DeployzTestMode: 'canary' },
-    )).toThrow('DeployzPersistent=true');
-
-    expect(() => checkStandingInstallationTags(
-      { status: 'CREATE_COMPLETE', statusReason: null, outputs: {} },
-      { DeployzPersistent: 'true', DeployzTestMode: 'production' },
-    )).toThrow('DeployzTestMode=canary');
-  });
-
-  it('passes when standing installation has required tags', () => {
-    expect(() => checkStandingInstallationTags(
-      { status: 'CREATE_COMPLETE', statusReason: null, outputs: {} },
-      { DeployzPersistent: 'true', DeployzTestMode: 'canary' },
-    )).not.toThrow();
+  it('names the working alternatives in the refusal', () => {
+    expect(() => assertRuntimeReuseSupported()).toThrow(/--real-aws/);
+    expect(() => assertRuntimeReuseSupported()).toThrow(/--reuse-application/);
   });
 
   it('--runtime-reuse and --real-aws are exclusive', () => {
