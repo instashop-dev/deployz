@@ -36,6 +36,7 @@ describe('§61 failure codes', () => {
       'IMAGE_PULL_FAILED',
       'CONTAINER_START_FAILED',
       'MISSING_SECRET',
+      'TEMPLATE_UNAVAILABLE',
       'UNSUPPORTED_ARCHITECTURE',
       'UNKNOWN',
       'REDIS_PROVISIONING_FAILED',
