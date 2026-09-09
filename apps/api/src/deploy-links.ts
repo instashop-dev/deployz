@@ -235,7 +235,7 @@ export async function createDeployLink(
   // deployment, so it needs an ACTIVE subscription just like the manual
   // flow. Checked before createDeploymentRecord and before the deploy_links
   // row exists.
-  await assertProductionDeploymentAllowed(db, params.organizationId);
+  await assertProductionDeploymentAllowed(db, params.organizationId, env.billingEnforcementPaused);
   const token = mintDeployLinkToken();
   const result = await db.transaction(async (tx) => {
     const { deployment, application } = await createDeploymentRecord(tx, {

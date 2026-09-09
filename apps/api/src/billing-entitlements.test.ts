@@ -7,6 +7,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
+import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
 import { buildServer } from './server.js';
 
 // Paddle migration Phase 7 — free evaluation entitlements. Evaluation
@@ -512,5 +513,30 @@ describe('billing entitlements — billingFixtureMode (fix round 1)', () => {
       { cookie: org.cookie },
     );
     expect(response.statusCode).toBe(400);
+  });
+});
+
+describe('billing entitlements — BILLING_ENFORCEMENT=off pauses the production gate', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let org: { userId: string; organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    org = await signUpAndGetOrg(createAuth(db), db, 'paused@example.com');
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('with no subscription row: enforced -> 402 SUBSCRIPTION_REQUIRED, paused -> allowed', async () => {
+    await expect(assertProductionDeploymentAllowed(db, org.organizationId, false)).rejects.toMatchObject({
+      statusCode: 402,
+      code: 'SUBSCRIPTION_REQUIRED',
+    });
+    await expect(assertProductionDeploymentAllowed(db, org.organizationId, true)).resolves.toBeUndefined();
   });
 });

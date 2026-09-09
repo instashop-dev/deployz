@@ -3478,7 +3478,7 @@ export async function buildServer({
     if (body.deploymentType === 'TEST') {
       await assertTestDeploymentSlot(db, body.applicationId);
     } else {
-      await assertProductionDeploymentAllowed(db, organizationId);
+      await assertProductionDeploymentAllowed(db, organizationId, env.billingEnforcementPaused);
     }
     // Everything after this point (org-scoped 404s, the Phase 2 manifest
     // readiness gates, and the insert) is shared with the deploy-link flow —

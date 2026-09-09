@@ -377,6 +377,7 @@ function collectEnvVars(): Record<string, string> {
     'PADDLE_PRICE_PLATFORM',
     'PADDLE_PRICE_DEPLOYMENT',
     'PADDLE_ENVIRONMENT',
+    'BILLING_ENFORCEMENT',
   ];
   const env: Record<string, string> = {};
   for (const key of keys) {
