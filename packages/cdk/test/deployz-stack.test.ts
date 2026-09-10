@@ -14,6 +14,41 @@ describe('DeployzStack', () => {
     expect(template).toBeDefined();
   });
 
+  // The Docker Hub credential is wired into the build pipeline only when a
+  // secret name is actually given. CodeBuild resolves a SECRETS_MANAGER
+  // variable when a build STARTS, so a name it cannot resolve — an empty one
+  // above all — fails every release build before a command runs. An unset
+  // GitHub Actions variable reaches the app as an empty string, not as an
+  // absent one, which is why empty has to count as unset.
+  describe('Docker Hub credential wiring', () => {
+    it('is off when no secret name is given', () => {
+      const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+      expect(JSON.stringify(template.toJSON())).not.toContain('DOCKERHUB_ACCESS_TOKEN');
+    });
+
+    it('is off when the name is present but empty', () => {
+      const app = new App({ context: { dockerHubSecretName: '  ' } });
+      const template = Template.fromStack(new DeployzStack(app, 'DeployzTest'));
+      expect(JSON.stringify(template.toJSON())).not.toContain('DOCKERHUB_ACCESS_TOKEN');
+    });
+
+    it('is on when a name is given', () => {
+      const app = new App({ context: { dockerHubSecretName: 'deployz-codebuild' } });
+      const template = Template.fromStack(new DeployzStack(app, 'DeployzTest'));
+      template.hasResourceProperties('AWS::CodeBuild::Project', {
+        Environment: {
+          EnvironmentVariables: Match.arrayWith([
+            {
+              Name: 'DOCKERHUB_ACCESS_TOKEN',
+              Type: 'SECRETS_MANAGER',
+              Value: 'deployz-codebuild:accessToken',
+            },
+          ]),
+        },
+      });
+    });
+  });
+
   it('creates a VPC with 2 AZs', () => {
     const app = new App();
     const stack = new DeployzStack(app, 'DeployzTest');

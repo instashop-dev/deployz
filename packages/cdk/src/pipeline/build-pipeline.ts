@@ -14,8 +14,9 @@
  * The pipeline is triggered via the `startBuild` API by the control plane
  * (not GitHub webhooks — the source is placed in S3 by the control plane).
  */
-import { Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
+import { ArnFormat, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import {
+  BuildEnvironmentVariableType,
   BuildSpec,
   ComputeType,
   LinuxBuildImage,
@@ -24,6 +25,7 @@ import {
 } from 'aws-cdk-lib/aws-codebuild';
 import { Repository, TagMutability } from 'aws-cdk-lib/aws-ecr';
 import type { IRepository } from 'aws-cdk-lib/aws-ecr';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import type { IBucket } from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 
@@ -38,7 +40,53 @@ export interface BuildPipelineProps {
   readonly timeoutMinutes?: number;
   /** ECR repository removal policy (default: RETAIN). */
   readonly removalPolicy?: RemovalPolicy;
+  /**
+   * Name of the Secrets Manager secret holding Docker Hub credentials, in
+   * THIS stack's region. The secret must be a JSON object with `username`
+   * and `accessToken` (a Docker Hub access token, never an account
+   * password). Unset — the default — leaves the build pulling base images
+   * anonymously, exactly as before.
+   *
+   * CodeBuild resolves a SECRETS_MANAGER environment variable when the build
+   * STARTS, so a name that does not resolve fails every build immediately.
+   * The wiring is therefore opt-in: it is turned on only once the secret
+   * exists in the region the project runs in.
+   */
+  readonly dockerHubSecretName?: string;
 }
+
+/**
+ * Base-image pulls are the one part of a customer build that leaves AWS.
+ * CodeBuild here has no VPC config, so it egresses from a shared AWS address
+ * pool, and Docker Hub meters ANONYMOUS pulls per source address — the quota
+ * is shared with every other account pulling through the same address. The
+ * observed result was HTTP 429 on `FROM` for repositories that were
+ * otherwise fine, at times unrelated to this account's own pull volume.
+ *
+ * Authenticating moves the build onto this account's own metered quota.
+ * The retry below stays as the second line: a 429 is a time window, not a
+ * verdict on the repository, so the build waits it out instead of reporting
+ * the repository as unbuildable.
+ */
+const DOCKER_HUB_RATE_LIMIT_PATTERN = 'toomanyrequests|429 Too Many Requests|pull rate limit|manifests[^ ]*: 429';
+
+/**
+ * Backoff between image-build attempts: 1, 3 and 8 minutes (4 attempts in
+ * all). Long enough for a rate-limit window to pass, and bounded well inside
+ * the build timeout.
+ */
+const IMAGE_BUILD_RETRY_DELAYS_SECONDS = [60, 180, 480] as const;
+
+/**
+ * Where the retry loop records what happened. The loop itself always exits
+ * 0 and two small commands after it decide the build's fate, because
+ * CodeBuild reports the FAILING COMMAND'S OWN TEXT as the phase context —
+ * and that text is what the control plane classifies the failure from. A
+ * loop that failed in place would put its own rate-limit search pattern into
+ * the phase context and make every ordinary Dockerfile error read as a rate
+ * limit.
+ */
+const BUILD_OUTCOME_FILE = '/tmp/deployz-build-outcome';
 
 /**
  * Build pipeline construct: ECR repository + CodeBuild project.
@@ -70,6 +118,39 @@ export class BuildPipeline extends Construct {
     // it from AWS account/region parts.
     const ecrUri = this.repository.repositoryUri;
 
+    // The values themselves are resolved by CodeBuild at build start and are
+    // masked in the build log; only the secret NAME and JSON key reach the
+    // CloudFormation template.
+    const dockerHubSecretName = props.dockerHubSecretName;
+    const dockerHubEnvironment: Record<string, BuildEnvironmentVariable> =
+      dockerHubSecretName === undefined
+        ? {}
+        : {
+            DOCKERHUB_USERNAME: {
+              value: `${dockerHubSecretName}:username`,
+              type: BuildEnvironmentVariableType.SECRETS_MANAGER,
+            },
+            DOCKERHUB_ACCESS_TOKEN: {
+              value: `${dockerHubSecretName}:accessToken`,
+              type: BuildEnvironmentVariableType.SECRETS_MANAGER,
+            },
+          };
+
+    // Docker Hub first, ECR second: the base images a customer's Dockerfile
+    // pulls come from Docker Hub during `docker build`, the push target is
+    // ECR. Both logins are in place before the build phase runs.
+    const dockerHubLoginCommands =
+      dockerHubSecretName === undefined
+        ? []
+        : [
+            'echo "Logging in to Docker Hub..."',
+            // The variables are never echoed — the token reaches `docker
+            // login` on stdin, and the command text CodeBuild prints holds
+            // the variable names, not their values.
+            'if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_ACCESS_TOKEN" ]; then echo "ERROR: Docker Hub credentials are not available to this build" >&2; exit 1; fi',
+            'echo "$DOCKERHUB_ACCESS_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin docker.io',
+          ];
+
     this.project = new Project(this, 'BuildProject', {
       environment: {
         buildImage: LinuxBuildImage.STANDARD_7_0,
@@ -77,6 +158,7 @@ export class BuildPipeline extends Construct {
         privileged: true, // Required for Docker-in-Docker builds
         environmentVariables: {
           ECR_REPOSITORY_URI: { value: ecrUri },
+          ...dockerHubEnvironment,
         } as Record<string, BuildEnvironmentVariable>,
       },
       timeout: Duration.minutes(props.timeoutMinutes ?? 30),
@@ -100,6 +182,7 @@ export class BuildPipeline extends Construct {
               // directory; --strip-components=1 unwraps it.
               'mkdir -p /tmp/src && tar xzf /tmp/source.tar.gz -C /tmp/src --strip-components=1',
               'cd /tmp/src',
+              ...dockerHubLoginCommands,
               'echo "Logging in to Amazon ECR..."',
               'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI',
               // §21: image tags must be immutable identifiers — `latest` is
@@ -138,12 +221,43 @@ export class BuildPipeline extends Construct {
               // root, not from `docker/`.
               'export BUILD_CONTEXT=${BUILD_CONTEXT:-$(dirname "$DOCKERFILE_PATH")}',
               'echo "Building Docker image: $ECR_REPOSITORY_URI:$IMAGE_TAG from $DOCKERFILE_PATH (context: $BUILD_CONTEXT)"',
-              'docker build -f "$DOCKERFILE_PATH" -t $ECR_REPOSITORY_URI:$IMAGE_TAG "$BUILD_CONTEXT"',
+              // Retries ONLY a registry rate limit. Success is read from the
+              // image itself rather than an exit status, because the build
+              // output is piped through `tee` to keep it streaming live.
+              // Any other failure breaks out on the first attempt, so a
+              // Dockerfile that cannot build still fails in one pass.
+              // Joined into ONE line: a buildspec command is a single unit
+              // whose exit status CodeBuild checks, and a loop spread over
+              // several lines depends on how it splits the script it builds.
+              // The trailing `true` is what keeps this command from ever
+              // failing in place — see BUILD_OUTCOME_FILE.
+              [
+                `rm -f ${BUILD_OUTCOME_FILE}`,
+                `for retry_delay in ${IMAGE_BUILD_RETRY_DELAYS_SECONDS.join(' ')} last; do docker build -f "$DOCKERFILE_PATH" -t $ECR_REPOSITORY_URI:$IMAGE_TAG "$BUILD_CONTEXT" 2>&1 | tee /tmp/docker-build.log`,
+                `if docker image inspect $ECR_REPOSITORY_URI:$IMAGE_TAG > /dev/null 2>&1; then echo ok > ${BUILD_OUTCOME_FILE}; break; fi`,
+                `if ! grep -Eqi '${DOCKER_HUB_RATE_LIMIT_PATTERN}' /tmp/docker-build.log; then echo failed > ${BUILD_OUTCOME_FILE}; break; fi`,
+                `echo rate_limited > ${BUILD_OUTCOME_FILE}`,
+                'if [ "$retry_delay" = last ]; then break; fi',
+                'echo "The container registry temporarily limited image downloads. Retrying in ${retry_delay}s."',
+                'sleep "$retry_delay"; done',
+                'true',
+              ].join('; '),
+              // Two separate commands so the phase context CodeBuild reports
+              // — the failing command's own text — names the right cause.
+              `if [ "$(cat ${BUILD_OUTCOME_FILE} 2>/dev/null)" = rate_limited ]; then echo "Docker Hub rate limit (HTTP 429) blocked the base image download" >&2; exit 1; fi`,
+              `if [ "$(cat ${BUILD_OUTCOME_FILE} 2>/dev/null)" != ok ]; then echo "The image build did not produce an image" >&2; exit 1; fi`,
               // Tag with the git SHA for traceability. GIT_SHA is passed via
               // startBuild environmentVariablesOverride.
               'echo "Tagging with GIT_SHA: ${GIT_SHA:-unknown}"',
               'docker tag $ECR_REPOSITORY_URI:$IMAGE_TAG $ECR_REPOSITORY_URI:${GIT_SHA:-unknown}',
             ],
+            // Docker Hub is not needed once the image is built. `finally`
+            // runs whether the phase passed or failed, and `|| true` keeps a
+            // failed logout from replacing the build's real result. The ECR
+            // credential is a separate registry entry and is untouched.
+            ...(dockerHubSecretName === undefined
+              ? {}
+              : { finally: ['docker logout docker.io > /dev/null 2>&1 || true'] }),
           },
           post_build: {
             commands: [
@@ -173,6 +287,26 @@ export class BuildPipeline extends Construct {
     // to read the source tarball the control plane uploaded.
     this.repository.grantPullPush(this.project);
     props.sourceBucket.grantRead(this.project);
+
+    // Read the Docker Hub credential and nothing else: one action, one
+    // secret. The six-character suffix Secrets Manager appends to every
+    // secret ARN is unknown at synth time, so the resource ends in the
+    // wildcard AWS itself documents for name-addressed secrets.
+    if (dockerHubSecretName !== undefined) {
+      this.project.addToRolePolicy(
+        new PolicyStatement({
+          actions: ['secretsmanager:GetSecretValue'],
+          resources: [
+            Stack.of(this).formatArn({
+              service: 'secretsmanager',
+              resource: 'secret',
+              resourceName: `${dockerHubSecretName}-??????`,
+              arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+            }),
+          ],
+        }),
+      );
+    }
 
     // ── Stack outputs ──────────────────────────────────────────────────
     const stack = Stack.of(this);

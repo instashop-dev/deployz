@@ -482,6 +482,20 @@ describe('classification', () => {
     expect(classifyFailure({ ...base, point: 'build', timedOut: true }).failureStage).toBe('TIMEOUT');
   });
 
+  // Two repositories in the 2-repository pilot failed this way, 40 minutes
+  // apart, and both rebuilt cleanly the next morning. Left to the generic
+  // branch the corpus keeps a verdict about an application that is fine.
+  it('blames the registry, not the repository, for a metered base-image pull', () => {
+    expect(
+      classifyFailure({
+        ...base,
+        point: 'build',
+        releaseFailure:
+          'CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ "$(cat /tmp/deployz-build-outcome)" = rate_limited ]; then echo "Docker Hub rate limit (HTTP 429) blocked the base image download" >&2; exit 1; fi',
+      }),
+    ).toMatchObject({ failureStage: 'BUILD_ERROR', rootCause: 'AWS_TRANSIENT_FAILURE' });
+  });
+
   it('reads container evidence before the CloudFormation status', () => {
     expect(classifyFailure({ ...base, point: 'install', failureCode: 'STACK_CREATE_FAILED', stoppedTasks: [{ exitCode: 1, reason: null, stoppedReason: 'Essential container exited' }], logTail: ['Error: DATABASE_URL is not set'] }).failureStage).toBe('ENV_BINDING_ERROR');
     expect(classifyFailure({ ...base, point: 'install', failureCode: 'STACK_CREATE_FAILED', stoppedTasks: [{ exitCode: 1, reason: null, stoppedReason: null }], logTail: ['connect ECONNREFUSED 10.0.1.5:5432'] }).failureStage).toBe('DATABASE_ERROR');

@@ -964,7 +964,7 @@ boundary.
 ## DEPLOY-018 — The build pulls base images from Docker Hub anonymously, so builds fail with HTTP 429
 
 **Stage** BUILD_ERROR · **Root cause** DEPLOYZ_BUG (build infrastructure) ·
-**Resolution** OPEN — the fix needs an operator credential decision ·
+**Resolution** FIXED in code (option 1), and turned on per deployment ·
 **Found** 2026-09-09, repo-008 attempt 1 of the 2-repository pilot.
 
 **Behaviour.** The CodeBuild buildspec authenticates to ECR only
@@ -1006,6 +1006,30 @@ repositories that are fine.
 
 Rewriting a customer's `FROM` lines to `public.ecr.aws` is not an option: it
 changes the customer's build.
+
+**Fix.** Option 1. The buildspec authenticates to Docker Hub from the
+`deployz-codebuild` secret before it authenticates to ECR, so pulls are
+metered against this account instead of a shared address
+(`docs/docker-hub-credentials.md`). Three further things follow from the
+same change:
+
+- The image build retries after 1, 3 and 8 minutes, but **only** when the
+  build log carries a rate-limit signature. An ordinary Dockerfile error
+  still fails on the first attempt.
+- An exhausted retry is recorded as `build_registry_rate_limited`, not
+  `build_failed`, and the customer is told the registry limited image
+  downloads rather than that their application could not be built.
+- `classifyFailure` gives such a failure the root cause
+  `AWS_TRANSIENT_FAILURE`, so a corpus run no longer keeps a verdict about
+  a repository that builds correctly.
+
+The wiring is opt-in per deployment (`DOCKERHUB_SECRET_NAME`), because
+CodeBuild resolves the secret at build start and an unresolvable name would
+fail every build.
+
+Option 2, the ECR pull-through cache, stays post-MVP. It is worth revisiting
+once corpus runs are routine, since it removes the repeated upstream pulls
+rather than only metering them differently.
 
 ---
 

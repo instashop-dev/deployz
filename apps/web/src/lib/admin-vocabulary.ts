@@ -212,6 +212,7 @@ export const PILOT_FAILURE_LABELS: Record<string, string> = {
   build_failed: 'Build failed',
   build_cancelled: 'Build cancelled',
   build_timeout: 'Build timed out',
+  build_registry_rate_limited: 'Registry rate limit',
 };
 
 /**

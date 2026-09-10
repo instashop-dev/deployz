@@ -53,15 +53,35 @@ type ReleaseBuildEventType =
   | 'release.build_failed';
 
 /** Stable lowercase failure codes mirroring the actual failure paths. */
-type ReleaseBuildFailureCode = 'build_failed' | 'build_cancelled' | 'build_timeout';
+type ReleaseBuildFailureCode =
+  | 'build_failed'
+  | 'build_cancelled'
+  | 'build_timeout'
+  | 'build_registry_rate_limited';
+
+/**
+ * The buildspec's own words when Docker Hub metered the base-image pull for
+ * longer than the build's retries covered (build-pipeline.ts). The phrase is
+ * the failing command's text, which CodeBuild reports as the phase context.
+ */
+const REGISTRY_RATE_LIMIT_PATTERN = /rate limit \(HTTP 429\)/i;
 
 /**
  * Map a CodeBuild terminal status onto the stable vocabulary. Anything not
- * clearly a cancel or a timeout is a plain build failure.
+ * clearly a cancel, a timeout or a registry rate limit is a plain build
+ * failure. The rate limit is deliberately separate: it says nothing about
+ * the repository, and reporting it as a build failure blames an application
+ * that builds perfectly well an hour later.
  */
-function buildFailureCode(status: string | undefined): ReleaseBuildFailureCode {
+function buildFailureCode(
+  status: string | undefined,
+  detail: string | null,
+): ReleaseBuildFailureCode {
   if (status === 'STOPPED' || status === 'STOPPING') return 'build_cancelled';
   if (status === 'TIMED_OUT') return 'build_timeout';
+  if (detail !== null && REGISTRY_RATE_LIMIT_PATTERN.test(detail)) {
+    return 'build_registry_rate_limited';
+  }
   return 'build_failed';
 }
 
@@ -543,7 +563,7 @@ export async function recordBuildResult(
       db,
       releaseId,
       `CodeBuild reported ${status}${detail === null ? '' : ` — ${detail}`}`,
-      buildFailureCode(status),
+      buildFailureCode(status, detail),
     );
     return;
   }

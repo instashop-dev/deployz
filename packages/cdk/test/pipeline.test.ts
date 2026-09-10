@@ -191,6 +191,190 @@ describe('BuildPipeline', () => {
     });
   });
 
+  // ── Docker Hub authentication ──────────────────────────────────────────
+  //
+  // Base images are pulled from Docker Hub during `docker build`. Without a
+  // login those pulls are anonymous and metered per source address — an
+  // address CodeBuild shares with other accounts, because the project has no
+  // VPC config. The observed result was HTTP 429 against repositories that
+  // build perfectly well at another hour.
+
+  const DOCKER_HUB_SECRET = 'deployz-codebuild';
+
+  function synthWithDockerHub() {
+    const app = new App();
+    const stack = new Stack(app, 'DockerHubPipeline', { env: { region: 'us-east-1' } });
+    new BuildPipeline(stack, 'BuildPipeline', {
+      sourceBucket: new Bucket(stack, 'SourceBucket') as IBucket,
+      dockerHubSecretName: DOCKER_HUB_SECRET,
+    });
+    return Template.fromStack(stack);
+  }
+
+  /**
+   * The buildspec's commands as plain shell text, one per line, each tagged
+   * with the phase and list it came from. Matching the serialized template
+   * instead would mean writing every assertion through two layers of JSON
+   * escaping.
+   */
+  function buildSpecOf(template: Template): string {
+    const resources = (template.toJSON() as { Resources: Record<string, { Properties?: Record<string, unknown> }> })
+      .Resources;
+    const project = Object.values(resources).find(
+      (r) => r.Properties?.['Source']?.['Type'] === 'NO_SOURCE',
+    );
+    expect(project).toBeDefined();
+    const spec = JSON.parse((project!.Properties!['Source'] as { BuildSpec: string }).BuildSpec) as {
+      phases: Record<string, { commands?: string[]; finally?: string[] }>;
+    };
+    return Object.entries(spec.phases)
+      .flatMap(([phase, body]) => [
+        ...(body.commands ?? []).map((command) => `${phase}:commands ${command}`),
+        ...(body.finally ?? []).map((command) => `${phase}:finally ${command}`),
+      ])
+      .join('\n');
+  }
+
+  it('injects the Docker Hub credential as Secrets Manager environment variables', () => {
+    const template = synthWithDockerHub();
+    template.hasResourceProperties('AWS::CodeBuild::Project', {
+      Environment: {
+        EnvironmentVariables: Match.arrayWith([
+          {
+            Name: 'DOCKERHUB_USERNAME',
+            Type: 'SECRETS_MANAGER',
+            Value: `${DOCKER_HUB_SECRET}:username`,
+          },
+          {
+            Name: 'DOCKERHUB_ACCESS_TOKEN',
+            Type: 'SECRETS_MANAGER',
+            Value: `${DOCKER_HUB_SECRET}:accessToken`,
+          },
+        ]),
+      },
+    });
+  });
+
+  it('keeps the credential out of the synthesized template', () => {
+    // Only the secret NAME and its JSON keys may appear. A PLAINTEXT
+    // variable, or a resolved value, would put the token in CloudFormation.
+    const template = synthWithDockerHub();
+    const json = JSON.stringify(template.toJSON());
+    expect(json).toContain(`${DOCKER_HUB_SECRET}:accessToken`);
+    expect(json).not.toContain('dckr_pat');
+    expect(json).not.toMatch(/"Name":\s*"DOCKERHUB_ACCESS_TOKEN",\s*"Type":\s*"PLAINTEXT"/);
+    const resources = (template.toJSON() as { Resources: Record<string, { Properties?: Record<string, unknown> }> })
+      .Resources;
+    const project = Object.values(resources).find(
+      (r) => r.Properties?.['Source']?.['Type'] === 'NO_SOURCE',
+    );
+    const variables = (
+      project!.Properties!['Environment'] as { EnvironmentVariables: { Name: string; Type?: string }[] }
+    ).EnvironmentVariables;
+    for (const variable of variables) {
+      if (!variable.Name.startsWith('DOCKERHUB_')) continue;
+      expect(variable.Type).toBe('SECRETS_MANAGER');
+    }
+  });
+
+  it('grants the build role GetSecretValue on that one secret and nothing more', () => {
+    const template = synthWithDockerHub();
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'secretsmanager:GetSecretValue',
+            Effect: 'Allow',
+            Resource: {
+              'Fn::Join': ['', Match.arrayWith([`:secret:${DOCKER_HUB_SECRET}-??????`])],
+            },
+          }),
+        ]),
+      },
+    });
+    // No blanket secret access, and no write or rotation actions.
+    const json = JSON.stringify(template.toJSON());
+    expect(json).not.toContain('secretsmanager:*');
+    expect(json).not.toContain('secretsmanager:PutSecretValue');
+    expect(json).not.toContain('secretsmanager:UpdateSecret');
+    expect(json).not.toContain('secretsmanager:DescribeSecret');
+  });
+
+  it('authenticates to Docker Hub before ECR and before the image build', () => {
+    const spec = buildSpecOf(synthWithDockerHub());
+    const dockerHubLogin = spec.indexOf('--password-stdin docker.io');
+    const ecrLogin = spec.indexOf('get-login-password');
+    const imageBuild = spec.indexOf('docker build');
+    expect(dockerHubLogin).toBeGreaterThan(-1);
+    expect(dockerHubLogin).toBeLessThan(ecrLogin);
+    expect(ecrLogin).toBeLessThan(imageBuild);
+  });
+
+  it('passes the token on stdin and never echoes a credential', () => {
+    const spec = buildSpecOf(synthWithDockerHub());
+    expect(spec).toContain('--password-stdin');
+    // `docker login --password <token>` would put the token in the process
+    // list and in the command text CodeBuild prints.
+    expect(spec).not.toContain('--password "$DOCKERHUB_ACCESS_TOKEN"');
+    expect(spec).not.toContain('set -x');
+    // The only `echo` of the token pipes it into stdin; nothing prints it.
+    expect(spec).not.toContain('echo "Docker Hub token: ');
+    expect(spec).not.toContain('echo $DOCKERHUB_ACCESS_TOKEN');
+  });
+
+  it('fails the build early when a credential is missing', () => {
+    const spec = buildSpecOf(synthWithDockerHub());
+    expect(spec).toContain('if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_ACCESS_TOKEN" ]');
+    expect(spec).toContain('Docker Hub credentials are not available to this build');
+  });
+
+  it('logs out of Docker Hub in a finally block that cannot mask the result', () => {
+    const spec = buildSpecOf(synthWithDockerHub());
+    expect(spec).toContain('build:finally docker logout docker.io > /dev/null 2>&1 || true');
+    // A logout that ran as an ordinary command would replace the build's own
+    // failure with its own, and would not run at all when the build failed.
+    expect(spec).not.toContain('build:commands docker logout');
+  });
+
+  it('leaves the pipeline unchanged when no Docker Hub secret is configured', () => {
+    // The wiring must be inert until the secret exists in this region:
+    // CodeBuild resolves a SECRETS_MANAGER variable at build START, so a
+    // name that does not resolve would fail every build.
+    const { template } = synth();
+    const json = JSON.stringify(template.toJSON());
+    expect(json).not.toContain('DOCKERHUB_USERNAME');
+    expect(json).not.toContain('DOCKERHUB_ACCESS_TOKEN');
+    expect(json).not.toContain('secretsmanager:GetSecretValue');
+    expect(buildSpecOf(template)).not.toContain('docker.io');
+  });
+
+  it('retries a rate-limited image build at 1, 3 and 8 minutes', () => {
+    const spec = buildSpecOf(synth().template);
+    expect(spec).toContain('for retry_delay in 60 180 480 last');
+    expect(spec).toContain('sleep "$retry_delay"');
+  });
+
+  it('retries only a registry rate limit, never an ordinary build error', () => {
+    const spec = buildSpecOf(synth().template);
+    // The loop breaks out on the first attempt unless the log carries a
+    // rate-limit signature, so a broken Dockerfile still fails in one pass.
+    expect(spec).toContain('toomanyrequests|429 Too Many Requests|pull rate limit');
+    expect(spec).toContain('echo failed > /tmp/deployz-build-outcome; break; fi');
+  });
+
+  it('reports a rate limit and an ordinary failure as different commands', () => {
+    // CodeBuild reports the FAILING COMMAND'S text as the phase context, and
+    // the control plane classifies from that text. One command that failed
+    // for both causes would carry its own rate-limit search pattern into
+    // every ordinary build failure.
+    const spec = buildSpecOf(synth().template);
+    expect(spec).toContain('Docker Hub rate limit (HTTP 429) blocked the base image download');
+    expect(spec).toContain('The image build did not produce an image');
+    const retryLoop = spec.indexOf('for retry_delay in');
+    const rateLimitExit = spec.indexOf('Docker Hub rate limit (HTTP 429)');
+    expect(retryLoop).toBeLessThan(rateLimitExit);
+  });
+
   it('accepts custom timeout', () => {
     const app = new App();
     const stack = new Stack(app, 'CustomTimeout', {

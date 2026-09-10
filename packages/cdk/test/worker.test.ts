@@ -489,6 +489,71 @@ describe('worker handler', () => {
     expect(failed[0]!.result).toBe('failure');
   });
 
+  // A metered base-image pull says nothing about the repository. Recorded as
+  // a plain build failure it blames an application that builds perfectly
+  // well an hour later — the false verdict the corpus run collected twice.
+  it('records build_registry_rate_limited when the registry metered the pull', async () => {
+    const release = await insertRelease('v2.1.6');
+
+    await recordBuildResult(db, {
+      ...buildEvent(release.id, 'FAILED'),
+      detail: {
+        ...buildEvent(release.id, 'FAILED').detail,
+        'additional-information': {
+          environment: { 'environment-variables': [{ name: 'RELEASE_ID', value: release.id }] },
+          phases: [
+            {
+              'phase-type': 'BUILD',
+              'phase-status': 'FAILED',
+              'phase-context': [
+                'COMMAND_EXECUTION_ERROR: Error while executing command: if [ "$(cat /tmp/deployz-build-outcome)" = rate_limited ]; then echo "Docker Hub rate limit (HTTP 429) blocked the base image download" >&2; exit 1; fi. Reason: exit status 1',
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const failed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_failed'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.payload).toMatchObject({ failureCode: 'build_registry_rate_limited' });
+  });
+
+  // The rate-limit branch must not swallow ordinary build errors — the
+  // buildspec keeps the two on separate commands for exactly this reason.
+  it('still records build_failed for an ordinary image-build error', async () => {
+    const release = await insertRelease('v2.1.7');
+
+    await recordBuildResult(db, {
+      ...buildEvent(release.id, 'FAILED'),
+      detail: {
+        ...buildEvent(release.id, 'FAILED').detail,
+        'additional-information': {
+          environment: { 'environment-variables': [{ name: 'RELEASE_ID', value: release.id }] },
+          phases: [
+            {
+              'phase-type': 'BUILD',
+              'phase-status': 'FAILED',
+              'phase-context': [
+                'COMMAND_EXECUTION_ERROR: Error while executing command: if [ "$(cat /tmp/deployz-build-outcome)" != ok ]; then echo "The image build did not produce an image" >&2; exit 1; fi. Reason: exit status 1',
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const failed = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'release.build_failed'), eq(schema.eventLogs.releaseId, release.id)));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.payload).toMatchObject({ failureCode: 'build_failed' });
+  });
+
   it('records build_cancelled when CodeBuild reports STOPPED', async () => {
     const release = await insertRelease('v2.1.5');
 
