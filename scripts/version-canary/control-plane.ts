@@ -399,7 +399,14 @@ export async function waitFor<T, R>(
   label: string,
   read: () => Promise<T>,
   done: (value: T) => R | null | undefined,
-  options: { timeoutMs: number; intervalMs?: number; describe?: (value: T) => string },
+  options: {
+    timeoutMs: number;
+    intervalMs?: number;
+    describe?: (value: T) => string;
+    /** Runs between polls — used to nudge the relay so a teardown that is
+     *  merely waiting for its next scheduled tick does not idle. */
+    onTick?: () => Promise<void>;
+  },
 ): Promise<R> {
   const started = Date.now();
   const interval = options.intervalMs ?? 20_000;
@@ -423,6 +430,7 @@ export async function waitFor<T, R>(
       );
     }
     await sleep(interval);
+    if (options.onTick) await options.onTick();
   }
 }
 

@@ -10,6 +10,7 @@
  */
 import {
   auditLeaks,
+  invokeRelay,
   deleteEcrTags,
   deleteLogGroupIfExists,
   deleteS3Prefix,
@@ -26,11 +27,48 @@ import { ECR_REPOSITORY } from './steps.js';
 
 const MINUTE = 60_000;
 
+
+/**
+ * Nudges the relay between polls while a teardown is in flight.
+ *
+ * Disconnect and Purge are executed inside the customer account by a relay
+ * that runs on a 5-minute EventBridge schedule, and Purge sweeps one orphan
+ * kind per poll — so most of a teardown's wall clock is waiting for the next
+ * tick, not for AWS. An extra out-of-schedule tick costs nothing and changes
+ * nothing about what runs: it is the same handler the schedule invokes.
+ *
+ * The invocation is synchronous (`RequestResponse`), so these nudges cannot
+ * overlap each other. Only teardown is nudged — the deploy and rollback
+ * ladder stays driven by the real schedule, so the canary keeps proving that
+ * a scheduled poll delivers release work.
+ *
+ * Returns undefined when the run recorded no relay function, which is the
+ * case for a run that never got that far.
+ */
+export function relayFunctionName(bootstrapLambdaNames: readonly string[] = []): string | undefined {
+  return bootstrapLambdaNames.find((n) => n.includes('RelayFunction'));
+}
+
+function relayNudge(canary: Canary): (() => Promise<void>) | undefined {
+  const name = relayFunctionName(canary.evidence.run.bootstrapLambdaNames ?? []);
+  if (!name) return undefined;
+  return async () => {
+    try {
+      await invokeRelay(canary.config.region, name);
+    } catch {
+      // The connector may already be gone, or the function mid-delete. The
+      // schedule is still the mechanism of record; a failed nudge is not a
+      // teardown failure.
+    }
+  };
+}
+
 export async function destroyThroughProduct(canary: Canary): Promise<void> {
   const { evidence, api } = canary;
   const deploymentId = evidence.run.deploymentId;
   if (!deploymentId) return;
 
+  const nudge = relayNudge(canary);
   await evidence.step('Disconnect (DESTROY) through the product', async (details) => {
     const current = await api.getDeployment(deploymentId);
     if (current.state === 'DELETED') {
@@ -48,7 +86,7 @@ export async function destroyThroughProduct(canary: Canary): Promise<void> {
       // A Disconnect that retains RDS goes DELETE_FAILED twice (the retained
       // instance's ENI blocks the subnet, then the security group) before the
       // relay's retain-resources retries finish it — observed at 45+ minutes.
-      { timeoutMs: 80 * MINUTE, describe: describeDeployment },
+      { timeoutMs: 80 * MINUTE, describe: describeDeployment, ...(nudge ? { onTick: nudge } : {}) },
     );
     const destroyJob = [...settled.jobs].reverse().find((j) => j.type === 'DESTROY');
     details['destroyJob'] = destroyJob ? { id: destroyJob.id, state: destroyJob.state, failureCode: destroyJob.failureCode, result: destroyJob.result } : null;
@@ -77,7 +115,7 @@ export async function destroyThroughProduct(canary: Canary): Promise<void> {
       // A default-HTTPS install's purge sweeps one orphan kind per 5-minute
       // relay poll after the retained database is gone — observed at ~95
       // minutes end to end. Giving up earlier leaves the relay mid-sweep.
-      { timeoutMs: 120 * MINUTE, describe: describeDeployment },
+      { timeoutMs: 120 * MINUTE, describe: describeDeployment, ...(nudge ? { onTick: nudge } : {}) },
     );
     const purgeJob = [...settled.jobs].reverse().find((j) => j.type === 'PURGE');
     details['purgeJob'] = purgeJob ? { id: purgeJob.id, state: purgeJob.state, failureCode: purgeJob.failureCode, result: purgeJob.result } : null;

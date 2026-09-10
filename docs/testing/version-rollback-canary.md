@@ -150,6 +150,18 @@ live app (`/version`, `/health`, markers) sampled several times.
 Browser refresh/close during a deploy needs no special step: every page
 reads state from the API, which is what these assertions poll.
 
+## Teardown pacing
+
+Disconnect and Purge are executed by the relay inside the customer account,
+on its 5-minute EventBridge schedule, and Purge sweeps one orphan kind per
+poll — so most of a teardown's wall clock is waiting for the next tick. The
+teardown steps therefore invoke the relay once between polls (the same
+handler the schedule invokes, synchronously, so nudges cannot overlap).
+
+The deploy and rollback ladder is deliberately NOT nudged: the canary keeps
+proving that a scheduled poll delivers release work. Enrollment and the
+resilience scenario's missed-poll test cover the schedule itself.
+
 ## Evidence
 
 `canary-results/<run-id>/run.json` (identities, releases, jobs, steps),
