@@ -5,8 +5,10 @@
  * removes the running application while RETAINING the database, stored
  * files, and backups; PURGE removes those retained leftovers too — the
  * database instance, the database's retained credential secrets (Phase 9),
- * stored files, the cache, plus the bootstrap/relay stack itself. It only
- * ever runs for a deployment whose vendor typed its name to confirm, and
+ * stored files, the cache, and the VPC network orphans. The bootstrap/relay
+ * stack is NOT removed by purge — the relay lacks the IAM grants to delete
+ * its own execution role (CANARY-014). It only ever runs for a deployment
+ * whose vendor typed its name to confirm, and
  * only after the control plane accepted the request (deployment already
  * DELETED with SKIPPED_RELAY_OFFLINE leftovers).
  *

@@ -115,8 +115,10 @@ Per-area live paths (control-plane → relay, with the job channel between):
   then `verifyInstallation` (`src/verify.ts`) independently confirms stack +
   resources before `success:true`. Long creates are deferred into the SSM
   pending-command record and re-settled each poll by `createInstallResumer`.
-  Result → `POST /api/relay/commands/:id/result` → job `SUCCEEDED`,
-  deployment `HEALTHY`. First-install failure recovery
+Result → `POST /api/relay/commands/:id/result` → job `SUCCEEDED`,
+   deployment stays `INSTALLING`. Only the relay heartbeat's health
+   verification (`createObserveHook`, health/digest/rollout gates) advances
+   the deployment to `HEALTHY`. First-install failure recovery
   (`src/recover.ts`) on the vendor `retry-install` route.
 - **DEPLOY_RELEASE** — `POST /api/deployments/:id/deploy` (or
   `deploy-bulk` fan-out) → `requireDeployableRelease` builds the payload
@@ -147,9 +149,11 @@ Per-area live paths (control-plane → relay, with the job channel between):
   (`createDestroyResumer`). Success sets deployment `DELETED` and force-
   removes any dangling custom-domain row.
 - **Purge** — `POST /api/deployments/:id/purge` → `PURGE` job →
-  `createPurgeExecutor` (`src/purge.ts`): tag-refusal guard, removes
-  retained resources (RDS/cache/S3 leftovers) and finally the bootstrap
-  stack itself, deferred while deletions are in flight. Success sets
+`createPurgeExecutor` (`src/purge.ts`): tag-refusal guard, removes
+   retained resources (RDS/cache/S3 leftovers), deferred while deletions
+   are in flight. The bootstrap stack is NOT removed by purge — it is
+   customer-deleted via CloudFormation console (the relay lacks the IAM
+   grants to delete its own execution role). Success sets
   `cleanupState: 'COMPLETE'` (deployment stays `DELETED`).
 
 Supporting live machinery: unified status derivation

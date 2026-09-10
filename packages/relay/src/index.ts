@@ -1388,10 +1388,12 @@ function deployResumerDeps(installationId: string): EcsDeployDeps {
 /**
  * Default executors for the command vocabulary.
  *
- * ⚠️ FOUR OF THESE ARE STILL STUBS: REPORT_HEALTH, CONFIG_UPDATE, DESTROY,
- * MIGRATE and REFRESH_METADATA each log and report success without touching
- * the customer's account. The real implementations — config propagation,
- * stack deletion, migrations — are the remaining half of the product.
+ * ⚠️ THREE OF THESE ARE STILL STUBS: REPORT_HEALTH, MIGRATE and
+ * REFRESH_METADATA each log and report success without touching the
+ * customer's account. CONFIG_UPDATE and DESTROY are implemented:
+ * CONFIG_UPDATE propagates configuration via createConfigUpdateExecutor
+ * (./config-update.ts), DESTROY removes the application stack via
+ * createDestroyExecutor (./destroy.ts).
  *
  * INSTALL is now real: it creates the published application template as a
  * CloudFormation stack, watches it to a terminal state, and reports what

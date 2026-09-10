@@ -1,5 +1,12 @@
 # Deployz — Project Brief
 
+> **⚠️ HISTORICAL DOCUMENT — LIVE SOURCE OF TRUTH IS `docs/architecture.md`**
+>
+> This document captures the pre-MVP discovery and design thinking. Sections
+> that no longer match the implemented product are marked with a
+> **[SUPERSEDED]** banner. For the current architecture, deployment lifecycle,
+> and MVP boundary, see `docs/architecture.md` and `docs/deployment-resilience.md`.
+
 ## 1. Product Summary
 
 **Working name:** Deployz
@@ -363,6 +370,10 @@ Not AWS implementation details.
 
 # 9. MVP Application Contract
 
+> **⚠️ [SUPERSEDED]** See `docs/architecture.md` for the live MVP boundary.
+> The background worker was deferred (Option B) — an app declaring a worker
+> is NOT_COMPATIBLE. Only one main web/API service is supported.
+
 An application is supported only when it meets the Deployz Application Contract.
 
 ## Compute
@@ -372,7 +383,7 @@ MVP supports:
 - Linux containers
 - x86-64
 - One main web/API service
-- Optional background worker
+- ~~Optional background worker~~ *(deferred — see banner above)*
 - HTTP/HTTPS applications
 - Stateless application containers
 
@@ -1040,6 +1051,10 @@ Actions:
 
 # 25. Upgrade Workflow
 
+> **⚠️ [SUPERSEDED]** The preflight stage in this flow does not exist in the
+> live product. See `docs/architecture.md` §7 (Deploy Release) and
+> `docs/deployment-resilience.md` for the actual deploy flow.
+
 Vendor selects customers and clicks:
 
 **Deploy version 1.5**
@@ -1170,6 +1185,11 @@ This architecture is preferable to simply sending raw logs to an LLM.
 ---
 
 # 30. Preflight Checks
+
+> **⚠️ [SUPERSEDED]** The live product does not implement a preflight stage.
+> The manifest gate and readiness warnings are enforced server-side at
+> deployment creation (see `docs/architecture.md` §4). Runtime checks happen
+> during install and deploy operations, not as a separate preflight phase.
 
 Preventing failures is significantly cheaper than diagnosing them.
 
@@ -1582,6 +1602,10 @@ Eventually this can become a reusable security document vendors send to customer
 
 # 46. Deployment States
 
+> **⚠️ [SUPERSEDED]** `DISCONNECTED` is dead vocabulary — it was removed from
+> the state machine. The live state model and status derivation are documented
+> in `docs/architecture.md` and `docs/deployment-resilience.md`.
+
 Use simple product terminology.
 
 Main states:
@@ -1593,7 +1617,7 @@ Healthy
 Updating
 Update Available
 Failed
-Disconnected
+~~Disconnected~~ *(removed — see banner above)*
 Deleting
 Deleted
 ```
