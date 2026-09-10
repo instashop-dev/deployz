@@ -965,8 +965,9 @@ boundary.
 ## DEPLOY-018 — The build pulls base images from Docker Hub anonymously, so builds fail with HTTP 429
 
 **Stage** BUILD_ERROR · **Root cause** DEPLOYZ_BUG (build infrastructure) ·
-**Resolution** FIXED in code (option 1), and turned on per deployment ·
-**Found** 2026-09-09, repo-008 attempt 1 of the 2-repository pilot.
+**Resolution** FIXED (option 1), live in production and verified on real
+AWS 2026-09-10 · **Found** 2026-09-09, repo-008 attempt 1 of the
+2-repository pilot.
 
 **Behaviour.** The CodeBuild buildspec authenticates to ECR only
 (`aws ecr get-login-password ... | docker login ...`). There is no
@@ -1027,6 +1028,12 @@ same change:
 The wiring is opt-in per deployment (`DOCKERHUB_SECRET_NAME`), because
 CodeBuild resolves the secret at build start and an unresolvable name would
 fail every build.
+
+**Verified on real AWS 2026-09-10.** A build against a `FROM node:22-slim`
+Dockerfile — the image repo-007 was refused with — logged in to Docker Hub,
+pulled without a 429, and pushed
+`sha256:85f6d505d248c2280bc838a1c77a37902ce6eff51cfe8518f869cf178a3f46f2`
+to ECR. The build log carries no credential.
 
 Option 2, the ECR pull-through cache, stays post-MVP. It is worth revisiting
 once corpus runs are routine, since it removes the repeated upstream pulls

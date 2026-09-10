@@ -52,6 +52,20 @@ DOCKERHUB_SECRET_NAME=deployz-codebuild pnpm --filter @deployz/cdk exec cdk depl
 neither, the pipeline synthesizes exactly as it did before: no credential
 environment variables, no Secrets Manager policy, and anonymous pulls.
 
+In production the name comes from the repository variable
+`DOCKERHUB_SECRET_NAME`, read by `.github/workflows/deploy-api.yml`.
+
+**To turn it off again** — the rollback if a credential stops working, since
+a failed login fails every build in `pre_build`:
+
+```bash
+gh variable delete DOCKERHUB_SECRET_NAME
+gh workflow run deploy-api.yml --ref main
+```
+
+The next deploy removes both environment variables and the Secrets Manager
+statement, and builds return to anonymous pulls. Verified 2026-09-10.
+
 > Deploying the control-plane stack from a workstation can revert other
 > production configuration. Read the deploy notes before running it.
 
@@ -114,8 +128,32 @@ where it enters the shell history.
 
 ## When a build fails
 
-**`Logging in to Docker Hub...` then a login error.** The token is wrong,
-revoked or expired. Rotate it as above.
+**`unauthorized: incorrect username or password`.** Check `username` before
+the token — it is the field that is usually wrong.
+
+`username` must be the **Docker Hub account name**, the one in
+`hub.docker.com/u/<name>`. It is **not**:
+
+- the name or description given to the access token in Docker Hub. Docker
+  Hub lists tokens with a Description column; that is a label, not a login
+  identity. Enabling this the first time failed twice for exactly this
+  reason — the stored username was the token's description.
+- an organisation name. An organisation cannot log in; use the account of a
+  member that owns the token.
+- an email address.
+
+Prove the pair outside the pipeline before wiring it up — it takes seconds
+and avoids a deploy cycle with every release build failing:
+
+```bash
+docker login -u <account name> docker.io
+```
+
+Paste the `dckr_pat_…` token at the password prompt. Only put a pair that
+prints `Login Succeeded` into the secret.
+
+If the username is right, the token is wrong, revoked or expired. Rotate it
+as above.
 
 **The build fails before any command output.** CodeBuild could not resolve
 the environment variables: the secret is missing, is in another region, is
