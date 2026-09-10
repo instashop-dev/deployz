@@ -523,6 +523,13 @@ describe('releaseBuildFailureSummary (Phase 8)', () => {
     const cases: [string | null, string][] = [
       ['CodeBuild reported FAILED — POST_BUILD: COMMAND_EXECUTION_ERROR: docker push denied', 'The version was built but could not be stored in the image registry.'],
       ['CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build', 'The version could not be built from the repository.'],
+      // A metered base-image pull is not the application's fault, so it must
+      // not read as one. It is tested against the BUILD phase context it
+      // really arrives with, which would otherwise match the generic branch.
+      [
+        'CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ "$(cat /tmp/deployz-build-outcome)" = rate_limited ]; then echo "Docker Hub rate limit (HTTP 429) blocked the base image download" >&2; exit 1; fi',
+        'The container registry temporarily limited image downloads. Start the build again in a few minutes.',
+      ],
       ['CodeBuild reported TIMED_OUT', 'The version build ran out of time.'],
       ['CodeBuild reported FAILED — DOWNLOAD_SOURCE: CLIENT_ERROR', 'The build could not fetch the repository.'],
       ['CodeBuild reported FAILED — PROVISIONING: fault', 'The build could not start.'],

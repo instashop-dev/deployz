@@ -101,6 +101,14 @@ jobs:
       # deployz-templates-<region> bucket has a verified bootstrap template.
       DEPLOYABLE_AWS_REGIONS: ${{ vars.DEPLOYABLE_AWS_REGIONS }}
 
+      # Name of the Secrets Manager secret holding the Docker Hub credential
+      # the release build authenticates with (docs/docker-hub-credentials.md).
+      # Set it only once that secret exists in the control-plane region:
+      # CodeBuild resolves the value when a build STARTS, so a name it cannot
+      # resolve fails every build. Unset — today's state — leaves base-image
+      # pulls anonymous, which is what Docker Hub meters per source address.
+      DOCKERHUB_SECRET_NAME: ${{ vars.DOCKERHUB_SECRET_NAME }}
+
       # Paddle billing (Phase 5). Optional in production too, mirroring
       # env.ts: the Paddle catalog (Phase 4) does not exist yet, so these
       # cannot be in the unconditional completeness gate below without

@@ -124,6 +124,18 @@ export class DeployzStack extends Stack {
       enforceSSL: true,
       lifecycleRules: [{ expiration: Duration.days(30) }],
     });
+    // Set once the Docker Hub credential exists in THIS stack's region (see
+    // docs/docker-hub-credentials.md). Deliberately opt-in: CodeBuild
+    // resolves the secret when a build STARTS, so a name it cannot resolve
+    // fails every build, and an unset value keeps today's anonymous pulls
+    // instead. An unset GitHub Actions variable arrives as an EMPTY STRING
+    // rather than an absent one, which is exactly that unresolvable name —
+    // so empty counts as unset.
+    const dockerHubSecretName = [
+      this.node.tryGetContext('dockerHubSecretName') as string | undefined,
+      process.env.DOCKERHUB_SECRET_NAME,
+    ].find((value) => value !== undefined && value.trim().length > 0);
+
     const buildPipeline = new BuildPipeline(this, 'BuildPipeline', {
       // exactOptionalPropertyTypes: the concrete Bucket's optional members are
       // narrower than IBucket's, so the interface type has to be asserted.
@@ -132,6 +144,7 @@ export class DeployzStack extends Stack {
       // builder and could brush the default 30-minute timeout.
       computeType: ComputeType.LARGE,
       timeoutMinutes: 60,
+      ...(dockerHubSecretName === undefined ? {} : { dockerHubSecretName }),
     });
 
     // ── Public template bucket ───────────────────────────────────────────

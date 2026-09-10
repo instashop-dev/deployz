@@ -963,6 +963,11 @@ export const AI_EXPLANATION_SOURCE_NOTE = 'Explained by Deployz from the failure
  */
 export function releaseBuildFailureSummary(reason: string | null): string {
   const text = (reason ?? '').toLowerCase();
+  // Before the timeout test: a rate-limited build is not the application's
+  // fault and must not read as one. The build already retried on its own.
+  if (/rate limit \(http 429\)/.test(text)) {
+    return 'The container registry temporarily limited image downloads. Start the build again in a few minutes.';
+  }
   if (/timed_out|timed out|timeout/.test(text)) return 'The version build ran out of time.';
   if (/download_source|could not fetch|clone/.test(text)) return 'The build could not fetch the repository.';
   if (/post_build|docker push|denied: requested access|upload_artifacts/.test(text)) {

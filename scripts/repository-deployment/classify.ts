@@ -143,6 +143,13 @@ export function classifyFailure(evidence: FailureEvidence): ClassifiedFailure {
   if (point === 'build') {
     const reason = evidence.releaseFailure ?? evidence.message;
     if (evidence.timedOut) return { failureStage: 'TIMEOUT', rootCause: null, rootCauseEvidence: `build did not settle: ${trim(reason)}` };
+    // A metered base-image pull is a time window on a shared address, not a
+    // statement about the repository. Left to the generic branch below it
+    // records the application as unbuildable, which the corpus then carries
+    // as a false verdict.
+    if (/rate limit \(HTTP 429\)/i.test(reason)) {
+      return { failureStage: 'BUILD_ERROR', rootCause: 'AWS_TRANSIENT_FAILURE', rootCauseEvidence: `${trim(reason)} — the container registry metered the base image pull; rerun the repository` };
+    }
     if (/tarball|fetch repo|No GitHub installation|HTTP 404|HTTP 403/i.test(reason)) {
       return { failureStage: 'SOURCE_FETCH_ERROR', rootCause: null, rootCauseEvidence: `${trim(reason)} — decide TEST_HARNESS_FAILURE (repository access) vs DEPLOYZ_BUG` };
     }
