@@ -212,6 +212,13 @@ infrastructure**; any failure fixes the root cause and restarts the count.
   (undeclared parameters are dropped); republish the bootstrap template.
 - **Release build FAILED** — the release's `failureReason` names the
   CodeBuild phase; the fixture builds from its own directory.
+- **`live /version answered , expected vN` while every other layer is
+  green** — the probe could not read the app at all. The canary probes the
+  URL the control plane advertises (`appUrl`), falling back to the ALB
+  endpoint recorded at install. Before that fallback existed, the default
+  HTTPS flow's 301 on the ALB's port-80 listener (which preserves `#{host}`)
+  redirected the raw ALB DNS name to itself over TLS, where the certificate
+  covers only `d-<deployment>.deployz.dev`.
 - **Failed-release step exceeds 50 minutes** — the ECS circuit breaker needs
   several task launches; check the deploy job's `reconcileCount` and the
   relay log group for repeated `UpdateService` calls (hypothesis H1 in the

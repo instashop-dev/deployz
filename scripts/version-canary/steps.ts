@@ -450,6 +450,31 @@ export async function waitForPointer(canary: Canary, tag: string, timeoutMs = 12
   );
 }
 
+/**
+ * Base URL to probe the running application on.
+ *
+ * `albEndpoint` is captured once, at install. The default-HTTPS flow then
+ * switches the ALB's port-80 listener to a 301 that preserves `#{host}`, so
+ * the raw ALB DNS name redirects to itself over TLS — where the certificate
+ * covers `d-<deployment>.deployz.dev` only. Every probe of the recorded
+ * endpoint fails hostname verification after that and reads as "the app
+ * answered nothing" (observed on real AWS: job SUCCEEDED, ECS rollout
+ * COMPLETED, ALB targets healthy, live /version empty).
+ *
+ * Probe the URL the product advertises to the customer instead, and keep the
+ * ALB endpoint as the fallback for before a domain is configured.
+ */
+export function probeBaseUrl(appUrl: string | null | undefined, albEndpoint: string | undefined): string {
+  const base = appUrl ?? albEndpoint;
+  assert(base, 'no endpoint to probe the application on');
+  return base;
+}
+
+async function liveBaseUrl(canary: Canary, detail?: DeploymentDetail): Promise<string> {
+  const current = detail ?? (await canary.api.getDeployment(canary.evidence.run.deploymentId!));
+  return probeBaseUrl(current.appUrl, canary.evidence.run.albEndpoint);
+}
+
 export async function assertServing(canary: Canary, expected: ExpectedState, details: Record<string, unknown>): Promise<DeploymentDetail> {
   const { config, evidence, api } = canary;
   const release = evidence.run.releases[expected.serving];
@@ -492,8 +517,9 @@ export async function assertServing(canary: Canary, expected: ExpectedState, det
   assert(targets.length > 0 && targets.every((t) => t === 'healthy'), `ALB targets: ${targets.join(', ')}`);
 
   // Live layer.
-  const live = await sampleLiveApp(evidence.run.albEndpoint!);
-  details['live'] = { versions: live.versions, healthStatuses: live.healthStatuses };
+  const baseUrl = await liveBaseUrl(canary, detail);
+  const live = await sampleLiveApp(baseUrl);
+  details['live'] = { baseUrl, versions: live.versions, healthStatuses: live.healthStatuses };
   assert(live.versions.length === 1 && live.versions[0] === expected.serving, `live /version answered ${live.versions.join(', ')}, expected ${expected.serving}`);
   assert(live.healthStatuses.length === 1 && live.healthStatuses[0] === 200, `live /health answered ${live.healthStatuses.join(', ')}`);
   const expectedCommit = evidence.run.fixtureTags?.[expected.serving]?.contentSha;
@@ -644,10 +670,11 @@ export async function seedMarker(canary: Canary, name: string): Promise<string> 
   const { config, evidence } = canary;
   const key = `${name}_${config.runId}`;
   await evidence.step(`Seed persistent data ${key} through the running application`, async (details) => {
-    const live = await probeLiveApp(evidence.run.albEndpoint!);
-    const written = await writeMarker(evidence.run.albEndpoint!, key, live.version?.version ?? 'unknown');
+    const baseUrl = await liveBaseUrl(canary);
+    const live = await probeLiveApp(baseUrl);
+    const written = await writeMarker(baseUrl, key, live.version?.version ?? 'unknown');
     details['written'] = written;
-    const read = await readMarker(evidence.run.albEndpoint!, key);
+    const read = await readMarker(baseUrl, key);
     details['read'] = read;
     assert(read && read['key'] === key, `marker ${key} not readable after write`);
     evidence.run.markers.push(key);
@@ -658,9 +685,10 @@ export async function seedMarker(canary: Canary, name: string): Promise<string> 
 
 export async function assertMarkers(canary: Canary, details: Record<string, unknown>): Promise<void> {
   const { evidence } = canary;
+  const baseUrl = await liveBaseUrl(canary);
   const found: Record<string, unknown> = {};
   for (const key of evidence.run.markers) {
-    const record = await readMarker(evidence.run.albEndpoint!, key);
+    const record = await readMarker(baseUrl, key);
     assert(record, `persistent marker ${key} is gone`);
     found[key] = record;
   }
