@@ -3,7 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { isTerminalJobState, waitFor } from './control-plane.js';
 import { renderSummary, type RunRecord } from './evidence.js';
-import { assertSameInfrastructure, parseQuickCreateUrl, probeBaseUrl, type InfraSnapshot } from './steps.js';
+import {
+  assertSameInfrastructure,
+  assertTargetsServing,
+  parseQuickCreateUrl,
+  probeBaseUrl,
+  type InfraSnapshot,
+} from './steps.js';
 import { probeLiveApp, writeMarker } from './app.js';
 import { liveNatGateways } from './aws.js';
 
@@ -293,5 +299,24 @@ describe('leak audit: NAT gateways', () => {
   it('still reports one the account really holds — it costs about $32/month', async () => {
     const left = await liveNatGateways('us-east-1', [arn('nat-live')], async () => 'available');
     expect(left).toEqual([arn('nat-live')]);
+  });
+});
+
+describe('ALB target health of a serving version', () => {
+  it('accepts a replaced task still draining after a rollout', () => {
+    // Real AWS, run 20260910-120851-9df9 step 18: the v3 deploy had FAILED,
+    // ECS had reverted to v2 and ran only the v2 digest, and the v3 task's
+    // target was still deregistering.
+    expect(() => assertTargetsServing(['healthy', 'draining'])).not.toThrow();
+    expect(() => assertTargetsServing(['initial', 'healthy'])).not.toThrow();
+  });
+
+  it('rejects a target that is still failing its health check', () => {
+    expect(() => assertTargetsServing(['healthy', 'unhealthy'])).toThrow('still unhealthy');
+  });
+
+  it('rejects a version nothing can reach', () => {
+    expect(() => assertTargetsServing(['draining'])).toThrow('none healthy');
+    expect(() => assertTargetsServing([])).toThrow('no targets');
   });
 });

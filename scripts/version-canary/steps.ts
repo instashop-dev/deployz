@@ -464,6 +464,51 @@ export async function waitForPointer(canary: Canary, tag: string, timeoutMs = 12
  * Probe the URL the product advertises to the customer instead, and keep the
  * ALB endpoint as the fallback for before a domain is configured.
  */
+/**
+ * ALB target health once the rollout's churn has settled.
+ *
+ * Every rollout — successful or circuit-breaker-reverted — leaves the
+ * replaced task's target `draining` for the deregistration delay, and a new
+ * one `initial` while it registers. Neither contradicts "this version is
+ * serving", but an `unhealthy` target that does not clear does. So poll
+ * until nothing is `unhealthy` and something is `healthy`, and let the
+ * assertion below judge whatever the window ends with.
+ */
+async function settledTargetHealth(region: string, stackName: string): Promise<string[]> {
+  const deadline = Date.now() + 4 * MINUTE;
+  let targets = await targetHealth(region, stackName);
+  while (Date.now() < deadline && !isServing(targets)) {
+    await sleep(15_000);
+    targets = await targetHealth(region, stackName);
+  }
+  return targets;
+}
+
+function isServing(targets: string[]): boolean {
+  return targets.some((t) => t === 'healthy') && !targets.some((t) => t === 'unhealthy');
+}
+
+/**
+ * The invariant a serving version must hold at the ALB: traffic reaches it,
+ * and nothing is stuck failing its health check. `draining` and `initial`
+ * are in-flight states of a rollout, not faults — requiring every target to
+ * be `healthy` failed a correct run whose replaced task was still draining
+ * (real AWS, run 20260910-120851-9df9, step 18: the v3 deploy had already
+ * FAILED, ECS had rolled back to v2 and ran only the v2 digest, and the ALB
+ * read `healthy, draining`).
+ */
+export function assertTargetsServing(targets: string[]): void {
+  assert(targets.length > 0, 'ALB has no targets');
+  assert(
+    targets.some((t) => t === 'healthy'),
+    `ALB targets: ${targets.join(', ')} — none healthy`,
+  );
+  assert(
+    !targets.some((t) => t === 'unhealthy'),
+    `ALB targets: ${targets.join(', ')} — a target is still unhealthy`,
+  );
+}
+
 export function probeBaseUrl(appUrl: string | null | undefined, albEndpoint: string | undefined): string {
   const base = appUrl ?? albEndpoint;
   assert(base, 'no endpoint to probe the application on');
@@ -512,9 +557,9 @@ export async function assertServing(canary: Canary, expected: ExpectedState, det
     digestSuffix(detail.runningImageDigest) === digestSuffix(release.imageDigest),
     `control plane observed digest ${detail.runningImageDigest}, expected ${release.imageDigest}`,
   );
-  const targets = await targetHealth(config.region, evidence.run.applicationStackName!);
+  const targets = await settledTargetHealth(config.region, evidence.run.applicationStackName!);
   details['targetHealth'] = targets;
-  assert(targets.length > 0 && targets.every((t) => t === 'healthy'), `ALB targets: ${targets.join(', ')}`);
+  assertTargetsServing(targets);
 
   // Live layer.
   const baseUrl = await liveBaseUrl(canary, detail);
