@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { BootstrapStack, IAM_MANAGED_POLICY_MAX_CHARS } from '../src/bootstrap/bootstrap-stack.js';
+import { readCredential } from '@deployz/relay/auth';
 
 import { withStableAssetHashes } from './stable-template.js';
 
@@ -723,6 +724,32 @@ it('creates two mutually exclusive credential secrets with conditions (DZ-AUDIT-
     expect(conditions).toBeDefined();
     expect(conditions!['HasRelayCredential']).toBeDefined();
     expect(conditions!['NoRelayCredential']).toBeDefined();
+  });
+
+  it('the server-established credential secret carries the shape the relay reads (DZ-AUDIT-013)', async () => {
+    const { template } = synth();
+    const fromParam = allResources(template)['RelayCredentialFromParam'];
+    expect(fromParam).toBeDefined();
+
+    // Resolve the template's Fn::Join the way CloudFormation does, with a
+    // credential shaped like the control plane's (32 random bytes, hex).
+    const credential = 'b3f3508d31'.padEnd(64, '0');
+    const join = fromParam!.Properties!['SecretString'] as {
+      'Fn::Join': [string, unknown[]];
+    };
+    const secretString = join['Fn::Join'][1]
+      .map((part) => (typeof part === 'string' ? part : credential))
+      .join(join['Fn::Join'][0]);
+
+    // Both secret variants are read through the relay's readCredential. A raw
+    // credential string here fails every install on the relay's first poll
+    // with relay:credential-read-failed, and no installation ever enrolls.
+    await expect(
+      readCredential(
+        { getSecretValue: async () => ({ SecretString: secretString }) },
+        'arn:aws:secretsmanager:us-east-1:111122223333:secret:RelayCredentialFromParam',
+      ),
+    ).resolves.toBe(credential);
   });
 
   it('the credential secret ARN in the relay Lambda env uses Fn::If (DZ-AUDIT-013)', () => {

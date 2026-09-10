@@ -279,7 +279,16 @@
       "Properties": {
         "Description": "Server-established relay communication credential. Value was minted by the control plane and delivered via the Quick Create URL.",
         "SecretString": {
-          "Ref": "RelayCredential"
+          "Fn::Join": [
+            "",
+            [
+              "{\"token\":\"",
+              {
+                "Ref": "RelayCredential"
+              },
+              "\"}"
+            ]
+          ]
         },
         "Tags": [
           {
@@ -1652,7 +1661,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "6633d84bf000c37d0b2ae6e1fa6e68a40e38ed404d9424c89b5add751629a178.zip"
+          "S3Key": "fabc0c56dfa74c9c62a9a8051841e486ea33a5f3a42731f748b2fc0e84ed8fb1.zip"
         },
         "Environment": {
           "Variables": {

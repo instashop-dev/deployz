@@ -85,8 +85,9 @@ export interface BootstrapStackProps extends StackProps {
   readonly applicationTemplateUrl?: string;
   /**
    * Server-established relay credential (DZ-AUDIT-013). When set, the stack
-   * uses this value as the SecretString instead of generating one via
-   * GenerateSecretString. Relay code reads the secret by name and is unchanged.
+   * stores this value as the secret's `token` field instead of generating one
+   * via GenerateSecretString. Relay code reads the secret by name and is
+   * unchanged — which is why both variants must carry the same JSON shape.
    */
   readonly relayCredential?: string;
 }
@@ -724,11 +725,20 @@ export class BootstrapStack extends Stack {
 
     // Secret from the server-established parameter — created when the
     // parameter is non-empty.
+    //
+    // The value is wrapped as `{"token": "<credential>"}`: the relay reads
+    // both secret variants through the same `readCredential`, which requires
+    // a JSON object with a `token` field (what `GenerateSecretString` below
+    // produces via secretStringTemplate + generateStringKey). Storing the
+    // raw parameter string here makes every install fail on the relay's
+    // first poll with `relay:credential-read-failed` and no enrollment ever
+    // happens. The credential is hex (`mintRelayCredential`), so it needs no
+    // JSON escaping.
     const cfnSecretFromParam = new CfnSecret(this, 'RelayCredentialFromParam', {
       description:
         'Server-established relay communication credential. Value was ' +
         'minted by the control plane and delivered via the Quick Create URL.',
-      secretString: relayCredentialParam.valueAsString,
+      secretString: Fn.join('', ['{"token":"', relayCredentialParam.valueAsString, '"}']),
       tags: credentialTags,
     });
     cfnSecretFromParam.cfnOptions.condition = hasRelayCredential;
