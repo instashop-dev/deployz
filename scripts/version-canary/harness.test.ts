@@ -5,6 +5,7 @@ import { isTerminalJobState, waitFor } from './control-plane.js';
 import { renderSummary, type RunRecord } from './evidence.js';
 import { assertSameInfrastructure, parseQuickCreateUrl, probeBaseUrl, type InfraSnapshot } from './steps.js';
 import { probeLiveApp, writeMarker } from './app.js';
+import { liveNatGateways } from './aws.js';
 
 describe('real-AWS guard', () => {
   it('refuses without the opt-in, with the shared refusal text', () => {
@@ -274,5 +275,23 @@ describe('live probes over the public internet', () => {
 
     await expect(writeMarker('https://d-abc.deployz.dev', 'K', 'v1')).rejects.toThrow('fetch failed');
     expect(posts).toBe(1);
+  });
+});
+
+describe('leak audit: NAT gateways', () => {
+  const arn = (id: string) => `arn:aws:ec2:us-east-1:151955775369:natgateway/${id}`;
+
+  it('ignores one the tagging index still lists after deletion', async () => {
+    // Real AWS, 2026-09-10: the audit reported nat-062a1224… as left behind
+    // and EC2 answered NatGatewayNotFound for it.
+    const left = await liveNatGateways('us-east-1', [arn('nat-deleted'), arn('nat-gone')], async (_r, id) =>
+      id === 'nat-deleted' ? 'deleted' : null,
+    );
+    expect(left).toEqual([]);
+  });
+
+  it('still reports one the account really holds — it costs about $32/month', async () => {
+    const left = await liveNatGateways('us-east-1', [arn('nat-live')], async () => 'available');
+    expect(left).toEqual([arn('nat-live')]);
   });
 });

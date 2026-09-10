@@ -303,6 +303,7 @@ export interface LeakAudit {
   readonly certificates: string[];
   readonly ecrTags: string[];
   readonly taskDefinitions: string[];
+  readonly natGateways: string[];
 }
 
 /**
@@ -399,6 +400,10 @@ export async function auditLeaks(
   }
 
   const taskDefinitions = installationTagged.filter((arn) => arn.includes(':task-definition/'));
+  const natGateways = await liveNatGateways(
+    region,
+    installationTagged.filter((arn) => arn.includes(':natgateway/')),
+  );
 
   return {
     installationTagged,
@@ -414,7 +419,48 @@ export async function auditLeaks(
     certificates,
     ecrTags,
     taskDefinitions,
+    natGateways,
   };
+}
+
+/**
+ * The subset of NAT gateway ARNs the account still actually holds.
+ *
+ * The tagging API keeps listing a NAT gateway for a while after its stack
+ * deleted it — the same lag it has for INACTIVE ECS resources. A deleted one
+ * costs nothing and is not a leak; a live one costs about $32/month and is,
+ * so this asks EC2 for the truth rather than trusting either the tag index
+ * or a blanket exception (real AWS, 2026-09-10: nat-062a1224… was reported
+ * as left behind and had in fact been deleted).
+ */
+export type NatGatewayStateReader = (region: string, id: string) => Promise<string | null>;
+
+/** Asks EC2 for one NAT gateway's state; `null` when it no longer exists. */
+async function readNatGatewayState(region: string, id: string): Promise<string | null> {
+  try {
+    const response = (await aws(['ec2', 'describe-nat-gateways', '--nat-gateway-ids', id], region)) as {
+      NatGateways: { NatGatewayId: string; State: string }[];
+    };
+    return response.NatGateways[0]?.State ?? null;
+  } catch (error) {
+    if (/NatGatewayNotFound/.test(String(error))) return null;
+    throw error;
+  }
+}
+
+export async function liveNatGateways(
+  region: string,
+  arns: string[],
+  read: NatGatewayStateReader = readNatGatewayState,
+): Promise<string[]> {
+  const live: string[] = [];
+  for (const arn of arns) {
+    const id = arn.split('/').pop();
+    if (!id) continue;
+    const state = await read(region, id);
+    if (state !== null && state !== 'deleted' && state !== 'deleting') live.push(arn);
+  }
+  return live;
 }
 
 // ── Canary-scoped cleanup helpers (ids only) ──────────────────────────────
