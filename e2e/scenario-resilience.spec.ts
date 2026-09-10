@@ -69,24 +69,31 @@ test.describe('duplicate-request', () => {
 
     const releaseId = await createRelease(request, installed.applicationId, '1.0.0');
 
+    // Create the other release BEFORE the concurrent deploys so the busy
+    // check can fire immediately when state is UPDATING (the simulated relay
+    // settles a deploy in under a poll cycle).
+    const otherReleaseId = await createRelease(request, installed.applicationId, '1.1.0');
+
     // Two requests for the SAME release racing each other: both are answered
     // (202 created / 200 replayed), both name the same job, and exactly one
     // deploy.requested event exists — one logical operation, one execution.
-    const [first, second] = await Promise.all([
+    // A DIFFERENT release fires CONCURRENTLY with the pair: the simulated
+    // relay settles a deploy in under a poll cycle (~25ms), so a sequential
+    // busy check cannot catch the window deterministically — fired together,
+    // the busy gate refuses while the first job is still the deployment's
+    // only active operation (route fast path, backed by the exclusivity
+    // index).
+    const [first, second, busy] = await Promise.all([
       request.post(`${API_URL}/api/deployments/${deploymentId}/deploy`, { data: { releaseId } }),
       request.post(`${API_URL}/api/deployments/${deploymentId}/deploy`, { data: { releaseId } }),
+      request.post(`${API_URL}/api/deployments/${deploymentId}/deploy`, {
+        data: { releaseId: otherReleaseId },
+      }),
     ]);
     expect([first.status(), second.status()].sort()).toEqual([200, 202]);
     const firstJob = ((await first.json()) as { jobId: string }).jobId;
     const secondJob = ((await second.json()) as { jobId: string }).jobId;
     expect(firstJob).toBe(secondJob);
-
-    // A DIFFERENT release while the first operation is active: refused with
-    // the busy gate, never a second concurrent mutation.
-    const otherReleaseId = await createRelease(request, installed.applicationId, '1.1.0');
-    const busy = await request.post(`${API_URL}/api/deployments/${deploymentId}/deploy`, {
-      data: { releaseId: otherReleaseId },
-    });
     expect(busy.status()).toBe(409);
     expect(((await busy.json()) as { error: { code: string } }).error.code).toBe('DEPLOYMENT_BUSY');
 
@@ -175,5 +182,76 @@ test.describe('relay-death-destroy', () => {
 
     const after = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(after.state).toBe('DELETING');
+
+    // The vendor force-complete gate refuses because the relay is still
+    // connected (dieDuringDestroy leaves the last heartbeat intact, so
+    // relayStatus stays CONNECTED) — see DZ-AUDIT-038 for the gate spec.
+    const forceCompleteResp = await request.post(
+      `${API_URL}/api/deployments/${deploymentId}/disconnect/force-complete`,
+      { data: {} },
+    );
+    expect(forceCompleteResp.status()).toBe(409);
+    const fcBody = (await forceCompleteResp.json()) as { error: { code: string } };
+    expect(['RELAY_NOT_OFFLINE', 'DESTROY_NOT_STALE']).toContain(fcBody.error.code);
+
+    // The deployment stays honestly DELETING — the force-complete refusal
+    // did not accidentally settle anything.
+    const stillDeleting = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(stillDeleting.state).toBe('DELETING');
+  });
+});
+
+// ── Item 5: force-complete via repeated DESTROY failures ─────────────────────
+test.describe('force-complete-repeated-failures', () => {
+  test.use({ deployzScenario: 'delete-failure' });
+
+  test('@scenario:force-complete-repeated-failures force-complete is gated on staleness; the honest gate refuses in the simulated window', async ({
+    request,
+    deployzInstall,
+  }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
+      .toBe('HEALTHY');
+
+    // First DESTROY → FAILED (delete-failure outcome).
+    const destroy1 = await request.post(`${API_URL}/api/deployments/${deploymentId}/destroy`, { data: {} });
+    expect(destroy1.status()).toBe(202);
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for first destroy to report FAILED',
+      })
+      .toBe('FAILED');
+
+    // Second DESTROY from FAILED: the relay is connected so it should work.
+    // The relay's destroy executor will run again → fails again → FAILED.
+    const destroy2 = await request.post(`${API_URL}/api/deployments/${deploymentId}/destroy`, { data: {} });
+    expect(destroy2.status()).toBe(202);
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for second destroy to settle',
+      })
+      .toBe('FAILED');
+
+    // Two FAILED DESTROY jobs exist now. The force-complete route requires
+    // DESTROY_PENDING_STALE_AFTER_MS (60 min) to have elapsed — in the
+    // simulated window this cannot pass, proving the honest gate.
+    const forceCompleteResp = await request.post(
+      `${API_URL}/api/deployments/${deploymentId}/disconnect/force-complete`,
+      { data: {} },
+    );
+    expect(forceCompleteResp.status()).toBe(409);
+    const fcBody = (await forceCompleteResp.json()) as { error: { code: string } };
+    expect(fcBody.error.code).toBe('DESTROY_NOT_STALE');
+
+    // The deployment stays FAILED — force-complete refused and nothing changed.
+    const stillFailed = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(stillFailed.state).toBe('FAILED');
   });
 });

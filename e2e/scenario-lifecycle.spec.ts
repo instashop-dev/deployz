@@ -20,6 +20,7 @@ import { API_URL, expect, test } from './simulation/fixtures.js';
 
 interface DeploymentResponse {
   state: string;
+  healthStatus?: string;
   currentReleaseId: string | null;
   previousReleaseId: string | null;
   applicationId: string;
@@ -388,5 +389,159 @@ test.describe('retained-resources', () => {
 
     const events = await getEvents(request, deploymentId);
     expect(events.some((e) => e.eventType === 'destroy.completed')).toBe(true);
+  });
+});
+
+// ── Item 2: Two applications, both releasing '1.0.0', both install to HEALTHY ─
+test.describe('two-apps-1.0.0', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test('@scenario:two-apps-1.0.0 two applications each build and deploy release 1.0.0 cleanly (DZ-AUDIT-002)', async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const suffix = crypto.randomUUID().slice(0, 8);
+
+    // Sign up once.
+    const signUp = await request.post(`${API_URL}/api/auth/sign-up/email`, {
+      data: { name: `TwoApp Vendor ${suffix}`, email: `e2e-twoapp-${suffix}@example.com`, password: 'super-secret-1' },
+    });
+    expect(signUp.ok()).toBeTruthy();
+
+    // Create two applications.
+    async function createApp(label: string): Promise<{ id: string; name: string }> {
+      const resp = await request.post(`${API_URL}/api/applications`, {
+        data: {
+          name: `TwoApp ${label} ${suffix}`,
+          githubInstallationId: 'e2e-installation',
+          repoFullName: `deployz-demo/twoapp-${label}-${suffix}`,
+          repoUrl: `https://github.com/deployz-demo/twoapp-${label}-${suffix}`,
+          defaultBranch: 'main',
+          databaseRequired: false,
+        },
+      });
+      expect(resp.ok()).toBeTruthy();
+      const app = (await resp.json()) as { id: string; name: string };
+      // Patch manifest fields so readiness passes.
+      // Can't have migrationCommand without a database (MANIFEST_NOT_COMPATIBLE).
+      const patch = await request.patch(`${API_URL}/api/applications/${app.id}`, {
+        data: {
+          containerPort: 3000,
+          healthPath: '/api/health',
+          migrationCommand: null,
+          appRoot: '.',
+          dockerfilePath: 'Dockerfile',
+          buildContext: '.',
+          buildCommand: 'npm run build',
+          startCommand: 'npm start',
+        },
+      });
+      expect(patch.ok()).toBeTruthy();
+      return app;
+    }
+
+    const appA = await createApp('A');
+    const appB = await createApp('B');
+
+    // Create one customer shared by both (same org).
+    const customerResp = await request.post(`${API_URL}/api/customers`, {
+      data: { name: `TwoApp Customer ${suffix}`, email: `twoapp-customer-${suffix}@example.com` },
+    });
+    expect(customerResp.ok()).toBeTruthy();
+    const customer = (await customerResp.json()) as { id: string };
+
+    // Release '1.0.0' for both apps.  In BUILD_FIXTURE_MODE the build
+    // completes synchronously so the release is READY when creation returns.
+    const releaseAResp = await request.post(`${API_URL}/api/applications/${appA.id}/releases`, {
+      data: { version: '1.0.0', gitSha: 'sha-1.0.0-A' },
+    });
+    expect(releaseAResp.ok()).toBeTruthy();
+    const releaseA = (await releaseAResp.json()) as { id: string };
+
+    const releaseBResp = await request.post(`${API_URL}/api/applications/${appB.id}/releases`, {
+      data: { version: '1.0.0', gitSha: 'sha-1.0.0-B' },
+    });
+    expect(releaseBResp.ok()).toBeTruthy();
+    const releaseB = (await releaseBResp.json()) as { id: string };
+
+    // Two separate deployments with their own relays.
+    async function deployAndInstall(
+      appId: string,
+      releaseId: string,
+      label: string,
+    ): Promise<{ deploymentId: string }> {
+      const depResp = await request.post(`${API_URL}/api/deployments`, {
+        data: { applicationId: appId, customerId: customer.id, region: 'us-east-1' },
+      });
+      expect(depResp.ok()).toBeTruthy();
+      const dep = (await depResp.json()) as { id: string; installLinkId: string; enrollmentCode: string };
+      const { id: deploymentId, installLinkId, enrollmentCode } = dep;
+
+      const launch = await request.post(`${API_URL}/api/install/${installLinkId}/launched`, { data: {} });
+      expect(launch.ok()).toBeTruthy();
+
+      const installInfo = await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) => r.json()) as {
+        quickCreateUrl: string | null;
+      };
+      expect(installInfo.quickCreateUrl).not.toBeNull();
+      const { extractQuickCreateParam: eqcp, startSimulatedRelay: ssr } = await import('./simulation/relay-harness.js');
+      const { getScenario } = await import('./simulation/scenarios/index.js');
+
+      const relayCred = eqcp(installInfo.quickCreateUrl!, 'RelayCredential');
+      const instId = `inst-${suffix}-${label}`;
+      const relay = ssr({
+        scenario: getScenario('stateless'),
+        apiUrl: API_URL,
+        installationId: instId,
+        enrollmentCode,
+        relayToken: relayCred,
+      });
+
+      try {
+        // Wait for HEALTHY.
+        await expect
+          .poll(async () => {
+            const getResp = await request.get(`${API_URL}/api/deployments/${deploymentId}`);
+            if (!getResp.ok()) return null;
+            const data = (await getResp.json()) as DeploymentResponse;
+            return data.state;
+          }, { timeout: 30_000, message: `waiting for deployment ${label} to reach HEALTHY` })
+          .toBe('HEALTHY');
+
+        // Deploy 1.0.0.
+        const deployResp = await request.post(`${API_URL}/api/deployments/${deploymentId}/deploy`, {
+          data: { releaseId },
+        });
+        // 202 = new job created; 200 = replayed (same idempotency key already
+        // exists, e.g. when the relay picked up the deploy between two poll
+        // cycles). Either is a successful acceptance.
+        expect([200, 202]).toContain(deployResp.status());
+
+        // Assert the release pointer advances (deploy accepted).
+        await expect
+          .poll(async () => {
+            const getResp = await request.get(`${API_URL}/api/deployments/${deploymentId}`);
+            if (!getResp.ok()) return null;
+            return ((await getResp.json()) as DeploymentResponse).currentReleaseId;
+          }, { timeout: 20_000, message: `waiting for release pointer to advance on ${label}` })
+          .toBe(releaseId);
+
+        // The deploy settles: state returns from UPDATING to HEALTHY.
+        await expect
+          .poll(async () => {
+            const getResp = await request.get(`${API_URL}/api/deployments/${deploymentId}`);
+            if (!getResp.ok()) return null;
+            return ((await getResp.json()) as DeploymentResponse).state;
+          }, { timeout: 20_000, message: `waiting for state to return to HEALTHY on ${label}` })
+          .toBe('HEALTHY');
+      } finally {
+        relay.stop();
+      }
+
+      return { deploymentId };
+    }
+
+    await deployAndInstall(appA.id, releaseA.id, 'A');
+    await deployAndInstall(appB.id, releaseB.id, 'B');
   });
 });

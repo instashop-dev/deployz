@@ -116,9 +116,10 @@ async function signUp(request: APIRequestContext, suffix: string): Promise<void>
 async function seedAppAndCustomer(
   request: APIRequestContext,
   suffix: string,
-  options: { repoFullName?: string } = {},
+  options: { repoFullName?: string; databaseRequired?: boolean } = {},
 ): Promise<{ applicationId: string; customerId: string }> {
   const repoFullName = options.repoFullName ?? `deployz-demo/scenario-${suffix}`;
+  const dbRequired = options.databaseRequired ?? true;
   const appResponse = await request.post(`${API_URL}/api/applications`, {
     data: {
       name: `Scenario App ${suffix}`,
@@ -126,7 +127,7 @@ async function seedAppAndCustomer(
       repoFullName,
       repoUrl: `https://github.com/${repoFullName}`,
       defaultBranch: 'main',
-      databaseRequired: true,
+      databaseRequired: dbRequired,
     },
   });
   if (!appResponse.ok()) {
@@ -144,11 +145,13 @@ async function seedAppAndCustomer(
   // Phase 2 readiness gate: ensure the test fixture application has a
   // manifest that evaluates to READY. The simulated analysis repo fixtures do
   // not carry a real Dockerfile/start command, so override them.
+  // When databaseRequired is false, clear migrationCommand — Deployz rejects
+  // a migration command on a stateless application (MANIFEST_NOT_COMPATIBLE).
   const patchResponse = await request.patch(`${API_URL}/api/applications/${application.id}`, {
     data: {
       containerPort: 3000,
       healthPath: '/api/health',
-      migrationCommand: 'npm run db:migrate',
+      ...(dbRequired ? { migrationCommand: 'npm run db:migrate' } : { migrationCommand: null }),
       appRoot: '.',
       dockerfilePath: 'Dockerfile',
       buildContext: '.',
@@ -190,7 +193,7 @@ async function seedAppAndCustomer(
 async function seedAndLaunch(
   request: APIRequestContext,
   suffix: string,
-  options: { repoFullName?: string } = {},
+  options: { repoFullName?: string; databaseRequired?: boolean } = {},
 ): Promise<{ deploymentId: string; installLinkId: string; enrollmentCode: string; relayCredential: string }> {
   const { applicationId, customerId } = await seedAppAndCustomer(request, suffix, options);
 
@@ -305,18 +308,22 @@ export const test = base.extend<{
     { request, deployzScenario, deployzStartRelay, deployzRelayOptions, deployzRepoFullName },
     use,
   ) => {
+    const scenario = getScenario(deployzScenario);
     const suffix = crypto.randomUUID().slice(0, 8);
     await signUp(request, suffix);
     const { deploymentId, installLinkId, enrollmentCode, relayCredential } = await seedAndLaunch(
       request,
       suffix,
-      deployzRepoFullName ? { repoFullName: deployzRepoFullName } : {},
+      {
+        ...(deployzRepoFullName ? { repoFullName: deployzRepoFullName } : {}),
+        databaseRequired: scenario.postgres ?? true,
+      },
     );
 
     const installationId = `inst-${suffix}`;
     const relay = deployzStartRelay
       ? startSimulatedRelay({
-          scenario: getScenario(deployzScenario),
+          scenario,
           apiUrl: API_URL,
           installationId,
           enrollmentCode,
@@ -343,12 +350,16 @@ export const test = base.extend<{
     { page, deployzScenario, deployzStartRelay, deployzRelayOptions, deployzRepoFullName },
     use,
   ) => {
+    const scenario = getScenario(deployzScenario);
     const suffix = crypto.randomUUID().slice(0, 8);
     await signUpViaBrowser(page, suffix);
     const { deploymentId, installLinkId, enrollmentCode, relayCredential } = await seedAndLaunch(
       page.request,
       suffix,
-      deployzRepoFullName ? { repoFullName: deployzRepoFullName } : {},
+      {
+        ...(deployzRepoFullName ? { repoFullName: deployzRepoFullName } : {}),
+        databaseRequired: scenario.postgres ?? true,
+      },
     );
 
     // Warm the two routes every scenario-ui.spec.ts test hits (the customer
@@ -367,7 +378,7 @@ export const test = base.extend<{
     const installationId = `inst-${suffix}`;
     const relay = deployzStartRelay
       ? startSimulatedRelay({
-          scenario: getScenario(deployzScenario),
+          scenario,
           apiUrl: API_URL,
           installationId,
           enrollmentCode,
@@ -394,9 +405,10 @@ export const test = base.extend<{
     { request, deployzScenario, deployzStartRelay, deployzRelayOptions },
     use,
   ) => {
+    const scenario = getScenario(deployzScenario);
     const suffix = crypto.randomUUID().slice(0, 8);
     await signUp(request, suffix);
-    const { applicationId, customerId } = await seedAppAndCustomer(request, suffix);
+    const { applicationId, customerId } = await seedAppAndCustomer(request, suffix, { databaseRequired: scenario.postgres ?? true });
 
     const generate = await request.post(`${API_URL}/api/customers/${customerId}/deploy-links`, {
       data: { applicationId, region: 'us-east-1' },
@@ -450,7 +462,7 @@ export const test = base.extend<{
     const installationId = `inst-${suffix}`;
     const relay = deployzStartRelay
       ? startSimulatedRelay({
-          scenario: getScenario(deployzScenario),
+          scenario,
           apiUrl: API_URL,
           installationId,
           enrollmentCode: generated.deployment.enrollmentCode,

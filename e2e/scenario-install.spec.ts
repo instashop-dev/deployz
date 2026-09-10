@@ -245,6 +245,51 @@ test.describe('healthcheck-failure', () => {
         },
         { timeout: 15_000, message: 'waiting for the resource inventory to be persisted' },
       )
+.toBeGreaterThan(0);
+  });
+});
+
+test.describe('stateless', () => {
+  test.use({ deployzScenario: 'stateless' });
+
+  test('@scenario:stateless install reaches HEALTHY with no database resources in the inventory', async ({
+    deployzInstall,
+  }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for deployment.state to reach HEALTHY',
+      })
+      .toBe('HEALTHY');
+
+    const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(deployment.healthStatus).toBe('HEALTHY');
+
+    // Stack events: no ApplicationDatabase resource.
+    const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
+    const dbEvent = events.find((e) => e.logicalResourceId === 'ApplicationDatabase');
+    expect(dbEvent).toBeUndefined();
+    const allGood = events.every((event) => event.resourceStatus !== 'CREATE_FAILED');
+    expect(allGood).toBe(true);
+
+    // Resource inventory: the database component should be absent.
+    await expect
+      .poll(
+        async () => {
+          const infra = (await api.getInfrastructure(deploymentId)) as unknown as InfrastructureResponse;
+          return infra.summary.technicalResourceCount;
+        },
+        { timeout: 15_000, message: 'waiting for the resource inventory to be persisted' },
+      )
       .toBeGreaterThan(0);
+    const infra = (await api.getInfrastructure(deploymentId)) as unknown as InfrastructureResponse & {
+      components: Array<{ kind: string }>;
+    };
+    expect(infra.components.some((c: { kind: string }) => c.kind === 'database')).toBe(false);
+    expect(infra.components.some((c: { kind: string }) => c.kind === 'storage')).toBe(true);
+    expect(infra.components.some((c: { kind: string }) => c.kind === 'application')).toBe(true);
   });
 });

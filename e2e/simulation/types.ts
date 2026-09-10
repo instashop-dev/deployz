@@ -131,6 +131,10 @@ export interface ScenarioDefinition {
   /** Whether the installation should include an ElastiCache cluster —
    *  drives `verifyInstallation`'s cache check and template selection. */
   readonly redisRequired?: boolean;
+  /** Whether the application requires a database (postgres). When false,
+   *  the manifest resolves the stateless template variant and no RDS
+   *  instance is provisioned. Defaults to true (existing behaviour). */
+  readonly postgres?: boolean;
   /** ECS/target-health behaviour observed by `ecs-health.ts`'s heartbeat
    *  probe, once the ECS service + target group resources are complete. */
   readonly ecsBehavior?: EcsRolloutBehavior;

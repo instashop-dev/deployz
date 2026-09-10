@@ -471,3 +471,68 @@ test.describe('default-https-h namespace protection', () => {
     }
   });
 });
+
+// ── I — permanent failure (budget exhausted → ERROR → stays ERROR → retry) ──
+test.describe('default-https-i permanent failure and retry', () => {
+  test.use({ deployzScenario: 'happy-path' });
+  test.skip(!defaultHttpsEnabled, 'DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true is required for the default-HTTPS suite');
+
+  test('@scenario:default-https-i budget exhaustion reaches ERROR, stays ERROR across heartbeats, vendor retry re-arms', async ({
+    deployzInstall,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const { deploymentId } = deployzInstall;
+
+    // The default-HTTPS machine budgets MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES=5
+    // configure attempts. Queue enough unavailable failures to exhaust it.
+    // Each unavailable write consumes one budget slot.
+    await queueDnsFailures(request, deploymentId, 'unavailable', 5);
+
+    // The machine tries to configure, fails each time, and hits ERROR.
+    await expect
+      .poll(
+        async () => (await getDeployment(request, deploymentId)).defaultHttps?.status ?? 'absent',
+        { timeout: 40_000, message: 'waiting for default-HTTPS to reach ERROR after budget exhaustion' },
+      )
+      .toBe('ERROR');
+
+    const errored = await getDeployment(request, deploymentId);
+    expect(errored.defaultHttps?.lastError).toBeTruthy();
+
+    // Wait a brief period (~2 seconds of real time, enough for several
+    // heartbeat cycles) — the machine stays ERROR, never self-recovers
+    // (DZ-AUDIT-008).
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    const stillErrored = await getDeployment(request, deploymentId);
+    expect(stillErrored.defaultHttps?.status).toBe('ERROR');
+
+    // No INSTALL/DESTROY was re-triggered — ERROR is a DNS-only state.
+    const types = (stillErrored.jobs ?? []).map((j: { type: string }) => j.type);
+    expect(types.filter((t: string) => t === 'INSTALL')).toHaveLength(1);
+
+    // Vendor retry route resets the machine to PENDING + fresh budget.
+    const retryResp = await request.post(
+      `${API_URL}/api/deployments/${deploymentId}/default-https/retry`,
+      { data: {} },
+    );
+    expect(retryResp.ok()).toBeTruthy();
+    expect(((await retryResp.json()) as { status: string }).status).toBe('retrying');
+
+    // The fixture DNS has no more queued failures, so the machine recovers.
+    await expect
+      .poll(
+        async () => (await getDeployment(request, deploymentId)).defaultHttps?.status ?? 'absent',
+        { timeout: 40_000, message: 'waiting for default-HTTPS to recover to ACTIVE after retry' },
+      )
+      .toBe('ACTIVE');
+
+    const recovered = await getDeployment(request, deploymentId);
+    expect(recovered.defaultHttps?.configureAttempts).toBeDefined();
+    // After the retry reset, configureAttempts starts at 0 and climbs again.
+    // The recovery attempt plus the successful configure = at least 1, but
+    // the important thing is the machine is ACTIVE without errors.
+    expect(recovered.defaultHttps?.lastError).toBeNull();
+    expect(recovered.deploymentStatus?.stage).toBe('READY');
+  });
+});
