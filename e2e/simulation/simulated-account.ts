@@ -218,6 +218,15 @@ export class SimulatedCustomerAccount {
   private async createStack(input: CreateStackInput): Promise<CreateStackOutcome> {
     this.ensureStarted();
     if (this.stackNameValue !== null) {
+      // After a recovery delete (deleteStartRealMs set, no destroy scenario),
+      // allow re-creation — the previous stack was intentionally destroyed so
+      // the retry INSTALL can create a fresh one.
+      if (this.deleteStartRealMs !== null && !this.scenario.destroy) {
+        this.stackNameValue = input.stackName;
+        this.installationTag = input.tags[INSTALLATION_TAG] ?? '';
+        this.deleteStartRealMs = null;
+        return { created: true, stackId: this.stackIdValue };
+      }
       // Re-delivered/resumed INSTALL racing a create that already happened —
       // real CloudFormation answers this with AlreadyExistsException.
       return { created: false, alreadyExists: true };
@@ -320,6 +329,10 @@ export class SimulatedCustomerAccount {
       createStack: (input: CreateStackInput) => this.createStack(input),
       describeStack: async (stackName: string): Promise<StackState | null> => {
         if (this.stackNameValue === null || stackName !== this.stackNameValue) return null;
+        // After a recovery delete (deleteStartRealMs set without a destroy
+        // scenario), report the stack as gone so the retry INSTALL creates a
+        // fresh one through `installApplicationStack`'s create-branch.
+        if (this.deleteStartRealMs !== null) return null;
         // Transient fault: the real relay client maps a throttled/timed-out
         // describe to `null` (unreadable) — the wait loop must ride these
         // out, not fail a live install.

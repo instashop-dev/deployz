@@ -16,6 +16,7 @@ import { rollbackFailure } from './rollback-failure.js';
 import { rollbackSuccess } from './rollback-success.js';
 import { slowProvision } from './slow-provision.js';
 import { transientAws } from './transient-aws.js';
+import { stateless } from './stateless.js';
 import { updateFailure } from './update-failure.js';
 
 /**
@@ -47,6 +48,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [deleteFailure.id]: deleteFailure,
   [retainedResources.id]: retainedResources,
   [transientAws.id]: transientAws,
+  [stateless.id]: stateless,
 };
 
 export function getScenario(id: string): ScenarioDefinition {
@@ -77,5 +79,6 @@ export {
   rollbackSuccess,
   slowProvision,
   transientAws,
+  stateless,
   updateFailure,
 };
