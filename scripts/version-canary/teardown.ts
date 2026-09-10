@@ -202,8 +202,16 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       ...audit.ssmParameters.map((p) => `ssm ${p}`),
       ...audit.certificates.map((c) => `acm ${c}`),
       ...audit.ecrTags.map((t) => `ecr ${t}`),
+      // A NAT gateway lingers in the tagging index after deletion too, but it
+      // is the one costly resource here, so it is checked against EC2 rather
+      // than excluded outright.
+      ...audit.natGateways.map((n) => `nat ${n}`),
       ...audit.installationTagged.filter(
-        (arn) => !arn.includes(':cluster/') && !arn.includes(':task-definition/') && !arn.includes(':service/'),
+        (arn) =>
+          !arn.includes(':cluster/') &&
+          !arn.includes(':task-definition/') &&
+          !arn.includes(':service/') &&
+          !arn.includes(':natgateway/'),
       ),
     ];
     details['disposableLeft'] = disposable;
