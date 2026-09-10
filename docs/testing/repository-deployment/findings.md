@@ -30,6 +30,9 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-015 | APPLICATION_ERROR (a false success) | DEPLOYZ_BUG | FIXED (PR #225 merged and the bootstrap template republished 2026-09-08; memos attempt 3 PASSED on it; relay: a deploy settles only when the service's PRIMARY deployment runs the revision the deploy targeted; crash loops are counted on that revision) | repo-039 (memos, measured: the circuit breaker rolled the first start back to the unconfigured template revision, which runs the same pinned image, and the relay reported SUCCEEDED while the app served from SQLite); every configured first start whose configured revision fails to become healthy |
 | DEPLOY-016 | INFRA_ERROR (control plane down) | DEPLOYZ_BUG | OPEN — task handed to the billing workstream (migration 0036 must settle duplicates; a failed init must not be cached by warm containers); production restored by hand 2026-09-08 03:45Z | every request to api.deployz.dev for ten minutes; memos attempt 2's install wait and cleanup |
 | DEPLOY-017 | (harness) | TEST_HARNESS_FAILURE | FIXED (the mode refuses; the dead path is removed) | the B1 runtime-reuse lane, i.e. the default deployment class of 107 of the 120 corpus entries |
+| DEPLOY-018 | BUILD_ERROR | DEPLOYZ_BUG (build infrastructure) | OPEN — needs a Docker Hub credential decision | every repository whose Dockerfile pulls a Docker Hub base image, i.e. almost all of them; measured on repo-008 |
+| DEPLOY-019 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (a rebuild takes the next version) | every `--reuse-application` retry after a failed build; measured on repo-008 |
+| DEPLOY-020 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (the tag rule is shared) | every real-AWS run of Stage B and of the version canary since PR #261, plus the ECR cleanup and leak audit of both |
 
 ---
 
@@ -951,3 +954,133 @@ per installation. That is a product change (drop the uniqueness of
 `installation_id`, rework enrollment and relay binding to be per-deployment
 within an installation), not a testing change, and it is outside the MVP
 boundary.
+
+---
+
+## DEPLOY-018 — The build pulls base images from Docker Hub anonymously, so builds fail with HTTP 429
+
+**Stage** BUILD_ERROR · **Root cause** DEPLOYZ_BUG (build infrastructure) ·
+**Resolution** OPEN — the fix needs an operator credential decision ·
+**Found** 2026-09-09, repo-008 attempt 1 of the 2-repository pilot.
+
+**Behaviour.** The CodeBuild buildspec authenticates to ECR only
+(`aws ecr get-login-password ... | docker login ...`). There is no
+`docker login` for Docker Hub anywhere, so every base image a customer
+Dockerfile pulls is fetched anonymously, and Docker Hub rate-limits
+anonymous pulls to roughly 100 per six hours per source IP — shared across
+CodeBuild's NAT addresses.
+
+**Evidence.** repo-008, CodeBuild `f3cb5f00`, 2026-09-09 16:52Z, failed in
+43 seconds:
+
+```
+#2 [internal] load metadata for docker.io/library/golang:alpine
+#2 ERROR: unexpected status from HEAD request to
+   https://registry-1.docker.io/v2/library/golang/manifests/alpine:
+   429 Too Many Requests
+```
+
+An earlier build the same day (11:11Z) succeeded, so the failure follows the
+quota window, not the repository.
+
+**Effect.** Almost every real Dockerfile starts `FROM` a Docker Hub image, so
+this is not one repository's problem: customer builds fail unpredictably, and
+the failure is reported as the repository's `BUILD_ERROR`. It also makes
+corpus-scale testing infeasible — 100 repositories pulling one to three base
+images each is 100-300 pulls against a 100-per-six-hours allowance in one
+account, so a corpus run exhausts the quota part way through and then blames
+repositories that are fine.
+
+**Fix options** (each needs a credential, hence the operator decision):
+1. Authenticate Docker Hub in the buildspec from a Secrets Manager secret.
+   Smallest change, and the buildspec can read the secret optionally so it
+   stays inert until one exists.
+2. An ECR pull-through cache for `docker.io`. Also needs Docker Hub
+   credentials, but then repeat pulls are served from ECR without touching
+   the upstream quota — the better fit for repeated corpus runs, which pull
+   the same handful of base images over and over.
+
+Rewriting a customer's `FROM` lines to `public.ecr.aws` is not an option: it
+changes the customer's build.
+
+---
+
+## DEPLOY-019 — A retry after a failed build is wedged by the release version the failed attempt owns
+
+**Stage** BUILD_ERROR · **Root cause** TEST_HARNESS_FAILURE ·
+**Resolution** FIXED (a rebuild takes the next free version) ·
+**Found** 2026-09-09, repo-008 attempt 2 of the 2-repository pilot, retrying
+attempt 1's DEPLOY-018 build failure.
+
+**Behaviour.** `--reuse-application` derives a deterministic release version
+from the pinned commit and the build-affecting overrides, then looks for an
+existing release with that version **and** `status === 'READY'`. A previous
+attempt whose build failed leaves a release in `FAILED`, which the lookup
+skips — but the control plane keeps versions unique per application, so the
+subsequent `createRelease` with the same version answers:
+
+```
+POST /api/applications/<id>/releases -> 409:
+Version repo-008-4d15cb7-5ca84474 already exists for this application.
+```
+
+**Effect.** Once a repository's build fails, every future
+`--reuse-application` retry of that repository fails in about a second,
+permanently — the funnel can never get past the build step again. This is
+exactly the state DEPLOY-018 produces, so the two compound: a transient
+Docker Hub 429 wedges the repository for good.
+
+`harness.test.ts` covered the intent ("rebuilds rather than reusing a release
+that is not READY") but its `createRelease` fake did not model the
+uniqueness constraint, so the suite passed while production 409'd.
+
+**Resolution.** Reuse still keeps the deterministic version, but a rebuild
+now takes the next free one (`<version>-r2`, `-r3`, …) via
+`nextReleaseVersion`. The fake now answers 409 on a taken version, so the
+regression is real, and a test asserts a retry after a failed build reaches
+PASS on `-r2`.
+
+---
+
+## DEPLOY-020 — The ECR image tag was namespaced by application, but the harnesses still looked up the bare version
+
+**Stage** BUILD_ERROR · **Root cause** TEST_HARNESS_FAILURE ·
+**Resolution** FIXED (the tag rule is shared, so it cannot drift again) ·
+**Found** 2026-09-09, repo-008 attempt 3 of the 2-repository pilot.
+
+**Behaviour.** PR #261 (`cb97d91`, DZ-AUDIT-002) changed the build pipeline to
+push under `${application.id}-${release.version}`, so two applications can
+each hold a release called `v1.0.0` in the single shared `deployz-images`
+repository. Nothing that *reads* the tag was changed with it:
+
+- `scripts/repository-deployment/deploy.ts` looked up
+  `ecrDigestForTag(version)` — the bare version.
+- `scripts/version-canary/steps.ts` did the same in two places.
+- `scripts/version-canary/teardown.ts` deleted ECR tags by `r.version`, and
+  the leak audit listed `ecrTags` the same way.
+
+**Evidence.** repo-008 attempt 3: CodeBuild `8dea5d64` SUCCEEDED in 55s and
+pushed `326f33cf-3cb2-4bfa-a4bb-c0bc73f35918-repo-008-4d15cb7-5ca84474-r2`,
+confirmed by `aws ecr list-images`. The funnel then stopped with
+`ECR has no image tagged repo-008-4d15cb7-5ca84474-r2` and recorded
+`BUILD_ERROR` against a repository whose build had in fact succeeded.
+
+**Effect.** Two failures, one loud and one silent. Every Stage B real-AWS run
+and every version canary run has failed immediately after a successful build
+since #261 — the whole corpus, not one repository. And because cleanup
+deleted a tag that does not exist, every run since #261 has leaked its image
+in ECR while the leak audit reported clean.
+
+**Resolution.** The rule now lives once, in `@deployz/contracts` as
+`releaseImageTag(applicationId, version)`, and the product worker
+(`packages/cdk/src/lambda/worker.ts`), both harnesses, the ECR cleanup and
+the leak audit all compose the tag from it. The ledger records the tag that
+was actually pushed, and teardown deletes `imageTag ?? version` so ledgers
+written before this change still clean up. A harness test asserts the funnel
+looks the image up under the namespaced tag and never under the bare
+version; a contracts test pins the rule itself.
+
+**Follow-on fixed with it.** Reuse matched only the exact base version, so
+the `-r2` release a retry builds (DEPLOY-019) could never be reused and a
+repository whose first build failed would rebuild on every later attempt.
+`reusableRelease` now picks the newest READY release in the version family.

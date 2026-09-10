@@ -10,6 +10,7 @@ import {
   REGION_LABELS,
   SUPPORTED_AWS_REGIONS,
   applicationSchema,
+  releaseImageTag,
   applicationStackNameForInstallation,
   billingCheckoutIntentStatusSchema,
   billingProviderSchema,
@@ -881,5 +882,12 @@ describe('deploymentStateAfterFailedJob', () => {
         deploymentStateAfterFailedJob({ jobType, hasCurrentRelease: true, newerReadyReleaseExists: false }),
       ).toBe('FAILED');
     }
+  });
+});
+
+describe('releaseImageTag', () => {
+  it('namespaces the tag by application, so two applications can share a version', () => {
+    expect(releaseImageTag('app-1', 'v1.0.0')).toBe('app-1-v1.0.0');
+    expect(releaseImageTag('app-2', 'v1.0.0')).not.toBe(releaseImageTag('app-1', 'v1.0.0'));
   });
 });

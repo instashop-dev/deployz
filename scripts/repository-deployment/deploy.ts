@@ -9,7 +9,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { applicationStackNameForInstallation } from '@deployz/contracts';
+import { applicationStackNameForInstallation, releaseImageTag } from '@deployz/contracts';
 
 import type { BenchmarkEntry } from '../repository-compatibility/manifest.js';
 import type { Evidence } from '../version-canary/evidence.js';
@@ -79,6 +79,44 @@ export function reusableReleaseVersion(benchmark: BenchmarkEntry, config: Reposi
   ).join('|');
   const fingerprint = createHash('sha256').update(inputs).digest('hex').slice(0, 8);
   return `${benchmark.id}-${benchmark.commit.slice(0, 7)}-${fingerprint}`;
+}
+
+/** Which attempt a version names within its family: the base is 1, `-r2` is 2. */
+export function releaseAttempt(base: string, version: string): number | null {
+  if (version === base) return 1;
+  const suffix = version.startsWith(`${base}-r`) ? version.slice(base.length + 2) : null;
+  return suffix && /^\d+$/.test(suffix) ? Number(suffix) : null;
+}
+
+/**
+ * The image a retry can redeploy: the newest READY release built from these
+ * same inputs. A first attempt takes the base name and later ones take
+ * `-r2`, `-r3`, ..., so reuse has to match the whole family — matching only
+ * the base name would rebuild every time the first attempt happened to fail.
+ */
+export function reusableRelease<T extends { version: string; status: string }>(
+  base: string,
+  releases: readonly T[],
+): T | undefined {
+  return releases
+    .filter((release) => release.status === 'READY' && releaseAttempt(base, release.version) !== null)
+    .sort((a, b) => releaseAttempt(base, a.version)! - releaseAttempt(base, b.version)!)
+    .at(-1);
+}
+
+/**
+ * A release version is unique per application, and an attempt whose build
+ * failed still owns the name it took. A retry that cannot reuse the image
+ * therefore has to mint the next name, or `createRelease` answers 409 and the
+ * repository is wedged for every future attempt.
+ */
+export function nextReleaseVersion(base: string, taken: readonly { version: string }[]): string {
+  const names = new Set(taken.map((release) => release.version));
+  if (!names.has(base)) return base;
+  for (let attempt = 2; ; attempt += 1) {
+    const candidate = `${base}-r${attempt}`;
+    if (!names.has(candidate)) return candidate;
+  }
 }
 
 /** The vendor-side routes the funnel drives (a subset of the canary's ControlPlane). */
@@ -320,14 +358,14 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         // a retry of the same inputs finds the release an earlier attempt
         // built — and any change to those inputs mints a different version
         // rather than silently redeploying a stale image.
-        const version = deps.reuseApplication
+        const releases = deps.reuseApplication ? await deps.api.listReleases(applicationId) : [];
+        const base = deps.reuseApplication
           ? reusableReleaseVersion(benchmark, config)
           : `${benchmark.id}-${run.runId.slice('stage-b-'.length + benchmark.id.length + 1)}`;
-        const existing = deps.reuseApplication
-          ? (await deps.api.listReleases(applicationId)).find(
-              (r) => r.version === version && r.status === 'READY',
-            )
-          : undefined;
+        const existing = deps.reuseApplication ? reusableRelease(base, releases) : undefined;
+        // Reuse keeps the name it found; a rebuild takes the next one,
+        // because the attempt that failed still owns the name it took.
+        const version = existing ? existing.version : nextReleaseVersion(base, releases);
         if (existing) console.log(`  reusing release ${version} (${existing.id}) — no CodeBuild run`);
         const created = existing
           ? { id: existing.id, version }
@@ -359,8 +397,12 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         details['failureReason'] = settled.failureReason;
         result.build.durationMs = deps.now() - buildStarted;
         assert(settled.status === 'READY', 'build', `release build ${settled.status}: ${settled.failureReason ?? ''}`, { releaseFailure: settled.failureReason });
-        const digest = await deps.aws.ecrDigestForTag(version);
-        assert(digest, 'build', `ECR has no image tagged ${version}`, { releaseFailure: 'image missing after a READY build' });
+        // The pipeline namespaces the tag by application, so the lookup and
+        // the cleanup that follows must compose it the same way.
+        const imageTag = releaseImageTag(applicationId, version);
+        run.releases['release']!.imageTag = imageTag;
+        const digest = await deps.aws.ecrDigestForTag(imageTag);
+        assert(digest, 'build', `ECR has no image tagged ${imageTag}`, { releaseFailure: 'image missing after a READY build' });
         run.releases['release']!.imageDigest = digest;
         evidence.save();
         result.build.imageDigest = digest;

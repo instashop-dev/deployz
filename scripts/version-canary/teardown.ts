@@ -144,7 +144,7 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
   });
 
   await evidence.step('Remove run-scoped images, task definitions and template objects', async (details) => {
-    const tags = Object.values(run.releases).map((r) => r.version);
+    const tags = Object.values(run.releases).map((r) => r.imageTag ?? r.version);
     details['ecrTagsDeleted'] = await deleteEcrTags(config.region, ECR_REPOSITORY, tags);
     const shaTags = [...new Set(Object.values(run.releases).map((r) => r.gitSha))];
     // The build also tags the image with the git SHA (traceability). Those
@@ -187,7 +187,7 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       bootstrapLambdaNames: run.bootstrapLambdaNames ?? [],
       deploymentId: run.deploymentId ?? null,
       ecrRepository: ECR_REPOSITORY,
-      ecrTags: Object.values(run.releases).map((r) => r.version),
+      ecrTags: Object.values(run.releases).map((r) => r.imageTag ?? r.version),
     });
     details['audit'] = audit;
     // INACTIVE ECS clusters/task definitions linger in the tagging API after
