@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-007",
+  "repository": "ghostfolio/ghostfolio",
+  "commit": "73e4f0368de398d7b67c50fb2926351414e2044e",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/ghostfolio",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "52d823cad4cda938ea411e4470690ea4b672e61c",
+  "runId": "stage-b-repo-007-20260910-025530-b538",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "ACCESS_TOKEN_SALT",
+      "JWT_SECRET_KEY"
+    ],
+    "generatedKeys": [
+      "ACCESS_TOKEN_SALT",
+      "JWT_SECRET_KEY"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "36ff155d-acc9-426b-b003-350fb0cbcfdd",
+    "version": "repo-007-73e4f03-5ca84474-r2",
+    "gitSha": "73e4f0368de398d7b67c50fb2926351414e2044e",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:7e2b3e8bb801d744a42fb1bddf531793251ce9df3b81d1afda2fb77ca42400c9",
+    "buildId": null,
+    "durationMs": 968,
+    "imageReused": true,
+    "detail": null
+  },
+  "deployment": {
+    "status": "FAIL",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-007-20260910-025530-b538/application-template-v1.json",
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": "POST /api/deployments -> 409: This application already has a test deployment. Remove it before you create another."
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "INFRA_ERROR",
+  "failureStage": "INFRA_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "POST /api/deployments -> 409: This application already has a test deployment. Remove it before you create another. — decide DEPLOYZ_BUG vs AWS_TRANSIENT_FAILURE",
+  "findingIds": [
+    "DEPLOY-014"
+  ],
+  "timing": {
+    "startedAt": "2026-09-10T02:55:30.681Z",
+    "finishedAt": "2026-09-10T02:56:27.248Z",
+    "totalMs": 56567
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "POST /api/deployments -> 409: This application already has a test deployment. Remove it before you create another."
+    }
+  }
+}

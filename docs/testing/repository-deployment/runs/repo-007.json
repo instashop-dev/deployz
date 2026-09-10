@@ -9,58 +9,26 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzCommit": "9f043628c2b9c153e3bbe80d9a826499c47fdae0",
-  "runId": "stage-b-repo-007-20260907-175458-573e",
+  "deployzCommit": "55b1db5ae252b1ec04bacd4c39af77648268efff",
+  "runId": "stage-b-repo-007-20260910-051746-792d",
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
   "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
   "gate": {
     "status": "PASS",
-    "verdict": "READY",
-    "analysisVerdict": "READY",
-    "outcome": "correct-accept",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
     "gateFindings": [],
-    "requiredKeys": [
-      "JWT_SECRET_KEY"
-    ],
+    "requiredKeys": [],
     "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": "READY",
+    "configuredVerdict": null,
     "configuredFindings": [],
-    "source": "in-process",
-    "analysisVersion": 19,
-    "manifest": {
-      "dockerfilePath": "Dockerfile",
-      "buildContext": ".",
-      "appRoot": ".",
-      "port": 3333,
-      "healthPath": "/api/v1/health",
-      "healthMode": "explicit",
-      "migrationCommand": "npx prisma migrate deploy",
-      "migrationMode": "pre_deploy",
-      "postgres": true,
-      "redis": true,
-      "storage": false,
-      "databaseBindings": [
-        "DATABASE_HOST",
-        "DATABASE_NAME",
-        "DATABASE_PASSWORD",
-        "DATABASE_PORT",
-        "DATABASE_URL",
-        "DATABASE_USER",
-        "POSTGRES_DB",
-        "POSTGRES_PASSWORD",
-        "POSTGRES_USER"
-      ],
-      "redisBindings": [
-        "REDIS_HOST",
-        "REDIS_PORT"
-      ],
-      "storageBindings": [],
-      "generatedKeys": [
-        "JWT_SECRET_KEY"
-      ]
-    },
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
     "detail": null
   },
   "configuration": {
@@ -78,29 +46,30 @@
   },
   "build": {
     "status": "PASS",
-    "releaseId": "bfd1b199-cd29-4f32-9526-e1e8eb139919",
-    "version": "repo-007-20260907-175458-573e",
+    "releaseId": "405fce56-d408-4f88-9bd8-4a66a678aa01",
+    "version": "repo-007-20260910-051746-792d",
     "gitSha": "73e4f0368de398d7b67c50fb2926351414e2044e",
     "dockerfilePath": "Dockerfile",
     "buildContext": null,
-    "imageDigest": "sha256:f13b8c78c977ae33faf456d93476b7580e3ef634628c9eac9a9ed7bba049d757",
+    "imageDigest": "sha256:ef481ebf6c418cc0cbe9d93a314b9bd5ac498fabd09b5f52be3d5f3274c8625c",
     "buildId": null,
-    "durationMs": 332928,
+    "durationMs": 331615,
+    "imageReused": false,
     "detail": null
   },
   "deployment": {
     "status": "PASS",
-    "deploymentId": "7f0a513c-a9e4-419c-86f7-f323093d7c0c",
-    "installationId": "6d6c3bea-3503-41bc-a538-29f9ed9f4f7c",
-    "bootstrapStack": "deployz-bootstrap-stage-b-repo-007-7f0a513c",
-    "applicationStack": "deployz-app-6d6c3bea",
+    "deploymentId": "15224ca0-8409-49f6-9221-8c80f4cdbc01",
+    "installationId": "e4f46fe4-28a3-4f1f-84dc-c4578359e5dc",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-007-15224ca0",
+    "applicationStack": "deployz-app-e4f46fe4",
     "stackStatus": "CREATE_COMPLETE",
     "templateSource": "stage-b-pinned",
-    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-007-20260907-175458-573e/application-template-v1.json",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-007-20260910-051746-792d/application-template-v1.json",
     "installJobState": "SUCCEEDED",
     "failureCode": null,
     "resourceCount": 50,
-    "durationMs": 1345146,
+    "durationMs": 1711473,
     "detail": null
   },
   "runtime": {
@@ -109,8 +78,8 @@
     "https": "PASS",
     "healthPath": "/api/v1/health",
     "healthPathSource": "stage-b",
-    "appUrl": "https://d-7f0a513c-a9e4-419c-86f7-f323093d7c0c.deployz.dev",
-    "runningImageDigest": "sha256:f13b8c78c977ae33faf456d93476b7580e3ef634628c9eac9a9ed7bba049d757",
+    "appUrl": "https://d-15224ca0-8409-49f6-9221-8c80f4cdbc01.deployz.dev",
+    "runningImageDigest": "sha256:ef481ebf6c418cc0cbe9d93a314b9bd5ac498fabd09b5f52be3d5f3274c8625c",
     "releaseServing": true,
     "observation": {
       "seconds": 180,
@@ -150,13 +119,13 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
-    "destroyJobState": "SUCCEEDED",
-    "purgeJobState": "SUCCEEDED",
-    "cleanupState": "COMPLETE",
-    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
     "leaks": [],
-    "durationMs": 5654576,
+    "durationMs": null,
     "detail": null
   },
   "classification": "PASS",
@@ -167,9 +136,9 @@
     "DEPLOY-014"
   ],
   "timing": {
-    "startedAt": "2026-09-07T17:54:59.186Z",
-    "finishedAt": "2026-09-07T18:38:13.888Z",
-    "totalMs": 2594702
+    "startedAt": "2026-09-10T05:17:46.769Z",
+    "finishedAt": "2026-09-10T06:05:59.328Z",
+    "totalMs": 2892561
   },
   "evidence": {}
 }

@@ -1,15 +1,22 @@
 {
-  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
+  "deployzCommit": "55b1db5ae252b1ec04bacd4c39af77648268efff",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
+  "byClass": {
+    "runtime-reuse": {
+      "total": 120,
+      "pass": 90,
+      "fail": 30
+    }
+  },
   "gate": {
     "attempted": 120,
-    "correctAccept": 47,
+    "correctAccept": 46,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 23
+    "configuredReady": 22
   },
   "build": {
     "attempted": 9,
@@ -37,7 +44,7 @@
   "trueDeploymentSuccess": 4,
   "trueDeploymentSuccessRate": 6.2,
   "cleanup": {
-    "destroys": 9,
+    "destroys": 8,
     "destroyFailures": 0,
     "leaks": 0,
     "successRate": 100
@@ -156,7 +163,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 34,
-      "gateCorrect": 69
+      "gateCorrect": 68
     },
     "unseen": {
       "total": 20,
@@ -198,7 +205,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 24,
-      "gateCorrect": 54
+      "gateCorrect": 53
     }
   }
 }

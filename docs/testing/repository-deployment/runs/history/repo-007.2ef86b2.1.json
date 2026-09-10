@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-007",
+  "repository": "ghostfolio/ghostfolio",
+  "commit": "73e4f0368de398d7b67c50fb2926351414e2044e",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/ghostfolio",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "2ef86b22056e8d2a6f5eee1b88d96d1880d0c2e9",
+  "runId": "stage-b-repo-007-20260909-173141-9a75",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "ACCESS_TOKEN_SALT",
+      "JWT_SECRET_KEY"
+    ],
+    "generatedKeys": [
+      "ACCESS_TOKEN_SALT",
+      "JWT_SECRET_KEY"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "FAIL",
+    "releaseId": "94b86b36-c44a-4584-96d5-fdd294a5efb7",
+    "version": "repo-007-73e4f03-5ca84474",
+    "gitSha": "73e4f0368de398d7b67c50fb2926351414e2044e",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": 42466,
+    "imageReused": false,
+    "detail": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1"
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "BUILD_ERROR",
+  "failureStage": "BUILD_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1 — decide ANALYSIS_BUG (Dockerfile/context selection) vs REPO_CONFIGURATION vs UPSTREAM_REPO_FAILURE",
+  "findingIds": [
+    "DEPLOY-014"
+  ],
+  "timing": {
+    "startedAt": "2026-09-09T17:31:42.418Z",
+    "finishedAt": "2026-09-09T17:33:13.646Z",
+    "totalMs": 91228
+  },
+  "evidence": {
+    "failure": {
+      "point": "build",
+      "message": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: docker build -f \"$DOCKERFILE_PATH\" -t $ECR_REPOSITORY_URI:$IMAGE_TAG \"$BUILD_CONTEXT\". Reason: exit status 1"
+    }
+  }
+}
