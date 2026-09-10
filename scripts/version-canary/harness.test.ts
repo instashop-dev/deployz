@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { isTerminalJobState, waitFor } from './control-plane.js';
 import { renderSummary, type RunRecord } from './evidence.js';
-import { assertSameInfrastructure, parseQuickCreateUrl, type InfraSnapshot } from './steps.js';
+import { assertSameInfrastructure, parseQuickCreateUrl, probeBaseUrl, type InfraSnapshot } from './steps.js';
 
 describe('real-AWS guard', () => {
   it('refuses without the opt-in, with the shared refusal text', () => {
@@ -199,5 +199,31 @@ describe('evidence summary', () => {
     expect(summary).toContain('| 2 | Deploy v1 | FAIL | job FAILED |');
     expect(summary).toContain('- v1: version `v1-r1`, gitSha `abc`, digest `repo@sha256:1`');
     expect(summary).toContain('- DEPLOY_RELEASE v1: `job-1` → FAILED (ECS_DEPLOYMENT_FAILED)');
+  });
+});
+
+describe('live application endpoint', () => {
+  // The default-HTTPS flow switches the ALB's port-80 listener to a 301 that
+  // preserves `#{host}`, so the raw ALB DNS name redirects to itself over TLS
+  // against a certificate that only covers `d-<deployment>.deployz.dev`.
+  // Probing the endpoint recorded at install then reads as "the app answered
+  // nothing" even though the deploy succeeded (real AWS, 2026-09-10).
+  it('prefers the URL the product advertises over the endpoint recorded at install', () => {
+    expect(
+      probeBaseUrl('https://d-abc.deployz.dev', 'http://alb-1.us-east-1.elb.amazonaws.com'),
+    ).toBe('https://d-abc.deployz.dev');
+  });
+
+  it('falls back to the ALB endpoint before a domain is configured', () => {
+    expect(probeBaseUrl(null, 'http://alb-1.us-east-1.elb.amazonaws.com')).toBe(
+      'http://alb-1.us-east-1.elb.amazonaws.com',
+    );
+    expect(probeBaseUrl(undefined, 'http://alb-1.us-east-1.elb.amazonaws.com')).toBe(
+      'http://alb-1.us-east-1.elb.amazonaws.com',
+    );
+  });
+
+  it('refuses to probe when there is no endpoint at all', () => {
+    expect(() => probeBaseUrl(null, undefined)).toThrow('no endpoint to probe');
   });
 });
