@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { isTerminalJobState, waitFor } from './control-plane.js';
+import { relayFunctionName } from './teardown.js';
 import { renderSummary, type RunRecord } from './evidence.js';
 import {
   assertSameInfrastructure,
@@ -318,5 +319,37 @@ describe('ALB target health of a serving version', () => {
   it('rejects a version nothing can reach', () => {
     expect(() => assertTargetsServing(['draining'])).toThrow('none healthy');
     expect(() => assertTargetsServing([])).toThrow('no targets');
+  });
+});
+
+describe('teardown nudges the relay', () => {
+  it('picks the relay out of the connector stack Lambdas', () => {
+    // The names a real bootstrap stack records, in the order it records them.
+    expect(
+      relayFunctionName([
+        'deployz-bootstrap-deployz-InstallIdFunctionE00E99D-uJpCL5wEYiRZ',
+        'deployz-bootstrap-deployz-InstallIdProviderframewo-XkZmjygTHj83',
+        'deployz-bootstrap-deployz-LogRetentionaae0aa3c5b4d-Xff5w3WjVlTQ',
+        'deployz-bootstrap-deployz-ca-RelayFunctionD137DF95-BhoHfcVP23J0',
+      ]),
+    ).toBe('deployz-bootstrap-deployz-ca-RelayFunctionD137DF95-BhoHfcVP23J0');
+  });
+
+  it('has nothing to nudge when the run never recorded a connector', () => {
+    expect(relayFunctionName([])).toBeUndefined();
+    expect(relayFunctionName()).toBeUndefined();
+  });
+
+  it('runs the nudge between polls, and still returns the verdict', async () => {
+    let ticks = 0;
+    let reads = 0;
+    const settled = await waitFor(
+      'purge',
+      async () => ++reads,
+      (n) => (n >= 3 ? `done after ${n}` : null),
+      { timeoutMs: 10_000, intervalMs: 1, onTick: async () => void ticks++ },
+    );
+    expect(settled).toBe('done after 3');
+    expect(ticks).toBe(2);
   });
 });
