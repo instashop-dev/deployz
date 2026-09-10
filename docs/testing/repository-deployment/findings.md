@@ -34,6 +34,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-019 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (a rebuild takes the next version) | every `--reuse-application` retry after a failed build; measured on repo-008 |
 | DEPLOY-020 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (the tag rule is shared) | every real-AWS run of Stage B and of the version canary since PR #261, plus the ECR cleanup and leak audit of both |
 | DEPLOY-021 | INFRA_ERROR (install) | DEPLOYZ_BUG | FIXED (Ref, not GetAtt) | every customer install, from PR #265 until the bootstrap template is republished |
+| DEPLOY-022 | (cost/duration, not a failure) | ANALYSIS_MISSING_SIGNAL (COMP-029 seen from the product side) | OPEN — tracked as COMP-029 | every repository the analyser wrongly marks `postgres: true`; measured on repo-008 |
 
 ---
 
@@ -1136,3 +1137,47 @@ fail on the pre-fix code (4 references found) and pass after.
 
 **Note for the release.** The fix only reaches customers once the bootstrap
 template is republished from `main`.
+
+---
+
+## DEPLOY-022 — A falsely detected database is provisioned for real, and dominates teardown
+
+**Stage** none — the deployment succeeds · **Root cause**
+ANALYSIS_MISSING_SIGNAL (Stage A's COMP-029, seen from the product side) ·
+**Resolution** OPEN, tracked as COMP-029 · **Found** 2026-09-10, repo-008 of
+the 2-repository pilot.
+
+**Behaviour.** Stage A already records that the analyser reports
+`postgres: true` for TwiN/gatus, which needs no database (COMP-029,
+`expected false / actual true`). Stage B measures what the product then does
+with that manifest: the relay resolves the application template profile from
+the manifest and provisions a real RDS instance —
+`deployz-app-21597bbc-databaseb269d8bb-ya9cpmbzvi8g` — for an application
+that never connects to it.
+
+The template selection is correct given the manifest: the relay derives the
+profile through `resolveApplicationTemplateUrl`, and the publisher does
+publish a `stateless` variant. Nothing downstream of the analysis is at
+fault.
+
+**Effect.** Not a failed deployment, which is why Stage A alone could not
+show it:
+
+- **Customer cost** — an unused `db.t4g.micro`-class instance per affected
+  application, running for the life of the deployment.
+- **Install time** — RDS creation is most of the application stack's 8
+  minutes (17:37:24 -> 17:45:22Z).
+- **Teardown time, the largest cost** — Disconnect retains the database by
+  design, so the retained instance's ENI blocks the subnet, then the
+  security group, then the VPC. repo-008's teardown went DELETE_FAILED
+  twice and the VPC was still held by an `RDSNetworkInterface` afterwards;
+  the retained database is only removed by Purge. A no-database application
+  should have torn down in minutes.
+
+For corpus-scale testing this is the dominant per-repository cost, since
+most of the corpus needs no database and every false positive turns a
+minutes-long teardown into a ~45-95 minute one.
+
+**What to do.** Fix belongs in the analyser (COMP-029). Stage B's
+contribution is the measurement: a false `postgres: true` is not a cosmetic
+analysis mistake — it bills the customer and dominates the test loop.
