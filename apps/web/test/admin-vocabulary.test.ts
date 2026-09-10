@@ -205,7 +205,15 @@ describe('pilot-insights failure-code labels', () => {
     expect(pilotFailureLabel('build_failed')).toBe('Build failed');
     expect(pilotFailureLabel('build_cancelled')).toBe('Build cancelled');
     expect(pilotFailureLabel('build_timeout')).toBe('Build timed out');
-    expect(Object.keys(PILOT_FAILURE_LABELS)).toEqual(['build_failed', 'build_cancelled', 'build_timeout']);
+    // A build the container registry metered is not a build failure: the
+    // repository is fine and the same commit usually builds minutes later.
+    expect(pilotFailureLabel('build_registry_rate_limited')).toBe('Registry rate limit');
+    expect(Object.keys(PILOT_FAILURE_LABELS)).toEqual([
+      'build_failed',
+      'build_cancelled',
+      'build_timeout',
+      'build_registry_rate_limited',
+    ]);
   });
 
   it('resolves §61 install/deploy codes through the shared failure-code copy', () => {
