@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-008",
+  "repository": "TwiN/gatus",
+  "commit": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/gatus",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 1,
+  "deployzCommit": "de69a52c6f2026633cfb403cc919ae3386403aea",
+  "runId": "stage-b-repo-008-20260909-172909-e6be",
+  "stageAExpected": "READY",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "BASE_URL"
+    ],
+    "generatedKeys": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "eb08cb46-a817-4016-b679-6f2aa4071aeb",
+    "version": "repo-008-4d15cb7-5ca84474-r2",
+    "gitSha": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:967ec924f9abe375c34668ea29b46f88143161f0ef390d049d0fab6c417d3d7b",
+    "buildId": null,
+    "durationMs": 956,
+    "imageReused": true,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": "11eb78fb-5b8a-4e34-b73d-addff0e50902",
+    "installationId": "21597bbc-7c6c-46aa-ac9e-daf4265d4d62",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-008-11eb78fb",
+    "applicationStack": "deployz-app-21597bbc",
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-008-20260909-172909-e6be/application-template-v1.json",
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "durationMs": null,
+    "detail": null
+  },
+  "classification": "TEST_HARNESS_ERROR",
+  "failureStage": "TEST_HARNESS_ERROR",
+  "rootCause": "TEST_HARNESS_FAILURE",
+  "rootCauseEvidence": "Error: getaddrinfo ENOTFOUND api.deployz.dev at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)",
+  "findingIds": [
+    "DEPLOY-002",
+    "DEPLOY-006"
+  ],
+  "timing": {
+    "startedAt": "2026-09-09T17:29:10.281Z",
+    "finishedAt": "2026-09-10T01:57:49.319Z",
+    "totalMs": 30519038
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "Error: getaddrinfo ENOTFOUND api.deployz.dev\n    at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)"
+    }
+  }
+}

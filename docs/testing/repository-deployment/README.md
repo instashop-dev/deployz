@@ -319,6 +319,7 @@ runtime-reuse run needs the `aws` CLI authenticated to the test account,
 | Document | Contents |
 | --- | --- |
 | [`implementation-notes.md`](implementation-notes.md) | Phase 0 architecture map, the production install path as it is, the reuse decisions, the phase plan and its status |
+| [`pilot-2-repo-report.md`](pilot-2-repo-report.md) | The 2-repository pilot (2026-09-09/10) validating the simulator-first / reusable-AWS testing strategy: repository selection, per-repository results and timings, the old-approach comparison, findings DEPLOY-017..024, the acceptance gate and the GO/NO-GO decision |
 | [`findings.md`](findings.md) | The systemic findings registry (`DEPLOY-nnn`) with evidence, affected repositories, root cause and resolution |
 | [`deploy-config.yaml`](deploy-config.yaml) | Per-repository vendor configuration and wave membership (Phase 1) |
 | `runs/` | Per-repository results, summaries, the frozen unseen baseline |

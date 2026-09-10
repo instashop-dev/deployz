@@ -20,3 +20,7 @@ docs/testing/repository-compatibility/.cache/
 docs/testing/repository-deployment/.cache/
 docs/testing/repository-deployment/runs/*.ledger.json
 docs/testing/repository-deployment/runs/evidence/
+# Per-attempt evidence written to a custom --evidence-dir. These ledgers
+# carry the run's vendor session (series.json holds an email and password),
+# so every evidence directory stays out of git, not just the default one.
+docs/testing/repository-deployment/runs/evidence-*/
