@@ -1075,3 +1075,39 @@ describe('BootstrapStack — the relay credential secret ARN', () => {
     expect(json).toContain('"Ref":"RelayCredentialGenerated"');
   });
 });
+
+describe('BootstrapStack — the relay credential secret value', () => {
+  /**
+   * The relay reads this secret as JSON and takes its `token` field
+   * (packages/relay/src/auth.ts, readCredential). Both variants must
+   * therefore hold `{"token": "..."}`. Storing the server-established
+   * parameter bare made every relay poll fail with
+   * "relay:credential-read-failed ... Unexpected non-whitespace character
+   * after JSON", so the installation never enrolled and the deployment sat
+   * in WAITING_FOR_RELAY (found on real AWS, 2026-09-10).
+   */
+  it('wraps the server-established credential as JSON so the relay can parse it', () => {
+    const { template } = synth();
+    const secret = (template.toJSON().Resources as Record<string, { Type: string; Properties?: Record<string, unknown> }>)[
+      'RelayCredentialFromParam'
+    ];
+    expect(secret?.Type).toBe('AWS::SecretsManager::Secret');
+
+    const secretString = secret?.Properties?.['SecretString'];
+    // Never the bare parameter — that is the shape the relay cannot parse.
+    expect(secretString).not.toEqual({ Ref: 'RelayCredential' });
+
+    const parts = (secretString as { 'Fn::Join'?: [string, unknown[]] })['Fn::Join']?.[1];
+    expect(parts).toEqual(['{"token":"', { Ref: 'RelayCredential' }, '"}']);
+  });
+
+  it('generates the other variant with the same token field', () => {
+    const { template } = synth();
+    const secret = (template.toJSON().Resources as Record<string, { Properties?: Record<string, unknown> }>)[
+      'RelayCredentialGenerated'
+    ];
+    const generate = secret?.Properties?.['GenerateSecretString'] as Record<string, unknown> | undefined;
+    expect(generate?.['GenerateStringKey']).toBe('token');
+    expect(generate?.['SecretStringTemplate']).toBe('{}');
+  });
+});

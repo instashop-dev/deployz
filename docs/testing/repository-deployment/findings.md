@@ -34,6 +34,9 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-019 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (a rebuild takes the next version) | every `--reuse-application` retry after a failed build; measured on repo-008 |
 | DEPLOY-020 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (the tag rule is shared) | every real-AWS run of Stage B and of the version canary since PR #261, plus the ECR cleanup and leak audit of both |
 | DEPLOY-021 | INFRA_ERROR (install) | DEPLOYZ_BUG | FIXED (Ref, not GetAtt) | every customer install, from PR #265 until the bootstrap template is republished |
+| DEPLOY-022 | (cost/duration, not a failure) | ANALYSIS_MISSING_SIGNAL (COMP-029 seen from the product side) | OPEN — tracked as COMP-029 | every repository the analyser wrongly marks `postgres: true`; measured on repo-008 |
+| DEPLOY-023 | (cleanup) | TEST_HARNESS_FAILURE | OPEN | every repository whose install fails before the relay enrolls; measured on repo-007 |
+| DEPLOY-024 | INFRA_ERROR (relay never enrols) | DEPLOYZ_BUG | FIXED (the template stores the credential as JSON) | every install carrying a server-established relay credential, i.e. all of them since PR #265 |
 
 ---
 
@@ -1136,3 +1139,142 @@ fail on the pre-fix code (4 references found) and pass after.
 
 **Note for the release.** The fix only reaches customers once the bootstrap
 template is republished from `main`.
+
+---
+
+## DEPLOY-022 — A falsely detected database is provisioned for real, and dominates teardown
+
+**Stage** none — the deployment succeeds · **Root cause**
+ANALYSIS_MISSING_SIGNAL (Stage A's COMP-029, seen from the product side) ·
+**Resolution** OPEN, tracked as COMP-029 · **Found** 2026-09-10, repo-008 of
+the 2-repository pilot.
+
+**Behaviour.** Stage A already records that the analyser reports
+`postgres: true` for TwiN/gatus, which needs no database (COMP-029,
+`expected false / actual true`). Stage B measures what the product then does
+with that manifest: the relay resolves the application template profile from
+the manifest and provisions a real RDS instance —
+`deployz-app-21597bbc-databaseb269d8bb-ya9cpmbzvi8g` — for an application
+that never connects to it.
+
+The template selection is correct given the manifest: the relay derives the
+profile through `resolveApplicationTemplateUrl`, and the publisher does
+publish a `stateless` variant. Nothing downstream of the analysis is at
+fault.
+
+**Effect.** Not a failed deployment, which is why Stage A alone could not
+show it:
+
+- **Customer cost** — an unused `db.t4g.micro`-class instance per affected
+  application, running for the life of the deployment.
+- **Install time** — RDS creation is most of the application stack's 8
+  minutes (17:37:24 -> 17:45:22Z).
+- **Teardown time, the largest cost** — Disconnect retains the database by
+  design, so the retained instance's ENI blocks the subnet, then the
+  security group, then the VPC. repo-008's teardown went DELETE_FAILED
+  twice and the VPC was still held by an `RDSNetworkInterface` afterwards;
+  the retained database is only removed by Purge. A no-database application
+  should have torn down in minutes.
+
+For corpus-scale testing this is the dominant per-repository cost, since
+most of the corpus needs no database and every false positive turns a
+minutes-long teardown into a ~45-95 minute one.
+
+**What to do.** Fix belongs in the analyser (COMP-029). Stage B's
+contribution is the measurement: a false `postgres: true` is not a cosmetic
+analysis mistake — it bills the customer and dominates the test loop.
+
+---
+
+## DEPLOY-023 — Cleanup waits the full purge timeout for a relay that never enrolled
+
+**Stage** cleanup · **Root cause** TEST_HARNESS_FAILURE · **Resolution**
+OPEN · **Found** 2026-09-10, repo-007 of the 2-repository pilot.
+
+**Behaviour.** `cleanupAttempt` asks the product to Purge, then polls for the
+PURGE job to reach a terminal state with a 120-minute timeout. The purge is
+executed by the **relay inside the customer account**. When the bootstrap
+stack rolled back (DEPLOY-021), no relay ever enrolled, so nothing will ever
+execute the job — but the harness still polls for the full two hours before
+giving up.
+
+**Evidence.** repo-007's ledger `stage-b-repo-007-20260910-020138-af86`:
+Disconnect passed, then `PURGE:REQUESTED (0s)` and no further movement. The
+bootstrap stack was `ROLLBACK_COMPLETE` with all 18 resources already
+`DELETE_COMPLETE` — there was nothing to purge and nobody to purge it.
+
+**Effect.** Every repository whose install fails before relay enrollment
+costs two hours of dead polling before its cleanup gives up. Historically
+most Stage B attempts failed at or before install, so at corpus scale this
+would dominate the wall clock far more than any build.
+
+**Suggested fix.** Skip the purge wait when the ledger shows the relay never
+bound — the ledger already records `installationId` and the bootstrap stack
+status, so "no installation id, or a bootstrap stack that never reached
+CREATE_COMPLETE" is sufficient to conclude there is nothing to purge and no
+relay to do it. Fall through to removing the leftovers and auditing, which
+is what actually needed doing.
+
+**Workaround used in the pilot.** Stop the cleanup, delete the empty
+`ROLLBACK_COMPLETE` stack directly, and re-run the repository against a
+fresh application.
+
+---
+
+## DEPLOY-024 — The server-established relay credential is stored bare, so the relay can never parse it
+
+**Stage** INFRA_ERROR (the deployment never leaves WAITING_FOR_RELAY) ·
+**Root cause** DEPLOYZ_BUG · **Resolution** FIXED · **Found** 2026-09-10,
+repo-007 of the 2-repository pilot, immediately after DEPLOY-021 stopped
+masking it.
+
+**Behaviour.** The relay reads its credential as JSON and takes the `token`
+field (`packages/relay/src/auth.ts`, `readCredential`). PR #265 added a
+second secret variant for the server-established credential (DZ-AUDIT-013)
+and stored the parameter bare:
+
+```ts
+secretString: relayCredentialParam.valueAsString,
+```
+
+The other variant, `RelayCredentialGenerated`, produces the right shape via
+`secretStringTemplate: '{}'` + `generateStringKey: 'token'`. Only the
+from-parameter path is wrong — and that is the path every new install takes,
+because the control plane now mints a credential and delivers it through the
+Quick Create URL.
+
+**Evidence.** `deployz-bootstrap-stage-b-repo-007-6d31fda2` reached
+CREATE_COMPLETE with `RelayCredentialFromParam` created and the
+`RelayCredential` parameter non-empty. The relay Lambda then failed on every
+five-minute poll:
+
+```
+{"event":"relay:credential-read-failed",
+ "error":"SyntaxError: Unexpected non-whitespace character after JSON at
+  position 1 (line 1 column 2)"}
+```
+
+`mintRelayCredential` returns 64 hex characters, so `JSON.parse` fails on the
+first character. The deployment stayed `WAITING_FOR_RELAY` and the harness
+timed out after 720s.
+
+**Effect.** P0, and more insidious than DEPLOY-021: the bootstrap stack
+reaches CREATE_COMPLETE, so the install *looks* successful, but no relay ever
+enrols and the deployment never progresses. DEPLOY-021 hid this — while the
+template was rejected outright, nothing got far enough to try.
+
+**Resolution.** The template wraps the parameter in the shape the relay
+expects, so both variants agree and the relay is unchanged:
+
+```ts
+secretString: Fn.join('', ['{"token":"', relayCredentialParam.valueAsString, '"}']),
+```
+
+Safe without escaping because the credential is 64 hex characters.
+
+Both halves of the contract are now pinned: a CDK test asserts the template
+never stores the bare parameter and that both variants carry a `token`, and a
+relay test asserts `readCredential` rejects a bare credential.
+
+**Note for the release.** Like DEPLOY-021, this only reaches customers once
+the bootstrap template is republished from `main`.

@@ -279,7 +279,16 @@
       "Properties": {
         "Description": "Server-established relay communication credential. Value was minted by the control plane and delivered via the Quick Create URL.",
         "SecretString": {
-          "Ref": "RelayCredential"
+          "Fn::Join": [
+            "",
+            [
+              "{\"token\":\"",
+              {
+                "Ref": "RelayCredential"
+              },
+              "\"}"
+            ]
+          ]
         },
         "Tags": [
           {
