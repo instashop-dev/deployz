@@ -12,8 +12,9 @@
  *   DESTROY time   → revokePull(installationId)
  *
  * The grant is per-installation, not per-customer. Each installation gets its
- * own policy statement scoped to the customer's AWS account ID (verified via
- * STS getCallerIdentity during relay registration).
+ * own policy statement scoped to the customer's self-reported AWS account ID
+ * (supplied at registration; no STS verification — grants are tag-scoped to
+ * the installation and revocable via revokePull).
  *
  * AWS-BLOCKED replaced — the real `EcrClient` implementation delegates to the
  * SDK v3. The `EcrClient` interface follows the same injectable-seam pattern as

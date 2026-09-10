@@ -326,7 +326,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 // the public /api/deploy-links/:publicId resolve route (registered with
 // @fastify/rate-limit's `global: false` above, so nothing else is capped by
 // default). Keyed by IP (trustProxy makes that the
-// real client behind the Lightsail balancer); 300/min is an order of
+// real client behind the API Gateway); 300/min is an order of
 // magnitude over the install page's 5s poll cadence (12/min) — several tabs,
 // "Check now" clicks, and NAT'd offices all fit — while still bounding an
 // anonymous caller who has nothing but a guessable-length uuid to try.
@@ -1384,12 +1384,11 @@ export async function buildServer({
   // production failures in a row could only be diagnosed by reading
   // configuration and guessing. `warn` keeps the per-request info lines off
   // while letting the error handler below say what actually broke.
-  // trustProxy: production runs behind the Lightsail container service's
-  // load balancer, so request.ip is the balancer unless X-Forwarded-For is
-  // honored — and the per-IP rate limit on the public install routes would
-  // otherwise pool every customer into the balancer's single bucket. The
-  // container is only reachable through that balancer, so the header is
-  // trustworthy here.
+  // trustProxy: production runs behind API Gateway + Lambda, so request.ip
+  // is the gateway unless X-Forwarded-For is honored — and the per-IP rate
+  // limit on the public install routes would otherwise pool every customer
+  // into the gateway's single bucket. The Lambda is only reachable through
+  // that gateway, so the header is trustworthy here.
   const app = Fastify(
     loggerInstance
       ? { loggerInstance, trustProxy: true }
