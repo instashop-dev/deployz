@@ -1666,16 +1666,10 @@
               "Fn::If": [
                 "HasRelayCredential",
                 {
-                  "Fn::GetAtt": [
-                    "RelayCredentialFromParam",
-                    "Arn"
-                  ]
+                  "Ref": "RelayCredentialFromParam"
                 },
                 {
-                  "Fn::GetAtt": [
-                    "RelayCredentialGenerated",
-                    "Arn"
-                  ]
+                  "Ref": "RelayCredentialGenerated"
                 }
               ]
             },
@@ -1966,16 +1960,10 @@
         "Fn::If": [
           "HasRelayCredential",
           {
-            "Fn::GetAtt": [
-              "RelayCredentialFromParam",
-              "Arn"
-            ]
+            "Ref": "RelayCredentialFromParam"
           },
           {
-            "Fn::GetAtt": [
-              "RelayCredentialGenerated",
-              "Arn"
-            ]
+            "Ref": "RelayCredentialGenerated"
           }
         ]
       }

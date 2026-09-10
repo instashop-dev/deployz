@@ -38,16 +38,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
         "Fn::If": [
           "HasRelayCredential",
           {
-            "Fn::GetAtt": [
-              "RelayCredentialFromParam",
-              "Arn",
-            ],
+            "Ref": "RelayCredentialFromParam",
           },
           {
-            "Fn::GetAtt": [
-              "RelayCredentialGenerated",
-              "Arn",
-            ],
+            "Ref": "RelayCredentialGenerated",
           },
         ],
       },
@@ -1718,16 +1712,10 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Fn::If": [
                 "HasRelayCredential",
                 {
-                  "Fn::GetAtt": [
-                    "RelayCredentialFromParam",
-                    "Arn",
-                  ],
+                  "Ref": "RelayCredentialFromParam",
                 },
                 {
-                  "Fn::GetAtt": [
-                    "RelayCredentialGenerated",
-                    "Arn",
-                  ],
+                  "Ref": "RelayCredentialGenerated",
                 },
               ],
             },
