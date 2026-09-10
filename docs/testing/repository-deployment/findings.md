@@ -37,6 +37,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-022 | (cost/duration, not a failure) | ANALYSIS_MISSING_SIGNAL (COMP-029 seen from the product side) | OPEN — tracked as COMP-029 | every repository the analyser wrongly marks `postgres: true`; measured on repo-008 |
 | DEPLOY-023 | (cleanup) | TEST_HARNESS_FAILURE | OPEN | every repository whose install fails before the relay enrolls; measured on repo-007 |
 | DEPLOY-024 | INFRA_ERROR (relay never enrols) | DEPLOYZ_BUG | FIXED (the template stores the credential as JSON) | every install carrying a server-established relay credential, i.e. all of them since PR #265 |
+| DEPLOY-025 | CLEANUP_LEAK (false) | TEST_HARNESS_FAILURE | OPEN | every application with a retained database plus another dependency; measured on repo-007 |
 
 ---
 
@@ -1302,3 +1303,55 @@ relay test asserts `readCredential` rejects a bare credential.
 
 **Note for the release.** Like DEPLOY-021, this only reaches customers once
 the bootstrap template is republished from `main`.
+
+---
+
+## DEPLOY-025 — The destroy wait is shorter than a real teardown, so a passing repository is recorded as a leak
+
+**Stage** CLEANUP_LEAK (falsely) · **Root cause** TEST_HARNESS_FAILURE ·
+**Resolution** OPEN · **Found** 2026-09-10, repo-007 of the 2-repository
+pilot.
+
+**Behaviour.** `destroyThroughProduct` waits up to 80 minutes
+(`timeoutMs: 80 * MINUTE`) for the deployment to reach DELETED. A ghostfolio
+teardown — retained RDS, ElastiCache, an S3 bucket, three secrets, a VPC —
+did not finish inside it. The harness gave up while CloudFormation was still
+working, `removeCanaryLeftovers` then correctly refused to delete the
+bootstrap stack under a still-deleting application stack, and the leak audit
+listed 27 resources, most of them mid-deletion.
+
+**Evidence.** repo-007's first teardown, 82 minutes:
+
+```
+destroy/purge: Timed out after 4800s waiting for destroy; last:
+state=DELETING stage=VERIFYING ... lastJob=REMOVE_DOMAIN:SUCCEEDED
+leftovers: application stack deployz-app-e4f46fe4 is still DELETE_IN_PROGRESS
+AWS leak audit: 27 resource(s) left after teardown
+```
+
+The result was written as `CLEANUP_LEAK` against a repository whose
+deployment had **PASSED** all twelve funnel steps.
+
+Simply re-running `--cleanup --repo repo-007` finished the job in 50.9
+minutes with every step green, `purge: SUCCEEDED`,
+`bootstrapFinal: DELETE_COMPLETE` and `leaks: []`, and
+`applyCleanupToClassification` restored the result to PASS. Nothing was
+actually wrong: the teardown simply needed longer than the budget.
+
+**Effect.** Any application with a retained database plus another dependency
+can exceed the 80-minute destroy budget, and the repository is then recorded
+as a cleanup leak it did not cause. At corpus scale that produces false
+failures on repositories that passed, and leaves stacks standing that a
+second cleanup pass would have removed — while consuming a VPC against the
+account's quota of 5.
+
+**Suggested fix.** The wait is the wrong shape. A destroy that is still
+making CloudFormation progress should extend the budget rather than fail:
+poll the application stack's status and keep waiting while it remains
+`DELETE_IN_PROGRESS`, failing only when it stops progressing or reaches
+`DELETE_FAILED` twice with no change. Failing that, raise the budget for
+deployments whose manifest declares a database, and make the harness retry
+cleanup once automatically before recording a leak.
+
+**Note.** DEPLOY-022 compounds this: much of the teardown time is spent
+removing a database the application never needed.
