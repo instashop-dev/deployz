@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { isTerminalJobState, waitFor } from './control-plane.js';
 import { renderSummary, type RunRecord } from './evidence.js';
 import { assertSameInfrastructure, parseQuickCreateUrl, probeBaseUrl, type InfraSnapshot } from './steps.js';
+import { probeLiveApp, writeMarker } from './app.js';
 
 describe('real-AWS guard', () => {
   it('refuses without the opt-in, with the shared refusal text', () => {
@@ -225,5 +226,53 @@ describe('live application endpoint', () => {
 
   it('refuses to probe when there is no endpoint at all', () => {
     expect(() => probeBaseUrl(null, undefined)).toThrow('no endpoint to probe');
+  });
+});
+
+describe('live probes over the public internet', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const jsonResponse = (body: unknown) =>
+    new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+
+  it('retries a lost connection rather than reporting it as the app answering nothing', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', async (url: string) => {
+      calls++;
+      if (calls === 1) throw new TypeError('fetch failed');
+      return url.endsWith('/health')
+        ? jsonResponse({ status: 'ok' })
+        : jsonResponse({ version: 'v2', commit: 'abc', healthMode: 'ok' });
+    });
+
+    const probe = await probeLiveApp('https://d-abc.deployz.dev');
+    expect(probe.healthStatus).toBe(200);
+    expect(probe.version?.version).toBe('v2');
+  });
+
+  it('reports a persistent transport failure, so a dead app still fails the step', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed');
+    });
+
+    const probe = await probeLiveApp('https://d-abc.deployz.dev');
+    expect(probe.healthStatus).toBeNull();
+    expect(probe.error).toContain('fetch failed');
+  });
+
+  it('never resends the write-once marker POST', async () => {
+    let posts = 0;
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      if (init?.method === 'POST') {
+        posts++;
+        throw new TypeError('fetch failed');
+      }
+      return jsonResponse({});
+    });
+
+    await expect(writeMarker('https://d-abc.deployz.dev', 'K', 'v1')).rejects.toThrow('fetch failed');
+    expect(posts).toBe(1);
   });
 });
