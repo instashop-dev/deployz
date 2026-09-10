@@ -64,7 +64,7 @@ happened: every defect found was in the harness or the product.
 | Dependencies | postgres **PASS**, redis **PASS**, migration **PASS**, storage NOT_REQUIRED |
 | Root cause if failed | n/a. Earlier attempts failed on DEPLOY-018/019/021/024 — all product or harness defects, none attributable to ghostfolio |
 | Total runtime | **48.4 min** end to end |
-| Cleanup result | Disconnect + Purge through the product |
+| Cleanup result | **PASS on the second pass**, `leaks: []`, purge SUCCEEDED, bootstrap DELETE_COMPLETE. The first teardown hit the harness's 80-minute destroy budget while CloudFormation was still deleting and was falsely recorded as `CLEANUP_LEAK` with 27 resources — see DEPLOY-025. Re-running `--cleanup` finished in 50.9 min with every step green. |
 
 `runningImageDigest` equals `imageDigest`, so the application served the
 image Deployz built rather than a template-pinned stand-in — the DEPLOY-001
@@ -137,6 +137,7 @@ funnel 38.9 (minutes).
 | DEPLOY-022 | Analysis error with real cost | OPEN, tracked as COMP-029 |
 | DEPLOY-023 | Harness — two-hour dead wait per failed repository | **OPEN** |
 | DEPLOY-024 | **P0 — install looks fine, relay never enrols** | FIXED, merged #273 |
+| DEPLOY-025 | Harness — a passing repository recorded as a cleanup leak | **OPEN** |
 
 Two P0 outages shipped to production *during* the pilot (both from PR #265)
 and were caught only because real AWS installs were running. Neither was
@@ -172,8 +173,15 @@ deployed.
 ### Cleanup problems
 
 - Cleanup itself is **correct**: Disconnect and Purge swept the retained
-  database and the orphaned VPC, and the final audit shows **zero pilot
-  leaks**, with account state identical to the pre-run baseline.
+  database and the orphaned VPC for both repositories, and the final state
+  shows **zero pilot leaks**, with the account back to its pre-run baseline.
+- DEPLOY-025: the 80-minute destroy budget is shorter than a real teardown of
+  an application with a retained database plus another dependency. repo-007's
+  first teardown was recorded as `CLEANUP_LEAK` with 27 resources while
+  CloudFormation was still deleting; a second `--cleanup` pass finished it in
+  50.9 min with every step green and restored the result to PASS. The
+  deployment had passed all twelve funnel steps — the leak was an artifact of
+  the budget, not of the repository.
 - DEPLOY-023: a purge waits the full 120 minutes when the relay never
   enrolled and nothing can execute it.
 - DEPLOY-022: most of the ~90 min teardown removes a database the
@@ -196,6 +204,9 @@ deployed.
 
 ### Remaining P0/P1 MVP blockers
 
+0. **DEPLOY-025** (open) — a passing repository is recorded as a cleanup leak
+   whenever teardown outlasts the 80-minute budget, and the stack it leaves
+   standing holds a VPC against an account quota of 5.
 1. **DEPLOY-018** (P1, open) — the build pulls base images from Docker Hub
    anonymously. Two of this pilot's build attempts died on HTTP 429, on two
    different repositories and two different base images within one hour. At

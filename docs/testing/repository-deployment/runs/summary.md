@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `55b1db5ae252b1ec04bacd4c39af77648268efff`
+Deployz commit: `e6633d31542733e15edb8dd72366d4ba4851950f`
 
 | Metric | Value |
 | --- | --- |
@@ -16,7 +16,7 @@ Deployz commit: `55b1db5ae252b1ec04bacd4c39af77648268efff`
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
 | **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
-| Cleanup: destroys / failures / leaks / success rate | 8 / 0 / 0 / 100% |
+| Cleanup: destroys / failures / leaks / success rate | 9 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -94,7 +94,7 @@ Deployz commit: `55b1db5ae252b1ec04bacd4c39af77648268efff`
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR / DEPLOYZ_BUG | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
-| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | NOT_ATTEMPTED | PASS | DEPLOY-014 |
+| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |
 | repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-002, DEPLOY-006 |
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
