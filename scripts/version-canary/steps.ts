@@ -519,7 +519,12 @@ export async function assertServing(canary: Canary, expected: ExpectedState, det
   // Live layer.
   const baseUrl = await liveBaseUrl(canary, detail);
   const live = await sampleLiveApp(baseUrl);
-  details['live'] = { baseUrl, versions: live.versions, healthStatuses: live.healthStatuses };
+  details['live'] = {
+    baseUrl,
+    versions: live.versions,
+    healthStatuses: live.healthStatuses,
+    probeErrors: live.probes.flatMap((p) => (p.error ? [p.error] : [])),
+  };
   assert(live.versions.length === 1 && live.versions[0] === expected.serving, `live /version answered ${live.versions.join(', ')}, expected ${expected.serving}`);
   assert(live.healthStatuses.length === 1 && live.healthStatuses[0] === 200, `live /health answered ${live.healthStatuses.join(', ')}`);
   const expectedCommit = evidence.run.fixtureTags?.[expected.serving]?.contentSha;
