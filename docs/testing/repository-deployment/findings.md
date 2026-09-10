@@ -33,6 +33,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-018 | BUILD_ERROR | DEPLOYZ_BUG (build infrastructure) | OPEN — needs a Docker Hub credential decision | every repository whose Dockerfile pulls a Docker Hub base image, i.e. almost all of them; measured on repo-008 |
 | DEPLOY-019 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (a rebuild takes the next version) | every `--reuse-application` retry after a failed build; measured on repo-008 |
 | DEPLOY-020 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (the tag rule is shared) | every real-AWS run of Stage B and of the version canary since PR #261, plus the ECR cleanup and leak audit of both |
+| DEPLOY-021 | INFRA_ERROR (install) | DEPLOYZ_BUG | FIXED (Ref, not GetAtt) | every customer install, from PR #265 until the bootstrap template is republished |
 
 ---
 
@@ -1084,3 +1085,54 @@ version; a contracts test pins the rule itself.
 the `-r2` release a retry builds (DEPLOY-019) could never be reused and a
 repository whose first build failed would rebuild on every later attempt.
 `reusableRelease` now picks the newest READY release in the version family.
+
+---
+
+## DEPLOY-021 — The bootstrap template reads a non-existent `Arn` attribute, so every install fails
+
+**Stage** INFRA_ERROR (the bootstrap stack rolls back) · **Root cause**
+DEPLOYZ_BUG · **Resolution** FIXED · **Found** 2026-09-10, repo-007 of the
+2-repository pilot, on real AWS.
+
+**Behaviour.** PR #265 (`349f695`, DZ-AUDIT-012/013) replaced the L2 `Secret`
+with two conditional `CfnSecret` resources and resolved the ARN with:
+
+```ts
+const credentialArn = Fn.conditionIf(
+  'HasRelayCredential',
+  Fn.getAtt('RelayCredentialFromParam', 'Arn'),
+  Fn.getAtt('RelayCredentialGenerated', 'Arn'),
+);
+```
+
+`Ref` on an `AWS::SecretsManager::Secret` returns the secret's ARN. The type
+has **no `Arn` attribute**, so CloudFormation rejects the template outright.
+
+**Evidence.** `deployz-bootstrap-stage-b-repo-007-5323b738`,
+2026-09-10 02:10Z, CREATE_FAILED then ROLLBACK_COMPLETE:
+
+```
+RelayFunctionD137DF95  AWS::Lambda::Function
+Requested attribute Arn does not exist in schema for
+AWS::SecretsManager::Secret
+```
+
+repo-008 installed successfully at 2026-09-09 17:33Z, before #265 merged and
+CI republished the template — which dates the regression precisely.
+
+**Effect.** P0. The bootstrap stack is the **first thing a customer deploys**.
+Between #265's republish and this fix, no install could succeed for any
+customer or any test repository — the failure is in the template, so it is
+independent of the application being deployed.
+
+**Resolution.** `Fn.ref` for both branches. The `credentialArn` value feeds
+the relay Lambda's environment, the stack output and an IAM policy, so the
+one expression accounted for four bad `Fn::GetAtt` references in the
+synthesized template.
+
+A regression test walks the synthesized template and fails on any
+`Fn::GetAtt` whose target is an `AWS::SecretsManager::Secret` — verified to
+fail on the pre-fix code (4 references found) and pass after.
+
+**Note for the release.** The fix only reaches customers once the bootstrap
+template is republished from `main`.

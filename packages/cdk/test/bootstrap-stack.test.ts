@@ -1037,3 +1037,41 @@ describe('BootstrapStack — application provisioning', () => {
     );
   });
 });
+
+describe('BootstrapStack — the relay credential secret ARN', () => {
+  /**
+   * Ref on an AWS::SecretsManager::Secret returns the ARN; the type has no
+   * `Arn` attribute. A Fn::GetAtt makes CloudFormation reject the whole
+   * template — "Requested attribute Arn does not exist in schema for
+   * AWS::SecretsManager::Secret" — so the first stack a customer deploys
+   * fails and no install can succeed (found on real AWS, 2026-09-10).
+   */
+  it('never reads an Arn attribute off a SecretsManager secret', () => {
+    const { template } = synth();
+    const secretIds = Object.entries(template.toJSON().Resources as Record<string, { Type: string }>)
+      .filter(([, resource]) => resource.Type === 'AWS::SecretsManager::Secret')
+      .map(([logicalId]) => logicalId);
+    expect(secretIds.length).toBeGreaterThan(0);
+
+    const badAttributes: string[] = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (!node || typeof node !== 'object') return;
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (key === 'Fn::GetAtt' && Array.isArray(value) && secretIds.includes(String(value[0]))) {
+          badAttributes.push(`${String(value[0])}.${String(value[1])}`);
+        }
+        walk(value);
+      }
+    };
+    walk(template.toJSON());
+    expect(badAttributes).toEqual([]);
+  });
+
+  it('resolves the credential ARN by Ref through the condition', () => {
+    const { template } = synth();
+    const json = JSON.stringify(template.toJSON());
+    expect(json).toContain('"Ref":"RelayCredentialFromParam"');
+    expect(json).toContain('"Ref":"RelayCredentialGenerated"');
+  });
+});

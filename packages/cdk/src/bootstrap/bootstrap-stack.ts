@@ -752,10 +752,16 @@ export class BootstrapStack extends Stack {
 
     // Conditional ARN for use where only one value is allowed (Lambda env,
     // stack output). Resolved via Fn::ConditionIf.
+    //
+    // Ref on an AWS::SecretsManager::Secret returns the secret's ARN; the
+    // type has no `Arn` attribute, so Fn::GetAtt makes CloudFormation reject
+    // the whole template ("Requested attribute Arn does not exist in schema
+    // for AWS::SecretsManager::Secret") and every install fails on the first
+    // stack a customer deploys.
     const credentialArn = Fn.conditionIf(
       'HasRelayCredential',
-      Fn.getAtt('RelayCredentialFromParam', 'Arn'),
-      Fn.getAtt('RelayCredentialGenerated', 'Arn'),
+      Fn.ref('RelayCredentialFromParam'),
+      Fn.ref('RelayCredentialGenerated'),
     );
 
     this.credentialSecretArn = credentialArn as unknown as string;
