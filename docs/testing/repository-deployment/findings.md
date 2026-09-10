@@ -36,6 +36,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-021 | INFRA_ERROR (install) | DEPLOYZ_BUG | FIXED (Ref, not GetAtt) | every customer install, from PR #265 until the bootstrap template is republished |
 | DEPLOY-022 | (cost/duration, not a failure) | ANALYSIS_MISSING_SIGNAL (COMP-029 seen from the product side) | OPEN — tracked as COMP-029 | every repository the analyser wrongly marks `postgres: true`; measured on repo-008 |
 | DEPLOY-023 | (cleanup) | TEST_HARNESS_FAILURE | OPEN | every repository whose install fails before the relay enrolls; measured on repo-007 |
+| DEPLOY-024 | INFRA_ERROR (relay never enrols) | DEPLOYZ_BUG | FIXED (the template stores the credential as JSON) | every install carrying a server-established relay credential, i.e. all of them since PR #265 |
 
 ---
 
@@ -1217,3 +1218,63 @@ is what actually needed doing.
 **Workaround used in the pilot.** Stop the cleanup, delete the empty
 `ROLLBACK_COMPLETE` stack directly, and re-run the repository against a
 fresh application.
+
+---
+
+## DEPLOY-024 — The server-established relay credential is stored bare, so the relay can never parse it
+
+**Stage** INFRA_ERROR (the deployment never leaves WAITING_FOR_RELAY) ·
+**Root cause** DEPLOYZ_BUG · **Resolution** FIXED · **Found** 2026-09-10,
+repo-007 of the 2-repository pilot, immediately after DEPLOY-021 stopped
+masking it.
+
+**Behaviour.** The relay reads its credential as JSON and takes the `token`
+field (`packages/relay/src/auth.ts`, `readCredential`). PR #265 added a
+second secret variant for the server-established credential (DZ-AUDIT-013)
+and stored the parameter bare:
+
+```ts
+secretString: relayCredentialParam.valueAsString,
+```
+
+The other variant, `RelayCredentialGenerated`, produces the right shape via
+`secretStringTemplate: '{}'` + `generateStringKey: 'token'`. Only the
+from-parameter path is wrong — and that is the path every new install takes,
+because the control plane now mints a credential and delivers it through the
+Quick Create URL.
+
+**Evidence.** `deployz-bootstrap-stage-b-repo-007-6d31fda2` reached
+CREATE_COMPLETE with `RelayCredentialFromParam` created and the
+`RelayCredential` parameter non-empty. The relay Lambda then failed on every
+five-minute poll:
+
+```
+{"event":"relay:credential-read-failed",
+ "error":"SyntaxError: Unexpected non-whitespace character after JSON at
+  position 1 (line 1 column 2)"}
+```
+
+`mintRelayCredential` returns 64 hex characters, so `JSON.parse` fails on the
+first character. The deployment stayed `WAITING_FOR_RELAY` and the harness
+timed out after 720s.
+
+**Effect.** P0, and more insidious than DEPLOY-021: the bootstrap stack
+reaches CREATE_COMPLETE, so the install *looks* successful, but no relay ever
+enrols and the deployment never progresses. DEPLOY-021 hid this — while the
+template was rejected outright, nothing got far enough to try.
+
+**Resolution.** The template wraps the parameter in the shape the relay
+expects, so both variants agree and the relay is unchanged:
+
+```ts
+secretString: Fn.join('', ['{"token":"', relayCredentialParam.valueAsString, '"}']),
+```
+
+Safe without escaping because the credential is 64 hex characters.
+
+Both halves of the contract are now pinned: a CDK test asserts the template
+never stores the bare parameter and that both variants carry a `token`, and a
+relay test asserts `readCredential` rejects a bare credential.
+
+**Note for the release.** Like DEPLOY-021, this only reaches customers once
+the bootstrap template is republished from `main`.

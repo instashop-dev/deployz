@@ -728,7 +728,13 @@ export class BootstrapStack extends Stack {
       description:
         'Server-established relay communication credential. Value was ' +
         'minted by the control plane and delivered via the Quick Create URL.',
-      secretString: relayCredentialParam.valueAsString,
+      // The relay reads this secret as JSON and takes its `token` field
+      // (packages/relay/src/auth.ts, readCredential), which is the shape the
+      // generated variant below produces via generateStringKey. Storing the
+      // parameter bare makes every relay poll fail to parse it, so the
+      // installation never enrols. mintRelayCredential returns 64 hex
+      // characters, so there is nothing here that needs JSON escaping.
+      secretString: Fn.join('', ['{"token":"', relayCredentialParam.valueAsString, '"}']),
       tags: credentialTags,
     });
     cfnSecretFromParam.cfnOptions.condition = hasRelayCredential;

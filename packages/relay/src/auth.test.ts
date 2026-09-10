@@ -42,6 +42,18 @@ describe('readCredential', () => {
     expect(token).toBe('test-token-abc123');
   });
 
+  it('rejects a bare credential, which is what the bootstrap must never store', async () => {
+    // The bootstrap template writes {"token": "..."}. Storing the
+    // server-established credential bare made every relay poll fail here and
+    // the installation never enrolled (DEPLOY-024).
+    const client: SecretsClient = {
+      async getSecretValue() {
+        return { SecretString: 'a'.repeat(64) };
+      },
+    };
+    await expect(readCredential(client, 'arn:...')).rejects.toThrow(SyntaxError);
+  });
+
   it('throws when SecretString is missing', async () => {
     const client: SecretsClient = {
       async getSecretValue() {
