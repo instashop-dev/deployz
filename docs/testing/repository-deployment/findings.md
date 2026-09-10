@@ -35,6 +35,7 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-020 | BUILD_ERROR | TEST_HARNESS_FAILURE | FIXED (the tag rule is shared) | every real-AWS run of Stage B and of the version canary since PR #261, plus the ECR cleanup and leak audit of both |
 | DEPLOY-021 | INFRA_ERROR (install) | DEPLOYZ_BUG | FIXED (Ref, not GetAtt) | every customer install, from PR #265 until the bootstrap template is republished |
 | DEPLOY-022 | (cost/duration, not a failure) | ANALYSIS_MISSING_SIGNAL (COMP-029 seen from the product side) | OPEN — tracked as COMP-029 | every repository the analyser wrongly marks `postgres: true`; measured on repo-008 |
+| DEPLOY-023 | (cleanup) | TEST_HARNESS_FAILURE | OPEN | every repository whose install fails before the relay enrolls; measured on repo-007 |
 
 ---
 
@@ -1181,3 +1182,38 @@ minutes-long teardown into a ~45-95 minute one.
 **What to do.** Fix belongs in the analyser (COMP-029). Stage B's
 contribution is the measurement: a false `postgres: true` is not a cosmetic
 analysis mistake — it bills the customer and dominates the test loop.
+
+---
+
+## DEPLOY-023 — Cleanup waits the full purge timeout for a relay that never enrolled
+
+**Stage** cleanup · **Root cause** TEST_HARNESS_FAILURE · **Resolution**
+OPEN · **Found** 2026-09-10, repo-007 of the 2-repository pilot.
+
+**Behaviour.** `cleanupAttempt` asks the product to Purge, then polls for the
+PURGE job to reach a terminal state with a 120-minute timeout. The purge is
+executed by the **relay inside the customer account**. When the bootstrap
+stack rolled back (DEPLOY-021), no relay ever enrolled, so nothing will ever
+execute the job — but the harness still polls for the full two hours before
+giving up.
+
+**Evidence.** repo-007's ledger `stage-b-repo-007-20260910-020138-af86`:
+Disconnect passed, then `PURGE:REQUESTED (0s)` and no further movement. The
+bootstrap stack was `ROLLBACK_COMPLETE` with all 18 resources already
+`DELETE_COMPLETE` — there was nothing to purge and nobody to purge it.
+
+**Effect.** Every repository whose install fails before relay enrollment
+costs two hours of dead polling before its cleanup gives up. Historically
+most Stage B attempts failed at or before install, so at corpus scale this
+would dominate the wall clock far more than any build.
+
+**Suggested fix.** Skip the purge wait when the ledger shows the relay never
+bound — the ledger already records `installationId` and the bootstrap stack
+status, so "no installation id, or a bootstrap stack that never reached
+CREATE_COMPLETE" is sufficient to conclude there is nothing to purge and no
+relay to do it. Fall through to removing the leftovers and auditing, which
+is what actually needed doing.
+
+**Workaround used in the pilot.** Stop the cleanup, delete the empty
+`ROLLBACK_COMPLETE` stack directly, and re-run the repository against a
+fresh application.
