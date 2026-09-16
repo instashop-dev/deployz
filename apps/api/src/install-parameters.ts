@@ -8,6 +8,7 @@ import * as schema from '@deployz/db/schema';
 
 import { parseDefaultHttps } from './default-https.js';
 import { findActiveDomain } from './domains.js';
+import { readStoredManifest } from './manifest.js';
 
 function generateSecret(): string {
   return randomBytes(32).toString('base64url');
@@ -15,36 +16,6 @@ function generateSecret(): string {
 
 /** CFN logical id of the template's task-count parameter (CDK strips the underscore from `param_DesiredCount`). */
 export const DESIRED_COUNT_PARAMETER = 'paramDesiredCount';
-
-/**
- * Whether the deployment's application needs a Redis cache provisioned. The
- * INSTALL executor reads this as a top-level payload field (not one of the
- * CloudFormation parameters above), so it is looked up separately rather
- * than folded into buildInstallParameters.
- */
-export async function readRedisRequired(db: RuntimeDb, applicationId: string): Promise<boolean> {
-  const rows = await db
-    .select({ redisRequired: schema.applications.redisRequired })
-    .from(schema.applications)
-    .where(eq(schema.applications.id, applicationId))
-    .limit(1);
-  return rows[0]?.redisRequired ?? false;
-}
-
-/**
- * Whether the deployment's application needs a PostgreSQL database
- * provisioned. Same shape as `readRedisRequired` — the relay reads this
- * as a top-level payload field so a lost INSTALL payload can be verified
- * requirement-aware.
- */
-export async function readDatabaseRequired(db: RuntimeDb, applicationId: string): Promise<boolean> {
-  const rows = await db
-    .select({ databaseRequired: schema.applications.databaseRequired })
-    .from(schema.applications)
-    .where(eq(schema.applications.id, applicationId))
-    .limit(1);
-  return rows[0]?.databaseRequired ?? false;
-}
 
 /**
  * Builds the CloudFormation parameter values for an INSTALL job (§31).
@@ -81,25 +52,27 @@ export async function buildInstallParameters(
   const rows = await db
     .select({
       applicationId: schema.deployments.applicationId,
-      healthPath: schema.applications.healthPath,
+      desiredState: schema.deployments.desiredState,
       defaultHttps: schema.deployments.defaultHttps,
     })
     .from(schema.deployments)
-    .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
     .where(eq(schema.deployments.id, deploymentId))
     .limit(1);
   const domain = await findActiveDomain(db, deploymentId);
   const defaultHttps = parseDefaultHttps(rows[0]?.defaultHttps ?? null);
+  const manifest = readStoredManifest(rows[0]?.desiredState ?? null);
   const parameters: Record<string, string> = {
     [DOCUMENSO_PARAMETERS.nextauthSecret]: generateSecret(),
     [DOCUMENSO_PARAMETERS.encryptionKey]: generateSecret(),
     [DOCUMENSO_PARAMETERS.encryptionSecondaryKey]: generateSecret(),
   };
-  if (rows[0]?.healthPath) {
-    // The canonical, analysis-resolved health path — the same value the ALB
-    // target group and container health checks probe via the template's
-    // param_HealthCheckPath parameter (CDK strips the underscore).
-    parameters['paramHealthCheckPath'] = rows[0].healthPath;
+  if (manifest) {
+    // The canonical, manifest-resolved health path (Phase 2) — the same
+    // value the ALB target group and container health checks probe via the
+    // template's param_HealthCheckPath parameter (CDK strips the
+    // underscore). Never the live `applications.healthPath` column, which
+    // can drift from what this deployment was actually created with.
+    parameters['paramHealthCheckPath'] = manifest.health.path;
   }
   if (rows[0]?.applicationId) {
     // DEPLOY-001 — a fresh install must run the application's own release,

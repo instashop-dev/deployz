@@ -36,6 +36,8 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader({ found: false }),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(false);
@@ -47,6 +49,8 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader({ found: false, errorCode: 'AccessDenied' }),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(false);
@@ -57,6 +61,8 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack(INSTALLATION, 'ROLLBACK_COMPLETE'), COMPLETE_RESOURCES),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(false);
@@ -67,6 +73,8 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack('some-other-installation'), COMPLETE_RESOURCES),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(false);
@@ -78,6 +86,8 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack(), withoutService),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(false);
@@ -91,6 +101,8 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack(), inProgress),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(false);
@@ -101,6 +113,8 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack(), COMPLETE_RESOURCES),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(true);
@@ -116,28 +130,32 @@ describe('verifyInstallation', () => {
       cfn: reader(completeStack(), withoutDb),
       installationId: INSTALLATION,
       databaseRequired: false,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(true);
     expect(result.checks.find((c) => c.name === 'database')).toBeUndefined();
   });
 
-  it('fails on a stack without RDS when databaseRequired is undefined (legacy default)', async () => {
+  it('fails on a stack without RDS when databaseRequired is true', async () => {
     const withoutDb = COMPLETE_RESOURCES.filter((r) => r.type !== 'AWS::RDS::DBInstance');
     const result = await verifyInstallation({
       cfn: reader(completeStack(), withoutDb),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(false);
     expect(result.reason).toContain('database');
   });
 
-  it('passes on a stack without RDS when databaseRequired is explicitly true — stack has one', async () => {
+  it('passes when databaseRequired is explicitly true and the stack has an RDS instance', async () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack(), COMPLETE_RESOURCES),
       installationId: INSTALLATION,
       databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(true);
@@ -147,6 +165,7 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack(), COMPLETE_RESOURCES),
       installationId: INSTALLATION,
+      databaseRequired: true,
       redisRequired: false,
     });
 
@@ -160,6 +179,7 @@ describe('verifyInstallation', () => {
     const withoutCache = {
       cfn: reader(completeStack(), COMPLETE_RESOURCES),
       installationId: INSTALLATION,
+      databaseRequired: true,
     };
 
     expect((await verifyInstallation({ ...withoutCache, redisRequired: false })).verified).toBe(true);
@@ -174,6 +194,7 @@ describe('verifyInstallation', () => {
     const result = await verifyInstallation({
       cfn: reader(completeStack(), withCache),
       installationId: INSTALLATION,
+      databaseRequired: true,
       redisRequired: true,
     });
 
@@ -194,6 +215,8 @@ describe('verifyInstallation', () => {
       cfn,
       installationId: INSTALLATION,
       stackName: 'custom-stack',
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(requestedStackName).toBe('custom-stack');
@@ -208,7 +231,7 @@ describe('verifyInstallation', () => {
       describeStackResources: async () => COMPLETE_RESOURCES,
     };
 
-    const result = await verifyInstallation({ cfn, installationId: INSTALLATION });
+    const result = await verifyInstallation({ cfn, installationId: INSTALLATION, databaseRequired: true, redisRequired: false });
 
     expect(result.verified).toBe(false);
     expect(result.reason).toBeDefined();
@@ -226,7 +249,7 @@ describe('verifyInstallation', () => {
       },
     };
 
-    const result = await verifyInstallation({ cfn, installationId: INSTALLATION });
+    const result = await verifyInstallation({ cfn, installationId: INSTALLATION, databaseRequired: true, redisRequired: false });
 
     expect(result.verified).toBe(false);
     expect(result.reason).toBeDefined();

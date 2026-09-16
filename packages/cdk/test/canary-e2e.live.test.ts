@@ -109,6 +109,10 @@ canaryDescribe('canary — read-only verification of the standing installation',
     STANDING_INSTALLATION_ID;
   const stackName = process.env.DEPLOYZ_E2E_CANARY_STACK_NAME ?? DEFAULT_APPLICATION_STACK_NAME;
   const redisRequired = process.env.DEPLOYZ_E2E_CANARY_REDIS_REQUIRED === '1';
+  // Phase 2: `verifyInstallation` no longer defaults this to true — the
+  // standing canary installation runs PostgreSQL, so that stays the default
+  // here too, overridable for a stateless standing installation.
+  const databaseRequired = process.env.DEPLOYZ_E2E_CANARY_DATABASE_REQUIRED !== '0';
 
   beforeAll(async () => {
     try {
@@ -128,7 +132,8 @@ canaryDescribe('canary — read-only verification of the standing installation',
       cfn: createCloudFormationReader(REGION),
       installationId,
       stackName,
-      ...(redisRequired ? { redisRequired: true } : {}),
+      redisRequired,
+      databaseRequired,
     });
 
     if (!result.verified && result.checks.find((c) => c.name === 'stack-exists' && !c.passed)) {

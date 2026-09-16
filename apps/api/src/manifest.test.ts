@@ -9,7 +9,7 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
-import { applicationToManifestOverrides, readStoredManifest } from './manifest.js';
+import { applicationToManifestOverrides, derivationApplicationFor, readStoredManifest } from './manifest.js';
 import { buildServer } from './server.js';
 
 // Phase 2 boundary — canonical deployment manifest: vendor overrides flow into
@@ -332,5 +332,77 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
     const manifest = readStoredManifest({ manifest: legacyManifest });
     expect(manifest).not.toBeNull();
     expect(manifest!.schemaVersion).toBe(1);
+  });
+
+  it('derivationApplicationFor derives booleans from a valid stored manifest', () => {
+    const manifest: DeploymentManifest = {
+      schemaVersion: 1,
+      application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
+      build: { command: null, context: '.' },
+      web: { command: 'npm start', port: 3000 },
+      health: { path: '/health' },
+      database: { postgres: true },
+      redis: { required: true, envBindings: [] },
+      storage: { required: false, envBindings: [] },
+      migration: { command: null },
+      worker: { command: null },
+      environment: { variables: [] },
+      externalServices: [],
+      unsupported: [],
+    };
+    // The live application row disagrees on every flag — the manifest wins.
+    const derived = derivationApplicationFor(
+      { manifest },
+      { migrationCommand: 'npm run db:migrate' },
+    );
+    expect(derived).toEqual({
+      databaseRequired: true,
+      storageRequired: false,
+      redisRequired: true,
+      migrationCommand: 'npm run db:migrate',
+    });
+  });
+
+  it('derivationApplicationFor returns null for all three requirement flags when the stored manifest is missing or invalid', () => {
+    expect(derivationApplicationFor(null, { migrationCommand: 'npm run db:migrate' })).toEqual({
+      databaseRequired: null,
+      storageRequired: null,
+      redisRequired: null,
+      migrationCommand: 'npm run db:migrate',
+    });
+    expect(derivationApplicationFor({}, null)).toEqual({
+      databaseRequired: null,
+      storageRequired: null,
+      redisRequired: null,
+      migrationCommand: null,
+    });
+    expect(derivationApplicationFor({ manifest: { not: 'a manifest' } }, undefined)).toEqual({
+      databaseRequired: null,
+      storageRequired: null,
+      redisRequired: null,
+      migrationCommand: null,
+    });
+  });
+
+  it('derivationApplicationFor always takes migrationCommand from the application row, never the manifest', () => {
+    const manifest: DeploymentManifest = {
+      schemaVersion: 1,
+      application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
+      build: { command: null, context: '.' },
+      web: { command: 'npm start', port: 3000 },
+      health: { path: '/health' },
+      database: { postgres: true },
+      redis: { required: false, envBindings: [] },
+      storage: { required: false, envBindings: [] },
+      migration: { command: 'npm run manifest:migrate' },
+      worker: { command: null },
+      environment: { variables: [] },
+      externalServices: [],
+      unsupported: [],
+    };
+    expect(
+      derivationApplicationFor({ manifest }, { migrationCommand: 'npm run column:migrate' }).migrationCommand,
+    ).toBe('npm run column:migrate');
+    expect(derivationApplicationFor({ manifest }, {}).migrationCommand).toBeNull();
   });
 });

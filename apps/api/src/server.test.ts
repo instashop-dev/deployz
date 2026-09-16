@@ -1334,6 +1334,36 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect((response.json() as { commands: unknown[] }).commands).toHaveLength(0);
   });
 
+  it('omits both databaseRequired and redisRequired from the deployment meta when the stored manifest is missing (never a guessed default)', async () => {
+    // A pre-Phase-2 deployment can be bound and reporting without ever
+    // having a stored manifest — the register route now requires one for a
+    // NEW install, but this simulates a relay that already connected before
+    // that gate existed. probeUrl still reports (it does not depend on the
+    // manifest); the two requirement flags travel together or not at all.
+    const token = 'relay-token-no-manifest';
+    const installationId = 'inst-no-manifest';
+    await insertDeployment(db, org.organizationId, deployment.applicationId, deployment.customerId, {
+      state: 'HEALTHY',
+      installationId,
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken(token),
+      relayStatus: 'CONNECTED',
+      desiredState: {},
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/relay/commands?installationId=${installationId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { deployment: Record<string, unknown> };
+    expect(body.deployment).not.toHaveProperty('databaseRequired');
+    expect(body.deployment).not.toHaveProperty('redisRequired');
+    expect(body.deployment).toHaveProperty('probeUrl');
+  });
+
   it('serves a secret-bearing CONFIG_UPDATE payload once, then scrubs the stored row (§1.2)', async () => {
     const secretValue = 'plaintext-rides-the-claim-once';
     const [job] = await db
@@ -2243,7 +2273,14 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
   it('deployment detail derives per-component state from requirements, verification checks and relay reports', async () => {
     const redisApp = await insertApplication(db, org.organizationId, { redisRequired: true });
     const redisCustomer = await insertCustomer(db, org.organizationId);
-    const redisDeployment = await insertDeployment(db, org.organizationId, redisApp.id, redisCustomer.id);
+    // Phase 2: the component requirements come from the stored manifest, not
+    // the live application columns above — stateless + redis isolates the
+    // redis component the way the application row alone used to.
+    const redisDeployment = await insertDeployment(db, org.organizationId, redisApp.id, redisCustomer.id, {
+      desiredState: {
+        manifest: { ...READY_MANIFEST, database: { postgres: false }, redis: { required: true, envBindings: [] } },
+      },
+    });
 
     // Required but never observed: Not reporting (UNKNOWN). Compute and
     // ingress are always required for an installed deployment.
@@ -2260,7 +2297,9 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
 
     const noRedisApp = await insertApplication(db, org.organizationId, { redisRequired: false });
     const noRedisCustomer = await insertCustomer(db, org.organizationId);
-    const noRedisDeployment = await insertDeployment(db, org.organizationId, noRedisApp.id, noRedisCustomer.id);
+    const noRedisDeployment = await insertDeployment(db, org.organizationId, noRedisApp.id, noRedisCustomer.id, {
+      desiredState: { manifest: { ...READY_MANIFEST, database: { postgres: false } } },
+    });
 
     const withoutRedis = await app.inject({
       method: 'GET',
@@ -2307,6 +2346,26 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect(
       (notProvisioned.json() as { components: Record<string, string> | null }).components?.redis,
     ).toBe('NOT_PROVISIONED');
+  });
+
+  it('the dashboard component list follows the deployment stored manifest when the live application column disagrees', async () => {
+    // The application row says Redis IS required, but the deployment's
+    // frozen manifest says it is NOT — the manifest must win (Phase 2).
+    const application = await insertApplication(db, org.organizationId, { redisRequired: true });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      desiredState: { manifest: { ...READY_MANIFEST, database: { postgres: false } } },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}`,
+      headers: { cookie: org.cookie },
+    });
+    expect((response.json() as { components: Record<string, string> | null }).components).toEqual({
+      application: 'UNKNOWN',
+      loadBalancer: 'UNKNOWN',
+    });
   });
 
   it('readiness: analysis not COMPLETE returns state ANALYSIS_INCOMPLETE with empty findings, never a fabricated result', async () => {
@@ -3310,7 +3369,7 @@ describe('server — organization settings, public install page, and bulk deploy
     expect(serialized).not.toContain(org.organizationId);
   });
 
-  it('GET /api/install/:installationId lists "Redis cache" in resourcesCreated only when the application requires Redis', async () => {
+  it('GET /api/install/:installationId lists "Redis cache" in resourcesCreated only when the stored manifest requires Redis', async () => {
     const application = await insertApplication(db, org.organizationId, {
       name: 'Cache App',
       databaseRequired: false,
@@ -3318,7 +3377,13 @@ describe('server — organization settings, public install page, and bulk deploy
       redisRequired: true,
     });
     const customer = await insertCustomer(db, org.organizationId);
-    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    // Phase 2: resourcesCreated is derived from the deployment's frozen
+    // manifest, never the live application columns above.
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      desiredState: {
+        manifest: { ...READY_MANIFEST, database: { postgres: false }, redis: { required: true, envBindings: [] } },
+      },
+    });
 
     const withRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
     expect((withRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
@@ -3326,14 +3391,17 @@ describe('server — organization settings, public install page, and bulk deploy
       'Redis cache',
     ]);
 
+    // Drift: the vendor turns Redis off on the LIVE application row after the
+    // deployment already froze its manifest — resourcesCreated must not move.
     await db
       .update(schema.applications)
       .set({ redisRequired: false })
       .where(eq(schema.applications.id, application.id));
 
-    const withoutRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
-    expect((withoutRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
+    const stillWithRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+    expect((stillWithRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
       'Application runtime',
+      'Redis cache',
     ]);
   });
 

@@ -91,10 +91,15 @@ export interface VerifyOptions {
   readonly installationId: string;
   /** Defaults to `DEFAULT_APPLICATION_STACK_NAME`. */
   readonly stackName?: string;
-  /** Expect an ElastiCache cluster. Defaults to false. */
-  readonly redisRequired?: boolean;
-  /** Expect an RDS database. Defaults to true (legacy behavior). */
-  readonly databaseRequired?: boolean;
+  /**
+   * Whether to expect an ElastiCache cluster. Phase 2 — no silent default:
+   * every caller must derive this from the deployment's canonical manifest
+   * (or, for the heartbeat, know it is not yet known and skip verification
+   * entirely rather than guess).
+   */
+  readonly redisRequired: boolean;
+  /** Whether to expect an RDS database. Same no-default rule as `redisRequired`. */
+  readonly databaseRequired: boolean;
 }
 
 export interface VerificationCheck {
@@ -225,7 +230,7 @@ async function runChecks(
   // 4. It contains the application, not just an empty shell.
   const resources = await options.cfn.describeStackResources(stackName);
   const expected = [
-    ...REQUIRED_RESOURCES.filter((r) => r.name !== 'database' || options.databaseRequired !== false),
+    ...REQUIRED_RESOURCES.filter((r) => r.name !== 'database' || options.databaseRequired),
     ...(options.redisRequired ? [CACHE_RESOURCE] : []),
   ];
 

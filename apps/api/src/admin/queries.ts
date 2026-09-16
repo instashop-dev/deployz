@@ -21,6 +21,7 @@ import { deriveDeploymentStatus, toVendorDeploymentStatus } from '../deployment-
 import { parseDefaultHttps } from '../default-https.js';
 import { findActiveDomain } from '../domains.js';
 import { resolveAppUrl, toFleetRow } from '../fleet-row.js';
+import { derivationApplicationFor } from '../manifest.js';
 
 // Team Admin read models (docs/admin/team-admin.md): thin queries/aggregation
 // over the canonical tables, deliberately cross-tenant (every caller must be
@@ -54,9 +55,7 @@ function deploymentJoinBase(db: RuntimeDb) {
       applicationId: schema.applications.id,
       applicationName: schema.applications.name,
       applicationRepoFullName: schema.applications.repoFullName,
-      databaseRequired: schema.applications.databaseRequired,
-      storageRequired: schema.applications.storageRequired,
-      redisRequired: schema.applications.redisRequired,
+      migrationCommand: schema.applications.migrationCommand,
       version: schema.releases.version,
     })
     .from(schema.deployments)
@@ -970,11 +969,10 @@ export async function getDeploymentDetail(db: RuntimeDb, id: string, now: Date =
   const domain = await findActiveDomain(db, id);
   const defaultHttps = parseDefaultHttps(row.deployment.defaultHttps);
   const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
-  const application = {
-    databaseRequired: row.databaseRequired,
-    storageRequired: row.storageRequired,
-    redisRequired: row.redisRequired,
-  };
+  // Phase 2: the requirement booleans come from the deployment's frozen
+  // manifest, never the live `applications` columns — see server.ts's
+  // identical derivation for the vendor fleet/detail routes.
+  const application = derivationApplicationFor(row.deployment.desiredState, row);
   const derived = deriveDeploymentStatus({
     deployment: row.deployment,
     application,

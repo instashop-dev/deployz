@@ -445,6 +445,8 @@ liveAws('installation verification (live)', () => {
     const result = await verifyInstallation({
       cfn: createCloudFormationReader(REGION),
       installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.reason).toBeUndefined();
@@ -460,6 +462,8 @@ liveAws('installation verification (live)', () => {
       cfn: createCloudFormationReader(REGION),
       installationId: INSTALLATION,
       stackName: 'deployz-app-does-not-exist',
+      databaseRequired: true,
+      redisRequired: false,
     });
 
     expect(result.verified).toBe(false);

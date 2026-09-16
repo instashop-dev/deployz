@@ -654,6 +654,24 @@ describe('readVerifyOptionsFromPayload', () => {
   it('reads databaseRequired: false explicitly, not just truthy values', () => {
     expect(readVerifyOptionsFromPayload({ databaseRequired: false })).toEqual({ databaseRequired: false });
   });
+
+  // Phase 2: the manifest, when present, is the ONLY source of these flags
+  // — contradicting top-level flags never win. This is what keeps template
+  // selection (settleInstall's `profile`) and verification in agreement.
+  it('derives redisRequired/databaseRequired from the manifest, overriding contradicting top-level flags', () => {
+    const manifest = manifestPayload({
+      database: { postgres: false },
+      redis: { required: true, envBindings: [] },
+    });
+
+    expect(
+      readVerifyOptionsFromPayload({
+        redisRequired: false,
+        databaseRequired: true,
+        manifest,
+      }),
+    ).toEqual({ redisRequired: true, databaseRequired: false });
+  });
 });
 
 describe('relay stack-name resolution', () => {
@@ -703,12 +721,15 @@ describe('relay stack-name resolution', () => {
 // ── The real INSTALL executor: provision, then prove it ──────────────────────
 
 describe('createInstallExecutor', () => {
+  // Phase 2: settleInstall requires a known infrastructure profile — these
+  // top-level flags stand in for a manifest (the shape a resumed/compacted
+  // marker carries) wherever a test below doesn't care about its content.
   const command = {
     id: 'cmd-1',
     deploymentId: 'dep-1',
     type: 'INSTALL' as const,
     idempotencyKey: 'dep-1:INSTALL',
-    payload: {},
+    payload: { redisRequired: false, databaseRequired: true },
   };
 
   const verified: VerificationResult = {
@@ -821,7 +842,17 @@ describe('createInstallExecutor', () => {
         pending,
         install: async () => ({ state: 'in-progress', status: 'CREATE_IN_PROGRESS' }),
       }),
-    )({ ...command, payload: { redisRequired: true } });
+    )({
+      ...command,
+      // No env bindings — keeps this test about the deferral marker itself,
+      // not Stage B's binding-alias compaction (covered separately below).
+      payload: {
+        manifest: manifestPayload({
+          redis: { required: true, envBindings: [] },
+          storage: { required: true, envBindings: [] },
+        }),
+      },
+    });
 
     expect(await pending.read()).toEqual({
       commandId: 'cmd-1',
@@ -829,7 +860,13 @@ describe('createInstallExecutor', () => {
       type: 'INSTALL',
       stackName: 'deployz-app',
       startedAt: '2026-08-26T12:00:00.000Z',
-      payload: { redisRequired: true, databaseRequired: true, parameters: {} },
+      // Phase 2: the manifest itself is dropped (SSM size limit) but its
+      // derived parameters and requirement flags survive the compaction.
+      payload: {
+        redisRequired: true,
+        databaseRequired: true,
+        parameters: { paramContainerPort: '8080', paramHealthCheckPath: '/api/health' },
+      },
     });
   });
 
@@ -860,7 +897,7 @@ describe('createInstallExecutor', () => {
 
     await createInstallExecutor(makeInstallDeps({ install }))({
       ...command,
-      payload: { stackName: 'deployz-app-staging' },
+      payload: { stackName: 'deployz-app-staging', redisRequired: false, databaseRequired: true },
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({ stackName: 'deployz-app-staging' });
@@ -921,7 +958,7 @@ describe('createInstallExecutor', () => {
 
     await createInstallExecutor(
       makeInstallDeps({ install, createStackEventCollector }),
-    )({ ...command, payload: { stackName: 'deployz-app-staging' } });
+    )({ ...command, payload: { stackName: 'deployz-app-staging', redisRequired: false, databaseRequired: true } });
 
     expect(createStackEventCollector).toHaveBeenCalledWith({
       commandId: 'cmd-1',
@@ -964,13 +1001,17 @@ describe('createInstallExecutor', () => {
 });
 
 describe('createInstallResumer', () => {
+  // A resumed install's pending marker is always a COMPACTED payload
+  // (compactPendingInstallPayload drops the manifest to fit SSM's size
+  // limit) — so it carries the resolved `redisRequired`/`databaseRequired`
+  // flags directly rather than a manifest object, matching production.
   const pendingRecord = {
     commandId: 'cmd-1',
     idempotencyKey: 'dep-1:INSTALL',
     type: 'INSTALL',
     stackName: 'deployz-app',
     startedAt: '2026-08-26T12:00:00.000Z',
-    payload: {},
+    payload: { redisRequired: false, databaseRequired: true },
   };
 
   function makeResumeDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
@@ -1043,12 +1084,33 @@ describe('createInstallResumer', () => {
 
   it('carries the original payload into the resumed verification', async () => {
     const pending = memoryPendingStore();
-    await pending.write({ ...pendingRecord, payload: { redisRequired: true } });
+    await pending.write({ ...pendingRecord, payload: { redisRequired: true, databaseRequired: true } });
     const verify = vi.fn(async () => ({ verified: true, checks: [] }));
 
     await createInstallResumer(makeResumeDeps({ pending, verify }))();
 
     expect(verify.mock.calls[0]![0]).toMatchObject({ redisRequired: true });
+  });
+
+  it('refuses cleanly, without any AWS call, when the compacted marker carries only redisRequired (no databaseRequired, no manifest)', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({ ...pendingRecord, payload: { redisRequired: true } });
+    const install = vi.fn();
+    const verify = vi.fn();
+
+    const results = await createInstallResumer(makeResumeDeps({ pending, install, verify }))();
+
+    expect(install).not.toHaveBeenCalled();
+    expect(verify).not.toHaveBeenCalled();
+    expect(await pending.read()).toBeNull();
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      commandId: 'cmd-1',
+      idempotencyKey: 'dep-1:INSTALL',
+      success: false,
+      failureCode: 'STACK_CREATE_FAILED',
+    });
+    expect(results[0]!.error).toMatch(/manifest missing/i);
   });
 
   it('reports a failed stack against the original command id', async () => {
@@ -1076,7 +1138,7 @@ describe('createInstallResumer', () => {
 
   it('re-runs recovery on DELETE_FAILED for a recovery-arc install, keeping the pending record', async () => {
     const pending = memoryPendingStore();
-    await pending.write({ ...pendingRecord, payload: { recovery: { neverInstalled: true } } });
+    await pending.write({ ...pendingRecord, payload: { recovery: { neverInstalled: true }, redisRequired: false, databaseRequired: true } });
     const recover = vi.fn(async () => ({
       phase: 'DELETE_IN_PROGRESS' as const,
       lastStackStatus: 'DELETE_IN_PROGRESS',
@@ -1107,7 +1169,7 @@ describe('createInstallResumer', () => {
 
   it('clears the pending record and reports failure when recovery itself gets stuck', async () => {
     const pending = memoryPendingStore();
-    await pending.write({ ...pendingRecord, payload: { recovery: { neverInstalled: true } } });
+    await pending.write({ ...pendingRecord, payload: { recovery: { neverInstalled: true }, redisRequired: false, databaseRequired: true } });
     const recover = vi.fn(async () => ({
       phase: 'DELETE_STUCK' as const,
       lastStackStatus: 'DELETE_FAILED',
@@ -1140,7 +1202,7 @@ describe('createInstallResumer', () => {
 
   it('reports a DELETE_FAILED install as a plain failure when the install was not a recovery arc', async () => {
     const pending = memoryPendingStore();
-    await pending.write(pendingRecord); // payload: {} — no `recovery.neverInstalled` flag
+    await pending.write(pendingRecord); // no `recovery.neverInstalled` flag on this payload
     const recover = vi.fn();
 
     const results = await createInstallResumer(
@@ -1274,21 +1336,32 @@ describe('settleInstall picks the correct template variant from the infrastructu
     };
   }
 
-  it('installs the base (postgres-only) template when both flags are absent (legacy default)', async () => {
+  // Phase 2: infrastructure requirements are never guessed. A payload with
+  // neither a manifest nor pre-resolved requirement flags must refuse to
+  // provision rather than silently default to postgres-only (the removed
+  // legacy behavior).
+  it('fails fast, without installing, when neither a manifest nor requirement flags are present', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
       outputs: {},
     }));
+    const pending = memoryPendingStore();
 
-    await createInstallExecutor(makeInstallDeps({ install }))(command);
+    const result = await createInstallExecutor(makeInstallDeps({ install, pending }))(command);
 
-    expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl: BASE_URL,
-    });
+    expect(install).not.toHaveBeenCalled();
+    expect(await pending.read()).toBeNull();
+    expect(result.success).toBe(false);
+    expect(result.deferred).toBeUndefined();
+    expect(result.error).toMatch(/manifest missing/i);
   });
 
-  it('installs the redis-variant template when redisRequired is true (legacy flag)', async () => {
+  // A RESUMED install's compacted pending marker (compactPendingInstallPayload)
+  // carries these flags without a manifest object — `createInstallExecutor`
+  // and `createInstallResumer` share `settleInstall`, so a fresh payload
+  // shaped the same way exercises the identical, still-supported path.
+  it('installs the redis-variant template from pre-resolved requirement flags (no manifest)', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1297,7 +1370,7 @@ describe('settleInstall picks the correct template variant from the infrastructu
 
     await createInstallExecutor(makeInstallDeps({ install }))({
       ...command,
-      payload: { redisRequired: true, parameters: { paramAppApiKey: 'k' } },
+      payload: { redisRequired: true, databaseRequired: true, parameters: { paramAppApiKey: 'k' } },
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({
@@ -1307,7 +1380,7 @@ describe('settleInstall picks the correct template variant from the infrastructu
     });
   });
 
-  it('installs the base template when redisRequired is false (legacy flag)', async () => {
+  it('installs the base template from pre-resolved requirement flags when redisRequired is false (no manifest)', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1316,7 +1389,7 @@ describe('settleInstall picks the correct template variant from the infrastructu
 
     await createInstallExecutor(makeInstallDeps({ install }))({
       ...command,
-      payload: { redisRequired: false },
+      payload: { redisRequired: false, databaseRequired: true },
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({
@@ -1394,7 +1467,7 @@ describe('settleInstall picks the correct template variant from the infrastructu
 
     const result = await createInstallExecutor(
       makeInstallDeps({ install, pending, templateUrl: 'https://example.com/some-other-template.json' }),
-    )({ ...command, payload: { redisRequired: true } });
+    )({ ...command, payload: { redisRequired: true, databaseRequired: true } });
 
     expect(install).not.toHaveBeenCalled();
     expect(await pending.read()).toBeNull();
@@ -1565,7 +1638,7 @@ describe('settleInstall derives parameters and the Redis variant from the manife
     });
   });
 
-  it('falls back to the legacy top-level redisRequired flag when the payload has no manifest', async () => {
+  it('falls back to the top-level redisRequired/databaseRequired flags when the payload has no manifest', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1574,7 +1647,7 @@ describe('settleInstall derives parameters and the Redis variant from the manife
 
     await createInstallExecutor(makeInstallDeps(install))({
       ...command,
-      payload: { redisRequired: true },
+      payload: { redisRequired: true, databaseRequired: true },
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({
@@ -1632,7 +1705,11 @@ describe('settleInstall derives parameters and the Redis variant from the manife
 
     await createInstallExecutor({ ...makeInstallDeps(install), readTemplateParameters: async () => null })({
       ...command,
-      payload: { parameters: { paramAppApiKey: 'k', paramNextauthSecret: 's' } },
+      payload: {
+        parameters: { paramAppApiKey: 'k', paramNextauthSecret: 's' },
+        redisRequired: false,
+        databaseRequired: true,
+      },
     });
 
     expect(install.mock.calls[0]![0]!.parameters).toEqual({ paramAppApiKey: 'k', paramNextauthSecret: 's' });
@@ -1898,12 +1975,15 @@ function makeRecoveryDeps(
 }
 
 describe('createInstallExecutor — recovery arc', () => {
+  // The real retry-install route always attaches a manifest (buildInstallPayload,
+  // apps/api/src/install-config.ts) — the flags stand in for it here, the
+  // same shape a resumed/compacted marker would carry.
   const retryCommand = {
     id: 'job-retry-1',
     deploymentId: 'dep-retry',
     type: 'INSTALL' as const,
     idempotencyKey: 'dep-retry:INSTALL:RETRY:1',
-    payload: { recovery: { neverInstalled: true } },
+    payload: { recovery: { neverInstalled: true }, redisRequired: false, databaseRequired: true },
   };
 
   it('recovers a bricked stack, recreates it, and verifies: failure → cleanup → retry → healthy', async () => {
@@ -1949,7 +2029,7 @@ describe('createInstallExecutor — recovery arc', () => {
         },
         { actor, rds },
       ),
-    )({ ...retryCommand, payload: {} });
+    )({ ...retryCommand, payload: { redisRequired: false, databaseRequired: true } });
 
     expect(result.success).toBe(false);
     expect(result.failureCode).toBe('STACK_CREATE_FAILED');

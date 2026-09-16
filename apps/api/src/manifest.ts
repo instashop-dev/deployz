@@ -1,9 +1,12 @@
 import {
   deploymentManifestOverridesSchema,
   deploymentManifestSchema,
+  infrastructureProfileForManifest,
   type DeploymentManifest,
   type DeploymentManifestOverrides,
 } from '@deployz/contracts';
+
+import type { DerivationApplication } from './deployment-status.js';
 
 /**
  * Phase 2/3 boundary — API-side manifest plumbing.
@@ -64,4 +67,27 @@ export function applicationToManifestOverrides(row: ManifestApplicationRow): Dep
 export function readStoredManifest(desiredState: Record<string, unknown> | null): DeploymentManifest | null {
   const parsed = deploymentManifestSchema.safeParse(desiredState?.['manifest']);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The one place a deployment's `DerivationApplication` (deployment-status.ts)
+ * is built — from the deployment's frozen manifest, never the live
+ * `applications` columns (Phase 2). `databaseRequired`/`storageRequired`/
+ * `redisRequired` come out `null` ("not known", never a guessed `false`)
+ * when the stored manifest is missing or invalid; `migrationCommand` stays
+ * the live column, since a vendor fixing a broken migration command must
+ * take effect on the next deploy without re-installing.
+ */
+export function derivationApplicationFor(
+  desiredState: Record<string, unknown> | null,
+  application: { migrationCommand?: string | null } | null | undefined,
+): DerivationApplication {
+  const manifest = readStoredManifest(desiredState);
+  const profile = manifest ? infrastructureProfileForManifest(manifest) : null;
+  return {
+    databaseRequired: profile ? profile.postgres : null,
+    storageRequired: manifest ? manifest.storage.required : null,
+    redisRequired: profile ? profile.redis : null,
+    migrationCommand: application?.migrationCommand ?? null,
+  };
 }

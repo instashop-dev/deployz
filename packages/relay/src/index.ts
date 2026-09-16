@@ -686,7 +686,6 @@ async function settleInstall(
       readonly output: Record<string, unknown>;
     }
 > {
-  const verifyOptions = readVerifyOptionsFromPayload(request.payload);
   const manifest = readDeploymentManifest(request.payload);
 
   // Manifest present but invalid — fail fast before provisioning.
@@ -699,15 +698,31 @@ async function settleInstall(
     };
   }
 
-  // The canonical manifest's infrastructure requirements are authoritative
-  // when present; legacy top-level flags remain the fallback for control
-  // planes that have not shipped the manifest yet.
-  const profile: InfrastructureProfile = manifest
-    ? infrastructureProfileForManifest(manifest)
-    : {
-        postgres: verifyOptions.databaseRequired ?? true,
-        redis: verifyOptions.redisRequired ?? false,
-      };
+  const verifyOptions = readVerifyOptionsFromPayload(request.payload);
+
+  // Phase 2: infrastructure requirements are REQUIRED, never guessed — but
+  // "known" covers two shapes. A fresh INSTALL carries the full manifest, so
+  // the profile comes from it directly. A RESUMED install's compacted
+  // pending marker (`compactPendingInstallPayload` below) deliberately
+  // drops the manifest to fit SSM's size limit, keeping only the
+  // `redisRequired`/`databaseRequired` flags it derived from that same
+  // manifest at compaction time — those still count as known. Only when
+  // NEITHER is available (no manifest was ever attached) does this refuse.
+  const profile: InfrastructureProfile | null =
+    manifest !== null
+      ? infrastructureProfileForManifest(manifest)
+      : verifyOptions.databaseRequired !== undefined && verifyOptions.redisRequired !== undefined
+        ? { postgres: verifyOptions.databaseRequired, redis: verifyOptions.redisRequired }
+        : null;
+
+  if (profile === null) {
+    return {
+      deferred: false,
+      success: false,
+      error: 'Deployment manifest missing — infrastructure requirements are unknown, refusing to provision',
+      output: {},
+    };
+  }
 
   const resolved = resolveApplicationTemplateUrl(deps.templateUrl, profile);
   if (resolved === undefined) {
@@ -776,8 +791,13 @@ async function settleInstall(
   try {
     verification = await deps.verify({
       installationId: deps.installationId,
-      stackName: request.stackName,
       ...verifyOptions,
+      stackName: verifyOptions.stackName ?? request.stackName,
+      // Guaranteed booleans: `verifyOptions` already carries these (derived
+      // from this same manifest), but the profile is the type-safe fallback
+      // so verification never disagrees with the template just resolved.
+      redisRequired: verifyOptions.redisRequired ?? profile.redis,
+      databaseRequired: verifyOptions.databaseRequired ?? profile.postgres,
     });
   } catch (err) {
     verification = {
@@ -1204,8 +1224,10 @@ export async function readTemplateParameterNames(
  * The manifest is the Phase 2 replacement for ad-hoc detector columns: it is
  * persisted on `deployments.desired_state.manifest` at deployment creation and
  * shipped in the INSTALL payload. Validated against the contracts schema at
- * the payload boundary — an invalid or absent manifest reads as `null`, so a
- * control plane that has not shipped one yet keeps the legacy behavior.
+ * the payload boundary — an invalid or absent manifest reads as `null`, and
+ * `settleInstall` refuses to provision without one (a resumed install's
+ * compacted marker, which deliberately drops the manifest, is the one
+ * exception — see `readVerifyOptionsFromPayload`).
  */
 export function readDeploymentManifest(payload: Record<string, unknown>): DeploymentManifest | null {
   const parsed = deploymentManifestSchema.safeParse(payload['manifest']);
@@ -1213,28 +1235,32 @@ export function readDeploymentManifest(payload: Record<string, unknown>): Deploy
 }
 
 /**
- * Extract verification overrides from a command's payload.
+ * Extract verification options from a command's payload.
+ *
+ * Phase 2: the canonical manifest, when present, is the ONLY source of
+ * `redisRequired`/`databaseRequired` — derived through the one allowed
+ * profile derivation (`infrastructureProfileForManifest`), never a second
+ * ad-hoc reading. The top-level flags are read only as a fallback for a
+ * RESUMED install whose compacted pending marker dropped the manifest to
+ * fit SSM's size limit (`compactPendingInstallPayload` below) — those flags
+ * were themselves derived from the manifest when the marker was written, so
+ * this never disagrees with template selection.
  *
  * `command.payload` is `Record<string, unknown>` — shaped by the control
  * plane, not by this module — so every field is validated defensively
- * before use rather than trusted or cast. A missing or wrongly-typed field
- * falls back to `verifyInstallation`'s own default, which is today's
- * behaviour (`redisRequired: false`, the default stack name).
- *
- * This is what keeps the relay's gate and the operator CLI's `--redis` flag
- * in agreement: without it, a deployment that requires Redis but has no
- * ElastiCache cluster would pass the relay gate and only get caught later,
- * by hand, via `audit:deployment`.
+ * before use rather than trusted or cast.
  *
  * The §59 `observe` hook (wired in `createRelayHandler`) does not read a
  * payload — it runs on every poll, outside any command. It gets its
- * `redisRequired` from the commands response's deployment meta instead.
+ * requirement booleans from the commands response's deployment meta instead.
  */
 export function readVerifyOptionsFromPayload(
   payload: Record<string, unknown>,
-): Pick<VerifyOptions, 'redisRequired' | 'databaseRequired' | 'stackName'> {
-  const redisRequired = payload['redisRequired'];
-  const databaseRequired = payload['databaseRequired'];
+): { redisRequired?: boolean; databaseRequired?: boolean; stackName?: string } {
+  const manifest = readDeploymentManifest(payload);
+  const profile = manifest ? infrastructureProfileForManifest(manifest) : null;
+  const redisRequired = profile ? profile.redis : payload['redisRequired'];
+  const databaseRequired = profile ? profile.postgres : payload['databaseRequired'];
   const stackName = payload['stackName'];
 
   return {
@@ -1252,16 +1278,23 @@ export function readVerifyOptionsFromPayload(
  * the create-time parameters and Redis variant from it. None of that is
  * needed to resume: only the merged `parameters` (which `settleInstall`
  * would otherwise recompute from the manifest every time) and the resolved
- * `redisRequired` are. Dropping the manifest is what keeps the marker under
- * SSM's 4096-character Standard-tier limit (`PENDING_MARKER_MAX_LENGTH` in
- * `./pending.js`) — carrying it is what silently failed the deferral write.
+ * `redisRequired`/`databaseRequired` are. Dropping the manifest is what
+ * keeps the marker under SSM's 4096-character Standard-tier limit
+ * (`PENDING_MARKER_MAX_LENGTH` in `./pending.js`) — carrying it is what
+ * silently failed the deferral write.
+ *
+ * Phase 2: the requirement flags are derived ONLY from the manifest's
+ * profile, never from `verifyOptions`/top-level payload flags — by the time
+ * this runs, `settleInstall` has already refused to proceed without a
+ * manifest, so this is total in practice; a manifest-less payload (a caller
+ * that bypasses `settleInstall`) simply omits both flags rather than guess.
  */
 export function compactPendingInstallPayload(
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
   const { manifest: _manifest, ...rest } = payload;
   const manifest = readDeploymentManifest(payload);
-  const verifyOptions = readVerifyOptionsFromPayload(payload);
+  const profile = manifest ? infrastructureProfileForManifest(manifest) : null;
   const aliases = manifest ? manifestBindingAliases(manifest) : [];
 
   return {
@@ -1270,8 +1303,7 @@ export function compactPendingInstallPayload(
       ...readInstallParametersFromPayload(payload),
       ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
     },
-    redisRequired: verifyOptions.redisRequired ?? manifest?.redis.required ?? false,
-    databaseRequired: verifyOptions.databaseRequired ?? manifest?.database.postgres ?? true,
+    ...(profile ? { redisRequired: profile.redis, databaseRequired: profile.postgres } : {}),
     // Stage B phase 2: the compact alias list survives the SSM size cap so a
     // resumed install can still register the manifest's binding aliases after
     // the stack settles (the full manifest cannot ride the pending marker).
@@ -1640,9 +1672,15 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
   // cache and which application URL to probe — without this, a redis-required
   // deployment's heartbeats verify against the cache-less expectation and
   // never report the cache check, and no probe would ever run.
-  const deploymentMeta: { redisRequired: boolean; databaseRequired?: boolean; probeUrl: string | null } = {
-    redisRequired: false,
-    databaseRequired: true,
+  //
+  // Phase 2: both requirement flags start UNKNOWN (`undefined`), never a
+  // guessed default — the observe hook below skips verification entirely
+  // until the first poll response supplies real values.
+  const deploymentMeta: {
+    redisRequired?: boolean;
+    databaseRequired?: boolean | undefined;
+    probeUrl: string | null;
+  } = {
     probeUrl: null,
   };
 
@@ -1723,16 +1761,23 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       observe:
         deps.observe ??
         createObserveHook(
-          () =>
-            verifyInstallation({
+          () => {
+            // Phase 2: never assume a database (or its absence) — until the
+            // control plane's poll response has supplied both flags, skip
+            // verification entirely (the throw becomes `infraHealth: null`
+            // in poll.ts's reportHealth, i.e. "not observed", never a wrong
+            // guess).
+            if (deploymentMeta.redisRequired === undefined || deploymentMeta.databaseRequired === undefined) {
+              throw new Error('Deployment requirements not yet known — waiting for the control plane');
+            }
+            return verifyInstallation({
               cfn: getCloudFormationReader(),
               installationId,
               stackName: relayApplicationStackName(),
-              ...(deploymentMeta.redisRequired ? { redisRequired: true } : {}),
-              ...(deploymentMeta.databaseRequired !== undefined
-                ? { databaseRequired: deploymentMeta.databaseRequired }
-                : {}),
-            }),
+              redisRequired: deploymentMeta.redisRequired,
+              databaseRequired: deploymentMeta.databaseRequired,
+            });
+          },
           () => buildProvisioningSnapshot(getCloudFormationReader(), relayApplicationStackName()),
           () =>
             listAllStackResources(getCloudFormationReader(), relayApplicationStackName()).then(
@@ -1813,10 +1858,11 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             ? null
             : probeHealthUrl(deps.fetchFn, deploymentMeta.probeUrl)),
       onDeploymentMeta: (meta) => {
+        // Symmetric: the control plane sends both flags together or
+        // neither (server.ts's GET /api/relay/commands), so both are
+        // assigned the same way — never one guarded, the other not.
         deploymentMeta.redisRequired = meta.redisRequired;
-        if (meta.databaseRequired !== undefined) {
-          deploymentMeta.databaseRequired = meta.databaseRequired;
-        }
+        deploymentMeta.databaseRequired = meta.databaseRequired;
         deploymentMeta.probeUrl = meta.probeUrl;
       },
     };

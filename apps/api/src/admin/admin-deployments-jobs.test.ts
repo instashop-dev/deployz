@@ -364,6 +364,43 @@ describe('Team Admin: deployments + jobs + connections read models', () => {
       expect(body.application.id).toBe(application.id);
     });
 
+    it('deploymentStatus components follow the deployment stored manifest when the live application column disagrees', async () => {
+      // `application` (shared fixture, above) has databaseRequired: true —
+      // this deployment's frozen manifest says otherwise. The manifest must
+      // win (Phase 2): admin/queries.ts derives the booleans the same way
+      // server.ts does, never from the live application row.
+      const drifted = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+        state: 'HEALTHY',
+        relayStatus: 'CONNECTED',
+        healthStatus: 'HEALTHY',
+        lastHealthAt: new Date(),
+        desiredState: {
+          manifest: {
+            application: { root: '.', runtime: 'node', framework: null, dockerfilePath: null },
+            build: { command: null, context: '.' },
+            web: { command: null, port: 3000 },
+            health: { path: '/health' },
+            database: { postgres: false },
+            redis: { required: false, envBindings: [] },
+            storage: { required: false, envBindings: [] },
+            migration: { command: null },
+            worker: { command: null },
+            environment: { variables: [] },
+            externalServices: [],
+            unsupported: [],
+          },
+        },
+      });
+
+      const response = await getReq(app, `/api/admin/deployments/${drifted.id}`, admin.cookie);
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as {
+        deploymentStatus: { components: { key: string; status: string }[] };
+      };
+      const database = body.deploymentStatus.components.find((c) => c.key === 'database');
+      expect(database?.status).toBe('NOT_REQUIRED');
+    });
+
     it('communicationPossible is false when the last heartbeat is stale', async () => {
       const response = await getReq(app, `/api/admin/deployments/${depDegraded.id}`, admin.cookie);
       const body = response.json() as { connection: { communicationPossible: boolean; relayStatus: string } };

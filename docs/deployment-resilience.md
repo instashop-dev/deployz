@@ -209,6 +209,15 @@ a first-class state (`WAITING`, `relayStatus: DISCONNECTED`,
 force-complete) rather than an error, and why classification/refinement
 lives server-side.
 
+Verification expectations follow the same rule. `databaseRequired` and
+`redisRequired` are explicit booleans derived from the deployment's stored
+manifest (§ frozen at creation — see the domain model above), never a
+silent default. The relay never assumes a database is required. Until the
+control plane's poll response has told it what this deployment actually
+needs, it skips verification for that heartbeat instead of checking against
+a guess. This keeps verification honest about what it does not yet know,
+the same way the uncertain-result rule keeps reconciliation honest.
+
 ## Where the guarantees are tested
 
 - Settlement/exclusivity/duplicate-result: `apps/api/src/failure-semantics.test.ts`,

@@ -1,9 +1,10 @@
 import { generatedEnvKeys } from '@deployz/analysis';
-import type { DeploymentManifest } from '@deployz/contracts';
+import { infrastructureProfileForManifest, type DeploymentManifest } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
-import { DESIRED_COUNT_PARAMETER, buildInstallParameters, readDatabaseRequired, readRedisRequired } from './install-parameters.js';
+import { ApiError } from './errors.js';
+import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
 import { readStoredManifest } from './manifest.js';
 
@@ -92,27 +93,42 @@ export async function configPrecedesFirstStart(
 }
 
 /**
- * The INSTALL job's payload: the template parameters, the Redis flag, the
- * canonical manifest and — when configuration must precede the first start
- * and there is a release to run — `startAfterConfig`, the marker that this
- * install starts no task by itself (the service is created with
+ * The INSTALL job's payload: the template parameters, the Redis/database
+ * flags, the canonical manifest and — when configuration must precede the
+ * first start and there is a release to run — `startAfterConfig`, the marker
+ * that this install starts no task by itself (the service is created with
  * `param_DesiredCount=0`; the post-install CONFIG_UPDATE and the auto-deploy
  * that follow are the first start).
+ *
+ * `databaseRequired`/`redisRequired` are derived from the deployment's
+ * frozen manifest, never the live `applications` columns (Phase 2) — the
+ * relay's INSTALL executor and the heartbeat's requirement checks must agree
+ * with whatever this deployment was actually created with, even after a
+ * vendor later changes the application's requirements.
  */
 export async function buildInstallPayload(
   db: RuntimeDb,
   deployment: { id: string; applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
   store: ConfigStore,
 ): Promise<Record<string, unknown>> {
+  const manifest = readStoredManifest(deployment.desiredState);
+  if (!manifest) {
+    throw new ApiError(
+      422,
+      'MANIFEST_NEEDS_CONFIGURATION',
+      'Deployment has no valid deployment manifest. Run analysis or correct the application configuration first.',
+    );
+  }
+  const profile = infrastructureProfileForManifest(manifest);
   const startAfterConfig = await configPrecedesFirstStart(db, deployment, store);
   const parameters = await buildInstallParameters(db, deployment.id, { startAfterConfig });
   return {
     parameters,
-    databaseRequired: await readDatabaseRequired(db, deployment.applicationId),
-    redisRequired: await readRedisRequired(db, deployment.applicationId),
+    databaseRequired: profile.postgres,
+    redisRequired: profile.redis,
     // The canonical manifest this deployment was created with — the relay
     // derives port/health/binding parameters from it (Phase 2).
-    manifest: readStoredManifest(deployment.desiredState),
+    manifest,
     ...(parameters[DESIRED_COUNT_PARAMETER] === '0' ? { startAfterConfig: true } : {}),
   };
 }
