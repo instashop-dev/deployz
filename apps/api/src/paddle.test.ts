@@ -61,3 +61,5 @@ describe('Paddle SDK Environment enum', () => {
     expect(Environment.production).toBe('production');
   });
 });
+
+// CI evidence: targeted-path timing run (no functional change).
