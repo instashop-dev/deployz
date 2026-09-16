@@ -219,15 +219,16 @@ the same house conventions as every other browser spec (`uniqueEmail`,
 
 ## CI behaviour
 
-- **`.github/workflows/ci.yml`, job `e2e-simulated`** (runs on every push and
-  PR): installs Playwright's Chromium, then runs the mode-guard tests
-  (`node scripts/e2e.mjs e2e/e2e-modes.spec.ts`) followed by the full
-  simulated scenario suite (`node scripts/e2e.mjs --scenarios`). The workflow
-  sets real-looking `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`
-  at the workflow level — this doubles as a live proof that simulated mode's
-  env-scrubbing actually strips them from the API under test. Uploads
-  `test-results/` on failure. The visual-regression suite is excluded (its
-  committed snapshots are Windows-generated).
+- **`.github/workflows/ci.yml`, job `e2e-simulated`** (runs on PRs to `main`
+  and pushes to `main`): installs Playwright's Chromium, then runs the
+  mode-guard tests (`node scripts/e2e.mjs e2e/e2e-modes.spec.ts`) followed by
+  the full simulated scenario suite (`node scripts/e2e.mjs --scenarios`). The
+  job sets fake sentinel `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/
+  `AWS_REGION` values — this doubles as a live proof that simulated mode's
+  env-scrubbing strips them from the API under test, without real credentials
+  ever entering PR CI. Uploads `test-results/` on failure. The
+  visual-regression suite is excluded (its committed snapshots are
+  Windows-generated).
 - **`.github/workflows/e2e.yml`** (`workflow_dispatch` only, not part of the
   PR check set): the full Playwright suite except `visual.spec.ts`.
 - **`.github/workflows/aws-persistent-canary.yml`** (`workflow_dispatch` only):
