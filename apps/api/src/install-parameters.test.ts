@@ -518,7 +518,9 @@ describe('INSTALL job payload.parameters wiring', () => {
       .select()
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
-    expect((job!.payload as { manifest?: typeof manifest }).manifest).toEqual(manifest);
+    // A manifest stored before schemaVersion existed is the v1 shape: it rides
+    // the payload with schemaVersion 1 and nothing else changed.
+    expect((job!.payload as { manifest?: unknown }).manifest).toEqual({ schemaVersion: 1, ...manifest });
   });
 
   it('POST /api/deployments/:id/retry-install keeps recovery.neverInstalled AND adds parameters', async () => {
