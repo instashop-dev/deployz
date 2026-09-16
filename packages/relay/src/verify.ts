@@ -29,7 +29,11 @@ import {
   DescribeStacksCommand,
   ListStackResourcesCommand,
 } from '@aws-sdk/client-cloudformation';
-import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
+import {
+  DEFAULT_APPLICATION_STACK_NAME,
+  INFRASTRUCTURE_COMPONENTS,
+  requiredInfrastructureComponents,
+} from '@deployz/contracts';
 import type { ProvisioningSnapshot } from './provision-progress.js';
 
 // ── Observed shapes ─────────────────────────────────────────────────────────
@@ -147,18 +151,18 @@ const INSTALLATION_TAG = 'deployz:installation';
 /** Stack and resource statuses that mean "this finished, and it worked". */
 const COMPLETE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
 
-const REQUIRED_RESOURCES = [
-  { name: 'compute', type: 'AWS::ECS::Service', label: 'ECS service' },
-  { name: 'ingress', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', label: 'load balancer' },
-  { name: 'database', type: 'AWS::RDS::DBInstance', label: 'database' },
-  { name: 'storage', type: 'AWS::S3::Bucket', label: 'storage bucket' },
-] as const;
+// Detail-string vocabulary — kept identical to the pre-catalog wording so
+// the API's `VERIFY_CHECK_BY_COMPONENT` and the operator `audit:deployment`
+// CLI (both of which match on these check names and phrases) keep working.
+const CHECK_LABELS: Readonly<Record<string, string>> = {
+  compute: 'ECS service',
+  ingress: 'load balancer',
+  database: 'database',
+  storage: 'storage bucket',
+  cache: 'cache',
+};
 
-const CACHE_RESOURCE = {
-  name: 'cache',
-  type: 'AWS::ElastiCache::ReplicationGroup',
-  label: 'cache',
-} as const;
+const CACHE_COMPONENT = INFRASTRUCTURE_COMPONENTS.find((c) => c.checkName === 'cache')!;
 
 export async function verifyInstallation(options: VerifyOptions): Promise<VerificationResult> {
   const checks: VerificationCheck[] = [];
@@ -229,21 +233,22 @@ async function runChecks(
 
   // 4. It contains the application, not just an empty shell.
   const resources = await options.cfn.describeStackResources(stackName);
-  const expected = [
-    ...REQUIRED_RESOURCES.filter((r) => r.name !== 'database' || options.databaseRequired),
-    ...(options.redisRequired ? [CACHE_RESOURCE] : []),
-  ];
+  const expected = requiredInfrastructureComponents({
+    postgres: options.databaseRequired,
+    redis: options.redisRequired,
+  });
 
   for (const want of expected) {
     const present = resources.some(
-      (resource) => resource.type === want.type && COMPLETE_STATUSES.has(resource.status),
+      (resource) => resource.type === want.primaryResourceType && COMPLETE_STATUSES.has(resource.status),
     );
+    const label = CHECK_LABELS[want.checkName];
     checks.push({
-      name: want.name,
+      name: want.checkName,
       passed: present,
       detail: present
-        ? `Found a complete ${want.label}`
-        : `No complete ${want.label} (${want.type}) in the stack`,
+        ? `Found a complete ${label}`
+        : `No complete ${label} (${want.primaryResourceType}) in the stack`,
     });
   }
 
@@ -252,10 +257,10 @@ async function runChecks(
   if (!options.redisRequired) {
     const cachePresent = resources.some(
       (resource) =>
-        resource.type === CACHE_RESOURCE.type && COMPLETE_STATUSES.has(resource.status),
+        resource.type === CACHE_COMPONENT.primaryResourceType && COMPLETE_STATUSES.has(resource.status),
     );
     checks.push({
-      name: CACHE_RESOURCE.name,
+      name: CACHE_COMPONENT.checkName,
       passed: cachePresent,
       required: false,
       detail: cachePresent

@@ -1,6 +1,7 @@
 import { FAILURE_REMEDIATION, customerStackStatusLabel, failureCodeCopy, type FailureCode } from '@deployz/copy-map';
 import {
   DEPLOYMENT_STEP_ORDER,
+  INFRASTRUCTURE_COMPONENTS,
   TYPICAL_STEP_DURATION_SECONDS,
   type ComponentProgress,
   type ComponentProgressStatus,
@@ -54,14 +55,21 @@ const COMPONENT_REQUIREMENT_KEYS = ['application', 'loadBalancer', 'database', '
 
 // The verification check name each merged component key corresponds to —
 // used to fall back to NOT_PROVISIONED/UNKNOWN when the heartbeat never
-// reported the component at all.
-const VERIFY_CHECK_BY_COMPONENT: Record<(typeof COMPONENT_REQUIREMENT_KEYS)[number], string> = {
-  application: 'compute',
-  loadBalancer: 'ingress',
+// reported the component at all. Sourced from the shared component catalog
+// (checkName) rather than a second literal table; only the kind→key mapping
+// is local, since the merged-component key space predates the catalog.
+const COMPONENT_KEY_BY_KIND: Record<(typeof INFRASTRUCTURE_COMPONENTS)[number]['kind'], (typeof COMPONENT_REQUIREMENT_KEYS)[number]> = {
+  application: 'application',
+  endpoint: 'loadBalancer',
   database: 'database',
+  cache: 'redis',
   storage: 'storage',
-  redis: 'cache',
 };
+
+const VERIFY_CHECK_BY_COMPONENT: Record<(typeof COMPONENT_REQUIREMENT_KEYS)[number], string> =
+  Object.fromEntries(
+    INFRASTRUCTURE_COMPONENTS.map((c) => [COMPONENT_KEY_BY_KIND[c.kind], c.checkName]),
+  ) as Record<(typeof COMPONENT_REQUIREMENT_KEYS)[number], string>;
 
 /**
  * Merge a deployment's observed heartbeat components with its verification

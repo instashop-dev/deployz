@@ -94,14 +94,12 @@ function securityGroupClassification(logicalId: string): ResourceClassification 
 // DATABASE_HINT, so they classify as 'other'. DB-scoped secrets (DatabaseSecret,
 // DatabaseUrlSecret) are RETAINED alongside the retained DB instance (Phase 9
 // lifecycle — their DeletionPolicy is Retain so a disconnect never strands a
-// retained database without its password), so they classify 'retain'. The
-// SecretTargetAttachment row is not a real secret — CloudFormation deletes it
-// with the stack — so it stays 'delete'. Everything else (AppConfigSecret)
-// still has DeletionPolicy Delete.
+// retained database without its password), so they classify 'retain'.
+// Everything else (AppConfigSecret) still has DeletionPolicy Delete. The
+// SecretTargetAttachment TYPE is intercepted by its own check below — its
+// CDK-generated logical id (e.g. DatabaseSecretAttachment...) carries no
+// distinguishing substring of its own, so it cannot be told apart here.
 function secretClassification(logicalId: string): ResourceClassification {
-  if (/SecretTargetAttachment/.test(logicalId)) {
-    return component('database', 'supporting', 'delete');
-  }
   return DATABASE_HINT.test(logicalId)
     ? component('database', 'supporting', 'retain')
     : component('other', 'supporting', 'delete');
@@ -135,9 +133,11 @@ export function classifyResource(type: string, logicalId: string): ResourceClass
   if (type === 'AWS::RDS::DBInstance') return component('database', 'primary', 'retain');
   if (type === 'AWS::RDS::DBSubnetGroup') return component('database', 'supporting', 'retain');
   if (type.startsWith('AWS::RDS::')) return component('database', 'supporting', 'retain');
+  if (type === 'AWS::SecretsManager::SecretTargetAttachment')
+    return component('database', 'supporting', 'delete');
   if (type.startsWith('AWS::SecretsManager::')) return secretClassification(logicalId);
   if (type === 'AWS::S3::Bucket') return component('storage', 'primary', 'retain');
-  if (type === 'AWS::S3::BucketPolicy') return component('storage', 'supporting', 'retain');
+  if (type === 'AWS::S3::BucketPolicy') return component('storage', 'supporting', 'delete');
   if (type === 'AWS::ElastiCache::ReplicationGroup' || type === 'AWS::ElastiCache::CacheCluster')
     return component('cache', 'primary', 'delete');
   if (type === 'AWS::ElastiCache::SubnetGroup' || type === 'AWS::ElastiCache::CacheSubnetGroup')
@@ -145,7 +145,12 @@ export function classifyResource(type: string, logicalId: string): ResourceClass
   for (const networkType of NETWORK_TYPES) {
     if (type.startsWith(networkType)) return component('network', 'supporting', 'delete');
   }
-  if (type === 'AWS::EC2::SecurityGroup') return securityGroupClassification(logicalId);
+  if (
+    type === 'AWS::EC2::SecurityGroup' ||
+    type === 'AWS::EC2::SecurityGroupIngress' ||
+    type === 'AWS::EC2::SecurityGroupEgress'
+  )
+    return securityGroupClassification(logicalId);
   if (type.startsWith('AWS::Logs::')) return component('monitoring', 'supporting', 'delete');
   if (type === 'AWS::CloudWatch::Alarm') return component('monitoring', 'supporting', 'delete');
   if (type === 'AWS::ECR::Repository') return component('container_registry', 'primary', 'retain');
