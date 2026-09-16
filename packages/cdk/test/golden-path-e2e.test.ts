@@ -495,7 +495,10 @@ describe('§67 Golden Path E2E', () => {
   // ── AWS client seam verification ─────────────────────────────────────
 
   describe('AWS client seam (injectable interface)', () => {
-    it('real createAwsClients uses SDK v3 — resolves a live identity when credentials are present', async () => {
+    // Real-SDK proof needs real AWS credentials. PR CI carries none by design
+    // (.github/workflows/ci.yml), so this proof runs only where real AWS is
+    // explicitly opted in — the same gate as test/canary-e2e.live.test.ts.
+    it.skipIf(process.env.DEPLOYZ_E2E_ALLOW_REAL_AWS !== '1')('real createAwsClients uses SDK v3 — resolves a live identity when credentials are present', async () => {
       const clients = createAwsClients();
 
       // When AWS credentials are configured (the real-AWS run), the SDK
