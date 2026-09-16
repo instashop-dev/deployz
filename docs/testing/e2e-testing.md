@@ -219,14 +219,21 @@ the same house conventions as every other browser spec (`uniqueEmail`,
 
 ## CI behaviour
 
-- **`.github/workflows/ci.yml`, job `e2e-simulated`** (runs on PRs to `main`
-  and pushes to `main`): installs Playwright's Chromium, then runs the
-  mode-guard tests (`node scripts/e2e.mjs e2e/e2e-modes.spec.ts`) followed by
-  the full simulated scenario suite (`node scripts/e2e.mjs --scenarios`). The
-  job sets fake sentinel `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/
-  `AWS_REGION` values — this doubles as a live proof that simulated mode's
-  env-scrubbing strips them from the API under test, without real credentials
-  ever entering PR CI. Uploads `test-results/` on failure. The
+- **`.github/workflows/ci.yml`** (runs on PRs to `main` and pushes to
+  `main`): a `Plan tests` job runs `scripts/test-affected.mjs` against the
+  PR base and picks a risk level — minimal (docs-only), targeted (affected
+  packages and specs), targeted-web (web unit plus the full non-visual
+  Playwright PR suite), or critical (the full pre-merge validation). The
+  `Test and build` and `Simulated E2E` jobs run the selected subset, and a
+  final `PR Gate` job aggregates them: it fails when planning fails or a
+  required job fails, and accepts intentionally skipped jobs. Every push to
+  `main` runs the full regression. The simulated job sets fake sentinel
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION` values — a live
+  proof that simulated mode's env-scrubbing strips them from the API under
+  test, without real credentials ever entering PR CI. The mode-guard, Team
+  Admin, and deployment-detail specs share one Playwright invocation; the
+  default-HTTPS suite stays separate because it boots its own server with
+  the fixture flag on. Uploads `test-results/` on failure. The
   visual-regression suite is excluded (its committed snapshots are
   Windows-generated).
 - **`.github/workflows/e2e.yml`** (`workflow_dispatch` only, not part of the

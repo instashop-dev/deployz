@@ -16,8 +16,43 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Risk planning (PRs only). Uses scripts/test-affected.mjs against the PR
+  # base SHA, so no shallow-clone merge-base guesswork is needed. A push to
+  # main needs no plan: the other jobs run the full regression.
+  plan:
+    name: Plan tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      risk: ${{ steps.plan.outputs.risk }}
+      unit_packages: ${{ steps.plan.outputs.unit_packages }}
+      script_units: ${{ steps.plan.outputs.script_units }}
+      playwright_files: ${{ steps.plan.outputs.playwright_files }}
+      scenario_ids: ${{ steps.plan.outputs.scenario_ids }}
+      default_https: ${{ steps.plan.outputs.default_https }}
+      typecheck_scripts: ${{ steps.plan.outputs.typecheck_scripts }}
+    steps:
+      # The selector diffs base...HEAD, so the history between them must
+      # be present.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Selector self-tests
+        run: node --test scripts/test-affected.test.mjs
+
+      - name: Plan affected tests
+        id: plan
+        run: >
+          node scripts/test-affected.mjs
+          --base="${{ github.event.pull_request.base.sha }}"
+          --format=json --github-output
+
   test-build:
     name: Test and build
+    needs: plan
+    if: always() && needs.plan.result != 'failure' && needs.plan.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -47,30 +82,51 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Skipped only for minimal (docs-only) PRs; a main push has no plan
+      # output, which is not 'minimal', so it always builds.
       - name: Build workspace packages
+        if: needs.plan.outputs.risk != 'minimal'
         run: pnpm build
 
-      - name: Run tests
+      - name: Run tests (full suite)
+        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical'
         run: pnpm vitest run
 
-      - name: Lint
+      - name: Run tests (affected packages)
+        if: github.event_name == 'pull_request' && needs.plan.outputs.risk != 'critical' && needs.plan.outputs.risk != 'minimal'
+        run: |
+          for pkg in ${{ needs.plan.outputs.unit_packages }}; do
+            pnpm --filter "$pkg" exec vitest run
+          done
+          for dir in ${{ needs.plan.outputs.script_units }}; do
+            (cd "scripts/$dir" && pnpm exec vitest run)
+          done
+
+      - name: Lint (workspace)
+        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical'
         run: pnpm lint
+
+      - name: Lint (affected)
+        if: github.event_name == 'pull_request' && needs.plan.outputs.risk != 'critical' && needs.plan.outputs.risk != 'minimal' && needs.plan.outputs.unit_packages != ''
+        run: pnpm turbo run lint $(for p in ${{ needs.plan.outputs.unit_packages }}; do printf ' --filter=%s' "$p"; done)
 
       # scripts/ is not a workspace package, so `pnpm build` never
       # compiles the four real-AWS harnesses and eslint only covers the
       # .mjs runners. Without this they reach a live AWS run unchecked.
       - name: Typecheck the AWS harnesses
+        if: github.event_name == 'push' || needs.plan.outputs.typecheck_scripts == 'true'
         run: pnpm typecheck:scripts
 
-  # Simulated E2E (docs/testing/e2e-testing.md): the mode/guard tests plus the
-  # full simulated scenario regression suite. Runs through scripts/e2e.mjs, so
-  # the job-level AWS values below double as a live proof that simulated mode
-  # scrubs them from the API under test. They are fake sentinels: PR CI never
-  # receives real AWS credentials (only the manual canary and deploy
-  # workflows hold real ones). The visual suite stays out of PR CI
-  # (Windows-generated snapshots — see e2e.yml).
+  # Simulated E2E (docs/testing/e2e-testing.md). Runs the subset the plan
+  # selected; critical PRs and main pushes run everything. The job-level
+  # AWS values are fake sentinels — a live proof that simulated mode
+  # scrubs them from the API under test. Real credentials never enter PR
+  # CI. The visual suite stays out of PR CI (Windows-generated snapshots
+  # — see e2e.yml).
   e2e-simulated:
     name: Simulated E2E
+    needs: plan
+    if: always() && needs.plan.result != 'failure' && needs.plan.result != 'cancelled' && (github.event_name == 'push' || needs.plan.outputs.risk != 'minimal')
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: simulated-test-access-key
@@ -106,28 +162,34 @@ jobs:
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: E2E mode guards
-        run: node scripts/e2e.mjs e2e/e2e-modes.spec.ts
+      # The mode guards, Team Admin flows, and deployment-detail states run
+      # against the same servers and environment, so one Playwright
+      # invocation covers them (one server lifecycle instead of three).
+      - name: Simulated core suite
+        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
+        run: node scripts/e2e.mjs e2e/e2e-modes.spec.ts e2e/admin.spec.ts e2e/deployment-detail.spec.ts
+
+      - name: Targeted Playwright specs
+        if: github.event_name == 'pull_request' && needs.plan.outputs.risk == 'targeted' && needs.plan.outputs.playwright_files != ''
+        run: node scripts/e2e.mjs ${{ needs.plan.outputs.playwright_files }}
 
       - name: Simulated scenario suite
+        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
         run: node scripts/e2e.mjs --scenarios
 
-      # Phase 14 — the default-HTTPS simulated-provider suite (scenarios A–H)
-      # needs the fixture default-HTTPS machine ON, which the ordinary
-      # simulated run deliberately keeps off (HTTP-only installs). Boot the
-      # same file against a dedicated server instance with the opt-in flag.
+      - name: Targeted simulated scenarios
+        if: github.event_name == 'pull_request' && needs.plan.outputs.risk == 'targeted' && needs.plan.outputs.scenario_ids != '' && needs.plan.outputs.scenario_ids != 'ALL'
+        run: |
+          for id in ${{ needs.plan.outputs.scenario_ids }}; do
+            node scripts/e2e.mjs --scenario="$id"
+          done
+
+      # The default-HTTPS suite (scenarios A–H) needs the fixture
+      # default-HTTPS machine ON, which the ordinary simulated run keeps
+      # off, so it always boots its own server with the opt-in flag.
       - name: Default-HTTPS simulated scenarios
+        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
         run: DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts
-
-      - name: Team Admin flows
-        run: node scripts/e2e.mjs e2e/admin.spec.ts
-
-      # Per-state coverage of the vendor deployment detail page, rendered from
-      # mocked API responses — the states a live relay cannot cheaply be driven
-      # to (a failed update over a live release, a removed deployment with
-      # retained resources, a relay that went quiet, degraded fetches).
-      - name: Deployment detail states
-        run: node scripts/e2e.mjs e2e/deployment-detail.spec.ts
 
       - name: Upload traces on failure
         uses: actions/upload-artifact@v4
@@ -136,3 +198,32 @@ jobs:
           name: e2e-simulated-results
           path: test-results/
           retention-days: 7
+
+  # Stable aggregate check for PRs. Intentionally skipped child steps or
+  # jobs (for example the whole E2E job on a docs-only PR) do not fail the
+  # gate; a failed or cancelled required job, or a failed plan, does.
+  # Only this check is intended to become a required status check later.
+  pr-gate:
+    name: PR Gate
+    needs: [plan, test-build, e2e-simulated]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert planned checks
+        run: |
+          status=0
+          assert() {
+            if [ "$2" != "success" ] && [ "$2" != "skipped" ]; then
+              echo "::error::$1 concluded as $2"
+              status=1
+            fi
+          }
+          assert "Plan tests" "${{ needs.plan.result }}"
+          assert "Test and build" "${{ needs.test-build.result }}"
+          assert "Simulated E2E" "${{ needs.e2e-simulated.result }}"
+          if [ -z "${{ needs.plan.outputs.risk }}" ]; then
+            echo "::error::No test plan was published"
+            status=1
+          fi
+          if [ "$status" != "0" ]; then exit 1; fi
+          echo "PR Gate passed (risk: ${{ needs.plan.outputs.risk }})"
