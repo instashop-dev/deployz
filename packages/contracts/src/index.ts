@@ -4,6 +4,7 @@ export * from './infrastructure.js';
 export * from './manifest.js';
 export * from './application-analysis.js';
 export * from './components.js';
+export * from './plan.js';
 
 import type { DeploymentManifest } from './manifest.js';
 

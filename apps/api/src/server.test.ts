@@ -3340,7 +3340,21 @@ describe('server — organization settings, public install page, and bulk deploy
       customerName: 'Acme Analytics',
       region: 'eu-west-1',
       alreadyInstalled: false,
-      resourcesCreated: ['Application runtime', 'PostgreSQL database'],
+      resourcesCreated: ['Application runtime', 'PostgreSQL database', 'Storage'],
+      // Phase 4: the plan the install page's "Deployz will create" list is
+      // derived from — same schema `GET /api/deployments/:id/plan` serves.
+      plan: {
+        schemaVersion: 1,
+        action: 'INSTALL',
+        region: 'eu-west-1',
+        components: [
+          { kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'endpoint', name: 'Secure endpoint', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
+          { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
+        ],
+        requirementDrift: [],
+      },
       // No BOOTSTRAP_TEMPLATE_URL in the test environment: nothing is
       // published, so there is no link to hand out. The enrollment code
       // travels inside that link, never as a field of its own.
@@ -3388,6 +3402,7 @@ describe('server — organization settings, public install page, and bulk deploy
     const withRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
     expect((withRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
       'Application runtime',
+      'Storage',
       'Redis cache',
     ]);
 
@@ -3401,6 +3416,7 @@ describe('server — organization settings, public install page, and bulk deploy
     const stillWithRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
     expect((stillWithRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
       'Application runtime',
+      'Storage',
       'Redis cache',
     ]);
   });

@@ -36,6 +36,9 @@ import {
   billingSubscriptionStatusSchema,
   bootstrapStackName,
   buildBootstrapQuickCreateUrl,
+  buildDestroyPlan,
+  buildInstallPlan,
+  buildUpdatePlan,
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
   failureCodeSchema,
@@ -53,6 +56,7 @@ import {
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
   type DeploymentManifest,
+  type InfrastructureComponentKind,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
@@ -529,22 +533,34 @@ async function loadOwnedCustomer(
   return rows[0]!;
 }
 
+// The customer-facing name for a catalog kind's install-plan entry — never
+// the internal `INFRASTRUCTURE_COMPONENT_DISPLAY` wording, and never the
+// `endpoint` kind (internal AWS plumbing the reader does not need to see).
+const CUSTOMER_RESOURCE_NAME: Readonly<Partial<Record<InfrastructureComponentKind, string>>> = {
+  application: 'Application runtime',
+  database: 'PostgreSQL database',
+  storage: 'Storage',
+  cache: 'Redis cache',
+};
+
 // The customer-visible "Deployz will create" list. Shared by the public
 // install page and the public deploy-link resolve page so the two can never
 // disagree about what the customer is told will be created (§16.1: only the
 // application components that matter to the reader — never the internal AWS
-// plumbing the same stack creates). Derived from the deployment's frozen
-// manifest (Phase 2), never the live `applications` columns — this must
-// describe what will ACTUALLY be provisioned for this deployment, not
-// whatever the application is configured with today. A missing/invalid
-// manifest never guesses extra resources into existence.
+// plumbing the same stack creates). Phase 4: WHICH components appear is
+// derived from the install plan's CREATE components, so this list and
+// `GET /api/deployments/:id/plan?action=install` can never disagree about
+// what gets provisioned — storage, for instance, is always created
+// regardless of `manifest.storage.required` (that flag is about the
+// application's OWN use of the bucket, not whether one exists). Derived from
+// the deployment's frozen manifest, never the live `applications` columns.
+// A missing manifest never guesses resources into existence.
 function customerInstallResources(manifest: DeploymentManifest | null): string[] {
-  const resources = ['Application runtime'];
-  if (!manifest) return resources;
-  if (manifest.database.postgres) resources.push('PostgreSQL database');
-  if (manifest.storage.required) resources.push('Storage');
-  if (manifest.redis.required) resources.push('Redis cache');
-  return resources;
+  if (!manifest) return [CUSTOMER_RESOURCE_NAME.application!];
+  return buildInstallPlan({ manifest, region: null })
+    .components.filter((component) => component.action === 'CREATE')
+    .map((component) => CUSTOMER_RESOURCE_NAME[component.kind])
+    .filter((name): name is string => name !== undefined);
 }
 
 /** Derived deploy-link status — no separate state machine is persisted. */
@@ -2035,13 +2051,16 @@ export async function buildServer({
     // set up" state instead — so stop handing the credential to anyone who
     // replays the link out of a mailbox or browser history.
     const alreadyInstalled = row.enrollmentUsedAt !== null;
-    // §16.1: the customer-visible "Deployz will create" list names ONLY the
-    // application components that matter to the reader — application,
-    // database, storage, cache — never the internal AWS plumbing the same
-    // stack creates (network, monitoring). The §45 security page's "Exact
-    // AWS resources created" list is the technical home for that detail.
-    // Shared with the public deploy-link resolve page.
-    const resourcesCreated = customerInstallResources(readStoredManifest(row.desiredState));
+    // §16.1: the customer-visible "Deployz will create" list — derived from
+    // the install plan below (Phase 4), so it and the plan can never
+    // disagree. Shared with the public deploy-link resolve page.
+    const manifest = readStoredManifest(row.desiredState);
+    const resourcesCreated = customerInstallResources(manifest);
+    // The full install plan behind that list — same shape
+    // `GET /api/deployments/:id/plan?action=install` serves once the
+    // deployment exists. Null only when the stored manifest is missing or
+    // invalid; the page never guesses one.
+    const plan = manifest ? buildInstallPlan({ manifest, region: row.region }) : null;
     // The expected bootstrap stack name: the persisted one once an attempt
     // has launched (a record of what the customer was told), otherwise the
     // name the link below will prefill. Derived from deployment identity so
@@ -2073,6 +2092,7 @@ export async function buildServer({
       customerName: row.customerName,
       region: row.region,
       resourcesCreated,
+      plan,
       deploymentId: row.deploymentId,
       deploymentState: row.deploymentState,
       domain: domain ? toDomainView(domain) : null,
@@ -2953,6 +2973,20 @@ export async function buildServer({
     return (await runApplicationPreflight(db, application, customerId ?? null)).result;
   });
 
+  // GET /api/applications/:id/plan — the INSTALL plan for this application's
+  // current effective manifest (Phase 4). No deployment exists yet, so no
+  // AWS region has been chosen.
+  app.get('/api/applications/:id/plan', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const application = await loadOwnedApplication(db, id, organizationId);
+    if (application.analysisStatus !== 'COMPLETE') {
+      throw new ApiError(409, 'ANALYSIS_NOT_COMPLETE', 'Run the analysis before requesting a deployment plan.');
+    }
+    const { manifest } = await runApplicationPreflight(db, application, null);
+    return buildInstallPlan({ manifest, region: null });
+  });
+
   // POST /api/applications/:id/fix-instructions — Generate the consolidated
   // coding-agent prompt for the unresolved readiness findings. Read-only with
   // respect to the analysis: generation never changes findings, readiness
@@ -3255,12 +3289,16 @@ export async function buildServer({
         domain,
         appUrl: null,
       });
+      const resolveManifest = readStoredManifest(deployment.desiredState);
       return {
         link: { status: 'active' },
         application: { name: application.name },
         customer: { name: customer.name },
         region: deployment.region,
-        resources: customerInstallResources(readStoredManifest(deployment.desiredState)),
+        resources: customerInstallResources(resolveManifest),
+        // The same install plan the install page serves, so the two customer
+        // surfaces never disagree about what a deployment creates.
+        plan: resolveManifest ? buildInstallPlan({ manifest: resolveManifest, region: deployment.region }) : null,
         deploymentState: deployment.state,
         bootstrapStackName: stackName,
         waitingForRelay,
@@ -5096,6 +5134,40 @@ export async function buildServer({
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
     return runDeploymentPreflight(db, deployment, application);
+  });
+
+  // GET /api/deployments/:id/plan?action=install|update|destroy — the
+  // deterministic plan for one action on this deployment (Phase 4).
+  // install/destroy read the deployment's frozen manifest; update compares
+  // it against the application's current effective manifest and reports any
+  // difference as requirementDrift — the MVP architecture never changes an
+  // existing deployment's topology in place.
+  app.get('/api/deployments/:id/plan', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const deployment = await loadOwnedDeployment(db, id, organizationId);
+    const { action } = request.query as { action?: string };
+    const manifest = readStoredManifest(deployment.desiredState);
+    if (!manifest) {
+      throw new ApiError(
+        422,
+        'MANIFEST_NEEDS_CONFIGURATION',
+        'Deployment has no valid deployment manifest. Run analysis or correct the application configuration first.',
+      );
+    }
+    if (action === 'install') {
+      return buildInstallPlan({ manifest, region: deployment.region });
+    }
+    if (action === 'destroy') {
+      return buildDestroyPlan({ manifest, region: deployment.region });
+    }
+    if (action === 'update') {
+      const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
+      const { manifest: desiredManifest } = await runApplicationPreflight(db, application, null);
+      const newRelease = await newerReadyReleaseExists(db, deployment.applicationId, deployment.currentReleaseId);
+      return buildUpdatePlan({ deployedManifest: manifest, desiredManifest, region: deployment.region, newRelease });
+    }
+    throw new ApiError(400, 'INVALID_REQUEST', 'action must be "install", "update", or "destroy".');
   });
 
   // GET /api/deployments/:id/diagnostics — Diagnostics (§29)
