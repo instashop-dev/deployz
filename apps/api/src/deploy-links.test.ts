@@ -287,7 +287,7 @@ describe('deploy links', () => {
     expect(body.application.name).toBe('Deploy Link App');
     expect(body.customer.name).toBe('Deploy Link Customer');
     expect(body.region).toBe('us-east-1');
-    expect(body.resources).toEqual(['Application runtime']);
+    expect(body.resources).toEqual(['Application runtime', 'Storage']);
     expect(body.status.stage).toBe('WAITING_FOR_AWS');
     // The public payload must never leak internal identifiers or credentials.
     const serialized = JSON.stringify(body);

@@ -188,7 +188,7 @@ profile has.
 
 This one list is the shared semantic catalog for three things: relay
 verification (what must exist), lifecycle presentation (what the customer
-sees after a destroy), and future plans. CDK creates the AWS resources.
+sees after a destroy), and deployment plans. CDK creates the AWS resources.
 CloudFormation, not the catalog, owns their real lifecycle state — the
 catalog only describes CDK's removal policy in a form other code can read.
 
@@ -198,6 +198,34 @@ catalog `lifecycle` must match its `DeletionPolicy` in the template, and
 each template must contain exactly the components its infrastructure
 profile predicts. The test fails when the catalog and the templates
 disagree.
+
+### Deployment plans
+
+A deployment plan (`packages/contracts/src/plan.ts`) states what one action
+— INSTALL, UPDATE, or DESTROY — does to a deployment's infrastructure. It is
+derived data only: built from the deployment manifest and
+`INFRASTRUCTURE_COMPONENTS`, never from AWS and never from an LLM. Two calls
+with the same input always return the same plan.
+
+- **INSTALL** — every component the manifest's infrastructure profile
+  requires is CREATE.
+- **UPDATE** — the MVP architecture never changes an existing deployment's
+  topology (see "The MVP support boundary" below): the application
+  component is UPDATE when a newer release exists, every other component
+  stays UNCHANGED, and any difference between the deployed and the
+  application's current effective requirements is reported as
+  `requirementDrift` — never as a CREATE or DELETE. A vendor who needs the
+  new requirement must create a new deployment.
+- **DESTROY** — each required component is DELETE (its lifecycle is
+  `delete`) or RETAIN (its lifecycle is `retain`), matching the Delete/Purge
+  rule above. A plan's DESTROY action is the disconnect step only — it never
+  represents PURGE, which stays a separate, later operation.
+
+`GET /api/applications/:id/plan` (an INSTALL plan from the application's
+current effective manifest) and `GET /api/deployments/:id/plan?action=…`
+(a plan for an existing deployment) serve this to the vendor. The public
+install page's "Deployz will create" list is derived from the same INSTALL
+plan, so the two can never disagree.
 
 ## The MVP support boundary
 
