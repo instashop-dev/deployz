@@ -301,8 +301,9 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   const idempotency = new IdempotencyStore();
 
   // Refreshed every poll from GET /api/relay/commands' `deployment` meta —
-  // same role as `deploymentMeta` in packages/relay/src/index.ts.
-  let redisRequired = false;
+  // same role as `deploymentMeta` in packages/relay/src/index.ts. Phase 2:
+  // both start UNKNOWN (`undefined`), never a guessed default.
+  let redisRequired: boolean | undefined = undefined;
   let databaseRequired: boolean | undefined = undefined;
   let probeUrl: string | null = null;
 
@@ -599,16 +600,22 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     },
     idempotency,
     // Mirrors createRelayHandler's default observe hook, over the simulated
-    // reader instead of the real CloudFormationReader singleton.
+    // reader instead of the real CloudFormationReader singleton. Phase 2:
+    // never assume a database (or its absence) — skip verification entirely
+    // until the poll response has supplied both flags.
     observe: createObserveHook(
-      () =>
-        verifyInstallation({
+      () => {
+        if (redisRequired === undefined || databaseRequired === undefined) {
+          throw new Error('Deployment requirements not yet known — waiting for the control plane');
+        }
+        return verifyInstallation({
           cfn: account.cloudFormationReader(),
           installationId,
           stackName: stackNameOrDefault(),
-          ...(redisRequired ? { redisRequired: true } : {}),
-          ...(databaseRequired !== undefined ? { databaseRequired } : {}),
-        }),
+          redisRequired,
+          databaseRequired,
+        });
+      },
       () => buildProvisioningSnapshot(account.cloudFormationReader(), stackNameOrDefault()),
       () =>
         listAllStackResources(account.cloudFormationReader(), stackNameOrDefault()).then((inventory) =>

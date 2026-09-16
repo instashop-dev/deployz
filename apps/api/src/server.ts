@@ -42,6 +42,7 @@ import {
   healthComponentsSchema,
   healthStatusSchema,
   httpProbeSchema,
+  infrastructureProfileForManifest,
   infrastructureResponseSchema,
   regionSchema,
   relayCapabilitiesSchema,
@@ -51,6 +52,7 @@ import {
   type ApplicationAnalysis,
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
+  type DeploymentManifest,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
@@ -145,6 +147,7 @@ import {
 } from './jobs.js';
 import {
   applicationToManifestOverrides,
+  derivationApplicationFor,
   readStoredManifest,
   type ManifestApplicationRow,
 } from './manifest.js';
@@ -530,16 +533,17 @@ async function loadOwnedCustomer(
 // install page and the public deploy-link resolve page so the two can never
 // disagree about what the customer is told will be created (§16.1: only the
 // application components that matter to the reader — never the internal AWS
-// plumbing the same stack creates).
-function customerInstallResources(application: {
-  databaseRequired: boolean;
-  storageRequired: boolean;
-  redisRequired: boolean;
-}): string[] {
+// plumbing the same stack creates). Derived from the deployment's frozen
+// manifest (Phase 2), never the live `applications` columns — this must
+// describe what will ACTUALLY be provisioned for this deployment, not
+// whatever the application is configured with today. A missing/invalid
+// manifest never guesses extra resources into existence.
+function customerInstallResources(manifest: DeploymentManifest | null): string[] {
   const resources = ['Application runtime'];
-  if (application.databaseRequired) resources.push('PostgreSQL database');
-  if (application.storageRequired) resources.push('Storage');
-  if (application.redisRequired) resources.push('Redis cache');
+  if (!manifest) return resources;
+  if (manifest.database.postgres) resources.push('PostgreSQL database');
+  if (manifest.storage.required) resources.push('Storage');
+  if (manifest.redis.required) resources.push('Redis cache');
   return resources;
 }
 
@@ -1156,16 +1160,11 @@ async function advanceStepTimingsAfterWrite(
   knownDomain?: CustomDomainRow | null,
 ): Promise<void> {
   const applicationRows = await db
-    .select({
-      databaseRequired: schema.applications.databaseRequired,
-      storageRequired: schema.applications.storageRequired,
-      redisRequired: schema.applications.redisRequired,
-      migrationCommand: schema.applications.migrationCommand,
-    })
+    .select({ migrationCommand: schema.applications.migrationCommand })
     .from(schema.applications)
     .where(eq(schema.applications.id, freshDeployment.applicationId))
     .limit(1);
-  const application = applicationRows[0] ?? {};
+  const application = derivationApplicationFor(freshDeployment.desiredState, applicationRows[0] ?? null);
 
   const jobs = await db
     .select()
@@ -2020,6 +2019,7 @@ export async function buildServer({
         installStartedAt: schema.deployments.installStartedAt,
         observedState: schema.deployments.observedState,
         relayCredential: schema.deployments.relayCredential,
+        desiredState: schema.deployments.desiredState,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
@@ -2041,7 +2041,7 @@ export async function buildServer({
     // stack creates (network, monitoring). The §45 security page's "Exact
     // AWS resources created" list is the technical home for that detail.
     // Shared with the public deploy-link resolve page.
-    const resourcesCreated = customerInstallResources(row);
+    const resourcesCreated = customerInstallResources(readStoredManifest(row.desiredState));
     // The expected bootstrap stack name: the persisted one once an attempt
     // has launched (a record of what the customer was told), otherwise the
     // name the link below will prefill. Derived from deployment identity so
@@ -2134,9 +2134,6 @@ export async function buildServer({
       const rows = await db
         .select({
           deployment: schema.deployments,
-          databaseRequired: schema.applications.databaseRequired,
-          storageRequired: schema.applications.storageRequired,
-          redisRequired: schema.applications.redisRequired,
           migrationCommand: schema.applications.migrationCommand,
         })
         .from(schema.deployments)
@@ -2157,7 +2154,7 @@ export async function buildServer({
       const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
       const derived = deriveDeploymentStatus({
         deployment: row.deployment,
-        application: row,
+        application: derivationApplicationFor(row.deployment.desiredState, row),
         jobs,
         domain,
         defaultHttps,
@@ -3253,7 +3250,7 @@ export async function buildServer({
       // model for every customer surface.
       const derived = deriveDeploymentStatus({
         deployment,
-        application,
+        application: derivationApplicationFor(deployment.desiredState, application),
         jobs: [],
         domain,
         appUrl: null,
@@ -3263,7 +3260,7 @@ export async function buildServer({
         application: { name: application.name },
         customer: { name: customer.name },
         region: deployment.region,
-        resources: customerInstallResources(application),
+        resources: customerInstallResources(readStoredManifest(deployment.desiredState)),
         deploymentState: deployment.state,
         bootstrapStackName: stackName,
         waitingForRelay,
@@ -3404,7 +3401,7 @@ export async function buildServer({
       const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
       const derived = deriveDeploymentStatus({
         deployment,
-        application,
+        application: derivationApplicationFor(deployment.desiredState, application),
         jobs,
         domain,
         defaultHttps,
@@ -3646,9 +3643,6 @@ export async function buildServer({
         customerName: schema.customers.name,
         applicationName: schema.applications.name,
         version: schema.releases.version,
-        databaseRequired: schema.applications.databaseRequired,
-        storageRequired: schema.applications.storageRequired,
-        redisRequired: schema.applications.redisRequired,
         migrationCommand: schema.applications.migrationCommand,
       })
       .from(schema.deployments)
@@ -3697,8 +3691,13 @@ export async function buildServer({
         const domain = domainByDeployment.get(row.deployment.id) ?? null;
         const defaultHttps = parseDefaultHttps(row.deployment.defaultHttps);
         const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
-        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: row, jobs, domain, defaultHttps, appUrl });
-        return { ...toFleetRow(row), deploymentStatus: toVendorDeploymentStatus(derived) };
+        // Phase 2: the requirement booleans come from the deployment's frozen
+        // manifest, never the live `applications` columns above — so the
+        // fleet's component list and derived status can never disagree with
+        // what this deployment was actually created with.
+        const derivedRow = { ...row, ...derivationApplicationFor(row.deployment.desiredState, row) };
+        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: derivedRow, jobs, domain, defaultHttps, appUrl });
+        return { ...toFleetRow(derivedRow), deploymentStatus: toVendorDeploymentStatus(derived) };
       }),
     };
   });
@@ -3714,9 +3713,6 @@ export async function buildServer({
         customerName: schema.customers.name,
         applicationName: schema.applications.name,
         version: schema.releases.version,
-        databaseRequired: schema.applications.databaseRequired,
-        storageRequired: schema.applications.storageRequired,
-        redisRequired: schema.applications.redisRequired,
         migrationCommand: schema.applications.migrationCommand,
       })
       .from(schema.deployments)
@@ -3741,16 +3737,19 @@ export async function buildServer({
     const defaultHttps = parseDefaultHttps(rows[0]!.deployment.defaultHttps);
     const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
     const defaultUrl = resolveDefaultUrl(defaultHttps);
+    // Phase 2: derive the requirement booleans from the deployment's frozen
+    // manifest, never the live `applications` columns selected above.
+    const derivedRow = { ...rows[0]!, ...derivationApplicationFor(rows[0]!.deployment.desiredState, rows[0]!) };
     const derived = deriveDeploymentStatus({
-      deployment: rows[0]!.deployment,
-      application: rows[0]!,
+      deployment: derivedRow.deployment,
+      application: derivedRow,
       jobs,
       domain,
       defaultHttps,
       appUrl,
     });
     return {
-      ...toFleetRow(rows[0]!),
+      ...toFleetRow(derivedRow),
       jobs,
       customDomain,
       appUrl,
@@ -6061,12 +6060,14 @@ export async function buildServer({
 
     // Deployment facts the observe hook needs but no command carries: the
     // heartbeat runs outside any command, so this poll response is the only
-    // channel that reaches it.
-    const appRows = await db
-      .select({ databaseRequired: schema.applications.databaseRequired, redisRequired: schema.applications.redisRequired, healthPath: schema.applications.healthPath })
-      .from(schema.applications)
-      .where(eq(schema.applications.id, deployment.applicationId))
-      .limit(1);
+    // channel that reaches it. Phase 2: derived from the deployment's frozen
+    // manifest, never the live `applications` columns — the relay's
+    // requirement-aware heartbeat checks must never disagree with what this
+    // deployment was actually created with. A missing/invalid manifest omits
+    // BOTH flags (never a guessed default) so poll.ts's "send both or
+    // neither" contract holds.
+    const manifest = readStoredManifest(deployment.desiredState);
+    const profile = manifest ? infrastructureProfileForManifest(manifest) : null;
 
     // §10.2 + Phase 11: the probe URL is where the app is ACTUALLY served —
     // the custom domain / default-HTTPS hostname once HTTPS is configured,
@@ -6089,9 +6090,8 @@ export async function buildServer({
         payload: job.payload,
       })),
       deployment: {
-        databaseRequired: appRows[0]?.databaseRequired ?? false,
-        redisRequired: appRows[0]?.redisRequired ?? false,
-        probeUrl: resolveProbeUrl(installJobs, appRows[0]?.healthPath ?? null, activeDomain, defaultHttps),
+        ...(profile ? { databaseRequired: profile.postgres, redisRequired: profile.redis } : {}),
+        probeUrl: resolveProbeUrl(installJobs, manifest?.health.path ?? null, activeDomain, defaultHttps),
       },
     };
   });

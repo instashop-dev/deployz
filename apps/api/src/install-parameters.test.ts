@@ -437,12 +437,15 @@ describe('INSTALL job payload.parameters wiring', () => {
     expect(parameters?.[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).toMatch(SECRET_SHAPE);
   });
 
-  it('POST /api/relay/register carries redisRequired: true when the application requires Redis', async () => {
+  it('POST /api/relay/register carries redisRequired: true when the stored manifest requires Redis', async () => {
+    // Phase 2: redisRequired is derived from the deployment's frozen
+    // manifest, never the live application column — set it there.
     const application = await insertApplication(db, org.organizationId, { redisRequired: true });
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
       installationId: null,
+      desiredState: { manifest: { ...READY_MANIFEST, redis: { required: true, envBindings: [] } } },
     });
 
     const response = await postJson(
@@ -481,6 +484,34 @@ describe('INSTALL job payload.parameters wiring', () => {
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
     expect((job!.payload as { redisRequired?: boolean }).redisRequired).toBe(false);
+  });
+
+  it('carries redisRequired from the stored manifest even when the live application column disagrees', async () => {
+    // The application row says Redis is NOT required, but the deployment's
+    // frozen manifest says it IS — the manifest must win (Phase 2).
+    const application = await insertApplication(db, org.organizationId, { redisRequired: false });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+      installationId: null,
+      desiredState: { manifest: { ...READY_MANIFEST, redis: { required: true, envBindings: [] } } },
+    });
+
+    const response = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: deployment.enrollmentCode, installationId: `inst-${crypto.randomUUID()}` },
+      { authorization: 'Bearer relay-token-install-params-drift' },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    const payload = job!.payload as { redisRequired?: boolean; manifest?: { redis?: { required?: boolean } } };
+    expect(payload.redisRequired).toBe(true);
+    expect(payload.manifest?.redis?.required).toBe(true);
   });
 
   it('POST /api/relay/register carries the canonical manifest from desired_state.manifest', async () => {
@@ -556,12 +587,13 @@ describe('INSTALL job payload.parameters wiring', () => {
     expect(payload.redisRequired).toBe(false);
   });
 
-  it('POST /api/deployments/:id/retry-install carries redisRequired: true when the application requires Redis', async () => {
+  it('POST /api/deployments/:id/retry-install carries redisRequired: true when the stored manifest requires Redis', async () => {
     const application = await insertApplication(db, org.organizationId, { redisRequired: true });
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'FAILED',
       installationId: `inst-recovery-redis-${crypto.randomUUID()}`,
+      desiredState: { manifest: { ...READY_MANIFEST, redis: { required: true, envBindings: [] } } },
     });
     await db.insert(schema.deploymentJobs).values({
       deploymentId: deployment.id,

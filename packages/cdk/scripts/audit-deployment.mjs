@@ -13,7 +13,7 @@
  * Usage:
  *   pnpm --filter @deployz/cdk audit:deployment \
  *     --installation <uuid> [--region us-east-1] [--stack-name deployz-app] \
- *     [--claimed HEALTHY] [--redis]
+ *     [--claimed HEALTHY] [--redis] [--no-database]
  *
  * Exit codes: 0 verified, 1 not verified, 2 usage error.
  */
@@ -24,7 +24,7 @@ import { createCloudFormationReader, verifyInstallation } from '@deployz/relay/v
 
 const USAGE =
   'Usage: pnpm --filter @deployz/cdk audit:deployment --installation <uuid> ' +
-  '[--region <region>] [--stack-name <name>] [--claimed <state>] [--redis]';
+  '[--region <region>] [--stack-name <name>] [--claimed <state>] [--redis] [--no-database]';
 
 let values;
 try {
@@ -35,6 +35,10 @@ try {
       'stack-name': { type: 'string' },
       claimed: { type: 'string' },
       redis: { type: 'boolean', default: false },
+      // Phase 2: `verifyInstallation` no longer defaults `databaseRequired`
+      // to true — this operator tool must say so explicitly. Most
+      // installations still run PostgreSQL, so the flag is a negation.
+      'no-database': { type: 'boolean', default: false },
     },
   }));
 } catch (err) {
@@ -54,6 +58,7 @@ const result = await verifyInstallation({
   installationId: values.installation,
   ...(values['stack-name'] ? { stackName: values['stack-name'] } : {}),
   redisRequired: values.redis,
+  databaseRequired: !values['no-database'],
 });
 
 const field = (label, value) => `${label.padEnd(14)}${value}`;

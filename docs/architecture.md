@@ -113,11 +113,17 @@ requirements, through a deterministic chain:
 
 1. **DeploymentManifest** (`database.postgres`, `redis.required`) is the
    single infrastructure source of truth. The analyzer writes it; the relay
-   reads it. Legacy top-level flags (`databaseRequired`, `redisRequired`)
-   remain the fallback for control planes that have not shipped the manifest
-   yet. The manifest carries a `schemaVersion` field (currently 1). A stored
-   manifest with an unknown `schemaVersion` fails to parse, so the relay
-   fails before provisioning instead of guessing at an unknown shape.
+   reads it. The top-level `databaseRequired`/`redisRequired` wire fields are
+   now transitional relay-compatibility fields ONLY: the control plane always
+   derives their values from the stored manifest (never the live
+   `applications` columns), and the relay reads them only when a RESUMED
+   install's compacted pending marker has already dropped the manifest to
+   fit SSM's size limit — those flags were themselves derived from the same
+   manifest when the marker was written, so this never disagrees with
+   template selection. The manifest carries a `schemaVersion` field
+   (currently 1). A stored manifest with an unknown `schemaVersion` fails to
+   parse, so the relay fails before provisioning instead of guessing at an
+   unknown shape.
 2. **InfrastructureProfile** (`@deployz/contracts/src/index.ts`) is a shared
    type `{ postgres: boolean, redis: boolean }` that captures only the
    infrastructure graph-shaping requirements. Port, health path, domain, and
@@ -147,6 +153,17 @@ RDS instances, DB credential secrets, or database-env footprint.
 - **Manifest is authoritative.** Invalid or missing manifest requirements
   fail before provisioning (the relay returns an error, never silently
   defaults to PostgreSQL).
+- **The relay refuses an INSTALL without a manifest.** A fresh INSTALL
+  payload always carries the manifest (the API refuses to mint one
+  otherwise); `settleInstall` fails fast, before any AWS call, if neither
+  the manifest nor a resumed marker's already-derived flags are present. It
+  never falls back to a guessed default.
+- **The heartbeat/poll meta comes from the stored manifest.** `GET
+  /api/relay/commands`' `deployment` field (which the relay's observe hook
+  reads on every poll, outside any command) derives `databaseRequired`/
+  `redisRequired` from the deployment's stored manifest. When the manifest
+  is missing or invalid, both fields are omitted together — the relay skips
+  verification for that poll rather than assuming a database.
 - **Only infrastructure graph-shaping requirements are variants.** Port,
   health path, domain, and application env vars are CloudFormation
   parameters, not template variants.

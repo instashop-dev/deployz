@@ -3,15 +3,18 @@ import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { DeployzStack } from '../src/deployz-stack.js';
 
+// The first synth in this worker esbuild-bundles the API and worker Lambdas,
+// which blocks the process for a minute on a slow CI runner. Doing it here,
+// while the file is collected, keeps that stretch away from vitest's
+// per-test RPC (60-second "Timeout calling onTaskUpdate"); every later synth
+// reuses CDK's in-process asset cache and takes seconds.
+const baseline = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+
 describe('DeployzStack', () => {
   it('synthesizes without errors', () => {
-    const app = new App();
-    const stack = new DeployzStack(app, 'DeployzTest');
-    const template = Template.fromStack(stack);
-
     // The template should be valid JSON (Template.fromStack throws on
     // invalid templates, so reaching here means synthesis succeeded).
-    expect(template).toBeDefined();
+    expect(baseline).toBeDefined();
   });
 
   // The Docker Hub credential is wired into the build pipeline only when a
