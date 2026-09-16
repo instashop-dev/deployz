@@ -175,6 +175,30 @@ RDS instances, DB credential secrets, or database-env footprint.
   their original PostgreSQL template until their normal destroy/purge
   lifecycle.
 
+### Infrastructure components
+
+`INFRASTRUCTURE_COMPONENTS` (`packages/contracts/src/components.ts`) is the
+shared list of the five components a deployment can have: application,
+endpoint, database, cache, and storage. Each entry names its `kind`, the
+`InfrastructureProfile` rule that says when it is required, its `lifecycle`
+(`delete` or `retain`) on destroy, the CloudFormation `primaryResourceType`
+that proves it exists, and the relay `checkName` that verifies it.
+`requiredInfrastructureComponents(profile)` returns the components a given
+profile has.
+
+This one list is the shared semantic catalog for three things: relay
+verification (what must exist), lifecycle presentation (what the customer
+sees after a destroy), and future plans. CDK creates the AWS resources.
+CloudFormation, not the catalog, owns their real lifecycle state — the
+catalog only describes CDK's removal policy in a form other code can read.
+
+`packages/cdk/test/lifecycle-parity.test.ts` checks that the catalog agrees
+with the four committed application templates: each `primaryResourceType`'s
+catalog `lifecycle` must match its `DeletionPolicy` in the template, and
+each template must contain exactly the components its infrastructure
+profile predicts. The test fails when the catalog and the templates
+disagree.
+
 ## The MVP support boundary
 
 Deployz supports one opinionated architecture: a single Linux web/API
@@ -219,4 +243,6 @@ removed), never raw CloudFormation enums.
 - Redis support details: `docs/redis-mvp-implementation.md`
 - Application template selection and variants: this document's
   *Application template selection* section
+- The infrastructure component catalog and its lifecycle parity test: this
+  document's *Infrastructure components* section
 - Team Admin: `docs/admin/team-admin.md`

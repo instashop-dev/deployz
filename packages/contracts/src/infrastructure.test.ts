@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   aggregateInfrastructureComponents,
+  classifyResource,
   type InfrastructureResourceRow,
 } from './infrastructure.js';
 
@@ -282,5 +283,23 @@ describe('aggregateInfrastructureComponents', () => {
     expect(result.components).toHaveLength(1);
     expect(result.components[0]!.status).toBe('retained');
     expect(result.summaryStatus).toBe('retained');
+  });
+});
+
+describe('classifyResource', () => {
+  it('AWS::S3::BucketPolicy classifies delete — CloudFormation has no DeletionPolicy on it', () => {
+    expect(classifyResource('AWS::S3::BucketPolicy', 'AppStoragePolicy')).toEqual({
+      componentKind: 'storage',
+      role: 'supporting',
+      lifecycle: 'delete',
+    });
+  });
+
+  it('AWS::S3::Bucket (the primary resource) still classifies retain', () => {
+    expect(classifyResource('AWS::S3::Bucket', 'AppStorage')).toEqual({
+      componentKind: 'storage',
+      role: 'primary',
+      lifecycle: 'retain',
+    });
   });
 });
