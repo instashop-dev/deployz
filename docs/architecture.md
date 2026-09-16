@@ -115,12 +115,16 @@ requirements, through a deterministic chain:
    single infrastructure source of truth. The analyzer writes it; the relay
    reads it. Legacy top-level flags (`databaseRequired`, `redisRequired`)
    remain the fallback for control planes that have not shipped the manifest
-   yet.
+   yet. The manifest carries a `schemaVersion` field (currently 1). A stored
+   manifest with an unknown `schemaVersion` fails to parse, so the relay
+   fails before provisioning instead of guessing at an unknown shape.
 2. **InfrastructureProfile** (`@deployz/contracts/src/index.ts`) is a shared
    type `{ postgres: boolean, redis: boolean }` that captures only the
    infrastructure graph-shaping requirements. Port, health path, domain, and
    normal env vars are CloudFormation parameters passed into the template,
-   not variants.
+   not variants. `infrastructureProfileForManifest` is the only function that
+   derives this profile from a manifest; every caller (the relay included)
+   uses it instead of reading `database.postgres` / `redis.required` again.
 3. **`resolveApplicationTemplateUrl`** (pure string derivation, no network)
    computes the exact template URL by replacing the base template's key with
    the profile's deterministic key. All four templates are always published

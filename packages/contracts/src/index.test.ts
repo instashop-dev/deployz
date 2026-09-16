@@ -36,6 +36,7 @@ import {
   APPLICATION_TEMPLATE_REDIS_KEY,
   APPLICATION_TEMPLATE_URL_LINE,
   applicationTemplateKeyForProfile,
+  infrastructureProfileForManifest,
   parseApplicationTemplateUrl,
   healthComponentsSchema,
   isSupportedRegion,
@@ -526,6 +527,23 @@ describe('applicationTemplateKeyForProfile', () => {
     expect(applicationTemplateKeyForProfile({ postgres: true, redis: true })).toBe(
       APPLICATION_TEMPLATE_REDIS_KEY,
     );
+  });
+});
+
+describe('infrastructureProfileForManifest', () => {
+  it('derives the profile from the manifest database/redis sections for all four combinations', () => {
+    expect(
+      infrastructureProfileForManifest({ database: { postgres: true }, redis: { required: false, envBindings: [] } }),
+    ).toEqual({ postgres: true, redis: false });
+    expect(
+      infrastructureProfileForManifest({ database: { postgres: true }, redis: { required: true, envBindings: [] } }),
+    ).toEqual({ postgres: true, redis: true });
+    expect(
+      infrastructureProfileForManifest({ database: { postgres: false }, redis: { required: false, envBindings: [] } }),
+    ).toEqual({ postgres: false, redis: false });
+    expect(
+      infrastructureProfileForManifest({ database: { postgres: false }, redis: { required: true, envBindings: [] } }),
+    ).toEqual({ postgres: false, redis: true });
   });
 });
 

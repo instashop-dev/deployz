@@ -2328,6 +2328,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       passed: [],
       analyzedCommitSha: null,
       detected: null,
+      requirements: null,
     });
   });
 
@@ -2397,6 +2398,12 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       passed: readiness.passed,
       analyzedCommitSha: 'deadbeef',
       detected: null,
+      requirements: {
+        schemaVersion: 1,
+        database: { detected: false, effective: false, overridden: false },
+        redis: { detected: false, effective: false, overridden: false },
+        storage: { detected: false, effective: false, overridden: false },
+      },
     });
   });
 
@@ -2514,6 +2521,84 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect(body.state).toBe('READY');
     expect(body.findings).toEqual([]);
     expect(body.passed).toEqual([{ id: 'legacy-passed-0', label: 'Docker container detected' }]);
+  });
+
+  // Phase 1: the server computes database/redis/storage truth instead of the
+  // web app OR-ing `application.*Required` with `detected.*.required` — an
+  // OR cannot represent a vendor override to `false` (see server — §35
+  // vendorOverrides).
+  describe('readiness: requirements (Phase 1 server-computed database/redis/storage truth)', () => {
+    // Isolate the assertion to redis: the express-api fixture's own `pg`
+    // dependency + DATABASE_URL evidence would otherwise make
+    // `detected.database.required` true too.
+    function detectedWithRedisRequired(required: boolean) {
+      const detected = buildApplicationAnalysis(analyseRepo(GITHUB_FIXTURE_FILE_TREES['deployz-demo/express-api']!), {
+        analysisVersion: ANALYSIS_VERSION,
+        aiResolved: [],
+        resolvedMigrationCommand: null,
+      });
+      return {
+        ...detected,
+        database: { ...detected.database, required: false },
+        redis: { ...detected.redis, required },
+      };
+    }
+
+    it('detected redis required, no override: effective true, overridden false', async () => {
+      const application = await insertApplication(db, org.organizationId, {
+        analysisStatus: 'COMPLETE',
+        compatibilityStatus: 'READY',
+        redisRequired: true,
+        detectedMetadata: { application: detectedWithRedisRequired(true) },
+      });
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${application.id}/readiness`,
+        headers: { cookie: org.cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect((response.json() as { requirements: unknown }).requirements).toEqual({
+        schemaVersion: 1,
+        database: { detected: false, effective: false, overridden: false },
+        redis: { detected: true, effective: true, overridden: false },
+        storage: { detected: false, effective: false, overridden: false },
+      });
+    });
+
+    it('vendor override sets redisRequired=false while detection says true: effective false, overridden true', async () => {
+      const application = await insertApplication(db, org.organizationId, {
+        analysisStatus: 'COMPLETE',
+        compatibilityStatus: 'READY',
+        redisRequired: false,
+        detectedMetadata: {
+          application: detectedWithRedisRequired(true),
+          vendorOverrides: ['redisRequired'],
+        },
+      });
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${application.id}/readiness`,
+        headers: { cookie: org.cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect((response.json() as { requirements: unknown }).requirements).toEqual({
+        schemaVersion: 1,
+        database: { detected: false, effective: false, overridden: false },
+        redis: { detected: true, effective: false, overridden: true },
+        storage: { detected: false, effective: false, overridden: false },
+      });
+    });
+
+    it('analysis incomplete: requirements is null', async () => {
+      const application = await insertApplication(db, org.organizationId, { analysisStatus: 'ANALYZING' });
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${application.id}/readiness`,
+        headers: { cookie: org.cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect((response.json() as { requirements: unknown }).requirements).toBeNull();
+    });
   });
 });
 

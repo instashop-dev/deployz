@@ -18,6 +18,7 @@ import type { EcsDeployClient, EcsTaskDefinition } from '../src/deploy.js';
 
 /** A Stage B phase 2 manifest: standard + alias DB bindings, redis, S3. */
 const ALIAS_MANIFEST: DeploymentManifest = {
+  schemaVersion: 1,
   application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
   build: { command: 'npm run build', context: '.' },
   web: { command: 'npm start', port: 3000 },

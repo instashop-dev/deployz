@@ -15,6 +15,7 @@ import {
   FIX_INSTRUCTIONS_TIMEOUT_MS,
   createAiGateway,
   generateFixInstructions,
+  normalizeDeploymentManifest,
   readApplicationAnalysis,
   redactSecrets,
   verdictFromReadiness,
@@ -26,6 +27,7 @@ import {
 } from '@deployz/analysis';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
+  DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   DOCUMENSO_PARAMETERS,
   REGION_LABELS,
   RELAY_STALE_AFTER_MS,
@@ -47,6 +49,7 @@ import {
   resolveBootstrapTemplate,
   summarizeInfrastructureStatus,
   type ApplicationAnalysis,
+  type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
@@ -140,7 +143,11 @@ import {
   hasStartedInstall,
   newerReadyReleaseExists,
 } from './jobs.js';
-import { readStoredManifest } from './manifest.js';
+import {
+  applicationToManifestOverrides,
+  readStoredManifest,
+  type ManifestApplicationRow,
+} from './manifest.js';
 import { enqueue } from './queue.js';
 import {
   acceptInvitation,
@@ -832,6 +839,8 @@ interface ReadinessResponse {
   analyzedCommitSha: string | null;
   /** What the analysis detected, with source, confidence and evidence. Null until a Version 13+ analysis ran. */
   detected: ApplicationAnalysis | null;
+  /** Server-computed database/redis/storage truth (Phase 1). Null while analysis is incomplete. */
+  requirements: ApplicationRequirementsSummary | null;
 }
 
 /** Legacy-row bridge: rebuild findings from the pre-report `checks` shape. */
@@ -883,13 +892,13 @@ function legacyReadiness(app: {
   };
 }
 
-function computeReadiness(app: {
-  analysisStatus: string;
-  compatibilityStatus: string | null;
-  compatibilityReason: string | null;
-  containerPort: number | null;
-  detectedMetadata: Record<string, unknown> | null;
-}): ReadinessResponse {
+function computeReadiness(
+  app: ManifestApplicationRow & {
+    analysisStatus: string;
+    compatibilityStatus: string | null;
+    compatibilityReason: string | null;
+  },
+): ReadinessResponse {
   if (app.analysisStatus !== 'COMPLETE') {
     return {
       analysisStatus: app.analysisStatus,
@@ -906,6 +915,7 @@ function computeReadiness(app: {
       passed: [],
       analyzedCommitSha: null,
       detected: null,
+      requirements: null,
     };
   }
 
@@ -924,13 +934,51 @@ function computeReadiness(app: {
         passed: report.passed,
       }
     : legacyReadiness(app);
+  const detected = readApplicationAnalysis(app.detectedMetadata);
 
   return {
     analysisStatus: app.analysisStatus,
     ...body,
     failureReason: null,
     analyzedCommitSha,
-    detected: readApplicationAnalysis(app.detectedMetadata),
+    detected,
+    requirements: computeApplicationRequirements(app, detected),
+  };
+}
+
+/**
+ * The server-computed truth for database/redis/storage (Phase 1) — replaces
+ * the web app's client-side OR of `application.*Required` with
+ * `detected.*.required`, which cannot represent a vendor override to
+ * `false`. Built from the same manifest `runApplicationPreflight` builds, so
+ * the two endpoints can never disagree about what a new deployment gets.
+ */
+function computeApplicationRequirements(
+  app: ManifestApplicationRow,
+  detected: ApplicationAnalysis | null,
+): ApplicationRequirementsSummary | null {
+  const manifest = normalizeDeploymentManifest(
+    { metadata: app.detectedMetadata ?? {} },
+    applicationToManifestOverrides(app),
+  );
+  const overrides = new Set(readVendorOverrides(app.detectedMetadata));
+  return {
+    schemaVersion: DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
+    database: {
+      detected: detected?.database.required ?? false,
+      effective: manifest.database.postgres,
+      overridden: overrides.has('databaseRequired'),
+    },
+    redis: {
+      detected: detected?.redis.required ?? false,
+      effective: manifest.redis.required,
+      overridden: overrides.has('redisRequired'),
+    },
+    storage: {
+      detected: detected?.storage.objectStorageDetected ?? false,
+      effective: manifest.storage.required,
+      overridden: overrides.has('storageRequired'),
+    },
   };
 }
 
