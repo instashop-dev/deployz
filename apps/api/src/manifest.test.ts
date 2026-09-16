@@ -278,6 +278,7 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
 
   it('readStoredManifest round-trips a persisted manifest', () => {
     const manifest: DeploymentManifest = {
+      schemaVersion: 1,
       application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
       build: { command: null, context: '.' },
       web: { command: 'npm start', port: 3000 },
@@ -292,5 +293,44 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
       unsupported: [],
     };
     expect(readStoredManifest({ manifest })).toEqual(manifest);
+  });
+
+  it('readStoredManifest returns null for an unknown schemaVersion (2)', () => {
+    const manifest = {
+      schemaVersion: 2,
+      application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
+      build: { command: null, context: '.' },
+      web: { command: 'npm start', port: 3000 },
+      health: { path: '/health' },
+      database: { postgres: false },
+      redis: { required: false, envBindings: [] },
+      storage: { required: false, envBindings: [] },
+      migration: { command: null },
+      worker: { command: null },
+      environment: { variables: [] },
+      externalServices: [],
+      unsupported: [],
+    };
+    expect(readStoredManifest({ manifest })).toBeNull();
+  });
+
+  it('readStoredManifest parses a legacy stored manifest lacking schemaVersion as version 1', () => {
+    const legacyManifest = {
+      application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
+      build: { command: null, context: '.' },
+      web: { command: 'npm start', port: 3000 },
+      health: { path: '/health' },
+      database: { postgres: false },
+      redis: { required: false, envBindings: [] },
+      storage: { required: false, envBindings: [] },
+      migration: { command: null },
+      worker: { command: null },
+      environment: { variables: [] },
+      externalServices: [],
+      unsupported: [],
+    };
+    const manifest = readStoredManifest({ manifest: legacyManifest });
+    expect(manifest).not.toBeNull();
+    expect(manifest!.schemaVersion).toBe(1);
   });
 });

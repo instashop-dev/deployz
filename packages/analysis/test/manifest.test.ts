@@ -36,6 +36,7 @@ describe('normalizeDeploymentManifest', () => {
   it('turns a ready analysis into a validated manifest', () => {
     const analysis = analyseRepo(READY_TREE);
     const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.schemaVersion).toBe(1);
     expect(manifest.application).toEqual({
       root: '.',
       runtime: 'node',

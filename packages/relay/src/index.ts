@@ -131,6 +131,7 @@ import {
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
   applicationStackNameForInstallation,
   deploymentManifestSchema,
+  infrastructureProfileForManifest,
   resolveApplicationTemplateUrl,
   type DeploymentManifest,
   type InfrastructureProfile,
@@ -702,7 +703,7 @@ async function settleInstall(
   // when present; legacy top-level flags remain the fallback for control
   // planes that have not shipped the manifest yet.
   const profile: InfrastructureProfile = manifest
-    ? { postgres: manifest.database.postgres, redis: manifest.redis.required }
+    ? infrastructureProfileForManifest(manifest)
     : {
         postgres: verifyOptions.databaseRequired ?? true,
         redis: verifyOptions.redisRequired ?? false,

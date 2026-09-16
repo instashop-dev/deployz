@@ -15,6 +15,7 @@ import {
   envVariableClassificationSchema,
   deploymentManifestOverridesSchema,
   deploymentManifestSchema,
+  DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   type DeploymentManifest,
   type DeploymentManifestOverrides,
   type ManifestEnvBinding,
@@ -308,6 +309,7 @@ export function normalizeDeploymentManifest(
   }
 
   const manifest: DeploymentManifest = {
+    schemaVersion: DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
     application: {
       root: appRoot,
       // Rows analysed before the runtime detector existed carry no

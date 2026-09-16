@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   deploymentManifestOverridesSchema,
   deploymentManifestSchema,
   manifestEnvBindingSchema,
@@ -8,6 +9,7 @@ import {
 } from './manifest.js';
 
 const READY_MANIFEST = {
+  schemaVersion: 1,
   application: {
     root: '.',
     runtime: 'node',
@@ -67,6 +69,16 @@ describe('deploymentManifestSchema', () => {
         web: { command: 'npm start', port: 3000.5 },
       }),
     ).toThrow();
+  });
+
+  it('an old stored manifest without schemaVersion parses as version 1', () => {
+    const { schemaVersion: _schemaVersion, ...legacy } = READY_MANIFEST;
+    const parsed = deploymentManifestSchema.parse(legacy);
+    expect(parsed.schemaVersion).toBe(DEPLOYMENT_MANIFEST_SCHEMA_VERSION);
+  });
+
+  it('an unknown schemaVersion (2) is rejected', () => {
+    expect(() => deploymentManifestSchema.parse({ ...READY_MANIFEST, schemaVersion: 2 })).toThrow();
   });
 });
 

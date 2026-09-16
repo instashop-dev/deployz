@@ -79,8 +79,19 @@ export const manifestEnvVariableSchema = z
   .strict();
 export type ManifestEnvVariable = z.infer<typeof manifestEnvVariableSchema>;
 
+/**
+ * The manifest shape version. Every manifest written from now on carries
+ * `schemaVersion: 1`. A stored manifest with NO `schemaVersion` is the
+ * pre-versioning shape and parses as version 1 (legacy compatibility — all
+ * manifests persisted so far predate this field). Any other value fails
+ * validation, which `readStoredManifest` turns into `null` and the
+ * deployment preflight turns into a 422 before provisioning.
+ */
+export const DEPLOYMENT_MANIFEST_SCHEMA_VERSION = 1 as const;
+
 export const deploymentManifestSchema = z
   .object({
+    schemaVersion: z.literal(DEPLOYMENT_MANIFEST_SCHEMA_VERSION).default(DEPLOYMENT_MANIFEST_SCHEMA_VERSION),
     application: z
       .object({
         /** Repository path the app lives in (e.g. `.`, `apps/web`). */
@@ -227,6 +238,34 @@ export const deploymentManifestOverridesSchema = z
   })
   .strict();
 export type DeploymentManifestOverrides = z.infer<typeof deploymentManifestOverridesSchema>;
+
+/** One infrastructure requirement's detected-vs-effective-vs-overridden state. */
+export const applicationRequirementFieldSchema = z
+  .object({
+    /** Whether analysis detected this requirement, independent of any vendor override. */
+    detected: z.boolean(),
+    /** The manifest's actual requirement, after vendor overrides are applied. */
+    effective: z.boolean(),
+    /** Whether the vendor has taken ownership of this field (§35 provenance). */
+    overridden: z.boolean(),
+  })
+  .strict();
+export type ApplicationRequirementField = z.infer<typeof applicationRequirementFieldSchema>;
+
+/**
+ * The `GET /api/applications/:id/readiness` `requirements` wire shape —
+ * the server-computed truth for database/redis/storage, replacing the
+ * client-side OR-derivation that could not represent an override to `false`.
+ */
+export const applicationRequirementsSummarySchema = z
+  .object({
+    schemaVersion: z.literal(DEPLOYMENT_MANIFEST_SCHEMA_VERSION),
+    database: applicationRequirementFieldSchema,
+    redis: applicationRequirementFieldSchema,
+    storage: applicationRequirementFieldSchema,
+  })
+  .strict();
+export type ApplicationRequirementsSummary = z.infer<typeof applicationRequirementsSummarySchema>;
 
 // ── Readiness gate output (evaluated from the FINAL manifest) ──────────────
 

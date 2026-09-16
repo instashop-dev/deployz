@@ -4,6 +4,8 @@ export * from './infrastructure.js';
 export * from './manifest.js';
 export * from './application-analysis.js';
 
+import type { DeploymentManifest } from './manifest.js';
+
 // Shared Zod contracts between api and web. Shapes mirror the Drizzle schema
 // in @deployz/db (packages/db/src/schema/*.ts) exactly — the db stays the
 // source of truth; these are the WIRE forms (timestamptz -> ISO datetime
@@ -1152,6 +1154,17 @@ export const APPLICATION_TEMPLATE_STATELESS_REDIS_KEY =
 export interface InfrastructureProfile {
   readonly postgres: boolean;
   readonly redis: boolean;
+}
+
+/**
+ * The ONLY place the canonical manifest becomes a template-selection
+ * profile — no caller may re-derive `{ postgres, redis }` from a manifest
+ * itself.
+ */
+export function infrastructureProfileForManifest(
+  manifest: Pick<DeploymentManifest, 'database' | 'redis'>,
+): InfrastructureProfile {
+  return { postgres: manifest.database.postgres, redis: manifest.redis.required };
 }
 
 /**
