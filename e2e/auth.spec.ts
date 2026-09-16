@@ -19,9 +19,17 @@ test('signup via the web UI lands authenticated and the API honors the session s
   await page.getByRole('button', { name: 'Create account' }).click();
 
   await page.waitForURL('/dashboard');
-  await expect(page.getByTestId('user-menu-trigger')).toContainText('E2E User');
-  await page.getByTestId('user-menu-trigger').click();
+  // User identity lives in the sidebar footer now: the trigger shows the
+  // name and the account menu carries the session email, settings, sign-out.
+  const footer = page.locator('[data-sidebar="footer"]');
+  await expect(footer.getByTestId('user-menu-trigger')).toContainText('E2E User');
+  await footer.getByTestId('user-menu-trigger').click();
   await expect(page.getByTestId('user-menu-email')).toHaveText(email);
+  await expect(page.getByRole('menuitem', { name: 'Settings' })).toHaveAttribute(
+    'href',
+    '/dashboard/settings/profile',
+  );
+  await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
   // Tenant provisioning proof: the org name derives from the email local part.
   await expect(page.getByTestId('org-name')).toHaveText(email.split('@')[0] ?? '');
 });
@@ -43,6 +51,6 @@ test('signin via the web form honors an existing account', async ({ page, reques
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   await page.waitForURL('/dashboard');
-  await page.getByTestId('user-menu-trigger').click();
+  await page.locator('[data-sidebar="footer"]').getByTestId('user-menu-trigger').click();
   await expect(page.getByTestId('user-menu-email')).toHaveText(email);
 });

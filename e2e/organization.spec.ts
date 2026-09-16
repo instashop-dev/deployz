@@ -396,10 +396,10 @@ test.describe('organization switching and deletion', () => {
 });
 
 test.describe('profile and password', () => {
-  // Journey 11: renaming the display name shows up in the top bar; a
+  // Journey 11: renaming the display name shows up in the sidebar footer; a
   // mismatched password confirmation is caught inline; a real password
   // change succeeds and the new password works on a fresh sign-in.
-  test('profile name updates the top bar; password change validates and takes effect', async ({ page }) => {
+  test('profile name updates the sidebar footer; password change validates and takes effect', async ({ page }) => {
     const email = uniqueEmail('profile');
     await signUp(page, 'Original Name', email);
 

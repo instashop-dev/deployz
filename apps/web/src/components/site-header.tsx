@@ -1,8 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { UserMenu } from '@/components/user-menu';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 
@@ -21,7 +21,18 @@ const SECTION_LABELS: readonly (readonly [string, string])[] = [
   ['/dashboard', 'Home'],
 ];
 
-function sectionLabel(pathname: string): string {
+// Index routes where the section label only repeats the page's own title —
+// the label adds nothing there, so it is suppressed. Nested routes keep the
+// parent section's label for hierarchy.
+const INDEX_ROUTES = new Set([
+  '/dashboard',
+  '/dashboard/applications',
+  '/dashboard/customers',
+  '/dashboard/deployments',
+  '/dashboard/settings',
+]);
+
+export function sectionLabel(pathname: string): string | null {
   let best: readonly [string, string] | null = null;
   for (const entry of SECTION_LABELS) {
     const href = entry[0];
@@ -30,25 +41,33 @@ function sectionLabel(pathname: string): string {
       best = entry;
     }
   }
-  return best ? best[1] : 'Home';
+  if (best === null || INDEX_ROUTES.has(pathname)) return null;
+  return best[1];
 }
 
-// Compact header: sidebar trigger (also the mobile nav entry point), the
-// current section as lightweight context, and the user menu. Page titles stay
-// in the page bodies — this never repeats them at the same size.
-export function SiteHeader({ user }: { user: { name: string; email: string } }) {
+// Slim top bar: the sidebar trigger (also the mobile nav entry point, with
+// the wordmark beside it below md) and section context on nested routes only.
+// Page titles stay in page bodies and the account menu lives in the sidebar
+// footer — nothing user-specific renders here.
+export function SiteHeader() {
   const pathname = usePathname();
+  const label = sectionLabel(pathname);
 
   return (
     <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
       <SidebarTrigger aria-label="Toggle sidebar" />
-      <Separator orientation="vertical" className="mr-1 h-4!" />
-      <span className="truncate text-sm font-medium text-muted-foreground">
-        {sectionLabel(pathname)}
-      </span>
-      <div className="ml-auto flex items-center gap-2">
-        <UserMenu name={user.name} email={user.email} />
-      </div>
+      <Link
+        href="/dashboard"
+        className="font-heading text-base font-semibold tracking-tight md:hidden"
+      >
+        Deployz
+      </Link>
+      {label ? (
+        <>
+          <Separator orientation="vertical" className="mr-1 h-4!" />
+          <span className="truncate text-sm font-medium text-muted-foreground">{label}</span>
+        </>
+      ) : null}
     </header>
   );
 }

@@ -55,7 +55,7 @@ export default function ApplicationsPage() {
 
   return (
     <div className="flex w-full max-w-5xl flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Applications</h1>
           {hasApplications ? (
