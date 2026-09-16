@@ -406,6 +406,7 @@ describe('gate', () => {
 
   it('records the manifest facts a deployment acts on', () => {
     const facts = manifestFacts({
+      schemaVersion: 1,
       application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'docker/Dockerfile' },
       build: { command: null, context: '.' },
       web: { command: 'node server.js', port: 8080 },
