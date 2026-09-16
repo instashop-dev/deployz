@@ -3289,12 +3289,16 @@ export async function buildServer({
         domain,
         appUrl: null,
       });
+      const resolveManifest = readStoredManifest(deployment.desiredState);
       return {
         link: { status: 'active' },
         application: { name: application.name },
         customer: { name: customer.name },
         region: deployment.region,
-        resources: customerInstallResources(readStoredManifest(deployment.desiredState)),
+        resources: customerInstallResources(resolveManifest),
+        // The same install plan the install page serves, so the two customer
+        // surfaces never disagree about what a deployment creates.
+        plan: resolveManifest ? buildInstallPlan({ manifest: resolveManifest, region: deployment.region }) : null,
         deploymentState: deployment.state,
         bootstrapStackName: stackName,
         waitingForRelay,
