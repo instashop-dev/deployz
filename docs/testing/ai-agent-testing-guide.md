@@ -20,8 +20,9 @@ the current layer cannot establish confidence.
    each fix iteration.
 
 3. **Simulated regression suite before merge** — Run the full simulated
-   scenario suite: `pnpm e2e:scenarios`. This is what CI's `e2e-simulated`
-   job runs on every PR.
+   scenario suite: `pnpm e2e:scenarios`. CI runs this suite for every
+   critical deployment PR and for every push to `main`; other PRs run the
+   risk-based subset selected by `pnpm test:affected`.
 
 4. **Real AWS escalation** — Only where simulated tests cannot establish
    confidence. Always set `DEPLOYZ_E2E_ALLOW_REAL_AWS=1`. Do not launch
