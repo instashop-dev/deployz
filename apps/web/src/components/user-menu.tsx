@@ -1,6 +1,6 @@
 'use client';
 
-import { LogOut, UserCog } from 'lucide-react';
+import { ChevronDown, LogOut, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -14,7 +14,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from '@/components/ui/sidebar';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { authClient } from '@/lib/auth-client';
+
+const SETTINGS_HREF = '/dashboard/settings/profile';
 
 function initials(name: string): string {
   return name
@@ -25,18 +34,65 @@ function initials(name: string): string {
     .join('');
 }
 
-// Top-bar user menu: avatar trigger, identity label, sign-out. Signs out via
-// the shared Better Auth client, then bounces to /sign-in.
-export function UserMenu({ name, email }: { name: string; email: string }) {
+// Both account menus sign out via the shared Better Auth client, then bounce
+// to /sign-in.
+function useSignOut() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
-  async function onSignOut() {
+  async function signOut(): Promise<void> {
     setPending(true);
     await authClient.signOut();
     router.push('/sign-in');
     router.refresh();
   }
+
+  return { pending, signOut };
+}
+
+// Shared menu body: identity label, settings link, sign out. The label prop
+// keeps the admin header's wording while the sidebar matches its own nav.
+function UserMenuItems({
+  name,
+  email,
+  settingsLabel,
+  pending,
+  onSignOut,
+}: {
+  name: string;
+  email: string;
+  settingsLabel: string;
+  pending: boolean;
+  onSignOut: () => void;
+}) {
+  return (
+    <>
+      <DropdownMenuLabel className="flex flex-col gap-0.5">
+        <span className="font-medium">{name}</span>
+        <span data-testid="user-menu-email" className="text-xs font-normal text-muted-foreground">
+          {email}
+        </span>
+      </DropdownMenuLabel>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem asChild>
+        <Link href={SETTINGS_HREF}>
+          <Settings aria-hidden />
+          {settingsLabel}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem disabled={pending} onSelect={onSignOut}>
+        <LogOut aria-hidden />
+        {pending ? 'Signing out…' : 'Sign out'}
+      </DropdownMenuItem>
+    </>
+  );
+}
+
+// Header account menu (Team Admin's header reuses it): avatar trigger with
+// the name beside it.
+export function UserMenu({ name, email }: { name: string; email: string }) {
+  const { pending, signOut } = useSignOut();
 
   return (
     <DropdownMenu>
@@ -50,25 +106,61 @@ export function UserMenu({ name, email }: { name: string; email: string }) {
         <span className="hidden font-medium sm:inline">{name}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="flex flex-col gap-0.5">
-          <span className="font-medium">{name}</span>
-          <span data-testid="user-menu-email" className="text-xs font-normal text-muted-foreground">
-            {email}
-          </span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link href="/dashboard/settings/profile">
-            <UserCog aria-hidden />
-            Profile settings
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={pending} onSelect={onSignOut}>
-          <LogOut aria-hidden />
-          {pending ? 'Signing out…' : 'Sign out'}
-        </DropdownMenuItem>
+        <UserMenuItems
+          name={name}
+          email={email}
+          settingsLabel="Profile settings"
+          pending={pending}
+          onSignOut={signOut}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+// Sidebar-footer account menu (the shadcn sidebar nav-user pattern): avatar,
+// full name, and chevron on one trigger that collapses to the avatar alone —
+// the tooltip then names the user — while the dropdown keeps working.
+export function SidebarUserMenu({ name, email }: { name: string; email: string }) {
+  const { pending, signOut } = useSignOut();
+  const { isMobile } = useSidebar();
+
+  return (
+    <TooltipProvider>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton
+                data-testid="user-menu-trigger"
+                size="lg"
+                tooltip={name}
+                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              >
+                <Avatar>
+                  <AvatarFallback>{initials(name) || '?'}</AvatarFallback>
+                </Avatar>
+                <span className="truncate font-medium">{name}</span>
+                <ChevronDown aria-hidden className="ml-auto text-muted-foreground" />
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side={isMobile ? 'bottom' : 'right'}
+              align="end"
+              sideOffset={4}
+              className="w-56"
+            >
+              <UserMenuItems
+                name={name}
+                email={email}
+                settingsLabel="Settings"
+                pending={pending}
+                onSignOut={signOut}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </TooltipProvider>
   );
 }

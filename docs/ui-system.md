@@ -34,10 +34,13 @@ feature/domain components only where repeated logic justifies them
 ## Shell
 
 - `DashboardShell` composes `SidebarProvider > AppSidebar + SidebarInset`.
-- `AppSidebar` carries the brand, `OrgSwitcher` (SidebarHeader), and
-  `DashboardNav` (SidebarContent, groups: main + Management).
-- `SiteHeader` carries `SidebarTrigger`, a compact section label, and the
-  `UserMenu`. No duplicate large page titles in header and body.
+- `AppSidebar` carries the brand, `OrgSwitcher` (SidebarHeader),
+  `DashboardNav` (SidebarContent, groups: main + Management), and the account
+  menu (SidebarFooter).
+- `SiteHeader` carries the `SidebarTrigger` and a compact section label on
+  nested routes only — index routes where the label would repeat the page's
+  own title suppress it, and the top bar carries no user identity. No
+  duplicate large page titles in header and body.
 - Screen padding and base spacing come from the shell's single `<main>`
   (`flex flex-col gap-6 p-4 md:p-6 lg:p-8`). Pages do not add shell padding.
 - No parallel custom responsive navigation; mobile behavior comes from the

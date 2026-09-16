@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { SidebarMenuButton } from '@/components/ui/sidebar';
+import { SidebarMenuButton, useSidebar } from '@/components/ui/sidebar';
 import { apiRequest, errorMessage } from '@/lib/api-client';
 import { ROLE_LABELS, type OrganizationSummary } from '@/lib/organization-vocabulary';
 import { cn } from '@/lib/utils';
@@ -28,6 +28,7 @@ interface OrgSwitcherProps {
 // asserts its text content — so the pending state is shown on the icon only.
 export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcherProps) {
   const router = useRouter();
+  const { isMobile, state } = useSidebar();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +71,11 @@ export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcher
             )}
           </SidebarMenuButton>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuContent
+          side={isMobile || state === 'expanded' ? 'bottom' : 'right'}
+          align="start"
+          className="w-64"
+        >
           {organizations.map((org) => (
             <DropdownMenuItem
               key={org.id}
