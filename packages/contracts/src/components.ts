@@ -47,22 +47,23 @@ export const INFRASTRUCTURE_COMPONENTS: readonly InfrastructureComponentDefiniti
     checkName: 'database',
   },
   {
-    kind: 'cache',
-    requiredBy: (profile) => profile.redis,
-    lifecycle: 'delete',
-    primaryResourceType: 'AWS::ElastiCache::ReplicationGroup',
-    checkName: 'cache',
-  },
-  {
     kind: 'storage',
     requiredBy: () => true,
     lifecycle: 'retain',
     primaryResourceType: 'AWS::S3::Bucket',
     checkName: 'storage',
   },
+  {
+    kind: 'cache',
+    requiredBy: (profile) => profile.redis,
+    lifecycle: 'delete',
+    primaryResourceType: 'AWS::ElastiCache::ReplicationGroup',
+    checkName: 'cache',
+  },
 ] as const;
 
-/** The catalog components a deployment with this profile has, in catalog order. */
+/** The catalog components a deployment with this profile has, in catalog order
+ *  (the order the relay reports its verification checks in). */
 export function requiredInfrastructureComponents(
   profile: InfrastructureProfile,
 ): readonly InfrastructureComponentDefinition[] {

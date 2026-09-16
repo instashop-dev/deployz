@@ -33,6 +33,7 @@ import {
   DEFAULT_APPLICATION_STACK_NAME,
   INFRASTRUCTURE_COMPONENTS,
   requiredInfrastructureComponents,
+  type InfrastructureComponentDefinition,
 } from '@deployz/contracts';
 import type { ProvisioningSnapshot } from './provision-progress.js';
 
@@ -154,7 +155,7 @@ const COMPLETE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDA
 // Detail-string vocabulary — kept identical to the pre-catalog wording so
 // the API's `VERIFY_CHECK_BY_COMPONENT` and the operator `audit:deployment`
 // CLI (both of which match on these check names and phrases) keep working.
-const CHECK_LABELS: Readonly<Record<string, string>> = {
+const CHECK_LABELS: Readonly<Record<InfrastructureComponentDefinition['checkName'], string>> = {
   compute: 'ECS service',
   ingress: 'load balancer',
   database: 'database',

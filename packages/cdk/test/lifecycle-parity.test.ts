@@ -17,7 +17,9 @@ import {
  * components must appear (by primary resource type) exactly where each
  * template's infrastructure profile predicts. No CDK synth here — a plain
  * read of the committed JSON, kept in sync with a fresh synth by
- * `artifacts.test.ts`.
+ * `artifacts.test.ts`. Reads `@deployz/contracts` from its dist: run
+ * `pnpm --filter @deployz/contracts run build` after editing the catalog or
+ * the classifier, or this test checks stale code.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
