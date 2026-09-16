@@ -55,8 +55,6 @@ import {
   type ApplicationAnalysis,
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
-  type DeploymentManifest,
-  type InfrastructureComponentKind,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
@@ -531,36 +529,6 @@ async function loadOwnedCustomer(
     throw new NotFoundError('Customer not found');
   }
   return rows[0]!;
-}
-
-// The customer-facing name for a catalog kind's install-plan entry — never
-// the internal `INFRASTRUCTURE_COMPONENT_DISPLAY` wording, and never the
-// `endpoint` kind (internal AWS plumbing the reader does not need to see).
-const CUSTOMER_RESOURCE_NAME: Readonly<Partial<Record<InfrastructureComponentKind, string>>> = {
-  application: 'Application runtime',
-  database: 'PostgreSQL database',
-  storage: 'Storage',
-  cache: 'Redis cache',
-};
-
-// The customer-visible "Deployz will create" list. Shared by the public
-// install page and the public deploy-link resolve page so the two can never
-// disagree about what the customer is told will be created (§16.1: only the
-// application components that matter to the reader — never the internal AWS
-// plumbing the same stack creates). Phase 4: WHICH components appear is
-// derived from the install plan's CREATE components, so this list and
-// `GET /api/deployments/:id/plan?action=install` can never disagree about
-// what gets provisioned — storage, for instance, is always created
-// regardless of `manifest.storage.required` (that flag is about the
-// application's OWN use of the bucket, not whether one exists). Derived from
-// the deployment's frozen manifest, never the live `applications` columns.
-// A missing manifest never guesses resources into existence.
-function customerInstallResources(manifest: DeploymentManifest | null): string[] {
-  if (!manifest) return [CUSTOMER_RESOURCE_NAME.application!];
-  return buildInstallPlan({ manifest, region: null })
-    .components.filter((component) => component.action === 'CREATE')
-    .map((component) => CUSTOMER_RESOURCE_NAME[component.kind])
-    .filter((name): name is string => name !== undefined);
 }
 
 /** Derived deploy-link status — no separate state machine is persisted. */
@@ -2051,15 +2019,12 @@ export async function buildServer({
     // set up" state instead — so stop handing the credential to anyone who
     // replays the link out of a mailbox or browser history.
     const alreadyInstalled = row.enrollmentUsedAt !== null;
-    // §16.1: the customer-visible "Deployz will create" list — derived from
-    // the install plan below (Phase 4), so it and the plan can never
-    // disagree. Shared with the public deploy-link resolve page.
-    const manifest = readStoredManifest(row.desiredState);
-    const resourcesCreated = customerInstallResources(manifest);
-    // The full install plan behind that list — same shape
+    // §16.1: the customer-visible "Deployz will create" table — same shape
     // `GET /api/deployments/:id/plan?action=install` serves once the
     // deployment exists. Null only when the stored manifest is missing or
-    // invalid; the page never guesses one.
+    // invalid; the page never guesses one. Shared with the public
+    // deploy-link resolve page, so the two can never disagree.
+    const manifest = readStoredManifest(row.desiredState);
     const plan = manifest ? buildInstallPlan({ manifest, region: row.region }) : null;
     // The expected bootstrap stack name: the persisted one once an attempt
     // has launched (a record of what the customer was told), otherwise the
@@ -2091,7 +2056,6 @@ export async function buildServer({
       publisherName: row.publisherName,
       customerName: row.customerName,
       region: row.region,
-      resourcesCreated,
       plan,
       deploymentId: row.deploymentId,
       deploymentState: row.deploymentState,
@@ -3295,7 +3259,6 @@ export async function buildServer({
         application: { name: application.name },
         customer: { name: customer.name },
         region: deployment.region,
-        resources: customerInstallResources(resolveManifest),
         // The same install plan the install page serves, so the two customer
         // surfaces never disagree about what a deployment creates.
         plan: resolveManifest ? buildInstallPlan({ manifest: resolveManifest, region: deployment.region }) : null,

@@ -761,7 +761,7 @@ test('deleting: cleanup progress, never a failure', async ({ page }) => {
 
   await expect(headline).toHaveText('Removing deployment');
   expect(await hero.innerText()).not.toContain('failed');
-  await expect(hero).toContainText('The database and stored files are kept.');
+  await expect(hero).toContainText('Anything Deployz kept is listed under Infrastructure.');
   // Per-service removal progress, in product words.
   await expect(hero.getByText('Snapshot retained')).toBeVisible();
   await expect(infrastructure).toContainText('Services are being removed.');

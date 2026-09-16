@@ -5,11 +5,13 @@ import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
 import { Button } from '@/components/ui/button';
-import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   fetchDeployLinkData,
   fetchDeployLinkStatusServer,
 } from '@/lib/deploy-link-flow';
+import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
+import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
 
 // Rendered per request so the resolve — including the Quick Create link the
 // control plane builds for this deployment's region — is always fresh.
@@ -185,12 +187,29 @@ export default async function DeployPage({
           </dl>
           <div>
             <h3 className="text-sm font-medium">Deployz will create</h3>
-            <ul className="mt-1.5 flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-              {data.resources.map((resource) => (
-                <li key={resource}>{resource}</li>
-              ))}
-            </ul>
+            <div className="mt-1.5 overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Component</TableHead>
+                    <TableHead>What happens</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {installPlanRows(data.plan).map((row) => (
+                    <TableRow key={row.kind}>
+                      <TableCell className="font-medium">{row.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{row.whatHappens}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </div>
+          <p className="text-sm text-muted-foreground">Region: {installPlanRegionLabel(data.region)}</p>
+          {installPlanRetentionNote(data.plan) ? (
+            <p className="text-sm text-muted-foreground">{installPlanRetentionNote(data.plan)}</p>
+          ) : null}
           <p className="text-sm font-medium text-foreground">Your data stays in your AWS account.</p>
         </section>
 

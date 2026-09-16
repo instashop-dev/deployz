@@ -1,4 +1,4 @@
-import type { VendorDeploymentStatus } from '@deployz/contracts';
+import type { DeploymentPlan, VendorDeploymentStatus } from '@deployz/contracts';
 
 import type { DeploymentState } from './deployment-vocabulary';
 import type { CustomDomainStatus } from './domains';
@@ -324,6 +324,18 @@ export function fetchDeployment(id: string): Promise<FleetDeploymentDetail> {
 /** Fetch the composed infrastructure inventory for a deployment (Lane 3). */
 export function fetchDeploymentInfrastructure(id: string): Promise<InfrastructureResponse> {
   return getJson<InfrastructureResponse>(`/api/deployments/${encodeURIComponent(id)}/infrastructure`);
+}
+
+/**
+ * Fetch the deterministic plan for one action on this deployment (Phase 4).
+ * Plan-driven surfaces (the disconnect and deploy-update dialogs) render
+ * this instead of deriving infrastructure intent themselves.
+ */
+export function fetchDeploymentPlan(
+  id: string,
+  action: 'install' | 'update' | 'destroy',
+): Promise<DeploymentPlan> {
+  return getJson<DeploymentPlan>(`/api/deployments/${encodeURIComponent(id)}/plan?action=${action}`);
 }
 
 /** Fetch a deployment's activity feed (§40). */

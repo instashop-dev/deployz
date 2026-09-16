@@ -96,6 +96,14 @@ status page, not a console. Top to bottom:
    the only failure text at the top level; the relay's raw error stays inside
    the row's disclosure.
 
+## Plan-driven surfaces
+
+Some pages show what will happen to infrastructure: the install page, the
+disconnect dialog, and the deploy-update dialog. Each page shows the
+`DeploymentPlan` that the API sends. The API builds this plan from the
+deployment's manifest. The page does not build its own plan. The page does
+not guess which resources exist. The page only shows the plan's data.
+
 ## Typography
 
 | Level | Classes |

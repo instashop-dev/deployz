@@ -212,11 +212,13 @@ test.describe('redis-success (B)', () => {
     expect(relay).toBeDefined();
 
     // The analysed bullmq-worker carries a Redis requirement into the install
-    // page's "Deployz will create" list (production analysis, not a hand-set
+    // page's "Deployz will create" table (production analysis, not a hand-set
     // flag) and the deployment installs over a Redis-provisioning timeline to
     // HEALTHY — including the ElastiCache resource in the persisted inventory.
-    const installInfo = (await api.getInstallInfo(installLinkId)) as { resourcesCreated: string[] };
-    expect(installInfo.resourcesCreated).toContain('Redis cache');
+    const installInfo = (await api.getInstallInfo(installLinkId)) as {
+      plan: { components: { name: string }[] } | null;
+    };
+    expect(installInfo.plan?.components.map((c) => c.name)).toContain('Cache');
 
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, {

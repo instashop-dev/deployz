@@ -141,7 +141,7 @@ export function deriveHero(detail: HeroInput): HeroModel {
         ? `Deployz removed everything it created for this deployment from ${detail.customerName}'s AWS account.`
         : detail.cleanupState === 'SKIPPED_RELAY_OFFLINE' || detail.cleanupState === 'PURGE_FAILED'
           ? 'The deployment was disconnected, but some AWS resources may still exist in the customer account.'
-          : 'The application and its networking were removed. The database, stored files and connector stay until you remove them.';
+          : 'The application and its networking were removed. Anything Deployz kept is listed under Infrastructure.';
     return {
       kind: 'deleted',
       tone: 'neutral',
@@ -157,7 +157,7 @@ export function deriveHero(detail: HeroInput): HeroModel {
       kind: 'deleting',
       tone: 'progress',
       title: REMOVED_PROGRESS.DELETING.title,
-      description: `Deployz is removing the application and its networking from ${detail.customerName}'s AWS account. The database and stored files are kept.`,
+      description: `Deployz is removing the application and its networking from ${detail.customerName}'s AWS account. Anything Deployz kept is listed under Infrastructure.`,
       liveReleaseNote: null,
       showSteps: false,
     };

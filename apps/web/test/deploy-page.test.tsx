@@ -34,7 +34,17 @@ function resolvedData(overrides: Record<string, unknown> = {}): Record<string, u
     application: { name: 'Acme Analytics' },
     customer: { name: 'Acme' },
     region: 'us-east-1',
-    resources: ['Application runtime', 'PostgreSQL database'],
+    plan: {
+      schemaVersion: 1,
+      action: 'INSTALL',
+      region: 'us-east-1',
+      components: [
+        { kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete' },
+        { kind: 'endpoint', name: 'Secure endpoint', action: 'CREATE', lifecycle: 'delete' },
+        { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
+      ],
+      requirementDrift: [],
+    },
     deploymentState: 'NOT_INSTALLED',
     bootstrapStackName: 'deployz-bootstrap-acme-analytics-1',
     waitingForRelay: false,
@@ -71,7 +81,10 @@ describe('DeployPage', () => {
     expect(doc.body.textContent).toContain('Acme Analytics');
     expect(doc.body.textContent).toContain('Deploy privately to your AWS');
     expect(doc.body.textContent).toContain('AWS account you control');
-    expect(doc.body.textContent).toContain('PostgreSQL database');
+    // Plan-driven table content, not a hand-rolled resource-name list.
+    expect(doc.body.textContent).toContain('Database');
+    expect(doc.body.textContent).toContain('Stores persistent application data');
+    expect(doc.body.textContent).toContain('Region: US East (N. Virginia)');
     expect(doc.body.textContent).toContain('Powered by Deployz');
     expect(doc.querySelector('a[href="' + QUICK_CREATE + '"]')?.textContent).toBe('Deploy to AWS');
     // No internal identifiers in the page.

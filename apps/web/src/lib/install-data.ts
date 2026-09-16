@@ -6,6 +6,8 @@
 // installation id. They used to be the same value, which made the link a
 // customer is emailed also the identifier a relay authenticates against.
 
+import type { DeploymentPlan } from '@deployz/contracts';
+
 import { serverApiUrl } from '@/lib/api-url';
 import type { CustomDomainView } from '@/lib/domains';
 
@@ -14,8 +16,11 @@ interface InstallData {
   publisherName: string;
   customerName: string;
   region: string;
-  /** §44 "Deployz will create" list, e.g. ["Application runtime", "PostgreSQL database", ...]. */
-  resourcesCreated: string[];
+  /** §44 "Deployz will create" table renders from this — same schema
+   *  `GET /api/deployments/:id/plan?action=install` serves once the
+   *  deployment exists. Null only when the stored manifest is missing or
+   *  invalid. */
+  plan: DeploymentPlan | null;
   /**
    * CloudFormation Quick Create deep-link for THIS deployment, built by the
    * control plane: it owns the published template URL, the deployment's

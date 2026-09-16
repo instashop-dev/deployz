@@ -6,8 +6,10 @@ import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
 import { Button } from '@/components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { fetchInstallData } from '@/lib/install-data';
+import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
 import { fetchInstallStatusServer } from '@/lib/install-status';
 
 // Rendered per request so the install data — including the Quick Create link
@@ -244,11 +246,30 @@ export default async function InstallPage({
         <h2 id="will-create" className="text-base font-semibold">
           Deployz will create
         </h2>
-        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-          {data.resourcesCreated.map((resource) => (
-            <li key={resource}>{resource}</li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Component</TableHead>
+                <TableHead>What happens</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {installPlanRows(data.plan).map((row) => (
+                <TableRow key={row.kind}>
+                  <TableCell className="font-medium">{row.name}</TableCell>
+                  <TableCell className="text-muted-foreground">{row.whatHappens}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Region: {installPlanRegionLabel(data.region)}
+        </p>
+        {installPlanRetentionNote(data.plan) ? (
+          <p className="text-sm text-muted-foreground">{installPlanRetentionNote(data.plan)}</p>
+        ) : null}
         <p className="text-sm font-medium text-foreground">
           Your data stays in your AWS account.
         </p>
