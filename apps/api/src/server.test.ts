@@ -3340,9 +3340,9 @@ describe('server — organization settings, public install page, and bulk deploy
       customerName: 'Acme Analytics',
       region: 'eu-west-1',
       alreadyInstalled: false,
-      resourcesCreated: ['Application runtime', 'PostgreSQL database', 'Storage'],
-      // Phase 4: the plan the install page's "Deployz will create" list is
-      // derived from — same schema `GET /api/deployments/:id/plan` serves.
+      // Phase 5: the install page's "Deployz will create" table renders
+      // directly from this plan — same schema `GET /api/deployments/:id/plan`
+      // serves — instead of a separate customer-name-mapped list.
       plan: {
         schemaVersion: 1,
         action: 'INSTALL',
@@ -3383,7 +3383,7 @@ describe('server — organization settings, public install page, and bulk deploy
     expect(serialized).not.toContain(org.organizationId);
   });
 
-  it('GET /api/install/:installationId lists "Redis cache" in resourcesCreated only when the stored manifest requires Redis', async () => {
+  it('GET /api/install/:installationId lists a Cache component in the install plan only when the stored manifest requires Redis', async () => {
     const application = await insertApplication(db, org.organizationId, {
       name: 'Cache App',
       databaseRequired: false,
@@ -3391,34 +3391,29 @@ describe('server — organization settings, public install page, and bulk deploy
       redisRequired: true,
     });
     const customer = await insertCustomer(db, org.organizationId);
-    // Phase 2: resourcesCreated is derived from the deployment's frozen
-    // manifest, never the live application columns above.
+    // Phase 2: the plan is derived from the deployment's frozen manifest,
+    // never the live application columns above.
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       desiredState: {
         manifest: { ...READY_MANIFEST, database: { postgres: false }, redis: { required: true, envBindings: [] } },
       },
     });
 
+    const planComponentNames = (body: unknown) =>
+      (body as { plan: { components: { name: string }[] } }).plan.components.map((c) => c.name);
+
     const withRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
-    expect((withRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
-      'Application runtime',
-      'Storage',
-      'Redis cache',
-    ]);
+    expect(planComponentNames(withRedis.json())).toEqual(['Application', 'Secure endpoint', 'Storage', 'Cache']);
 
     // Drift: the vendor turns Redis off on the LIVE application row after the
-    // deployment already froze its manifest — resourcesCreated must not move.
+    // deployment already froze its manifest — the plan must not move.
     await db
       .update(schema.applications)
       .set({ redisRequired: false })
       .where(eq(schema.applications.id, application.id));
 
     const stillWithRedis = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
-    expect((stillWithRedis.json() as { resourcesCreated: string[] }).resourcesCreated).toEqual([
-      'Application runtime',
-      'Storage',
-      'Redis cache',
-    ]);
+    expect(planComponentNames(stillWithRedis.json())).toEqual(['Application', 'Secure endpoint', 'Storage', 'Cache']);
   });
 
   it('GET /api/install/:installationId stops handing out a link once the code is spent', async () => {

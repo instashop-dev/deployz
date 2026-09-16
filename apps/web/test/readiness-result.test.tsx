@@ -1,3 +1,4 @@
+import type { ApplicationRequirementsSummary } from '@deployz/contracts';
 import { JSDOM } from 'jsdom';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -74,6 +75,20 @@ function applicationFixture(overrides: Partial<import('../src/lib/applications')
   } as import('../src/lib/applications').Application;
 }
 
+/** Mirrors the server-computed requirements for `detectedFixture()`: database
+ *  detected+effective, redis/storage neither. */
+function requirementsFixture(
+  overrides: Partial<ApplicationRequirementsSummary> = {},
+): ApplicationRequirementsSummary {
+  return {
+    schemaVersion: 1,
+    database: { detected: true, effective: true, overridden: false },
+    redis: { detected: false, effective: false, overridden: false },
+    storage: { detected: false, effective: false, overridden: false },
+    ...overrides,
+  };
+}
+
 function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): ApplicationReadiness {
   return {
     analysisStatus: 'COMPLETE',
@@ -86,6 +101,7 @@ function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): Applic
     passed: [{ id: 'docker', label: 'Docker container detected' }],
     analyzedCommitSha: 'abc1234',
     detected: detectedFixture(),
+    requirements: requirementsFixture(),
     ...overrides,
   };
 }
@@ -275,16 +291,30 @@ describe('Deployment readiness table rows', () => {
     expect(rows.some((r) => r.kind === 'finding' && r.id === 'health-check')).toBe(true);
   });
 
-  it('shows rich detected fact text for boolean settings', () => {
-    const app = applicationFixture({
-      databaseRequired: true,
-      storageRequired: false,
-      redisRequired: false,
-    });
-    const rows = deriveReadinessRows(app, readinessFixture());
+  it('uses the server-computed effective value for database/redis/storage', () => {
+    const rows = deriveReadinessRows(applicationFixture(), readinessFixture());
+    const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
+    expect(database).toMatchObject({ value: 'Required', detectedValue: 'Required', overridden: false });
+  });
+
+  it('renders an override to false: effective Not required while detected required', () => {
+    const rows = deriveReadinessRows(
+      applicationFixture(),
+      readinessFixture({
+        requirements: requirementsFixture({
+          database: { detected: true, effective: false, overridden: true },
+        }),
+      }),
+    );
+    const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
+    expect(database).toMatchObject({ value: 'Not required', detectedValue: 'Required', overridden: true });
+  });
+
+  it('falls back to the plain detected fact when requirements is null', () => {
+    const rows = deriveReadinessRows(applicationFixture(), readinessFixture({ requirements: null }));
     const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
     expect(database?.value).toContain('PostgreSQL');
-    expect(database?.detectedValue).toBe('Required');
+    expect(database?.overridden).toBe(false);
   });
 });
 

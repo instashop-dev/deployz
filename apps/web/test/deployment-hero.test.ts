@@ -265,7 +265,9 @@ describe('deriveHero', () => {
     expect(deriveHero(input({ state: 'DELETED', cleanupState: 'SKIPPED_RELAY_OFFLINE' })).description).toContain(
       'may still exist',
     );
-    expect(deriveHero(input({ state: 'DELETED', cleanupState: null })).description).toContain('stored files');
+    expect(deriveHero(input({ state: 'DELETED', cleanupState: null })).description).toContain(
+      'listed under Infrastructure',
+    );
   });
 
   it('a failed removal is named as such', () => {

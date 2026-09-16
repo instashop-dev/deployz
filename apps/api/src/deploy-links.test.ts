@@ -280,15 +280,21 @@ describe('deploy links', () => {
       application: { name: string };
       customer: { name: string };
       region: string;
-      resources: string[];
+      plan: { action: string; components: { kind: string; name: string; action: string; lifecycle: string }[] };
       status: { stage: string };
     };
     expect(body.link).toEqual({ status: 'active' });
     expect(body.application.name).toBe('Deploy Link App');
     expect(body.customer.name).toBe('Deploy Link Customer');
     expect(body.region).toBe('us-east-1');
-    expect(body.resources).toEqual(['Application runtime', 'Storage']);
-    expect(body.plan).toMatchObject({ action: 'INSTALL', components: [{ kind: 'application', action: 'CREATE' }, { kind: 'endpoint', action: 'CREATE' }, { kind: 'storage', action: 'CREATE', lifecycle: 'retain' }] });
+    expect(body.plan).toMatchObject({
+      action: 'INSTALL',
+      components: [
+        { kind: 'application', name: 'Application', action: 'CREATE' },
+        { kind: 'endpoint', name: 'Secure endpoint', action: 'CREATE' },
+        { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
+      ],
+    });
     expect(body.status.stage).toBe('WAITING_FOR_AWS');
     // The public payload must never leak internal identifiers or credentials.
     const serialized = JSON.stringify(body);

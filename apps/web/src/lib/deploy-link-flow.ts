@@ -4,7 +4,7 @@
 // itself. Mirrors install-data.ts / install-status.ts: a server-side fetch
 // for the page's first paint and browser fetches for the client poll loop.
 
-import type { CustomerDeploymentStatus } from '@deployz/contracts';
+import type { CustomerDeploymentStatus, DeploymentPlan } from '@deployz/contracts';
 
 import { apiUrl, serverApiUrl } from '@/lib/api-url';
 import type { CustomDomainView } from '@/lib/domains';
@@ -21,8 +21,9 @@ export interface DeployLinkData {
   application: { name: string };
   customer: { name: string };
   region: string;
-  /** §44 "Deployz will create" list, shared with the install page. */
-  resources: string[];
+  /** §44 "Deployz will create" table renders from this, shared with the
+   *  install page. Null only when the stored manifest is missing or invalid. */
+  plan: DeploymentPlan | null;
   deploymentState: string;
   bootstrapStackName: string;
   waitingForRelay: boolean;

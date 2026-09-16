@@ -61,7 +61,7 @@ interface InstallInfoResponse {
   waitingForRelay: boolean;
   relayStuck: boolean;
   deploymentState: string;
-  resourcesCreated: string[];
+  plan: { components: { name: string }[] } | null;
 }
 
 test.describe.configure({ mode: 'parallel' });
@@ -210,11 +210,11 @@ test.describe('redis-failure', () => {
 
     // The harness genuinely received redisRequired=true, through production
     // analysis logic rather than a hand-set flag — observable via the same
-    // API field the install page's "Deployz will create" list reads
-    // (mirrors e2e/redis.spec.ts's willCreateSection assertion), independent
-    // of how the install itself later turns out.
+    // plan the install page's "Deployz will create" table reads (mirrors
+    // e2e/redis.spec.ts's willCreateSection assertion), independent of how
+    // the install itself later turns out.
     const installInfo = (await api.getInstallInfo(installLinkId)) as unknown as InstallInfoResponse;
-    expect(installInfo.resourcesCreated).toContain('Redis cache');
+    expect(installInfo.plan?.components.map((c) => c.name)).toContain('Cache');
 
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, {

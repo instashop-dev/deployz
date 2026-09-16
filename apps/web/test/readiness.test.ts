@@ -215,6 +215,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       passed: [],
       analyzedCommitSha: null,
       detected: null,
+      requirements: null,
     };
     expect(pending.state).toBe('ANALYSIS_INCOMPLETE');
     expect(pending.findings).toEqual([]);
@@ -233,6 +234,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       passed: [],
       analyzedCommitSha: null,
       detected: null,
+      requirements: null,
     };
     expect(failed.state).toBe('ANALYSIS_INCOMPLETE');
     expect(failed.failureReason).toBe('Failed to mint a GitHub installation token');
@@ -275,6 +277,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       passed: [{ id: 'docker', label: 'Docker container detected' }],
       analyzedCommitSha: 'abc1234',
       detected: null,
+      requirements: null,
     };
     const required = readiness.findings.filter((f) => f.severity === 'required');
     const recommended = readiness.findings.filter((f) => f.severity === 'recommended');
@@ -322,6 +325,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       passed: [],
       analyzedCommitSha: 'def5678',
       detected: null,
+      requirements: null,
     };
     expect(readiness.findings[0]?.plainEnglishExplanation).toBe('Persistent Redis is required.');
   });
@@ -342,6 +346,7 @@ describe('readinessFailure (FAILED analysis)', () => {
     passed: [],
     analyzedCommitSha: null,
     detected: null,
+    requirements: null,
   });
 
   it('is null while the analysis is still running', () => {
@@ -357,6 +362,7 @@ describe('readinessFailure (FAILED analysis)', () => {
         passed: [],
         analyzedCommitSha: null,
         detected: null,
+        requirements: null,
       }),
     ).toBeNull();
   });
@@ -474,6 +480,8 @@ describe('fixInstructionsGeneratedLabel', () => {
 
 // ── Redesigned readiness page helpers ─────────────────────────────────────
 
+import type { ApplicationRequirementsSummary } from '@deployz/contracts';
+
 import type { Application } from '../src/lib/applications';
 import {
   deriveLifecycleSteps,
@@ -510,6 +518,20 @@ function applicationFixture(overrides: Partial<Application> = {}): Application {
   } as Application;
 }
 
+/** Mirrors the server-computed requirements for `detectedFixture()`: database
+ *  detected+effective, redis/storage neither. */
+function requirementsFixture(
+  overrides: Partial<ApplicationRequirementsSummary> = {},
+): ApplicationRequirementsSummary {
+  return {
+    schemaVersion: 1,
+    database: { detected: true, effective: true, overridden: false },
+    redis: { detected: false, effective: false, overridden: false },
+    storage: { detected: false, effective: false, overridden: false },
+    ...overrides,
+  };
+}
+
 function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): ApplicationReadiness {
   return {
     analysisStatus: 'COMPLETE',
@@ -522,6 +544,7 @@ function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): Applic
     passed: [{ id: 'docker', label: 'Docker container detected' }],
     analyzedCommitSha: 'abc1234',
     detected: detectedFixture(),
+    requirements: requirementsFixture(),
     ...overrides,
   };
 }
@@ -719,18 +742,32 @@ describe('deriveReadinessRows', () => {
     expect(rows.some((r) => r.kind === 'finding' && r.id === 'health-check')).toBe(true);
   });
 
-  it('shows rich detected fact text for boolean settings', () => {
-    // Match the application booleans to the detected ones so the row is not
-    // considered overridden; the primary value should then be the rich text.
-    const app = applicationFixture({
-      databaseRequired: true,
-      storageRequired: false,
-      redisRequired: false,
-    });
-    const rows = deriveReadinessRows(app, readinessFixture());
+  it('uses the server-computed effective value for database/redis/storage, never the OR-derived one', () => {
+    const rows = deriveReadinessRows(applicationFixture(), readinessFixture());
+    const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
+    expect(database).toMatchObject({ value: 'Required', detectedValue: 'Required', overridden: false });
+    const redis = rows.find((r) => r.kind === 'setting' && r.id === 'redis');
+    expect(redis).toMatchObject({ value: 'Not required', detectedValue: 'Not required', overridden: false });
+  });
+
+  it('renders an override to false: effective reads Not required while detected reads required', () => {
+    const rows = deriveReadinessRows(
+      applicationFixture(),
+      readinessFixture({
+        requirements: requirementsFixture({
+          database: { detected: true, effective: false, overridden: true },
+        }),
+      }),
+    );
+    const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
+    expect(database).toMatchObject({ value: 'Not required', detectedValue: 'Required', overridden: true });
+  });
+
+  it('falls back to the plain detected fact when requirements is null, never inventing an effective value', () => {
+    const rows = deriveReadinessRows(applicationFixture(), readinessFixture({ requirements: null }));
     const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
     expect(database?.value).toContain('PostgreSQL');
-    expect(database?.detectedValue).toBe('Required');
+    expect(database?.overridden).toBe(false);
   });
 });
 

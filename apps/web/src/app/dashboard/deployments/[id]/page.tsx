@@ -1,6 +1,11 @@
 'use client';
 
-import { REGION_LABELS, type Region } from '@deployz/contracts';
+import {
+  INFRASTRUCTURE_COMPONENT_DISPLAY,
+  REGION_LABELS,
+  type DeploymentPlan,
+  type Region,
+} from '@deployz/contracts';
 import { AlertTriangle, ChevronDown, ExternalLink, Loader2, MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -77,6 +82,7 @@ import {
   fetchDeployment,
   fetchDeploymentEvents,
   fetchDeploymentInfrastructure,
+  fetchDeploymentPlan,
   forceCompleteDisconnect,
   isDeploymentNotFound,
   purgeDeployment,
@@ -137,6 +143,12 @@ type ReleasesState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'loaded'; data: Release[] };
+
+/** A `DeploymentPlan` fetch for a plan-driven dialog: loading, failed, or loaded. */
+type PlanState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'loaded'; data: DeploymentPlan };
 
 const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to.';
 // After a rollback that followed a failed update, the previous successful
@@ -349,7 +361,6 @@ function DetailBody({
               hero={hero}
               releases={releases}
               previousVersion={previousVersion}
-              infrastructure={infrastructure}
               onChanged={onChanged}
             />
           }
@@ -362,7 +373,7 @@ function DetailBody({
             />
           ) : null}
           {detail.state === 'DELETED' ? (
-            <RemovedDeploymentNotes detail={detail} onChanged={onChanged} />
+            <RemovedDeploymentNotes detail={detail} infrastructure={inventory} onChanged={onChanged} />
           ) : null}
         </DeploymentHero>
       </section>
@@ -560,14 +571,12 @@ function DeploymentActions({
   hero,
   releases,
   previousVersion,
-  infrastructure,
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
   hero: HeroModel;
   releases: ReleasesState;
   previousVersion: string | null;
-  infrastructure: InfrastructureState;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState<
@@ -789,7 +798,6 @@ function DeploymentActions({
         open={open === 'disconnect'}
         deploymentId={detail.id}
         customerName={detail.customerName}
-        infrastructure={infrastructure}
         counted={detail.deploymentType === 'PRODUCTION' && detail.billingState === 'ACTIVE'}
         onDone={() => {
           setOpen(null);
@@ -808,6 +816,15 @@ function OperationError({ error }: { error: string | null }) {
       {error}
     </p>
   );
+}
+
+/** "Cache: not provisioned here, now required" / the reverse — one line per
+ *  `requirementDrift` entry (Phase 4's `DeploymentPlan['requirementDrift']`). */
+function requirementDriftLine(entry: DeploymentPlan['requirementDrift'][number]): string {
+  const name = INFRASTRUCTURE_COMPONENT_DISPLAY[entry.kind].name;
+  return entry.desired && !entry.deployed
+    ? `${name}: not provisioned here, now required`
+    : `${name}: provisioned here, no longer required`;
 }
 
 function DeployUpdateDialog({
@@ -837,7 +854,30 @@ function DeployUpdateDialog({
   const [releaseId, setReleaseId] = useState(candidates[0]?.id ?? '');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<PlanState>({ status: 'loading' });
   const selected = candidates.find((release) => release.id === releaseId);
+
+  // The update plan drives the requirement-drift warning below — this
+  // application's requirements may have changed since the deployment was
+  // created. The MVP boundary never changes topology in place, so drift is
+  // disclosed, never blocked (a new deployment is the way to apply it).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setPlan({ status: 'loading' });
+    fetchDeploymentPlan(deploymentId, 'update')
+      .then((data) => {
+        if (!cancelled) setPlan({ status: 'loaded', data });
+      })
+      .catch(() => {
+        if (!cancelled) setPlan({ status: 'error' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, deploymentId]);
+
+  const requirementDrift = plan.status === 'loaded' ? plan.data.requirementDrift : [];
 
   async function onConfirm(): Promise<void> {
     if (!releaseId) return;
@@ -886,7 +926,31 @@ function DeployUpdateDialog({
                 <span className="text-muted-foreground">New</span>
                 <span className="font-medium">{selected ? formatReleaseVersion(selected.version) : '—'}</span>
               </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Application</span>
+                <span className="font-medium">New version</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Infrastructure</span>
+                <span className="font-medium">No changes</span>
+              </div>
             </div>
+            {requirementDrift.length > 0 ? (
+              <Alert data-testid="requirement-drift-alert">
+                <AlertTriangle aria-hidden />
+                <AlertTitle>
+                  This application&apos;s requirements changed since this deployment was created.
+                </AlertTitle>
+                <AlertDescription>
+                  <ul className="list-disc pl-5">
+                    {requirementDrift.map((entry) => (
+                      <li key={entry.kind}>{requirementDriftLine(entry)}</li>
+                    ))}
+                  </ul>
+                  A new deployment is needed to change infrastructure.
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <div className="flex flex-col gap-2">
               <Label htmlFor="release-to-deploy">Release to deploy</Label>
               <Select value={releaseId} onValueChange={setReleaseId}>
@@ -1254,14 +1318,35 @@ function disconnectStatusLabel(lifecycle: 'delete' | 'retain' | 'snapshot' | 'co
   return 'Retained conditionally';
 }
 
+/** Names of the retained (or snapshot-retained) infrastructure components,
+ *  from the already-fetched inventory — null when the inventory itself is
+ *  unavailable, so callers can fall back to neutral wording instead of
+ *  naming a specific resource type that may not exist for this deployment. */
+function retainedComponentNames(infrastructure: InfrastructureResponse | null): string[] | null {
+  if (!infrastructure) return null;
+  return infrastructure.components
+    .filter((component) => component.lifecycle === 'retain' || component.lifecycle === 'snapshot')
+    .map((component) => component.name);
+}
+
+function joinNames(names: string[]): string {
+  if (names.length === 1) return names[0]!;
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
+
 /** What a removed deployment left behind, and the one action that clears it. */
 function RemovedDeploymentNotes({
   detail,
+  infrastructure,
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
+  infrastructure: InfrastructureResponse | null;
   onChanged: () => void;
 }) {
+  const retainedNames = retainedComponentNames(infrastructure);
+
   if (detail.cleanupState !== 'COMPLETE') {
     return (
       <div className="flex flex-col gap-3">
@@ -1279,8 +1364,9 @@ function RemovedDeploymentNotes({
             <>
               <AlertTitle>Retained resources remain in the customer AWS account</AlertTitle>
               <AlertDescription>
-                The database, its credentials, the stored files and the Deployz connector stay
-                until you purge them, and may continue to generate AWS charges.
+                {retainedNames && retainedNames.length > 0
+                  ? `${joinNames(retainedNames)}, and the Deployz connector, stay until you purge them, and may continue to generate AWS charges.`
+                  : 'Retained resources remain in the customer AWS account until you purge them, and may continue to generate AWS charges.'}
               </AlertDescription>
             </>
           )}
@@ -1288,6 +1374,7 @@ function RemovedDeploymentNotes({
         <PurgeRetainedResources
           deploymentId={detail.id}
           applicationName={detail.applicationName}
+          retainedNames={retainedNames}
           onChanged={onChanged}
         />
       </div>
@@ -1316,15 +1403,19 @@ function RemovedDeploymentNotes({
 
 // P2 purge: the explicit destructive action for resources a force-completed
 // disconnect left behind. Typed application-name confirmation, because this
-// permanently deletes the retained database, stored files, and cache — and
-// the bootstrap/relay stack itself.
+// permanently deletes the retained resources — and the bootstrap/relay stack
+// itself.
 function PurgeRetainedResources({
   deploymentId,
   applicationName,
+  retainedNames,
   onChanged,
 }: {
   deploymentId: string;
   applicationName: string;
+  /** From the inventory; null when it is unavailable — never a guess at
+   *  which resource types a stateless deployment doesn't have. */
+  retainedNames: string[] | null;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1366,9 +1457,9 @@ function PurgeRetainedResources({
               Permanently remove {applicationName}&apos;s retained resources?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This deletes the retained database, stored files, backups, and cache in
-              your customer&apos;s AWS account, and removes the Deployz connector. This
-              cannot be undone.
+              {retainedNames && retainedNames.length > 0
+                ? `This permanently deletes ${joinNames(retainedNames)} in your customer's AWS account, and removes the Deployz connector. This cannot be undone.`
+                : "This permanently deletes retained resources in your customer's AWS account, and removes the Deployz connector. This cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex flex-col gap-2">
@@ -1407,7 +1498,6 @@ function DisconnectDialog({
   open,
   deploymentId,
   customerName,
-  infrastructure,
   counted,
   onDone,
   onCancel,
@@ -1415,7 +1505,6 @@ function DisconnectDialog({
   open: boolean;
   deploymentId: string;
   customerName: string;
-  infrastructure: InfrastructureState;
   /** Whether this deployment counts toward the production deployment total. */
   counted: boolean;
   onDone: () => void;
@@ -1424,17 +1513,34 @@ function DisconnectDialog({
   const [confirmText, setConfirmText] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<PlanState>({ status: 'loading' });
   const confirmed = confirmText.trim() === customerName;
-  const loaded = infrastructure.status === 'loaded';
-  const data = loaded ? infrastructure.data : null;
-  const loading = infrastructure.status === 'loading';
 
-  const removed =
-    data?.components.filter((component) => component.lifecycle === 'delete') ?? [];
-  const retained =
-    data?.components.filter(
-      (component) => component.lifecycle === 'retain' || component.lifecycle === 'snapshot',
-    ) ?? [];
+  // What "Disconnect" will actually do is the deterministic destroy plan
+  // (Phase 5), not a derivation from the resource inventory — the plan and
+  // the relay's real teardown can never disagree about which components are
+  // removed vs. retained.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setPlan({ status: 'loading' });
+    fetchDeploymentPlan(deploymentId, 'destroy')
+      .then((data) => {
+        if (!cancelled) setPlan({ status: 'loaded', data });
+      })
+      .catch(() => {
+        if (!cancelled) setPlan({ status: 'error' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, deploymentId]);
+
+  const loading = plan.status === 'loading';
+  const data = plan.status === 'loaded' ? plan.data : null;
+
+  const removed = data?.components.filter((component) => component.action === 'DELETE') ?? [];
+  const retained = data?.components.filter((component) => component.action === 'RETAIN') ?? [];
 
   async function onConfirm(): Promise<void> {
     if (!confirmed) return;
@@ -1467,14 +1573,13 @@ function DisconnectDialog({
               <Loader2 aria-hidden className="size-4 animate-spin" />
               <span>Checking retained resources…</span>
             </div>
-          ) : infrastructure.status === 'error' ? (
+          ) : plan.status === 'error' ? (
             <Alert variant="destructive">
               <AlertTriangle aria-hidden className="size-4" />
               <AlertTitle>Could not verify retained resources</AlertTitle>
               <AlertDescription>
-                The resource inventory could not be loaded. Disconnecting may leave billable
-                resources—such as the database, stored files, and backups—in your customer&apos;s AWS
-                account.
+                The deployment plan could not be loaded. Disconnecting may leave billable
+                resources in your customer&apos;s AWS account.
               </AlertDescription>
             </Alert>
           ) : (
@@ -1497,12 +1602,9 @@ function DisconnectDialog({
                       <li key={component.kind}>{component.name}</li>
                     ))}
                   </ul>
+                  <p>Retained resources remain in your customer&apos;s AWS account, and may continue generating charges.</p>
                 </div>
               ) : null}
-              <p>
-                Retained AWS resources may continue generating charges after this deployment is
-                removed.
-              </p>
             </>
           )}
           <p>The Deployz connector remains installed.</p>

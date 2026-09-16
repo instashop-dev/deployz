@@ -22,11 +22,11 @@ export const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 export interface DeployzApi {
   getDeployment(deploymentId: string): Promise<Record<string, unknown>>;
   /** GET /api/install/:installLinkId — the pre-install public page payload
-   *  (resourcesCreated, quickCreateUrl, ...), distinct from `getInstallStatus`
-   *  below (the lifecycle-derived `/status` projection). Added for the
-   *  redis-failure scenario: `resourcesCreated` reflects `applications.
-   *  redisRequired` directly, independent of the deployment's current stage —
-   *  see e2e/redis.spec.ts's equivalent "will create" assertion. */
+   *  (plan, quickCreateUrl, ...), distinct from `getInstallStatus` below (the
+   *  lifecycle-derived `/status` projection). Added for the redis-failure
+   *  scenario: `plan.components` reflects the deployment's frozen manifest
+   *  directly, independent of the deployment's current stage — see
+   *  e2e/redis.spec.ts's equivalent "will create" assertion. */
   getInstallInfo(installLinkId: string): Promise<Record<string, unknown>>;
   getInstallStatus(installLinkId: string): Promise<Record<string, unknown>>;
   getStackEvents(deploymentId: string): Promise<unknown[]>;

@@ -7,8 +7,8 @@ import { extractQuickCreateParam, fetchInstallCredentials } from './simulation/r
 // deployz-demo/express-api: `bullmq-worker` (fixture-repo-3) is otherwise
 // READY-shaped with a direct BullMQ dependency — a supported, high-confidence
 // Redis requirement that should analyse as ready with the "Redis detected —
-// provisioned automatically on install" passed check, then carry a Redis
-// cache through resourcesCreated and the deployment's Infrastructure section.
+// provisioned automatically on install" passed check, then carry a Cache
+// component through the install plan and the deployment's Infrastructure section.
 // `legacy-redis` (fixture-repo-2) depends on Redis Stack modules
 // (@redis/json), which fall outside Deployz's managed Redis profile and must
 // still hard-reject with "Your app uses Redis features Deployz can't
@@ -164,13 +164,13 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   ).toBeVisible();
 
   // ── 3. Create a customer + deployment for this application, then open the
-  // install link page: the "Deployz will create" list includes a Redis cache
-  // because this application's analysed `redisRequired` is true.
+  // install link page: the "Deployz will create" table includes a Cache
+  // component because this application's analysed `redisRequired` is true.
   const { deploymentId, installLinkId, installationId, enrollmentCode, relayCredential } =
     await seedCustomerAndDeployment(page, applicationId, suffix);
   await page.goto(`/install/${installLinkId}`);
   const willCreateSection = page.locator('section[aria-labelledby="will-create"]');
-  await expect(willCreateSection.getByRole('listitem').getByText('Redis cache', { exact: true })).toBeVisible();
+  await expect(willCreateSection.getByRole('cell', { name: 'Cache', exact: true })).toBeVisible();
 
   // ── 4. Deployment detail: the Infrastructure section lists the cache
   // component. That section renders from the persisted resource inventory

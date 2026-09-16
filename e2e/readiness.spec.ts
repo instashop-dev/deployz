@@ -73,7 +73,12 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
   await expect(page.getByTestId('readiness-setting-runtime')).toContainText('Node.js');
   await expect(page.getByTestId('readiness-setting-port')).toContainText('3000');
   await expect(page.getByTestId('readiness-setting-health')).toContainText('/health');
-  await expect(page.getByTestId('readiness-setting-database')).toContainText('PostgreSQL');
+  // Phase 5: the database row's primary value is the server-computed
+  // effective requirement ("Required"/"Not required"), not the rich
+  // detected-fact text — the fixture app's `pg` dependency makes it Required.
+  const databaseRow = page.getByTestId('readiness-setting-database');
+  await expect(databaseRow).toContainText('Required');
+  await expect(databaseRow).not.toContainText('Not required');
 });
 
 test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => {

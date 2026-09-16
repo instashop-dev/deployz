@@ -5,6 +5,8 @@
 // ever produces the fix-instructions document, never a finding or a state.
 // §65: all copy here is jargon-free. Never a percentage.
 
+import type { ApplicationRequirementsSummary } from '@deployz/contracts';
+
 import { apiUrl } from '@/lib/api-url';
 import type { Application } from '@/lib/applications';
 import type { FleetDeployment } from '@/lib/deployments';
@@ -74,6 +76,8 @@ export interface ApplicationReadiness {
   analyzedCommitSha: string | null;
   /** What the analysis detected (mirrors `ApplicationAnalysis` in @deployz/contracts). Null until a recent analysis ran. */
   detected: DetectedApplication | null;
+  /** Server-computed database/redis/storage truth (detected/effective/overridden). Null while analysis is incomplete, or from a legacy API response. */
+  requirements: ApplicationRequirementsSummary | null;
 }
 
 // ── Detected facts (mirrors `ApplicationAnalysis` in @deployz/contracts) ────
@@ -754,6 +758,13 @@ const EDITABLE_FIELD_FOR_SETTING: Record<string, EditableReadinessField | null> 
   migrations: 'migrationCommand',
 };
 
+/** Which `ApplicationRequirementsSummary` field backs each boolean setting row. */
+const REQUIREMENT_KEY_FOR_SETTING: Record<string, 'database' | 'redis' | 'storage' | undefined> = {
+  database: 'database',
+  redis: 'redis',
+  storage: 'storage',
+};
+
 /**
  * Build the rows for the redesigned deployment-readiness table: settings
  * derived from detected facts, any passed checks, and any unresolved findings.
@@ -773,17 +784,23 @@ export function deriveReadinessRows(
       let detectedValue = fact.value;
       let overridden = false;
       if (field) {
-        // Boolean settings (database, cache/queue, storage) show the rich
-        // detected fact as the primary value, with the effective required/not
-        // required state as secondary text. When overridden, the value becomes
-        // the effective state and the secondary line shows the detected fact.
-        const booleanSettings = ['database', 'redis', 'storage'];
-        if (booleanSettings.includes(fact.id)) {
-          const effectiveState = effectiveFieldValue(field, application, readiness.detected);
-          const detectedState = detectedFieldValue(field, readiness.detected);
-          overridden = isFieldOverridden(field, application, readiness.detected);
-          value = overridden ? effectiveState : fact.value;
-          detectedValue = overridden ? fact.value : detectedState;
+        const requirementKey = REQUIREMENT_KEY_FOR_SETTING[fact.id];
+        if (requirementKey) {
+          // Database/cache/storage: the server-computed requirements summary
+          // is the source of truth (it can represent an override to false,
+          // which the application/detected OR-logic could not). The primary
+          // value is always the effective required/not-required state; the
+          // secondary text (rendered by the table row) shows the detected
+          // state and whether the vendor overrode it. When the API has not
+          // sent requirements (analysis incomplete, or a legacy response),
+          // fall back to the plain detected fact — never invent an effective
+          // value.
+          const requirement = readiness.requirements?.[requirementKey];
+          if (requirement) {
+            value = requirement.effective ? 'Required' : 'Not required';
+            detectedValue = requirement.detected ? 'Required' : 'Not required';
+            overridden = requirement.overridden;
+          }
         } else {
           value = effectiveFieldValue(field, application, readiness.detected);
           detectedValue = detectedFieldValue(field, readiness.detected);
