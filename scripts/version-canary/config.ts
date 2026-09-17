@@ -19,6 +19,30 @@ export const CANARY_TAGS = {
   environment: 'DeployzEnvironment',
 } as const;
 
+export type CanaryProfileName = 'pg' | 'stateless' | 'redis';
+
+/** One certifiable infrastructure profile: the requirements the application
+ * manifest must carry. Storage stays on in every profile. Every profile runs
+ * the default fixture repository — a real GitHub repo with the v1…v4 tag
+ * ladder the preflight asserts — and the requirements are forced through the
+ * platform's vendor-override path; the fixture app is stateless-safe (its
+ * /health never depends on the database), so the same image certifies every
+ * profile. */
+export interface CanaryProfile {
+  readonly name: CanaryProfileName;
+  readonly postgres: boolean;
+  readonly redis: boolean;
+  readonly fixtureRepo: string;
+}
+
+const DEFAULT_FIXTURE_REPO = 'instashop-dev/deployz-canary-app';
+
+const CANARY_PROFILES: Readonly<Record<CanaryProfileName, Omit<CanaryProfile, 'name'>>> = {
+  pg: { postgres: true, redis: false, fixtureRepo: DEFAULT_FIXTURE_REPO },
+  stateless: { postgres: false, redis: false, fixtureRepo: DEFAULT_FIXTURE_REPO },
+  redis: { postgres: false, redis: true, fixtureRepo: DEFAULT_FIXTURE_REPO },
+};
+
 export interface CanaryConfig {
   readonly runId: string;
   readonly apiUrl: string;
@@ -44,6 +68,14 @@ export interface CanaryConfig {
    * Set via `--reuse-stack`.
    */
   readonly reuseStack: boolean;
+  /**
+   * The infrastructure profile this run certifies (env DEPLOYZ_CANARY_PROFILE
+   * or `--profile`): the requirements the application must carry and the
+   * fixture repo that supplies it. `null` — the default — keeps the legacy
+   * core-ladder behaviour: databaseRequired true, redisRequired left to
+   * analysis, default fixture repo.
+   */
+  readonly profile: CanaryProfile | null;
 }
 
 export function mintRunId(now: Date = new Date()): string {
@@ -76,22 +108,48 @@ export function validateDigest(digest: string | null | undefined): string | null
   return digest;
 }
 
+/**
+ * The infrastructure profile for this run. Unset or empty keeps the legacy
+ * behaviour; an unknown value fails fast — a typo would otherwise certify
+ * the wrong profile silently.
+ */
+function loadProfile(env: NodeJS.ProcessEnv, overrideName?: string): CanaryProfile | null {
+  const name = (overrideName ?? env['DEPLOYZ_CANARY_PROFILE'] ?? '').trim();
+  if (name === '') return null;
+  const shape = CANARY_PROFILES[name as CanaryProfileName];
+  if (!shape) {
+    throw new Error(
+      `Unknown canary profile "${name}". Use pg (PostgreSQL only), stateless (neither) or redis (Redis only), ` +
+        `or leave DEPLOYZ_CANARY_PROFILE unset for the legacy PostgreSQL+Redis ladder.`,
+    );
+  }
+  return { name: name as CanaryProfileName, ...shape };
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv,
-  overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack'>> = {},
+  overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack'>> & {
+    /** The profile name from `--profile`; wins over DEPLOYZ_CANARY_PROFILE. */
+    profileName?: string;
+  } = {},
 ): CanaryConfig {
+  const profile = loadProfile(env, overrides.profileName);
   return {
-    runId: overrides.runId ?? env['DEPLOYZ_CANARY_RUN_ID'] ?? mintRunId(),
+    // Empty strings mint a run id: a workflow can pass an optional run-id
+    // input straight through as an env var.
+    runId: overrides.runId || env['DEPLOYZ_CANARY_RUN_ID'] || mintRunId(),
     apiUrl: (env['DEPLOYZ_CANARY_API_URL'] ?? 'https://api.deployz.dev').replace(/\/$/, ''),
     webUrl: (env['DEPLOYZ_CANARY_WEB_URL'] ?? 'https://app.deployz.dev').replace(/\/$/, ''),
     region: env['AWS_REGION'] ?? 'us-east-1',
     expectedAccountId: env['DEPLOYZ_CANARY_EXPECTED_ACCOUNT'] ?? '151955775369',
     githubInstallationId: env['DEPLOYZ_CANARY_GITHUB_INSTALLATION_ID'] ?? '156387233',
-    fixtureRepo: env['DEPLOYZ_CANARY_FIXTURE_REPO'] ?? 'instashop-dev/deployz-canary-app',
+    // An explicit fixture repo always wins over the profile's default.
+    fixtureRepo: env['DEPLOYZ_CANARY_FIXTURE_REPO'] ?? profile?.fixtureRepo ?? DEFAULT_FIXTURE_REPO,
     resultsDir: resolve(env['DEPLOYZ_CANARY_RESULTS_DIR'] ?? 'canary-results'),
     keep: overrides.keep ?? false,
     existingImageDigest: validateDigest(overrides.existingImageDigest ?? env['DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST'] ?? null),
     reuseStack: overrides.reuseStack ?? false,
+    profile,
   };
 }
 

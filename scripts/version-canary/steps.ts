@@ -25,7 +25,7 @@ import {
   targetHealth,
   templateBucketName,
 } from './aws.js';
-import { releaseVersionFor, type CanaryConfig } from './config.js';
+import { releaseVersionFor, type CanaryConfig, type CanaryProfile } from './config.js';
 import {
   ControlPlane,
   ControlPlaneError,
@@ -118,8 +118,16 @@ function gh<T>(path: string): T {
 
 // ── Vendor + application ───────────────────────────────────────────────────
 
+/** The requirements the application must carry: the profile's shape when one
+ * is configured; otherwise the legacy request exactly — databaseRequired
+ * true, redisRequired never sent (analysis owns it). */
+function applicationRequirements(profile: CanaryProfile | null): { databaseRequired: boolean; redisRequired?: boolean } {
+  return profile ? { databaseRequired: profile.postgres, redisRequired: profile.redis } : { databaseRequired: true };
+}
+
 export async function setUpVendorAndApplication(canary: Canary): Promise<string> {
   const { config, evidence, api } = canary;
+  const requirements = applicationRequirements(config.profile);
   const applicationId = await evidence.step('Vendor sign-up, GitHub binding, application', async (details) => {
     const email = `canary-${config.runId.toLowerCase()}@deployz-canary.example.com`;
     const password = `Canary-${config.runId}-${Math.random().toString(36).slice(2, 10)}`;
@@ -143,7 +151,7 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
       defaultBranch: 'main',
       containerPort: 3000,
       healthPath: '/health',
-      databaseRequired: true,
+      ...requirements,
     });
     evidence.run.applicationId = application.id;
     details['applicationId'] = application.id;
@@ -160,7 +168,7 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
       healthPath: '/health',
       dockerfilePath: 'Dockerfile',
       startCommand: 'node dist/server.js',
-      databaseRequired: true,
+      ...requirements,
     });
     await api.triggerAnalysis(applicationId);
     const readiness = await waitFor(
