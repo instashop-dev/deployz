@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import {
   ArrowLeft,
@@ -60,7 +60,7 @@ import {
   RequirementDriftNotice,
 } from './readiness-components';
 
-/** How often to re-check a still-running analysis (Â§19). */
+/** How often to re-check a still-running analysis (§19). */
 const ANALYSIS_POLL_MS = 2000;
 
 type PageData = {
@@ -76,7 +76,7 @@ type PageState =
   | { status: 'error'; message: string }
   | { status: 'loaded'; data: PageData };
 
-/** Fetch the install plan only when analysis has completed â€” the endpoint
+/** Fetch the install plan only when analysis has completed — the endpoint
  *  returns 409 while analysis is still running. */
 async function fetchPlanIfComplete(id: string, application: Application): Promise<DeploymentPlan | null> {
   if (application.analysisStatus !== 'COMPLETE') return null;
@@ -87,7 +87,7 @@ async function fetchPlanIfComplete(id: string, application: Application): Promis
   }
 }
 
-// Application readiness page â€” redesigned into a single deployment-readiness
+// Application readiness page — redesigned into a single deployment-readiness
 // table, a compact four-step lifecycle, and contextual header actions.
 export default function ApplicationReadinessPage() {
   const params = useParams();
@@ -183,7 +183,7 @@ export default function ApplicationReadinessPage() {
         </Button>
       </div>
 
-      {/* Paddle migration Phase 11 â€” the same evaluation line as the
+      {/* Paddle migration Phase 11 — the same evaluation line as the
           homepage, on the screen where a vendor decides an application is
           ready for its first customer. Gone once a subscription exists. */}
       <EvaluationNotice />
@@ -203,7 +203,7 @@ export default function ApplicationReadinessPage() {
             className="mt-4"
             onClick={() => void handleRetry()}
             loading={retrying}
-            loadingText="Trying againâ€¦"
+            loadingText="Trying again…"
           >
             Try again
           </Button>
@@ -279,7 +279,7 @@ function ReadinessBody({
         <Button
           onClick={() => void handleReanalyse()}
           loading={reanalysing}
-          loadingText="Retrying analysisâ€¦"
+          loadingText="Retrying analysis…"
           data-testid="readiness-retry"
         >
           Try analysis again
@@ -292,7 +292,7 @@ function ReadinessBody({
         <Button
           onClick={() => void handleReanalyse()}
           loading={reanalysing}
-          loadingText="Analyzing applicationâ€¦"
+          loadingText="Analyzing application…"
           data-testid="readiness-analyze"
         >
           Analyze application
@@ -353,14 +353,14 @@ function ReadinessBody({
 
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span data-testid="readiness-commit">
-              Analysed commit {readiness.analyzedCommitSha?.slice(0, 7) ?? 'â€”'}
+              Analysed commit {readiness.analyzedCommitSha?.slice(0, 7) ?? '—'}
             </span>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => void handleReanalyse()}
               loading={reanalysing}
-              loadingText="Analyzing applicationâ€¦"
+              loadingText="Analyzing application…"
               disabled={application.analysisStatus === 'ANALYZING'}
               data-testid="app-details-reanalyse"
             >
@@ -499,7 +499,7 @@ function EditableName({
         size="sm"
         onClick={() => void save()}
         loading={saving}
-        loadingText="Saving nameâ€¦"
+        loadingText="Saving name…"
         data-testid="app-name-save"
       >
         Save
@@ -607,7 +607,7 @@ function LatestDeploymentSection({
                 <DeploymentStatusBadge state={testDeployment.state} />
               </div>
               <p className="text-sm text-muted-foreground">
-                Version {testDeployment.version} Â·{' '}
+                Version {testDeployment.version} ·{' '}
                 {new Date(testDeployment.createdAt).toLocaleDateString()}
               </p>
               <div className="flex items-center gap-2">
@@ -734,7 +734,7 @@ function DangerZone({ application }: { application: Application }) {
                 <AlertDialogAction
                   onClick={() => void onConfirm()}
                   loading={pending}
-                  loadingText="Removing applicationâ€¦"
+                  loadingText="Removing application…"
                   disabled={!confirmed}
                   data-testid="delete-app-button"
                 >
