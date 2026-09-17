@@ -1,4 +1,9 @@
-import type { InfrastructureLifecycle } from './infrastructure.js';
+import type {
+  InfrastructureComponentKind,
+  InfrastructureComponentStatus,
+  InfrastructureExpectations,
+  InfrastructureLifecycle,
+} from './infrastructure.js';
 import type { InfrastructureProfile } from './index.js';
 
 // The minimal component catalog — semantic metadata shared by verification
@@ -68,4 +73,42 @@ export function requiredInfrastructureComponents(
   profile: InfrastructureProfile,
 ): readonly InfrastructureComponentDefinition[] {
   return INFRASTRUCTURE_COMPONENTS.filter((component) => component.requiredBy(profile));
+}
+
+const CATALOG_KINDS = INFRASTRUCTURE_COMPONENTS.map((component) => component.kind);
+
+/**
+ * Compares what a deployment's manifest requires (the catalog, filtered by
+ * its infrastructure profile) against what the persisted inventory shows.
+ * Pure — no database or AWS access; a report only, never an auto-repair. A
+ * component is `present` when the inventory has a row of that kind whose
+ * status is not `removed`.
+ */
+export function compareInfrastructureExpectations(
+  expectedKinds: readonly InfrastructureComponentKind[],
+  components: ReadonlyArray<{
+    readonly kind: InfrastructureComponentKind;
+    readonly status: InfrastructureComponentStatus;
+  }>,
+): InfrastructureExpectations {
+  const expectedSet = new Set(expectedKinds);
+  // A kind with ANY row at all (even 'removed') has been accounted for —
+  // only a kind with NO row whatsoever is missing. A FAILED destroy leaves
+  // 'removed' rows behind (docs/deployment-resilience.md), and those must
+  // never double as both "Removed" and "Missing" for the same component.
+  const anyRowKinds = new Set(components.map((component) => component.kind));
+  const presentKinds = new Set(
+    components.filter((component) => component.status !== 'removed').map((component) => component.kind),
+  );
+  const catalogComponents = CATALOG_KINDS.map((kind) => ({
+    kind,
+    expected: expectedSet.has(kind),
+    present: presentKinds.has(kind),
+  }));
+  return {
+    schemaVersion: 1,
+    components: catalogComponents,
+    missing: CATALOG_KINDS.filter((kind) => expectedSet.has(kind) && !anyRowKinds.has(kind)),
+    unexpected: CATALOG_KINDS.filter((kind) => !expectedSet.has(kind) && presentKinds.has(kind)),
+  };
 }

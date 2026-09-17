@@ -35,6 +35,7 @@ export function makeInfrastructureResponse(
     components: [],
     lastUpdatedAt: '2026-09-01T00:00:00.000Z',
     disconnectWarning: null,
+    expectations: null,
     ...overrides,
   };
 }
@@ -141,5 +142,52 @@ export const infrastructureFixtures = {
     snapshotState: 'fresh',
     summary: { status: 'healthy', componentCount: 1, technicalResourceCount: 1 },
     components: [{ ...baseComponent('application'), status: 'ready', awsService: 'ECS' }],
+  }),
+
+  // Phase 6: a stateless deployment — database and cache are neither
+  // required nor present, so both read "Not required" and nothing is missing.
+  notRequiredServices: makeInfrastructureResponse({
+    snapshotState: 'fresh',
+    summary: { status: 'healthy', componentCount: 3, technicalResourceCount: 3 },
+    components: [
+      { ...baseComponent('application'), status: 'ready', awsService: 'ECS' },
+      { ...baseComponent('endpoint'), status: 'ready', awsService: 'ELB' },
+      { ...baseComponent('storage'), status: 'ready', awsService: 'S3', lifecycle: 'retain' },
+    ],
+    expectations: {
+      schemaVersion: 1,
+      components: [
+        { kind: 'application', expected: true, present: true },
+        { kind: 'endpoint', expected: true, present: true },
+        { kind: 'database', expected: false, present: false },
+        { kind: 'storage', expected: true, present: true },
+        { kind: 'cache', expected: false, present: false },
+      ],
+      missing: [],
+      unexpected: [],
+    },
+  }),
+
+  // Phase 6: postgres is required but the database never made it into the
+  // inventory — a "Missing" row, never a silent "Not required".
+  databaseMissing: makeInfrastructureResponse({
+    snapshotState: 'fresh',
+    summary: { status: 'degraded', componentCount: 2, technicalResourceCount: 2 },
+    components: [
+      { ...baseComponent('application'), status: 'ready', awsService: 'ECS' },
+      { ...baseComponent('endpoint'), status: 'ready', awsService: 'ELB' },
+    ],
+    expectations: {
+      schemaVersion: 1,
+      components: [
+        { kind: 'application', expected: true, present: true },
+        { kind: 'endpoint', expected: true, present: true },
+        { kind: 'database', expected: true, present: false },
+        { kind: 'storage', expected: true, present: false },
+        { kind: 'cache', expected: false, present: false },
+      ],
+      missing: ['database', 'storage'],
+      unexpected: [],
+    },
   }),
 };

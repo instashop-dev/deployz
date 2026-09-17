@@ -362,6 +362,7 @@ import type {
   InfrastructureComponent,
   InfrastructureComponentKind,
   InfrastructureComponentStatus,
+  InfrastructureExpectations,
   InfrastructureHttpsState,
   InfrastructureLifecycle,
   InfrastructureSummaryStatus,
@@ -448,6 +449,34 @@ export function infrastructureComponentStatusLabel(
     return INFRASTRUCTURE_HTTPS_STATE_LABEL[component.httpsState];
   }
   return INFRASTRUCTURE_STATUS_LABEL[component.status];
+}
+
+/**
+ * The catalog kinds the manifest does not require and the inventory does not
+ * have — rendered as "Not required" rows. Driven entirely by the API's
+ * requirement-vs-inventory comparison (Phase 6); the page never re-derives
+ * infrastructure intent itself (docs/ui-system.md).
+ */
+export function infrastructureNotRequiredKinds(
+  expectations: Pick<InfrastructureExpectations, 'components'> | null,
+): InfrastructureComponentKind[] {
+  return (expectations?.components ?? [])
+    .filter((component) => !component.expected && !component.present)
+    .map((component) => component.kind);
+}
+
+/**
+ * The catalog kinds the manifest requires but the inventory does not have —
+ * rendered as "Missing" rows. Only meaningful once the deployment is past
+ * the install phase: a component the relay has not created yet is normal
+ * mid-install, not missing.
+ */
+export function infrastructureMissingKinds(
+  expectations: Pick<InfrastructureExpectations, 'missing'> | null,
+  state: DeploymentState,
+): InfrastructureComponentKind[] {
+  if (state === 'INSTALLING' || state === 'NOT_INSTALLED') return [];
+  return expectations?.missing ?? [];
 }
 
 /** Plain-English lifecycle copy shown under each component. */

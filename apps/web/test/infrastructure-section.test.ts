@@ -7,6 +7,8 @@ import {
   INFRASTRUCTURE_STATUS_LABEL,
   INFRASTRUCTURE_SUMMARY_STATUS_BADGE,
   INFRASTRUCTURE_SUMMARY_STATUS_LABEL,
+  infrastructureMissingKinds,
+  infrastructureNotRequiredKinds,
 } from '../src/lib/deployment-vocabulary';
 
 import { infrastructureFixtures } from './fixtures/infrastructure';
@@ -83,6 +85,42 @@ describe('infrastructure fixtures', () => {
     expect(
       infrastructureFixtures.withoutCache.components.some((c) => c.kind === 'cache'),
     ).toBe(false);
+  });
+});
+
+// Phase 6 — requirement-aware verification: the server's expectations block
+// (expected vs. present per catalog kind) drives "Not required"/"Missing"
+// rows; the page never re-derives infrastructure intent itself.
+describe('infrastructure expectations (Phase 6)', () => {
+  it('a kind that is neither expected nor present reads "Not required"', () => {
+    // This fixture's stored manifest needs neither postgres nor redis.
+    const kinds = infrastructureNotRequiredKinds(infrastructureFixtures.notRequiredServices.expectations);
+    expect(kinds).toEqual(['database', 'cache']);
+  });
+
+  it('an expected, present kind is never "Not required"', () => {
+    const kinds = infrastructureNotRequiredKinds(infrastructureFixtures.notRequiredServices.expectations);
+    expect(kinds).not.toContain('application');
+    expect(kinds).not.toContain('storage');
+  });
+
+  it('null expectations (no valid stored manifest) yields no rows', () => {
+    expect(infrastructureNotRequiredKinds(null)).toEqual([]);
+    expect(infrastructureMissingKinds(null, 'HEALTHY')).toEqual([]);
+  });
+
+  it('a required, absent kind reads "Missing" once the deployment is past install', () => {
+    const kinds = infrastructureMissingKinds(infrastructureFixtures.databaseMissing.expectations, 'HEALTHY');
+    expect(kinds).toEqual(['database', 'storage']);
+  });
+
+  it('never shows "Missing" while the deployment is still installing or not installed', () => {
+    expect(infrastructureMissingKinds(infrastructureFixtures.databaseMissing.expectations, 'INSTALLING')).toEqual(
+      [],
+    );
+    expect(
+      infrastructureMissingKinds(infrastructureFixtures.databaseMissing.expectations, 'NOT_INSTALLED'),
+    ).toEqual([]);
   });
 });
 

@@ -38,6 +38,11 @@ interface ReleaseResponse {
 interface InfrastructureResponse {
   summary: { technicalResourceCount: number };
   components: Array<{ kind: string; status: string }>;
+  expectations: {
+    components: Array<{ kind: string; expected: boolean; present: boolean }>;
+    missing: string[];
+    unexpected: string[];
+  } | null;
 }
 
 interface EventRow {
@@ -386,6 +391,12 @@ test.describe('retained-resources', () => {
     expect(database?.status).toBe('retained');
     expect(storage?.status).toBe('retained');
     expect(application?.status).toBe('removed');
+
+    // Phase 6: requirement-aware verification. The application (always
+    // required) is 'removed', not 'retained', after a clean destroy — a
+    // naive expected-vs-present comparison would read that as "missing", so
+    // a DELETED deployment always reports nothing outstanding.
+    expect(infra.expectations?.missing).toEqual([]);
 
     const events = await getEvents(request, deploymentId);
     expect(events.some((e) => e.eventType === 'destroy.completed')).toBe(true);

@@ -26,6 +26,11 @@ interface StackEventRow {
 interface InfrastructureResponse {
   stackStatus: string | null;
   summary: { status: string; componentCount: number; technicalResourceCount: number };
+  expectations: {
+    components: Array<{ kind: string; expected: boolean; present: boolean }>;
+    missing: string[];
+    unexpected: string[];
+  } | null;
 }
 
 interface VendorDeploymentStatus {
@@ -291,5 +296,15 @@ test.describe('stateless', () => {
     expect(infra.components.some((c: { kind: string }) => c.kind === 'database')).toBe(false);
     expect(infra.components.some((c: { kind: string }) => c.kind === 'storage')).toBe(true);
     expect(infra.components.some((c: { kind: string }) => c.kind === 'application')).toBe(true);
+
+    // Phase 6: requirement-aware verification. This stateless deployment's
+    // manifest never asked for a database, so its absence is not "missing".
+    expect(infra.expectations?.missing).toEqual([]);
+    expect(infra.expectations?.unexpected).toEqual([]);
+    expect(infra.expectations?.components.find((c) => c.kind === 'database')).toEqual({
+      kind: 'database',
+      expected: false,
+      present: false,
+    });
   });
 });

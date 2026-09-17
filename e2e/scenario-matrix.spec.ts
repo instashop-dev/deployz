@@ -56,6 +56,11 @@ interface ErrorBody {
 interface InfrastructureResponse {
   components: Array<{ kind: string; status: string }>;
   summary: { technicalResourceCount: number };
+  expectations: {
+    components: Array<{ kind: string; expected: boolean; present: boolean }>;
+    missing: string[];
+    unexpected: string[];
+  } | null;
 }
 
 async function signUp(request: APIRequestContext, suffix: string): Promise<void> {
@@ -238,6 +243,17 @@ test.describe('redis-success (B)', () => {
       .toBeGreaterThan(0);
     const infra = (await api.getInfrastructure(deploymentId)) as unknown as InfrastructureResponse;
     expect(infra.components.some((c) => c.kind === 'cache' && c.status === 'ready')).toBe(true);
+
+    // Phase 6: requirement-aware verification. The real analyser required
+    // Redis, and the cache made it into the inventory, so nothing is missing
+    // or unexpected.
+    expect(infra.expectations?.missing).toEqual([]);
+    expect(infra.expectations?.unexpected).toEqual([]);
+    expect(infra.expectations?.components.find((c) => c.kind === 'cache')).toEqual({
+      kind: 'cache',
+      expected: true,
+      present: true,
+    });
 
     // A real DEPLOY_RELEASE on the same deployment: the manifest carries the
     // analysed migration command, so the relay's migration stage actually

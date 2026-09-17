@@ -217,6 +217,9 @@ export default async function InstallPage({
     );
   }
 
+  const retentionNote = installPlanRetentionNote(data.plan);
+  const regionLabel = installPlanRegionLabel(data.region);
+
   return (
     <div className="flex flex-col gap-10">
       <div>
@@ -264,12 +267,10 @@ export default async function InstallPage({
             </TableBody>
           </Table>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Region: {installPlanRegionLabel(data.region)}
-        </p>
-        {installPlanRetentionNote(data.plan) ? (
-          <p className="text-sm text-muted-foreground">{installPlanRetentionNote(data.plan)}</p>
+        {regionLabel ? (
+          <p className="text-sm text-muted-foreground">Region: {regionLabel}</p>
         ) : null}
+        {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}
         <p className="text-sm font-medium text-foreground">
           Your data stays in your AWS account.
         </p>

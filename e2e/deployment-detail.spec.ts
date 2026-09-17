@@ -145,6 +145,21 @@ const component = (kind: string, name: string, status: string, lifecycle = 'dele
   ],
 });
 
+// Phase 6: the server's expected-vs-present comparison for the default
+// component list — a postgres deployment with neither storage nor Redis.
+const DEFAULT_EXPECTATIONS = {
+  schemaVersion: 1,
+  components: [
+    { kind: 'application', expected: true, present: true },
+    { kind: 'endpoint', expected: true, present: true },
+    { kind: 'database', expected: true, present: true },
+    { kind: 'storage', expected: false, present: false },
+    { kind: 'cache', expected: false, present: false },
+  ],
+  missing: [],
+  unexpected: [],
+};
+
 function infra(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     provider: 'aws',
@@ -161,9 +176,43 @@ function infra(overrides: Record<string, unknown> = {}): Record<string, unknown>
     ],
     lastUpdatedAt: UPDATED_AT,
     disconnectWarning: null,
+    expectations: DEFAULT_EXPECTATIONS,
     ...overrides,
   };
 }
+
+function planComponent(kind: string, name: string, action: string, lifecycle: 'delete' | 'retain') {
+  return { kind, name, action, lifecycle };
+}
+
+// Deterministic plans (Phase 4) for the same postgres/no-redis fixture as
+// DEFAULT_EXPECTATIONS above — the disconnect and deploy-update dialogs
+// render these instead of deriving infrastructure intent themselves.
+const DESTROY_PLAN = {
+  schemaVersion: 1,
+  action: 'DESTROY',
+  region: 'us-east-2',
+  components: [
+    planComponent('application', 'Application', 'DELETE', 'delete'),
+    planComponent('endpoint', 'Secure endpoint', 'DELETE', 'delete'),
+    planComponent('database', 'Database', 'RETAIN', 'retain'),
+    planComponent('storage', 'Storage', 'RETAIN', 'retain'),
+  ],
+  requirementDrift: [],
+};
+
+const UPDATE_PLAN_NO_DRIFT = {
+  schemaVersion: 1,
+  action: 'UPDATE',
+  region: 'us-east-2',
+  components: [
+    planComponent('application', 'Application', 'UNCHANGED', 'delete'),
+    planComponent('endpoint', 'Secure endpoint', 'UNCHANGED', 'delete'),
+    planComponent('database', 'Database', 'UNCHANGED', 'retain'),
+    planComponent('storage', 'Storage', 'UNCHANGED', 'retain'),
+  ],
+  requirementDrift: [],
+};
 
 const EVENTS = [
   { occurredAt: '2025-09-12T07:24:00Z', eventType: 'install.requested', actorType: 'user', result: null, previousState: 'NOT_INSTALLED', requestedState: 'INSTALLING', payload: {} },
@@ -363,6 +412,8 @@ interface Mocks {
   detail: Record<string, unknown>;
   infra?: Record<string, unknown> | 'error';
   events?: unknown[] | 'error';
+  destroyPlan?: Record<string, unknown>;
+  updatePlan?: Record<string, unknown>;
 }
 
 /** Mounts the page for one mocked state and returns its main landmarks. */
@@ -385,6 +436,12 @@ async function open(page: Page, mocks: Mocks) {
   );
   await page.route(`${API_URL}/api/deployments/qa-dep/stack-events`, (route) =>
     route.fulfill({ json: { events: STACK_EVENTS } }),
+  );
+  await page.route(`${API_URL}/api/deployments/qa-dep/plan?action=destroy`, (route) =>
+    route.fulfill({ json: mocks.destroyPlan ?? DESTROY_PLAN }),
+  );
+  await page.route(`${API_URL}/api/deployments/qa-dep/plan?action=update`, (route) =>
+    route.fulfill({ json: mocks.updatePlan ?? UPDATE_PLAN_NO_DRIFT }),
   );
 
   await page.goto('/dashboard/deployments/qa-dep');
@@ -529,6 +586,19 @@ test('live: the address is the primary action, and the metadata stays compact', 
   await shoot(page, 'live');
 });
 
+test('deploy-update dialog: Infrastructure reads unchanged and no drift alert for the happy path', async ({
+  page,
+}) => {
+  const { actions } = await open(page, { detail: detail() });
+
+  await actions.getByRole('button', { name: 'Deploy Update' }).click();
+  const panel = page.getByTestId('deploy-update-panel');
+  await expect(panel.getByText('Infrastructure', { exact: true })).toBeVisible();
+  await expect(panel.getByText('Unchanged for this deployment', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('requirement-drift-alert')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+});
+
 test('live over a temporary address: the hero nudges toward a custom domain and only unused services read Not required', async ({
   page,
 }) => {
@@ -552,13 +622,26 @@ test('live over a temporary address: the hero nudges toward a custom domain and 
         component('endpoint', 'Secure endpoint', 'ready', 'delete', 'ELB'),
         component('network', 'Network', 'ready', 'delete', 'VPC'),
       ],
+      expectations: {
+        schemaVersion: 1,
+        components: [
+          { kind: 'application', expected: true, present: true },
+          { kind: 'endpoint', expected: true, present: true },
+          { kind: 'database', expected: true, present: true },
+          { kind: 'storage', expected: false, present: false },
+          { kind: 'cache', expected: false, present: true },
+        ],
+        missing: [],
+        unexpected: ['cache'],
+      },
     }),
   });
 
   await expect(headline).toHaveText('Your application is live');
   await expect(hero).toContainText('Add a custom domain to serve it over HTTPS.');
-  // A provisioned cache is a real row; only storage, which this application
-  // does not require, reads "Not required".
+  // A provisioned cache is a real row (present but not required — no special
+  // copy); only storage, which this application does not require, reads
+  // "Not required".
   await expect(infrastructure.getByText('Cache', { exact: true })).toBeVisible();
   await expect(infrastructure.getByText('Not required', { exact: true })).toHaveCount(1);
   await shoot(page, 'live-temporary-address');
@@ -902,6 +985,19 @@ test('destructive and rare actions live behind the overflow menu', async ({ page
   await expect(page.getByRole('menuitem', { name: 'Restart' })).toBeEnabled();
   await expect(page.getByRole('menuitem', { name: 'Rollback to v1.14.1' })).toBeEnabled();
   await expect(page.getByRole('menuitem', { name: 'Disconnect Deployment' })).toBeEnabled();
+
+  // The disconnect panel renders the deterministic destroy plan (Phase 4),
+  // not a derivation from the resource inventory — Application and Secure
+  // endpoint are deleted, Database and Storage are retained (DESTROY_PLAN).
+  await page.getByRole('menuitem', { name: 'Disconnect Deployment' }).click();
+  const disconnectPanel = page.getByTestId('disconnect-panel');
+  const willBeRemoved = disconnectPanel.locator('text=Will be removed').locator('..');
+  await expect(willBeRemoved.getByText('Application', { exact: true })).toBeVisible();
+  await expect(willBeRemoved.getByText('Secure endpoint', { exact: true })).toBeVisible();
+  const willBeRetained = disconnectPanel.locator('text=Will be retained').locator('..');
+  await expect(willBeRetained.getByText('Database', { exact: true })).toBeVisible();
+  await expect(willBeRetained.getByText('Storage', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
 });
 
 test('AWS identifiers and the raw event feed stay inside Advanced details', async ({ page }) => {

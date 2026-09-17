@@ -54,10 +54,15 @@ export function installPlanRetentionNote(plan: DeploymentPlan | null): string | 
     .filter((component) => component.lifecycle === 'retain')
     .map((component) => component.name);
   if (retainedNames.length === 0) return null;
-  return `When this deployment is removed, ${joinNames(retainedNames)} stay in your AWS account.`;
+  const verb = retainedNames.length === 1 ? 'stays' : 'stay';
+  return `When this deployment is removed, ${joinNames(retainedNames)} ${verb} in your AWS account.`;
 }
 
-/** The region label for the install/deploy pages ("US East (N. Virginia)"). */
-export function installPlanRegionLabel(region: string): string {
-  return REGION_LABELS[region as Region] ?? region;
+/**
+ * The region label for the install/deploy pages ("US East (N. Virginia)").
+ * Null for a region Deployz does not recognize — the page hides the region
+ * line rather than showing a raw AWS region code.
+ */
+export function installPlanRegionLabel(region: string): string | null {
+  return REGION_LABELS[region as Region] ?? null;
 }

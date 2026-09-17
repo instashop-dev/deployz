@@ -465,6 +465,41 @@ export const infrastructureComponentSummarySchema = z
   })
   .strict();
 
+/** One catalog kind's requirement-vs-inventory comparison (Phase 6). */
+export const infrastructureExpectationComponentSchema = z
+  .object({
+    kind: infrastructureComponentKindSchema,
+    /** Whether this deployment's manifest requires the component. */
+    expected: z.boolean(),
+    /** Whether the inventory has a non-removed component of this kind. */
+    present: z.boolean(),
+  })
+  .strict();
+export type InfrastructureExpectationComponent = z.infer<typeof infrastructureExpectationComponentSchema>;
+
+/**
+ * The server-side comparison of what the stored manifest requires (the
+ * catalog, filtered by its infrastructure profile) against what the
+ * persisted inventory shows. A report only — never an auto-repair. `null`
+ * on the response when the deployment has no valid stored manifest to
+ * compare against.
+ */
+export const infrastructureExpectationsSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    /** The five catalog kinds, in catalog order. */
+    components: z.array(infrastructureExpectationComponentSchema),
+    /** expected && no row of that kind exists at all — a kind with even a
+     *  'removed' row (e.g. after a failed destroy) is not missing. Only
+     *  meaningful once the snapshot is complete and the deployment is past
+     *  INSTALLING. */
+    missing: z.array(infrastructureComponentKindSchema),
+    /** !expected && a non-removed row exists, among the five catalog kinds. */
+    unexpected: z.array(infrastructureComponentKindSchema),
+  })
+  .strict();
+export type InfrastructureExpectations = z.infer<typeof infrastructureExpectationsSchema>;
+
 /** The exact GET /api/deployments/:id/infrastructure response. Lane 2's UI
  *  compiles against this shape — never change it without the web team. */
 export const infrastructureResponseSchema = z
@@ -487,6 +522,7 @@ export const infrastructureResponseSchema = z
       .object({ lastVerifiedAt: z.iso.datetime() })
       .strict()
       .nullable(),
+    expectations: infrastructureExpectationsSchema.nullable(),
   })
   .strict();
 export type InfrastructureResponse = z.infer<typeof infrastructureResponseSchema>;
