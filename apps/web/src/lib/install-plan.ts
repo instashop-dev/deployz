@@ -54,7 +54,8 @@ export function installPlanRetentionNote(plan: DeploymentPlan | null): string | 
     .filter((component) => component.lifecycle === 'retain')
     .map((component) => component.name);
   if (retainedNames.length === 0) return null;
-  return `When this deployment is removed, ${joinNames(retainedNames)} stay in your AWS account.`;
+  const verb = retainedNames.length === 1 ? 'stays' : 'stay';
+  return `When this deployment is removed, ${joinNames(retainedNames)} ${verb} in your AWS account.`;
 }
 
 /**

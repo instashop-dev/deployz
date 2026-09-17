@@ -743,18 +743,13 @@ const EDITABLE_FIELD_FOR_SETTING: Record<string, EditableReadinessField | null> 
   migrations: 'migrationCommand',
 };
 
-/** Which `ApplicationRequirementsSummary` field backs each boolean setting row. */
-const REQUIREMENT_KEY_FOR_SETTING: Record<string, 'database' | 'redis' | 'storage' | undefined> = {
-  database: 'database',
-  redis: 'redis',
-  storage: 'storage',
-};
-
 /**
  * Which `ApplicationRequirementsSummary` field backs an editable requirement
  * toggle — the single mapping every surface that reads override state for
  * database/redis/storage must share, so the readiness table and the edit
- * dialog never disagree about whether a field is overridden.
+ * dialog never disagree about whether a field is overridden. The readiness
+ * table derives its setting-id lookup from this same mapping (via
+ * `EDITABLE_FIELD_FOR_SETTING`) rather than keeping a second one.
  */
 export function requirementSummaryKeyFor(
   field: EditableReadinessField,
@@ -790,7 +785,7 @@ export function deriveReadinessRows(
       let detectedValue = fact.value;
       let overridden = false;
       if (field) {
-        const requirementKey = REQUIREMENT_KEY_FOR_SETTING[fact.id];
+        const requirementKey = requirementSummaryKeyFor(field);
         if (requirementKey) {
           // Database/cache/storage: the server-computed requirements summary
           // is the source of truth (it can represent an override to false,

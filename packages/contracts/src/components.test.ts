@@ -85,7 +85,26 @@ describe('compareInfrastructureExpectations', () => {
       { kind: 'database', status: 'removed' },
       { kind: 'storage', status: 'ready' },
     ]);
-    expect(result.missing).toEqual(['database']);
+    expect(result.components.find((c) => c.kind === 'database')).toEqual({
+      kind: 'database',
+      expected: true,
+      present: false,
+    });
+  });
+
+  it('an expected kind with only a removed row is neither missing nor unexpected — a row of any status has already been accounted for', () => {
+    // A FAILED destroy (docs/deployment-resilience.md) leaves the deployment
+    // FAILED, not DELETED, with 'removed' rows for delete-lifecycle
+    // components. Those must never double as both "Removed" and "Missing"
+    // for the same component.
+    const result = compareInfrastructureExpectations(POSTGRES_KINDS, [
+      { kind: 'application', status: 'removed' },
+      { kind: 'endpoint', status: 'removed' },
+      { kind: 'database', status: 'removed' },
+      { kind: 'storage', status: 'removed' },
+    ]);
+    expect(result.missing).toEqual([]);
+    expect(result.unexpected).toEqual([]);
   });
 
   it('components carries the five catalog kinds in catalog order', () => {

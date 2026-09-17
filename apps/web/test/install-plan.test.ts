@@ -62,9 +62,9 @@ describe('installPlanRetentionNote', () => {
     expect(note).toBeNull();
   });
 
-  it('names one retained component', () => {
+  it('names one retained component, with singular agreement', () => {
     const note = installPlanRetentionNote(plan({ components: [component('database', 'Database', 'CREATE', 'retain')] }));
-    expect(note).toBe('When this deployment is removed, Database stay in your AWS account.');
+    expect(note).toBe('When this deployment is removed, Database stays in your AWS account.');
   });
 
   it('joins two retained components with "and"', () => {

@@ -92,6 +92,11 @@ export function compareInfrastructureExpectations(
   }>,
 ): InfrastructureExpectations {
   const expectedSet = new Set(expectedKinds);
+  // A kind with ANY row at all (even 'removed') has been accounted for —
+  // only a kind with NO row whatsoever is missing. A FAILED destroy leaves
+  // 'removed' rows behind (docs/deployment-resilience.md), and those must
+  // never double as both "Removed" and "Missing" for the same component.
+  const anyRowKinds = new Set(components.map((component) => component.kind));
   const presentKinds = new Set(
     components.filter((component) => component.status !== 'removed').map((component) => component.kind),
   );
@@ -103,7 +108,7 @@ export function compareInfrastructureExpectations(
   return {
     schemaVersion: 1,
     components: catalogComponents,
-    missing: catalogComponents.filter((c) => c.expected && !c.present).map((c) => c.kind),
-    unexpected: catalogComponents.filter((c) => !c.expected && c.present).map((c) => c.kind),
+    missing: CATALOG_KINDS.filter((kind) => expectedSet.has(kind) && !anyRowKinds.has(kind)),
+    unexpected: CATALOG_KINDS.filter((kind) => !expectedSet.has(kind) && presentKinds.has(kind)),
   };
 }

@@ -4651,6 +4651,35 @@ const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).js
       expect(body.expectations?.missing).toEqual([]);
     });
 
+    it('a FAILED deployment with a removed cache row: missing must not include cache', async () => {
+      // A FAILED destroy (docs/deployment-resilience.md) leaves the
+      // deployment FAILED, not DELETED — the cache was actually torn down
+      // (DELETE_COMPLETE -> 'removed') before another resource's deletion
+      // failed. That row must never be reported as both "Removed" and
+      // "Missing" for the same component.
+      const deployment = await newDeployment({
+        state: 'FAILED',
+        desiredState: {
+          manifest: { ...READY_MANIFEST, redis: { required: true, envBindings: [] } },
+        },
+      });
+      await persistRows(
+        deployment.id,
+        [
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
+          { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Cache', type: 'AWS::ElastiCache::ReplicationGroup', status: 'DELETE_COMPLETE' },
+        ],
+        new Date().toISOString(),
+      );
+
+      const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+      expect(body.components.find((c) => c.kind === 'cache')?.status).toBe('removed');
+      expect(body.expectations?.missing).not.toContain('cache');
+    });
+
     it('a deployment with no valid stored manifest: expectations is null', async () => {
       const deployment = await newDeployment({ state: 'HEALTHY', desiredState: {} });
       await persistRows(

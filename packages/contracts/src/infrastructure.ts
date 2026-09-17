@@ -489,10 +489,12 @@ export const infrastructureExpectationsSchema = z
     schemaVersion: z.literal(1),
     /** The five catalog kinds, in catalog order. */
     components: z.array(infrastructureExpectationComponentSchema),
-    /** expected && !present. Only meaningful once the snapshot is complete
-     *  and the deployment is past INSTALLING. */
+    /** expected && no row of that kind exists at all — a kind with even a
+     *  'removed' row (e.g. after a failed destroy) is not missing. Only
+     *  meaningful once the snapshot is complete and the deployment is past
+     *  INSTALLING. */
     missing: z.array(infrastructureComponentKindSchema),
-    /** !expected && present among the five catalog kinds. */
+    /** !expected && a non-removed row exists, among the five catalog kinds. */
     unexpected: z.array(infrastructureComponentKindSchema),
   })
   .strict();
