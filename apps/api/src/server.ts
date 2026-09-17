@@ -148,6 +148,11 @@ import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
+  confirmPublicInstall,
+  publicInstallConfirmBodySchema,
+  resolvePublicInstall,
+} from './public-install.js';
+import {
   createOrReuseJob,
   flipHealthyDeploymentsToUpdateAvailable,
   hasStartedInstall,
@@ -3626,6 +3631,39 @@ export async function buildServer({
       if (!domain) throw new NotFoundError('Custom domain not found');
       const fresh = await runDomainCheck(db, deployment, domain, domainCheckDeps);
       return { domain: toDomainView(fresh) };
+    },
+  );
+
+  // ── Public install links (customer installation review) ────────────────
+
+  // GET /api/public-install/:linkId — PUBLIC, credential-free review page
+  // for the vendor-published link. UNAUTHENTICATED by design and rate-limited
+  // like the install routes; the opaque link id is the only identifier in or
+  // out. The projection carries no secrets, no manifest JSON, no template
+  // URLs and no internal ids — see apps/api/src/public-install.ts.
+  app.get(
+    '/api/public-install/:linkId',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { linkId } = request.params as { linkId: string };
+      return resolvePublicInstall(db, linkId);
+    },
+  );
+
+  // POST /api/public-install/:linkId/confirm — the customer accepted the
+  // review. Body only (query parameters are never read); idempotent per
+  // (link, idempotencyKey). Creates exactly one deployment (source
+  // 'public_link') and one customer row, then hands the customer off to the
+  // existing /install/:installLinkId flow, which owns everything after this
+  // point — no job, no relay state, no secrets in the response.
+  app.post(
+    '/api/public-install/:linkId/confirm',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request, reply) => {
+      const { linkId } = request.params as { linkId: string };
+      const body = publicInstallConfirmBodySchema.parse(request.body);
+      const result = await confirmPublicInstall(db, linkId, body);
+      return reply.code(result.created ? 201 : 200).send({ installLinkId: result.installLinkId });
     },
   );
 

@@ -18,7 +18,7 @@ describe('migrations', () => {
     await client?.close();
   });
 
-  it('creates all 23 core tables', async () => {
+  it('creates all 24 core tables', async () => {
     const { rows } = await client!.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -44,6 +44,7 @@ describe('migrations', () => {
       'invitation',
       'member',
       'organization',
+      'public_install_links',
       'releases',
       'session',
       'user',
