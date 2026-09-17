@@ -17,13 +17,42 @@ Spec: `docs/redis-mvp-spec.md`. Progress ledger: `.superpowers/sdd/progress.md`.
 > rules in §3-§4 below are unchanged and current. See
 > `docs/architecture.md` for the live flow.
 
+> **Read this too — 2026-09-17 status note.** PRs #283–#293 made the stored
+> `DeploymentManifest`'s `redis.required` field the only Redis intent an
+> install or a plan ever reads. `applications.redisRequired` (and the
+> matching manifest-overrides field) still exist, but only as
+> vendor-override / display-compatibility fields — a PATCH sets an override,
+> analysis writes a detected value, and `derivationApplicationFor`
+> (`apps/api/src/manifest.ts`) derives the effective, wire-facing
+> `redisRequired` boolean from the frozen manifest's
+> `infrastructureProfileForManifest(...).redis`, never the other way
+> around. §1's "gated end-to-end on a single boolean" and §8's "the relay
+> selects the template variant from the application's `redisRequired`"
+> below describe the pre-manifest model; the relay now resolves the
+> template variant from the deployment's stored manifest
+> (`infrastructureProfileForManifest`, `packages/contracts/src/index.ts`),
+> and the relay refuses to INSTALL at all when no manifest (and no
+> resolved requirement flags) is available. The historical bug this
+> consolidation guards against — a Redis requirement silently dropped
+> between analysis and provisioning — now has regression coverage in
+> `apps/api/src/requirements-contract.test.ts` and the `redis-success`
+> simulated E2E scenario (`e2e/scenario-matrix.spec.ts`,
+> `e2e/simulation/scenarios/redis-success.ts`). See
+> `docs/mvp-implementation-status.md` ("Canonical infrastructure intent")
+> for the full breakdown.
+
 This document is the honest as-built record for maintainers: what exists, what
 doesn't, and where the seams are. It is not marketing copy.
 
 ## 1. Architecture used
 
-Redis support is additive and gated end-to-end on a single boolean,
-`applications.redisRequired`, threaded through every layer:
+Redis support is additive and gated end-to-end on a single boolean. As
+originally built, that boolean was `applications.redisRequired`, threaded
+through every layer. Since the 2026-09-17 note above, the canonical value
+is the stored deployment manifest's `redis.required`; `applications.
+redisRequired` is now a derived, vendor-override-facing field, not the
+value INSTALL or the relay's template selection read. The layer list below
+is otherwise unchanged:
 
 ```
 repo tree
@@ -214,11 +243,12 @@ process.
 The cache lives in the **single** application stack the relay installs from
 the published `application-template-redis-v1.json` variant — there is no
 separate cache stack or cache-specific lifecycle. The relay selects the Redis
-or non-Redis template variant from the application's `redisRequired`
-(analysis-derived), and a redeploy (release update) changes the service image,
-never the stack's resource set. CloudFormation is the reconciler: if the
-cache already exists and its declared properties haven't changed, CFN no-ops
-it.
+or non-Redis template variant from the deployment's frozen manifest
+(`infrastructureProfileForManifest(manifest).redis`, since the 2026-09-17
+note above — originally the application's `redisRequired` column), and a
+redeploy (release update) changes the service image, never the stack's
+resource set. CloudFormation is the reconciler: if the cache already exists
+and its declared properties haven't changed, CFN no-ops it.
 
 Drift beyond what CloudFormation itself tracks is not separately monitored
 for the cache: the verify-time cache ladder check and the resource-inventory

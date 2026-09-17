@@ -35,7 +35,7 @@ mkdirSync(outDir, { recursive: true });
 async function synthOne(profile, outdirLabel) {
   const { template } = await synthesizeApplicationStack({
     outdir: mkdtempSync(join(tmpdir(), `deployz-synth-${outdirLabel}-`)),
-    ...(profile.postgres === false ? { databaseRequired: false } : {}),
+    databaseRequired: profile.postgres,
     ...(profile.redis ? { redisRequired: true } : {}),
   });
 

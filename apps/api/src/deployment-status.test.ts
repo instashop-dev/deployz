@@ -603,6 +603,23 @@ describe('component progress list', () => {
     expect(customer.components.find((c) => c.key === 'redis')).toBeUndefined();
   });
 
+  // No stored manifest (derivationApplicationFor returns null booleans, never
+  // a guessed false) must render as "not required" for display, not throw —
+  // the display layer never treats null as a provisioning decision.
+  it('null database/storage/redis requirements (no stored manifest) render as NOT_REQUIRED rather than throwing', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      application: makeApplication({ databaseRequired: null, storageRequired: null, redisRequired: null }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      appUrl: 'https://app.example.com',
+      domain: makeDomain(),
+    });
+    const vendor = toVendorDeploymentStatus(status);
+    expect(vendor.components.find((c) => c.key === 'database')?.status).toBe('NOT_REQUIRED');
+    expect(vendor.components.find((c) => c.key === 'storage')?.status).toBe('NOT_REQUIRED');
+    expect(vendor.components.find((c) => c.key === 'redis')?.status).toBe('NOT_REQUIRED');
+  });
+
   it('an https ERROR is component-level only and does not fail the whole stage', () => {
     const status = derive({
       deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),

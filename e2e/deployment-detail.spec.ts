@@ -599,6 +599,22 @@ test('deploy-update dialog: Infrastructure reads unchanged and no drift alert fo
   await page.keyboard.press('Escape');
 });
 
+test('deploy-update dialog: drift replaces the unchanged copy with a warning', async ({ page }) => {
+  const { actions } = await open(page, {
+    detail: detail(),
+    updatePlan: {
+      ...UPDATE_PLAN_NO_DRIFT,
+      requirementDrift: [{ kind: 'cache', deployed: false, desired: true }],
+    },
+  });
+
+  await actions.getByRole('button', { name: 'Deploy Update' }).click();
+  const panel = page.getByTestId('deploy-update-panel');
+  await expect(page.getByTestId('requirement-drift-alert')).toBeVisible();
+  await expect(panel.getByText('Unchanged for this deployment', { exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+});
+
 test('live over a temporary address: the hero nudges toward a custom domain and only unused services read Not required', async ({
   page,
 }) => {

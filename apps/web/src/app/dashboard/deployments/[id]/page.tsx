@@ -928,7 +928,11 @@ function DeployUpdateDialog({
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-muted-foreground">Infrastructure</span>
-                <span className="font-medium">Unchanged for this deployment</span>
+                <span className="font-medium">
+                  {requirementDrift.length > 0
+                    ? 'Requirements changed since this deployment was created'
+                    : 'Unchanged for this deployment'}
+                </span>
               </div>
             </div>
             {requirementDrift.length > 0 ? (
@@ -1572,7 +1576,7 @@ function DisconnectDialog({
           ) : plan.status === 'error' ? (
             <Alert variant="destructive">
               <AlertTriangle aria-hidden className="size-4" />
-              <AlertTitle>Could not verify retained resources</AlertTitle>
+              <AlertTitle>Could not load the removal plan</AlertTitle>
               <AlertDescription>
                 The deployment plan could not be loaded. Disconnecting may leave billable
                 resources in your customer&apos;s AWS account.

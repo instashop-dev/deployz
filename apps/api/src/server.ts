@@ -40,6 +40,7 @@ import {
   buildInstallPlan,
   buildUpdatePlan,
   compareInfrastructureExpectations,
+  deploymentPlanSchema,
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
   failureCodeSchema,
@@ -1993,9 +1994,6 @@ export async function buildServer({
         publisherName: schema.organization.name,
         customerName: schema.customers.name,
         region: schema.deployments.region,
-        databaseRequired: schema.applications.databaseRequired,
-        storageRequired: schema.applications.storageRequired,
-        redisRequired: schema.applications.redisRequired,
         enrollmentCode: schema.deployments.enrollmentCode,
         enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
         deploymentId: schema.deployments.id,
@@ -2067,7 +2065,9 @@ export async function buildServer({
       // install page and the dashboard, so the two cannot disagree. Only
       // offered once a relay enrolled; before that there is nothing to
       // observe.
-      components: alreadyInstalled ? mergeComponentState(row.observedState, row) : null,
+      components: alreadyInstalled
+        ? mergeComponentState(row.observedState, derivationApplicationFor(row.desiredState, null))
+        : null,
       bootstrapStackName: stackName,
       waitingForRelay,
       relayStuck,
@@ -4879,6 +4879,11 @@ export async function buildServer({
       );
     }
 
+    // Same Phase 3/5 gate the register route runs before minting an INSTALL
+    // — without it, a deployment whose stored manifest is missing/invalid
+    // fails inside buildInstallPayload with a bare 422 and no guidance.
+    requirePreflightReady(await runDeploymentPreflight(db, deployment, null));
+
     // Superseded stale attempt (a dead relay invocation's RUNNING job, or a
     // queued job the FAILED state outran) is closed BEFORE the new insert —
     // the one-active-job index refuses a second active INSTALL otherwise.
@@ -5121,16 +5126,18 @@ export async function buildServer({
       );
     }
     if (action === 'install') {
-      return buildInstallPlan({ manifest, region: deployment.region });
+      return deploymentPlanSchema.parse(buildInstallPlan({ manifest, region: deployment.region }));
     }
     if (action === 'destroy') {
-      return buildDestroyPlan({ manifest, region: deployment.region });
+      return deploymentPlanSchema.parse(buildDestroyPlan({ manifest, region: deployment.region }));
     }
     if (action === 'update') {
       const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
       const { manifest: desiredManifest } = await runApplicationPreflight(db, application, null);
       const newRelease = await newerReadyReleaseExists(db, deployment.applicationId, deployment.currentReleaseId);
-      return buildUpdatePlan({ deployedManifest: manifest, desiredManifest, region: deployment.region, newRelease });
+      return deploymentPlanSchema.parse(
+        buildUpdatePlan({ deployedManifest: manifest, desiredManifest, region: deployment.region, newRelease }),
+      );
     }
     throw new ApiError(400, 'INVALID_REQUEST', 'action must be "install", "update", or "destroy".');
   });

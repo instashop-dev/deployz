@@ -224,3 +224,14 @@ describe('deploymentPlanSchema', () => {
     }
   });
 });
+
+describe('package entry', () => {
+  // Guards the plan.ts <-> index.ts import order: importing from the
+  // package entry (not plan.js directly) must resolve buildInstallPlan to a
+  // working function, not undefined from a circular-import ordering bug.
+  it('resolves buildInstallPlan through ./index.js', async () => {
+    const { buildInstallPlan: buildInstallPlanFromIndex } = await import('./index.js');
+    const plan = buildInstallPlanFromIndex({ manifest: POSTGRES_ONLY, region: 'us-east-1' });
+    expect(plan.action).toBe('INSTALL');
+  });
+});

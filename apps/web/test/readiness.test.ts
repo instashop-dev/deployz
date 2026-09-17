@@ -750,6 +750,16 @@ describe('deriveReadinessRows', () => {
     expect(redis).toMatchObject({ value: 'Not required', detectedValue: 'Not required', overridden: false });
   });
 
+  it('the storage row explains the bucket is always created, even when the setting reads Not required', () => {
+    const rows = deriveReadinessRows(applicationFixture(), readinessFixture());
+    const storage = rows.find((r) => r.kind === 'setting' && r.id === 'storage');
+    expect(storage).toMatchObject({
+      value: 'Not required',
+      detectedValue:
+        'Every deployment gets a storage bucket; this setting controls whether the app is wired to it.',
+    });
+  });
+
   it('renders an override to false: effective reads Not required while detected reads required', () => {
     const rows = deriveReadinessRows(
       applicationFixture(),

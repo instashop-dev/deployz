@@ -36,7 +36,7 @@ release validation.
 
 | Layer | Proves | AWS required | Command |
 | --- | --- | --- | --- |
-| Unit / integration (Vitest) | Pure functions, DB constraints, CDK template synthesis, injectable-seam logic | No | `pnpm vitest run` |
+| Unit / integration (Vitest) | Pure functions, DB constraints, CDK template synthesis, injectable-seam logic, the manifest-to-plan/verify contract | No | `pnpm vitest run` |
 | Simulated E2E (default) | The full production pipeline — relay, API routes, DB, status derivation, resource inventory — against a simulated AWS account | No | `pnpm e2e` |
 | Canary (real AWS, read-only) | The relay's real AWS SDK calls still work against a real, persistent installation | Yes (opt-in) | `pnpm e2e:canary` |
 | Fresh (real AWS, create + destroy) | The bootstrap stack's real create/destroy golden path in a real account | Yes (opt-in) | `pnpm e2e:fresh` |
@@ -72,6 +72,13 @@ what the read-only canary and bootstrap create/destroy modes cover instead.
   [`e2e-scenarios.md`](e2e-scenarios.md#how-to-add-a-scenario)) over reaching
   for real AWS — it is faster, deterministic, and runs on every PR after
   that.
+- **After changing the infrastructure component catalog or the deployment
+  manifest's requirement fields**: run
+  `apps/api/src/requirements-contract.test.ts` (the manifest survives
+  API → INSTALL job → relay verification unchanged) and
+  `packages/cdk/test/lifecycle-parity.test.ts` (the catalog's destroy
+  `lifecycle` for each component agrees with the committed application
+  templates' `DeletionPolicy`). Both are plain vitest — no AWS.
 
 ## Documents
 
