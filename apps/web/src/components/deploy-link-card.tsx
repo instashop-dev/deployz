@@ -158,7 +158,7 @@ export function DeployLinkCard({ customerId }: { customerId: string }) {
         <CardHeader>
           <CardTitle className="text-base">Deploy to AWS</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3" data-testid="deploy-link-loading">
+        <CardContent className="flex flex-col gap-3" data-testid="deploy-link-loading" aria-busy="true">
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
         </CardContent>
@@ -275,10 +275,12 @@ function DeployLinkForm({
           type="submit"
           size="sm"
           disabled={pending !== 'idle' || regionsError || regions.length === 0}
+          loading={pending === 'generating'}
+          loadingText="Creating deploy link…"
           data-testid="deploy-link-generate"
         >
           <Link2 aria-hidden />
-          {pending === 'generating' ? 'Creating link…' : 'Generate deploy link'}
+          Generate deploy link
         </Button>
       </div>
     </form>
@@ -330,6 +332,8 @@ export function DeployLinkList({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
+              loading={pending === 'revoking'}
+              loadingText="Revoking deploy link…"
               data-testid="deploy-link-revoke-confirm"
               onClick={() => {
                 if (revoking) onRevoke(revoking.id);
@@ -374,7 +378,14 @@ function DeployLinkRow({
           Expires {formatDate(link.expiresAt)}
         </span>
         {canRegenerate ? (
-          <Button size="sm" variant="ghost" disabled={pending !== 'idle'} onClick={onRegenerate}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pending !== 'idle'}
+            loading={pending === 'regenerating'}
+            loadingText="Creating new link…"
+            onClick={onRegenerate}
+          >
             <RotateCcw aria-hidden />
             Regenerate
           </Button>
@@ -439,11 +450,13 @@ function DeployLinkRow({
             size="sm"
             variant="outline"
             disabled={pending !== 'idle'}
+            loading={pending === 'regenerating'}
+            loadingText="Creating new link…"
             onClick={onRegenerate}
             data-testid="deploy-link-regenerate"
           >
             <RotateCcw aria-hidden />
-            {pending === 'regenerating' ? 'Creating new link…' : 'Regenerate'}
+            Regenerate
           </Button>
         ) : null}
         {link.status === 'active' ? (

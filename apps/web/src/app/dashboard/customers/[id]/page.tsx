@@ -39,6 +39,7 @@ export default function CustomerDetailPage() {
   const customerId = params.id;
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
@@ -59,6 +60,8 @@ export default function CustomerDetailPage() {
             message: "We couldn't load this customer. Try again in a moment.",
           });
         }
+      } finally {
+        if (!cancelled) setRetrying(false);
       }
     }
     void run();
@@ -75,7 +78,7 @@ export default function CustomerDetailPage() {
 
   if (state.status === 'loading') {
     return (
-      <div className="flex flex-col gap-6" data-testid="customer-loading">
+      <div className="flex flex-col gap-6" data-testid="customer-loading" aria-busy="true">
         <Skeleton className="h-12 w-64 rounded-lg" />
         <Skeleton className="h-40 w-full rounded-xl" />
         <Skeleton className="h-32 w-full rounded-xl" />
@@ -95,7 +98,15 @@ export default function CustomerDetailPage() {
             Something went wrong
           </h1>
           <p className="max-w-md text-sm text-muted-foreground">{state.message}</p>
-          <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+          <Button
+            variant="outline"
+            loading={retrying}
+            loadingText="Trying again…"
+            onClick={() => {
+              setRetrying(true);
+              setAttempt((n) => n + 1);
+            }}
+          >
             Try again
           </Button>
         </section>

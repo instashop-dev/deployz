@@ -19,8 +19,9 @@ export interface StatusPoll<T> {
   loading: boolean;
   /** True after repeated consecutive failures — show "updates unavailable". */
   stale: boolean;
-  /** Refetch immediately (used by retry buttons). */
-  refresh: () => void;
+  /** Refetch immediately (used by retry buttons). Resolves once the fetch
+   * has settled, whether it succeeded or failed. */
+  refresh: () => Promise<void>;
 }
 
 export function useStatusPoll<T>(options: {
@@ -87,7 +88,7 @@ export function useStatusPoll<T>(options: {
 
   const refresh = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
-    void tick();
+    return tick();
   }, [tick]);
 
   useEffect(() => {
@@ -96,7 +97,7 @@ export function useStatusPoll<T>(options: {
     // Returning to the tab refreshes immediately: the user is looking again,
     // and the next scheduled tick could be a slow terminal interval away.
     const onVisible = () => {
-      if (document.visibilityState === 'visible') refresh();
+      if (document.visibilityState === 'visible') void refresh();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {

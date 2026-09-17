@@ -93,6 +93,7 @@ function progressDetail(status: VendorDeploymentStatus): string {
 export default function DeploymentsPage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -119,6 +120,8 @@ export default function DeploymentsPage() {
             message: "We couldn't load your deployments. Try again in a moment.",
           });
         }
+      } finally {
+        if (!cancelled) setRetrying(false);
       }
     }
     void run();
@@ -207,7 +210,14 @@ export default function DeploymentsPage() {
 
       {state.status === 'loading' ? <LoadingState /> : null}
       {state.status === 'error' ? (
-        <ErrorState message={state.message} onRetry={() => setAttempt((n) => n + 1)} />
+        <ErrorState
+          message={state.message}
+          retrying={retrying}
+          onRetry={() => {
+            setRetrying(true);
+            setAttempt((n) => n + 1);
+          }}
+        />
       ) : null}
       {state.status === 'empty' ? <EmptyState /> : null}
       {state.status === 'loaded' ? (
@@ -304,7 +314,7 @@ export default function DeploymentsPage() {
 
 function LoadingState() {
   return (
-    <div className="flex flex-col gap-3" data-testid="deployments-loading">
+    <div className="flex flex-col gap-3" data-testid="deployments-loading" aria-busy="true">
       <Skeleton className="h-24 w-full rounded-xl" />
       <Skeleton className="h-24 w-full rounded-xl" />
       <Skeleton className="h-24 w-full rounded-xl" />
@@ -312,7 +322,15 @@ function LoadingState() {
   );
 }
 
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+function ErrorState({
+  message,
+  retrying,
+  onRetry,
+}: {
+  message: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
   return (
     <section
       aria-labelledby="deployments-error"
@@ -322,7 +340,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
         Something went wrong
       </h2>
       <p className="max-w-md text-sm text-muted-foreground">{message}</p>
-      <Button variant="outline" onClick={onRetry}>
+      <Button variant="outline" loading={retrying} loadingText="Trying again…" onClick={onRetry}>
         Try again
       </Button>
     </section>

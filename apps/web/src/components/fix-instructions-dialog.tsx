@@ -45,21 +45,34 @@ export function FixInstructionsDialog({
 }) {
   const [state, setState] = useState<GenerationState>({ status: 'generating' });
   const [copied, setCopied] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Regenerate keeps the existing instructions on screen instead of blanking
+  // the dialog back to the full-body "Generating…" state — only the initial
+  // generation (and a retry after an outright failure) does that.
   const generate = useCallback((options: { regenerate?: boolean } = {}) => {
-    setState({ status: 'generating' });
+    if (options.regenerate) {
+      setRegenerating(true);
+    } else {
+      setState({ status: 'generating' });
+    }
     generateFixInstructions(applicationId, options)
       .then((result) => setState({ status: 'done', result }))
-      .catch((error: unknown) =>
-        setState({
-          status: 'error',
-          message:
-            error instanceof Error
-              ? error.message
-              : "We couldn't generate the instructions right now. Try again in a moment.",
-        }),
-      );
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "We couldn't generate the instructions right now. Try again in a moment.";
+        if (options.regenerate) {
+          toast.error(message);
+        } else {
+          setState({ status: 'error', message });
+        }
+      })
+      .finally(() => {
+        if (options.regenerate) setRegenerating(false);
+      });
   }, [applicationId]);
 
   // Generate on open. The API reuses the document it already produced for
@@ -156,6 +169,8 @@ export function FixInstructionsDialog({
                 size="sm"
                 data-testid="fix-instructions-regenerate"
                 onClick={() => generate({ regenerate: true })}
+                loading={regenerating}
+                loadingText="Regenerating instructions…"
               >
                 Regenerate
               </Button>
@@ -165,6 +180,7 @@ export function FixInstructionsDialog({
                 size="sm"
                 data-testid="fix-instructions-reanalyse"
                 onClick={handleReanalyse}
+                disabled={regenerating}
               >
                 Re-analyse application
               </Button>
@@ -173,6 +189,7 @@ export function FixInstructionsDialog({
               type="button"
               data-testid="fix-instructions-copy"
               onClick={handleCopy}
+              disabled={regenerating}
             >
               {copied ? 'Copied' : 'Copy instructions'}
             </Button>

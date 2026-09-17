@@ -80,7 +80,8 @@ export function DeleteCustomerDialog({
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={pending}
+            loading={pending}
+            loadingText="Removing customer…"
             onClick={(event) => {
               // The action closes the dialog by default; the request needs it
               // open until the API has answered.
@@ -88,7 +89,7 @@ export function DeleteCustomerDialog({
               void onConfirm();
             }}
           >
-            {pending ? 'Removing…' : 'Remove customer'}
+            Remove customer
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

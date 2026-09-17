@@ -134,8 +134,13 @@ export function EditCustomerDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={pending || name.trim() === '' || email.trim() === ''}>
-              {pending ? 'Saving…' : 'Save changes'}
+            <Button
+              type="submit"
+              disabled={name.trim() === '' || email.trim() === ''}
+              loading={pending}
+              loadingText="Saving customer…"
+            >
+              Save changes
             </Button>
           </DialogFooter>
         </form>
