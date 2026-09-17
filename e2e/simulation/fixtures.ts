@@ -12,7 +12,7 @@
  * `request` (APIRequestContext), never `page`.
  */
 
-import { test as base, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test as base, type APIRequestContext, type Page } from '@playwright/test';
 
 import { extractQuickCreateParam, startSimulatedRelay, type SimulatedRelayHandle } from './relay-harness.js';
 import { getScenario } from './scenarios/index.js';
@@ -31,6 +31,9 @@ export interface DeployzApi {
   getInstallStatus(installLinkId: string): Promise<Record<string, unknown>>;
   getStackEvents(deploymentId: string): Promise<unknown[]>;
   getInfrastructure(deploymentId: string): Promise<Record<string, unknown>>;
+  /** GET /api/deployments/:id/plan?action=install|update|destroy — the
+   *  deterministic manifest-derived plan (packages/contracts/src/plan.ts). */
+  getPlan(deploymentId: string, action: 'install' | 'update' | 'destroy'): Promise<Record<string, unknown>>;
 }
 
 export interface DeployzInstall {
@@ -62,7 +65,11 @@ export interface DeployzLinkInstall {
   readonly api: DeployzApi;
 }
 
-function buildApi(request: APIRequestContext): DeployzApi {
+/** The raw-`request` API client behind `deployzInstall`/`deployzLinkInstall`
+ *  — exported for specs that seed their own deployment through plain
+ *  `request` calls (scenario-sweep, scenario-matrix) instead of the
+ *  `deployzInstall` fixture. */
+export function buildApi(request: APIRequestContext): DeployzApi {
   return {
     async getDeployment(deploymentId) {
       const response = await request.get(`${API_URL}/api/deployments/${deploymentId}`);
@@ -100,7 +107,82 @@ function buildApi(request: APIRequestContext): DeployzApi {
       }
       return (await response.json()) as Record<string, unknown>;
     },
+    async getPlan(deploymentId, action) {
+      const response = await request.get(`${API_URL}/api/deployments/${deploymentId}/plan?action=${action}`);
+      if (!response.ok()) {
+        throw new Error(`GET /api/deployments/${deploymentId}/plan?action=${action} -> ${response.status()}`);
+      }
+      return (await response.json()) as Record<string, unknown>;
+    },
   };
+}
+
+/** The inventory-expectations subset of GET /api/deployments/:id/infrastructure
+ *  (packages/contracts/src/infrastructure.ts) that
+ *  `expectPlanMatchesInventory` asserts against. */
+interface InventoryExpectationsView {
+  expectations: {
+    components: Array<{ kind: string; expected: boolean }>;
+    missing: string[];
+    unexpected: string[];
+  } | null;
+}
+
+/**
+ * Phase 6 expectation gate: asserts that the deployment's persisted
+ * inventory matches what the server PLAN says it requires.
+ *
+ *  - `expectations.missing` and `expectations.unexpected` settle to empty
+ *    (the inventory snapshot lands asynchronously via relay heartbeats, so
+ *    the emptiness settles like every other poll in this suite).
+ *  - Cross-checks the server PLAN (GET /api/deployments/:id/plan) against
+ *    the inventory: every install-plan CREATE kind must be reflected as an
+ *    EXPECTED kind in the inventory's expectations. Logical component KINDS
+ *    only — never raw CloudFormation resource counts.
+ *
+ * `stage` names the lifecycle checkpoint in every failure message, so a
+ * failure carries the missing/unexpected arrays and the plan kinds as
+ * actionable evidence rather than a bare boolean.
+ */
+export async function expectPlanMatchesInventory(
+  api: Pick<DeployzApi, 'getInfrastructure' | 'getPlan'>,
+  deploymentId: string,
+  { stage }: { stage: string },
+): Promise<void> {
+  const readExpectations = () => api.getInfrastructure(deploymentId) as Promise<InventoryExpectationsView>;
+
+  await expect
+    .poll(
+      async () => {
+        const { expectations } = await readExpectations();
+        return expectations && { missing: expectations.missing, unexpected: expectations.unexpected };
+      },
+      {
+        timeout: 15_000,
+        message: `[stage ${stage}] infrastructure expectations must settle with missing and unexpected both empty`,
+      },
+    )
+    .toEqual({ missing: [], unexpected: [] });
+
+  const { expectations } = await readExpectations();
+  if (!expectations) {
+    throw new Error(`[stage ${stage}] infrastructure expectations became null after settling`);
+  }
+  const evidence = `[stage ${stage}] deployment ${deploymentId}: missing=${JSON.stringify(expectations.missing)} unexpected=${JSON.stringify(expectations.unexpected)} expectedKinds=${JSON.stringify(expectations.components.filter((entry) => entry.expected).map((entry) => entry.kind))}`;
+
+  const plan = (await api.getPlan(deploymentId, 'install')) as {
+    components: Array<{ kind: string; action: string }>;
+  };
+  const planCreateKinds = plan.components
+    .filter((component) => component.action === 'CREATE')
+    .map((component) => component.kind);
+  const expectedKinds = new Set(
+    expectations.components.filter((entry) => entry.expected).map((entry) => entry.kind),
+  );
+  expect(
+    planCreateKinds.filter((kind) => !expectedKinds.has(kind)),
+    `${evidence} planCreateKinds=${JSON.stringify(planCreateKinds)}`,
+  ).toEqual([]);
 }
 
 async function signUp(request: APIRequestContext, suffix: string): Promise<void> {

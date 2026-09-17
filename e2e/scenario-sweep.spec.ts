@@ -35,7 +35,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 
 import { extractQuickCreateParam, startSimulatedRelay } from './simulation/relay-harness.js';
 import { getScenario } from './simulation/scenarios/index.js';
-import { API_URL } from './simulation/fixtures.js';
+import { API_URL, buildApi, expectPlanMatchesInventory } from './simulation/fixtures.js';
 
 interface DeploymentResponse {
   state: string;
@@ -357,6 +357,10 @@ test.describe('lifecycle-sweep', () => {
         const deleted = await getDeployment(request, deploymentId);
         expect(deleted.state).toBe('DELETED');
         expect(deleted.cleanupState).not.toBe('COMPLETE');
+        // Phase 6 expectation gate after the disconnect: the surviving
+        // inventory still matches the plan (retained kinds stay, nothing
+        // unexpected appeared).
+        await expectPlanMatchesInventory(buildApi(request), deploymentId, { stage: 'post-disconnect' });
 
         // ── Purge: the retained-resource cleanup for the DELETED deployment.
         const purge = await request.post(`${API_URL}/api/deployments/${deploymentId}/purge`, {
@@ -373,6 +377,9 @@ test.describe('lifecycle-sweep', () => {
 
         const purged = await getDeployment(request, deploymentId);
         expect(purged.state).toBe('DELETED');
+        // Phase 6 expectation gate after the purge (DELETED path): nothing
+        // is missing or unexpected in the final preserved inventory.
+        await expectPlanMatchesInventory(buildApi(request), deploymentId, { stage: 'post-purge' });
       } finally {
         relayB.stop();
       }

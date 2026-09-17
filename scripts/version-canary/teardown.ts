@@ -10,6 +10,13 @@
  */
 import {
   auditLeaks,
+  bucketExists,
+  describeRunningService,
+  describeStack,
+  disableRulesForStack,
+  installationBuckets,
+  installationDbInstance,
+  installationSecrets,
   invokeRelay,
   deleteEcrTags,
   deleteLogGroupIfExists,
@@ -17,8 +24,9 @@ import {
   deleteSsmParameterIfExists,
   deleteStack,
   deleteTaskDefinitions,
-  describeStack,
-  disableRulesForStack,
+  liveInstallationCache,
+  liveStackElbResources,
+  secretDeletionDate,
   type LeakAudit,
 } from './aws.js';
 import { describeDeployment, findJob, waitFor } from './control-plane.js';
@@ -96,6 +104,8 @@ export async function destroyThroughProduct(canary: Canary): Promise<void> {
     }
   });
 
+  await verifyRetainedState(canary, deploymentId);
+
   await evidence.step('Purge retained resources through the product', async (details) => {
     const current = await api.getDeployment(deploymentId);
     if (current.cleanupState === 'COMPLETE') {
@@ -122,6 +132,202 @@ export async function destroyThroughProduct(canary: Canary): Promise<void> {
     details['cleanupState'] = settled.cleanupState;
     if (settled.cleanupState !== 'COMPLETE') {
       throw new Error(`purge left cleanupState ${settled.cleanupState}: ${JSON.stringify(purgeJob?.result).slice(0, 400)}`);
+    }
+  });
+
+  await verifyPurgedRetainedState(canary, deploymentId);
+}
+
+/**
+ * What a finished Disconnect must have left in the customer account, checked
+ * between Disconnect and Purge — while the retained set still exists to
+ * check. AWS is read directly (the canary's own view), and the control
+ * plane's inventory endpoint must agree.
+ *
+ * The expected component kinds come from the endpoint's own manifest
+ * comparison, so no profile is hardcoded here: a check runs only when the
+ * deployment's manifest required that component.
+ */
+async function verifyRetainedState(canary: Canary, deploymentId: string): Promise<void> {
+  const { config, evidence, api } = canary;
+  await evidence.step('Verify retained state between Disconnect and Purge', async (details) => {
+    const current = await api.getDeployment(deploymentId);
+    if (current.cleanupState === 'COMPLETE') {
+      details['skipped'] = 'cleanupState already COMPLETE — the retained set was purged in an earlier run';
+      return;
+    }
+    const run = evidence.run;
+    if (!run.installationId || !run.applicationStackName) {
+      details['skipped'] = 'no installation recorded — nothing retained to verify';
+      return;
+    }
+    const installationId = run.installationId;
+    const applicationStackName = run.applicationStackName;
+
+    const inventory = await api.infrastructure(deploymentId);
+    details['expectations'] = inventory.expectations;
+    const expectations = inventory.expectations;
+    if (!expectations) {
+      throw new Error('the infrastructure endpoint reports no expectations for this deployment (no stored manifest?)');
+    }
+    const expects = (kind: string) => expectations.components.find((c) => c.kind === kind)?.expected === true;
+    details['expectedKinds'] = expectations.components.filter((c) => c.expected).map((c) => c.kind);
+
+    // The application stack is gone.
+    const appStack = await describeStack(config.region, applicationStackName);
+    details['applicationStack'] = appStack?.status ?? 'absent from CloudFormation';
+    if (appStack && appStack.status !== 'DELETE_COMPLETE') {
+      throw new Error(`application stack ${applicationStackName} is ${appStack.status} after Disconnect — expected DELETE_COMPLETE`);
+    }
+
+    // The database stayed: present, available, deletion-protected.
+    if (expects('database')) {
+      const db = await installationDbInstance(config.region, installationId);
+      details['rds'] = db;
+      if (!db) throw new Error(`no RDS instance tagged deployz:installation=${installationId} — the retained database is gone`);
+      if (db.status !== 'available') throw new Error(`retained RDS instance ${db.identifier} is ${db.status}, expected available`);
+      if (!db.deletionProtection) throw new Error(`retained RDS instance ${db.identifier} has no deletion protection`);
+    }
+
+    // The storage bucket stayed.
+    if (expects('storage')) {
+      const buckets = await installationBuckets(config.region, installationId);
+      details['buckets'] = buckets;
+      if (buckets.length === 0) throw new Error(`no S3 bucket tagged deployz:installation=${installationId} — the retained storage is gone`);
+      for (const bucket of buckets) {
+        if (!(await bucketExists(bucket))) throw new Error(`retained bucket ${bucket} does not answer head-bucket`);
+      }
+    }
+
+    // The retained database credentials stayed, and nothing found is
+    // scheduled for deletion.
+    if (expects('database')) {
+      const secrets = await installationSecrets(config.region, {
+        installationId,
+        bootstrapStackName: run.bootstrapStackName ?? null,
+        applicationStackName,
+      });
+      details['secrets'] = secrets;
+      const retained = secrets.filter((name) => name.startsWith(applicationStackName));
+      if (retained.length === 0) {
+        throw new Error(`no secret named after the application stack survived Disconnect — the retained database credentials (${applicationStackName}-…) are gone`);
+      }
+      for (const name of secrets) {
+        const deletionDate = await secretDeletionDate(config.region, name);
+        if (deletionDate) throw new Error(`secret ${name} is scheduled for deletion at ${deletionDate} — Disconnect must retain it`);
+      }
+    }
+
+    // The cache is gone (the tag index lags deletion; the cache service does not).
+    if (expects('cache')) {
+      const cache = await liveInstallationCache(config.region, installationId);
+      details['liveCache'] = cache;
+      if (cache.length > 0) throw new Error(`ElastiCache still live for this installation: ${cache.join(', ')}`);
+    }
+
+    // The ECS service and the ALB / target group are gone. The stack's own
+    // resource list still names them after DeleteStack, so ask the services
+    // whether those physical ids still exist.
+    if (appStack) {
+      let servicePresent: boolean;
+      try {
+        servicePresent = (await describeRunningService(config.region, applicationStackName)) !== null;
+      } catch (error) {
+        if (!/ClusterNotFound|ServiceNotFound/.test(String(error))) throw error;
+        servicePresent = false;
+      }
+      details['ecsService'] = servicePresent ? 'still present' : 'gone';
+      if (servicePresent) throw new Error(`the ECS service from ${applicationStackName} is still present after Disconnect`);
+
+      const liveElb = await liveStackElbResources(config.region, applicationStackName);
+      details['liveElb'] = liveElb;
+      if (liveElb.length > 0) throw new Error(`load balancer / target group from ${applicationStackName} still present: ${liveElb.join(', ')}`);
+    } else {
+      details['ecsService'] = 'stack absent from CloudFormation — not checkable';
+      details['liveElb'] = 'stack absent from CloudFormation — not checkable';
+    }
+
+    // The connector (bootstrap) stack is the customer's to delete, after Purge.
+    if (!run.bootstrapStackName) throw new Error('no bootstrap stack recorded — cannot verify the connector is still in place');
+    const bootstrapStack = await describeStack(config.region, run.bootstrapStackName);
+    details['bootstrapStack'] = bootstrapStack?.status ?? 'absent';
+    if (!bootstrapStack || bootstrapStack.status.startsWith('DELETE')) {
+      throw new Error(`bootstrap (connector) stack ${run.bootstrapStackName} is ${bootstrapStack?.status ?? 'gone'} — only the customer removes it, after Purge`);
+    }
+
+    // The control plane's own inventory agrees: nothing missing, nothing
+    // unexpected, retain-lifecycle components still retained and
+    // delete-lifecycle components removed.
+    const problems: string[] = [];
+    if (expectations.missing.length > 0) problems.push(`missing components: ${expectations.missing.join(', ')}`);
+    if (expectations.unexpected.length > 0) problems.push(`unexpected components: ${expectations.unexpected.join(', ')}`);
+    for (const expected of expectations.components.filter((c) => c.expected)) {
+      const component = inventory.components.find((c) => c.kind === expected.kind);
+      if (!component) {
+        problems.push(`expected component ${expected.kind} has no inventory rows`);
+      } else if (component.lifecycle === 'retain') {
+        if (component.status !== 'retained') problems.push(`${expected.kind} is ${component.status}, expected retained`);
+      } else if (component.lifecycle === 'delete') {
+        if (component.status !== 'removed') problems.push(`${expected.kind} is ${component.status}, expected removed`);
+      } else {
+        problems.push(`${expected.kind} has lifecycle ${component.lifecycle} — no rule to verify it`);
+      }
+    }
+    details['componentStatus'] = inventory.components.map((c) => `${c.kind}:${c.status}(${c.lifecycle})`);
+    if (problems.length > 0) {
+      throw new Error(`infrastructure endpoint disagrees with the Disconnect outcome:\n- ${problems.join('\n- ')}`);
+    }
+  });
+}
+
+/**
+ * What a finished Purge must have left: nothing of the retained set. Runs
+ * before the canary-only leftovers are removed, so the connector's own
+ * secrets (deleted with the bootstrap stack later) are excluded here — the
+ * leak audit stays the final net over the account.
+ */
+async function verifyPurgedRetainedState(canary: Canary, deploymentId: string): Promise<void> {
+  const { config, evidence, api } = canary;
+  await evidence.step('Verify the retained set is gone after Purge', async (details) => {
+    const run = evidence.run;
+    if (!run.installationId || !run.applicationStackName) {
+      details['skipped'] = 'no installation recorded — nothing retained to verify';
+      return;
+    }
+    const current = await api.getDeployment(deploymentId);
+    details['deployment'] = { state: current.state, cleanupState: current.cleanupState };
+    if (current.state !== 'DELETED' || current.cleanupState !== 'COMPLETE') {
+      throw new Error(`deployment is ${current.state}/${current.cleanupState} after Purge — expected DELETED/COMPLETE`);
+    }
+
+    const db = await installationDbInstance(config.region, run.installationId);
+    details['rds'] = db;
+    if (db) throw new Error(`RDS instance ${db.identifier} survived the Purge (${db.status})`);
+
+    const taggedBuckets = await installationBuckets(config.region, run.installationId);
+    const headBucket: Record<string, boolean> = {};
+    for (const bucket of taggedBuckets) headBucket[bucket] = await bucketExists(bucket);
+    details['buckets'] = { tagged: taggedBuckets, headBucket };
+    const liveBuckets = Object.entries(headBucket).filter(([, exists]) => exists).map(([name]) => name);
+    if (liveBuckets.length > 0) throw new Error(`bucket(s) survived the Purge: ${liveBuckets.join(', ')}`);
+
+    const secrets = (await installationSecrets(config.region, {
+      installationId: run.installationId,
+      bootstrapStackName: run.bootstrapStackName ?? null,
+      applicationStackName: run.applicationStackName,
+    })).filter((name) => !(run.bootstrapStackName && name.startsWith(run.bootstrapStackName)));
+    details['retainedSecretsLeft'] = secrets;
+    if (secrets.length > 0) throw new Error(`retained secret(s) survived the Purge: ${secrets.join(', ')}`);
+
+    const inventory = await api.infrastructure(deploymentId);
+    details['expectations'] = inventory.expectations;
+    if (!inventory.expectations) {
+      throw new Error('the infrastructure endpoint reports no expectations for this deployment (no stored manifest?)');
+    }
+    if (inventory.expectations.missing.length > 0 || inventory.expectations.unexpected.length > 0) {
+      throw new Error(
+        `infrastructure endpoint still reports missing=[${inventory.expectations.missing.join(', ')}] unexpected=[${inventory.expectations.unexpected.join(', ')}] after Purge`,
+      );
     }
   });
 }

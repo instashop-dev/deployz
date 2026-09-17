@@ -27,7 +27,7 @@ import type { APIRequestContext } from '@playwright/test';
 
 import { extractQuickCreateParam, startSimulatedRelay } from './simulation/relay-harness.js';
 import { getScenario } from './simulation/scenarios/index.js';
-import { API_URL, expect, test } from './simulation/fixtures.js';
+import { API_URL, buildApi, expect, expectPlanMatchesInventory, test } from './simulation/fixtures.js';
 
 interface ReadinessResponse {
   analysisStatus: string;
@@ -279,6 +279,10 @@ test.describe('redis-success (B)', () => {
       })
       .toBe(release.id);
     expect(relay!.account.migrationRuns).toBe(1);
+
+    // Phase 6 expectation gate after the successful update rollout: the
+    // inventory still matches the plan.
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'post-update' });
   });
 });
 
@@ -334,8 +338,11 @@ test.describe('monorepo-classified-deploy (C)', () => {
     };
     expect(installInfo.quickCreateUrl).not.toBeNull();
     const relayCredential = extractQuickCreateParam(installInfo.quickCreateUrl!, 'RelayCredential');
+    // The monorepo manifest provisions no database and no cache, so the relay
+    // runs the stateless timeline — the relay's reported resources must match
+    // the deployment's frozen manifest profile (plan/inventory parity).
     const relay = startSimulatedRelay({
-      scenario: getScenario('happy-path'),
+      scenario: getScenario('stateless'),
       apiUrl: API_URL,
       installationId: `inst-${suffix}`,
       enrollmentCode: deployment.enrollmentCode,
@@ -374,6 +381,7 @@ test.describe('monorepo-classified-deploy (C)', () => {
         .get(`${API_URL}/api/deployments/${deployment.id}`)
         .then((r) => r.json())) as DeploymentResponse;
       expect(after.state).toBe('HEALTHY');
+      await expectPlanMatchesInventory(buildApi(request), deployment.id, { stage: 'post-update' });
     } finally {
       relay.stop();
     }

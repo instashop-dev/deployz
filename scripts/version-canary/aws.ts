@@ -463,6 +463,162 @@ export async function liveNatGateways(
   return live;
 }
 
+// ── Retained-state checks (Disconnect / Purge verification) ────────────────
+
+export interface RetainedDbInstance {
+  readonly identifier: string;
+  readonly status: string;
+  readonly deletionProtection: boolean;
+}
+
+/** The RDS instance tagged for this installation, `null` when none is left —
+ * the same discovery the leak audit uses. */
+export async function installationDbInstance(
+  region: string,
+  installationId: string | null,
+): Promise<RetainedDbInstance | null> {
+  if (!installationId) return null;
+  const response = (await aws(['rds', 'describe-db-instances'], region)) as {
+    DBInstances: {
+      DBInstanceIdentifier: string;
+      DBInstanceStatus: string;
+      DeletionProtection?: boolean;
+      TagList?: { Key: string; Value: string }[];
+    }[];
+  };
+  const instance = response.DBInstances.find((db) =>
+    (db.TagList ?? []).some((t) => t.Key === 'deployz:installation' && t.Value === installationId),
+  );
+  return instance
+    ? {
+        identifier: instance.DBInstanceIdentifier,
+        status: instance.DBInstanceStatus,
+        deletionProtection: instance.DeletionProtection ?? false,
+      }
+    : null;
+}
+
+/** Bucket names tagged for this installation, as the leak audit reads them. */
+export async function installationBuckets(region: string, installationId: string | null): Promise<string[]> {
+  if (!installationId) return [];
+  const tagged = await resourcesTagged(region, 'deployz:installation', installationId);
+  return tagged.filter((arn) => arn.startsWith('arn:aws:s3:::')).map((arn) => arn.replace('arn:aws:s3:::', ''));
+}
+
+/** Whether the bucket answers `head-bucket`; a 404 is a clean "gone". */
+export async function bucketExists(bucket: string): Promise<boolean> {
+  try {
+    await aws(['s3api', 'head-bucket', '--bucket', bucket]);
+    return true;
+  } catch (error) {
+    if (/\b404\b|NoSuchBucket/.test(String(error))) return false;
+    throw error;
+  }
+}
+
+/** Secrets attributable to this installation — installation-tagged, or named
+ * after the bootstrap/application stack: the discovery the leak audit uses. */
+export async function installationSecrets(
+  region: string,
+  ids: { installationId: string | null; bootstrapStackName: string | null; applicationStackName: string | null },
+): Promise<string[]> {
+  const tagged = ids.installationId ? await resourcesTagged(region, 'deployz:installation', ids.installationId) : [];
+  const list = (await aws(['secretsmanager', 'list-secrets'], region)) as {
+    SecretList: { ARN: string; Name: string }[];
+  };
+  return list.SecretList.filter(
+    (s) =>
+      tagged.includes(s.ARN) ||
+      (ids.bootstrapStackName ? s.Name.startsWith(ids.bootstrapStackName) : false) ||
+      (ids.applicationStackName ? s.Name.startsWith(ids.applicationStackName) : false),
+  ).map((s) => s.Name);
+}
+
+/** The secret's deletion date when it is scheduled for removal, `null` when it
+ * is live. Throws when the secret no longer exists. */
+export async function secretDeletionDate(region: string, name: string): Promise<string | null> {
+  const response = (await aws(['secretsmanager', 'describe-secret', '--secret-id', name], region)) as {
+    DeletedDate?: number;
+  };
+  return response.DeletedDate ? new Date(response.DeletedDate * 1000).toISOString() : null;
+}
+
+/**
+ * The ElastiCache resources this installation still actually holds. The tag
+ * index lags deletion the way it does for ECS resources, so the cache service
+ * is asked for the truth; not-found and deleted/deleting both count as gone.
+ * An empty list means the cache is gone.
+ */
+export async function liveInstallationCache(region: string, installationId: string | null): Promise<string[]> {
+  if (!installationId) return [];
+  const tagged = await resourcesTagged(region, 'deployz:installation', installationId);
+  const live: string[] = [];
+  for (const arn of tagged.filter((a) => a.includes(':replicationgroup:'))) {
+    const id = arn.split(':').pop();
+    if (!id) continue;
+    try {
+      const response = (await aws(
+        ['elasticache', 'describe-replication-groups', '--replication-group-id', id],
+        region,
+      )) as { ReplicationGroups: { Status: string }[] };
+      const status = response.ReplicationGroups[0]?.Status ?? 'unknown';
+      if (status !== 'deleted' && status !== 'deleting') live.push(id);
+    } catch (error) {
+      if (!/ReplicationGroupNotFoundFault/.test(String(error))) throw error;
+    }
+  }
+  for (const arn of tagged.filter((a) => a.includes(':cache:'))) {
+    const id = arn.split(':').pop();
+    if (!id) continue;
+    try {
+      const response = (await aws(['elasticache', 'describe-cache-clusters', '--cache-cluster-id', id], region)) as {
+        CacheClusters: { CacheClusterStatus: string }[];
+      };
+      const status = response.CacheClusters[0]?.CacheClusterStatus ?? 'unknown';
+      if (status !== 'deleted' && status !== 'deleting') live.push(id);
+    } catch (error) {
+      if (!/CacheClusterNotFoundFault/.test(String(error))) throw error;
+    }
+  }
+  return live;
+}
+
+/**
+ * The load balancers / target groups the stack's own resource list names that
+ * ELB still actually holds. A deleted stack keeps listing its resources with
+ * their physical ids, so this works after DeleteStack; not-found counts as
+ * gone. An empty list means the stack's ELB footprint is gone.
+ */
+export async function liveStackElbResources(region: string, stackName: string): Promise<string[]> {
+  const resources = await listStackResources(region, stackName);
+  const live: string[] = [];
+  for (const resource of resources) {
+    if (!resource.physicalId) continue;
+    if (resource.type === 'AWS::ElasticLoadBalancingV2::LoadBalancer') {
+      try {
+        const response = (await aws(
+          ['elbv2', 'describe-load-balancers', '--load-balancer-arns', resource.physicalId],
+          region,
+        )) as { LoadBalancers: unknown[] };
+        if (response.LoadBalancers.length > 0) live.push(resource.physicalId);
+      } catch (error) {
+        if (!/LoadBalancerNotFound/.test(String(error))) throw error;
+      }
+    } else if (resource.type === 'AWS::ElasticLoadBalancingV2::TargetGroup') {
+      try {
+        const response = (await aws(
+          ['elbv2', 'describe-target-groups', '--target-group-arns', resource.physicalId],
+          region,
+        )) as { TargetGroups: unknown[] };
+        if (response.TargetGroups.length > 0) live.push(resource.physicalId);
+      } catch (error) {
+        if (!/TargetGroupNotFound/.test(String(error))) throw error;
+      }
+    }
+  }
+  return live;
+}
+
 // ── Canary-scoped cleanup helpers (ids only) ──────────────────────────────
 
 export async function deleteLogGroupIfExists(region: string, name: string): Promise<boolean> {

@@ -12,7 +12,7 @@
 
 import type { APIRequestContext } from '@playwright/test';
 
-import { API_URL, expect, test } from './simulation/fixtures.js';
+import { API_URL, expect, expectPlanMatchesInventory, test } from './simulation/fixtures.js';
 
 interface DeploymentResponse {
   state: string;
@@ -129,6 +129,11 @@ test.describe('transient-aws', () => {
         message: 'waiting for the install to ride out the transient errors and reach HEALTHY',
       })
       .toBe('HEALTHY');
+
+    // Only at the recovered-HEALTHY checkpoint — the inventory may be
+    // unavailable mid-failure, so the dead-relay transient states below are
+    // deliberately not asserted.
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'resilience-recovered' });
   });
 });
 

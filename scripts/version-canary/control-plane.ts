@@ -115,6 +115,19 @@ export interface EventRow {
   payload?: Record<string, unknown> | null;
 }
 
+/** The GET /api/deployments/:id/infrastructure response, reduced to the
+ * fields the canary asserts: the persisted relay snapshot composed into
+ * components, plus the manifest-vs-inventory expectations. */
+export interface InfrastructureInventory {
+  readonly snapshotState: 'fresh' | 'stale' | 'none';
+  readonly components: readonly { readonly kind: string; readonly status: string; readonly lifecycle: string }[];
+  readonly expectations: {
+    readonly components: readonly { readonly kind: string; readonly expected: boolean; readonly present: boolean }[];
+    readonly missing: readonly string[];
+    readonly unexpected: readonly string[];
+  } | null;
+}
+
 export class ControlPlaneError extends Error {
   constructor(
     readonly status: number,
@@ -368,8 +381,8 @@ export class ControlPlane {
     return body.events;
   }
 
-  async infrastructure(deploymentId: string): Promise<Record<string, unknown>> {
-    const { body } = await this.request<Record<string, unknown>>(
+  async infrastructure(deploymentId: string): Promise<InfrastructureInventory> {
+    const { body } = await this.request<InfrastructureInventory>(
       'GET',
       `/api/deployments/${deploymentId}/infrastructure`,
     );
