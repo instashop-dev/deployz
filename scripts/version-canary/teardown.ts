@@ -396,14 +396,19 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
     }
     const stack = await describeStack(config.region, run.bootstrapStackName);
     if (stack && stack.status !== 'DELETE_COMPLETE') {
-      if (run.deploymentId) {
+      if (run.deploymentId && run.installationId) {
         // The purge runs inside the connector's relay: deleting the connector
         // before the product reports cleanupState COMPLETE — including while
-        // a PURGE job is still active — strands the sweep half-way and leaks
-        // whatever it had not reached yet (observed: a VPC and its NAT
-        // gateway). Keyed on the deploymentId and the product's own state,
-        // never on `run.vendor` — a Stage B ledger never sets it, and this
-        // guard must hold there too.
+        // a PURGE job is still active, or while cleanupState is
+        // SKIPPED_RELAY_OFFLINE/PURGE_FAILED (those need an operator, not a
+        // rerun) — strands the sweep half-way and leaks whatever it had not
+        // reached yet (observed: a VPC and its NAT gateway). Keyed on the
+        // deploymentId/installationId and the product's own state, never on
+        // `run.vendor` — a Stage B ledger never sets it, and this guard must
+        // hold there too. Skipped entirely when no installationId was ever
+        // recorded (DEPLOY-023 early-failure path): no application stack was
+        // ever created, so there is nothing retained to purge, and such a
+        // deployment can only be force-completed to SKIPPED_RELAY_OFFLINE.
         const current = await canary.api.getDeployment(run.deploymentId);
         const purge = [...current.jobs].reverse().find((j) => j.type === 'PURGE');
         details['cleanupState'] = current.cleanupState;
@@ -416,6 +421,8 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
           details['refused'] = `purge job ${purge.id} is still ${purge.state}`;
           throw new Error(`purge job ${purge.id} is still ${purge.state}; not deleting the connector stack (rerun cleanup once it settles)`);
         }
+      } else if (run.deploymentId) {
+        details['skipped'] = 'no installationId recorded — no application stack was ever created, nothing retained to purge';
       }
       details['rulesDisabled'] = await disableRulesForStack(config.region, run.bootstrapStackName);
       await deleteStack(config.region, run.bootstrapStackName);

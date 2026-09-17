@@ -13,11 +13,11 @@ import {
   type InfraSnapshot,
 } from './steps.js';
 import { probeLiveApp, writeMarker } from './app.js';
-import { deleteStack, describeStack, liveNatGateways, type InstallationSecret } from './aws.js';
+import { deleteStack, describeStack, disableRulesForStack, liveNatGateways, type InstallationSecret } from './aws.js';
 
 vi.mock('./aws.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./aws.js')>();
-  return { ...actual, describeStack: vi.fn(), deleteStack: vi.fn() };
+  return { ...actual, describeStack: vi.fn(), deleteStack: vi.fn(), disableRulesForStack: vi.fn() };
 });
 
 describe('real-AWS guard', () => {
@@ -439,6 +439,7 @@ describe('removeCanaryLeftovers never deletes the connector before Purge complet
   afterEach(() => {
     vi.mocked(describeStack).mockReset();
     vi.mocked(deleteStack).mockReset();
+    vi.mocked(disableRulesForStack).mockReset();
   });
 
   it('refuses while cleanupState is not COMPLETE, even without run.vendor (Stage B never sets it)', async () => {
@@ -447,6 +448,7 @@ describe('removeCanaryLeftovers never deletes the connector before Purge complet
     const run = {
       bootstrapStackName: 'deployz-bootstrap-stage-b-repo-004-1306e305',
       deploymentId: 'dep-1',
+      installationId: 'inst-1',
       releases: {},
       // No `vendor` — a Stage B ledger never sets it (the vendor lives in
       // series.json), which is exactly what let BUG-003 through before.
@@ -468,6 +470,7 @@ describe('removeCanaryLeftovers never deletes the connector before Purge complet
     const run = {
       bootstrapStackName: 'deployz-bootstrap-stage-b-repo-004-1306e305',
       deploymentId: 'dep-1',
+      installationId: 'inst-1',
       releases: {},
     } as unknown as RunRecord;
     const evidence = {
@@ -481,5 +484,63 @@ describe('removeCanaryLeftovers never deletes the connector before Purge complet
 
     await expect(removeCanaryLeftovers(canary)).rejects.toThrow('purge job j1 is still RUNNING');
     expect(deleteStack).not.toHaveBeenCalled();
+  });
+
+  it('refuses while cleanupState is SKIPPED_RELAY_OFFLINE — that needs an operator, not a rerun', async () => {
+    vi.mocked(describeStack).mockResolvedValueOnce({ status: 'UPDATE_COMPLETE' } as never);
+
+    const run = {
+      bootstrapStackName: 'deployz-bootstrap-stage-b-repo-004-1306e305',
+      deploymentId: 'dep-1',
+      installationId: 'inst-1',
+      releases: {},
+    } as unknown as RunRecord;
+    const evidence = {
+      run,
+      step: async (_name: string, fn: (details: Record<string, unknown>) => Promise<unknown>) => fn({}),
+    } as unknown as Evidence;
+    const api = {
+      getDeployment: async () => ({ cleanupState: 'SKIPPED_RELAY_OFFLINE', jobs: [] }),
+    } as unknown as ControlPlane;
+    const canary: Canary = { config: loadConfig({}), evidence, api };
+
+    await expect(removeCanaryLeftovers(canary)).rejects.toThrow('cleanupState is SKIPPED_RELAY_OFFLINE');
+    expect(deleteStack).not.toHaveBeenCalled();
+  });
+
+  it('allows the connector deletion when no installationId was ever recorded — nothing retained to purge (DEPLOY-023)', async () => {
+    // A run that failed before the relay enrolled or before an application
+    // stack existed can only be force-completed to SKIPPED_RELAY_OFFLINE, so
+    // the cleanupState guard alone would strand its connector forever.
+    vi.mocked(describeStack)
+      .mockResolvedValueOnce({ status: 'UPDATE_COMPLETE' } as never) // the pre-deletion check
+      .mockResolvedValueOnce({ status: 'DELETE_COMPLETE' } as never); // waitFor's poll
+    vi.mocked(deleteStack).mockResolvedValue(undefined);
+    vi.mocked(disableRulesForStack).mockResolvedValue([]);
+    let deploymentRead = false;
+
+    const run = {
+      bootstrapStackName: 'deployz-bootstrap-stage-b-repo-005-abcdef01',
+      deploymentId: 'dep-2',
+      releases: {},
+      // No installationId — no application stack was ever created.
+    } as unknown as RunRecord;
+    const evidence = {
+      run,
+      step: async (_name: string, fn: (details: Record<string, unknown>) => Promise<unknown>) => fn({}),
+    } as unknown as Evidence;
+    const api = {
+      getDeployment: async () => {
+        deploymentRead = true;
+        return { cleanupState: 'SKIPPED_RELAY_OFFLINE', jobs: [] };
+      },
+    } as unknown as ControlPlane;
+    const canary: Canary = { config: loadConfig({}), evidence, api };
+
+    await expect(removeCanaryLeftovers(canary)).resolves.toBeUndefined();
+    expect(deleteStack).toHaveBeenCalledWith(canary.config.region, run.bootstrapStackName);
+    // The product's state is irrelevant here — nothing retained means
+    // nothing to check it against.
+    expect(deploymentRead).toBe(false);
   });
 });
