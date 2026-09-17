@@ -5,7 +5,16 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { analyseRepo, buildApplicationAnalysis } from '@deployz/analysis';
-import { bootstrapStackName, DOCUMENSO_PARAMETERS, errorEnvelopeSchema } from '@deployz/contracts';
+import {
+  APPLICATION_TEMPLATE_KEY,
+  APPLICATION_TEMPLATE_REDIS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_KEY,
+  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
+  applicationTemplateKeyForProfile,
+  bootstrapStackName,
+  DOCUMENSO_PARAMETERS,
+  errorEnvelopeSchema,
+} from '@deployz/contracts';
 import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -3686,6 +3695,32 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     return { deployment, installLinkId: deployment.installLinkId };
   }
 
+  /** Component names of the public install page's "Deployz will create" plan. */
+  async function installPlanNames(installLinkId: string): Promise<string[]> {
+    const body = (await app.inject({ method: 'GET', url: `/api/install/${installLinkId}` })).json() as {
+      plan: { components: { name: string }[] } | null;
+    };
+    return body.plan!.components.map((component) => component.name);
+  }
+
+  /** Enrolls the seeded deployment's relay and returns the first INSTALL job's
+   * payload — the frozen contract the relay provisions against. */
+  async function enrollAndGetInstallPayload(seeded: Seeded, installationId: string): Promise<Record<string, unknown>> {
+    const registered = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: seeded.deployment.enrollmentCode, installationId },
+      { authorization: 'Bearer install-flow-relay-token' },
+    );
+    expect(registered.statusCode).toBe(200);
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, seeded.deployment.id));
+    expect(job!.type).toBe('INSTALL');
+    return job!.payload as Record<string, unknown>;
+  }
+
   beforeAll(async () => {
     client = new PGlite();
     await applyMigrations(client);
@@ -3748,6 +3783,266 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     const second = await postJson(app, `/api/install/${installLinkId}/launched`, {});
     expect(first.statusCode).toBe(200);
     expect(second.statusCode).toBe(200);
+  });
+
+  it('POST /api/install/:installLinkId/launched treats a browser body that tries to override requirements exactly like no body', async () => {
+    const seeded = await seedWaiting();
+
+    const response = await postJson(app, `/api/install/${seeded.installLinkId}/launched`, {
+      databaseRequired: false,
+      redisRequired: false,
+      storageRequired: false,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ state: 'WAITING_FOR_RELAY' });
+
+    // The frozen manifest (postgres: true, redis: false) is what the relay
+    // provisions against — the body's claims changed nothing.
+    const payload = await enrollAndGetInstallPayload(seeded, 'inst-browser-override');
+    expect(payload['databaseRequired']).toBe(true);
+    expect(payload['redisRequired']).toBe(false);
+  });
+
+  it('review-then-confirm: PATCHing the application requirement columns after the install page was opened never reaches the plan or the INSTALL payload', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      name: 'Review Confirm App',
+      databaseRequired: true,
+      storageRequired: false,
+    });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      installationId: null,
+    });
+    const seeded = { deployment, installLinkId: deployment.installLinkId };
+
+    // The customer opens the install page: the plan comes from the frozen
+    // manifest (postgres: true, redis: false), never the application columns.
+    const before = await installPlanNames(seeded.installLinkId);
+    expect(before).toEqual(['Application', 'Secure endpoint', 'Database', 'Storage']);
+
+    // The vendor then flips every requirement column through the normal
+    // update endpoint — the review the customer already saw must not move.
+    const patched = await sendJson(
+      app,
+      'PATCH',
+      `/api/applications/${application.id}`,
+      { databaseRequired: false, redisRequired: true, storageRequired: true },
+      { cookie: org.cookie },
+    );
+    expect(patched.statusCode).toBe(200);
+
+    expect(await installPlanNames(seeded.installLinkId)).toEqual(before);
+
+    const launched = await postJson(app, `/api/install/${seeded.installLinkId}/launched`, {});
+    expect(launched.statusCode).toBe(200);
+    expect((launched.json() as { state: string }).state).toBe('WAITING_FOR_RELAY');
+
+    const payload = await enrollAndGetInstallPayload(seeded, 'inst-review-confirm');
+    expect(payload['databaseRequired']).toBe(true);
+    expect(payload['redisRequired']).toBe(false);
+  });
+
+  it('live postgres and storage column flips after deployment creation leave the install plan and infrastructure expectations unchanged', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      name: 'Column Drift App',
+      databaseRequired: true,
+      storageRequired: false,
+    });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      installationId: null,
+    });
+    const seeded = { deployment, installLinkId: deployment.installLinkId };
+
+    const before = await installPlanNames(seeded.installLinkId);
+    expect(before).toEqual(['Application', 'Secure endpoint', 'Database', 'Storage']);
+
+    // The Redis drift case lives in the install-plan suite above; this flips
+    // postgres and storage directly on the live row after the deployment
+    // froze its manifest.
+    await db
+      .update(schema.applications)
+      .set({ databaseRequired: false, storageRequired: true })
+      .where(eq(schema.applications.id, application.id));
+
+    expect(await installPlanNames(seeded.installLinkId)).toEqual(before);
+
+    const payload = await enrollAndGetInstallPayload(seeded, 'inst-column-drift');
+    expect(payload['databaseRequired']).toBe(true);
+  });
+
+  it('an unknown stored manifest schemaVersion blocks launch and relay registration 422 before any job is created', async () => {
+    const seeded = await seedWaiting({
+      desiredState: { manifest: { ...READY_MANIFEST, schemaVersion: 2 } },
+    });
+
+    const launched = await postJson(app, `/api/install/${seeded.installLinkId}/launched`, {});
+    expect(launched.statusCode).toBe(422);
+    expect(errorEnvelopeSchema.parse(launched.json()).error.code).toBe('MANIFEST_NEEDS_CONFIGURATION');
+
+    // The relay-enrollment boundary refuses the same deployment pre-AWS.
+    const registered = await postJson(
+      app,
+      '/api/relay/register',
+      { enrollmentCode: seeded.deployment.enrollmentCode, installationId: 'inst-unknown-schema' },
+      { authorization: 'Bearer install-flow-relay-token' },
+    );
+    expect(registered.statusCode).toBe(422);
+    expect(errorEnvelopeSchema.parse(registered.json()).error.code).toBe('MANIFEST_NEEDS_CONFIGURATION');
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, seeded.deployment.id));
+    expect(dep!.state).toBe('NOT_INSTALLED');
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, seeded.deployment.id));
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('a missing or invalid stored manifest blocks launch with the actionable error and leaves the install page at plan: null (no 500)', async () => {
+    // The column is NOT NULL jsonb, so "missing" is the empty default and
+    // "malformed" is a manifest value the schema rejects.
+    for (const desiredState of [{}, { manifest: { invalid: true } }]) {
+      const seeded = await seedWaiting({ desiredState });
+      const launched = await postJson(app, `/api/install/${seeded.installLinkId}/launched`, {});
+      expect(launched.statusCode).toBe(422);
+      const envelope = errorEnvelopeSchema.parse(launched.json());
+      expect(envelope.error.code).toBe('MANIFEST_NEEDS_CONFIGURATION');
+      expect(envelope.error.message).toContain('manifest');
+
+      const page = await app.inject({ method: 'GET', url: `/api/install/${seeded.installLinkId}` });
+      expect(page.statusCode).toBe(200);
+      expect((page.json() as { plan: unknown }).plan).toBeNull();
+    }
+  });
+
+  it.each([
+    { label: 'postgres', postgres: true, redis: false, templateKey: APPLICATION_TEMPLATE_KEY },
+    { label: 'postgres+redis', postgres: true, redis: true, templateKey: APPLICATION_TEMPLATE_REDIS_KEY },
+    { label: 'stateless', postgres: false, redis: false, templateKey: APPLICATION_TEMPLATE_STATELESS_KEY },
+    {
+      label: 'stateless+redis',
+      postgres: false,
+      redis: true,
+      templateKey: APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
+    },
+  ])(
+    'the frozen $label manifest drives the install plan, the Quick Create link, and the INSTALL payload ($templateKey)',
+    async ({ label, postgres, redis, templateKey }) => {
+      const seeded = await seedWaiting({
+        desiredState: {
+          manifest: {
+            ...READY_MANIFEST,
+            database: { postgres },
+            redis: { required: redis, envBindings: [] },
+          },
+        },
+      });
+
+      // env is read at module load, so publish a template for this test only.
+      const mutableEnv = env as { bootstrapTemplateUrl: string | undefined };
+      const previous = mutableEnv.bootstrapTemplateUrl;
+      mutableEnv.bootstrapTemplateUrl = 'https://templates.example.com/bootstrap/v1/bootstrap-template-v1.json';
+      let quickCreateUrl: string | null = null;
+      try {
+        const page = await app.inject({ method: 'GET', url: `/api/install/${seeded.installLinkId}` });
+        quickCreateUrl = (page.json() as { quickCreateUrl: string | null }).quickCreateUrl;
+      } finally {
+        mutableEnv.bootstrapTemplateUrl = previous;
+      }
+      // Every profile gets the same region's bootstrap template in the Quick
+      // Create link — the profile selects the APPLICATION template variant,
+      // and only through the INSTALL payload the relay reads.
+      expect(quickCreateUrl).toContain('bootstrap-template-v1.json');
+
+      expect(await installPlanNames(seeded.installLinkId)).toEqual([
+        'Application',
+        'Secure endpoint',
+        ...(postgres ? ['Database'] : []),
+        'Storage',
+        ...(redis ? ['Cache'] : []),
+      ]);
+
+      const payload = await enrollAndGetInstallPayload(seeded, `inst-profile-${label}`);
+      expect(payload['databaseRequired']).toBe(postgres);
+      expect(payload['redisRequired']).toBe(redis);
+      expect(applicationTemplateKeyForProfile({ postgres, redis })).toBe(templateKey);
+    },
+  );
+
+  it('GET /api/relay/commands omits both requirement flags when the stored manifest is invalid', async () => {
+    const token = 'invalid-manifest-relay-token';
+    await seedWaiting({
+      installationId: 'inst-invalid-manifest',
+      relayTokenHash: hashRelayToken(token),
+      desiredState: { manifest: { invalid: true } },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/relay/commands?installationId=inst-invalid-manifest',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const deployment = (response.json() as { deployment: Record<string, unknown> }).deployment;
+    expect('databaseRequired' in deployment).toBe(false);
+    expect('redisRequired' in deployment).toBe(false);
+  });
+
+  it('a sequential double launch records the launch exactly once and never queues a job', async () => {
+    const seeded = await seedWaiting();
+    const first = await postJson(app, `/api/install/${seeded.installLinkId}/launched`, {});
+    const second = await postJson(app, `/api/install/${seeded.installLinkId}/launched`, {});
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual({ state: 'WAITING_FOR_RELAY' });
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, seeded.deployment.id));
+    expect(dep!.state).toBe('WAITING_FOR_RELAY');
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(
+        and(
+          eq(schema.eventLogs.eventType, 'install.launched'),
+          eq(schema.eventLogs.deploymentId, seeded.deployment.id),
+        ),
+      );
+    expect(events).toHaveLength(1);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, seeded.deployment.id));
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('a double submit (two tabs racing) transitions exactly once', async () => {
+    const seeded = await seedWaiting();
+    const [first, second] = await Promise.all([
+      postJson(app, `/api/install/${seeded.installLinkId}/launched`, {}),
+      postJson(app, `/api/install/${seeded.installLinkId}/launched`, {}),
+    ]);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    // Both tabs land on the waiting state — the loser sees the winner's state.
+    expect(first.json()).toEqual({ state: 'WAITING_FOR_RELAY' });
+    expect(second.json()).toEqual({ state: 'WAITING_FOR_RELAY' });
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, seeded.deployment.id));
+    expect(dep!.state).toBe('WAITING_FOR_RELAY');
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(
+        and(
+          eq(schema.eventLogs.eventType, 'install.launched'),
+          eq(schema.eventLogs.deploymentId, seeded.deployment.id),
+        ),
+      );
+    expect(events).toHaveLength(1);
   });
 
   it('marks the install relay-stuck (never FAILED) when no relay enrolls within the staleness window', async () => {
