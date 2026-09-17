@@ -355,15 +355,22 @@ export async function auditLeaks(
   const bucketArns = installationTagged.filter((arn) => arn.startsWith('arn:aws:s3:::'));
   const buckets = bucketArns.map((arn) => arn.replace('arn:aws:s3:::', ''));
 
+  // Tag-based discovery (deterministic — see installationSecretsByTag): the
+  // generated secret names never start with a stack name and the RGA index
+  // misses Secrets Manager. The bootstrap-name prefix stays for connector
+  // credential secrets that may be untagged or differently scoped.
+  const taggedSecrets = await installationSecretsByTag(region, ids.installationId);
   const secretList = (await aws(['secretsmanager', 'list-secrets'], region)) as {
-    SecretList: { ARN: string; Name: string }[];
+    SecretList: { Name: string }[];
   };
-  const secrets = secretList.SecretList.filter(
-    (s) =>
-      installationTagged.includes(s.ARN) ||
-      (ids.bootstrapStackName ? s.Name.startsWith(ids.bootstrapStackName) : false) ||
-      (ids.applicationStackName ? s.Name.startsWith(ids.applicationStackName) : false),
-  ).map((s) => s.Name);
+  const secrets = [
+    ...new Set([
+      ...taggedSecrets.map((s) => s.name),
+      ...secretList.SecretList.filter((s) =>
+        ids.bootstrapStackName ? s.Name.startsWith(ids.bootstrapStackName) : false,
+      ).map((s) => s.Name),
+    ]),
+  ];
 
   const logGroups: string[] = [];
   for (const prefix of [
@@ -516,31 +523,42 @@ export async function bucketExists(bucket: string): Promise<boolean> {
   }
 }
 
-/** Secrets attributable to this installation — installation-tagged, or named
- * after the bootstrap/application stack: the discovery the leak audit uses. */
-export async function installationSecrets(
-  region: string,
-  ids: { installationId: string | null; bootstrapStackName: string | null; applicationStackName: string | null },
-): Promise<string[]> {
-  const tagged = ids.installationId ? await resourcesTagged(region, 'deployz:installation', ids.installationId) : [];
-  const list = (await aws(['secretsmanager', 'list-secrets'], region)) as {
-    SecretList: { ARN: string; Name: string }[];
-  };
-  return list.SecretList.filter(
-    (s) =>
-      tagged.includes(s.ARN) ||
-      (ids.bootstrapStackName ? s.Name.startsWith(ids.bootstrapStackName) : false) ||
-      (ids.applicationStackName ? s.Name.startsWith(ids.applicationStackName) : false),
-  ).map((s) => s.Name);
+export interface InstallationSecret {
+  readonly name: string;
+  readonly arn: string;
+  /** Set when the secret sits in the recovery window (planned deletion). */
+  readonly deletedDate: string | null;
+  readonly tags: Record<string, string>;
 }
 
-/** The secret's deletion date when it is scheduled for removal, `null` when it
- * is live. Throws when the secret no longer exists. */
-export async function secretDeletionDate(region: string, name: string): Promise<string | null> {
-  const response = (await aws(['secretsmanager', 'describe-secret', '--secret-id', name], region)) as {
-    DeletedDate?: number;
+/**
+ * Every secret tagged `deployz:installation` for this installation, read
+ * from `list-secrets --include-planned-deletion` so recovery-window secrets
+ * stay visible.
+ *
+ * Tag-based on purpose, never the resource-group tag index and never a
+ * stack-name prefix: CloudFormation generates the physical names
+ * (logicalId-hash-random), so a prefix can never match them, and the tag
+ * index has already been observed to miss Secrets Manager entirely (real
+ * run profile-pg-20260918: both retained database secrets existed and
+ * carried the tag; the RGA query returned nothing).
+ */
+export async function installationSecretsByTag(
+  region: string,
+  installationId: string | null,
+): Promise<InstallationSecret[]> {
+  if (!installationId) return [];
+  const response = (await aws(['secretsmanager', 'list-secrets', '--include-planned-deletion'], region)) as {
+    SecretList: { ARN: string; Name: string; DeletedDate?: number; Tags?: { Key: string; Value: string }[] }[];
   };
-  return response.DeletedDate ? new Date(response.DeletedDate * 1000).toISOString() : null;
+  return response.SecretList.filter((s) =>
+    (s.Tags ?? []).some((t) => t.Key === 'deployz:installation' && t.Value === installationId),
+  ).map((s) => ({
+    name: s.Name,
+    arn: s.ARN,
+    deletedDate: s.DeletedDate ? new Date(s.DeletedDate * 1000).toISOString() : null,
+    tags: Object.fromEntries((s.Tags ?? []).map((t) => [t.Key, t.Value])),
+  }));
 }
 
 /**
