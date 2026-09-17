@@ -405,6 +405,24 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     evidence.save();
     details['albEndpoint'] = evidence.run.albEndpoint;
     details['apiAppUrl'] = detail.appUrl;
+
+    // Plan-vs-inventory: at HEALTHY the manifest's required components and
+    // the relay's persisted inventory must agree — logical presence only;
+    // raw resource counts stay snapshotInfrastructure's job. The snapshot can
+    // land moments after the state flips, so give it a bounded settle.
+    const inventory = await waitFor(
+      'infrastructure expectations',
+      () => api.infrastructure(deploymentId),
+      (i) => (i.expectations && i.expectations.missing.length === 0 && i.expectations.unexpected.length === 0 ? i : null),
+      {
+        timeoutMs: 5 * MINUTE,
+        describe: (i) =>
+          i.expectations
+            ? `missing=[${i.expectations.missing.join(',')}] unexpected=[${i.expectations.unexpected.join(',')}] (${i.snapshotState})`
+            : 'no expectations yet',
+      },
+    );
+    details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
   });
 
   return deploymentId;

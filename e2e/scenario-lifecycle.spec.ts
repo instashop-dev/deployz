@@ -16,7 +16,7 @@
 
 import type { APIRequestContext } from '@playwright/test';
 
-import { API_URL, expect, test } from './simulation/fixtures.js';
+import { API_URL, buildApi, expect, expectPlanMatchesInventory, test } from './simulation/fixtures.js';
 
 interface DeploymentResponse {
   state: string;
@@ -123,6 +123,10 @@ test.describe('update-failure', () => {
     const afterV1 = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(afterV1.state).toBe('HEALTHY');
 
+    // Phase 6 expectation gate after the successful v1 rollout: the
+    // inventory still matches the plan.
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'post-update' });
+
     // UPDATE_AVAILABLE means a newer READY release exists (DZ-AUDIT-007).
     // Fixture-mode builds complete synchronously, so v2 is already READY when
     // creation returns and the flip has fired; the no-flip-while-BUILDING
@@ -182,6 +186,10 @@ test.describe('rollback-success', () => {
       .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
       .toBe('HEALTHY');
 
+    // Phase 6 expectation gate after the successful v1 rollout: the
+    // inventory still matches the plan.
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'post-update' });
+
     const v2ReleaseId = await createRelease(request, applicationId, '2.0.0');
     await deployRelease(request, deploymentId, v2ReleaseId);
     // Failed-update semantics: the deployment returns to UPDATE_AVAILABLE
@@ -233,6 +241,10 @@ test.describe('rollback-success', () => {
     // honest pointer state here is current=v1/previous=v1, not previous=v2.
     expect(afterRollback.currentReleaseId).toBe(v1ReleaseId);
     expect(afterRollback.previousReleaseId).toBe(v1ReleaseId);
+
+    // Phase 6 expectation gate after the completed rollback: the inventory
+    // still matches the plan.
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'post-rollback' });
   });
 });
 
@@ -257,6 +269,10 @@ test.describe('rollback-failure', () => {
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
       .toBe('HEALTHY');
+
+    // Phase 6 expectation gate after the successful v1 rollout: the
+    // inventory still matches the plan.
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'post-update' });
 
     const v2ReleaseId = await createRelease(request, applicationId, '2.0.0');
     await deployRelease(request, deploymentId, v2ReleaseId);
@@ -397,6 +413,9 @@ test.describe('retained-resources', () => {
     // naive expected-vs-present comparison would read that as "missing", so
     // a DELETED deployment always reports nothing outstanding.
     expect(infra.expectations?.missing).toEqual([]);
+    // The full gate: nothing unexpected either, and the surviving inventory
+    // still matches the plan (retained kinds stay expected).
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'post-disconnect-retained' });
 
     const events = await getEvents(request, deploymentId);
     expect(events.some((e) => e.eventType === 'destroy.completed')).toBe(true);
@@ -545,6 +564,10 @@ test.describe('two-apps-1.0.0', () => {
             return ((await getResp.json()) as DeploymentResponse).state;
           }, { timeout: 20_000, message: `waiting for state to return to HEALTHY on ${label}` })
           .toBe('HEALTHY');
+
+        // Phase 6 expectation gate after the successful rollout: the
+        // inventory still matches the plan.
+        await expectPlanMatchesInventory(buildApi(request), deploymentId, { stage: 'post-update' });
       } finally {
         relay.stop();
       }

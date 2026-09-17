@@ -16,7 +16,7 @@
 
 import type { APIRequestContext } from '@playwright/test';
 
-import { expect, test } from './simulation/fixtures.js';
+import { expect, expectPlanMatchesInventory, test } from './simulation/fixtures.js';
 
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 const FIXTURE_ALB = 'e2e-alb.deployz-fixture.test';
@@ -138,7 +138,7 @@ test.describe('default-https-a success', () => {
     request,
   }) => {
     test.setTimeout(60_000);
-    const { deploymentId } = deployzInstall;
+    const { deploymentId, api } = deployzInstall;
 
     await waitForDefaultHttps(request, deploymentId, 'ACTIVE');
     const deployment = await getDeployment(request, deploymentId);
@@ -157,6 +157,10 @@ test.describe('default-https-a success', () => {
       components: Array<{ kind: string; status: string; httpsState?: string }>;
     }).components.find((component) => component.kind === 'endpoint');
     expect(endpoint).toMatchObject({ status: 'ready', httpsState: 'READY' });
+
+    // Phase 6 expectation gate at the READY checkpoint: the inventory
+    // matches the plan with the secure endpoint in place.
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'default-https-ready' });
 
     // Assert the fixture-zone records — never the production zone hex (that
     // is Phase 15's static check; see the docs section).
