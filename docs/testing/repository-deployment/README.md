@@ -151,7 +151,23 @@ a deployment.
    Stage B templates live in `runs/evidence/series.json`.
 4. Cleanup runs in `finally`: Disconnect → Purge → leftovers → leak audit.
    An interrupted run is resumed from the ledger (`--resume`), which first
-   finishes the cleanup of anything it finds still alive.
+   finishes the cleanup of anything it finds still alive. The connector
+   (bootstrap stack) is never removed while an application stack was ever
+   created (an installation id was recorded) unless the product's
+   `cleanupState` is `COMPLETE`: Purge runs inside the connector's relay,
+   so removing it earlier — including while `cleanupState` is
+   `SKIPPED_RELAY_OFFLINE` or `PURGE_FAILED`, which need an operator, not
+   a rerun — strands whatever the sweep had not reached yet. A run that
+   never recorded an installation id (failed before the relay enrolled or
+   before an application stack existed) has nothing retained to purge, so
+   the connector can still be removed. A Stage B ledger never sets
+   `run.vendor`, so this guard keys on the deployment/installation ids and
+   the product's own state, not on `run.vendor`. When Disconnect or Purge
+   fails, the leftovers step is skipped entirely (rather than raced
+   against a retry) only once an installation id was recorded; with no
+   installation id, the leftovers step still runs — removeCanaryLeftovers'
+   own guard already allows it — so a bootstrap stack that rolled back
+   before the relay enrolled is not stranded forever.
 5. After each wave and at the end of Stage B, an account-level scan for the
    Stage B tags and the product's installation tags must return nothing
    disposable. INACTIVE ECS cluster/task-definition ARNs that the tagging
