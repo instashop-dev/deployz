@@ -4,6 +4,8 @@
  *   pnpm e2e:canary:versions preflight             identity, region, control plane, fixture tags (no mutation)
  *   pnpm e2e:canary:versions core [--keep]         the golden path (docs/testing/version-rollback-canary.md)
  *   pnpm e2e:canary:versions resilience [--keep]   duplicate/concurrent requests and relay interruption
+ *   pnpm e2e:canary:versions profile --profile <pg|stateless|redis> [--run-id <id>]
+ *                                                  one infrastructure profile: install + teardown, no version ladder
  *   pnpm e2e:canary:versions cleanup --run-id <id> product destroy/purge + canary leftovers for a recorded run
  *   pnpm e2e:canary:versions audit --run-id <id>   leak audit for a recorded run (read-only)
  *
@@ -16,13 +18,13 @@ import { loadConfig, requireRealAwsOptIn } from './config.js';
 import { ControlPlane } from './control-plane.js';
 import { Evidence, type RunRecord } from './evidence.js';
 import { runResilience } from './resilience.js';
-import { runCore } from './scenarios.js';
+import { runCore, runProfile } from './scenarios.js';
 import { preflight, type Canary } from './steps.js';
 import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from './teardown.js';
 
 function usage(): void {
   console.error(
-    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|cleanup --run-id <id>|audit --run-id <id>>',
+    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|profile --profile <pg|stateless|redis> [--run-id <id>]|cleanup --run-id <id>|audit --run-id <id>>',
   );
 }
 
@@ -50,6 +52,7 @@ async function main(): Promise<void> {
       keep: { type: 'boolean', default: false },
       'existing-image': { type: 'string' },
       'reuse-stack': { type: 'boolean', default: false },
+      profile: { type: 'string' },
     },
   });
   const [command] = positionals;
@@ -58,6 +61,7 @@ async function main(): Promise<void> {
     keep: values.keep,
     ...(values['existing-image'] ? { existingImageDigest: values['existing-image'] } : {}),
     reuseStack: values['reuse-stack'],
+    ...(values['profile'] ? { profileName: values['profile'] } : {}),
   });
 
   switch (command) {
@@ -75,6 +79,22 @@ async function main(): Promise<void> {
       console.log(`Run ${config.runId} (${command}) — evidence in ${evidence.dir}`);
       try {
         await (command === 'core' ? runCore(canary) : runResilience(canary));
+        evidence.finish('PASS');
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        evidence.finish('FAIL');
+        process.exitCode = 1;
+      }
+      return;
+    }
+    case 'profile': {
+      if (!values['profile']) throw new Error('profile needs --profile <pg|stateless|redis>');
+      if (!config.profile) throw new Error(`--profile "${values['profile']}" did not resolve to a profile`);
+      const evidence = new Evidence(config.resultsDir, newRun(config, `profile-${config.profile.name}`));
+      const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl, config.webUrl) };
+      console.log(`Run ${config.runId} (profile ${config.profile.name}) — evidence in ${evidence.dir}`);
+      try {
+        await runProfile(canary);
         evidence.finish('PASS');
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));

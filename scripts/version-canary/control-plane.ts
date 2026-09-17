@@ -242,6 +242,7 @@ export class ControlPlane {
     containerPort?: number;
     healthPath?: string;
     databaseRequired?: boolean;
+    redisRequired?: boolean;
   }): Promise<{ id: string }> {
     const { body } = await this.request<{ id: string }>('POST', '/api/applications', input);
     return body;

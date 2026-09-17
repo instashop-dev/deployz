@@ -179,3 +179,20 @@ export async function runCore(canary: Canary): Promise<void> {
   // Phase 14 — teardown + audit.
   await teardownOrSkipInfrastructure(canary);
 }
+
+/**
+ * A single-profile certification run: the core ladder's install head —
+ * vendor/application, v1 build, canary template, install to HEALTHY with the
+ * plan-vs-inventory gate — under a configured infrastructure profile
+ * (config.profile), then the full teardown with its retained-state checks.
+ * No markers and no update/rollback ladder: the question is whether the
+ * product provisions and tears down THIS shape.
+ */
+export async function runProfile(canary: Canary): Promise<void> {
+  await preflight(canary);
+  await setUpVendorAndApplication(canary);
+  await buildRelease(canary, 'v1');
+  await publishCanaryTemplate(canary, 'v1');
+  await createDeploymentAndInstall(canary);
+  await teardownOrSkipInfrastructure(canary);
+}

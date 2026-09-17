@@ -13,7 +13,17 @@ on:
         description: Which scenario to run
         type: choice
         default: preflight
-        options: [preflight, core, resilience]
+        options: [preflight, core, resilience, profile]
+      profile:
+        description: Infrastructure profile (profile scenario only)
+        type: choice
+        default: pg
+        options: [pg, stateless, redis]
+      run_id:
+        description: Run id (optional — minted when empty)
+        type: string
+        required: false
+        default: ''
 
 # One canary at a time: two installs in the same account would share the
 # connector-stack exports and the run ids would race the leak audit.
@@ -25,7 +35,9 @@ jobs:
   canary:
     name: ${{ inputs.scenario }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # A profile run certifies one install + full teardown (retained RDS makes
+    # the purge slow) — budget it beyond the core ladder's 180 minutes.
+    timeout-minutes: ${{ inputs.scenario == 'profile' && 240 || 180 }}
     env:
       # An IAM identity with administrative access to the TEST account only.
       # The harness refuses any other account (DEPLOYZ_CANARY_EXPECTED_ACCOUNT).
@@ -34,6 +46,9 @@ jobs:
       AWS_REGION: us-east-1
       DEPLOYZ_E2E_ALLOW_REAL_AWS: '1'
       GH_TOKEN: ${{ github.token }}
+      # Empty for every other scenario, so they keep the legacy behaviour.
+      DEPLOYZ_CANARY_PROFILE: ${{ inputs.scenario == 'profile' && inputs.profile || '' }}
+      DEPLOYZ_CANARY_RUN_ID: ${{ inputs.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -62,12 +77,12 @@ jobs:
           fi
 
       - name: Run the canary
-        run: pnpm e2e:canary:versions ${{ inputs.scenario }}
+        run: pnpm e2e:canary:versions ${{ inputs.scenario }}${{ inputs.scenario == 'profile' && format(' --profile {0}', inputs.profile) || '' }}
 
       - name: Upload evidence
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: canary-results-${{ inputs.scenario }}-${{ github.run_id }}
+          name: canary-results-${{ inputs.scenario }}${{ inputs.scenario == 'profile' && format('-{0}', inputs.profile) || '' }}-${{ github.run_id }}
           path: canary-results/
           retention-days: 30
