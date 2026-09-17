@@ -13,7 +13,15 @@ import {
   type InfraSnapshot,
 } from './steps.js';
 import { probeLiveApp, writeMarker } from './app.js';
-import { deleteStack, describeStack, disableRulesForStack, liveNatGateways, type InstallationSecret } from './aws.js';
+import {
+  aws,
+  deleteStack,
+  describeStack,
+  disableRulesForStack,
+  isTransientAwsCliError,
+  liveNatGateways,
+  type InstallationSecret,
+} from './aws.js';
 
 vi.mock('./aws.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./aws.js')>();
@@ -542,5 +550,90 @@ describe('removeCanaryLeftovers never deletes the connector before Purge complet
     // The product's state is irrelevant here — nothing retained means
     // nothing to check it against.
     expect(deploymentRead).toBe(false);
+  });
+});
+
+describe('aws() CLI retry', () => {
+  // Real AWS, 2026-09-17 22:33Z: two harness processes sharing one `aws
+  // login` session both refreshed the session token at the same moment; one
+  // `describe-stacks` call failed with this message while the next call a
+  // few seconds later succeeded.
+  const createOAuth2TokenError =
+    'An error occurred (ValidationException) when calling the CreateOAuth2Token operation: ' +
+    'The provided authorization grant is invalid, expired, revoked, or malformed';
+  const throttlingError =
+    'An error occurred (ThrottlingException) when calling the DescribeStacks operation: Rate exceeded';
+  const expiredTokenError =
+    'An error occurred (ExpiredTokenException) when calling the GetCallerIdentity operation: ' +
+    'The security token included in the request is expired';
+  const accessDeniedError =
+    'An error occurred (AccessDenied) when calling the DescribeStacks operation: User is not authorized';
+  const missingStackError =
+    'An error occurred (ValidationError) when calling the DescribeStacks operation: ' +
+    'Stack with id deployz-bootstrap-x does not exist';
+
+  it('is transient for a lost session refresh and for throttling', () => {
+    expect(isTransientAwsCliError(createOAuth2TokenError)).toBe(true);
+    expect(isTransientAwsCliError(throttlingError)).toBe(true);
+  });
+
+  it('is not transient for a real token expiry, a denial, or a missing stack', () => {
+    // ExpiredToken is a real expiry the operator must fix — never retried.
+    expect(isTransientAwsCliError(expiredTokenError)).toBe(false);
+    expect(isTransientAwsCliError(accessDeniedError)).toBe(false);
+    expect(isTransientAwsCliError(missingStackError)).toBe(false);
+  });
+
+  function cliError(stderr: string): Error & { stderr: string } {
+    return Object.assign(new Error('Command failed'), { stderr });
+  }
+
+  it('retries a transient failure with backoff and returns the eventual success', async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const exec = async () => {
+      calls++;
+      if (calls < 3) throw cliError(throttlingError);
+      return { stdout: '{"ok":true}' };
+    };
+    const delay = async (ms: number) => {
+      delays.push(ms);
+    };
+
+    const result = await aws(['cloudformation', 'describe-stacks', '--stack-name', 'x'], 'us-east-1', exec, delay);
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toBe(3);
+    expect(delays).toEqual([2000, 5000]);
+  });
+
+  it('gives up after three retries and rethrows the last error', async () => {
+    let calls = 0;
+    const exec = async () => {
+      calls++;
+      throw cliError(throttlingError);
+    };
+
+    await expect(
+      aws(['cloudformation', 'describe-stacks'], 'us-east-1', exec, async () => {}),
+    ).rejects.toThrow('aws cloudformation describe-stacks failed');
+    // One initial attempt plus three retries.
+    expect(calls).toBe(4);
+  });
+
+  it('never retries a non-transient failure', async () => {
+    let calls = 0;
+    const exec = async () => {
+      calls++;
+      throw cliError(accessDeniedError);
+    };
+    const delay = async () => {
+      throw new Error('should not delay for a non-transient error');
+    };
+
+    await expect(aws(['cloudformation', 'describe-stacks'], 'us-east-1', exec, delay)).rejects.toThrow(
+      'aws cloudformation describe-stacks failed',
+    );
+    expect(calls).toBe(1);
   });
 });
