@@ -127,3 +127,9 @@
     @apply font-sans;
     }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin {
+    animation-duration: 1.5s;
+  }
+}
