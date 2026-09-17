@@ -6,7 +6,7 @@
  * through. Reads only; every deletion stays in the canary's id-keyed
  * helpers.
  */
-import { aws, listStackResources } from '../version-canary/aws.js';
+import { aws, listStackResources, type AwsCliExecutor, type DelayFn } from '../version-canary/aws.js';
 
 /** Masks credentials and long tokens; the result is what a result file may carry. */
 export function sanitize(text: string): string {
@@ -155,25 +155,132 @@ export async function describeTaskDefinitionEnv(region: string, stackName: strin
   };
 }
 
+export type ArnKind =
+  | 'nat-gateway'
+  | 'subnet'
+  | 'security-group'
+  | 'vpc'
+  | 'network-interface'
+  | 'internet-gateway'
+  | 'route-table'
+  | 'rds-subnet-group'
+  | 'ecs-cluster'
+  | 'ecs-task-definition'
+  | 'ecs-service'
+  | 'log-group'
+  | 'acm-certificate'
+  | 'secret';
+
+/** Classifies an ARN by the service resource it names, or `null` when the leak audit's caller does not recognize it. */
+export function arnKind(arn: string): ArnKind | null {
+  if (/:natgateway\/nat-[0-9a-f]+$/.test(arn)) return 'nat-gateway';
+  if (/:subnet\/subnet-[0-9a-f]+$/.test(arn)) return 'subnet';
+  if (/:security-group\/sg-[0-9a-f]+$/.test(arn)) return 'security-group';
+  if (/:vpc\/vpc-[0-9a-f]+$/.test(arn)) return 'vpc';
+  if (/:network-interface\/eni-[0-9a-f]+$/.test(arn)) return 'network-interface';
+  if (/:internet-gateway\/igw-[0-9a-f]+$/.test(arn)) return 'internet-gateway';
+  if (/:route-table\/rtb-[0-9a-f]+$/.test(arn)) return 'route-table';
+  if (/:rds:[^:]+:[^:]+:subgrp:/.test(arn)) return 'rds-subnet-group';
+  if (/:ecs:[^:]+:[^:]+:cluster\//.test(arn)) return 'ecs-cluster';
+  if (/:ecs:[^:]+:[^:]+:task-definition\//.test(arn)) return 'ecs-task-definition';
+  if (/:ecs:[^:]+:[^:]+:service\//.test(arn)) return 'ecs-service';
+  if (/:logs:[^:]+:[^:]+:log-group:/.test(arn)) return 'log-group';
+  if (/:acm:[^:]+:[^:]+:certificate\//.test(arn)) return 'acm-certificate';
+  if (/:secretsmanager:[^:]+:[^:]+:secret:/.test(arn)) return 'secret';
+  return null;
+}
+
+/** The `describe-*` call and its "gone" error signature for the ARN kinds that report a missing resource as a CLI error. */
+const NOT_FOUND: Partial<Record<ArnKind, { args: (id: string) => string[]; pattern: RegExp }>> = {
+  subnet: { args: (id) => ['ec2', 'describe-subnets', '--subnet-ids', id], pattern: /InvalidSubnetID\.NotFound/ },
+  'security-group': { args: (id) => ['ec2', 'describe-security-groups', '--group-ids', id], pattern: /InvalidGroup\.NotFound/ },
+  vpc: { args: (id) => ['ec2', 'describe-vpcs', '--vpc-ids', id], pattern: /InvalidVpcID\.NotFound/ },
+  'network-interface': {
+    args: (id) => ['ec2', 'describe-network-interfaces', '--network-interface-ids', id],
+    pattern: /InvalidNetworkInterfaceID\.NotFound/,
+  },
+  'internet-gateway': {
+    args: (id) => ['ec2', 'describe-internet-gateways', '--internet-gateway-ids', id],
+    pattern: /InvalidInternetGatewayID\.NotFound/,
+  },
+  'route-table': { args: (id) => ['ec2', 'describe-route-tables', '--route-table-ids', id], pattern: /InvalidRouteTableID\.NotFound/ },
+  'rds-subnet-group': {
+    args: (id) => ['rds', 'describe-db-subnet-groups', '--db-subnet-group-name', id],
+    pattern: /DBSubnetGroupNotFoundFault/,
+  },
+  'acm-certificate': { args: (id) => ['acm', 'describe-certificate', '--certificate-arn', id], pattern: /ResourceNotFoundException/ },
+  secret: { args: (id) => ['secretsmanager', 'describe-secret', '--secret-id', id], pattern: /ResourceNotFoundException/ },
+};
+
+/** The `subnet-…`/`sg-…`/… id (or, for kinds the CLI addresses by ARN, the ARN itself) `resourceStillExists` passes to the describe call. */
+function idFor(kind: ArnKind, arn: string): string {
+  if (kind === 'rds-subnet-group') return arn.split(':').pop() ?? arn;
+  if (kind === 'acm-certificate' || kind === 'secret') return arn;
+  return arn.split('/').pop() ?? arn;
+}
+
 /**
  * Whether a resource the tagging API still lists actually exists. The tagging
- * API keeps a deleted NAT gateway (and ECS clusters/services/task definitions)
- * listed for a while after deletion; the canary audit already ignores the ECS
- * kinds, and a NAT gateway is checked here. Unknown kinds are assumed to exist.
+ * API keeps a deleted resource listed for a while after deletion (real AWS,
+ * 2026-09-17 23:27Z: a purged subnet was reported as a leak while EC2 already
+ * answered `InvalidSubnetID.NotFound`), so this confirms tagged EC2, RDS
+ * subnet group, ECS, CloudWatch Logs, ACM, and Secrets Manager ARNs against
+ * their owning service before calling them leaks. Unknown kinds are assumed
+ * to exist, and so is any ARN a transient CLI error (throttling, auth) kept
+ * this from confirming — a real leak must never be hidden by one.
  */
-export async function resourceStillExists(region: string, arn: string): Promise<boolean> {
-  const nat = /:natgateway\/(nat-[0-9a-f]+)$/.exec(arn);
-  if (nat) {
-    try {
-      const response = (await aws(['ec2', 'describe-nat-gateways', '--nat-gateway-ids', nat[1]!], region)) as { NatGateways?: { State?: string }[] };
+export async function resourceStillExists(region: string, arn: string, exec?: AwsCliExecutor, delay?: DelayFn): Promise<boolean> {
+  const kind = arnKind(arn);
+  if (kind === null) return true;
+  const call = (args: string[]) => aws(args, region, exec, delay);
+
+  try {
+    if (kind === 'nat-gateway') {
+      const id = idFor(kind, arn);
+      const response = (await call(['ec2', 'describe-nat-gateways', '--nat-gateway-ids', id])) as { NatGateways?: { State?: string }[] };
       const state = response.NatGateways?.[0]?.State;
       return state !== undefined && state !== 'deleted';
-    } catch (error) {
+    }
+    if (kind === 'ecs-cluster') {
+      const response = (await call(['ecs', 'describe-clusters', '--clusters', arn])) as { clusters?: { status?: string }[] };
+      const status = response.clusters?.[0]?.status;
+      return status !== undefined && status !== 'INACTIVE';
+    }
+    if (kind === 'ecs-task-definition') {
+      const response = (await call(['ecs', 'describe-task-definition', '--task-definition', arn])) as { taskDefinition?: { status?: string } };
+      const status = response.taskDefinition?.status;
+      return status !== undefined && status !== 'INACTIVE' && status !== 'DELETE_IN_PROGRESS';
+    }
+    if (kind === 'ecs-service') {
+      const cluster = arn.split('/')[1];
+      if (!cluster) return true;
+      const response = (await call(['ecs', 'describe-services', '--cluster', cluster, '--services', arn])) as {
+        services?: { status?: string }[];
+      };
+      const status = response.services?.[0]?.status;
+      return status !== undefined && status !== 'INACTIVE';
+    }
+    if (kind === 'log-group') {
+      const name = arn.split(':log-group:')[1]?.replace(/:\*$/, '');
+      if (!name) return true;
+      const response = (await call(['logs', 'describe-log-groups', '--log-group-name-prefix', name])) as {
+        logGroups?: { logGroupName: string }[];
+      };
+      return (response.logGroups ?? []).some((g) => g.logGroupName === name);
+    }
+    const check = NOT_FOUND[kind]!;
+    await call(check.args(idFor(kind, arn)));
+    return true;
+  } catch (error) {
+    if (kind === 'nat-gateway') {
       if (/NatGatewayNotFound/.test(String(error))) return false;
       throw error;
     }
+    const check = NOT_FOUND[kind];
+    if (check && check.pattern.test(String(error))) return false;
+    process.stderr.write(`resourceStillExists: could not confirm ${arn} (${String(error).split('\n')[0]}), assuming present\n`);
+    return true;
   }
-  return true;
 }
 
 /** Every resource carrying the given tag value — the Stage B account scan. */
