@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronsUpDown, Loader2, Plus } from 'lucide-react';
+import { Check, ChevronsUpDown, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SidebarMenuButton, useSidebar } from '@/components/ui/sidebar';
+import { Spinner } from '@/components/ui/spinner';
 import { apiRequest, errorMessage } from '@/lib/api-client';
 import { ROLE_LABELS, type OrganizationSummary } from '@/lib/organization-vocabulary';
 import { cn } from '@/lib/utils';
@@ -57,6 +58,7 @@ export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcher
           <SidebarMenuButton
             data-testid="org-switcher-trigger"
             disabled={pendingId !== null}
+            aria-busy={pendingId !== null || undefined}
             size="sm"
             className="w-full justify-between gap-2"
             aria-label="Switch organization"
@@ -65,7 +67,7 @@ export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcher
               {activeOrganization?.name ?? 'Select organization'}
             </span>
             {pendingId !== null ? (
-              <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+              <Spinner aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
             ) : (
               <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
             )}

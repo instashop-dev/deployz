@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { authClient } from '@/lib/auth-client';
 
 // Only a relative path is a safe redirect target — an absolute URL in
@@ -29,9 +30,25 @@ function crossLink(callbackUrl: string | null): string {
 export default function SignInPage() {
   // useSearchParams needs a Suspense boundary at build time.
   return (
-    <Suspense fallback={<Card className="w-full max-w-sm" />}>
+    <Suspense fallback={<SignInSkeleton />}>
       <SignInForm />
     </Suspense>
+  );
+}
+
+function SignInSkeleton() {
+  return (
+    <Card className="w-full max-w-sm shadow-sm" aria-busy="true">
+      <CardHeader>
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-4 w-48" />
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-8 w-full" />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -81,8 +98,8 @@ function SignInForm() {
               required
             />
           </div>
-          <Button type="submit" className="w-full" disabled={pending}>
-            {pending ? 'Signing in…' : 'Sign in'}
+          <Button type="submit" className="w-full" loading={pending} loadingText="Signing in…">
+            Sign in
           </Button>
           {error ? (
             <p

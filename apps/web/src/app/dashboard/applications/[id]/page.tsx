@@ -1,10 +1,9 @@
-'use client';
+﻿'use client';
 
 import {
   ArrowLeft,
   ArrowUpRight,
   Check,
-  Loader2,
   Pencil,
   RefreshCw,
   Trash2,
@@ -61,7 +60,7 @@ import {
   RequirementDriftNotice,
 } from './readiness-components';
 
-/** How often to re-check a still-running analysis (§19). */
+/** How often to re-check a still-running analysis (Â§19). */
 const ANALYSIS_POLL_MS = 2000;
 
 type PageData = {
@@ -77,7 +76,7 @@ type PageState =
   | { status: 'error'; message: string }
   | { status: 'loaded'; data: PageData };
 
-/** Fetch the install plan only when analysis has completed — the endpoint
+/** Fetch the install plan only when analysis has completed â€” the endpoint
  *  returns 409 while analysis is still running. */
 async function fetchPlanIfComplete(id: string, application: Application): Promise<DeploymentPlan | null> {
   if (application.analysisStatus !== 'COMPLETE') return null;
@@ -88,12 +87,13 @@ async function fetchPlanIfComplete(id: string, application: Application): Promis
   }
 }
 
-// Application readiness page — redesigned into a single deployment-readiness
+// Application readiness page â€” redesigned into a single deployment-readiness
 // table, a compact four-step lifecycle, and contextual header actions.
 export default function ApplicationReadinessPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const [state, setState] = useState<PageState>({ status: 'loading' });
+  const [retrying, setRetrying] = useState(false);
 
   const load = async (): Promise<void> => {
     try {
@@ -146,6 +146,9 @@ export default function ApplicationReadinessPage() {
     };
   }, [analysisStatus, id]);
 
+  // A background refresh (re-analysis, or a manual retry from the error
+  // state) must not wipe good content already on screen: on failure it keeps
+  // whatever is currently shown and reports the failure with a toast instead.
   async function refresh(): Promise<void> {
     try {
       const [application, readiness, deployments] = await Promise.all([
@@ -156,10 +159,16 @@ export default function ApplicationReadinessPage() {
       const plan = await fetchPlanIfComplete(id, application);
       setState({ status: 'loaded', data: { application, readiness, deployments, plan } });
     } catch {
-      setState({
-        status: 'error',
-        message: "We couldn't load this application. Try again in a moment.",
-      });
+      toast.error("We couldn't refresh this application. Try again in a moment.");
+    }
+  }
+
+  async function handleRetry(): Promise<void> {
+    setRetrying(true);
+    try {
+      await refresh();
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -174,7 +183,7 @@ export default function ApplicationReadinessPage() {
         </Button>
       </div>
 
-      {/* Paddle migration Phase 11 — the same evaluation line as the
+      {/* Paddle migration Phase 11 â€” the same evaluation line as the
           homepage, on the screen where a vendor decides an application is
           ready for its first customer. Gone once a subscription exists. */}
       <EvaluationNotice />
@@ -189,7 +198,13 @@ export default function ApplicationReadinessPage() {
             Something went wrong
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
-          <Button variant="outline" className="mt-4" onClick={() => void refresh()}>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={() => void handleRetry()}
+            loading={retrying}
+            loadingText="Trying againâ€¦"
+          >
             Try again
           </Button>
         </section>
@@ -261,30 +276,26 @@ function ReadinessBody({
   const primaryAction = (() => {
     if (application.analysisStatus === 'FAILED') {
       return (
-        <Button onClick={() => void handleReanalyse()} disabled={reanalysing} data-testid="readiness-retry">
-          {reanalysing ? (
-            <>
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Trying again…
-            </>
-          ) : (
-            'Try analysis again'
-          )}
+        <Button
+          onClick={() => void handleReanalyse()}
+          loading={reanalysing}
+          loadingText="Retrying analysisâ€¦"
+          data-testid="readiness-retry"
+        >
+          Try analysis again
         </Button>
       );
     }
 
     if (application.analysisStatus !== 'COMPLETE') {
       return (
-        <Button onClick={() => void handleReanalyse()} disabled={reanalysing} data-testid="readiness-analyze">
-          {reanalysing ? (
-            <>
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Analysing…
-            </>
-          ) : (
-            'Analyze application'
-          )}
+        <Button
+          onClick={() => void handleReanalyse()}
+          loading={reanalysing}
+          loadingText="Analyzing applicationâ€¦"
+          data-testid="readiness-analyze"
+        >
+          Analyze application
         </Button>
       );
     }
@@ -342,13 +353,15 @@ function ReadinessBody({
 
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span data-testid="readiness-commit">
-              Analysed commit {readiness.analyzedCommitSha?.slice(0, 7) ?? '—'}
+              Analysed commit {readiness.analyzedCommitSha?.slice(0, 7) ?? 'â€”'}
             </span>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => void handleReanalyse()}
-              disabled={reanalysing || application.analysisStatus === 'ANALYZING'}
+              loading={reanalysing}
+              loadingText="Analyzing applicationâ€¦"
+              disabled={application.analysisStatus === 'ANALYZING'}
               data-testid="app-details-reanalyse"
             >
               <RefreshCw className="size-3.5" aria-hidden />
@@ -482,12 +495,19 @@ function EditableName({
         autoFocus
         data-testid="app-name-input"
       />
-      <Button size="sm" onClick={() => void save()} disabled={saving} data-testid="app-name-save">
-        {saving ? 'Saving…' : 'Save'}
+      <Button
+        size="sm"
+        onClick={() => void save()}
+        loading={saving}
+        loadingText="Saving nameâ€¦"
+        data-testid="app-name-save"
+      >
+        Save
       </Button>
       <Button
         variant="ghost"
         size="icon-xs"
+        disabled={saving}
         onClick={() => {
           setEditing(false);
           setValue(application.name);
@@ -587,7 +607,7 @@ function LatestDeploymentSection({
                 <DeploymentStatusBadge state={testDeployment.state} />
               </div>
               <p className="text-sm text-muted-foreground">
-                Version {testDeployment.version} ·{' '}
+                Version {testDeployment.version} Â·{' '}
                 {new Date(testDeployment.createdAt).toLocaleDateString()}
               </p>
               <div className="flex items-center gap-2">
@@ -713,10 +733,12 @@ function DangerZone({ application }: { application: Application }) {
                 <AlertDialogCancel onClick={() => setConfirmText('')}>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => void onConfirm()}
-                  disabled={!confirmed || pending}
+                  loading={pending}
+                  loadingText="Removing applicationâ€¦"
+                  disabled={!confirmed}
                   data-testid="delete-app-button"
                 >
-                  {pending ? 'Removing…' : 'Remove application'}
+                  Remove application
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -729,7 +751,7 @@ function DangerZone({ application }: { application: Application }) {
 
 function PageSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="readiness-loading">
+    <div className="flex flex-col gap-6" data-testid="readiness-loading" aria-busy="true">
       <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-4 w-40" />

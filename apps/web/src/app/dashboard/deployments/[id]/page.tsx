@@ -880,6 +880,7 @@ function DeployUpdateDialog({
       onDone();
     } catch (caught) {
       setError(actionErrorMessage(caught, "We couldn't start this update. Try again in a moment."));
+    } finally {
       setPending(false);
     }
   }
@@ -972,8 +973,8 @@ function DeployUpdateDialog({
           <Button variant="ghost" disabled={pending} onClick={onCancel}>
             Cancel
           </Button>
-          <Button disabled={!releaseId || pending} onClick={onConfirm}>
-            {pending ? 'Starting…' : 'Deploy update'}
+          <Button disabled={!releaseId} loading={pending} loadingText="Starting update…" onClick={onConfirm}>
+            Deploy update
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1011,6 +1012,7 @@ function RollbackDialog({
       onDone();
     } catch (caught) {
       setError(actionErrorMessage(caught, "We couldn't start the rollback. Try again in a moment."));
+    } finally {
       setPending(false);
     }
   }
@@ -1046,13 +1048,14 @@ function RollbackDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending}
+            loading={pending}
+            loadingText="Rolling back…"
             onClick={(event) => {
               event.preventDefault();
               void onConfirm();
             }}
           >
-            {pending ? 'Rolling back…' : 'Rollback'}
+            Rollback
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1085,6 +1088,7 @@ function RestartDialog({
       onDone();
     } catch {
       setError("We couldn't restart this application. Try again in a moment.");
+    } finally {
       setPending(false);
     }
   }
@@ -1103,13 +1107,14 @@ function RestartDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending}
+            loading={pending}
+            loadingText="Restarting deployment…"
             onClick={(event) => {
               event.preventDefault();
               void onConfirm();
             }}
           >
-            {pending ? 'Restarting…' : 'Restart'}
+            Restart
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1130,12 +1135,12 @@ function RetryInstallDialog({
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const [pending, setPending] = useState(false);
+  const [action, setAction] = useState<'retry' | 'reconnect' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [relayDisconnected, setRelayDisconnected] = useState(false);
 
   async function onConfirm(): Promise<void> {
-    setPending(true);
+    setAction('retry');
     setError(null);
     setRelayDisconnected(false);
     try {
@@ -1150,19 +1155,20 @@ function RetryInstallDialog({
       } else {
         setError(actionErrorMessage(caught, "We couldn't start the retry. Try again in a moment."));
       }
-      setPending(false);
+    } finally {
+      setAction(null);
     }
   }
 
   async function onReconnect(): Promise<void> {
-    setPending(true);
+    setAction('reconnect');
     setError(null);
     try {
       await resetRelay(deploymentId);
       window.location.reload();
     } catch {
       setError("We couldn't reconnect the relay. Try again in a moment.");
-      setPending(false);
+      setAction(null);
     }
   }
 
@@ -1186,24 +1192,28 @@ function RetryInstallDialog({
               size="sm"
               variant="outline"
               className="self-start"
-              disabled={pending}
+              disabled={action === 'retry'}
+              loading={action === 'reconnect'}
+              loadingText="Reconnecting relay…"
               onClick={() => void onReconnect()}
             >
-              {pending ? 'Reconnecting…' : 'Reconnect relay'}
+              Reconnect relay
             </Button>
           </div>
         ) : null}
         <OperationError error={error} />
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={action !== null}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending}
+            disabled={action === 'reconnect'}
+            loading={action === 'retry'}
+            loadingText="Starting installation…"
             onClick={(event) => {
               event.preventDefault();
               void onConfirm();
             }}
           >
-            {pending ? 'Starting…' : 'Retry deployment'}
+            Retry deployment
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1254,6 +1264,7 @@ function DisconnectStatusPanel({
       onChanged();
     } catch {
       setError("We couldn't complete this disconnect. Try again in a moment.");
+    } finally {
       setPending(false);
     }
   }
@@ -1290,10 +1301,11 @@ function DisconnectStatusPanel({
             size="sm"
             variant="destructive"
             className="self-start"
-            disabled={pending}
+            loading={pending}
+            loadingText="Completing disconnect…"
             onClick={() => void onForceComplete()}
           >
-            {pending ? 'Completing…' : 'Complete disconnect anyway'}
+            Complete disconnect anyway
           </Button>
         </div>
       ) : null}
@@ -1427,6 +1439,7 @@ function PurgeRetainedResources({
       onChanged();
     } catch (caught) {
       setError(actionErrorMessage(caught, "We couldn't start the purge. Try again in a moment."));
+    } finally {
       setPending(false);
     }
   }
@@ -1470,13 +1483,15 @@ function PurgeRetainedResources({
             <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={!confirmed || pending}
+              disabled={!confirmed}
+              loading={pending}
+              loadingText="Purging resources…"
               onClick={(event) => {
                 event.preventDefault();
                 void onConfirm();
               }}
             >
-              {pending ? 'Purging…' : 'Permanently remove'}
+              Permanently remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1543,6 +1558,7 @@ function DisconnectDialog({
       onDone();
     } catch {
       setError("We couldn't disconnect this deployment. Try again in a moment.");
+    } finally {
       setPending(false);
     }
   }
@@ -1629,13 +1645,15 @@ function DisconnectDialog({
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={!confirmed || pending || loading}
+            disabled={!confirmed || loading}
+            loading={pending}
+            loadingText="Disconnecting deployment…"
             onClick={(event) => {
               event.preventDefault();
               void onConfirm();
             }}
           >
-            {pending ? 'Disconnecting…' : 'Disconnect Deployment'}
+            Disconnect Deployment
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1689,7 +1707,7 @@ function AppUrlRow({ url }: { url: string }) {
 
 function DetailSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="detail-loading">
+    <div className="flex flex-col gap-6" data-testid="detail-loading" aria-busy="true">
       <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-4 w-40" />
@@ -1784,8 +1802,15 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
             <Button type="button" size="sm" onClick={copy}>
               {copied ? 'Copied' : 'Copy link'}
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={resetting} onClick={reconnect}>
-              {resetting ? 'Reconnecting…' : 'Reconnect relay'}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              loading={resetting}
+              loadingText="Reconnecting relay…"
+              onClick={reconnect}
+            >
+              Reconnect relay
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">

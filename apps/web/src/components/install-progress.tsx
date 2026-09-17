@@ -125,7 +125,7 @@ export function InstallProgress({
   }, [advanced, router]);
   if (!status) {
     return (
-      <Card>
+      <Card aria-busy="true">
         <CardContent className="flex flex-col gap-3 py-4">
           <Skeleton className="h-4 w-48" />
           <Skeleton className="h-4 w-full" />

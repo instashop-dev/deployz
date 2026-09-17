@@ -521,10 +521,12 @@ function ConfigSection({
 
               {empty ? null : (
                 <div className="flex items-center gap-3">
-                  <Button type="submit" disabled={saveState === 'saving'}>
-                    {saveState === 'saving'
-                      ? 'Saving…'
-                      : `Save ${title === 'Defaults' ? 'defaults' : 'overrides'}`}
+                  <Button
+                    type="submit"
+                    loading={saveState === 'saving'}
+                    loadingText={title === 'Defaults' ? 'Saving defaults…' : 'Saving overrides…'}
+                  >
+                    Save {title === 'Defaults' ? 'defaults' : 'overrides'}
                   </Button>
                   {saveState === 'saved' ? (
                     <p role="status" className="text-sm text-muted-foreground">
@@ -679,7 +681,7 @@ function DraftField({
 // control instead of a skeleton block that silently swallows it.
 function PageSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="config-loading">
+    <div className="flex flex-col gap-6" data-testid="config-loading" aria-busy="true">
       <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-4 w-96" />

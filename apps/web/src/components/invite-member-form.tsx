@@ -65,8 +65,14 @@ export function InviteMemberForm() {
             ))}
           </select>
         </div>
-        <Button type="submit" disabled={pending || email.trim().length === 0} data-testid="invite-submit">
-          {pending ? 'Sending…' : 'Send invitation'}
+        <Button
+          type="submit"
+          disabled={email.trim().length === 0}
+          loading={pending}
+          loadingText="Sending invitation…"
+          data-testid="invite-submit"
+        >
+          Send invitation
         </Button>
       </div>
       {error ? (

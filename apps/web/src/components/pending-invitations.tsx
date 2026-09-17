@@ -74,8 +74,8 @@ function InvitationRow({
       router.refresh();
     } catch (err) {
       setError(errorMessage(err));
-      setRevokePending(false);
       setRevokeStep('idle');
+      setRevokePending(false);
     }
   }
 
@@ -96,17 +96,20 @@ function InvitationRow({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={resendPending}
+                disabled={revokeStep === 'confirm'}
+                loading={resendPending}
+                loadingText="Resending invitation…"
                 onClick={handleResend}
                 data-testid="invitation-resend"
               >
-                {resendPending ? 'Resending…' : 'Resend'}
+                Resend
               </Button>
               {revokeStep === 'idle' ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
+                  disabled={resendPending}
                   onClick={() => setRevokeStep('confirm')}
                   data-testid="invitation-revoke"
                 >
@@ -118,13 +121,20 @@ function InvitationRow({
                     type="button"
                     variant="destructive"
                     size="sm"
-                    disabled={revokePending}
+                    loading={revokePending}
+                    loadingText="Revoking invitation…"
                     onClick={handleRevoke}
                     data-testid="invitation-revoke-confirm"
                   >
-                    {revokePending ? 'Revoking…' : 'Confirm'}
+                    Confirm
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setRevokeStep('idle')}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={revokePending}
+                    onClick={() => setRevokeStep('idle')}
+                  >
                     Cancel
                   </Button>
                 </div>

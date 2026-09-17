@@ -4,6 +4,7 @@ import { ChevronDown, LogOut, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -20,6 +21,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar';
+import { Spinner } from '@/components/ui/spinner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { authClient } from '@/lib/auth-client';
 
@@ -42,9 +44,14 @@ function useSignOut() {
 
   async function signOut(): Promise<void> {
     setPending(true);
-    await authClient.signOut();
-    router.push('/sign-in');
-    router.refresh();
+    try {
+      await authClient.signOut();
+      router.push('/sign-in');
+      router.refresh();
+    } catch {
+      toast.error("We couldn't sign you out. Try again in a moment.");
+      setPending(false);
+    }
   }
 
   return { pending, signOut };
@@ -81,8 +88,8 @@ function UserMenuItems({
         </Link>
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem disabled={pending} onSelect={onSignOut}>
-        <LogOut aria-hidden />
+      <DropdownMenuItem disabled={pending} aria-busy={pending || undefined} onSelect={onSignOut}>
+        {pending ? <Spinner aria-hidden className="size-4" /> : <LogOut aria-hidden />}
         {pending ? 'Signing out…' : 'Sign out'}
       </DropdownMenuItem>
     </>

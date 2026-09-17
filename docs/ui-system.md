@@ -134,11 +134,49 @@ One `<h1>` per page.
   abstraction.
 - Wrap wide tables with `overflow-x-auto` for mobile.
 
+## Loading
+
+- Use `Spinner` (`components/ui/spinner.tsx`) for a user-triggered action.
+  Show it inside the control that started the action (for example, the
+  submit `Button`).
+- Use `Skeleton` for initial data on a route or a section. Match the
+  skeleton shape to the real layout. Set `aria-busy` on the loading
+  container.
+- Do not replace visible content with a skeleton during a background
+  refresh or a poll. Keep the current content on screen and update it
+  when new data arrives.
+- Write specific loading text: a verb, an object, and "…". Examples:
+  "Analyzing application…", "Saving configuration…". Do not use a generic
+  "Loading…" when the operation is known.
+- Accessibility: set `aria-hidden` on the `Spinner` when adjacent text
+  already states the operation. Set `aria-busy` on the control or the
+  container. Keep the text readable during the load. Do not show status
+  by color alone. Keep focus on the control that started the action. The
+  `animate-spin` rule slows under `prefers-reduced-motion: reduce`, but it
+  does not stop, so the spinner still shows activity.
+- `Button` example:
+  `<Button loading={pending} loadingText="Saving configuration…">Save</Button>`.
+  For a native control that is not a `Button`, add `<Spinner aria-hidden />`
+  next to it, and set `disabled` and `aria-busy` on the control.
+- Multi-action forms: track which action is pending. Show the spinner only
+  on that action's control. Disable the other actions while one is
+  pending.
+- Error recovery: clear the loading state in a `finally` block. Show an
+  actionable failure in an inline `Alert`. Use a toast only for a
+  short-lived success message.
+- Long-running server work: end the button's loading state when the
+  server accepts the request. Hand off to the existing status or
+  progress UI for the rest of the operation.
+- Anti-patterns: a full-screen blocking overlay, a global loading store, a
+  generic "Loading…" label, a spinner that hides an error, an artificial
+  delay, or two buttons spinning at the same time.
+
 ## Feedback
 
 - Short-lived operation feedback: Sonner toast (`toast.success(...)` etc.).
 - Persistent or actionable failures: inline `Alert`. Important deployment
   failures are never toast-only.
+- For in-progress states, see Loading above.
 
 ## Responsive expectations
 

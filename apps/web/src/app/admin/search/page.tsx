@@ -31,7 +31,7 @@ export default function AdminSearchPage() {
       return;
     }
     let cancelled = false;
-    setState({ status: 'loading' });
+    setState((current) => (current.status === 'loaded' ? current : { status: 'loading' }));
     async function run(): Promise<void> {
       try {
         const results = await fetchAdminSearch(q);
@@ -188,7 +188,7 @@ function ResultRow({ href, primary, secondary }: { href: string; primary: string
 
 function SearchSkeleton() {
   return (
-    <div className="flex flex-col gap-3" data-testid="admin-search-loading">
+    <div className="flex flex-col gap-3" data-testid="admin-search-loading" aria-busy="true">
       <Skeleton className="h-24 w-full rounded-xl" />
       <Skeleton className="h-24 w-full rounded-xl" />
     </div>

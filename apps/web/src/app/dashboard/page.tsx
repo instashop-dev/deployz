@@ -2,7 +2,7 @@
 
 import { AlertTriangle, ArrowRight, Check } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 import { ApplicationPreparingCard } from '@/components/application-preparing-card';
 import { ApplicationReadyCard } from '@/components/application-ready-card';
@@ -145,7 +145,18 @@ function LoadingState() {
   );
 }
 
-function ErrorState({ onRetry }: { onRetry: () => void }) {
+function ErrorState({ onRetry }: { onRetry: () => Promise<void> }) {
+  const [retrying, setRetrying] = useState(false);
+
+  async function handleRetry(): Promise<void> {
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <section
       aria-labelledby="home-error"
@@ -157,7 +168,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
       <p className="max-w-md text-sm text-muted-foreground">
         We couldn&apos;t load this page. Try again in a moment.
       </p>
-      <Button variant="outline" onClick={onRetry}>
+      <Button variant="outline" onClick={() => void handleRetry()} loading={retrying} loadingText="Trying again…">
         Try again
       </Button>
     </section>

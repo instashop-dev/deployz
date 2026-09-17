@@ -669,6 +669,7 @@ function RetryInstallDialog({
       onDone();
     } catch (caught) {
       setError(errorMessage(caught));
+    } finally {
       setPending(false);
     }
   }
@@ -697,8 +698,8 @@ function RetryInstallDialog({
           <Button variant="ghost" disabled={pending} onClick={onCancel}>
             Cancel
           </Button>
-          <Button disabled={pending} onClick={() => void onConfirm()}>
-            {pending ? 'Starting…' : 'Retry install'}
+          <Button loading={pending} loadingText="Starting installation…" onClick={() => void onConfirm()}>
+            Retry install
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -739,6 +740,7 @@ function RollbackDialog({
       onDone();
     } catch (caught) {
       setError(errorMessage(caught));
+    } finally {
       setPending(false);
     }
   }
@@ -781,8 +783,13 @@ function RollbackDialog({
           <Button variant="ghost" disabled={pending} onClick={onCancel}>
             Cancel
           </Button>
-          <Button disabled={!releaseId || reason.trim() === '' || pending} onClick={() => void onConfirm()}>
-            {pending ? 'Starting…' : 'Rollback'}
+          <Button
+            disabled={!releaseId || reason.trim() === ''}
+            loading={pending}
+            loadingText="Rolling back…"
+            onClick={() => void onConfirm()}
+          >
+            Rollback
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -818,6 +825,7 @@ function ForceCompleteDestroyDialog({
       onDone();
     } catch (caught) {
       setError(errorMessage(caught));
+    } finally {
       setPending(false);
     }
   }
@@ -848,13 +856,15 @@ function ForceCompleteDestroyDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            disabled={reason.trim() === '' || pending}
+            disabled={reason.trim() === ''}
+            loading={pending}
+            loadingText="Completing disconnect…"
             onClick={(event) => {
               event.preventDefault();
               void onConfirm();
             }}
           >
-            {pending ? 'Completing…' : 'Force-complete'}
+            Force-complete
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -888,6 +898,7 @@ function RelayResetDialog({
       onDone();
     } catch (caught) {
       setError(errorMessage(caught));
+    } finally {
       setPending(false);
     }
   }
@@ -916,8 +927,13 @@ function RelayResetDialog({
           <Button variant="ghost" disabled={pending} onClick={onCancel}>
             Cancel
           </Button>
-          <Button disabled={reason.trim() === '' || pending} onClick={() => void onConfirm()}>
-            {pending ? 'Resetting…' : 'Reset relay'}
+          <Button
+            disabled={reason.trim() === ''}
+            loading={pending}
+            loadingText="Resetting relay…"
+            onClick={() => void onConfirm()}
+          >
+            Reset relay
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -927,7 +943,7 @@ function RelayResetDialog({
 
 function DetailSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="admin-deployment-detail-loading">
+    <div className="flex flex-col gap-6" data-testid="admin-deployment-detail-loading" aria-busy="true">
       <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-4 w-40" />

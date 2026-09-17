@@ -40,14 +40,20 @@ export function InstallRetryButton({
           ? 'This deployment was already installed. Contact the vendor for help.'
           : "We couldn't start the retry. Try again in a moment.",
       );
+    } finally {
       setPending(false);
     }
   }
 
   return (
     <div className="flex flex-col gap-2">
-      <Button variant="outline" disabled={pending} onClick={() => void onRetry()}>
-        {pending ? 'Retrying…' : 'Retry deployment'}
+      <Button
+        variant="outline"
+        loading={pending}
+        loadingText="Retrying deployment…"
+        onClick={() => void onRetry()}
+      >
+        Retry deployment
       </Button>
       {error ? (
         <p role="alert" className="text-sm text-destructive">

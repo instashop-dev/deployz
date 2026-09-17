@@ -8,6 +8,7 @@ import { useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import { errorMessage } from '@/lib/api-client';
 import { createApplication, triggerAnalysis, type Application } from '@/lib/applications';
 import {
@@ -365,13 +366,23 @@ function RepositoryRow({
         <button
           type="button"
           disabled={pending}
+          aria-busy={pending || undefined}
           onClick={onSelect}
           className={`${rowClass} disabled:pointer-events-none disabled:opacity-60`}
         >
           {summary}
           <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
-            {pending ? 'Setting up…' : 'Select'}
-            <ArrowRight className="size-4" aria-hidden />
+            {pending ? (
+              <>
+                <Spinner aria-hidden="true" className="size-3.5" />
+                Setting up application…
+              </>
+            ) : (
+              <>
+                Select
+                <ArrowRight className="size-4" aria-hidden />
+              </>
+            )}
           </span>
         </button>
       )}

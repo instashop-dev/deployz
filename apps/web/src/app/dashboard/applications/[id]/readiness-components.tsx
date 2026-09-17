@@ -343,7 +343,7 @@ export function EditDialog({
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
-  const [saving, setSaving] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'save' | 'reset' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [value, setValue] = useState<string | number | boolean>(false);
 
@@ -359,7 +359,7 @@ export function EditDialog({
   const config = FIELD_CONFIG[currentField];
 
   async function handleSave(): Promise<void> {
-    setSaving(true);
+    setPendingAction('save');
     setError(null);
     try {
       const input = buildUpdateInput(currentField, value);
@@ -369,12 +369,12 @@ export function EditDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'We could not save the change. Try again.');
     } finally {
-      setSaving(false);
+      setPendingAction(null);
     }
   }
 
   async function handleReset(): Promise<void> {
-    setSaving(true);
+    setPendingAction('reset');
     setError(null);
     try {
       const input: UpdateApplicationInput = { [currentField]: null };
@@ -384,7 +384,7 @@ export function EditDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'We could not reset the value. Try again.');
     } finally {
-      setSaving(false);
+      setPendingAction(null);
     }
   }
 
@@ -454,15 +454,23 @@ export function EditDialog({
               type="button"
               variant="outline"
               onClick={() => void handleReset()}
-              disabled={saving}
+              disabled={pendingAction !== null}
+              loading={pendingAction === 'reset'}
+              loadingText="Resetting to detected…"
               data-testid={`edit-reset-${field}`}
             >
               <RotateCcw className="size-3.5" aria-hidden />
               Reset to detected
             </Button>
           ) : null}
-          <Button type="button" onClick={() => void handleSave()} disabled={saving || needsReview}>
-            {saving ? 'Saving…' : 'Save'}
+          <Button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={pendingAction !== null || needsReview}
+            loading={pendingAction === 'save'}
+            loadingText="Saving value…"
+          >
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>
