@@ -16,18 +16,75 @@ import { CANARY_TAGS, canaryTags } from './config.js';
 
 const execFileAsync = promisify(execFile);
 
-export async function aws(args: string[], region?: string): Promise<unknown> {
+/** The signatures a failed CLI invocation is retried for — a throttling,
+ * network, or session-refresh race, never a real, operator-actionable
+ * failure. `ExpiredToken` is deliberately absent: that is a real expiry the
+ * operator must fix, not a race to wait out. */
+const TRANSIENT_AWS_CLI_SIGNATURES = [
+  'CreateOAuth2Token',
+  'Throttling',
+  'ThrottlingException',
+  'RequestLimitExceeded',
+  'TooManyRequestsException',
+  'RequestExpired',
+  'ServiceUnavailable',
+  'InternalError',
+  'ECONNRESET',
+  'EAI_AGAIN',
+  'getaddrinfo',
+] as const;
+
+/** True when a failed `aws` CLI invocation is worth retrying (see
+ * `TRANSIENT_AWS_CLI_SIGNATURES`), false for a real failure the operator
+ * must fix. */
+export function isTransientAwsCliError(stderr: string): boolean {
+  return TRANSIENT_AWS_CLI_SIGNATURES.some((signature) => stderr.includes(signature));
+}
+
+/** Backoff before each retry (2026-09-17 22:33Z incident: a lost session
+ * refresh cleared itself within seconds). Tests inject an instant delay. */
+const RETRY_DELAYS_MS = [2000, 5000, 10000];
+
+export type AwsCliExecutor = (command: string, args: string[]) => Promise<{ stdout: string }>;
+
+async function defaultAwsCliExecutor(command: string, args: string[]): Promise<{ stdout: string }> {
+  return execFileAsync(command, args, {
+    maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, AWS_PAGER: '' },
+    windowsHide: true,
+  });
+}
+
+export type DelayFn = (ms: number) => Promise<void>;
+
+const defaultDelay: DelayFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function aws(
+  args: string[],
+  region?: string,
+  exec: AwsCliExecutor = defaultAwsCliExecutor,
+  delay: DelayFn = defaultDelay,
+): Promise<unknown> {
   const full = ['--output', 'json', ...(region ? ['--region', region] : []), ...args];
-  try {
-    const { stdout } = await execFileAsync('aws', full, {
-      maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, AWS_PAGER: '' },
-      windowsHide: true,
-    });
-    return stdout.trim().length > 0 ? JSON.parse(stdout) : null;
-  } catch (error) {
-    const stderr = (error as { stderr?: string }).stderr ?? '';
-    throw new Error(`aws ${args.slice(0, 3).join(' ')} failed: ${stderr.trim() || String(error)}`);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const { stdout } = await exec('aws', full);
+      return stdout.trim().length > 0 ? JSON.parse(stdout) : null;
+    } catch (error) {
+      const stderr = (error as { stderr?: string }).stderr ?? '';
+      if (attempt < RETRY_DELAYS_MS.length && isTransientAwsCliError(stderr)) {
+        const signature = TRANSIENT_AWS_CLI_SIGNATURES.find((s) => stderr.includes(s));
+        // Only the service and operation — later args can carry a secret
+        // value (e.g. a parameter or payload), so the full command never
+        // goes to a log line.
+        process.stderr.write(
+          `aws ${args.slice(0, 2).join(' ')}: transient error (${signature}), retrying (attempt ${attempt + 1}/${RETRY_DELAYS_MS.length})\n`,
+        );
+        await delay(RETRY_DELAYS_MS[attempt]!);
+        continue;
+      }
+      throw new Error(`aws ${args.slice(0, 3).join(' ')} failed: ${stderr.trim() || String(error)}`);
+    }
   }
 }
 
@@ -113,8 +170,27 @@ export interface CreateStackInput {
   readonly runId: string;
 }
 
+/**
+ * A deterministic CloudFormation client request token for `stackName`. Stack
+ * names already fit CloudFormation's token pattern (`[a-zA-Z0-9][-a-zA-Z0-9]*`,
+ * max 128 chars), but this sanitizes defensively rather than assuming it.
+ * Passing the same token on a retried create-stack (aws()'s own retry, after
+ * a lost response — ECONNRESET/getaddrinfo) makes CloudFormation dedupe the
+ * request and hand back the StackId of the stack it already started, instead
+ * of an AlreadyExistsException that would strand the real stack unrecorded.
+ */
+export function clientRequestTokenFor(stackName: string): string {
+  const sanitized = stackName.replace(/[^a-zA-Z0-9-]/g, '-').replace(/^[^a-zA-Z0-9]+/, '');
+  return (sanitized || 'canary').slice(0, 128);
+}
+
 /** Creates the bootstrap stack exactly as the customer's Quick Create would, plus canary tags. */
-export async function createBootstrapStack(region: string, input: CreateStackInput): Promise<string> {
+export async function createBootstrapStack(
+  region: string,
+  input: CreateStackInput,
+  exec: AwsCliExecutor = defaultAwsCliExecutor,
+  delay: DelayFn = defaultDelay,
+): Promise<string> {
   const tags = canaryTags(input.runId);
   const response = (await aws(
     [
@@ -132,8 +208,12 @@ export async function createBootstrapStack(region: string, input: CreateStackInp
       ...Object.entries(input.parameters).map(([key, value]) => `ParameterKey=${key},ParameterValue=${value}`),
       '--tags',
       ...Object.entries(tags).map(([key, value]) => `Key=${key},Value=${value}`),
+      '--client-request-token',
+      clientRequestTokenFor(input.stackName),
     ],
     region,
+    exec,
+    delay,
   )) as { StackId: string };
   return response.StackId;
 }
