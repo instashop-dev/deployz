@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   deleteApplication: vi.fn(),
   fetchReadiness: vi.fn(),
   fetchDeploymentsForApplication: vi.fn(),
+  fetchPublicInstallLinks: vi.fn(),
   fetchSubscriptionStatus: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
@@ -66,6 +67,16 @@ vi.mock('@/lib/deployments', async (importOriginal) => {
   return {
     ...actual,
     fetchDeploymentsForApplication: mocks.fetchDeploymentsForApplication,
+  };
+});
+
+// The public install link card fetches on mount; stub its one network call
+// so mounting the page never makes a real request.
+vi.mock('@/lib/public-install-links', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/public-install-links')>();
+  return {
+    ...actual,
+    fetchPublicInstallLinks: mocks.fetchPublicInstallLinks,
   };
 });
 
@@ -143,6 +154,7 @@ beforeEach(() => {
   mocks.fetchApplication.mockResolvedValue(baseApplication());
   mocks.fetchReadiness.mockResolvedValue(baseReadiness());
   mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+  mocks.fetchPublicInstallLinks.mockResolvedValue([]);
 
   container = document.createElement('div');
   document.body.appendChild(container);

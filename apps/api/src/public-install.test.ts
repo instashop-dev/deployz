@@ -200,6 +200,24 @@ describe('public install links', () => {
       headers: { 'content-type': 'application/json' },
       payload: JSON.stringify(payload),
     });
+  // ── Vendor management routes ────────────────────────────────────────────
+  type LinkView = { id: string; url: string; status: string; createdAt: string; revokedAt: string | null };
+  type CreatedLinkView = { id: string; url: string; htmlSnippet: string; enabled: boolean; createdAt: string };
+  const linksUrl = (applicationId: string) => `/api/applications/${applicationId}/public-install-links`;
+  const createLink = (applicationId: string, cookie = org.cookie) =>
+    app.inject({ method: 'POST', url: linksUrl(applicationId), headers: { cookie } });
+  const listLinks = (applicationId: string, cookie = org.cookie) =>
+    app.inject({ method: 'GET', url: linksUrl(applicationId), headers: { cookie } });
+  const linkAction = (
+    linkId: string,
+    action: 'enable' | 'disable' | 'revoke' | 'regenerate',
+    cookie = org.cookie,
+  ) => app.inject({ method: 'POST', url: `/api/public-install-links/${linkId}/${action}`, headers: { cookie } });
+  const createdLinkId = (applicationId: string) =>
+    createLink(applicationId).then((response) => {
+      expect(response.statusCode, response.body).toBe(201);
+      return (response.json() as CreatedLinkView).id;
+    });
   const countOrgCustomers = async (): Promise<number> => {
     const rows = await db
       .select({ id: schema.customers.id })
@@ -617,5 +635,164 @@ describe('public install links', () => {
     expect(manifest.database.postgres).toBe(false);
     expect(manifest.redis.required).toBe(false);
     expect(deployment!.organizationId).toBe(org.organizationId);
+  });
+
+  // ── Vendor management: public-install-links routes (org-scoped) ──────────
+
+  it('the vendor management routes require authentication', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    expect((await app.inject({ method: 'POST', url: linksUrl(application.id) })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: linksUrl(application.id) })).statusCode).toBe(401);
+    const linkId = crypto.randomUUID();
+    for (const action of ['enable', 'disable', 'revoke', 'regenerate'] as const) {
+      expect((await app.inject({ method: 'POST', url: `/api/public-install-links/${linkId}/${action}` })).statusCode).toBe(401);
+    }
+  });
+
+  it('cross-org application and link ids 404', async () => {
+    const other = await signUpAndGetOrg(auth, db, 'public-install-other-vendor@example.com');
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    // Another org's application never resolves for the other session.
+    expect((await createLink(application.id, other.cookie)).statusCode).toBe(404);
+    expect((await listLinks(application.id, other.cookie)).statusCode).toBe(404);
+    // And another org cannot act on this org's link.
+    const linkId = await createdLinkId(application.id);
+    for (const action of ['enable', 'disable', 'revoke', 'regenerate'] as const) {
+      expect((await linkAction(linkId, action, other.cookie)).statusCode).toBe(404);
+    }
+  });
+
+  it('create returns the public url and the FIXED snippet, and records the created event', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    const response = await createLink(application.id);
+    expect(response.statusCode, response.body).toBe(201);
+    const body = response.json() as CreatedLinkView;
+    expect(body.id).toMatch(UUID_SHAPE);
+    expect(body.enabled).toBe(true);
+    expect(body.url).toBe(`${env.webUrl}/install/${body.id}`);
+    // FIXED shape: only the fixed anchor text and the opaque url — never the
+    // application name or anything else.
+    expect(body.htmlSnippet).toBe(`<a href="${body.url}">Deploy to AWS with Deployz</a>`);
+    // The link is live on the public surface immediately.
+    expect((await resolve(body.id)).statusCode).toBe(200);
+    const created = await db
+      .select({ id: schema.eventLogs.id })
+      .from(schema.eventLogs)
+      .where(
+        and(eq(schema.eventLogs.eventType, 'public_install_link.created'), eq(schema.eventLogs.organizationId, org.organizationId)),
+      );
+    expect(created.length).toBeGreaterThan(0);
+  });
+
+  it('create without a published release is refused 422 RELEASE_NOT_PUBLISHED', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const response = await createLink(application.id);
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.json()).toMatchObject({ error: { code: 'RELEASE_NOT_PUBLISHED' } });
+  });
+
+  it('a second live link for the same application is refused 409 with the existing id', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    const first = await createLink(application.id);
+    expect(first.statusCode, first.body).toBe(201);
+    const second = await createLink(application.id);
+    expect(second.statusCode, second.body).toBe(409);
+    expect(second.json()).toMatchObject({
+      error: { code: 'PUBLIC_INSTALL_LINK_EXISTS', details: { id: (first.json() as CreatedLinkView).id } },
+    });
+  });
+
+  it('disable and enable round-trip through the public resolve endpoint', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    const linkId = await createdLinkId(application.id);
+    expect((await resolve(linkId)).statusCode).toBe(200);
+
+    const disabled = await linkAction(linkId, 'disable');
+    expect(disabled.statusCode, disabled.body).toBe(200);
+    expect((disabled.json() as { link: LinkView }).link.status).toBe('disabled');
+    const gone = await resolve(linkId);
+    expect(gone.statusCode).toBe(410);
+    expect(gone.json()).toMatchObject({ error: { code: 'PUBLIC_INSTALL_LINK_DISABLED' } });
+
+    const enabled = await linkAction(linkId, 'enable');
+    expect(enabled.statusCode, enabled.body).toBe(200);
+    expect((enabled.json() as { link: LinkView }).link.status).toBe('active');
+    expect((await resolve(linkId)).statusCode).toBe(200);
+  });
+
+  it('revoke is idempotent and a revoked link cannot be enabled', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    const linkId = await createdLinkId(application.id);
+
+    const first = await linkAction(linkId, 'revoke');
+    expect(first.statusCode, first.body).toBe(200);
+    const firstView = (first.json() as { link: LinkView }).link;
+    expect(firstView.status).toBe('revoked');
+    expect(firstView.revokedAt).not.toBeNull();
+    // Already revoked → 200 with the same state.
+    const again = await linkAction(linkId, 'revoke');
+    expect(again.statusCode, again.body).toBe(200);
+    expect((again.json() as { link: LinkView }).link.revokedAt).toBe(firstView.revokedAt);
+    // Revoked is terminal: enabling is refused and the public surface is 410.
+    const enable = await linkAction(linkId, 'enable');
+    expect(enable.statusCode, enable.body).toBe(409);
+    expect(enable.json()).toMatchObject({ error: { code: 'PUBLIC_INSTALL_LINK_REVOKED' } });
+    const gone = await resolve(linkId);
+    expect(gone.statusCode).toBe(410);
+    expect(gone.json()).toMatchObject({ error: { code: 'PUBLIC_INSTALL_LINK_REVOKED' } });
+  });
+
+  it('regenerate revokes the old link and issues a fresh resolving one', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    const oldId = await createdLinkId(application.id);
+
+    const regenerated = await linkAction(oldId, 'regenerate');
+    expect(regenerated.statusCode, regenerated.body).toBe(200);
+    const body = regenerated.json() as CreatedLinkView;
+    expect(body.id).not.toBe(oldId);
+    expect(body.url).toBe(`${env.webUrl}/install/${body.id}`);
+    expect(body.htmlSnippet).toBe(`<a href="${body.url}">Deploy to AWS with Deployz</a>`);
+    expect(body.enabled).toBe(true);
+
+    // The old id is revoked on the public surface and refuses to confirm…
+    const oldResolve = await resolve(oldId);
+    expect(oldResolve.statusCode).toBe(410);
+    expect(oldResolve.json()).toMatchObject({ error: { code: 'PUBLIC_INSTALL_LINK_REVOKED' } });
+    expect((await confirm(oldId, confirmPayload())).statusCode).toBe(410);
+    // …and the fresh one serves the review.
+    expect((await resolve(body.id)).statusCode).toBe(200);
+  });
+
+  it('list returns newest-first links with the derived statuses', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    const firstId = await createdLinkId(application.id);
+
+    await linkAction(firstId, 'disable');
+    const disabledList = await listLinks(application.id);
+    expect(disabledList.statusCode, disabledList.body).toBe(200);
+    const disabledBody = (disabledList.json() as { links: LinkView[] }).links;
+    expect(disabledBody).toHaveLength(1);
+    expect(disabledBody[0]).toMatchObject({ id: firstId, status: 'disabled', revokedAt: null });
+    expect(disabledBody[0]!.url).toBe(`${env.webUrl}/install/${firstId}`);
+
+    await linkAction(firstId, 'enable');
+    await linkAction(firstId, 'revoke');
+    const freshId = ((await linkAction(firstId, 'regenerate')).json() as CreatedLinkView).id;
+    const response = await listLinks(application.id);
+    expect(response.statusCode, response.body).toBe(200);
+    const links = (response.json() as { links: LinkView[] }).links;
+    expect(links.map((link) => [link.id, link.status])).toEqual([
+      [freshId, 'active'],
+      [firstId, 'revoked'],
+    ]);
+    expect(links[1]!.revokedAt).not.toBeNull();
   });
 });

@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { EvaluationNotice } from '@/components/evaluation-notice';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
+import { PublicInstallLinkCard } from '@/components/public-install-link-card';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -456,6 +457,9 @@ function ReadinessBody({
 
       {/* Latest test deployment */}
       <LatestDeploymentSection application={application} testDeployment={testDeployment} />
+
+      {/* Public "Deploy to AWS" link customers can open themselves */}
+      <PublicInstallLinkCard applicationId={application.id} />
 
       {/* Danger zone */}
       <DangerZone application={application} />

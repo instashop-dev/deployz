@@ -15,7 +15,7 @@ import * as schema from '@deployz/db/schema';
 
 import { createConfigStore, createRelaySecretWriter, setConfig } from './config.js';
 import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
-import { createDeploymentRecord } from './deploy-links.js';
+import { createDeploymentRecord, loadOwnedApplication } from './deploy-links.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
@@ -347,5 +347,275 @@ export async function confirmPublicInstall(
       }
     }
     throw error;
+  }
+}
+
+// ── Vendor management (the org-scoped routes in server.ts) ──────────────────
+//
+// The vendor-side lifecycle of the same rows the public surface above reads:
+// create/list/enable/disable/revoke/regenerate, all scoped to the session's
+// organization (a cross-org id 404s, exactly like every other owned loader).
+// A link carries no secret, so the events record ids only.
+
+/** The existing live (not revoked) link for an application, if any. */
+async function findLiveLink(db: RuntimeDb, applicationId: string): Promise<PublicInstallLinkRow | null> {
+  const rows = await db
+    .select()
+    .from(schema.publicInstallLinks)
+    .where(and(eq(schema.publicInstallLinks.applicationId, applicationId), isNull(schema.publicInstallLinks.revokedAt)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function loadOwnedLink(db: RuntimeDb, id: string, organizationId: string): Promise<PublicInstallLinkRow> {
+  requireUuidId(id);
+  const rows = await db
+    .select()
+    .from(schema.publicInstallLinks)
+    .where(
+      and(eq(schema.publicInstallLinks.id, id), eq(schema.publicInstallLinks.organizationId, organizationId)),
+    )
+    .limit(1);
+  if (rows.length === 0) {
+    throw new NotFoundError('Install link not found');
+  }
+  return rows[0]!;
+}
+
+/** Whether an error is the one-live-link-per-application unique violation. */
+function isOneLiveLinkViolation(error: unknown): boolean {
+  for (let cause: unknown = error; cause; cause = (cause as { cause?: unknown }).cause) {
+    const c = cause as { code?: string; constraint?: string };
+    if (c.code === '23505') {
+      return c.constraint === 'public_install_links_one_live_per_application_uidx';
+    }
+  }
+  return false;
+}
+
+/**
+ * Map the one-live-link unique violation to the 409 (the existing link id in
+ * details); any other error passes through unchanged.
+ */
+async function toLiveLinkConflict(db: RuntimeDb, applicationId: string, error: unknown): Promise<unknown> {
+  if (!isOneLiveLinkViolation(error)) {
+    return error;
+  }
+  const existing = await findLiveLink(db, applicationId);
+  if (existing === null) {
+    return error;
+  }
+  return new ApiError(
+    409,
+    'PUBLIC_INSTALL_LINK_EXISTS',
+    'This application already has a live public install link. Revoke it before creating a new one.',
+    { id: existing.id },
+  );
+}
+
+/**
+ * The public web install URL. The web app's /install page resolves public
+ * install links first, so the same path serves both link kinds and
+ * env.webUrl (the dashboard origin) is the base.
+ */
+function publicInstallUrl(linkId: string): string {
+  return `${env.webUrl}/install/${linkId}`;
+}
+
+/** FIXED shape: the anchor text is constant, only the opaque URL is interpolated. */
+function publicInstallHtmlSnippet(url: string): string {
+  return `<a href="${url}">Deploy to AWS with Deployz</a>`;
+}
+
+/** Derived vendor-side status — no separate state machine is persisted. */
+function deriveStatus(link: PublicInstallLinkRow): 'active' | 'disabled' | 'revoked' {
+  if (link.revokedAt !== null) return 'revoked';
+  return link.enabled ? 'active' : 'disabled';
+}
+
+function toLinkView(link: PublicInstallLinkRow) {
+  return {
+    id: link.id,
+    url: publicInstallUrl(link.id),
+    status: deriveStatus(link),
+    createdAt: link.createdAt,
+    revokedAt: link.revokedAt,
+  };
+}
+
+function toCreatedView(link: PublicInstallLinkRow) {
+  const url = publicInstallUrl(link.id);
+  return {
+    id: link.id,
+    url,
+    htmlSnippet: publicInstallHtmlSnippet(url),
+    enabled: link.enabled,
+    createdAt: link.createdAt,
+  };
+}
+
+/** A link may only be issued for an application with a published release. */
+async function requirePublishedRelease(db: RuntimeDb, applicationId: string): Promise<void> {
+  const release = await newestPublishedRelease(db, applicationId);
+  if (release === null) {
+    throw new ApiError(
+      422,
+      'RELEASE_NOT_PUBLISHED',
+      'This application has no published release yet. Publish a READY release before creating a public install link.',
+    );
+  }
+}
+
+export interface PublicInstallLinkActorParams {
+  organizationId: string;
+  userId: string;
+  linkId: string;
+}
+
+/**
+ * POST /api/applications/:id/public-install-links — create + enable the
+ * application's live link. The partial unique index admits exactly one live
+ * link per application; the loser of the insert race gets the existing link's
+ * id in the 409 details.
+ */
+export async function createPublicInstallLink(
+  db: RuntimeDb,
+  params: { organizationId: string; userId: string; applicationId: string },
+) {
+  const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
+  await requirePublishedRelease(db, application.id);
+  try {
+    const link = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(schema.publicInstallLinks)
+        .values({ organizationId: params.organizationId, applicationId: application.id, enabled: true })
+        .returning();
+      await recordEvent(tx, {
+        organizationId: params.organizationId,
+        eventType: 'public_install_link.created',
+        actorType: 'user',
+        actorId: params.userId,
+        payload: { applicationId: application.id, linkId: row!.id },
+      });
+      return row!;
+    });
+    return toCreatedView(link);
+  } catch (error) {
+    throw (await toLiveLinkConflict(db, application.id, error));
+  }
+}
+
+/** GET /api/applications/:id/public-install-links — newest first, derived status. */
+export async function listPublicInstallLinks(db: RuntimeDb, organizationId: string, applicationId: string) {
+  const rows = await db
+    .select()
+    .from(schema.publicInstallLinks)
+    .where(
+      and(
+        eq(schema.publicInstallLinks.organizationId, organizationId),
+        eq(schema.publicInstallLinks.applicationId, applicationId),
+      ),
+    )
+    .orderBy(desc(schema.publicInstallLinks.createdAt));
+  return rows.map(toLinkView);
+}
+
+/**
+ * POST /api/public-install-links/:id/enable|disable — idempotent flips. A
+ * revoked link is terminal and refuses to re-enable.
+ */
+export async function setPublicInstallLinkEnabled(
+  db: RuntimeDb,
+  params: PublicInstallLinkActorParams & { enabled: boolean },
+) {
+  const link = await loadOwnedLink(db, params.linkId, params.organizationId);
+  if (params.enabled && link.revokedAt !== null) {
+    throw new ApiError(
+      409,
+      'PUBLIC_INSTALL_LINK_REVOKED',
+      'This installation link has been revoked and cannot be enabled again.',
+    );
+  }
+  if (link.enabled === params.enabled) {
+    return toLinkView(link);
+  }
+  const [updated] = await db
+    .update(schema.publicInstallLinks)
+    .set({ enabled: params.enabled })
+    .where(
+      and(
+        eq(schema.publicInstallLinks.id, link.id),
+        eq(schema.publicInstallLinks.organizationId, params.organizationId),
+      ),
+    )
+    .returning();
+  await recordEvent(db, {
+    organizationId: params.organizationId,
+    eventType: params.enabled ? 'public_install_link.enabled' : 'public_install_link.disabled',
+    actorType: 'user',
+    actorId: params.userId,
+    payload: { applicationId: link.applicationId, linkId: link.id },
+  });
+  return toLinkView(updated!);
+}
+
+/** POST /api/public-install-links/:id/revoke — idempotent; sets revoked_at. */
+export async function revokePublicInstallLink(db: RuntimeDb, params: PublicInstallLinkActorParams) {
+  const link = await loadOwnedLink(db, params.linkId, params.organizationId);
+  if (link.revokedAt !== null) {
+    return toLinkView(link);
+  }
+  const [updated] = await db
+    .update(schema.publicInstallLinks)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(schema.publicInstallLinks.id, link.id),
+        eq(schema.publicInstallLinks.organizationId, params.organizationId),
+      ),
+    )
+    .returning();
+  await recordEvent(db, {
+    organizationId: params.organizationId,
+    eventType: 'public_install_link.revoked',
+    actorType: 'user',
+    actorId: params.userId,
+    payload: { applicationId: link.applicationId, linkId: link.id },
+  });
+  return toLinkView(updated!);
+}
+
+/**
+ * POST /api/public-install-links/:id/regenerate — revoke the current link and
+ * issue a fresh one (fresh random id) in one transaction. Same gates as
+ * create: a published release, and no OTHER live link for the application.
+ */
+export async function regeneratePublicInstallLink(db: RuntimeDb, params: PublicInstallLinkActorParams) {
+  const link = await loadOwnedLink(db, params.linkId, params.organizationId);
+  await requirePublishedRelease(db, link.applicationId);
+  try {
+    const fresh = await db.transaction(async (tx) => {
+      if (link.revokedAt === null) {
+        await tx
+          .update(schema.publicInstallLinks)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.publicInstallLinks.id, link.id));
+      }
+      const [row] = await tx
+        .insert(schema.publicInstallLinks)
+        .values({ organizationId: params.organizationId, applicationId: link.applicationId, enabled: true })
+        .returning();
+      await recordEvent(tx, {
+        organizationId: params.organizationId,
+        eventType: 'public_install_link.regenerated',
+        actorType: 'user',
+        actorId: params.userId,
+        payload: { applicationId: link.applicationId, linkId: row!.id, replacedLinkId: link.id },
+      });
+      return row!;
+    });
+    return toCreatedView(fresh);
+  } catch (error) {
+    throw (await toLiveLinkConflict(db, link.applicationId, error));
   }
 }

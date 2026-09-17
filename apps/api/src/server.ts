@@ -149,8 +149,13 @@ import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } 
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
   confirmPublicInstall,
+  createPublicInstallLink,
+  listPublicInstallLinks,
   publicInstallConfirmBodySchema,
+  regeneratePublicInstallLink,
   resolvePublicInstall,
+  revokePublicInstallLink,
+  setPublicInstallLinkEnabled,
 } from './public-install.js';
 import {
   createOrReuseJob,
@@ -3673,6 +3678,94 @@ export async function buildServer({
       return reply.code(result.created ? 201 : 200).send({ installLinkId: result.installLinkId });
     },
   );
+
+  // ── Public install links — vendor management (org-scoped) ──────────────
+
+  // POST /api/applications/:id/public-install-links — create + enable the
+  // application's live public install link. A PUBLISHED release is required
+  // (422 RELEASE_NOT_PUBLISHED) and only one live link per application
+  // exists (409 PUBLIC_INSTALL_LINK_EXISTS, the existing id in details). The
+  // snippet is server-built with a FIXED anchor text — only the opaque URL is
+  // interpolated, never the application name.
+  app.post(
+    '/api/applications/:id/public-install-links',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const link = await createPublicInstallLink(db, {
+        organizationId,
+        userId: requireActor(request).id,
+        applicationId: id,
+      });
+      return reply.code(201).send(link);
+    },
+  );
+
+  // GET /api/applications/:id/public-install-links — every link for the
+  // application, newest first, with the derived status ('active' |
+  // 'disabled' | 'revoked').
+  app.get('/api/applications/:id/public-install-links', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    await loadOwnedApplication(db, id, organizationId); // 404s on cross-org
+    return { links: await listPublicInstallLinks(db, organizationId, id) };
+  });
+
+  // POST /api/public-install-links/:id/enable — idempotent flip. Enabling a
+  // revoked link is refused (409 PUBLIC_INSTALL_LINK_REVOKED).
+  app.post('/api/public-install-links/:id/enable', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const link = await setPublicInstallLinkEnabled(db, {
+      organizationId,
+      userId: requireActor(request).id,
+      linkId: id,
+      enabled: true,
+    });
+    return { link };
+  });
+
+  // POST /api/public-install-links/:id/disable — idempotent flip; the public
+  // surface then answers 410 PUBLIC_INSTALL_LINK_DISABLED until re-enabled.
+  app.post('/api/public-install-links/:id/disable', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const link = await setPublicInstallLinkEnabled(db, {
+      organizationId,
+      userId: requireActor(request).id,
+      linkId: id,
+      enabled: false,
+    });
+    return { link };
+  });
+
+  // POST /api/public-install-links/:id/revoke — stop the link resolving.
+  // Idempotent: revoking an already-revoked link returns its current state.
+  app.post('/api/public-install-links/:id/revoke', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const link = await revokePublicInstallLink(db, {
+      organizationId,
+      userId: requireActor(request).id,
+      linkId: id,
+    });
+    return { link };
+  });
+
+  // POST /api/public-install-links/:id/regenerate — revoke the current link
+  // and issue a fresh one (fresh random id) in one transaction. Same shape
+  // and gates as create.
+  app.post('/api/public-install-links/:id/regenerate', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const link = await regeneratePublicInstallLink(db, {
+      organizationId,
+      userId: requireActor(request).id,
+      linkId: id,
+    });
+    return link;
+  });
 
   // ── Deployments (§12, §23–§24, §38) ────────────────────────────────────
 
