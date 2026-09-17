@@ -936,8 +936,52 @@ describe('the funnel', () => {
     expect(calls).toContain('createStack deployz-bootstrap-x-12345678 ApplicationTemplateUrl,ControlPlaneUrl,EnrollmentCode');
     expect(stageBRun(evidence).stageB.cleanupNeeded).toBe(true);
     expect(stageBRun(evidence).deploymentId).toBe('dep-1');
+    // A vendor-scope secret value has no connected deployment to receive it (BUG-004 /
+    // DEPLOY-027), so the same generated values are re-delivered at the customer scope
+    // once the connector enrolls, and only after enrollment, before the install wait.
+    expect(out.configuration.deliveredAfterEnrollment).toEqual(['JWT_SECRET', 'SECRET_KEY']);
+    const customerScopePuts = puts.filter((p) => p['customerId'] === 'cust-1');
+    expect(customerScopePuts).toHaveLength(2); // the APP_URL PUT, then the secrets PUT
+    const secretsPut = customerScopePuts[1]!;
+    const vendorSecretEntries = (vendorPut['entries'] as { key: string; value: string; isSecret: boolean }[]).filter((e) => e.isSecret);
+    expect(vendorSecretEntries.map((e) => e.key)).toEqual(['JWT_SECRET', 'SECRET_KEY']);
+    expect(secretsPut['entries']).toEqual(vendorSecretEntries); // same keys and the same generated values, not regenerated
+    const stepNames = evidence.run.steps.map((s) => s.name);
+    const enrollIdx = stepNames.indexOf('Bootstrap stack creates and the connector enrolls');
+    const deliverIdx = stepNames.indexOf('Deliver vendor secrets to the connected customer');
+    const installIdx = stepNames.indexOf('INSTALL provisions the application stack');
+    expect(deliverIdx).toBeGreaterThan(enrollIdx);
+    expect(deliverIdx).toBeLessThan(installIdx);
+    expect(evidence.run.steps[deliverIdx]!.details).toEqual({ keys: ['JWT_SECRET', 'SECRET_KEY'] }); // keys only, never values
     expect(JSON.stringify(result)).not.toContain('never-stored-secret-value'); // the secret value never reaches the result
     expect(JSON.stringify(evidence.run)).not.toContain('never-stored-secret-value'); // nor the ledger
+    expect(() => stageBResultSchema.parse(out)).not.toThrow();
+  });
+
+  it('does not deliver a customer-scope secret PUT when the repository has no secrets configured (the app-URL PUT is unaffected)', async () => {
+    const noSecrets = parseDeployConfig(`
+version: 1
+repositories:
+  - id: repo-001
+    overrides:
+      containerPort: 3000
+      healthPath: /healthz
+    config:
+      - { key: DB_CLIENT, value: pg }
+      - { key: APP_URL, value: '\${DEPLOYZ_APP_URL}/app' }
+    verify:
+      appPath: /
+      observationSeconds: 30
+`);
+    const { run, puts, evidence } = attempt(deployable, {}, configFor(noSecrets, 'repo-001'));
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(out.configuration.generatedKeys).toEqual([]);
+    expect(out.configuration.deliveredAfterEnrollment).toEqual([]);
+    const customerScopePuts = puts.filter((p) => p['customerId'] === 'cust-1');
+    expect(customerScopePuts).toHaveLength(1); // only the APP_URL PUT
+    expect(customerScopePuts[0]!['entries']).toEqual([{ key: 'APP_URL', value: `${defaultDeploymentUrl('dep-1')}/app`, isSecret: false }]);
+    expect(evidence.run.steps.some((s) => s.name === 'Deliver vendor secrets to the connected customer')).toBe(false);
     expect(() => stageBResultSchema.parse(out)).not.toThrow();
   });
 

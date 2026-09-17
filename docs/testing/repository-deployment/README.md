@@ -136,6 +136,13 @@ a deployment.
   the repository. Resources the product creates carry the product's own
   `deployz:installation` tag; the ledger records the installation id the
   moment the bootstrap stack outputs it.
+- **Generated secrets**: a secret value the harness generates and PUTs at
+  the vendor scope during B2 Configuration is dropped by the control plane
+  — there is no connected deployment to receive the fan-out. The harness
+  re-delivers the same generated values at the customer scope once the
+  connector enrolls (`result.configuration.deliveredAfterEnrollment`),
+  which is the supported vendor action for a customer-required secret today
+  (BUG-004 / DEPLOY-027 in the campaign report).
 
 ## Safety and cleanup
 
