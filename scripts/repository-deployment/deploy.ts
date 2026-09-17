@@ -421,11 +421,16 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
     run.stageB.keys = keys;
     run.stageB.generatedKeys = generated;
     evidence.save();
+    // Kept only for this attempt, in memory: a value typed at the vendor
+    // scope before any deployment exists is dropped by the control plane
+    // (BUG-004 / DEPLOY-027), so it is re-delivered at the customer scope
+    // once the connector enrolls. Never written to the ledger, result or logs.
+    const secretEntries = (config.secrets ?? []).map((spec) => ({ key: secretKey(spec), value: (deps.generateSecret ?? generateSecret)(secretFormat(spec)), isSecret: true as const }));
     const preflight = await step('configuration', () =>
       evidence.step('Vendor configuration and preflight', async (details) => {
         const entries = [
           ...(config.config ?? []).map((value) => ({ key: value.key, value: value.value.replaceAll(APP_URL_TOKEN, APP_URL_PLACEHOLDER), isSecret: false })),
-          ...(config.secrets ?? []).map((spec) => ({ key: secretKey(spec), value: (deps.generateSecret ?? generateSecret)(secretFormat(spec)), isSecret: true })),
+          ...secretEntries,
         ];
         if (entries.length > 0) {
           await deps.api.request('PUT', `/api/applications/${applicationId}/config`, { entries });
@@ -631,6 +636,25 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         assert(enrolled.installationId === installationId, 'harness', `control plane bound installation ${enrolled.installationId}`);
       }),
     );
+
+    if (secretEntries.length > 0) {
+      point = 'secrets-delivery';
+      await step('secrets-delivery', () =>
+        evidence.step('Deliver vendor secrets to the connected customer', async (details) => {
+          // The vendor-scope PUT above only satisfies the gate; the connected
+          // relay is the only recipient the CONFIG_UPDATE fan-out has, and a
+          // delivered value wins over a minted one (BUG-004 / DEPLOY-027).
+          await deps.api.request('PUT', `/api/applications/${applicationId}/config`, {
+            customerId: run.customerId,
+            entries: secretEntries,
+          });
+          const deliveredKeys = secretEntries.map((entry) => entry.key);
+          details['keys'] = deliveredKeys;
+          result.configuration.deliveredAfterEnrollment = deliveredKeys;
+        }),
+      );
+      point = 'install';
+    }
 
     const installed = await step('install', () =>
       evidence.step('INSTALL provisions the application stack', async (details) => {
@@ -1072,6 +1096,7 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
   if (
     run.applicationStackName &&
     (failurePoint === 'install' ||
+      failurePoint === 'secrets-delivery' ||
       failurePoint === 'auto-deploy' ||
       failurePoint === 'inventory' ||
       failurePoint === 'runtime' ||
@@ -1132,6 +1157,14 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
       break;
     case 'configuration':
       markFail(result.configuration);
+      break;
+    case 'secrets-delivery':
+      // Configuration already reached PASS (the vendor-scope PUT and preflight
+      // both succeeded) before this later, post-enrollment delivery ran, so
+      // markFail's NOT_ATTEMPTED guard would no-op here — record the failure
+      // on the section explicitly instead.
+      result.configuration.status = 'FAIL';
+      result.configuration.detail = stop.message.slice(0, 500);
       break;
     case 'build':
       markFail(result.build);

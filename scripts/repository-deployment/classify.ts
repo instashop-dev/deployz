@@ -12,6 +12,7 @@ import type { FailureStage, RootCause } from './results.js';
 export type FunnelPoint =
   | 'gate'
   | 'configuration'
+  | 'secrets-delivery'
   | 'build'
   | 'install'
   | 'auto-deploy'
@@ -141,6 +142,10 @@ export function classifyFailure(evidence: FailureEvidence): ClassifiedFailure {
 
   if (point === 'configuration') {
     return { failureStage: 'CONFIG_ERROR', rootCause: null, rootCauseEvidence: `the gate still refuses with the Stage B configuration: ${trim(evidence.message)} — decide REPO_CONFIGURATION (fix the config) vs ANALYSIS_BUG (a required key the app does not need)` };
+  }
+
+  if (point === 'secrets-delivery') {
+    return { failureStage: 'ENV_BINDING_ERROR', rootCause: null, rootCauseEvidence: `the customer-scope secret delivery failed: ${trim(evidence.message)} — decide DEPLOYZ_BUG vs TEST_HARNESS_FAILURE` };
   }
 
   if (point === 'build') {

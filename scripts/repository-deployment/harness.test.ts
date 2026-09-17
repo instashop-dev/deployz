@@ -638,6 +638,10 @@ interface Script {
   exerciseUpdate?: boolean;
   /** Overrides DEFAULT_TIMEOUTS — a short `inventoryMs` keeps a "never settles" test fast. */
   timeouts?: Partial<typeof DEFAULT_TIMEOUTS>;
+  /** Defaults to a fixed value; override to prove a value is captured once, not regenerated per PUT. */
+  generateSecret?: (format: string) => string;
+  /** Makes the customer-scope secrets PUT (after enrollment) throw a ControlPlaneError. */
+  secretDeliveryError?: { status: number; code: string; message: string };
 }
 
 function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Record<string, unknown>[] } {
@@ -669,7 +673,14 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
   const api: ControlPlaneLike = {
     async request<T>(method: string, path: string, body?: unknown): Promise<{ status: number; body: T; headers: Headers }> {
       calls.push(`${method} ${path}`);
-      if (method === 'PUT') puts.push(body as Record<string, unknown>);
+      if (method === 'PUT') {
+        puts.push(body as Record<string, unknown>);
+        const entries = ((body as Record<string, unknown> | undefined)?.['entries'] as { isSecret?: boolean }[] | undefined) ?? [];
+        if (script.secretDeliveryError && (body as Record<string, unknown>)['customerId'] !== undefined && entries.some((e) => e.isSecret)) {
+          const { ControlPlaneError } = await import('../version-canary/control-plane.js');
+          throw new ControlPlaneError(script.secretDeliveryError.status, script.secretDeliveryError.code, script.secretDeliveryError.message, null);
+        }
+      }
       if (path.endsWith('/preflight')) {
         return { status: 200, body: (script.preflight ?? { state: 'READY', ready: true, blockers: [], warnings: [] }) as T, headers: new Headers() };
       }
@@ -874,7 +885,7 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
     templateSource: 'stage-b-generic',
     timeouts: { ...DEFAULT_TIMEOUTS, ...script.timeouts },
     keep: false,
-    generateSecret: () => 'never-stored-secret-value-9f2a',
+    generateSecret: script.generateSecret ?? (() => 'never-stored-secret-value-9f2a'),
     pollIntervalMs: 1,
   };
   return { deps, calls, puts };
@@ -917,7 +928,10 @@ describe('the funnel', () => {
   const unsupported = BENCHMARK.repositories[1]!;
 
   it('passes end to end with the release serving, HTTPS active and dependencies bound', async () => {
-    const { run, calls, puts, result, evidence } = attempt(deployable, {});
+    // A distinct value per call: proves the customer-scope secrets PUT reuses the
+    // vendor-scope PUT's captured values instead of regenerating them.
+    let secretCalls = 0;
+    const { run, calls, puts, result, evidence } = attempt(deployable, { generateSecret: () => `generated-secret-${++secretCalls}` });
     const out = await run();
     expect(out.classification).toBe('PASS');
     // The vendor scope gets the placeholder (the gate needs the key); the customer scope gets the real address.
@@ -936,8 +950,74 @@ describe('the funnel', () => {
     expect(calls).toContain('createStack deployz-bootstrap-x-12345678 ApplicationTemplateUrl,ControlPlaneUrl,EnrollmentCode');
     expect(stageBRun(evidence).stageB.cleanupNeeded).toBe(true);
     expect(stageBRun(evidence).deploymentId).toBe('dep-1');
-    expect(JSON.stringify(result)).not.toContain('never-stored-secret-value'); // the secret value never reaches the result
-    expect(JSON.stringify(evidence.run)).not.toContain('never-stored-secret-value'); // nor the ledger
+    // A vendor-scope secret value has no connected deployment to receive it (BUG-004 /
+    // DEPLOY-027), so the same generated values are re-delivered at the customer scope
+    // once the connector enrolls, and only after enrollment, before the install wait.
+    expect(out.configuration.deliveredAfterEnrollment).toEqual(['JWT_SECRET', 'SECRET_KEY']);
+    const customerScopePuts = puts.filter((p) => p['customerId'] === 'cust-1');
+    expect(customerScopePuts).toHaveLength(2); // the APP_URL PUT, then the secrets PUT
+    const secretsPut = customerScopePuts[1]!;
+    const vendorSecretEntries = (vendorPut['entries'] as { key: string; value: string; isSecret: boolean }[]).filter((e) => e.isSecret);
+    expect(vendorSecretEntries.map((e) => e.key)).toEqual(['JWT_SECRET', 'SECRET_KEY']);
+    expect(vendorSecretEntries.map((e) => e.value)).toEqual(['generated-secret-1', 'generated-secret-2']);
+    expect(secretsPut['entries']).toEqual(vendorSecretEntries); // same keys AND the same generated values — a regenerated value would use the next counter and fail this
+    const stepNames = evidence.run.steps.map((s) => s.name);
+    const enrollIdx = stepNames.indexOf('Bootstrap stack creates and the connector enrolls');
+    const deliverIdx = stepNames.indexOf('Deliver vendor secrets to the connected customer');
+    const installIdx = stepNames.indexOf('INSTALL provisions the application stack');
+    expect(deliverIdx).toBeGreaterThan(enrollIdx);
+    expect(deliverIdx).toBeLessThan(installIdx);
+    expect(evidence.run.steps[deliverIdx]!.details).toEqual({ keys: ['JWT_SECRET', 'SECRET_KEY'] }); // keys only, never values
+    for (const value of vendorSecretEntries.map((e) => e.value)) {
+      expect(JSON.stringify(result)).not.toContain(value); // the secret value never reaches the result
+      expect(JSON.stringify(evidence.run)).not.toContain(value); // nor the ledger
+    }
+    expect(() => stageBResultSchema.parse(out)).not.toThrow();
+  });
+
+  it('does not deliver a customer-scope secret PUT when the repository has no secrets configured (the app-URL PUT is unaffected)', async () => {
+    const noSecrets = parseDeployConfig(`
+version: 1
+repositories:
+  - id: repo-001
+    overrides:
+      containerPort: 3000
+      healthPath: /healthz
+    config:
+      - { key: DB_CLIENT, value: pg }
+      - { key: APP_URL, value: '\${DEPLOYZ_APP_URL}/app' }
+    verify:
+      appPath: /
+      observationSeconds: 30
+`);
+    const { run, puts, evidence } = attempt(deployable, {}, configFor(noSecrets, 'repo-001'));
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(out.configuration.generatedKeys).toEqual([]);
+    expect(out.configuration.deliveredAfterEnrollment).toEqual([]);
+    const customerScopePuts = puts.filter((p) => p['customerId'] === 'cust-1');
+    expect(customerScopePuts).toHaveLength(1); // only the APP_URL PUT
+    expect(customerScopePuts[0]!['entries']).toEqual([{ key: 'APP_URL', value: `${defaultDeploymentUrl('dep-1')}/app`, isSecret: false }]);
+    expect(evidence.run.steps.some((s) => s.name === 'Deliver vendor secrets to the connected customer')).toBe(false);
+    expect(() => stageBResultSchema.parse(out)).not.toThrow();
+  });
+
+  it('stops at secrets-delivery, not configuration, when the customer-scope secrets PUT fails after enrollment', async () => {
+    const { run, result, evidence } = attempt(deployable, {
+      secretDeliveryError: { status: 500, code: 'INTERNAL_ERROR', message: 'the control plane could not accept the config update' },
+    });
+    const out = await run();
+    expect(out.classification).toBe('ENV_BINDING_ERROR');
+    expect(out.failureStage).toBe('ENV_BINDING_ERROR');
+    expect(out.rootCauseEvidence).toContain('the customer-scope secret delivery failed');
+    expect(out.rootCauseEvidence).toContain('the control plane could not accept the config update');
+    // Configuration had already reached PASS (the vendor-scope PUT and preflight both
+    // succeeded); the later delivery failure must still be visible on that section.
+    expect(out.configuration.status).toBe('FAIL');
+    expect(out.configuration.detail).toContain('the control plane could not accept the config update');
+    expect(out.deployment.status).toBe('NOT_ATTEMPTED'); // the funnel never reached INSTALL
+    expect(JSON.stringify(result)).not.toContain('never-stored-secret-value');
+    expect(JSON.stringify(evidence.run)).not.toContain('never-stored-secret-value');
     expect(() => stageBResultSchema.parse(out)).not.toThrow();
   });
 

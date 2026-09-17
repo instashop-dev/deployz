@@ -119,6 +119,8 @@ export const configurationResultSchema = z
     /** Configuration keys provided (values never recorded). */
     keys: z.array(z.string()),
     generatedKeys: z.array(z.string()),
+    /** Generated secret keys re-delivered at the customer scope once the connector enrolled (values never recorded; BUG-004 / DEPLOY-027). */
+    deliveredAfterEnrollment: z.array(z.string()).default([]),
     detail: z.string().nullable(),
   })
   .strict();
@@ -367,7 +369,7 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
       manifest: null,
       detail: null,
     },
-    configuration: { status: 'NOT_ATTEMPTED', overrides: {}, keys: [], generatedKeys: [], detail: null },
+    configuration: { status: 'NOT_ATTEMPTED', overrides: {}, keys: [], generatedKeys: [], deliveredAfterEnrollment: [], detail: null },
     build: {
       status: 'NOT_ATTEMPTED',
       releaseId: null,
